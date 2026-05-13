@@ -130,46 +130,28 @@
 #?(:clj
    (defmacro reg-event-db
      "Register a `(fn [db event-vec] new-db)` event handler under `id`.
-     See `re-frame.events/reg-event-db` for the full docstring (handler
-     signature, return shape, middle-slot rules, example).
-
-     Per Spec 001 the metadata stamped onto the registry slot includes
-     `:ns` / `:line` / `:file` captured at this macro call site.
-
-     See also: `reg-event-fx`, `reg-event-ctx`, `dispatch`."
+     Captures source-coords (Spec 001) at this call site. See
+     `re-frame.events/reg-event-db` for the full signature."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(events/reg-event-db ~id ~@args))))
 
 #?(:clj
    (defmacro reg-event-fx
-     "Register a `(fn [cofx event-vec] effect-map)` event handler under
-     `id`. The effect-map is a **closed** shape: only `:db` and `:fx`
-     are honoured at the top level (per migration M-8). See
-     `re-frame.events/reg-event-fx` for the full docstring (handler
-     signature, effect-map shape, examples).
-
-     Per Spec 001 the metadata stamped onto the registry slot includes
-     `:ns` / `:line` / `:file` captured at this macro call site.
-
-     See also: `reg-event-db`, `reg-fx` (register a custom fx),
-     `inject-cofx` (consume a registered cofx)."
+     "Register a `(fn [cofx event-vec] effect-map)` event handler under `id`.
+     Effect-map is a closed shape: only `:db` and `:fx` at the top level.
+     Captures source-coords (Spec 001) at this call site. See
+     `re-frame.events/reg-event-fx` for the full signature."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(events/reg-event-fx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-event-ctx
-     "Register a `(fn [context] context)` full-context event handler
-     under `id`. **Advanced** — most handlers want `reg-event-db` or
-     `reg-event-fx` instead. See `re-frame.events/reg-event-ctx` for
-     the full docstring (when to reach for it, shapes, examples).
-
-     Per Spec 001 the metadata stamped onto the registry slot includes
-     `:ns` / `:line` / `:file` captured at this macro call site.
-
-     See also: `reg-event-fx`, `->interceptor`, `assoc-coeffect`,
-     `assoc-effect`."
+     "Register a `(fn [context] context)` full-context event handler under `id`.
+     Advanced — most handlers want `reg-event-db` or `reg-event-fx` instead.
+     Captures source-coords (Spec 001) at this call site. See
+     `re-frame.events/reg-event-ctx` for the full signature."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(events/reg-event-ctx ~id ~@args))))
@@ -177,57 +159,38 @@
 #?(:clj
    (defmacro reg-sub
      "Register a subscription under `id`. Layer-1 subs read `app-db`
-     directly; layer-2 subs chain off other subs via `:<-`. See
-     `re-frame.subs/reg-sub` for the full docstring (shapes, examples,
-     hot-reload semantics).
-
-     Per Spec 001 the metadata stamped onto the registry slot includes
-     `:ns` / `:line` / `:file` captured at this macro call site.
-
-     See also: `subscribe`, `subscribe-value`, `compute-sub`."
+     directly; layer-2 subs chain off other subs via `:<-`. Captures
+     source-coords (Spec 001) at this call site. See
+     `re-frame.subs/reg-sub` for the full signature."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(subs/reg-sub ~id ~@args))))
 
 #?(:clj
    (defmacro reg-fx
-     "Register an effect handler under `id`. The handler runs when a
-     `reg-event-fx` returns an effect-map carrying `[id args]` inside
-     its `:fx` vector. **Handler signature is `(fn [ctx args] ...)`**
-     — see `re-frame.fx/reg-fx` for the full docstring (ctx shape,
-     metadata keys including `:platforms`, examples).
-
-     Per Spec 001 the metadata stamped onto the registry slot includes
-     `:ns` / `:line` / `:file` captured at this macro call site.
-
-     See also: `reg-cofx` (input-side counterpart), `clear-fx`,
-     `reg-event-fx` (the consumer)."
+     "Register an effect handler under `id`. Handler signature is
+     `(fn [ctx args] ...)`; runs when a `reg-event-fx` returns an effect-map
+     carrying `[id args]` inside its `:fx` vector. Captures source-coords
+     (Spec 001) at this call site. See `re-frame.fx/reg-fx` for the full
+     signature."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(fx/reg-fx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-cofx
-     "Register a coeffect handler under `id`. A cofx is a source of
-     input data injected into an event handler's `:coeffects` map
-     via `inject-cofx`. See `re-frame.cofx/reg-cofx` for the full
-     docstring (handler signature, worked example, the standard
-     `:db` / `:event` cofx).
-
-     Per Spec 001 the metadata stamped onto the registry slot includes
-     `:ns` / `:line` / `:file` captured at this macro call site.
-
-     See also: `inject-cofx` (consumer-side), `reg-fx` (output-side
-     counterpart)."
+     "Register a coeffect handler under `id` — a source of input data
+     injected into an event handler's `:coeffects` map via `inject-cofx`.
+     Captures source-coords (Spec 001) at this call site. See
+     `re-frame.cofx/reg-cofx` for the full signature."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(cofx/reg-cofx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-frame
-     "Register a frame. Per Spec 001 the metadata stamped onto the
-     registry slot includes :ns / :line / :file captured at this call
-     site."
+     "Register a frame. Captures source-coords (Spec 001) at this call site.
+     See `re-frame.frame/reg-frame` for the full signature."
      [id metadata]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(frame/reg-frame ~id ~metadata))))
@@ -248,22 +211,11 @@
      (def reg-frame       frame/reg-frame)))
 
 (defn reg-view*
-  "Plain-fn surface for view registration. Per Spec 004 §reg-view*.
-
-  Takes an id keyword and a render fn of any shape. No auto-def, no
-  auto-inject of `dispatch`/`subscribe`, no compile-time check on the
-  shape of `render-fn`. Use this when the registration is computed at
-  runtime: dynamic ids, library generation, registration without a
-  Var, or when the body doesn't fit the literal-fn contract enforced
-  by the `reg-view` macro (Reagent Form-3 / `create-class`).
-
-  On CLJS this delegates to `re-frame.views/reg-view*` so the
-  registered fn is wrapped with the React-context hook used to
-  resolve the surrounding frame at render time.
-
-  An optional metadata map may be supplied; merged with any pending
-  source-coords captured by the `reg-view` macro at the call site
-  (per Spec 001 §Source-coordinate capture)."
+  "Plain-fn surface for view registration. Use for runtime registration
+  (computed ids, library generation, Form-3 / `create-class` bodies) where
+  the `reg-view` macro's defn-shape doesn't fit. Optional metadata map is
+  merged with any pending source-coords from a wrapping `reg-view`.
+  Per Spec 004 §reg-view*."
   ([id render-fn]
    (reg-view* id {} render-fn))
   ([id metadata render-fn]
@@ -411,30 +363,12 @@
 
 #?(:clj
    (defmacro reg-view
-     "Register a view as a defn-shape macro. Per Spec 004 §reg-view.
-
-     Shape:
-
-       (reg-view sym [args] body+)
-       (reg-view sym docstring [args] body+)
-       (reg-view ^{:rf/id :explicit/id} sym [args] body+)
-
-     Behavior:
-     - Auto-derives the id from `(keyword (str *ns*) (str sym))`.
-       Override via `^{:rf/id :explicit/id}` metadata on the symbol.
-     - Auto-injects lexical bindings `dispatch` and `subscribe`,
-       bound at render-time to `(rf/dispatcher)` / `(rf/subscriber)` of
-       the surrounding frame.
-     - Defs the symbol to the wrapped render fn AND registers under
-       the id in the :view registry.
-
-     Compile-time error if the second arg (after optional docstring)
-     is not a vector — the args vector of a defn-shape. For runtime
-     registration with computed ids or non-defn-shape bodies (e.g.
-     Form-3 / `create-class`), use `reg-view*` instead.
-
-     Per Spec 001 §Source-coordinate capture the metadata stamped onto
-     the registry slot includes :ns / :line / :file captured here."
+     "Register a view as a defn-shape macro. Auto-derives id from
+     `(keyword (str *ns*) (str sym))` (override via `^{:rf/id :id}` meta on
+     sym), auto-injects lexical `dispatch` / `subscribe` bound to the
+     surrounding frame, defs the symbol and registers under the id.
+     For runtime registration with computed ids or non-defn bodies, use
+     `reg-view*`. Per Spec 004 §reg-view."
      {:arglists '([sym args body+] [sym docstring args body+])}
      [sym & more]
      ;; See rf2-xnym rationale at the top of the registration section for
@@ -443,13 +377,8 @@
 
 (defn view
   "Runtime-lookup handle for a registered view. Returns the registered
-  render fn (whatever shape — Form-1, Form-2 — produced by `reg-view`
-  or `reg-view*`) or nil if not registered. The wrapped fn called with
-  the view's invocation args yields the hiccup tree.
-
-  Per Spec 001 §`(re-frame.core/view id)` and Spec 004 §Calling a
-  registered view: render trees use Vars; runtime lookups use ids; this
-  is the id-keyed lookup."
+  render fn (or nil if not registered) — call with the view's invocation
+  args to yield the hiccup tree. Per Spec 004 §Calling a registered view."
   [id]
   (when-let [meta (registrar/lookup :view id)]
     (:handler-fn meta)))
@@ -482,86 +411,32 @@
 
 #?(:clj
    (defmacro reg-flow
-     "Register a flow. Per Spec 001 the metadata stamped onto the
-     registry slot includes :ns / :line / :file captured at this call
-     site.
-
-     Per rf2-tfw3 the flows implementation lives in the
-     `day8/re-frame2-flows` artefact; the emitted form looks the
-     producing fn up via the late-bind hook table so core never
-     statically requires it. Apps that use `reg-flow` MUST add
-     `day8/re-frame2-flows` to their deps and require
-     `re-frame.flows` at app boot; without it, the lookup returns nil
-     and the call throws a clear error."
+     "Register a flow. Captures source-coords (Spec 001) at this call site.
+     Implementation ships in `day8/re-frame2-flows` (rf2-tfw3); apps must
+     add the artefact and require `re-frame.flows` at boot. See
+     `re-frame.core-flows/reg-flow` for the full signature."
      [& args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(rf-flows/reg-flow ~@args))))
 
 #?(:clj
    (defmacro reg-route
-     "Register a route under `id`. `metadata` is a map carrying at
-     minimum `:path` (the URL pattern); additional keys are documented
-     in Spec 012.
-
-     ## Path pattern syntax
-
-     The `:path` string is parsed at registration time into a matcher.
-     Four pattern forms:
-
-       /literal      — literal segment; matches exactly.
-       /:name        — named param; captures `[^/]+` under key `:name`.
-                       Example: `/user/:id` matches `/user/42`,
-                       binding `{:id \"42\"}`.
-       /*name        — splat; captures the rest of the path greedily
-                       (including `/`). Example: `/files/*rest` matches
-                       `/files/a/b/c`, binding `{:rest \"a/b/c\"}`.
-       /{...}?       — optional group; the inner segment(s) match if
-                       present, otherwise default. Example:
-                       `/users{/:id}?` matches both `/users` and
-                       `/users/42`.
-
-     See Spec 012 §Pattern syntax for full grammar (escapes, conflict
-     resolution between literals and params).
-
-     ## Example
-
-         (rf/reg-route :user/profile
-           {:path \"/user/:id\"
-            :params {:id [:int]}})
-
-     ## Artefact split
-
-     Per rf2-k682 the routing implementation ships in
-     `day8/re-frame2-routing`; the emitted form looks the producing fn
-     up via the late-bind hook table. Apps using `reg-route` MUST add
-     `day8/re-frame2-routing` to deps and require `re-frame.routing` at
-     boot; without it, the call raises `:rf.error/routing-artefact-missing`.
-
-     Per Spec 001 the metadata stamped onto the registry slot includes
-     `:ns` / `:line` / `:file` captured at this macro call site.
-
-     See also: `match-url`, `route-url`, `route-link`."
+     "Register a route under `id`. `metadata` is a map keyed at minimum on
+     `:path` (URL pattern, Spec 012 §Pattern syntax). Captures
+     source-coords (Spec 001) at this call site. Implementation ships in
+     `day8/re-frame2-routing` (rf2-k682); apps must add the artefact and
+     require `re-frame.routing` at boot. See
+     `re-frame.core-routing/reg-route` for the full signature."
      [id metadata]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(rf-routing/reg-route ~id ~metadata))))
 
 #?(:clj
    (defmacro reg-app-schema
-     "Register a Malli schema at a path inside app-db. Per Spec 001 the
-     metadata stamped onto the registry slot includes :ns / :line /
-     :file captured at this call site.
-
-     Per Spec 010 §Per-frame schemas this registration is frame-scoped.
-     The frame to register against comes from the optional `opts`
-     map's `:frame` key; default is `(re-frame.frame/current-frame)` —
-     usually `:rf/default` unless called inside `(with-frame ...)`.
-
-     Per rf2-p7va the schemas implementation lives in the
-     `day8/re-frame2-schemas` artefact; the emitted form looks the
-     producing fn up via the late-bind hook table so core never
-     statically requires it. Apps that use `reg-app-schema` MUST add
-     `day8/re-frame2-schemas` to their deps; without it, the lookup
-     returns `nil` and the call throws a clear error."
+     "Register a Malli schema at a path inside app-db (frame-scoped per
+     Spec 010). Captures source-coords (Spec 001) at this call site.
+     Implementation ships in `day8/re-frame2-schemas` (rf2-p7va). See
+     `re-frame.core-schemas/reg-app-schema` for the full signature."
      {:arglists '([path schema] [path schema opts])}
      [path schema & [opts]]
      (let [opts' (or opts {})]
@@ -570,32 +445,11 @@
 
 #?(:clj
    (defmacro reg-app-schemas
-     "Bulk-register a `{path -> schema}` map against the active frame
-     (or the `:frame` opt). Per rf2-jzs9 — plural form of
-     `reg-app-schema`, designed for feature-modular apps (per
-     Conventions §Feature-modularity prefix convention) where a
-     feature module registers 5–20 schemas under a shared path prefix.
-
-     Shape:
-
-       (rf/reg-app-schemas {[:auth]                AuthSlice
-                            [:auth :login-form]    FormSlice
-                            [:cart]                CartSlice
-                            [:cart :items]         [:vector CartItem]})
-
-       (rf/reg-app-schemas {...} {:frame :tenant/a})
-
-     Each entry is registered via the singular `reg-app-schema` fn;
-     source-coords captured at this call site stamp every registrar
-     slot. Returns the vector of paths registered.
-
-     Per rf2-p7va the schemas implementation lives in the
-     `day8/re-frame2-schemas` artefact; the emitted form looks the
-     producing fn up via the late-bind hook table so core never
-     statically requires it. Apps that use `reg-app-schemas` MUST add
-     `day8/re-frame2-schemas` to their deps and require
-     `re-frame.schemas` at app boot; without it, the lookup returns
-     `nil` and the call throws a clear error."
+     "Bulk-register a `{path -> schema}` map against the active frame (or
+     the `:frame` opt). Plural form of `reg-app-schema`. Captures
+     source-coords (Spec 001) at this call site. Implementation ships in
+     `day8/re-frame2-schemas` (rf2-p7va). See
+     `re-frame.core-schemas/reg-app-schemas` for the full signature."
      {:arglists '([path->schema] [path->schema opts])}
      [path->schema & [opts]]
      (let [opts' (or opts {})]
@@ -604,32 +458,12 @@
 
 #?(:clj
    (defmacro reg-machine
-     "Register a machine as an event handler. Per Spec 001 the metadata
-     stamped onto the registry slot includes :ns / :line / :file captured
-     at this call site, AND per Spec 005 §Source-coord stamping (rf2-8bp3)
-     a per-element coord index keyed by spec-path is attached under the
-     spec's `:rf.machine/source-coords` key. Tools (re-frame-pair,
-     re-frame-10x, IDE jump-to-source) read both back via
-     `(rf/handler-meta :event machine-id)` (top-level coords) and
-     `(:rf.machine/source-coords (rf/machine-meta machine-id))` (per-element
-     index).
-
-     Production-elision: the per-element index is wrapped in
-     `(when interop/debug-enabled? ...)`; under `:advanced` +
-     `goog.DEBUG=false` the closure compiler constant-folds the gate to
-     false and DCEs the entire literal — no spec-element string fragments
-     survive.
-
-     Per rf2-xbtj the machines implementation lives in the
-     `day8/re-frame2-machines` artefact; the emitted form looks the
-     producing fn up via the late-bind hook table so core never statically
-     requires it. Apps that use `reg-machine` MUST add
-     `day8/re-frame2-machines` to their deps and require
-     `re-frame.machines` at app boot; without it, the lookup returns nil
-     and the call throws a clear error.
-
-     For runtime registration (computed ids, code-gen pipelines, REPL),
-     use `reg-machine*` — the plain-fn surface beneath this macro."
+     "Register a machine as an event handler. Captures source-coords
+     (Spec 001) at this call site plus a per-element coord index under
+     `:rf.machine/source-coords` (Spec 005 §Source-coord stamping;
+     dev-only — DCE'd under `goog.DEBUG=false`). Implementation ships in
+     `day8/re-frame2-machines` (rf2-xbtj). For runtime registration use
+     `reg-machine*`."
      [machine-id machine]
      (let [ns-sym         (symbol (str (ns-name *ns*)))
            file           *file*
@@ -697,16 +531,10 @@
 
 #?(:clj
    (defmacro reg-error-projector
-     "Register an error projector — a fn `(trace-event) → public-error-map`.
-     Per Spec 011 §Server error projection. Frames opt into a custom
-     projector via the :ssr config's :public-error-id key:
-
-       (rf/reg-error-projector :myapp/public-error
-         (fn [trace-event] ...public-error-shape...))
-
-     Per Spec 001 §Source-coordinate capture the metadata stamped onto
-     the registry slot includes :ns / :line / :file captured at this
-     call site."
+     "Register an error projector — `(trace-event) -> public-error-map`.
+     Frames opt in via the `:ssr` config's `:public-error-id` key.
+     Captures source-coords (Spec 001) at this call site. Per Spec 011
+     §Server error projection."
      [& args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(-reg-error-projector ~@args))))
@@ -762,30 +590,17 @@
 (def compute-sub     subs/compute-sub)
 
 (defn subscribe*
-  "Runtime-callable fn form of `subscribe`. Per rf2-ts1a — the macro
-  form `re-frame.core/subscribe` captures `(meta &form)` and binds
-  `trace/*current-call-site*` around a call to this fn. Direct callers
-  (HoF use, programmatic subscribe paths, view-render closures injected
-  by `reg-view`) skip the call-site stamping by calling this fn
-  directly.
-
+  "Runtime-callable fn form of `subscribe` (HoF / programmatic callers).
+  The macro form captures `(meta &form)` and binds it around this fn.
   Arities mirror `re-frame.subs/subscribe`."
   ([query-v]            (subs/subscribe query-v))
   ([frame-id query-v]   (subs/subscribe frame-id query-v)))
 
 (defn inject-cofx*
-  "Runtime-callable fn form of `inject-cofx`. Per rf2-ts1a — the macro
-  form `re-frame.core/inject-cofx` captures `(meta &form)` and routes
-  here with the call-site as the trailing arg. Direct callers skip
-  call-site stamping by omitting the trailing arg.
-
-  Arities:
-    (inject-cofx* :id)                  — no value, no call-site
-    (inject-cofx* :id value)            — value, no call-site
-    (inject-cofx* :id value call-site)  — full macro path (value + call-site)
-
-  The macro expansion uses `cofx/no-value` (a public sentinel) to thread
-  the call-site through the no-value branch without ambiguity."
+  "Runtime-callable fn form of `inject-cofx` (HoF / programmatic callers).
+  Arities: `(inject-cofx* :id)`, `(inject-cofx* :id value)`,
+  `(inject-cofx* :id value call-site)`. The macro form routes through the
+  3-arity with a `cofx/no-value` sentinel."
   ([cofx-id]                      (cofx/inject-cofx cofx-id))
   ([cofx-id value]                (cofx/inject-cofx cofx-id value nil))
   ([cofx-id value call-site]      (cofx/inject-cofx cofx-id value call-site)))
@@ -816,25 +631,10 @@
 
 #?(:clj
    (defmacro dispatch
-     "Enqueue `event-vec` on the target frame's router. The matching
-     `reg-event-*` handler runs on the next tick — `dispatch` returns
-     immediately, BEFORE the handler runs. The handler's effects
-     (`:db` update, `:fx` side-effects) happen asynchronously.
-
-     Returns nil. Use `dispatch-sync` for synchronous execution in
-     tests, REPL, and bootstrap. Inside an event handler, do NOT call
-     `dispatch` directly — return `{:fx [[:dispatch event] ...]}` so
-     the dispatch rides through the runtime's effect-map walker.
-
-     Per Spec 002 §Routing. Per rf2-ts1a: this macro captures
-     `(meta &form)` at compile time and threads it through the
-     dispatch envelope so any error trace emitted while the handler
-     chain runs carries the invocation coord as `:rf.trace/call-site`.
-
-     For higher-order use (`(map dispatch* xs)`) and programmatic
-     callers, use `dispatch*` — the runtime-callable fn form.
-
-     See also: `dispatch-sync`, `dispatcher` (captured-frame closure)."
+     "Enqueue `event-vec` on the target frame's router; returns nil
+     immediately, BEFORE the handler runs. Captures call-site coords
+     (rf2-ts1a) for error-trace attribution. For HoF / programmatic use
+     call `dispatch*`. Per Spec 002 §Routing."
      ([event-vec]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
@@ -849,27 +649,11 @@
 
 #?(:clj
    (defmacro dispatch-sync
-     "Run `event-vec` end-to-end synchronously. The handler runs before
-     this fn returns; the router drains to fixed point (any
-     `[:dispatch event]` effects cascade synchronously too).
-
-     **Never call from inside a running event handler.** Doing so
-     raises `:rf.error/dispatch-sync-in-handler` — use
-     `{:fx [[:dispatch event]]}` from the handler instead. The runtime
-     queues the dispatch onto the current cascade rather than re-entering
-     the dispatch loop.
-
-     `dispatch-sync` is for tests, REPL sessions, and bootstrap.
-     Production application code prefers `dispatch` — synchronous
-     re-entrancy is dangerous and the framework polices it.
-
-     Per Spec 002 §dispatch-sync. Per rf2-ts1a: this macro captures
-     `(meta &form)` and threads it through the dispatch envelope.
-
-     For higher-order use and programmatic callers, use `dispatch-sync*`.
-
-     See also: `dispatch`, `:rf.error/dispatch-sync-in-handler`
-     (the in-handler error category)."
+     "Run `event-vec` end-to-end synchronously; the router drains to fixed
+     point. For tests / REPL / bootstrap only — never call from inside a
+     running event handler (raises `:rf.error/dispatch-sync-in-handler`).
+     Captures call-site coords (rf2-ts1a). For HoF / programmatic use call
+     `dispatch-sync*`. Per Spec 002 §dispatch-sync."
      ([event-vec]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
@@ -884,27 +668,12 @@
 
 #?(:clj
    (defmacro subscribe
-     "Return a reaction whose value is the registered sub's current
-     output for `query-v`. Deref to read; under Reagent the deref
-     tracks the surrounding component for re-render on change.
-
-     `query-v` is `[sub-id & args]` (the sub's `handler-fn` receives
-     it as its second arg). The 2-arity form `(subscribe frame-id
-     query-v)` targets an explicit frame; otherwise the active frame
-     resolves per `current-frame` (dynamic-var → React-context → `:rf/default`).
-
-     Returns nil for an unknown sub and emits `:rf.error/no-such-sub`.
-
-     Use `subscribe-value` for a one-shot read (no reactive tracking).
-     For HoF / programmatic subscribe, use `subscribe*`.
-
-     Per Spec 006 §Lookup algorithm. Per rf2-ts1a: this macro captures
-     `(meta &form)` and binds `trace/*current-call-site*` around the
-     underlying subscribe so the synchronous miss path carries the
-     invocation coord.
-
-     See also: `subscribe-value`, `unsubscribe`, `current-frame`,
-     `reg-sub`."
+     "Return a reaction whose value is the registered sub's current output
+     for `query-v` (`[sub-id & args]`); deref to read. 2-arity targets an
+     explicit frame, otherwise resolves via `current-frame`. Use
+     `subscribe-value` for a one-shot read; use `subscribe*` for HoF /
+     programmatic callers. Captures call-site coords (rf2-ts1a). Per
+     Spec 006 §Lookup algorithm."
      ([query-v]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
@@ -920,32 +689,12 @@
 
 #?(:clj
    (defmacro inject-cofx
-     "Used as an interceptor in the positional interceptor-vector of
-     `reg-event-fx` / `reg-event-db` / `reg-event-ctx`. Builds a
-     `:before`-only interceptor that runs the cofx registered under
-     `cofx-id` and merges its result into the handler's `:coeffects`.
-
-         (rf/reg-cofx :now
-           (fn [ctx] (assoc-in ctx [:coeffects :now] (js/Date.))))
-
-         (rf/reg-event-fx :foo
-           [(rf/inject-cofx :now)]                  ;; <-- interceptor position
-           (fn [{:keys [now]} _] ...))
-
-     Some cofx accept a per-call value:
-     `(inject-cofx :stub {:status 200})`.
-
-     Per rf2-ts1a: this macro captures `(meta &form)` and threads the
-     call-site into the interceptor's closure so errors emitted from
-     inside the cofx body (`:rf.error/no-such-cofx`, schema-validation
-     failures) carry the invocation coord.
-
-     For HoF / programmatic interceptor construction (computed cofx
-     ids, code-gen pipelines), use `inject-cofx*` — the runtime-callable
-     fn form.
-
-     See also: `reg-cofx`, `re-frame.cofx/inject-cofx` (the underlying
-     fn — full docstring lives there)."
+     "Used as an interceptor in the interceptor-vector of `reg-event-*`.
+     Builds a `:before`-only interceptor that runs the cofx registered
+     under `cofx-id` and merges its result into the handler's `:coeffects`.
+     2-arity `(inject-cofx :id value)` passes a per-call value. Captures
+     call-site coords (rf2-ts1a). For HoF / programmatic use call
+     `inject-cofx*`. See `re-frame.cofx/inject-cofx` for the full signature."
      ([cofx-id]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         ;; Route through the 3-arity with the `cofx/no-value` sentinel
@@ -980,11 +729,10 @@
 ;; `bound-fn` capture). The JVM build falls through to
 ;; `frame/current-frame` (dynamic-var → :rf/default).
 (defn current-frame
-  "Return the active frame at the call site. Per Spec 002 §Reading the
-  frame from React context the chain is: dynamic var → React context
-  (CLJS only) → :rf/default. The React-context tier is published by
-  the active adapter through the `:adapter/current-frame` late-bind
-  hook (rf2-d4sf)."
+  "Return the active frame at the call site. Resolution chain: dynamic
+  var -> React context (CLJS only, via `:adapter/current-frame` late-bind
+  hook) -> `:rf/default`. Per Spec 002 §Reading the frame from React
+  context."
   []
   #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
              (f)
@@ -992,17 +740,10 @@
      :clj  (frame/current-frame)))
 
 (defn dispatcher
-  "Return a fn that dispatches an event under the current frame.
-  Captures the frame at call time, so closures do not need to thread it.
-
-  Per Spec 004 §Affordance for plain fns:
-    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])
-
-  Per rf2-ts1a: the returned closure delegates to the fn-form
-  `dispatch*` so it does NOT bake the call-site of this very file's
-  body onto every dispatch — captured dispatchers run from user
-  callsites (timers, event listeners, etc.) where the original
-  invocation has no syntactic position to attribute to."
+  "Return a fn that dispatches under the current frame, captured at call
+  time so closures need not thread it. Per Spec 004 §Affordance for plain
+  fns:
+    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])"
   []
   (let [frame (current-frame)]
     (fn dispatch-fn
@@ -1010,13 +751,8 @@
       ([event opts] (dispatch* event (assoc opts :frame frame))))))
 
 (defn subscriber
-  "Return a fn that subscribes under the current frame. Captures the
-  frame at call time. The returned fn delegates to subscribe.
-
-  Per rf2-ts1a: the returned closure delegates to `subs/subscribe`
-  (the underlying fn) for the same reason `dispatcher` uses `dispatch*`
-  — captured subscribers live across the macro/call-site horizon and
-  shouldn't pin this file's line."
+  "Return a fn that subscribes under the current frame, captured at call
+  time. Sibling of `dispatcher`. Per Spec 004 §Affordance for plain fns."
   []
   (let [frame (current-frame)]
     (fn subscribe-fn
@@ -1046,26 +782,11 @@
 #?(:clj
    (defmacro with-frame
      "Run `body` with `*current-frame*` bound to the given frame-id.
-     Per Spec 002 §with-frame the macro accepts two shapes:
-
-       (with-frame :keyword body+)
-         Shape 1 — pin `*current-frame*` to the supplied frame-id for the
-         body's duration. The frame is NOT created or destroyed by the
-         macro; the keyword is used as-is.
-
-       (with-frame [sym expr] body+)
-         Shape 2 — evaluate `expr` (typically `(make-frame opts)` or
-         `(reg-frame :id opts)`), bind the result to `sym`, run `body`
-         with `*current-frame*` bound to that frame, and destroy the
-         frame on exit (success or exception).
-
-     The discriminator is the first argument: a vector triggers Shape 2,
-     anything else triggers Shape 1.
-
-     For async closures that fire after the body returns, capture the
-     frame keyword via `bound-fn` / `dispatcher` / `subscriber` — the
-     dynamic binding has unwound by then, and (under Shape 2) the frame
-     has already been destroyed."
+     Two shapes — first arg is the discriminator:
+       (with-frame :keyword body+)        pin to an existing frame-id;
+       (with-frame [sym expr] body+)      eval expr, bind, run, destroy.
+     For async closures after body returns, capture via `bound-fn` /
+     `dispatcher` / `subscriber`. Per Spec 002 §with-frame."
      {:arglists '([frame-id body+] [[sym expr] body+])}
      [bindings & body]
      (cond
@@ -1108,39 +829,11 @@
 
 #?(:clj
    (defmacro with-fx-overrides
-     "Bind a per-call `:fx-overrides` map for `body`'s lexical scope.
-     Per rf2-5uwl — test-support ergonomic that lifts the
-     `{fx-id -> override}` map out of every `(rf/dispatch ... {:fx-overrides ...})`
-     call site when a block of dispatches all want the same overrides.
-
-     Shape:
-
-       (rf/with-fx-overrides {:fx/http :fx/http-stub
-                              :fx/clock (fn [m _] :tick)}
-         (rf/dispatch-sync [:user/login {...}])
-         (rf/dispatch-sync [:tick])
-         ...)
-
-     Each enclosed `dispatch` / `dispatch-sync` runs with the supplied
-     overrides as if the caller had threaded
-     `{:fx-overrides {...}}` through every call. The same override-value
-     shapes the per-call opt accepts are honoured (per
-     [Spec 002 §`:fx-overrides`](spec/002-Frames.md#fx-overrides--replace-fx-handlers)):
-     a keyword (redirect to a registered fx), a fn `(fn [m args] ...)`
-     (one-off lambda), or nil (no-op fall-through).
-
-     Precedence on key collision:
-
-       per-call opt  >  lexical `with-fx-overrides`  >  per-frame `:fx-overrides`
-
-     A `(rf/dispatch ev {:fx-overrides {:fx/http :other}})` inside a
-     `(rf/with-fx-overrides {:fx/http :stub} ...)` block wins; the macro's
-     value applies to dispatches that DON'T thread their own opt.
-
-     Composes with `with-frame` — nest in either order. The macro is a
-     thin `binding` over the same per-call merge `(rf/dispatch ...
-     {:fx-overrides ...})` takes; production paths are unaffected when
-     no test binds the Var."
+     "Bind a per-call `:fx-overrides` map for `body`'s lexical scope —
+     test-support sugar over `(rf/dispatch ev {:fx-overrides {...}})`.
+     Precedence: per-call opt > lexical `with-fx-overrides` > per-frame
+     `:fx-overrides`. Composes with `with-frame`. Per Spec 002
+     §`:fx-overrides`."
      [overrides-map & body]
      `(binding [re-frame.router/*fx-overrides* ~overrides-map]
         ~@body)))
@@ -1188,29 +881,18 @@
 (def frame-ids    frame/frame-ids)
 (def frame-meta   frame/frame-meta)
 (defn get-frame-db
-  "Return the current `app-db` value (a plain map) for the named frame.
-  Returns `nil` if the frame is not registered.
-
-  This is a value-form accessor: there is no deref. To assert against
-  a path, use `(get-in (rf/get-frame-db frame-id) path)` or the
-  convenience wrapper `(rf/snapshot-of path opts)`.
-
-  Per Spec 002 §The public registrar query API."
+  "Return the current `app-db` value (plain map) for the named frame, or
+  `nil` if not registered. Value-form accessor (no deref). For path
+  reads use `snapshot-of`. Per Spec 002 §The public registrar query API."
   [frame-id]
   (frame/frame-app-db-value frame-id))
 
 (defn snapshot-of
-  "Return the value at `path` in a frame's app-db. Convenience wrapper
-  over `(get-in (rf/get-frame-db frame-id) path)` — Tool-Pair pins this
-  surface as the public, opt-aware app-db query.
-
-  Resolution chain for the frame:
-    1. `:frame` key in `opts`, when supplied;
-    2. `(current-frame)` — the active frame under `with-frame` /
-       a Reagent frame-provider, defaulting to `:rf/default`.
-
-  Returns `nil` if the frame is missing or the path resolves to nothing.
-  Per Spec 002 §The public registrar query API."
+  "Return the value at `path` in a frame's app-db — convenience wrapper
+  over `(get-in (rf/get-frame-db frame-id) path)`. Frame resolution:
+  `(:frame opts)` if supplied, else `(current-frame)`. Returns `nil` if
+  the frame is missing or the path resolves to nothing. Per Spec 002
+  §The public registrar query API."
   ([path] (snapshot-of path nil))
   ([path opts]
    (let [frame-id (or (:frame opts) (current-frame))]
@@ -1221,16 +903,10 @@
 ;; The JVM definition returns nil so the symbol resolves under both
 ;; targets. Per Spec 002 §The public registrar query API.
 (defn sub-cache
-  "Inspect a frame's runtime sub-cache. CLJS-only — returns
-  `{query-v {:value v :ref-count n}}` for every materialised
-  subscription in the named frame. On JVM the cache exists for
-  ref-counting purposes but the entries do not carry a deref-able
-  reaction value, so this fn returns `nil`.
-
-  No-arg form uses the active frame.
-
-  Pair tools call this to display what the running app is currently
-  subscribed to. Per Spec 002 §The public registrar query API."
+  "Inspect a frame's runtime sub-cache — CLJS-only, returns
+  `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
+  reaction values). No-arg form uses the active frame. Per Spec 002
+  §The public registrar query API."
   ([] (sub-cache (current-frame)))
   ([frame-id]
    (subs/sub-cache-snapshot frame-id)))
@@ -1302,40 +978,19 @@
 
 #?(:clj
    (defmacro with-managed-request-stubs
-     "Spec 014 §Testing — install stubs, run body, uninstall. `stubs` is
-     `{[method url] {:reply <:ok|:failure>}}`.
-
-     Per rf2-5kpd the http implementation lives in the
-     `day8/re-frame2-http` artefact; the emitted form looks the
-     producing fn up via the late-bind hook table so core never
-     statically requires it. Apps that use `with-managed-request-stubs`
-     MUST add `day8/re-frame2-http` to their deps and require
-     `re-frame.http-managed` at app boot; without it, the lookup
-     returns nil and the call throws a clear error."
+     "Install stubs, run body, uninstall. `stubs` is
+     `{[method url] {:reply <:ok|:failure>}}`. Implementation ships in
+     `day8/re-frame2-http` (rf2-5kpd). Per Spec 014 §Testing."
      [stubs & body]
      `(with-managed-request-stubs* ~stubs (fn [] ~@body))))
 
 (defn configure
-  "Configure a process-level runtime knob. Closed v1 keys (additive
-  across versions per Spec-ulation):
-
-    :epoch-history {:depth N}         — set the per-frame epoch ring depth
-                                         (default 50). 0 disables recording.
-    :trace-buffer  {:depth N}         — set the retain-N trace ring buffer
-                                         depth (default 200). 0 disables.
-    :sub-cache     {:grace-period-ms N} — set the deferred-dispose grace
-                                         period for the per-frame sub-cache
-                                         (default 50ms; 0 = synchronous
-                                         disposal). Per Spec 006 §Reference
-                                         counting and disposal.
-
-  Unknown keys are a silent no-op. Per Tool-Pair §How AI tools attach.
-  Future keys (e.g. :performance-api per Spec 009) will land additively.
-
-  This surface is process-level. Per-frame settings (e.g. the `:ssr`
-  error-projection policy) live on the frame's metadata at `reg-frame`
-  / `make-frame` time — see [Conventions §Configuration surfaces] and
-  [API.md §Configure keys]."
+  "Configure a process-level runtime knob. v1 keys:
+    :epoch-history {:depth N}            ring depth (default 50; 0 disables)
+    :trace-buffer  {:depth N}            ring depth (default 200; 0 disables)
+    :sub-cache     {:grace-period-ms N}  dispose grace (default 50ms)
+  Unknown keys silently no-op. Per-frame settings live on frame metadata.
+  Per Tool-Pair §How AI tools attach."
   [knob opts]
   (case knob
     ;; :epoch-history is published by the `day8/re-frame2-epoch`
@@ -1370,40 +1025,13 @@
                     (some? received) (assoc :received received)))))
 
 (defn init!
-  "Idempotent boot. Installs a substrate adapter and ensures the
-  `:rf/default` frame is present.
-
-  Required arg — you MUST pass the adapter spec map. There is no
-  default-adapter registry and no no-arg arity (per rf2-3ubmv): calling
-  `(rf/init!)` raises a language-level `ArityException` at compile time
-  (CLJS) / load time (JVM), surfacing the missing-adapter error at the
-  earliest possible moment.
-
-  Each adapter ns exports an `adapter` Var holding the spec map.
-  Consumers require the ns and pass that Var:
-
-    (require '[re-frame.adapter.reagent :as reagent])  ;; or .uix / .helix
+  "Idempotent boot — installs a substrate adapter and ensures the
+  `:rf/default` frame exists. Pass the adapter spec map directly (no
+  default-adapter registry; rf2-agql):
+    (require '[re-frame.adapter.reagent :as reagent])
     (rf/init! reagent/adapter)
-
-  Per rf2-agql (replaces rf2-84po): rf2 ships no default-adapter
-  registry. Each adapter ns exports an `adapter` Var (the spec map);
-  consumers require the ns and pass the Var explicitly. This keeps
-  adapter wiring explicit at the call site and removes the bundle
-  weight a registry would impose on apps that do not need it.
-
-  Argument shape:
-
-    (rf/init! adapter-map) ;; install the adapter — only valid form
-
-  Calling `(rf/init! nil)` or `(rf/init! :reagent)` (a keyword) raises
-  `:rf.error/no-adapter-specified` at runtime — there is no registry to
-  look up. The error message points the consumer at the adapter-ns +
-  adapter-Var pattern.
-
-  Per Spec 006 §Adapter selection at boot.
-
-  See also: `re-frame.adapter.reagent/adapter`,
-  `re-frame.adapter.uix/adapter`, `re-frame.adapter.helix/adapter`."
+  Non-map / nil raises `:rf.error/no-adapter-specified`. Per Spec 006
+  §Adapter selection at boot."
   [adapter-map]
   (cond
     (nil? adapter-map)        (bad-init-arg! nil)
