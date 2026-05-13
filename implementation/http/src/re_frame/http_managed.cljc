@@ -62,8 +62,11 @@
                                       spawned-actor detection.
    - `re-frame.http-middleware`     — per-frame request-side interceptor
                                       chain (rf2-6y3q).
-   - `re-frame.http-transport-cljs` — CLJS Fetch transport + attempt loop.
-   - `re-frame.http-transport-jvm`  — JVM HttpClient transport + attempt loop.
+   - `re-frame.http-transport`     — shared Fetch (CLJS) + HttpClient
+                                      (JVM) transport + attempt loop;
+                                      platform-specific fragments are
+                                      gated with reader conditionals
+                                      (rf2-921qy).
    - `re-frame.http-machine-wrapper`— machine-shape wrapper (rf2-ijm7),
                                       canned stub handlers,
                                       with-managed-request-stubs*.
@@ -82,8 +85,7 @@
             [re-frame.http-middleware   :as middleware]
             [re-frame.http-privacy      :as privacy]
             [re-frame.http-registry     :as registry]
-            #?(:cljs [re-frame.http-transport-cljs :as transport-cljs]
-               :clj  [re-frame.http-transport-jvm  :as transport-jvm])
+            [re-frame.http-transport    :as transport]
             [re-frame.interop           :as interop]
             [re-frame.late-bind         :as late-bind]))
 
@@ -123,8 +125,8 @@
 ;;
 ;; The fx entry point lives here in the façade — it threads the request
 ;; through the per-frame interceptor chain (middleware), then dispatches
-;; to the per-host attempt loop. Keeping this in the façade means the
-;; sub-namespaces don't need to know about each other (transport-cljs
+;; to the shared attempt loop. Keeping this in the façade means the
+;; sub-namespaces don't need to know about each other (the transport
 ;; doesn't `:require` middleware/registry-management; it just runs the
 ;; attempt loop).
 
@@ -188,7 +190,7 @@
   classifies as `:rf.error/http-interceptor-failed`; the request is
   not dispatched."
   [frame-ctx args-map]
-  #?(:clj (transport-jvm/check-cljs-only-keys! args-map))
+  (transport/check-cljs-only-keys! args-map)
   (let [frame-id     (or (:frame frame-ctx) :rf/default)
         origin-event (or (:event frame-ctx)
                          (:rf.http/origin-event args-map)
@@ -202,8 +204,7 @@
         normalised   (normalise-args args-map' frame-ctx)
         request-id   (:request-id normalised)]
     (when request-id (registry/supersede! request-id))
-    #?(:cljs (transport-cljs/run-attempt! normalised)
-       :clj  (transport-jvm/run-attempt!  normalised))
+    (transport/run-attempt! normalised)
     nil))
 
 (defn- managed-abort-handler

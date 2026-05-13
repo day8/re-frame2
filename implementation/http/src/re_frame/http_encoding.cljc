@@ -3,9 +3,8 @@
 
   Extracted from `re-frame.http-managed` per rf2-3i9b. The fns here are
   fully pure — they touch no atoms and dispatch no events — so they are
-  trivially testable and shared by both the CLJS Fetch transport
-  (`re-frame.http-transport-cljs`) and the JVM `HttpClient` transport
-  (`re-frame.http-transport-jvm`).
+  trivially testable and shared by the unified Fetch (CLJS) +
+  `HttpClient` (JVM) transport in `re-frame.http-transport`.
 
   Surfaces:
 
