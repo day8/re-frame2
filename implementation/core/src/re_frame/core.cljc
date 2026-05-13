@@ -250,9 +250,7 @@
 ;;
 ;; Per Spec 004 §reg-view: defn-shape macro. The expander lives here as
 ;; plain CLJ helpers so the defmacro stays a one-line delegation and
-;; CLJS test files can also exercise the helpers JVM-side. Per rf2-4lc9o
-;; the helpers were consolidated here when the legacy
-;; `re-frame.views-macros` import path was cut.
+;; CLJS test files can also exercise the helpers JVM-side.
 
 #?(:clj
    (defn parse-reg-view-args
@@ -819,10 +817,7 @@
 ;;            (finally (destroy-frame f))))
 ;;
 ;; The discriminator is the first argument: a vector triggers Shape 2;
-;; anything else is Shape 1. The fn-form `(with-frame frame-id thunk)`
-;; is no longer supported — callers wanting a thunk-style wrapper should
-;; write `(with-frame :foo (thunk))` (the thunk call sits inside the
-;; macro body, identical semantics) or call `binding` directly.
+;; anything else is Shape 1.
 
 #?(:clj
    (defmacro with-frame
@@ -847,13 +842,6 @@
        :else
        `(binding [frame/*current-frame* ~bindings]
           ~@body))))
-
-;; Note: the `bound-dispatcher` / `bound-subscriber` aliases were cut
-;; under rf2-knz3l — they were pure aliases for `dispatcher` /
-;; `subscriber` whose `bound-` prefix added redundant noise (the verb-
-;; form names already imply capture-at-call-time semantics). Callers
-;; that need an async-safe dispatch / subscribe closure call
-;; `(rf/dispatcher)` / `(rf/subscriber)` directly.
 
 ;; `bound-fn` (below) is the macro-form sibling of `dispatcher` /
 ;; `subscriber`: captures `*current-frame*` at definition time and

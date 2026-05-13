@@ -171,9 +171,7 @@
   library mutating `_currentValue`, or a Provider authored with a
   non-keyword value. The runtime emits
   `:rf.error/frame-context-corrupted` and falls through to
-  `:rf/default` (recovery `:replaced-with-default`); apps see the
-  same observable behaviour as before, plus a structured trace event
-  for diagnosis."
+  `:rf/default` (recovery `:replaced-with-default`)."
   []
   (or frame/*current-frame*
       (let [v (.-_currentValue ^js frame-context)]
@@ -181,8 +179,7 @@
             ;; Corrupted branch: value is not a frame keyword and not
             ;; a non-empty string — covers nil, false, numbers, empty
             ;; strings, and JS objects. Emit the structured error and
-            ;; fall through. Behaviour identical to pre-rf2-8q66 —
-            ;; observable only.
+            ;; fall through.
             (do (emit-frame-context-corrupted! v)
                 nil)))
       :rf/default))

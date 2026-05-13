@@ -280,10 +280,10 @@
         (clear-flow! args {:frame frame-id}))
       (emit-handled! fx-id args frame-id))
 
-    ;; Per rf2-xbtj the `:rf.machine/spawn` and `:rf.machine/destroy`
-    ;; machine fx-ids are no longer reserved here — they are registered
-    ;; by re-frame.machines (day8/re-frame2-machines) via the regular
-    ;; reg-fx path and arrive here through the registrar default below.
+    ;; The `:rf.machine/spawn` and `:rf.machine/destroy` machine fx-ids
+    ;; are registered by re-frame.machines (day8/re-frame2-machines) via
+    ;; the regular reg-fx path and arrive here through the registrar
+    ;; default below.
 
     ;; Default: user-registered fx — OR a synthesised meta carrying a
     ;; function-value override (per `resolved-fx-meta` above; the

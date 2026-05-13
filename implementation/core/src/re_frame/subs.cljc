@@ -25,8 +25,7 @@
   the cached value is reused.
 
   This is the only disposal algorithm — there are no pluggable lifecycle
-  policies. The v1 alpha namespace exposed `:safe`, `:no-cache`,
-  `:reactive`, and `:forever` lifecycles; v2 does not (rf2-7cb2 / rf2-s9dn)."
+  policies."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
@@ -337,9 +336,8 @@
   `:rf.error/no-such-sub` and build a nil-yielding reaction, but
   DO NOT store it in the cache. The miss is transient — a later
   registration (boot order, lazy load) must let the next subscribe
-  build a fresh reaction against the real body. v1 had the same
-  semantic by virtue of not caching the nil path; v2 preserves it
-  by branching here on nil meta."
+  build a fresh reaction against the real body. We achieve this by
+  branching here on nil meta."
   [frame-id query-v]
   (let [query-id      (first query-v)
         sub-meta      (registrar/lookup :sub query-id)

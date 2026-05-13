@@ -228,11 +228,11 @@
 ;; throws / returns safe defaults cleanly.
 ;;
 ;; Per Spec 005 §reg-machine vs reg-machine* (rf2-8bp3): the late-bind
-;; hook key is `:machines/reg-machine` (the legacy slot name) and points
-;; at `reg-machine*` — the plain-fn surface. The `reg-machine` macro at
-;; the `re-frame.core` boundary is import-time-only (CLJS macroexpansion
-;; runs before ns-load); the runtime always reaches through this hook to
-;; the plain-fn surface.
+;; hook key is `:machines/reg-machine` and points at `reg-machine*` —
+;; the plain-fn surface. The `reg-machine` macro at the `re-frame.core`
+;; boundary is import-time-only (CLJS macroexpansion runs before
+;; ns-load); the runtime always reaches through this hook to the
+;; plain-fn surface.
 
 (late-bind/set-fn! :machines/reg-machine            reg-machine*)
 (late-bind/set-fn! :machines/create-machine-handler create-machine-handler)

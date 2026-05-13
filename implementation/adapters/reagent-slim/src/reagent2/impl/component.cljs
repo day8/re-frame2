@@ -307,8 +307,8 @@
             (set! (.-cljsRenderFn c) out)
             (apply out args))
 
-          ;; Legacy seq-as-fragment shape — coerce to a vector for
-          ;; React's children-of-a-fragment handling.
+          ;; Seq-as-fragment shape — coerce to a vector for React's
+          ;; children-of-a-fragment handling.
           (seq? out) (vec out)
 
           ;; Anything else (a React element, a primitive) flows
