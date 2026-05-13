@@ -84,10 +84,8 @@
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]
             [day8.re-frame2-causa.panels.causality-graph-helpers :as cg-helpers]
-            ;; ── subscriptions panel begin ──
-            [day8.re-frame2-causa.panels.subscriptions-helpers :as subs-helpers]
-            ;; ── subscriptions panel end ──
-            ))
+            [day8.re-frame2-causa.panels.hydration-debugger-helpers :as hd-helpers]
+            [day8.re-frame2-causa.panels.subscriptions-helpers :as subs-helpers]))
 
 ;; ---- defaults ------------------------------------------------------------
 
@@ -417,8 +415,122 @@
             {:fx [[:rf.causa.fx/reset-frame-db!
                    {:frame-id target :frame-db (:frame-db pin)}]]}))))
 
-    ;; ── subscriptions panel begin ──
-    ;; Phase 5 (rf2-x0f5v, parent rf2-5aw5v) — Subscriptions panel.
+    ;; ---- Phase 5 (rf2-pzxsr) — Hydration Debugger panel ---------
+    ;;
+    ;; Per `tools/causa/spec/006-Hydration-Debugger.md` the panel is
+    ;; dormant until at least one :rf.ssr/hydration-mismatch trace
+    ;; lands; once it does, the composite sub surfaces the mismatch
+    ;; list + the selected-mismatch detail (per spec §Multi-mismatch
+    ;; case + §Layout). The panel reads from the same trace-buffer as
+    ;; every other Causa panel — Spec 011 §Hydration-mismatch
+    ;; detection is the source of the trace events.
+
+    ;; Currently-selected mismatch id (the trace event's :id). nil =
+    ;; no selection → composite picks the latest mismatch.
+    (rf/reg-sub :rf.causa/selected-mismatch-id
+      (fn [db _query]
+        (get db :selected-mismatch-id)))
+
+    ;; Re-root path for the side-by-side tree view (per spec §Render-
+    ;; tree hash bisector — click any hash chip → the panel re-roots
+    ;; at that node). nil = render the full subtree from the mismatch
+    ;; trace event's :path.
+    (rf/reg-sub :rf.causa/hydration-reroot-path
+      (fn [db _query]
+        (get db :hydration-reroot-path)))
+
+    ;; The composite the panel consumes. Shape:
+    ;;
+    ;;     {:has-mismatch?        <bool>
+    ;;      :mismatch-summary     [{:id :path :summary ...} ...]
+    ;;      :selected-mismatch-id <id-or-nil>
+    ;;      :detail               {:path :server-tree :client-tree
+    ;;                             :divergence-kind :hypothesis
+    ;;                             :bisector-path ...}
+    ;;      :source-coord         {:coord :annotation}
+    ;;      :re-root-path         <path-or-nil>
+    ;;      :target-frame         <frame-id>}
+    ;;
+    ;; Per spec §Frame awareness the panel shows mismatches for the
+    ;; active frame. The frame picker isn't wired in Phase 5 — the
+    ;; composite reads `:target-frame` (the same key the time-travel
+    ;; scrubber uses) and falls back to nil (= all frames) when the
+    ;; user hasn't pinned one. The behaviour matches Phase 3 / 4 —
+    ;; the picker drops in without rewiring consumers.
+    (rf/reg-sub :rf.causa/hydration-debugger-data
+      :<- [:rf.causa/trace-buffer]
+      :<- [:rf.causa/selected-mismatch-id]
+      :<- [:rf.causa/hydration-reroot-path]
+      :<- [:rf.causa/target-frame]
+      (fn [[buffer selected-id reroot-path target-frame] _query]
+        (let [;; Frame-awareness: when the panel is showing mismatches
+              ;; for one frame the summary filters; when no frame is
+              ;; pinned every mismatch surfaces. The view's header
+              ;; reads :target-frame to label the active filter.
+              ;;
+              ;; Phase 5 ships with target-frame = :rf/default (the
+              ;; canonical host frame); cross-frame swimlanes ride a
+              ;; follow-on bead (rf2-xxx) once the picker lands.
+              summary           (hd-helpers/mismatch-list-summary
+                                  buffer target-frame)
+              has-mismatch?     (boolean (seq summary))
+              ;; Selection-resolution: prefer the user's explicit
+              ;; selection; fall back to the latest mismatch.
+              latest-id         (some-> (last summary) :id)
+              resolved-id       (or (and selected-id
+                                         (some #(when (= selected-id (:id %)) %)
+                                               summary)
+                                         selected-id)
+                                    latest-id)
+              selected-trace    (when resolved-id
+                                  (hd-helpers/select-mismatch buffer resolved-id))
+              detail            (hd-helpers/mismatch-detail selected-trace)
+              source-coord      (hd-helpers/source-coord-for-mismatch
+                                  selected-trace)]
+          {:has-mismatch?         has-mismatch?
+           :mismatch-summary      summary
+           :selected-mismatch-id  resolved-id
+           :detail                detail
+           :source-coord          source-coord
+           :re-root-path          reroot-path
+           :target-frame          target-frame})))
+
+    ;; ---- Phase 5 (rf2-pzxsr) — Hydration Debugger events --------
+
+    ;; Select a specific mismatch — drives the side-by-side rebase
+    ;; per spec §Multi-mismatch case.
+    (rf/reg-event-db :rf.causa/select-mismatch
+      (fn [db [_ mismatch-id]]
+        (-> db
+            (assoc :selected-mismatch-id mismatch-id)
+            ;; New selection → drop the re-root (the path is
+            ;; subtree-specific).
+            (dissoc :hydration-reroot-path))))
+
+    (rf/reg-event-db :rf.causa/clear-mismatch-selection
+      (fn [db _event]
+        (-> db
+            (dissoc :selected-mismatch-id)
+            (dissoc :hydration-reroot-path))))
+
+    ;; Re-root the side-by-side tree view at `path` per spec
+    ;; §Render-tree hash bisector. Click a hash chip → this fires.
+    (rf/reg-event-db :rf.causa/reroot-tree-view
+      (fn [db [_ path]]
+        (if (empty? path)
+          (dissoc db :hydration-reroot-path)
+          (assoc db :hydration-reroot-path (vec path)))))
+
+    ;; Open-in-editor stub. The full handler lives in
+    ;; `open-in-editor.cljs` (rf2-evgf5); this event-db is a thin
+    ;; record-the-attempt so the panel can surface a UX cue when the
+    ;; user clicks a source-coord. The actual editor jump runs via
+    ;; the open-in-editor module's effect when wired.
+    (rf/reg-event-db :rf.causa/open-in-editor
+      (fn [db [_ coord]]
+        (assoc db :last-open-in-editor-coord coord)))
+
+    ;; ---- Phase 5 (rf2-x0f5v) — Subscriptions panel --------------
     ;;
     ;; The panel reads three surfaces — the target frame's live
     ;; sub-cache (`(rf/sub-cache target-frame)` — CLJS-only), the
@@ -526,7 +638,7 @@
            :chain-open?      (boolean chain-open?)
            :chain            chain})))
 
-    ;; ---- events ------------------------------------------------------
+    ;; ---- Phase 5 (rf2-x0f5v) — Subscriptions panel events ------
 
     (rf/reg-event-db :rf.causa/select-sub
       (fn [db [_ query-v]]
@@ -554,7 +666,6 @@
     (rf/reg-event-db :rf.causa/hide-invalidation-chain
       (fn [db _event]
         (dissoc db :sub-chain-open?))))
-    ;; ── subscriptions panel end ──
   nil)
 
 (defn reset-for-test!
