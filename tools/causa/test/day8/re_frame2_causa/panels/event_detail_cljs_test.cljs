@@ -29,6 +29,7 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
@@ -39,7 +40,13 @@
 (defn- causa-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
-  (trace-bus/clear-buffer!))
+  (trace-bus/clear-buffer!)
+  ;; Reset the :sensitive? privacy gate to its default (suppress) so the
+  ;; redaction-state tests below start from a known baseline regardless
+  ;; of test ordering or prior toggles. Symmetric with
+  ;; sensitive_trace_cljs_test's own fixture.
+  (config/set-show-sensitive! false)
+  (config/reset-suppressed-count!))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
@@ -229,3 +236,149 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-panel :app-db])
       (is (= :app-db @(rf/subscribe [:rf.causa/selected-panel]))))))
+
+;; ---- (5) edge cases: empty buffer / missing id / sensitive redacted ----
+;;
+;; Per rf2-dkmq5: the existing tests cover the happy path; this section
+;; extends to the edge cases listed in the bead's findings doc
+;; (`ai/findings/causa-test-coverage-20260513-1706.md` recommendation #8).
+;;
+;;   - Empty buffer with a selection set — the panel must render the
+;;     orphaned-state branch rather than crashing on a nil cascade.
+;;   - No selection (initial state, empty buffer) — per spec/007-UX-IA.md
+;;     §The default landing view the panel renders the empty-state
+;;     container with the "no cascades yet" placeholder copy.
+;;   - Sensitive-redacted state — when the privacy gate has dropped the
+;;     selected dispatch-id's trace events the panel renders the
+;;     orphaned branch AND the shell-level `:rf.causa/suppressed-
+;;     sensitive-count` sub reports the suppression so the bottom-rail
+;;     `[● REDACTED N]` marker (rf2-a6buk / PR #705) renders.
+;;   - Sensitive opt-in pass-through — flipping `:trace/show-sensitive?`
+;;     true lets the same cascade reach the buffer; the panel then
+;;     renders the six-domino layout with no suppression count.
+
+(deftest empty-buffer-with-selection-renders-orphaned-state
+  (testing "selecting a dispatch-id when the buffer is empty surfaces
+            the orphaned-selection branch rather than the cascade rows
+            or a nil-deref crash"
+    (seed-buffer! [])
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 42])
+      (let [tree (event-detail/event-detail-view)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
+            "orphaned-selection container present when buffer is empty")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "cascade-detail absent — there is no cascade to render")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
+            "empty-state cascade-list absent — a selection is set, so the
+             panel is in detail mode not list mode")))))
+
+(deftest no-selection-empty-buffer-renders-default-landing-view
+  (testing "per spec/007-UX-IA.md §Default landing view, the panel's
+            initial state (no selection, no events) renders the empty-
+            state container with the 'no cascades yet' placeholder copy"
+    (seed-buffer! [])
+    (rf/with-frame :rf/causa
+      (let [tree    (event-detail/event-detail-view)
+            empty   (find-by-testid tree "rf-causa-event-detail-empty")
+            ;; Flatten every text node under the empty-state container
+            ;; so the assertion is agnostic to the placeholder paragraph's
+            ;; exact hiccup nesting.
+            text    (->> (hiccup-seq empty)
+                         (filter string?)
+                         (apply str))]
+        (is (some? empty)
+            "empty-state container present in the initial state")
+        (is (nil? (find-by-testid tree "rf-causa-cascade-list"))
+            "no cascade list when there are zero cascades")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "no cascade-detail container in the initial state")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-orphaned"))
+            "no orphaned-state container in the initial state")
+        (is (re-find #"No cascades yet" text)
+            "placeholder copy guides the user to trigger a dispatch")))))
+
+(deftest sensitive-redacted-cascade-renders-orphaned-and-bumps-count
+  (testing "when the privacy gate drops a :sensitive? cascade entirely,
+            the selected dispatch-id has no buffer match — the panel
+            renders the orphaned branch AND the shell-level redaction-
+            count sub reports the suppression so the bottom rail's
+            [● REDACTED N] marker (rf2-a6buk / PR #705) renders.
+
+            The bump is driven through the reactive production event
+            `:rf.causa/note-sensitive-suppressed` (rf2-0vxdn) — same
+            path `trace-bus/collect-trace!` uses when it drops a
+            `:sensitive? true` trace event in CLJS. Dispatch-sync so
+            the sub fires before the next render."
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    ;; Privacy gate at its default (suppress sensitive). Verify a
+    ;; sensitive event going through trace-bus's collector is dropped
+    ;; before the buffer (per Spec 009 §Privacy + rf2-azls9) — the
+    ;; cascade's events never land, so the selected dispatch-id
+    ;; resolves to no cascade.
+    (trace-bus/collect-trace! {:id 1
+                               :op-type :event
+                               :operation :event/dispatched
+                               :sensitive? true
+                               :tags {:dispatch-id 777
+                                      :event [:user/secret]
+                                      :frame :rf/default}})
+    (is (empty? (trace-bus/buffer))
+        "the :sensitive? event was dropped before the buffer push")
+    ;; Drive the redaction-count bump through the reactive path
+    ;; explicitly. (The collect-trace! call above also dispatches
+    ;; `:rf.causa/note-sensitive-suppressed`, but only when
+    ;; `:rf/default` exists in the runtime; the test fixture leaves
+    ;; the chain-routing detail to the shell-side tests.)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/note-sensitive-suppressed :rf/default])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 777])
+      (let [tree   (event-detail/event-detail-view)
+            count* @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
+            "orphaned-selection container present — the redacted cascade
+             never reached the buffer")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "cascade-detail absent — the redacted cascade has no rows
+             to render")
+        (is (pos? count*)
+            "the suppressed-sensitive-count sub reports the drop so the
+             shell's bottom-rail [● REDACTED N] marker renders")))))
+
+(deftest sensitive-cascade-with-opt-in-renders-detail
+  (testing "with (causa-config/configure! {:trace/show-sensitive? true})
+            the same `:sensitive? true` event is NOT suppressed by
+            the privacy gate — the predicate inverts and the cascade
+            reaches the buffer. The panel then renders the cascade
+            via the standard happy-path branch.
+
+            We seed the reactive app-db buffer slot directly (same
+            pattern the other tests use) so the assertion stays
+            substrate-agnostic; the privacy-gate predicate is the
+            unit under test here, not collect-trace!'s atom-swap
+            (which `sensitive_trace_cljs_test` covers exhaustively)."
+    (config/set-show-sensitive! true)
+    ;; First — assert the privacy-gate predicate's opt-in path: with
+    ;; show-sensitive? true, a sensitive event does NOT get suppressed.
+    (is (false? (config/suppress-sensitive?
+                  {:sensitive? true
+                   :tags {:dispatch-id 888 :event [:user/secret]}}))
+        "with show-sensitive? true, the privacy gate is inert")
+    ;; Then — drive the reactive buffer to the same shape `collect-
+    ;; trace!` would produce with the gate open, and assert the panel
+    ;; renders the cascade-detail layout (no orphaned branch, no
+    ;; suppressed-count bump).
+    (seed-buffer! (->> (cascade-evs 888 [:user/secret] 200)
+                       (map #(assoc % :sensitive? true))))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 888])
+      (let [tree   (event-detail/event-detail-view)
+            count* @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "cascade-detail renders the six-domino layout under the
+             opt-in flag")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-orphaned"))
+            "no orphaned-state when the cascade is in the buffer")
+        (is (zero? count*)
+            "the suppressed-count is zero — nothing was dropped")))))
