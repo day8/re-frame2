@@ -207,12 +207,29 @@ integer id; the wire payload carries
 
 The dedup algorithm is the
 [`day8/de-dupe`](https://github.com/day8/de-dupe) substitution
-table — proven on re-frame-10x's epoch payloads, where it
-typically compresses trace bursts 3-5× without semantic loss.
-The agent reconstructs the full structure with a one-pass walk
+table — proven on re-frame-10x's epoch payloads. The agent
+reconstructs the full structure with a one-pass walk
 substituting refs against the table. Dedup is **opt-out** per
 call (`:dedup? false`); on by default for trace-shaped
 sequences and off for everything else.
+
+**Compression factor (measured)**. Pinned by
+[`tools/pair2-mcp/test/re_frame_pair2_mcp/dedup_benchmark_test.cljs`](../../pair2-mcp/test/re_frame_pair2_mcp/dedup_benchmark_test.cljs)
+(rf2-li2cw). Three regimes, three numbers — the agent budget hint
+matches the call-site shape:
+
+| Regime | Reduction | Ratio | When it applies |
+|---|---|---|---|
+| Raw trace bursts | 28-31% | **~1.4×** | `get-trace-buffer`, `subscribe` events vectors — per-event `:id` / `:time` / per-tag variance dominates the wire bytes; the only shareable subtree is the cascade-level `:rf.trace/trigger-handler` map and `:dispatch-id` backbone. |
+| High-share replays | ~90% | **~10×** | A recurring cascade (timer tick, scheduled job, idempotent rerender) emitting structurally-identical event subtrees post lazy-summary projection — the deduper collapses one cache entry per distinct subtree across replays. |
+| Epoch slices | 80-90% | **5-10×** | `get-epoch-history` and the `:epochs` slot of `snapshot`-shaped tools — whole `:db-before` reference shared across records. Pinned at 89.5% on the 10-epoch / 256-key shared-`:db-before` corpus by [`tools/pair2-mcp/test/re_frame_pair2_mcp/dedup_test.cljs reduction-ratio-shared-subtrees`](../../pair2-mcp/test/re_frame_pair2_mcp/dedup_test.cljs). |
+
+The earlier "3-5×" range in this section was vibes; the measured
+numbers above supersede it. Catalogue entries in
+[`003-Tool-Catalogue.md`](#) (when it lands) MUST cite the
+regime-appropriate factor when declaring `:typical-tokens` —
+trace-bus-shaped tools use **~1.4×**, recurring-cascade tools
+use **~10×**, epoch-slice tools use **5-10×**.
 
 ### 6. Size elision (`:rf.size/large-elided` marker)
 
