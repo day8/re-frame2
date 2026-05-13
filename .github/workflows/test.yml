@@ -292,6 +292,15 @@ jobs:
             ${{ runner.os }}-clj-schemas-
             ${{ runner.os }}-clj-
 
+      # The schemas artefact ships JVM-runnable test namespaces under
+      # implementation/schemas/test/ — the elision toggle, sensitive-
+      # path walker, validator-table hot-swap, and boundary-warn-once
+      # tests (schemas_test, schemas_elision_test, schemas_sensitive_test,
+      # schemas_sensitive_paths_test, late_bind_missing_test) PLUS the
+      # schema-*.edn + error-schema-failure.edn conformance corpus runner
+      # (schemas_conformance_test) added per rf2-2l08g. The cognitect
+      # test-runner returns non-zero on any failure; the job MUST surface
+      # that so the gate is real.
       - name: Run JVM tests (schemas artefact)
         run: clojure -M:test
 
