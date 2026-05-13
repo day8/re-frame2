@@ -49,12 +49,10 @@
 ;; installs). The fxs themselves are registered in the façade so they fire
 ;; only when the namespace is loaded — these handlers stay here so the
 ;; stub-handler below can reach them without circular requires.
-
-(defn- origin-event-from
-  [frame-ctx args-map]
-  (or (:event frame-ctx)
-      (:rf.http/origin-event args-map)
-      [:rf.http/managed]))
+;;
+;; rf2-622e3 — origin-event resolution lives in
+;; `encoding/resolve-origin-event` (single source of truth shared with
+;; `http-managed/managed-handler`).
 
 (defn canned-success-handler
   "Stub fx — synthesises a success reply per Spec 014 §Testing."
@@ -62,7 +60,7 @@
   (let [{:keys [on-success]} args-map
         value (get args-map :value {:stubbed true})
         reply {:kind :success :value value}
-        ev    (encoding/build-reply-event {:origin-event (origin-event-from frame-ctx args-map)
+        ev    (encoding/build-reply-event {:origin-event (encoding/resolve-origin-event frame-ctx args-map)
                                            :explicit-on  {:supplied? (contains? args-map :on-success)
                                                           :value     on-success}
                                            :reply-payload reply
@@ -79,7 +77,7 @@
         tags  (or (:tags args-map) {})
         failure (assoc tags :kind kind)
         reply {:kind :failure :failure failure}
-        ev    (encoding/build-reply-event {:origin-event (origin-event-from frame-ctx args-map)
+        ev    (encoding/build-reply-event {:origin-event (encoding/resolve-origin-event frame-ctx args-map)
                                            :explicit-on  {:supplied? (contains? args-map :on-failure)
                                                           :value     on-failure}
                                            :reply-payload reply

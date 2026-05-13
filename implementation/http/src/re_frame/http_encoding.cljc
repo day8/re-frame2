@@ -239,6 +239,28 @@
 
 ;; ---- reply addressing -----------------------------------------------------
 
+(defn resolve-origin-event
+  "Per Spec 014 §Reply addressing — single source of truth for the
+  originating event vector used as the default reply target.
+
+  Resolution order:
+   1. `(:event frame-ctx)` — the originating event the runtime threads
+      through `do-fx`'s 5-arity (when the fx fired from inside an event
+      handler).
+   2. `(:rf.http/origin-event args-map)` — an explicit override on the
+      args map (machine-shape wrapper sets this when there is no
+      ambient event, e.g. spawn-time entry actions).
+   3. `[:rf.http/managed]` — synthetic fallback so the reply addressing
+      machinery (`build-reply-event`) always has a non-nil event-id.
+
+  Extracted from the three verbatim copies in `http-managed`
+  (`normalise-args`, `managed-handler`) and `http-machine-wrapper`
+  (`origin-event-from`) per rf2-622e3."
+  [frame-ctx args-map]
+  (or (:event frame-ctx)
+      (:rf.http/origin-event args-map)
+      [:rf.http/managed]))
+
 (defn build-reply-event
   "Per Spec 014 §Reply addressing. Returns the event vector to dispatch,
   or nil when silenced.

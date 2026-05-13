@@ -81,6 +81,7 @@
   `:rf.http/*` fx registrations and the `late-bind/set-fn!` hook
   publications that `re-frame.core` reaches through."
   (:require [re-frame.fx                :as fx]
+            [re-frame.http-encoding     :as encoding]
             [re-frame.http-machine-wrapper :as machine-wrapper]
             [re-frame.http-middleware   :as middleware]
             [re-frame.http-privacy      :as privacy]
@@ -132,15 +133,19 @@
 
 (defn- normalise-args
   "Validate + normalise the args map. Returns a context ready for the
-  per-host attempt loop."
+  per-host attempt loop.
+
+  `frame-ctx` carries the resolved `:event` (the originating event
+  vector) — `managed-handler` runs `encoding/resolve-origin-event`
+  once before calling here and stashes the result back into
+  `frame-ctx` as `:event`, so the resolution shape lives in exactly
+  one place per rf2-622e3."
   [{:keys [request decode accept retry timeout-ms
            on-success on-failure request-id abort-signal]
     :or   {timeout-ms 30000}
     :as   args-map}
    frame-ctx]
-  (let [origin-event (or (:event frame-ctx)
-                         (:rf.http/origin-event args-map)
-                         [:rf.http/managed])
+  (let [origin-event (:event frame-ctx)
         frame        (or (:frame frame-ctx) :rf/default)
         ;; rf2-wvkn — when the originating event-id is a spawned actor's
         ;; address, capture it so the in-flight registry can index by
@@ -192,16 +197,18 @@
   [frame-ctx args-map]
   (transport/check-cljs-only-keys! args-map)
   (let [frame-id     (or (:frame frame-ctx) :rf/default)
-        origin-event (or (:event frame-ctx)
-                         (:rf.http/origin-event args-map)
-                         [:rf.http/managed])
+        ;; rf2-622e3 — resolve once, thread the result through
+        ;; frame-ctx's :event slot so normalise-args reads it
+        ;; directly instead of re-running the OR-chain.
+        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        frame-ctx'   (assoc frame-ctx :event origin-event)
         ctx0         {:request (:request args-map)
                       :args    args-map
                       :frame   frame-id
                       :event   origin-event}
         ctx          (middleware/run-interceptor-chain! frame-id ctx0)
         args-map'    (assoc args-map :request (:request ctx))
-        normalised   (normalise-args args-map' frame-ctx)
+        normalised   (normalise-args args-map' frame-ctx')
         request-id   (:request-id normalised)]
     (when request-id (registry/supersede! request-id))
     (transport/run-attempt! normalised)
