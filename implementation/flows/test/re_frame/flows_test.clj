@@ -138,22 +138,16 @@
     (is (not (contains? (get @flows/flows :rf/default) :b))
         "cycle-detection rolls back the partial registration of :b")))
 
-(deftest ^:expected-fail
-  reg-flow-replacement-that-introduces-cycle-preserves-prior-registration
+(deftest reg-flow-replacement-that-introduces-cycle-preserves-prior-registration
   ;; Regression for rf2-7csri (bug) / rf2-cdh9h (this test). Pinned per
-  ;; audit rf2-o3hok finding Exec#2 (TE2). The current `reg-flow` rollback
-  ;; path (flows.cljc:144-151) writes the new entry FIRST then runs cycle
-  ;; detection; on a cyclic re-registration the rollback dissocs by id,
-  ;; which DELETES the prior registration as well as the just-written
-  ;; one. A hot-reload that accidentally introduces a cycle therefore
-  ;; silently vacates the previously-working flow. The correct behaviour:
-  ;; detect the cycle on a PROSPECTIVE flow-map BEFORE mutating, and on
-  ;; failure leave the prior registration intact.
-  ;;
-  ;; This test is marked ^:expected-fail because rf2-7csri is not yet
-  ;; merged — the cognitect test-runner alias excludes :expected-fail
-  ;; selectors by default so CI stays green. Drop the metadata once the
-  ;; sibling fix lands.
+  ;; audit rf2-o3hok finding Exec#2 (TE2). The bug: `reg-flow`'s former
+  ;; rollback path wrote the new entry FIRST then ran cycle detection;
+  ;; on a cyclic re-registration the rollback dissoc'd by id, which
+  ;; DELETED the prior registration as well as the just-written one. A
+  ;; hot-reload that accidentally introduced a cycle therefore silently
+  ;; vacated the previously-working flow. The fix (rf2-7csri) runs cycle
+  ;; detection on a PROSPECTIVE flow-map BEFORE mutating; on failure
+  ;; nothing is written and the prior registration stays intact.
   (testing "a cyclic reg-flow REPLACEMENT must not silently delete the prior registration"
     ;; Set up a non-cyclic two-flow graph where REPLACING :b is what
     ;; closes the cycle. Cannot use a self-cycle on :b (topo-sort skips
