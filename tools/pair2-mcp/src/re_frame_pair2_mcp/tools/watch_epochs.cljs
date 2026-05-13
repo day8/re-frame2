@@ -17,24 +17,24 @@
   builds the eval form, awaits the runtime response, and routes the
   matches vector through `run-wire-pipeline` with `:kind :epoch-vector`."
   (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.cursor :as cursor]
-            [re-frame-pair2-mcp.tools.dedup :as dedup]
-            [re-frame-pair2-mcp.tools.sensitive :as sensitive]))
+            [re-frame-pair2-mcp.tools.dedup :as dedup]))
 
-(defn watch-epochs-tool [conn args]
-  (let [build-id  (wire/arg-build args)
-        frame     (some-> (wire/arg args :frame) keyword)
-        since-id  (wire/arg args :since-id)
-        incl?     (sensitive/include-sensitive? args)
-        mode      (dedup/parse-epochs-mode (wire/arg args :epochs-mode))
-        dedup?    (dedup/parse-dedup-arg (wire/arg args :dedup))
-        limit     (cursor/parse-limit-arg (wire/arg args :limit))
-        pred-map  (when-let [p (wire/arg args :pred)] (js->clj p :keywordize-keys true))
-        cursor-in (cursor/decode-cursor (wire/arg args :cursor))]
+(defn watch-epochs-tool [conn raw-args]
+  (let [build-id  (wire/arg-build raw-args)
+        frame     (some-> (wire/arg raw-args :frame) keyword)
+        since-id  (wire/arg raw-args :since-id)
+        incl?     (args/parse-bool-arg raw-args :include-sensitive?)
+        mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
+        dedup?    (args/parse-bool-arg raw-args :dedup)
+        limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
+        pred-map  (when-let [p (wire/arg raw-args :pred)] (js->clj p :keywordize-keys true))
+        cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))]
     (if (= cursor-in ::cursor/malformed)
       (js/Promise.resolve
         (cursor/cursor-stale-result "watch-epochs" {:requested-id nil}))

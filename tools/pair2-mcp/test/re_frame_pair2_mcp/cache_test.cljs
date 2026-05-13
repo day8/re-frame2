@@ -60,36 +60,9 @@
     (and (map? v) (contains? v :rf.mcp/cache-hit))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-cache-arg — MCP-arg normalisation.
+;; `:cache` MCP-arg normalisation now lives on the shared table-driven
+;; parser — see `re-frame-pair2-mcp.args-test` (rf2-c4fmh).
 ;; ---------------------------------------------------------------------------
-
-(deftest parse-cache-arg-default-is-false
-  ;; Opt-in by default — least surprise for agent hosts that haven't
-  ;; been taught the marker shape.
-  (is (false? (cache/parse-cache-arg nil))))
-
-(deftest parse-cache-arg-booleans-pass-through
-  (is (true? (cache/parse-cache-arg true)))
-  (is (false? (cache/parse-cache-arg false))))
-
-(deftest parse-cache-arg-string-forms-accepted
-  ;; MCP wire ships JSON; clients sending `"true"` should get the
-  ;; opt-in.
-  (is (true? (cache/parse-cache-arg "true")))
-  (is (false? (cache/parse-cache-arg "false")))
-  (is (true? (cache/parse-cache-arg "TRUE")))
-  (is (false? (cache/parse-cache-arg "False"))))
-
-(deftest parse-cache-arg-keyword-forms-accepted
-  (is (true? (cache/parse-cache-arg :true)))
-  (is (false? (cache/parse-cache-arg :false))))
-
-(deftest parse-cache-arg-unknown-defaults-to-false
-  ;; Conservative default for unrecognised values — opt-in semantics
-  ;; should never sneak on accidentally.
-  (is (false? (cache/parse-cache-arg "garbage")))
-  (is (false? (cache/parse-cache-arg 42)))
-  (is (false? (cache/parse-cache-arg :other))))
 
 ;; ---------------------------------------------------------------------------
 ;; cacheable? — tool-allowlist guard.

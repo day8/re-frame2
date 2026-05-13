@@ -45,8 +45,8 @@
 
   Each MCP tool returns `{:content [{:type \"text\" :text <edn-string>}]}`
   on success, or `{:isError true :content [...]}` on failure."
-  (:require [applied-science.js-interop :as j]
-            [re-frame-pair2-mcp.cache :as cache]
+  (:require [re-frame-pair2-mcp.cache :as cache]
+            [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.cap :as cap]
             [re-frame-pair2-mcp.tools.precheck :as precheck]
@@ -121,8 +121,7 @@
   (let [cap-opts    {:tool     name
                      :cap      (cap/max-tokens-arg args)
                      :strategy :truncate-with-marker}
-        enabled?    (cache/parse-cache-arg
-                      (when args (j/get args "cache")))
+        enabled?    (args/parse-bool-arg args :cache)
         cache-opts  {:tool     name
                      :args     args
                      :enabled? enabled?}

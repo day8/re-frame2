@@ -46,7 +46,8 @@
   ### Opt-out
 
   `dedup` MCP arg (boolean). Default `true`. `false` skips dedup
-  entirely.
+  entirely. The arg is parsed by the shared
+  `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh).
 
   ### Idempotence on no-dedup-opportunity
 
@@ -81,13 +82,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Structural dedup.
 ;; ---------------------------------------------------------------------------
-
-(defn parse-dedup-arg
-  "Normalise the `dedup` MCP arg into a boolean. Default `true` —
-  the budget-sensitive default fires dedup. Delegates to
-  `re-frame.mcp-base.args/parse-boolean` (rf2-vw4sq)."
-  [raw]
-  (base-args/parse-boolean raw true))
 
 (defn empty-payload?
   "True for values where dedup yields no win — nil, empty collections,

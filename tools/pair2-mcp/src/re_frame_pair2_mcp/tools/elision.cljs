@@ -31,16 +31,9 @@
 
   ## `:elision` MCP arg
 
-  Boolean opt-out. Default `true`."
-  (:require [re-frame.mcp-base.args :as base-args]
-            [re-frame.mcp-base.vocab :as base-vocab]))
-
-(defn parse-elision-arg
-  "Normalise the `elision` MCP arg into a boolean. Default `true` —
-  least-surprise on the budget-sensitive default fires elision.
-  Delegates to `re-frame.mcp-base.args/parse-boolean` (rf2-vw4sq)."
-  [raw]
-  (base-args/parse-boolean raw true))
+  Boolean opt-out. Default `true`. The arg is parsed by the shared
+  `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh)."
+  (:require [re-frame.mcp-base.vocab :as base-vocab]))
 
 (defn elision-opts-edn
   "Render the elision opts map as an EDN string for inlining into a

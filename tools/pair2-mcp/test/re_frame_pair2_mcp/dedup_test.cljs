@@ -10,11 +10,15 @@
   the agent host reconstructs via `de-dupe.core/expand`.
 
   Tests pin the public helpers directly from their owning namespaces:
-  `tools.dedup/parse-dedup-arg`, `tools.dedup/empty-payload?`,
-  `tools.dedup/dedup-value`, `test-utils/dedup-expand`,
+  `tools.dedup/empty-payload?`, `tools.dedup/dedup-value`,
+  `test-utils/dedup-expand`,
   `tools.snapshot-pipeline/dedup-epochs-in-snapshot`. A rename or
   signature change surfaces as a failing test rather than a silent
   contract drift.
+
+  `:dedup` MCP-arg normalisation lives on the shared table-driven
+  parser (`re-frame-pair2-mcp.tools.args/parse-bool-arg`, rf2-c4fmh);
+  see `re-frame-pair2-mcp.args-test` for the coverage.
 
   Live end-to-end coverage runs against a real shadow-cljs build via
   the existing stdio-roundtrip harness; this file pins the pure
@@ -24,34 +28,6 @@
             [re-frame-pair2-mcp.tools.dedup :as dedup]
             [re-frame-pair2-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame-pair2-mcp.test-utils :as tu]))
-
-;; ---------------------------------------------------------------------------
-;; parse-dedup-arg — MCP-arg normalisation.
-;; ---------------------------------------------------------------------------
-
-(deftest parse-dedup-default-is-true
-  (is (true? (dedup/parse-dedup-arg nil))))
-
-(deftest parse-dedup-booleans-pass-through
-  (is (true? (dedup/parse-dedup-arg true)))
-  (is (false? (dedup/parse-dedup-arg false))))
-
-(deftest parse-dedup-string-forms-accepted
-  ;; The MCP wire ships JSON; clients sending `"false"` should get
-  ;; the false reading rather than the budget-default true.
-  (is (false? (dedup/parse-dedup-arg "false")))
-  (is (true? (dedup/parse-dedup-arg "true"))))
-
-(deftest parse-dedup-keyword-forms-accepted
-  (is (false? (dedup/parse-dedup-arg :false)))
-  (is (true? (dedup/parse-dedup-arg :true))))
-
-(deftest parse-dedup-unknown-defaults-to-true
-  ;; Least-surprise on the budget-sensitive default: an unrecognised
-  ;; value gets the smaller-wire-payload behaviour, not the larger.
-  (is (true? (dedup/parse-dedup-arg "garbage")))
-  (is (true? (dedup/parse-dedup-arg 42)))
-  (is (true? (dedup/parse-dedup-arg :other))))
 
 ;; ---------------------------------------------------------------------------
 ;; empty-payload? — the no-op guard.

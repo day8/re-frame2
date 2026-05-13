@@ -12,23 +12,23 @@
   builds the eval form, awaits the runtime response, and routes the
   epoch vector through `run-wire-pipeline` with `:kind :epoch-vector`."
   (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.cursor :as cursor]
-            [re-frame-pair2-mcp.tools.dedup :as dedup]
-            [re-frame-pair2-mcp.tools.sensitive :as sensitive]))
+            [re-frame-pair2-mcp.tools.dedup :as dedup]))
 
-(defn trace-window-tool [conn args]
-  (let [ms        (or (wire/arg args :ms) 1000)
-        build-id  (wire/arg-build args)
-        frame     (some-> (wire/arg args :frame) keyword)
-        incl?     (sensitive/include-sensitive? args)
-        mode      (dedup/parse-epochs-mode (wire/arg args :epochs-mode))
-        dedup?    (dedup/parse-dedup-arg (wire/arg args :dedup))
-        limit     (cursor/parse-limit-arg (wire/arg args :limit))
-        cursor-in (cursor/decode-cursor (wire/arg args :cursor))]
+(defn trace-window-tool [conn raw-args]
+  (let [ms        (or (wire/arg raw-args :ms) 1000)
+        build-id  (wire/arg-build raw-args)
+        frame     (some-> (wire/arg raw-args :frame) keyword)
+        incl?     (args/parse-bool-arg raw-args :include-sensitive?)
+        mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
+        dedup?    (args/parse-bool-arg raw-args :dedup)
+        limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
+        cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))]
     (if (= cursor-in ::cursor/malformed)
       (js/Promise.resolve
         (cursor/cursor-stale-result "trace-window" {:requested-id nil}))

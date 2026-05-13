@@ -11,16 +11,10 @@
   Opt-in escape hatch: an MCP arg of `:include-sensitive? true` (on
   any read/stream tool that surfaces trace-like data) removes the
   filter for that call. The default is off — apps that want sensitive
-  cascades visible to the pair tool configure the policy explicitly."
-  (:require [re-frame.mcp-base.sensitive :as base-sensitive]
-            [re-frame-pair2-mcp.tools.wire :as wire]))
-
-(defn include-sensitive?
-  "True iff the caller has opted in to forwarding `:sensitive? true`
-  events for this call. Default off. The arg name
-  `:include-sensitive?` is the cross-MCP convention (rf2-vw4sq)."
-  [args]
-  (boolean (wire/arg args :include-sensitive?)))
+  cascades visible to the pair tool configure the policy explicitly.
+  The arg is parsed by the shared
+  `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh)."
+  (:require [re-frame.mcp-base.sensitive :as base-sensitive]))
 
 (defn sensitive-event?
   "Delegates to `re-frame.mcp-base.sensitive/sensitive-event?`
