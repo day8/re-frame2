@@ -14,40 +14,30 @@
   view's root DOM element so pair-tool consumers can map server-rendered
   HTML back to the `reg-view` call site.
 
+  HTML escape helpers (`escape-html`, `escape-attr`, `attr-string`) live
+  in `re-frame.ssr.html-helpers` — shared with the head/meta emitter per
+  rf2-x7g10. Public-surface aliases are re-exported below so consumers
+  who `:require [re-frame.ssr.emit :as emit]` keep seeing them at
+  `emit/escape-html` / `emit/escape-attr` / `emit/attr-string`.
+
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.ssr.hash :as hash]
+            [re-frame.ssr.html-helpers :as html]
             #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
 
-(defn escape-html [s]
-  (-> (str s)
-      (clojure.string/replace "&" "&amp;")
-      (clojure.string/replace "<" "&lt;")
-      (clojure.string/replace ">" "&gt;")
-      (clojure.string/replace "\"" "&quot;")
-      (clojure.string/replace "'" "&#39;")))
+;; ---- shared HTML helpers (rf2-x7g10) --------------------------------------
+;;
+;; Re-export the helpers so callers that `:require [re-frame.ssr.emit :as
+;; emit]` still resolve `emit/escape-html` etc. The producing ns is
+;; `re-frame.ssr.html-helpers` (shared with `re-frame.ssr.head.emit`); the
+;; entity-escape rules live there once.
 
-(defn escape-attr [s]
-  ;; Less aggressive — attributes don't need < > escaped, but " must
-  ;; be escaped if we use double-quoted values. We use double-quoted
-  ;; values, so escape " and &.
-  (-> (str s)
-      (clojure.string/replace "&" "&amp;")
-      (clojure.string/replace "\"" "&quot;")))
-
-(defn attr-string [attrs]
-  (if (empty? attrs)
-    ""
-    (str " " (clojure.string/join " "
-               (map (fn [[k v]]
-                      (cond
-                        (true? v)  (name k)             ;; boolean attrs
-                        (false? v) nil
-                        (nil? v)   nil
-                        :else      (str (name k) "=\"" (escape-attr v) "\"")))
-                    attrs)))))
+(def escape-html html/escape-html)
+(def escape-attr html/escape-attr)
+(def attr-string html/attr-string)
 
 ;; Per HTML5 spec, these elements are void — they self-close and have no
 ;; closing tag.
