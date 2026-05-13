@@ -1131,6 +1131,34 @@ response with no body."
   (swap! request-slots dissoc frame-id)
   frame-id)
 
+;; ---- per-request frame teardown (rf2-fcj33) -------------------------------
+;;
+;; Per Spec 011 §Per-request frame teardown contract. The SSR runtime owns
+;; two side-channel `defonce` atoms keyed by frame-id — `pending-error-
+;; traces` (per-frame buffer of captured error trace events) and
+;; `request-slots` (per-frame HTTP-request map). Both live outside app-db
+;; (see the rationale comments above each defonce) and so are NOT cleared
+;; by the frame's app-db / sub-cache teardown in `frame/destroy-frame!`.
+;;
+;; This fn is the cleanup hook. Wired into `frame/destroy-frame!` via the
+;; `:ssr/on-frame-destroyed` late-bind key — `core` calls it from its
+;; ordered teardown step list when the SSR artefact is on the classpath;
+;; the hook resolves to nil and the destroy proceeds without it when the
+;; SSR artefact is absent. Idempotent: tolerates a frame-id with no slot
+;; in either atom.
+
+(defn on-frame-destroyed!
+  "Per Spec 011 §Per-request frame teardown contract (rf2-fcj33). Drop
+  the per-frame entries in `pending-error-traces` and `request-slots`
+  for `frame-id`. Called from `frame/destroy-frame!` via the
+  `:ssr/on-frame-destroyed` late-bind hook. Idempotent — a second call
+  against the same frame-id sees both atoms already cleared and does
+  nothing."
+  [frame-id]
+  (swap! pending-error-traces dissoc frame-id)
+  (swap! request-slots        dissoc frame-id)
+  nil)
+
 (cofx/reg-cofx :rf.server/request
   {:doc       "The active HTTP request. Server only. Surfaces the
 host-supplied request map (Ring shape under rf2-ny6v7's Ring adapter;
@@ -1172,3 +1200,9 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 (late-bind/set-fn! :ssr/render-to-string    render-to-string)
 (late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
 (late-bind/set-fn! :ssr/project-error       project-error)
+;; rf2-fcj33 — per-request frame teardown. `frame/destroy-frame!` looks up
+;; this hook and clears the SSR side-channel atoms (`pending-error-traces`,
+;; `request-slots`) for the destroyed frame. Without this hook, those two
+;; defonce-atoms accumulate one entry per request under SSR load — a slow
+;; leak that compounds over a long-running server process.
+(late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)

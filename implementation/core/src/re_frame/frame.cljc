@@ -355,6 +355,24 @@
     7. unregister-frame!            — drop from the registrar.
     8. notify-epoch-listeners!      — fire the rf2-d656 epoch hook.
 
+  Two cleanup hooks fire between step 4 and step 5 — both are best-
+  effort and tolerate the hook artefact being absent at runtime:
+
+    :privacy/clear-suppression-cache!   — rf2-isdwf, reset the warn-once
+                                          cache so a re-registered frame
+                                          re-emits the sensitive-without-
+                                          redaction warning if mis-config.
+    :ssr/on-frame-destroyed             — rf2-fcj33, drop the SSR
+                                          side-channel atoms' entries
+                                          for the destroyed frame
+                                          (pending-error-traces +
+                                          request-slots). Without this
+                                          hook those two defonce atoms
+                                          accumulate one entry per
+                                          request under SSR load — a
+                                          slow leak that compounds over
+                                          a long-running server process.
+
   Subsequent dispatch / subscribe against a destroyed frame raises
   :rf.error/frame-destroyed."
   [id]
@@ -371,6 +389,18 @@
     ;; table; no-op when re-frame.privacy hasn't been loaded.
     (when-let [clear-cache! (late-bind/get-fn :privacy/clear-suppression-cache!)]
       (try (clear-cache!)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; Per rf2-fcj33 / Spec 011 §Per-request frame teardown contract:
+    ;; clear the SSR side-channel atoms (pending-error-traces +
+    ;; request-slots) for the destroyed frame. Both live outside app-db
+    ;; for documented design reasons (the buffered-traces sidestep an
+    ;; app-db clobber race; the request slot keeps host-controlled
+    ;; data out of the hydration payload). Neither is otherwise cleared
+    ;; by destroy-frame's app-db / sub-cache teardown, so under SSR
+    ;; load each request would leak one entry in each atom. Late-bound
+    ;; through the hook table; no-op when re-frame.ssr is absent.
+    (when-let [ssr-cleanup! (late-bind/get-fn :ssr/on-frame-destroyed)]
+      (try (ssr-cleanup! id)
            (catch #?(:clj Throwable :cljs :default) _ nil)))
     (emit-frame-destroyed-trace! id)
     (dissoc-frame! id)
