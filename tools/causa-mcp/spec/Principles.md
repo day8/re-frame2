@@ -22,7 +22,7 @@ surfaces. It must not add:
 - New effect substrates.
 - New component substrates.
 
-The seventeen tools route through the existing
+The eighteen tools route through the existing
 **injected-runtime namespace** (`day8.re-frame2-causa.runtime`,
 which rides Causa-the-panel's preload — see
 [`000-Vision.md` §Two namespaces, two sides](./000-Vision.md#two-namespaces-two-sides))
@@ -67,7 +67,7 @@ The tie-breaker this principle hands implementers and reviewers:
   `day8.re-frame2-causa.*` root, because the runtime rides the
   panel's `:preloads`), lives in the panel's preload classpath,
   is the eval target of the MCP server's rendered forms.
-  Examples: per-frame state accessors backing the seventeen
+  Examples: per-frame state accessors backing the eighteen
   tools, the `current-origin` dynamic var, the `session-id`
   marker, hot-reload re-inject probes.
 
@@ -90,8 +90,10 @@ gate to avoid. Two roots, two locations, two roles. Reviewers
 catch the leak at the `:require` line; the spec catches it at
 the architecture line.
 
-The principle has zero impact on the seventeen-tool catalogue
-(per [`DESIGN-RATIONALE.md` Lock #5](./DESIGN-RATIONALE.md)) and
+The principle has zero impact on the eighteen-tool catalogue
+(per [`DESIGN-RATIONALE.md` Lock #5](./DESIGN-RATIONALE.md), as
+amended by [Lock #12](./DESIGN-RATIONALE.md) for the
+`subscription-info` parity entry) and
 zero impact on the MCP wire shape (per Locks #1–#3). It's a
 naming + layout rule that costs nothing at the spec level and
 saves a "wait, which side am I writing?" pause at every impl
@@ -202,9 +204,11 @@ Concretely:
   [`000-Vision.md` §Two namespaces, two sides](./000-Vision.md#two-namespaces-two-sides))
   is what lets the server reason about the runtime's absence
   without itself having a `runtime/session-id` to test.
-- The runtime contract is the shape of the seventeen tool
+- The runtime contract is the shape of the eighteen tool
   accessors `day8.re-frame2-causa.runtime` exposes, not a
-  specific framework version.
+  specific framework version. (`subscription-info` is the
+  eighteenth; pure-read over the in-memory subscriptions
+  registry — see [Lock #12](./DESIGN-RATIONALE.md).)
 
 A project that adopts a non-default build id, a custom nREPL
 port, or a slightly different shadow layout still gets a working
@@ -232,7 +236,7 @@ Same posture as pair2-mcp.
 
 ## Read-mostly catalogue; mutate via the in-panel-equivalent gates
 
-The seventeen tools split 9 read / 3 mutate / 2 stream / 1 escape
+The eighteen tools split 9 read / 3 mutate / 3 stream / 1 escape
 hatch / 2 meta. The mutating tools (`restore-epoch`,
 `reset-frame-db`, `dispatch`) mirror the in-panel right-click
 affordances the human user already has — Causa-MCP doesn't
@@ -254,13 +258,18 @@ entry.
 
 ## Closed-set tool catalogue, deliberate escape valve
 
-The catalogue is **closed-set on purpose**: seventeen named
-surfaces map to seventeen Causa panels. Adding tools is a
+The catalogue is **closed-set on purpose**: eighteen named
+surfaces — seventeen Causa-panel mappings plus
+`subscription-info`, the pure-read diagnostic over the
+in-memory subscriptions registry that mirrors pair2-mcp's
+surface for cross-server symmetry (Lock #12). Adding tools is a
 deliberate act (a `bd` bead, a discussion, a Lock entry in
 [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)). Drift is
 prevented by the discipline that every new tool maps to an
-existing Causa surface — the framework's instrumentation
-contract is the rate-limit.
+existing Causa surface OR to a cross-server-symmetric slot
+already shipped by a sibling MCP server — the framework's
+instrumentation contract and the cross-server-parity contract
+are the two rate-limits.
 
 The `eval-cljs` escape valve absorbs the long tail (per the
 section above). Refusing to ship an escape hatch would force

@@ -68,7 +68,7 @@ Causa-MCP additionally benefits from sharing the toolchain with
 pair2-mcp: forking the project layout (`deps.edn`,
 `shadow-cljs.edn`, `pilot/` smoke harness, runtime ns
 conventions) means the implementation cost is dominated by
-writing the seventeen-tool dispatcher rather than rebuilding the
+writing the eighteen-tool dispatcher rather than rebuilding the
 transport plumbing.
 
 ### Date locked
@@ -272,6 +272,13 @@ bands** (inspection / mutation / streaming / escape hatch / meta).
 The catalogue is closed-set; additions require a Lock entry
 here. `eval-cljs` is the deliberate escape valve.
 
+**Amended 2026-05-14 (rf2-3we2k).** [Lock #12](#lock-12--subscription-info-parity-with-pair2-mcp)
+adds `subscription-info` as the eighteenth tool, placed in band
+**Streaming** (so the band moves 2 → 3) for cross-server parity
+with pair2-mcp. The closed-set posture and the per-tool Lock-entry
+discipline this lock established are unchanged; Lock #12 is the
+audit trail for the addition.
+
 ### Question
 
 How many MCP tools does Causa-MCP expose, and which ones?
@@ -294,9 +301,11 @@ How many MCP tools does Causa-MCP expose, and which ones?
 
 ### Pick
 
-**Seventeen tools across five bands.** The catalogue is
-closed-set on purpose — additions are deliberate (a Lock entry
-here, a discussion). `eval-cljs` absorbs the long tail.
+**Seventeen tools across five bands** at original-lock time;
+**eighteen tools across five bands** after the 2026-05-14
+amendment (Lock #12). The catalogue is closed-set on purpose —
+additions are deliberate (a Lock entry here, a discussion).
+`eval-cljs` absorbs the long tail.
 
 ### Why
 
@@ -304,8 +313,13 @@ here, a discussion). `eval-cljs` absorbs the long tail.
   is "the cascade you can see"; Causa-MCP's pitch is "the
   cascade your agent can read." Seventeen tools map cleanly to
   seventeen Causa surfaces (9 read + 3 mutate + 2 stream + 1
-  escape hatch + 2 meta). The agent reading
-  `tools/list` sees a one-to-one map.
+  escape hatch + 2 meta). The eighteenth (`subscription-info`)
+  doesn't map to a panel — it maps to a *cross-server slot*
+  shipped by pair2-mcp's streaming surface, which Lock #12
+  promotes to first-class cross-server-symmetric parity.
+  Together: seventeen panel mappings + one cross-server parity
+  entry = eighteen tools. The agent reading
+  `tools/list` sees a near-one-to-one map plus the parity slot.
 - **Pair2-mcp's catalogue is editor-side; Causa's is
   debugger-side.** Mirroring pair2 wholesale would leave
   agents writing Chrome MCP `evaluate_script` blocks for
@@ -329,7 +343,9 @@ here, a discussion). `eval-cljs` absorbs the long tail.
 during Causa's
 [`010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 authoring on 2026-05-12; the lock entry below pins the
-cardinality and the closed-set policy.
+cardinality and the closed-set policy. Amended 2026-05-14 by
+[Lock #12](#lock-12--subscription-info-parity-with-pair2-mcp)
+to add `subscription-info` (eighteenth tool, band Streaming).
 
 ### Trail-of-thought citations
 
@@ -920,6 +936,166 @@ calculus as Locks #9 and #10.
 
 ---
 
+## Lock #12 — `subscription-info` parity with pair2-mcp
+
+**Locked 2026-05-14 (Mike).** **`subscription-info` is the
+eighteenth Causa-MCP tool, in band Streaming.** A pure-read
+diagnostic over the in-memory subscriptions registry; no queue
+drain; mirrors pair2-mcp's identically-named tool slot for
+cross-server symmetry. Lock #5's seventeen-across-five-bands
+shape is amended to eighteen-across-five-bands; band Streaming
+moves 2 → 3 tools (`subscribe`, `unsubscribe`,
+`subscription-info`).
+
+### Question
+
+Pair2-mcp ships **three** streaming tools (`subscribe`,
+`unsubscribe`, **`subscription-info`** — per
+[`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)).
+Causa-MCP's spec scaffold (Lock #5, 2026-05-12) describes
+**two** streaming tools (`subscribe`, `unsubscribe`) and is
+silent on the third. Either Causa-MCP genuinely lacks the
+`subscription-info` surface (a cross-server-parity hole) or it
+bundles the call into another tool (e.g. `subscribe` with a
+`:mode :info` arg) without saying so. Which?
+
+### Options considered
+
+- **Option A — eighteen tools, name the eighteenth.** Add
+  `subscription-info` as its own catalogue entry; place it in
+  band Streaming alongside `subscribe` / `unsubscribe` so the
+  band-grouping matches pair2-mcp's
+  [tools.cljs docstring](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)
+  catalogue. Streaming band goes 2 → 3; total goes 17 → 18.
+- **Option B — bundle into `subscribe`.** Add a `:mode :info`
+  arg to `subscribe`; when set, the call returns the
+  subscriptions registry view instead of opening a stream.
+  Catalogue stays at seventeen.
+- **Option C — leave the surface off causa-mcp.** Agents who
+  want the diagnostic write `eval-cljs
+  "(day8.re-frame2-causa.runtime/subscription-info)"`.
+  Catalogue stays at seventeen; the escape hatch absorbs the
+  divergence.
+
+### Pick
+
+**Option A — eighteen tools, name the eighteenth in band
+Streaming.**
+
+### Why
+
+- **Cross-server symmetry is load-bearing.**
+  [`Principles.md` §Privacy](./Principles.md) and §Tight token
+  budget both spell out the contract: "an agent that learns the
+  slot on one server gets the same slot on the others." A
+  diagnostic the agent learns to call on pair2-mcp must be
+  findable in `tools/list` on causa-mcp under the same name.
+  Option B (bundle into `subscribe`) hides the diagnostic behind
+  an arg that the agent has to know exists; Option C (leave to
+  `eval-cljs`) hides it behind a CLJS form the agent has to
+  hand-render. Both options break the discoverability contract
+  the symmetry posture rests on.
+- **`subscription-info` is a distinct op, not a mode of
+  `subscribe`.** `subscribe` opens a long-lived
+  `notifications/progress` stream; `subscription-info` is a
+  single pure-read snapshot over the in-memory subscriptions
+  registry. Conflating them muddles the semantics on the
+  pair2-mcp side
+  (`subscribe` returns a stream sub-id; `subscribe {:mode :info}`
+  would return a vector of entries — different return shapes for
+  the same tool name, the kind of polymorphism the closed-set
+  catalogue discipline exists to avoid). The pair2-mcp
+  implementer split them deliberately (rf2-zjz9q); causa-mcp
+  inherits the split, not the conflation.
+- **Streaming is the right band for the eighteenth.** The
+  diagnostic is *about* streams: its return shape lists per-sub
+  queue depth, drop counts, overflow reason — fields that exist
+  only because of streaming. Putting it next to `subscribe` and
+  `unsubscribe` matches pair2-mcp's grouping (per
+  [tools.cljs docstring](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)
+  catalogue table) so an agent navigating either server's
+  `tools/list` finds the three streaming tools side-by-side.
+  The alternative — placing it in Meta alongside `discover-app`
+  / `tail-build` — would group it with session-lifecycle tools,
+  which it isn't (it's per-stream diagnostic, not per-session).
+- **Eighteen is still inside the closed-set ceiling.** Lock #5's
+  closed-set discipline is *deliberate-additions-with-Lock-
+  entries*, not *seventeen-is-magical*. The
+  agent-confusion-as-cardinality-grows concern (Lock #5 §Why)
+  is real, but seventeen vs eighteen is one step — well inside
+  the "named tools an agent can hold in context" ceiling Lock #5
+  draws around the high teens.
+- **The eighteenth maps to a cross-server slot, not a Causa
+  panel.** Lock #5's one-tool-per-Causa-panel symmetry is
+  preserved: seventeen tools still map one-to-one to seventeen
+  Causa panels. The eighteenth is a cross-server-parity entry,
+  not a panel mapping — Lock #5 §Why is amended in-place to name
+  the distinction. Future additions follow the same shape: a
+  panel mapping OR a cross-server-symmetric slot already shipped
+  by a sibling MCP server; either way, a Lock entry here.
+- **`eval-cljs` as a fallback (Option C) is the wrong shape for
+  *diagnostic discoverability*.** The escape hatch is for the
+  long tail of one-off agent needs (Lock #5 §Why); putting a
+  recurrent cross-server-shared diagnostic behind it would be
+  exactly the "if a particular `eval-cljs` call becomes
+  recurrent, that's the signal to promote it" pattern Lock #5
+  describes — applied pre-impl by this lock.
+- **Implementation cost is near-zero.** `subscription-info`'s
+  pair2-mcp implementation
+  ([`tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscription_info.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools/subscription_info.cljs))
+  is 52 lines: a `cljs-eval` of
+  `(<runtime-ns>/subscription-info {:topic :sub-id})` with
+  Clojure-side predicate splicing. The causa-mcp port is the
+  same shape with `day8.re-frame2-causa.runtime/subscription-info`
+  as the eval target. The runtime-side accessor lives in
+  Causa-the-panel's preload classpath alongside the other
+  seventeen accessors (Lock #11) — adding it costs ~30 lines on
+  the runtime side and ~50 on the MCP-server side. The savings
+  in agent-side `eval-cljs` round-trips dwarf the addition cost
+  the first time an agent calls it.
+
+### Date locked
+
+2026-05-14 (Mike). Locked in rf2-3we2k, the spec decision the
+rf2-m9yoi audit surfaced (§A6: "Causa-MCP genuinely lacks the
+`subscription-info` surface (likely oversight); add it as the
+eighteenth tool, retaining 'eighteen' arithmetic and reframing
+the phantom 'Compatibility' band as Streaming (3 tools instead
+of 2)"). The rf2-22my5 count-of-things lift (PR #823) is the
+prior-art comparator: at that lock the count was 17 because
+this surface was missing; this lock fixes the gap by adding the
+eighteenth rather than letting the discoverability hole stand.
+
+### Trail-of-thought citations
+
+- pair2-mcp source layout:
+  [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscription_info.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools/subscription_info.cljs)
+  (the implementation Causa-MCP will port);
+  [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)
+  (the catalogue docstring that places it in the streaming
+  group);
+  [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs)
+  §`subscription-info` (the descriptor + input schema the
+  causa-mcp catalogue will mirror).
+- pair2-mcp lineage: **rf2-zjz9q** filed the original
+  `subscription-info` tool on pair2-mcp; **rf2-hq49** is the
+  streaming substrate it diagnoses against; **rf2-rvyzy** is the
+  token-budget lock the diagnostic helps an agent tune (queue
+  drop reasons help size `:max-buffered-events` /
+  `:max-buffered-bytes` for the next call).
+- Lock #5 (this doc) — the cardinality lock this lock amends.
+- Lock #11 (this doc) — the two-ns split that determines where
+  the runtime-side accessor lands
+  (`day8.re-frame2-causa.runtime`, rides the panel's preload).
+- rf2-m9yoi audit findings doc
+  (`ai/findings/refactor-audit-tools-causa-mcp-2026-05-14.md`
+  §A6) — the surface this lock answers.
+- rf2-22my5 (PR #823) — the count-of-things lift; this lock is
+  the "if the answer is 18: amend rf2-22my5" branch the audit
+  flagged.
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -928,15 +1104,16 @@ calculus as Locks #9 and #10.
 | 2 | Agent-host transport | **MCP over stdio** (inherited from pair2-mcp Lock #2) | 2026-05-12 |
 | 3 | Connection model | **Single persistent nREPL socket** (inherited from pair2-mcp Lock #3) | 2026-05-12 |
 | 4 | Origin tagging | **Default-on, opt-out per call — `:origin :causa-mcp`** | 2026-05-12 |
-| 5 | Tool catalogue | **Seventeen tools across five bands; closed-set + `eval-cljs` escape valve** | 2026-05-12 |
+| 5 | Tool catalogue | **Eighteen tools across five bands; closed-set + `eval-cljs` escape valve** (originally seventeen at 2026-05-12 lock time; amended 2026-05-14 by Lock #12 to add `subscription-info` for pair2-mcp parity, band Streaming 2 → 3) | 2026-05-12 (amended 2026-05-14) |
 | 6 | npm package coord | **`@day8/re-frame2-causa-mcp`** (shape `re-frame2-<tool>-mcp`; story-mcp matches; pair2-mcp's `re-frame-<tool>2-mcp` shape is a pre-rename divergence pinned 2026-05-14 by rf2-l7skx) | 2026-05-12 (amended 2026-05-14) |
 | 7 | Chrome DevTools MCP posture | **Co-install, stay in lane** | 2026-05-12 |
 | 8 | bencode pinning | **`bencode@~2.0.3`** (inherited from pair2-mcp Lock #5) | 2026-05-12 |
 | 9 | Wire-protocol budget posture | **Six mechanisms baked into spec before impl** (cap + slicing + pagination + lazy-summary + dedup + size-elision; mechanism #6 added by Lock #10) | 2026-05-13 |
 | 10 | Size-elision marker shape | **`:rf.size/large-elided` is the sixth mechanism; shape normative across MCP triplet; sensitive wins on composition** | 2026-05-13 |
 | 11 | Namespace split | **MCP-server-side at `day8.re-frame2-causa-mcp.*` (Node); injected-runtime-side at `day8.re-frame2-causa.runtime` (browser, rides Causa-the-panel's preload). Mirrors pair2-mcp's `re-frame-pair2-mcp.*` / `re-frame-pair2.runtime` split.** | 2026-05-14 |
+| 12 | `subscription-info` parity | **`subscription-info` is the eighteenth tool, band Streaming. Pure-read diagnostic over the in-memory subscriptions registry; mirrors pair2-mcp's identically-named slot for cross-server symmetry. Amends Lock #5.** | 2026-05-14 |
 
-These eleven locks define Causa-MCP's pre-implementation surface.
+These twelve locks define Causa-MCP's pre-implementation surface.
 They were extracted from
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 and [Causa's own DESIGN-RATIONALE](../../causa/spec/DESIGN-RATIONALE.md)
