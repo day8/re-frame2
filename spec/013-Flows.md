@@ -146,14 +146,16 @@ Flows form a static dependency graph derivable from their `:path` and `:inputs` 
 
 The runtime topologically sorts the registry by this dependency relation. The sort is **not memoised** in v1 — the per-frame flow map is tiny (a handful of nodes) and Kahn's algorithm over it is cheaper than the bookkeeping a memo would need. An earlier sketch carried a memoised topsort with explicit invalidation on every `reg-flow` / `clear-flow`; the memo was removed (per rf2-cd00) once measurement confirmed the unmemoised call is the cheapest correct option at the per-frame node counts v1 targets. Implementations that observe a real bottleneck in topsort cost MAY add a `core.memoize`-style cache keyed on the flow-registry identity, but the contract is just: deterministic order over the dependency graph each drain.
 
-**Cycle detection.** If A depends on B and B depends on A (any indirection), `reg-flow` throws `:rf.error/flow-cycle` at registration time with the cycle path in the error's `:tags`. The error fires before any snapshot is created — caught at registration, not at runtime.
+**Cycle detection.** If A depends on B and B depends on A (any indirection), `reg-flow` throws `:rf.error/flow-cycle` at registration time. The thrown `ex-info`'s `ex-data` carries `:cycle` — an ordered vector of flow ids with a **closing repeat** that names the offending chain (e.g. `[:a :b :a]` for the two-flow cycle `:a → :b → :a`). The error fires before any snapshot is created — caught at registration, not at runtime.
 
 ```clojure
 ;; This will throw at registration:
 (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
 (rf/reg-flow {:id :b :inputs [[:a]] :output identity :path [:b]})
-;; → :rf.error/flow-cycle {:cycle [:a :b :a]}
+;; → ex-info ":rf.error/flow-cycle" {:cycle [:a :b :a]}
 ```
+
+The closing repeat is the contract: tools rendering the cycle (e.g. Causa) display the path verbatim. For an n-flow cycle the `:cycle` vector has `(inc n)` elements, with `(first cycle) = (last cycle)`. The starting node is implementation-defined (deterministic but unspecified) — multiple cycles can yield any one of them as the reported chain.
 
 Cycles can also form *during* flow registration if the new flow completes a cycle that was incomplete before it was registered. The detection runs every `reg-flow` call.
 

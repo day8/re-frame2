@@ -138,6 +138,57 @@
     (is (not (contains? (get @flows/flows :rf/default) :b))
         "cycle-detection rolls back the partial registration of :b")))
 
+(deftest reg-flow-cycle-error-carries-ordered-cycle-path
+  ;; Regression for rf2-sny6o. The cycle-error ex-data contract
+  ;; (per Spec 013 §Cycle detection / Spec 009 §Error contract) is:
+  ;; `:cycle` is an ordered vector of flow ids with a closing repeat
+  ;; — e.g. `[:a :b :a]` for the cycle :a → :b → :a. Pre-fix the impl
+  ;; threw `(vec (keys @remaining))` (an unordered subset of stuck
+  ;; nodes) which was useless for tooling rendering the offending
+  ;; chain. This test pins the resolved shape.
+  (testing "two-flow cycle: :cycle is [start ... start], length 3"
+    (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
+    (let [ex (try
+               (rf/reg-flow {:id :b :inputs [[:a]] :output identity :path [:b]})
+               (catch Throwable t t))
+          data (ex-data ex)
+          cycle (:cycle data)]
+      (is (some? ex)        "registration threw")
+      (is (vector? cycle)   ":cycle is a vector")
+      (is (= 3 (count cycle))
+          "two-flow cycle has length 3 (n+1, including the closing repeat)")
+      (is (= (first cycle) (last cycle))
+          ":cycle closes on itself (first = last)")
+      (is (= #{:a :b} (set cycle))
+          ":cycle names both offending flow ids")
+      ;; Spec 013 example: {:cycle [:a :b :a]}. Either :a or :b may
+      ;; legally be the starting node (impl picks deterministically
+      ;; via sort-by hash; spec leaves the starting node
+      ;; implementation-defined) — assert one of the two valid
+      ;; closures.
+      (is (contains? #{[:a :b :a] [:b :a :b]} cycle)
+          "the cycle path is one of the two valid two-flow closures")))
+
+  (testing "three-flow cycle: :a → :b → :c → :a"
+    ;; Reset and build a longer chain. The reg-flow ordering matters
+    ;; because the cycle is detected on the registration that closes
+    ;; it — register :a, :b first (no cycle yet), then :c closes.
+    (reset! flows/flows {})
+    (reset! (deref (resolve 're-frame.flows/last-inputs)) {})
+    (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
+    (rf/reg-flow {:id :b :inputs [[:c]] :output identity :path [:b]})
+    (let [ex (try
+               (rf/reg-flow {:id :c :inputs [[:a]] :output identity :path [:c]})
+               (catch Throwable t t))
+          cycle (:cycle (ex-data ex))]
+      (is (some? ex) "three-flow cycle registration threw")
+      (is (= 4 (count cycle))
+          "three-flow cycle has length 4 (n+1)")
+      (is (= (first cycle) (last cycle))
+          ":cycle closes on itself")
+      (is (= #{:a :b :c} (set (butlast cycle)))
+          "all three offending ids appear in the path"))))
+
 (deftest reg-flow-replacement-that-introduces-cycle-preserves-prior-registration
   ;; Regression for rf2-7csri (bug) / rf2-cdh9h (this test). Pinned per
   ;; audit rf2-o3hok finding Exec#2 (TE2). The bug: `reg-flow`'s former
