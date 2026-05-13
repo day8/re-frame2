@@ -11,6 +11,13 @@
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]))
 
+;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
+;; The JVM-side `fnv-1a-32` uses `.getBytes` + an `aget` loop with
+;; primitive math; a reflection warning here would flag accidental
+;; boxing introduced by future refactors. CLJS has no reflection
+;; concept — the directive is JVM-only.
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn canonical-edn
   "Print a render-tree node in a stable order. Maps are sorted by key
   string; sequences keep order. Functions and var-references appear

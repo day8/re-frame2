@@ -114,6 +114,33 @@
         (when-let [fid (candidate-frame-for-error event)]
           (buffer-error-trace! fid event))))))
 
+(defn peek-response
+  "PURE read of the resolved response accumulator for a frame — does
+  NOT drain pending error projections. The internal
+  `:rf.server/_status-writes` / `:rf.server/_redirect-writes`
+  bookkeeping keys are stripped.
+
+  Use this from debug paths or midpoint inspections where draining the
+  projector buffer (the side-effect baked into `get-response`) would
+  consume a trace the host had not yet observed (audit rf2-asmj1 P5 /
+  cluster rf2-sljs1)."
+  [frame-id]
+  (-> (response/response-of frame-id)
+      (dissoc response/status-writes-key response/redirect-writes-key)))
+
+(defn flush-response!
+  "Drain any pending error projection for `frame-id` and return the
+  resolved response. Side-effecting — every call clears the projector
+  buffer; the first call after an error trace wins (last-write-wins,
+  mirroring `:rf.server/set-status`).
+
+  This is the read host adapters call once at drain settle-point.
+  `get-response` is preserved as the back-compat alias (audit
+  rf2-asmj1 P5 / cluster rf2-sljs1)."
+  [frame-id]
+  (apply-error-projection! frame-id)
+  (peek-response frame-id))
+
 (defn get-response
   "Read the resolved response accumulator for a frame. Public surface
   for host adapters that consume the accumulator after drain to build
@@ -123,11 +150,15 @@
   Flushes any pending error projections before reading so the
   response's `:status` reflects the active projector's output. Per
   Spec 011 §Server error projection — \"runtime sets `:rf.server/set-
-  status` to the public-error's :status\"."
+  status` to the public-error's :status\".
+
+  Note (audit rf2-asmj1 P5 / cluster rf2-sljs1): `get-response` is the
+  drain-then-read entry point — equivalent to `flush-response!`. The
+  pure read (no drain) is `peek-response`. Both new names exist so a
+  caller can opt into the side-effect explicitly; `get-response` is
+  preserved as the canonical host-adapter call."
   [frame-id]
-  (apply-error-projection! frame-id)
-  (-> (response/response-of frame-id)
-      (dissoc response/status-writes-key response/redirect-writes-key)))
+  (flush-response! frame-id))
 
 (defn clear-pending-error-traces!
   "Drop frame-id's entry from the pending-error-traces buffer.

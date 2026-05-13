@@ -21,6 +21,12 @@
   (:require [clojure.string :as str]
             [re-frame.ssr.html-helpers :as html]))
 
+;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
+;; The JVM-side `ld-json-string` is hand-rolled JSON emission; the
+;; directive flags any accidental boxing introduced by future refactors.
+;; CLJS has no reflection concept — the directive is JVM-only.
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- per-element emitters -------------------------------------------------
 
 (defn- emit-title [title]
@@ -34,20 +40,11 @@
   (str "<link" (html/attr-string m) ">"))
 
 (defn- emit-script-tag [m]
-  (let [{:keys [src async defer type integrity crossorigin nomodule]} m
-        attrs (cond-> {}
-                src         (assoc :src src)
-                type        (assoc :type type)
-                async       (assoc :async async)
-                defer       (assoc :defer defer)
-                integrity   (assoc :integrity integrity)
-                crossorigin (assoc :crossorigin crossorigin)
-                nomodule    (assoc :nomodule nomodule))]
-    (str "<script"
-         (html/attr-string (merge attrs
-                                  (dissoc m :src :async :defer :type
-                                          :integrity :crossorigin :nomodule)))
-         "></script>")))
+  ;; `attr-string` already iterates the whole map in declaration order —
+  ;; the historical pull-known-keys-then-merge-remainder dance was a
+  ;; no-op that obscured the contract. Per audit rf2-asmj1 H2 / cluster
+  ;; rf2-sljs1: pass `m` straight through.
+  (str "<script" (html/attr-string m) "></script>"))
 
 (defn- ld-json-string
   "Serialise a JSON-LD object map to its `<script type=\"application/ld+json\">`
@@ -96,6 +93,17 @@
 
 ;; ---- head-model->html -----------------------------------------------------
 
+;; Canonical emission order per Spec 011 §Default flow step 4:
+;; <title> → <meta> → <link> → <script> → JSON-LD. Encoded as a vector
+;; of `[model-key emit-fn]` pairs so the canonical ordering reads as
+;; data, not as a six-arm `cond->` (audit rf2-asmj1 H4 / cluster
+;; rf2-sljs1).
+(def ^:private emission-order
+  [[:meta    emit-meta-tag]
+   [:link    emit-link-tag]
+   [:script  emit-script-tag]
+   [:json-ld emit-json-ld]])
+
 (defn head-model->html
   "Render a `:rf/head-model` map to its inner-head HTML fragment in
   canonical order — `<title>`, `<meta>` (declaration order), `<link>`,
@@ -110,23 +118,16 @@
   Per Spec 011 §Default flow step 4."
   ([head-model] (head-model->html head-model {}))
   ([head-model {:keys [wrap?]}]
-   (let [{:keys [title meta link script json-ld]} head-model
-         parts (cond-> []
-                 (and title (not= "" title))
-                 (conj (emit-title title))
-
-                 (seq meta)
-                 (into (map emit-meta-tag) meta)
-
-                 (seq link)
-                 (into (map emit-link-tag) link)
-
-                 (seq script)
-                 (into (map emit-script-tag) script)
-
-                 (seq json-ld)
-                 (into (map emit-json-ld) json-ld))
-         inner (apply str parts)]
+   (let [title-part (when-let [t (:title head-model)]
+                      (emit-title t))
+         collection-parts
+         (apply str
+                (for [[k tag-fn] emission-order
+                      :let       [coll (get head-model k)]
+                      :when      (seq coll)
+                      item       coll]
+                  (tag-fn item)))
+         inner (str title-part collection-parts)]
      (if wrap?
        (str "<head>" inner "</head>")
        inner))))

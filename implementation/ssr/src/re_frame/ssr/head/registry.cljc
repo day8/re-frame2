@@ -101,12 +101,16 @@
   "The fallback head-model used when the active route does not declare
   `:head` (or there is no active route). Per Spec 011 §Default head.
 
-  Pulls `:title` from the frame's `:doc` if set, otherwise empty."
+  Always carries `:title` — defaulting to `\"\"` when the frame has no
+  `:doc`. Empty-title and missing-title both emit no `<title>` tag (the
+  emitter elides empty strings), but a programmatic consumer reading
+  the model sees a stable key shape (audit rf2-asmj1 H5 / cluster
+  rf2-sljs1)."
   [frame-id]
   (let [doc (when frame-id (:doc (frame/frame-meta frame-id)))]
-    (cond-> {:meta [{:charset "utf-8"}
-                    {:name "viewport" :content "width=device-width, initial-scale=1"}]}
-      (and doc (not= "" doc)) (assoc :title doc))))
+    {:title (or doc "")
+     :meta  [{:charset "utf-8"}
+             {:name "viewport" :content "width=device-width, initial-scale=1"}]}))
 
 ;; ---- render-head ----------------------------------------------------------
 
@@ -122,7 +126,9 @@
   "Apply the head fn registered under `head-id` against a frame's
   app-db and active route, returning the produced `:rf/head-model`.
 
-  Two opt shapes are accepted:
+  Two arities mirror the two documented call shapes — explicit per
+  audit rf2-asmj1 H7 / cluster rf2-sljs1 so the `defn` line matches the
+  docstring rather than dispatching on `(keyword? opts)` inline:
 
     (render-head head-id frame-id)
     (render-head head-id {:frame frame-id :route route})
@@ -134,11 +140,12 @@
 
   Raises `:rf.error/no-such-head` when `head-id` is not registered.
   Per Spec 011 §`render-head`."
-  ([head-id opts]
-   (let [opts'    (if (keyword? opts) {:frame opts} opts)
-         frame-id (:frame opts')
-         route    (if (contains? opts' :route)
-                    (:route opts')
+  ([head-id frame-id]
+   (render-head head-id {:frame frame-id}))
+  ([head-id {:keys [frame route] :as opts}]
+   (let [frame-id frame
+         route    (if (contains? opts :route)
+                    route
                     (frame-route frame-id))
          meta     (registrar/lookup :head head-id)]
      (when-not meta
@@ -157,7 +164,13 @@
 (defn- route-head-id
   "Read the `:head` route-metadata key for the route-id named in the
   active `:rf/route` slice. Returns nil when there's no active route,
-  no route registration, or no `:head` declared on the route."
+  no route registration, or no `:head` declared on the route.
+
+  Contract — the slice's `(:id route)` IS the canonical registrar key
+  under the `:route` kind. If the runtime ever introduces an indirection
+  between the slice id and the registry key (route aliases, versioned
+  routes, ...), this fn breaks and must learn the new mapping (audit
+  rf2-asmj1 H6 / cluster rf2-sljs1)."
   [route]
   (when-let [route-id (:id route)]
     (when-let [route-meta (registrar/lookup :route route-id)]

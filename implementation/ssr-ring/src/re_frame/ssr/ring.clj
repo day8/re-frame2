@@ -108,11 +108,18 @@
                                              extension is additive."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.ssr :as ssr])
+            [re-frame.ssr :as ssr]
+            [re-frame.trace :as trace])
   (:import [java.net URLEncoder]
            [java.nio.charset StandardCharsets]
            [java.time Instant ZoneOffset ZonedDateTime]
            [java.time.format DateTimeFormatter]))
+
+;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
+;; The JVM-side `Instant/ofEpochMilli` in `cookie->set-cookie-header`
+;; has a primitive-long contract; surfacing reflection at compile time
+;; flags accidentally-Long-boxed args before they NPE in production.
+(set! *warn-on-reflection* true)
 
 ;; ---- cookie serialisation (RFC 6265) -------------------------------------
 ;;
@@ -161,6 +168,18 @@
     (throw (ex-info ":rf.error/cookie-missing-name"
                     {:reason "cookie map must carry :name"
                      :cookie cookie})))
+  ;; Per audit rf2-asmj1 R7 / cluster rf2-sljs1: `Instant/ofEpochMilli`
+  ;; takes a primitive long; passing anything else (a string-shaped
+  ;; epoch from a misconfigured projector, a `java.util.Date`, …) would
+  ;; NPE deep inside the format path. Catch the type-mismatch up front
+  ;; with a clear `:rf.error/cookie-invalid-expires` so the misuse
+  ;; surfaces with the cookie's actual shape attached.
+  (when (and (some? expires) (not (integer? expires)))
+    (throw (ex-info ":rf.error/cookie-invalid-expires"
+                    {:reason   (str ":expires must be an epoch-millis long; got " (.getName (class expires)))
+                     :expires  expires
+                     :cookie   cookie
+                     :recovery :no-recovery})))
   (let [parts (cond-> [(str (clojure.core/name name)
                             "="
                             (url-encode (or value "")))]
@@ -174,7 +193,12 @@
                 (conj (str "Expires="
                            (.format rfc1123-formatter
                                     (ZonedDateTime/ofInstant
-                                      (Instant/ofEpochMilli expires)
+                                      ;; `expires` was type-checked above
+                                      ;; (`integer?`); coerce to a
+                                      ;; primitive long so the static-
+                                      ;; method dispatch picks the long
+                                      ;; arity without reflection.
+                                      (Instant/ofEpochMilli (long expires))
                                       ZoneOffset/UTC))))
                 (true? secure)    (conj "Secure")
                 (true? http-only) (conj "HttpOnly")
@@ -190,17 +214,33 @@
 ;; pairs into vectors so multi-valued headers (Set-Cookie, Vary,
 ;; Link, ...) round-trip correctly.
 
-(defn- merge-pair-into-header-map [m [k v]]
+(defn- merge-pair-into-header-map
+  "Fold a `[name value]` header pair into the accumulating Ring headers
+  map. The accumulator only ever carries `nil`, `string`, or `vector`
+  values per the contract upstream — no other shapes flow in — so the
+  three arms here are exhaustive (audit rf2-asmj1 R8 / cluster
+  rf2-sljs1: the prior `:else` arm was dead)."
+  [m [k v]]
   (let [existing (get m k)]
     (cond
       (nil? existing)        (assoc m k v)
       (string? existing)     (assoc m k [existing v])
-      (vector? existing)     (assoc m k (conj existing v))
-      :else                  (assoc m k [existing v]))))
+      (vector? existing)     (assoc m k (conj existing v)))))
 
 (defn- headers->ring-map
   "Collapse an ordered vec-of-[name value] pairs into Ring's
-  `{name string-or-vec}` shape, preserving the multi-valued case."
+  `{name string-or-vec}` shape, preserving the multi-valued case.
+
+  Ordering note (audit rf2-asmj1 R9 / cluster rf2-sljs1) — the
+  PER-NAME ordering of multi-valued headers (e.g. multiple `Set-Cookie`
+  entries) is preserved by `merge-pair-into-header-map`'s `conj` onto
+  the existing vector. The ACROSS-NAME ordering (the iteration order
+  Ring's downstream wire-writer sees when it walks the map's keys) is
+  the JDK's HAMT iteration order — stable per Clojure's persistent-map
+  contract but not first-seen-pair order. Ring servers don't promise
+  cross-name header order on the wire either; debug logs that compare
+  serialised output across requests should sort the keys before
+  diffing."
   [pairs]
   (reduce merge-pair-into-header-map {} pairs))
 
@@ -263,7 +303,15 @@
     payload-edn — the hydration payload, pre-serialised with pr-str
     opts — the caller's adapter opts (merged with any per-request
            overrides); standard keys :head / :body-end / :script-src /
-           :app-element-id / :lang influence the envelope."
+           :app-element-id / :lang influence the envelope.
+
+  Safety — `:body-end` is concatenated as RAW HTML; no escaping is
+  applied. The shell is caller-controlled config (app boot decides what
+  scripts/analytics tags to inject), so the trust-the-caller model is
+  load-bearing here. Hosts that route user-controlled content through
+  `:body-end` (e.g. config-driven analytics blocks sourced from a
+  customer settings UI) MUST escape upstream — the shell will not.
+  Audit rf2-asmj1 R12 / cluster rf2-sljs1."
   [body-html payload-edn
    {:keys [head body-end script-src app-element-id lang]
     :or   {app-element-id  "app"
@@ -310,12 +358,25 @@
 
 (defn- destroy-frame-quietly!
   "Best-effort frame teardown. Exceptions during destroy must not mask
-  a real handler error; swallow + log to the trace stream is preferred
-  over propagation."
+  a real handler error; swallow + emit a `:warning` trace is preferred
+  over propagation.
+
+  Per audit rf2-asmj1 R6 / cluster rf2-sljs1: prior to this change the
+  catch silently returned nil, so a destroy-time throw vanished entirely
+  whenever the trace listener fired before the destroy. Surfacing the
+  throwable on the trace bus keeps the error visible to dev tooling
+  without escalating to a user-visible 500 (the handler-side error has
+  already been materialised by the time this fn runs)."
   [frame-id]
   (try
     (rf/destroy-frame frame-id)
-    (catch Throwable _ nil)))
+    (catch Throwable t
+      (trace/emit! :warning :rf.ssr/destroy-frame-failed
+                   {:frame    frame-id
+                    :reason   (or (.getMessage t) (.getName (class t)))
+                    :ex-class (.getName (class t))
+                    :recovery :warned-and-skipped})
+      nil)))
 
 (defn- resolve-root-view
   "Resolve the caller's `:root-view` opt to a hiccup vector. Accepts
@@ -375,17 +436,36 @@
   "Minimal 500 response used when the caller doesn't supply `:on-error`.
   The SSR runtime's error projector handles trace-emitted errors
   during drain; this hook covers exceptions the projector can't see
-  (Ring-layer throws, render-time CLJ exceptions)."
+  (Ring-layer throws, render-time CLJ exceptions).
+
+  Falls back to the exception's class name when `getMessage` returns
+  nil (some throwable types throw `null` from `.getMessage`) so the
+  body never renders as `\"SSR error: null\"` on the wire — audit
+  rf2-asmj1 R5 / cluster rf2-sljs1."
   [_request ^Throwable t]
   {:status  500
    :headers {"Content-Type" "text/plain; charset=utf-8"}
-   :body    (str "SSR error: " (.getMessage t))})
+   :body    (str "SSR error: " (or (.getMessage t) (.getName (class t))))})
 
 (def ^:private handler-defaults
   {:emit-hash?   true
    :html-shell   default-html-shell
    :content-type "text/html; charset=utf-8"
    :on-error     default-on-error})
+
+(defn- validate-handler-opts!
+  "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
+  caller omits a required `ssr-handler` opt. Extracted from the
+  handler body per audit rf2-asmj1 R3 / cluster rf2-sljs1 so the body
+  of `ssr-handler` reads as the lifecycle wiring rather than a
+  validation-then-wire two-step."
+  [{:keys [on-create root-view]}]
+  (when-not on-create
+    (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
+                    {:reason "ssr-handler requires :on-create (an event vector)"})))
+  (when-not root-view
+    (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
+                    {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"}))))
 
 ;; ---- request lifecycle pipeline ------------------------------------------
 ;;
@@ -566,13 +646,8 @@
                              :root-view [:app/root]
                              :html-shell ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
-  [{:keys [on-create root-view] :as raw-opts}]
-  (when-not on-create
-    (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
-                    {:reason "ssr-handler requires :on-create (an event vector)"})))
-  (when-not root-view
-    (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
-                    {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"})))
+  [raw-opts]
+  (validate-handler-opts! raw-opts)
   ;; Merge defaults once at construction time so the pipeline helpers
   ;; (`setup-request-frame!`, `build-full-response`) can destructure
   ;; without re-stating the `:or` map. Caller-supplied values win.
