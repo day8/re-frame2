@@ -40,6 +40,9 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
+            ;; ── subscriptions panel begin ──
+            [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
+            ;; ── subscriptions panel end ──
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
 
@@ -73,7 +76,9 @@
    {:id :time-travel  :label "Time travel"  :bead "rf2-t53ze" :live? true}
    {:id :app-db       :label "App-db"        :bead "rf2-xxx"}
    {:id :causality    :label "Causality"     :bead "rf2-4rqs1" :live? true}
-   {:id :subs         :label "Subscriptions" :bead "rf2-xxx"}
+   ;; ── subscriptions panel begin ──
+   {:id :subs         :label "Subscriptions" :bead "rf2-x0f5v" :live? true}
+   ;; ── subscriptions panel end ──
    {:id :fx           :label "Effects"       :bead "rf2-xxx"}
    {:id :trace        :label "Trace"         :bead "rf2-xxx"}
    {:id :machines     :label "Machines"      :bead "rf2-xxx"}
@@ -213,6 +218,9 @@
       :event-detail [event-detail/event-detail-view]
       :time-travel  [time-travel/time-travel-view]
       :causality    [causality-graph/causality-graph-view]
+      ;; ── subscriptions panel begin ──
+      :subs         [subscriptions/subscriptions-view]
+      ;; ── subscriptions panel end ──
       [stub-panel (or item {:label "Unknown panel"
                             :bead  "rf2-xxx"})])))
 
