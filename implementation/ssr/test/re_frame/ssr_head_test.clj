@@ -258,6 +258,26 @@
       (is (str/includes? html "\"@type\":\"Article\""))
       (is (str/includes? html "\"headline\":\"Hello\"")))))
 
+(deftest head-model->html-json-ld-preserves-keyword-namespaces
+  (testing "rf2-a50nz — keyword map keys retain their namespace when
+            serialised; the printer's key and value handling are symmetric.
+            A user supplying `{:my.app/key \"value\"}` must see
+            `\"my.app/key\":\"value\"` in the rendered JSON-LD."
+    (let [html (rf/head-model->html
+                 {:json-ld [{:my.app/key "value"
+                             :unqualified "v2"}]})]
+      (is (str/includes? html "\"my.app/key\":\"value\"")
+          "namespaced keyword key preserves its namespace")
+      (is (str/includes? html "\"unqualified\":\"v2\"")
+          "unqualified keyword key still serialises as a bare name"))
+    (testing "keyword values continue to preserve namespace (regression
+              guard against accidental asymmetry resurfacing)"
+      (let [html (rf/head-model->html
+                   {:json-ld [{"@type" :schema/Article
+                               :my.app/headline :my.app/hello}]})]
+        (is (str/includes? html "\"@type\":\"schema/Article\""))
+        (is (str/includes? html "\"my.app/headline\":\"my.app/hello\""))))))
+
 (deftest head-model->html-empty-model
   (testing "an empty / minimal model emits nothing (no orphan tags)"
     (is (= "" (rf/head-model->html {})))
