@@ -30,14 +30,14 @@
   - `:rf.assert/dispatched?`   — was a given event dispatched?
 
   We register a per-frame trace listener at the start of the play
-  sequence that:
+  sequence that, via the assertion module's `trace-accumulators` atom:
 
   - records `:warning` and `:error` `:op-type` events into the
-    assertion module's `warnings-accumulator`,
-  - records every `:event/dispatched` event vector into
-    `dispatched-events-accumulator`,
+    frame's `:warnings` slot,
+  - records every `:event/dispatched` event vector into the
+    frame's `:dispatched` slot,
   - records every fx call (operations under `:event/do-fx` /
-    `:fx` op-type) into `emitted-fx-accumulator`.
+    `:fx` op-type) into the frame's `:emitted-fx` slot.
 
   The accumulators clear at play-start and live until frame teardown
   (per `assertions/drop-trace-accumulators!`).

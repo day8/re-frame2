@@ -42,9 +42,7 @@
   (loaders/clear-watchers!)
   (config/set-global-args! {})
   ;; Clear per-frame assertion accumulators between tests.
-  (reset! assertions/warnings-accumulator          {})
-  (reset! assertions/emitted-fx-accumulator        {})
-  (reset! assertions/dispatched-events-accumulator {})
+  (reset! assertions/trace-accumulators {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (test-fn))
