@@ -138,17 +138,66 @@ Fire a re-frame2 event tagged with `:origin :pair`. Three modes:
 
 **Returns**: the runtime's response, merged with `:mode`.
 
+## Universal: cursor pagination on epoch slices
+
+The two tools that ship unbounded epoch vectors — `trace-window` and
+`watch-epochs` — accept `:limit` (int, default 50) and `:cursor`
+(opaque string). Pages over a stale ring surface as a structured
+error rather than silently restarting (see
+[`Principles.md` §Pagination](Principles.md#per-tool-budget-discipline)).
+
+```clojure
+{:ok?                 true
+ :limit               50              ; the cap that bounded this page
+ :count               50              ; items in this page
+ :epochs              [...]           ; the page itself
+ :has-more?           true|false
+ :estimated-remaining N                ; remaining matches in current ring
+ :next-cursor         "<base64-edn>" | nil}
+```
+
+The cursor is opaque on the wire — agents pass `:next-cursor` back as
+`:cursor` on the next call. Default `:limit` (50) is sized to fit the
+5K-token wire-cap after diff-encode (rf2-1wdzp) and dedup (rf2-obpa9).
+The cursor's payload (base64-encoded EDN; subject to change behind the
+opaque boundary) carries the last-emitted epoch-id plus sticky window
+fields (`:ms`, `:until-ms`, `:frame`) so subsequent pages see the same
+window the first call did — fresh epochs landing during pagination
+don't sneak in mid-iteration.
+
+### Cursor staleness
+
+The runtime's epoch ring is bounded. If the cursor's epoch-id has
+rotated out between calls (or the cursor is malformed), the response
+is:
+
+```clojure
+{:ok?          false
+ :reason       :rf.mcp/cursor-stale
+ :tool         "trace-window" | "watch-epochs"
+ :requested-id <id>
+ :head-id      <current-head>
+ :hint         "..."}
+```
+
+Agents pattern-match on `:reason :rf.mcp/cursor-stale` and either drop
+the cursor and restart, or widen the window (`watch-epochs` accepts a
+larger pred filter; `trace-window` accepts a larger `ms`).
+
 ## trace-window
 
 Return `:rf/epoch-record`s that landed in the last N ms for the
 operating frame.
 
-**Args**: `ms` (integer, default 1000), `frame` (string),
-`epochs-mode` (string — `"diff"` (default) or `"full"`, see §Diff-encoded
-`:db-after` below), `dedup` (boolean, default `true` — see §Structural
-dedup at the top of this catalogue), `build` (string).
+**Args**: `ms` (integer, default 1000 — sticky across cursor pagination,
+encoded in the cursor on the first call), `frame` (string),
+`limit` (int, default 50 — see §Cursor pagination above),
+`cursor` (string, opaque continuation token — see §Cursor pagination
+above), `epochs-mode` (string — `"diff"` (default) or `"full"`, see
+§Diff-encoded `:db-after` below), `dedup` (boolean, default `true` —
+see §Structural dedup at the top of this catalogue), `build` (string).
 
-**Returns**: `{:ok? true :window-ms N :count K :epochs-mode :diff|:full :epochs [...]}`.
+**Returns**: `{:ok? true :window-ms N :until-ms T :count K :limit L :epochs-mode :diff|:full :epochs [...] :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
 
 ### Diff-encoded `:db-after` (rf2-1wdzp)
 
@@ -183,16 +232,18 @@ This is the MCP equivalent of the bash `watch-epochs.sh` script's
 poll loop — but MCP isn't streaming, so callers that want a tight
 loop should call us repeatedly with the same `since-id`.
 
-**Args**: `since-id` (string, optional — omit to start fresh),
-`pred` (object, optional predicate filter, keys from:
-`:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`,
-`:sub-ran`, `:render`, `:origin`, `:frame`), `frame`,
+**Args**: `since-id` (string, optional — omit to start fresh; supplanted
+by `cursor` when both are supplied), `pred` (object, optional predicate
+filter, keys from: `:event-id`, `:event-id-prefix`, `:effects`,
+`:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`), `frame`,
+`limit` (int, default 50 — see §Cursor pagination above), `cursor`
+(string, opaque continuation token — see §Cursor pagination above),
 `epochs-mode` (string — `"diff"` (default) or `"full"`, see
 `trace-window` §Diff-encoded `:db-after`), `dedup` (boolean,
 default `true` — see §Structural dedup at the top of this
 catalogue), `build`.
 
-**Returns**: `{:ok? true :matches [...] :head-id "..." :id-aged-out? bool :epochs-mode :diff|:full}`.
+**Returns**: `{:ok? true :matches [...] :limit L :count K :head-id "..." :id-aged-out? bool :epochs-mode :diff|:full :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
 
 Each match has its `:db-after` diff-encoded against its own
 `:db-before` by default (rf2-1wdzp); pass `epochs-mode "full"` for

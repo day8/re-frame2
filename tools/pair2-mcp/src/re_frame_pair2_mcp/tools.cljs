@@ -738,6 +738,133 @@
       [kept n])))
 
 ;; ---------------------------------------------------------------------------
+;; Cursor pagination on epoch-shipping tools (rf2-kbqq3).
+;;
+;; `trace-window` and `watch-epochs` both surface unbounded epoch
+;; vectors. With default ring depth 50 and ~2× app-db per record (or ~1%
+;; that, post-rf2-1wdzp diff-encode), a single call can blow the 5K
+;; wire-cap (rf2-rvyzy). Lazy-summary (rf2-u2029) trims `snapshot` for
+;; discovery; here the agent explicitly asked for the records — the
+;; right answer is to PAGE the slice, not to collapse it.
+;;
+;; ## Mechanism
+;;
+;; Both tools accept `:limit` (int, default 50 — sized to fit the cap
+;; after diff-encode + dedup) and `:cursor` (opaque string). The
+;; response carries:
+;;
+;;   {:items [...]                                ; capped at :limit
+;;    :next-cursor "<base64>"                     ; nil when no more
+;;    :has-more? true|false
+;;    :estimated-remaining N}
+;;
+;; The opaque cursor is `pr-str`+base64 of a small EDN map. Encoding is
+;; an implementation detail — agents pass it back verbatim. The shape
+;; (today; subject to change behind the opaque boundary) is:
+;;
+;;   {:v 1
+;;    :after-id <epoch-id-string>     ; the last epoch-id we emitted
+;;    :ms <int-or-nil>                 ; trace-window's :ms arg (sticky)
+;;    :until-ms <int-or-nil>           ; first-call clock; bounds the
+;;                                     ; window so trace-window doesn't
+;;                                     ; admit fresh epochs mid-page
+;;    :frame <keyword-or-nil>}
+;;
+;; ## Cursor staleness
+;;
+;; The runtime's epoch ring (depth 50 by default) is a bounded buffer.
+;; If a cursor's `:after-id` no longer exists in the ring (because
+;; enough epochs landed between calls that the buffer rotated past it),
+;; the server returns a structured error rather than silently restarting
+;; or shipping an out-of-order batch:
+;;
+;;   {:ok? false
+;;    :reason :rf.mcp/cursor-stale
+;;    :requested-id <id>
+;;    :head-id <current-head>
+;;    :hint "..."}
+;;
+;; The runtime already surfaces `:id-aged-out? true` from
+;; `epochs-since` when the cursor's id can't be found — we lift that
+;; signal to a top-level error.
+;;
+;; ## Why opaque
+;;
+;; Per `spec/Principles.md` §Pagination, cursors are opaque on the
+;; wire. The agent has no business decoding the format; it MUST pass
+;; the value back verbatim. The base64 + EDN-inside choice gives us
+;; room to evolve the cursor shape (add fields, switch keys) without
+;; a wire-protocol break.
+;; ---------------------------------------------------------------------------
+
+(def ^:private default-limit
+  ;; Sized to fit a 5K-token cap after diff-encode (rf2-1wdzp) and
+  ;; dedup (rf2-obpa9). With diff-encode collapsing `:db-after` to ~1%
+  ;; of `:db-before` and dedup pooling repeated `:db-before` references,
+  ;; 50 epochs fit comfortably under 5K tokens for typical app-db sizes.
+  ;; Agents that have explicit budget headroom raise via `:limit` arg.
+  50)
+
+(defn- parse-limit-arg
+  "Normalise the `:limit` MCP arg into a positive integer. Accepts ints
+  (passed through), strings (parsed), or nil (default 50). Non-positive
+  values clamp to 1; non-numeric falls back to default. The cap is a
+  guarantee — the response will never contain more than `limit` items."
+  [raw]
+  (cond
+    (or (nil? raw) (undefined? raw)) default-limit
+    (number? raw) (max 1 (long raw))
+    (string? raw) (let [n (js/parseInt raw 10)]
+                    (if (and (number? n) (not (js/isNaN n)))
+                      (max 1 (long n))
+                      default-limit))
+    :else default-limit))
+
+(defn- encode-cursor
+  "Encode a cursor payload as a base64 string. Returns nil on a nil/empty
+  payload — pagination is over."
+  [payload]
+  (when (and (map? payload) (some? (:after-id payload)))
+    (let [edn (pr-str payload)
+          buf (js/Buffer.from edn "utf8")]
+      (.toString buf "base64"))))
+
+(defn- decode-cursor
+  "Decode a base64 cursor back to its EDN payload. Returns nil if the
+  cursor is absent; returns `::malformed` if the cursor exists but
+  doesn't decode to a valid payload map. Callers translate `::malformed`
+  into the same `:rf.mcp/cursor-stale` error as a runtime age-out — a
+  cursor that doesn't decode is, in effect, stale."
+  [s]
+  (cond
+    (or (nil? s) (undefined? s)) nil
+    (not (string? s)) ::malformed
+    (str/blank? s)    nil
+    :else
+    (try
+      (let [buf (js/Buffer.from s "base64")
+            edn (.toString buf "utf8")
+            v   (cljs.reader/read-string edn)]
+        (if (and (map? v) (string? (:after-id v)))
+          v
+          ::malformed))
+      (catch :default _ ::malformed))))
+
+(defn- cursor-stale-result
+  "Structured `:rf.mcp/cursor-stale` error result. Agents pattern-match
+  on `:reason :rf.mcp/cursor-stale` and either restart (drop the
+  cursor) or rewind via a wider window."
+  [tool {:keys [requested-id head-id]}]
+  (err-text (cond-> {:ok? false
+                     :reason :rf.mcp/cursor-stale
+                     :tool   tool
+                     :hint   (str "Cursor's epoch-id is no longer in the runtime ring. "
+                                  "Drop the cursor and restart, or widen the window "
+                                  "to recover the missed records.")}
+              requested-id (assoc :requested-id requested-id)
+              head-id      (assoc :head-id head-id))))
+
+;; ---------------------------------------------------------------------------
 ;; Tool: discover-app — verify the stack and probe the preloaded runtime.
 ;; ---------------------------------------------------------------------------
 
@@ -837,6 +964,12 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: trace-window — epochs in the last N ms.
+;;
+;; Cursor pagination (rf2-kbqq3): the response is bounded at `:limit`
+;; items (default 50). When more remain, `:next-cursor` is non-nil.
+;; The cursor encodes a sticky `:until-ms` so subsequent pages see
+;; the same window the first call did — fresh epochs landing during
+;; pagination don't sneak in mid-iteration.
 ;; ---------------------------------------------------------------------------
 
 (defn- trace-window-tool [conn args]
@@ -846,23 +979,80 @@
         incl?     (include-sensitive? args)
         mode      (parse-epochs-mode (arg args :epochs-mode))
         dedup?    (parse-dedup-arg (arg args :dedup))
-        form      (if frame
-                    (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms " " (pr-str frame) ")")
-                    (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms ")"))]
-    (-> (ensure-runtime! conn build-id)
-        (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-        (.then (fn [epochs]
-                 (let [[kept dropped] (strip-sensitive (vec epochs) incl?)
-                       encoded         (diff-encode-epochs kept mode)
-                       deduped         (dedup-value encoded dedup?)]
-                   (ok-text (cond-> {:ok? true
-                                     :window-ms ms
-                                     :count (count encoded)
-                                     :epochs-mode mode
-                                     :dedup dedup?
-                                     :epochs deduped}
-                              (pos? dropped) (assoc :dropped-sensitive dropped))))))
-        (.catch (fn [err] (err->result :trace-failed err))))))
+        limit     (parse-limit-arg (arg args :limit))
+        cursor-in (decode-cursor (arg args :cursor))]
+    (if (= cursor-in ::malformed)
+      (js/Promise.resolve
+        (cursor-stale-result "trace-window" {:requested-id nil}))
+      (let [after-id  (:after-id cursor-in)
+            ;; Sticky window upper-bound: encoded on the first call so
+            ;; subsequent pages see the SAME window the first call did.
+            until-ms  (or (:until-ms cursor-in) (js/Date.now))
+            ;; Sticky ms — agent's first-call value drives all pages.
+            window-ms (or (:ms cursor-in) ms)
+            cutoff-ms (- until-ms window-ms)
+            sticky-frame (or (:frame cursor-in) frame)
+            frame-form (when sticky-frame (str " " (pr-str sticky-frame)))
+            ;; Server-side slice: pull the history, drop up-to-cursor,
+            ;; filter to the window, take `limit`. The runtime ships
+            ;; only what the page needs — not the whole history.
+            form (str "(let [hist (vec (re-frame-pair2.runtime/epoch-history"
+                      (or frame-form "") "))"
+                      " after-id " (pr-str after-id)
+                      " aged-out? (and after-id (not-any? #(= after-id (:epoch-id %)) hist))"
+                      " sliced (if aged-out? []"
+                      "          (if after-id"
+                      "            (vec (rest (drop-while #(not= after-id (:epoch-id %)) hist)))"
+                      "            hist))"
+                      " filtered (filterv #(and (>= (or (:committed-at %) 0) " cutoff-ms ")"
+                      "                         (<= (or (:committed-at %) 0) " until-ms "))"
+                      "                   sliced)"
+                      " page (vec (take " limit " filtered))"
+                      " next-id (when (< (count page) (count filtered))"
+                      "           (:epoch-id (last page)))]"
+                      " {:epochs page"
+                      "  :id-aged-out? aged-out?"
+                      "  :requested-id after-id"
+                      "  :head-id (some-> hist peek :epoch-id)"
+                      "  :next-id next-id"
+                      "  :remaining (max 0 (- (count filtered) (count page)))})")]
+        (-> (ensure-runtime! conn build-id)
+            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+            (.then
+              (fn [v]
+                (let [v             (if (map? v) v {})
+                      aged-out?     (:id-aged-out? v)
+                      raw-epochs    (vec (:epochs v))]
+                  (if aged-out?
+                    (cursor-stale-result "trace-window"
+                                         {:requested-id (:requested-id v)
+                                          :head-id      (:head-id v)})
+                    (let [[kept dropped] (strip-sensitive raw-epochs incl?)
+                          encoded        (diff-encode-epochs kept mode)
+                          deduped        (dedup-value encoded dedup?)
+                          next-id        (:next-id v)
+                          next-cursor    (encode-cursor
+                                           (when next-id
+                                             {:v        1
+                                              :after-id next-id
+                                              :ms       window-ms
+                                              :until-ms until-ms
+                                              :frame    sticky-frame}))
+                          has-more?      (some? next-cursor)
+                          remaining      (or (:remaining v) 0)]
+                      (ok-text (cond-> {:ok?         true
+                                        :window-ms   window-ms
+                                        :until-ms    until-ms
+                                        :count       (count encoded)
+                                        :limit       limit
+                                        :epochs-mode mode
+                                        :dedup       dedup?
+                                        :epochs      deduped
+                                        :has-more?   has-more?
+                                        :estimated-remaining remaining
+                                        :next-cursor next-cursor}
+                                 (pos? dropped) (assoc :dropped-sensitive dropped))))))))
+            (.catch (fn [err] (err->result :trace-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: watch-epochs — pull-mode polling with predicate filter.
@@ -870,6 +1060,13 @@
 ;; The bash version streams via repeated `emit`s on stdout. MCP tools
 ;; aren't streaming — we return one bundle of matches per call. Callers
 ;; that want a tight loop call us repeatedly with the same `since-id`.
+;;
+;; Cursor pagination (rf2-kbqq3): a single poll's matches vector is
+;; bounded by `:limit` (default 50). When more matches remain in the
+;; current ring, `:next-cursor` rides the response — the agent calls
+;; back with the cursor to consume the remainder. The cursor is the
+;; opaque sibling of the `:since-id` arg; both can be used, but
+;; `:cursor` takes precedence (it carries sticky pred/frame state).
 ;; ---------------------------------------------------------------------------
 
 (defn- watch-epochs-tool [conn args]
@@ -879,30 +1076,69 @@
         incl?     (include-sensitive? args)
         mode      (parse-epochs-mode (arg args :epochs-mode))
         dedup?    (parse-dedup-arg (arg args :dedup))
+        limit     (parse-limit-arg (arg args :limit))
         pred-map  (when-let [p (arg args :pred)] (js->clj p :keywordize-keys true))
-        frame-arg (if frame (str " " (pr-str frame)) "")
-        form      (str "(let [r (re-frame-pair2.runtime/epochs-since "
-                       (pr-str since-id) frame-arg ")"
-                       "      matches (filterv #(re-frame-pair2.runtime/epoch-matches? "
-                       (pr-str (or pred-map {})) " %) (:epochs r))]"
-                       "  {:matches matches"
-                       "   :id-aged-out? (:id-aged-out? r)"
-                       "   :head-id (:head-id r)})")]
-    (-> (ensure-runtime! conn build-id)
-        (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-        (.then (fn [v]
-                 (let [matches        (when (map? v) (:matches v))
-                       [kept dropped] (strip-sensitive (vec matches) incl?)
-                       encoded        (diff-encode-epochs kept mode)
-                       deduped        (dedup-value encoded dedup?)
-                       base           (cond-> {:ok? true}
-                                        (map? v) (merge v))]
-                   (ok-text (cond-> (assoc base
-                                           :matches deduped
-                                           :epochs-mode mode
-                                           :dedup dedup?)
-                              (pos? dropped) (assoc :dropped-sensitive dropped))))))
-        (.catch (fn [err] (err->result :watch-failed err))))))
+        cursor-in (decode-cursor (arg args :cursor))]
+    (if (= cursor-in ::malformed)
+      (js/Promise.resolve
+        (cursor-stale-result "watch-epochs" {:requested-id nil}))
+      (let [;; Cursor's :after-id overrides bare :since-id when both
+            ;; are supplied. Both shapes share semantics; cursor wins
+            ;; so the agent's continuation flow stays consistent.
+            effective-after (or (:after-id cursor-in) since-id)
+            sticky-frame    (or (:frame cursor-in) frame)
+            frame-arg       (if sticky-frame (str " " (pr-str sticky-frame)) "")
+            form (str "(let [r (re-frame-pair2.runtime/epochs-since "
+                      (pr-str effective-after) frame-arg ")"
+                      "      matches (filterv #(re-frame-pair2.runtime/epoch-matches? "
+                      (pr-str (or pred-map {})) " %) (:epochs r))"
+                      "      page (vec (take " limit " matches))"
+                      "      next-id (when (< (count page) (count matches))"
+                      "                (:epoch-id (last page)))]"
+                      "  {:matches page"
+                      "   :id-aged-out? (:id-aged-out? r)"
+                      "   :requested-id (:requested-id r)"
+                      "   :head-id (:head-id r)"
+                      "   :next-id next-id"
+                      "   :remaining (max 0 (- (count matches) (count page)))})")]
+        (-> (ensure-runtime! conn build-id)
+            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+            (.then
+              (fn [v]
+                (let [v          (if (map? v) v {})
+                      aged-out?  (:id-aged-out? v)]
+                  (if (and aged-out? (some? effective-after))
+                    (cursor-stale-result "watch-epochs"
+                                         {:requested-id (or (:requested-id v) effective-after)
+                                          :head-id      (:head-id v)})
+                    (let [matches        (vec (:matches v))
+                          [kept dropped] (strip-sensitive matches incl?)
+                          encoded        (diff-encode-epochs kept mode)
+                          deduped        (dedup-value encoded dedup?)
+                          next-id        (:next-id v)
+                          next-cursor    (encode-cursor
+                                           (when next-id
+                                             {:v        1
+                                              :after-id next-id
+                                              :ms       nil
+                                              :until-ms nil
+                                              :frame    sticky-frame}))
+                          remaining      (or (:remaining v) 0)
+                          base           (cond-> {:ok?           true
+                                                  :head-id       (:head-id v)
+                                                  :id-aged-out?  (boolean aged-out?)}
+                                           (:requested-id v) (assoc :requested-id (:requested-id v)))]
+                      (ok-text (cond-> (assoc base
+                                              :matches             deduped
+                                              :limit               limit
+                                              :count               (count encoded)
+                                              :epochs-mode         mode
+                                              :dedup               dedup?
+                                              :has-more?           (some? next-cursor)
+                                              :estimated-remaining remaining
+                                              :next-cursor         next-cursor)
+                                 (pos? dropped) (assoc :dropped-sensitive dropped))))))))
+            (.catch (fn [err] (err->result :watch-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: tail-build — wait for hot-reload to land.
@@ -1829,6 +2065,31 @@
                      "replaced with an `{:rf.mcp/overflow ...}` "
                      "marker. Pass 0 to disable the cap.")})
 
+(def ^:private limit-property
+  "Per-tool descriptor slot for the `:limit` cursor-pagination knob
+  (rf2-kbqq3). Applied to surfaces that ship epoch vectors and would
+  otherwise blow the wire-cap on a single call: `trace-window` and
+  `watch-epochs`. Default 50 — sized to fit the 5K-token cap after
+  diff-encode (rf2-1wdzp) + dedup (rf2-obpa9)."
+  {:type        "integer"
+   :description (str "Maximum number of epoch records in the response "
+                     "(default 50). The default is sized to fit the "
+                     "5K-token wire-cap (rf2-rvyzy) with diff-encode + "
+                     "dedup active. When more records remain, "
+                     "`:next-cursor` is non-nil and `:has-more? true`; "
+                     "pass the cursor back to fetch the next page.")})
+
+(def ^:private cursor-property
+  "Per-tool descriptor slot for the opaque `:cursor` continuation token
+  (rf2-kbqq3). Applied to `trace-window` and `watch-epochs`."
+  {:type        "string"
+   :description (str "Opaque cursor returned by a previous call's "
+                     "`:next-cursor`. Pass back verbatim to fetch the "
+                     "next page. A cursor whose epoch-id has aged out "
+                     "of the runtime ring surfaces as "
+                     "`{:ok? false :reason :rf.mcp/cursor-stale ...}` — "
+                     "drop the cursor and restart, or widen the window.")})
+
 (def ^:private dedup-property
   "Per-tool descriptor slot for the `:dedup` opt-out (rf2-obpa9).
   Applied to surfaces that ship epoch slices (`snapshot`,
@@ -1915,10 +2176,17 @@
                       "— pass `epochs-mode \"full\"` for the legacy full-pair shape (needed for time-travel restore). "
                       "The epoch vector is structurally deduped by default (rf2-obpa9) — repeated subtrees "
                       "(notably the per-record `:db-before` reference) collapse to a `{:rf.mcp/dedup-table ...}` "
-                      "wrapper; the agent host calls `(de-dupe.core/expand cache)` to reconstruct. Pass `dedup false` to skip.")
+                      "wrapper; the agent host calls `(de-dupe.core/expand cache)` to reconstruct. Pass `dedup false` to skip. "
+                      "Cursor pagination (rf2-kbqq3): the response is bounded at `:limit` records (default 50). "
+                      "When more remain, `:next-cursor` carries an opaque continuation token and `:has-more? true`; "
+                      "pass `cursor` back on the next call to resume. The window's upper bound is sticky across "
+                      "pages — fresh epochs landing during pagination don't sneak in mid-iteration. A cursor "
+                      "whose epoch-id has aged out of the runtime ring surfaces as `:reason :rf.mcp/cursor-stale`.")
     :inputSchema {:type "object"
-                  :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000)"}
+                  :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000). Sticky across pagination — encoded into the cursor on the first call."}
                                :frame {:type "string"}
+                               :limit limit-property
+                               :cursor cursor-property
                                :epochs-mode {:type "string"
                                              :description "How :db-after rides the wire: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
                                              :enum ["diff" "full"]}
@@ -1934,11 +2202,18 @@
                       "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`. "
                       "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
                       "— pass `epochs-mode \"full\"` for the legacy full-pair shape. "
-                      "The matches vector is structurally deduped by default (rf2-obpa9); pass `dedup false` to skip.")
+                      "The matches vector is structurally deduped by default (rf2-obpa9); pass `dedup false` to skip. "
+                      "Cursor pagination (rf2-kbqq3): the matches vector is bounded at `:limit` (default 50). "
+                      "When more matches remain, `:next-cursor` is non-nil and `:has-more? true`; pass `cursor` "
+                      "back to consume the next page. The `:cursor` arg overrides `:since-id` when both are "
+                      "supplied. A cursor whose epoch-id has aged out of the ring surfaces as "
+                      "`:reason :rf.mcp/cursor-stale`.")
     :inputSchema {:type "object"
-                  :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh)"}
+                  :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh). Supplanted by :cursor when both are passed."}
                                :pred     {:type "object" :description "Filter map"}
                                :frame    {:type "string"}
+                               :limit    limit-property
+                               :cursor   cursor-property
                                :epochs-mode {:type "string"
                                              :description "How :db-after rides the wire: \"diff\" (default) or \"full\" (legacy, opt-in for time-travel restore)."
                                              :enum ["diff" "full"]}
