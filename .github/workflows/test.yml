@@ -1325,13 +1325,29 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Cache Maven / gitlibs (shadow-cljs deps for pair2-mcp build)
+      # Single Maven/gitlibs cache that covers BOTH shadow-cljs boots in
+      # this job — the pair2-mcp server bundle compile AND the hermetic
+      # fixture watch (rf2-c565x). The fixture at
+      # `skills/re-frame-pair2/tests/fixture/` resolves core + reagent +
+      # epoch as `:local/root` entries, so a cold-cache run pulls every
+      # transitive dep of those three artefacts (Reagent, Malli, …)
+      # before shadow-cljs can even write the nREPL port file.
+      #
+      # On a cold-cache GHA runner that resolve takes >240s and the
+      # hermetic orchestrator's `SHADOW_BOOT_TIMEOUT_MS` watchdog fires
+      # before the port file lands — "boot failed: nREPL port not
+      # found". Hashing the fixture's deps.edn / shadow-cljs.edn and the
+      # three local-root deps.edn files into the cache key keeps the
+      # cache warm across runs that don't touch those files; the wider
+      # `restore-keys` ladder still lets a partial hit land when only
+      # one file changes.
+      - name: Cache Maven / gitlibs (shadow-cljs deps for pair2-mcp build + hermetic fixture)
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: |
             ~/.m2/repository
             ~/.gitlibs
-          key: ${{ runner.os }}-mcp-conformance-pair2-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json') }}
+          key: ${{ runner.os }}-mcp-conformance-pair2-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json', 'skills/re-frame-pair2/tests/fixture/deps.edn', 'skills/re-frame-pair2/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-mcp-conformance-pair2-
             ${{ runner.os }}-cljs-tools-pair2-mcp-
