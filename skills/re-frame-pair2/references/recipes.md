@@ -185,13 +185,13 @@ Fallback: `mcp__re-frame-pair2__watch-epochs {stream: true, pred: {"event-id-pre
 
 ### Inspect what's currently subscribed
 
-`re-frame-pair2.runtime/subscription-info` reports every open subscription's `{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}` without draining the queues. To list active streams:
+The `subscription-info` MCP tool reports every open subscription's `{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}` without draining the queues. To list active streams:
 
 ```
-mcp__re-frame-pair2__eval-cljs {form: "(re-frame-pair2.runtime/subscription-info)"}
+mcp__re-frame-pair2__subscription-info {}
 ```
 
-Use this when a streaming probe seems to have gone quiet — confirm it's still registered (and that its queue-depth isn't piling up against a dead consumer) before assuming the bus is dry.
+Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, or `sub-id` to look up a specific stream. Use this when a streaming probe seems to have gone quiet — confirm it's still registered (and that its queue-depth isn't piling up against a dead consumer) before assuming the bus is dry.
 
 ## "Drive a Story variant from a pair2 session"
 
