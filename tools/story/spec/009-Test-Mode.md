@@ -218,12 +218,6 @@ strip sits above it (owned by the mode-tabs primitive).
 
 ## Out of scope at v1
 
-- **Watch-mode auto-re-run.** The shell does not poll the variant
-  for changes and re-run the play sequence on `:hot-reload-tick`
-  drift. The user re-runs explicitly via the button. A watch-mode
-  affordance is a v2 surface — re-frame2's runtime does not yet
-  expose a stable signal for "play sequence content changed
-  since last run", so the v1 contract is "explicit re-run".
 - **Per-assertion timing.** Each record carries an `:elapsed-ms`
   slot (per spec/004) but the v1 row renderer surfaces only the
   total. Per-assertion timing flows through the same data path
@@ -231,11 +225,14 @@ strip sits above it (owned by the mode-tabs primitive).
 - **Coverage / pass-rate trending.** The pane shows the latest run
   only. A "last N runs" rollup is a separate surface and would
   hang off the trace panel, not the `:test` mode.
-- **Hot-reload re-fire.** If the variant's `:play` slot changes on
-  hot-reload, the pane keeps the previous run's record until the
-  user clicks Re-run. The mode-tabs primitive's `:hot-reload-tick`
-  watcher is intentionally not wired through the `:test` pane —
-  re-run is an explicit action, not a hot-reload side effect.
+- **Hot-reload re-fire on the per-variant pane.** If the variant's
+  `:play` slot changes on hot-reload, the **per-variant `:test` pane**
+  keeps the previous run's record until the user clicks Re-run. The
+  mode-tabs primitive's `:hot-reload-tick` watcher is intentionally
+  not wired through the per-variant pane — re-run is an explicit
+  action there. The **chrome-level test widget** carries the watch-
+  mode toggle (rf2-z1h0f, below) — that surface IS wired to a drift
+  detector and auto-re-runs the testable set as a whole.
 
 ## Chrome-level test widget + sidebar status dots (rf2-q0irb)
 
@@ -314,18 +311,51 @@ so the chrome widget and the pane stay in sync.
 | `[data-test="story-test-widget-headline"]`            | "Tests · N/M" headline strip.         |
 | `[data-test="story-test-widget-counts"]`              | "✓ N · ✗ M · ▸ K · ○ L" count chips.  |
 | `[data-test="story-test-widget-run-all"]`             | The Run all button.                   |
+| `[data-test="story-test-widget-watch-toggle"]`        | The watch-mode eye-icon chip; `aria-pressed` reflects the on/off state, `data-state` reads "on" / "off". |
 | `[data-test="story-test-widget-empty"]`               | "no :test variants" empty state.      |
 | `[data-test="story-sidebar-dot"]`                     | One per testable variant row; `data-status="pass\|fail\|running\|pending"`. |
 
+### Watch mode (rf2-z1h0f)
+
+Storybook 9's Vitest addon ships a watch-mode toggle (eye icon) that
+re-runs the changed stories on file save. Story's parity surface is
+the **watch chip** beneath the count chips. It toggles a boolean
+(`:test-watch-mode?`) in the shell state. When on, the shell's poll
+detector computes a snapshot-identity content-hash per testable
+variant and compares it against the recorded `:test-content-hashes`
+slot; any drift dispatches `sidebar/watch-rerun!` for the affected
+variants — the sidebar dots transit through `:running` to the new
+`:pass` / `:fail` exactly as if the user had clicked Re-run.
+
+The detection signal is the variant's snapshot-identity content
+hash (per `re-frame.story.identity/snapshot-identity` + IMPL-SPEC
+§5.6) — the hash captures `:play` / `:events` / `:loaders` / args
+/ decorators / parent-story slice, so a change to any of those
+produces a fresh hash. Cosmetic edits (docstring, `:source` coords)
+do not contribute.
+
+Toggle-off clears `:test-content-hashes` so the next toggle-on
+seeds a fresh baseline from the current registry (no spurious
+re-run on toggle-on). Toggle-on without subsequent changes is a
+no-op once the baseline lands.
+
+The detector shares the existing 500ms `setInterval` with the
+fingerprint poll — one cadence, two detectors. Under `static-
+mode?` the poll skips entirely (no dev-time `reg-*` mutations
+will land); watch mode has nothing to detect in that build.
+
 ### Out of scope
 
-- **Watch mode** — same v2 deferral as the per-variant pane (no
-  registration-diff signal yet; see rf2-z1h0f).
 - **Failing-row scroll-into-view.** Clicking a red dot does not yet
   scroll the sidebar to the failing variant or auto-select it. The
   user clicks the row manually.
 - **Coverage rollups.** The widget shows the latest run only; a
   "last N runs" rollup is a separate surface.
+- **Watch mode scoped to a single variant.** The v1 watch detector
+  re-runs every drifted testable variant — it is not yet scoped to
+  the currently-selected variant. A v2 'watch only selected' affordance
+  would gate the rerun set; the existing `watch-rerun!` entry point
+  already accepts an arbitrary variant-id seq.
 
 ## Foundational status
 

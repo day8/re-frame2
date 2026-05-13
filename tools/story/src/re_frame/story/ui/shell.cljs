@@ -41,6 +41,7 @@
             [re-frame.story.config :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
+            [re-frame.story.identity :as identity]
             [re-frame.story.runtime :as runtime]
             [re-frame.story.ui.actions :as actions]
             [re-frame.story.ui.canvas :as canvas]
@@ -130,10 +131,83 @@
                 (assoc :fingerprints current))))
         true))))
 
+;; ---- watch-mode detector (rf2-z1h0f) -------------------------------------
+;;
+;; The chrome-level test widget's eye-icon toggles `:test-watch-mode?`
+;; in the shell state. When on, this poll computes a snapshot-identity
+;; content-hash per testable variant, compares it against the recorded
+;; `:test-content-hashes` slot, and dispatches `sidebar/watch-rerun!`
+;; for the variants whose hash drifted.
+;;
+;; Detection runs on the same 500ms cadence as the existing hot-reload
+;; poll — both polls share `setInterval` for v1; v2 will wire to the
+;; registrar's mutation trace for an event-driven re-resolve.
+
+(defn- compute-testable-content-hashes
+  "Walk the registered testable variants and return a `{variant-id →
+  hex-hash}` map of snapshot-identity content hashes. The hash captures
+  the variant's `:play` / `:events` / `:loaders` slots plus the parent
+  story's slice (per `re-frame.story.identity` §What's in the hash),
+  so a change to any of those produces a fresh hash."
+  []
+  (let [testable (state/testable-variant-ids (:variants (state/registry-snapshot)))
+        shell    (state/get-state)
+        opts     {:active-modes (:active-modes shell)
+                  :substrate    (:substrate shell)}]
+    (into {}
+          (map (fn [vid]
+                 [vid (:content-hash (identity/snapshot-identity vid opts))]))
+          testable)))
+
+(defn detect-watch-drift!
+  "When watch mode is on, compute the current testable-variant content
+  hashes, diff against the recorded slot, dispatch `watch-rerun!` for
+  any drift, and stamp the fresh hashes back into state. No-op when
+  watch mode is off or no drift is detected.
+
+  Public so tests can exercise the detector without driving the poll
+  interval."
+  []
+  (when (and config/enabled? (state/test-watch-mode? (state/get-state)))
+    (let [current (compute-testable-content-hashes)
+          shell   (state/get-state)
+          prev    (:test-content-hashes shell)
+          drifted (state/watch-mode-drift prev current)]
+      ;; Always stamp the fresh hashes so the next poll diffs against
+      ;; the post-drift baseline (rather than re-firing forever).
+      (state/swap-state! state/record-test-content-hashes current)
+      (when (seq drifted)
+        (sidebar/watch-rerun! drifted)
+        true))))
+
+(defn- watch-mode-tick!
+  "One pass of the watch-mode detector. Wraps `detect-watch-drift!` in
+  a try/catch so a registrar quirk on a single variant doesn't kill
+  the interval. Called from the same `setInterval` as the hot-reload
+  fingerprint poll."
+  []
+  (try
+    (detect-watch-drift!)
+    (catch :default _e
+      ;; Swallow: a transient hashing error shouldn't take down the
+      ;; chrome widget. The next tick re-tries.
+      nil)))
+
 (defonce ^:private hot-reload-poll-handle (atom nil))
 
+(defn- poll-tick!
+  "One pass of the shell's polling interval. Runs the fingerprint
+  detector (decorator drift → bump `:hot-reload-tick`) followed by the
+  watch-mode detector (per-testable-variant snapshot-identity drift →
+  dispatch `sidebar/watch-rerun!` when watch mode is on). Two
+  detectors, one cadence."
+  []
+  (detect-and-tick!)
+  (watch-mode-tick!))
+
 (defn- start-hot-reload-poll!
-  "Begin polling for fingerprint changes. v1 mechanism per Stage 4.
+  "Begin polling for fingerprint + watch-mode changes. v1 mechanism per
+  Stage 4 (rf2-ekai) + rf2-z1h0f.
 
   Per rf2-8wgpm (tools/story/spec/013-Static-Build.md): under
   `re-frame.story.config/static-mode?` the registrar is frozen — no
@@ -144,7 +218,7 @@
   (when (and config/enabled?
              (not config/static-mode?)
              (nil? @hot-reload-poll-handle))
-    (let [h (js/setInterval detect-and-tick! 500)]
+    (let [h (js/setInterval poll-tick! 500)]
       (reset! hot-reload-poll-handle h))))
 
 (defn- stop-hot-reload-poll!

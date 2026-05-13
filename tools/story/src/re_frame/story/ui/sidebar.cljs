@@ -144,7 +144,27 @@
                          :cursor "not-allowed"}
    :widget-empty {:color "#9a9a9a"
                   :font-style "italic"
-                  :font-size "10px"}})
+                  :font-size "10px"}
+   ;; rf2-z1h0f — watch-mode eye-icon toggle on the chrome widget.
+   :watch-row    {:display     "flex"
+                  :align-items "center"
+                  :gap         "8px"
+                  :margin-top  "2px"}
+   :watch-btn    {:padding         "2px 8px"
+                  :background      "transparent"
+                  :color           "#9a9a9a"
+                  :border          "1px solid #444"
+                  :border-radius   "10px"
+                  :cursor          "pointer"
+                  :font-family     "monospace"
+                  :font-size       "10px"
+                  :letter-spacing  "0.3px"
+                  :display         "inline-flex"
+                  :align-items     "center"
+                  :gap             "4px"}
+   :watch-btn-on {:background "#1f4d3f"
+                  :color      "#4ec9b0"
+                  :border     "1px solid #4ec9b0"}})
 
 ;; ---- pure: collect tags from registered variants ------------------------
 
@@ -256,14 +276,56 @@
 
 ;; ---- chrome-level test widget (rf2-q0irb) -------------------------------
 
+(defn- run-one-test!
+  "Dispatch a single `run-variant` against `vid` and fold the result
+  into the shell-state `:test-runs` slot. Marks `:running` up front,
+  records pass/fail/skip counts on resolve, and clears the slot on
+  rejection. Shared between the chrome widget's 'Run all' button and
+  the watch-mode auto-re-run (rf2-z1h0f)."
+  [vid]
+  (state/swap-state! state/mark-test-running vid)
+  (let [opts {:active-modes   (:active-modes (state/get-state))
+              :cell-overrides nil
+              :substrate      (:substrate (state/get-state))}]
+    (-> (runtime/run-variant vid opts)
+        (async/then  (fn [result]
+                       ;; The aggregate-summary helper lives in test-
+                       ;; mode.cljc but we can't require that ns here
+                       ;; (cyclic: test-mode requires state, which would
+                       ;; loop back through sidebar's requires). Inline
+                       ;; the same six-line fold here — total / passed /
+                       ;; failed / skipped — and let `record-test-run`
+                       ;; do the rest. Two trivially-equal folds is
+                       ;; cheaper than threading another module.
+                       (let [assertions (or (:assertions result) [])
+                             skipped?   (fn [r] (= :rf.assert/skipped
+                                                   (:assertion r)))
+                             n-skip     (count (filter skipped? assertions))
+                             active     (remove skipped? assertions)
+                             n-pass     (count (filter :passed? active))
+                             n-fail     (- (count active) n-pass)
+                             total      (count assertions)
+                             summary    {:total       total
+                                         :passed      n-pass
+                                         :failed      n-fail
+                                         :skipped     n-skip
+                                         :all-passed? (and (pos? total)
+                                                           (zero? n-fail)
+                                                           (zero? n-skip))
+                                         :elapsed-ms  (:elapsed-ms result)
+                                         :ran-at-ms   nil}]
+                         (state/swap-state! state/record-test-run vid summary))
+                       nil))
+        (async/catch* (fn [_]
+                        ;; A rejection drops the running stamp so the
+                        ;; dot doesn't get stuck yellow.
+                        (state/swap-state! state/clear-test-run vid)
+                        nil)))))
+
 (defn- run-all-tests!
-  "Drive `run-variant` over every testable variant. Each run resolves
-  into the shell-state `:test-runs` slot via the existing test-mode
-  pane plumbing — except this caller bypasses the pane's local
-  results-atom (the pane updates its own slot on first mount when the
-  user navigates to the `:test` tab). We mark each variant `:running`
-  up front so the sidebar dots flip yellow in unison, then dispatch
-  the runs in parallel and record each as it resolves.
+  "Drive `run-variant` over every testable variant. Marks each variant
+  `:running` up front so the sidebar dots flip yellow in unison, then
+  dispatches the runs in parallel and records each as it resolves.
 
   Variant runs are scheduled in parallel via `run-variant` (each
   resolves a fresh promise / future). Per Spec 002 §Programmatic API
@@ -271,45 +333,22 @@
   runs do not cross-contaminate app-db."
   [variant-ids]
   (doseq [vid variant-ids]
-    (state/swap-state! state/mark-test-running vid))
+    (run-one-test! vid)))
+
+(defn watch-rerun!
+  "Public entry point for the watch-mode detector (rf2-z1h0f). Drives
+  `run-variant` for the given seq of variant-ids whose snapshot-identity
+  drifted since the last observation. Shares the same per-variant
+  pipeline as 'Run all' — marks running, folds the result into
+  `:test-runs` — so the sidebar dots and chrome widget headline transit
+  through `:running` to the new `:pass` / `:fail` exactly as if the user
+  had clicked the button.
+
+  Called from `re-frame.story.ui.shell/detect-and-tick!` when watch
+  mode is on and a drift is detected."
+  [variant-ids]
   (doseq [vid variant-ids]
-    (let [opts {:active-modes   (:active-modes (state/get-state))
-                :cell-overrides nil
-                :substrate      (:substrate (state/get-state))}]
-      (-> (runtime/run-variant vid opts)
-          (async/then  (fn [result]
-                         ;; The aggregate-summary helper lives in test-
-                         ;; mode.cljc but we can't require that ns here
-                         ;; (cyclic: test-mode requires state, which would
-                         ;; loop back through sidebar's requires). Inline
-                         ;; the same six-line fold here — total / passed /
-                         ;; failed / skipped — and let `record-test-run`
-                         ;; do the rest. Two trivially-equal folds is
-                         ;; cheaper than threading another module.
-                         (let [assertions (or (:assertions result) [])
-                               skipped?   (fn [r] (= :rf.assert/skipped
-                                                     (:assertion r)))
-                               n-skip     (count (filter skipped? assertions))
-                               active     (remove skipped? assertions)
-                               n-pass     (count (filter :passed? active))
-                               n-fail     (- (count active) n-pass)
-                               total      (count assertions)
-                               summary    {:total       total
-                                           :passed      n-pass
-                                           :failed      n-fail
-                                           :skipped     n-skip
-                                           :all-passed? (and (pos? total)
-                                                             (zero? n-fail)
-                                                             (zero? n-skip))
-                                           :elapsed-ms  (:elapsed-ms result)
-                                           :ran-at-ms   nil}]
-                           (state/swap-state! state/record-test-run vid summary))
-                         nil))
-          (async/catch* (fn [_]
-                          ;; A rejection drops the running stamp so the
-                          ;; dot doesn't get stuck yellow.
-                          (state/swap-state! state/clear-test-run vid)
-                          nil))))))
+    (run-one-test! vid)))
 
 (defn test-widget
   "Chrome-level test widget. Aggregates `run-variant` outcomes across
@@ -320,12 +359,18 @@
   Renders nothing when no variants are testable — the widget is the
   Vitest-reporter parity (rf2-q0irb) per spec/009 §Foundational
   status; a Story project with zero `:test` variants has nothing for
-  it to report."
+  it to report.
+
+  Per rf2-z1h0f the widget also carries an eye-icon watch-mode toggle
+  beneath the count chips. When on, the shell auto-re-runs testable
+  variants whose snapshot-identity drifted since the last observation
+  (the detection signal is wired in `re-frame.story.ui.shell`)."
   [shell registry]
   (let [variant-ids (state/testable-variant-ids (:variants registry))
         summary     (state/test-summary shell variant-ids)
         {:keys [total passed failed running pending all-green?]} summary
         any-run?    (pos? running)
+        watch-on?   (state/test-watch-mode? shell)
         headline    (cond
                       (zero? total)  "Tests"
                       all-green?     (str "Tests · ✓ " passed)
@@ -360,7 +405,28 @@
           :on-click    (fn [_]
                          (when-not any-run?
                            (run-all-tests! variant-ids)))}
-         (if any-run? "Running…" "Run all")]])]))
+         (if any-run? "Running…" "Run all")]
+        ;; rf2-z1h0f — watch-mode toggle. Eye glyph reads on/off; the
+        ;; chip's aria-pressed reflects the boolean. Toggle-on seeds
+        ;; `:test-content-hashes` so the first detector tick after
+        ;; toggle-on doesn't fire a spurious re-run for every variant.
+        [:div {:style (:watch-row styles)}
+         [:button
+          {:style         (merge (:watch-btn styles)
+                                 (when watch-on? (:watch-btn-on styles)))
+           :data-test     "story-test-widget-watch-toggle"
+           :data-state    (if watch-on? "on" "off")
+           :aria-pressed  (if watch-on? "true" "false")
+           :aria-label    (if watch-on?
+                            "Disable watch-mode auto-re-run"
+                            "Enable watch-mode auto-re-run")
+           :title         (if watch-on?
+                            "Watching — variants re-run on content change"
+                            "Watch mode off — re-run is explicit")
+           :on-click      (fn [_]
+                            (state/swap-state! state/set-test-watch-mode
+                                               (not watch-on?)))}
+          (if watch-on? "● watching" "○ watch")]]])]))
 
 (defn sidebar
   "Top-level sidebar component. Reads the registry snapshot + shell
