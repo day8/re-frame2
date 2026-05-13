@@ -265,17 +265,26 @@
   full streaming machinery needs an actual `extra` payload the corpus
   runner doesn't simulate."
   [;; ---------- discover-app ----------------------------------------------
+   ;; discover-app routes the runtime health map through several
+   ;; precondition gates (`:debug-enabled?`, `:frames`,
+   ;; `:ambiguous-frame?`, `:coord-annotation-enabled?`). The happy
+   ;; path requires all of them to land in the documented shape, so
+   ;; the canned health here mirrors the actual runtime contract.
    {:fixture/id    :discover-app/happy
-    :fixture/doc   "discover-app on a healthy runtime emits {:ok? true, :health <map>}."
+    :fixture/doc   "discover-app on a healthy runtime adds :ok? true + :build-id to the health map."
     :fixture/tool  "discover-app"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
-     ["health"                    {:status :ok :version "test"}]
+     ["health"                    {:ok?                       true
+                                   :debug-enabled?            true
+                                   :coord-annotation-enabled? true
+                                   :frames                    [:rf/default]
+                                   :version                   "test"}]
      [:default                    nil]]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true}}}
+     :edn-submap {:ok? true :build-id :app}}}
 
    {:fixture/id    :discover-app/preload-missing
     :fixture/doc   "discover-app surfaces :runtime-not-preloaded when the global marker is absent."
@@ -357,16 +366,27 @@
      :edn-contains-keys #{:epochs}}}
 
    ;; ---------- watch-epochs -----------------------------------------------
+   ;; watch-epochs wraps the runtime's `epochs-since` result into a
+   ;; paged/cursor envelope: `:matches` (rather than raw `:epochs`),
+   ;; `:has-more?`, `:next-cursor`, `:limit`, `:count`, `:head-id`,
+   ;; `:dedup`, `:epochs-mode`, `:id-aged-out?`. Pin the envelope's
+   ;; documented keys so accidental renames break the test.
    {:fixture/id    :watch-epochs/empty
-    :fixture/doc   "watch-epochs surfaces the empty-window envelope when the ring is empty."
+    :fixture/doc   "watch-epochs surfaces the empty-window cursor envelope when the ring is empty."
     :fixture/tool  "watch-epochs"
     :fixture/args  {:max-ms 50 :poll-ms 25}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
-     [:default                    {:epochs [] :since 0 :now 0}]]
+     [:default                    {:matches      []
+                                   :id-aged-out? false
+                                   :requested-id nil
+                                   :head-id      nil
+                                   :next-id      nil
+                                   :remaining    0}]]
     :fixture/expect
     {:isError? false
-     :edn-contains-keys #{:epochs}}}
+     :edn-contains-keys #{:matches :has-more? :limit :count}
+     :edn-submap        {:ok? true :has-more? false :count 0 :id-aged-out? false}}}
 
    ;; ---------- tail-build -------------------------------------------------
    {:fixture/id    :tail-build/timeout
