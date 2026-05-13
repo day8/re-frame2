@@ -12,12 +12,12 @@
 ;;   {:deps {day8/re-frame2         {:mvn/version "..."}
 ;;           day8/re-frame2-schemas {:mvn/version "..."}}}
 ;;
-;; And, on CLJS, require `re-frame.schemas.malli` at app-boot to publish
-;; Malli's validate / explain into the late-bind hook table (rf2-t0hq).
+;; And require `re-frame.schemas.malli` at app-boot to publish Malli's
+;; validate / explain into the late-bind hook table (rf2-t0hq). Same
+;; pattern on CLJS and the JVM — rf2-qyfie removed the JVM
+;; `requiring-resolve` fallback so the contract is symmetrical.
 ;; Without that require the default validator soft-passes per Spec 010
-;; §Recommended soft-pass — even if Malli is on the classpath, the
-;; framework cannot reach it through CLJS's runtime resolve (which is
-;; a compile-time analyzer affordance only, not a runtime fn).
+;; §Recommended soft-pass even if Malli is on the classpath.
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends

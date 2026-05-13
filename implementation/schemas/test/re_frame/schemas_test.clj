@@ -34,6 +34,14 @@
             [re-frame.flows :as flows]
             [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
+            ;; Per rf2-t0hq the default validator routes through the
+            ;; late-bind hook `:schemas/malli-validate`, which the
+            ;; `re-frame.schemas.malli` adapter ns publishes at load
+            ;; time. Per rf2-qyfie the JVM `requiring-resolve`
+            ;; fallback was removed — the require is now the canonical
+            ;; opt-in on both runtimes; without it the default
+            ;; validator soft-passes (Spec 010 §Recommended soft-pass).
+            [re-frame.schemas.malli]
             [re-frame.spec :as spec]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))

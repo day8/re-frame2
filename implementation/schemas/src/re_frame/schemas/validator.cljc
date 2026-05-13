@@ -44,54 +44,33 @@
   rf2-p7va substitute-validator pattern: the `re-frame.schemas.malli`
   adapter namespace publishes Malli's `validate` and `explain` into the
   late-bind hook table on ns-load. The default fns below consult the
-  table on every call. Apps opt in to Malli validation on CLJS by
-  requiring `re-frame.schemas.malli` at app boot.
-
-  On the JVM `requiring-resolve` still works as a no-require fallback
-  so existing JVM tests / apps keep working without an explicit
-  require of the adapter ns; the late-bind hook takes precedence when
-  the adapter ns IS loaded."
+  table on every call. Apps opt in to Malli validation by requiring
+  `re-frame.schemas.malli` at app boot — the same pattern on both
+  runtimes (no JVM-vs-CLJS asymmetry). When the adapter ns is not
+  loaded the default fns soft-pass per Spec 010 §Recommended soft-pass."
   (:require [re-frame.late-bind :as late-bind]))
 
 (defn- default-malli-validate
-  "The default validator — delegates to malli.core/validate via the
-  late-bind hook published by `re-frame.schemas.malli` (rf2-t0hq).
-
-  Lookup order:
-    1. Late-bind hook `:schemas/malli-validate` (published by
-       `re-frame.schemas.malli` when that namespace is loaded).
-    2. On the JVM only, fall back to `(requiring-resolve
-       'malli.core/validate)` so the JVM artefact tests / apps that
-       have Malli on the classpath but don't `:require
-       [re-frame.schemas.malli]` keep working.
-    3. Soft-pass — return true (per Spec 010 §Recommended soft-pass).
+  "The default validator — delegates to `malli.core/validate` via the
+  late-bind hook `:schemas/malli-validate` published by
+  `re-frame.schemas.malli` (rf2-t0hq). Soft-passes (returns true) when
+  the adapter ns is not loaded, per Spec 010 §Recommended soft-pass.
 
   Apps that want Malli-absent behaviour to be a hard fail register
   a stricter validator via `set-schema-validator!`."
   [schema value]
   (if-let [v (late-bind/get-fn :schemas/malli-validate)]
     (v schema value)
-    #?(:clj  (try
-               (if-let [v (requiring-resolve 'malli.core/validate)]
-                 (v schema value)
-                 true)
-               (catch Throwable _ true))
-       :cljs true)))
+    true))
 
 (defn- default-malli-explain
-  "The default explainer — delegates to malli.core/explain via the
-  late-bind hook published by `re-frame.schemas.malli` (rf2-t0hq).
-  Same lookup order as `default-malli-validate`. Returns the Malli
-  explanation map on fail; nil on conform / when Malli is not on the
-  classpath / when the adapter ns is not loaded."
+  "The default explainer — delegates to `malli.core/explain` via the
+  late-bind hook `:schemas/malli-explain` published by
+  `re-frame.schemas.malli` (rf2-t0hq). Returns nil when the adapter
+  ns is not loaded — the failure trace then omits the `:explain` key."
   [schema value]
-  (if-let [e (late-bind/get-fn :schemas/malli-explain)]
-    (e schema value)
-    #?(:clj  (try
-               (when-let [e (requiring-resolve 'malli.core/explain)]
-                 (e schema value))
-               (catch Throwable _ nil))
-       :cljs nil)))
+  (when-let [e (late-bind/get-fn :schemas/malli-explain)]
+    (e schema value)))
 
 (defn- canonicalise-schema-form
   "Per Spec 010 §Digest algorithm step 1 — normalise a schema EDN form for
