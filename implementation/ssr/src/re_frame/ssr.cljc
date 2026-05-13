@@ -33,12 +33,19 @@
       projector when an error trace fires inside a server frame and
       writes the public-error's :status to the response accumulator.
       Per Spec 011 §Server error projection.
+    - :rf.server/request cofx + per-frame request slot
+      (set-request! / get-request / clear-request!) — host adapters
+      populate the slot before drain; event handlers consume via
+      (inject-cofx :rf.server/request). Gated by :platforms #{:server}
+      so client dispatches no-op via :rf.cofx/skipped-on-platform. Per
+      Spec 011 §Server-only reg-cofx for request context.
 
   Conformance fixtures cover all of the above (ssr/render-to-string,
   ssr/hydrate, ssr/hydration-mismatch, ssr/head-emits, ssr/head-hydration,
   ssr/error-known-mapping, ssr/error-sanitisation, ssr/cookie,
   ssr/redirect, ssr/set-status, fx/platforms)."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.cofx :as cofx]
+            [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -1042,6 +1049,113 @@ response with no body."
           (buffer-error-trace! fid event))))))
 
 (trace/register-trace-cb! ::error-projection error-projection-listener)
+
+;; ---- :rf.server/request cofx + per-frame request slot ---------------------
+;;
+;; Per Spec 011 §Server-only `reg-cofx` for request context. The
+;; :rf.server/request cofx surfaces the active HTTP request map to
+;; event handlers via `(rf/inject-cofx :rf.server/request)`. Use cases:
+;; reading the URL inside :rf/server-init, pulling a session cookie
+;; in :auth/check-session, branching on :request-method, etc.
+;;
+;; The mechanism is a per-frame slot — NOT a single dynamic var — so
+;; two simultaneous per-request frames (the common SSR shape under
+;; concurrent load) carry independent request data without leaking
+;; into each other. Host adapters (rf2-ny6v7's Ring adapter; future
+;; Pedestal / raw-HTTP / edge-runtime adapters) populate the slot via
+;; `set-request!` before kicking off the drain and clear it via
+;; `clear-request!` after the response is built (typically inside
+;; `frame.cljc`'s `destroy-frame!` teardown — but adapters that re-use
+;; a long-lived frame can clear inline).
+;;
+;; Storage shape: `defonce` side-channel atom keyed by frame-id. This
+;; mirrors `pending-error-traces` rather than living in app-db because
+;; the request map is HOST-CONTROLLED INPUT (the host's wire-shape data
+;; — Ring request map, Pedestal context, etc.); the cofx surfaces it
+;; into the handler's :coeffects map, but it has no place in the
+;; application's serialisable app-db. Storing it outside app-db keeps
+;; it out of the hydration payload (`:rf/app-db` ships to the client)
+;; — server-side request data must never leak into the client's
+;; bootstrap state.
+;;
+;; The cofx is `:platforms #{:server}` so client-side dispatches that
+;; reference it silently no-op via `:rf.cofx/skipped-on-platform`
+;; (the standard cofx-gating contract per Spec 011 §634-642).
+
+(defonce
+  ^{:doc "Per-frame storage for the active HTTP request. Keys are
+  frame-ids; values are the host-supplied request map (Ring shape, or
+  whatever the host adapter normalises to). Side-channel — not in
+  app-db so the request never rides the hydration payload to the
+  client. Host adapters populate via `set-request!` before drain and
+  clear via `clear-request!` after response materialisation."}
+  request-slots
+  (atom {}))
+
+(defn set-request!
+  "Populate the per-frame request slot. Called by an SSR host adapter
+  (rf2-ny6v7 ships the Ring adapter; future Pedestal / raw-HTTP / edge-
+  runtime adapters follow the same contract) once per request, before
+  kicking off the drain.
+
+  The shape of `request` is host-defined: the Ring adapter passes the
+  Ring request map (`:request-method`, `:uri`, `:headers`, `:cookies`,
+  `:body`, `:query-string`, `:server-name`, `:scheme`, etc.); other
+  adapters may pass their native context shape. The cofx surfaces
+  whatever the adapter stored — the runtime never inspects the request.
+
+  Returns `frame-id`."
+  [frame-id request]
+  (swap! request-slots assoc frame-id request)
+  frame-id)
+
+(defn get-request
+  "Read the active request for `frame-id`. Returns nil when no host
+  adapter has populated the slot (e.g. JVM tests that drive the drain
+  directly without a host wrapper, or a client-side dispatch that
+  injected the cofx — in that case the `:platforms` gate fires the
+  `:rf.cofx/skipped-on-platform` trace before this fn is called).
+
+  Public read surface — host adapters and tools may inspect the active
+  request via this fn."
+  [frame-id]
+  (get @request-slots frame-id))
+
+(defn clear-request!
+  "Clear the per-frame request slot. Host adapters call this after
+  building the wire response (typically as part of per-request frame
+  teardown). Safe to call when no slot is populated.
+
+  Returns `frame-id`."
+  [frame-id]
+  (swap! request-slots dissoc frame-id)
+  frame-id)
+
+(cofx/reg-cofx :rf.server/request
+  {:doc       "The active HTTP request. Server only. Surfaces the
+host-supplied request map (Ring shape under rf2-ny6v7's Ring adapter;
+host-defined for other adapters) so handlers can read URL, headers,
+session cookies, etc. without threading the request as an event arg.
+
+The host adapter populates the slot via `re-frame.ssr/set-request!`
+once per request before the drain begins. Apps consume via
+`(inject-cofx :rf.server/request)` in any server-side event handler.
+
+The 2-arity form accepts an explicit value override — useful in tests
+and conformance harnesses that drive the drain without a host adapter:
+`(inject-cofx :rf.server/request {:uri \"/articles\" ...})`.
+
+Per Spec 011 §Server-only `reg-cofx` for request context."
+   :platforms #{:server}}
+  ;; 1-arity: read from the per-frame slot.
+  (fn
+    ([ctx]
+     (let [frame-id (get-in ctx [:coeffects :frame])
+           request  (get-request frame-id)]
+       (assoc-in ctx [:coeffects :rf.server/request] request)))
+    ;; 2-arity: explicit value override (tests / harnesses).
+    ([ctx request]
+     (assoc-in ctx [:coeffects :rf.server/request] request))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
