@@ -14,6 +14,7 @@
   | watch-epochs  | Pull-mode live epoch streaming                            |
   | tail-build    | Wait for a hot-reload to land                             |
   | snapshot      | Coarse-grained per-frame state read (mega-op)             |
+  | get-path      | Direct read-by-path against a frame's app-db (rf2-tygdv)  |
   | subscribe     | Streaming trace/epoch channel — push-mode replacement for |
   |               | watch-epochs (rf2-hq49)                                   |
   | unsubscribe   | Close a streaming subscription                            |
@@ -129,7 +130,8 @@
 (def ^:private overflow-hints
   "Tool-specific next-step hints for the overflow marker. Generic
   fallback when a tool isn't listed."
-  {"snapshot"      "Narrow scope: pass `frames` to a single frame, or `include` to a single slice (one of app-db, sub-cache, machines, epochs, traces). Combine with future path-slicing args when available."
+  {"snapshot"      "Narrow scope: pass `path [:k1 :k2]` to slice the :app-db slice, `frames` to a single frame, or `include` to a single slice (one of app-db, sub-cache, machines, epochs, traces). Default mode is :summary — drill down via `get-path` once you know the key."
+   "get-path"      "Narrow the path further — pass a deeper segment so the addressed subtree is smaller. Or call `snapshot` with no `path` first for a tree-summary, then re-aim."
    "trace-window"  "Reduce `ms` to a smaller window, narrow with `frame`, or fetch incrementally via `watch-epochs` + `since-id`."
    "watch-epochs"  "Narrow `pred` (e.g. `:event-id-prefix`, `:effects`), pass `frame`, or stream via `subscribe` with `max-events`."
    "subscribe"     "Tighten `filter`, lower `max-buffered`, set `max-events` so each tick stays small."
@@ -536,6 +538,78 @@
       (keyword s))
     :else (keyword x)))
 
+;; ---------------------------------------------------------------------------
+;; Path-arg parsing (rf2-tygdv).
+;;
+;; Two tools take a `:path` argument: `snapshot` (slice the :app-db slice)
+;; and `get-path` (direct read-by-path). Same parser, same semantics so
+;; agents learn the shape once.
+;;
+;; Accepted shapes from the MCP host:
+;;   - JS array of strings  ⇒ each entry parsed as EDN; non-EDN entries
+;;                            stay as strings.
+;;   - CLJS vector          ⇒ pass through.
+;;   - EDN-encoded string   ⇒ read-string (e.g. `"[:cart :items 3 :sku]"`).
+;;   - nil / missing        ⇒ nil (no path slicing).
+;;
+;; This mirrors the causa-mcp wire-protocol Principles §"2. Path slicing"
+;; convention: a path is an EDN-encoded vector of keys addressing a
+;; subtree. The vocabulary is shared across pair2-mcp / causa-mcp /
+;; story-mcp so agents recognise the surface once.
+;; ---------------------------------------------------------------------------
+
+(defn- coerce-path-segment
+  "Coerce one segment of a JS-array path argument.
+
+  Heuristic: an EDN-shaped string is parsed (`\":cart\"` ⇒ `:cart`,
+  `\"0\"` ⇒ `0`, `\"-1\"` ⇒ `-1`), but a bare identifier
+  (`\"items\"`, `\"bare-key\"`) stays a string — the default reader
+  would otherwise coerce it to a symbol, which is a different
+  `get-in` key. Trigger characters are the EDN literal openers `:`
+  (keyword), a leading digit, or `-`/`+` (signed number); anything
+  else falls through as a plain string."
+  [s]
+  (if-not (string? s)
+    s
+    (let [trimmed   (str/trim s)
+          fc        (when (pos? (count trimmed)) (.charAt trimmed 0))
+          edn-shape (and fc
+                         (or (= ":" fc)
+                             (= "-" fc)
+                             (= "+" fc)
+                             (boolean (re-matches #"\d" fc))))]
+      (if edn-shape
+        (try (cljs.reader/read-string trimmed)
+             (catch :default _ s))
+        s))))
+
+(defn- parse-path-arg
+  "Normalise the `path` MCP arg into a CLJS vector suitable for
+   `get-in`. Returns `nil` when the path is absent. Returns `[]` for an
+   explicit empty path (root). Unparsable strings fall through as
+   strings — `get-in` will then treat them as map keys."
+  [raw]
+  (cond
+    (nil? raw) nil
+    (vector? raw) raw
+    (sequential? raw) (vec raw)
+    (array? raw) (mapv coerce-path-segment (js->clj raw))
+    (string? raw)
+    (let [trimmed (str/trim raw)]
+      (cond
+        (str/blank? trimmed) nil
+        :else
+        (try
+          (let [parsed (cljs.reader/read-string trimmed)]
+            (cond
+              (vector? parsed)     parsed
+              (sequential? parsed) (vec parsed)
+              :else                [parsed]))
+          (catch :default _
+            ;; Unparseable; treat the whole string as a single segment.
+            [trimmed]))))
+    :else nil))
+
 (defn- parse-frames-arg
   "Normalise the `frames` MCP arg into the form the runtime expects.
    Accepts `:all`, the string \"all\", a JS array of strings, or a CLJS
@@ -598,24 +672,218 @@
                               {} snapshot)]
       [scrubbed @dropped])))
 
+;; ---------------------------------------------------------------------------
+;; Tree-summary for the `:app-db` slice (rf2-tygdv).
+;;
+;; Per causa-mcp's wire-protocol Principles §"4. Lazy summary", the
+;; default response mode for a rich nested value is a *summary*, not the
+;; full payload. The summary declares the shape without committing the
+;; token budget:
+;;
+;;   {:rf.mcp/summary {:type  :map | :vector | :set | :scalar
+;;                     :keys  [<top-level keys>]   ; maps only
+;;                     :count <int>                ; non-scalars only
+;;                     :bytes ~<int>}}             ; pr-str char count
+;;
+;; Applied to snapshot's `:app-db` slice when the caller does NOT pass
+;; `:path`. Agents drill down by re-calling with `:path [:cart :items]`
+;; (mechanism 2). The other slices (:sub-cache :machines :epochs
+;; :traces) already have their own pagination / bounded shapes; only
+;; `:app-db` was the unbounded blow-the-cap surface flagged in
+;; rf2-jlq5j's findings doc.
+;; ---------------------------------------------------------------------------
+
+(def ^:private summary-keys-cap
+  "Top-N keys included verbatim in a tree-summary marker. Above this,
+  the summary truncates and attaches `:keys-truncated? true` so the
+  marker itself stays bounded — a 5,000-entry map's key list alone
+  would exceed the wire cap otherwise. 64 is large enough that a
+  human-scale app-db root surfaces every key, and small enough that
+  the marker is always tens of tokens."
+  64)
+
+(defn- tree-summary
+  "Compute a server-friendly tree summary of `v`. Returns the marker
+  shape causa-mcp's §Lazy-summary mechanism pins. Cheap — one pass
+  over the top-level structure, no deep walk. The marker itself is
+  bounded: long key lists are truncated to `summary-keys-cap` entries
+  and flagged via `:keys-truncated? true` so the marker can never
+  blow the wire cap."
+  [v]
+  (cond
+    (map? v)
+    (let [ks      (keys v)
+          n       (count ks)
+          shown   (if (> n summary-keys-cap)
+                    (vec (take summary-keys-cap ks))
+                    (vec ks))]
+      {:rf.mcp/summary (cond-> {:type   :map
+                                :keys   shown
+                                :count  n
+                                :bytes  (count (pr-str v))}
+                         (> n summary-keys-cap)
+                         (assoc :keys-truncated? true))})
+    (vector? v)
+    {:rf.mcp/summary {:type  :vector
+                      :count (count v)
+                      :bytes (count (pr-str v))}}
+    (set? v)
+    {:rf.mcp/summary {:type  :set
+                      :count (count v)
+                      :bytes (count (pr-str v))}}
+    (sequential? v)
+    {:rf.mcp/summary {:type  :seq
+                      :count (count v)
+                      :bytes (count (pr-str v))}}
+    :else
+    {:rf.mcp/summary {:type  :scalar
+                      :value v
+                      :bytes (count (pr-str v))}}))
+
+(defn- deepest-valid-prefix
+  "Walk `path` against `db` and return the deepest prefix that
+  resolves. Used in `:path-not-found` errors so the agent can re-aim
+  without a binary search. Handles map keys + sequential indices;
+  anything else (a scalar at depth, a function value, etc.) terminates
+  the walk."
+  [db path]
+  (loop [acc [] cur db remaining path]
+    (if (empty? remaining)
+      acc
+      (let [k (first remaining)]
+        (cond
+          (and (map? cur) (contains? cur k))
+          (recur (conj acc k) (get cur k) (rest remaining))
+
+          (and (sequential? cur) (integer? k) (<= 0 k (dec (count cur))))
+          (recur (conj acc k) (nth (vec cur) k) (rest remaining))
+
+          :else acc)))))
+
+(defn- slice-app-db-in-snapshot
+  "Post-process the raw snapshot map: for each frame's `:app-db` slice,
+  apply path-slicing (when `path` is present) or summarisation (when
+  `path` is nil).
+
+  Returns `[processed-snapshot per-frame-path-status]` where
+  `per-frame-path-status` is `{<frame-id> {:exists? bool
+                                            :deepest-valid-prefix [...]}}`
+  populated only when `path` is supplied and at least one frame's
+  path didn't resolve. Empty map when path is nil."
+  [snapshot path]
+  (if-not (map? snapshot)
+    [snapshot {}]
+    (let [status* (atom {})
+          missing (js-obj)
+          process-frame
+          (fn [frame-id frame-map]
+            (if-not (and (map? frame-map) (contains? frame-map :app-db))
+              frame-map
+              (let [db (:app-db frame-map)]
+                (cond
+                  ;; No path: summarise.
+                  (nil? path)
+                  (update frame-map :app-db tree-summary)
+                  ;; Root path (`[]`): return full db (agent opted in
+                  ;; explicitly). Equivalent to legacy default behaviour.
+                  (empty? path)
+                  frame-map
+                  ;; Path supplied: get-in with missing sentinel.
+                  :else
+                  (let [v (get-in db path missing)]
+                    (if (identical? v missing)
+                      (do (swap! status* assoc frame-id
+                                 {:exists? false
+                                  :deepest-valid-prefix (deepest-valid-prefix db path)})
+                          (assoc frame-map :app-db nil))
+                      (assoc frame-map :app-db v)))))))
+          processed (reduce-kv (fn [m fid fmap]
+                                 (assoc m fid (process-frame fid fmap)))
+                               {} snapshot)]
+      [processed @status*])))
+
 (defn- snapshot-tool [conn args]
   (let [build-id (arg-build args)
         frames   (parse-frames-arg (arg args :frames))
         include  (parse-include-arg (arg args :include))
         incl?    (include-sensitive? args)
+        path     (parse-path-arg (arg args :path))
         opts     {:frames frames :include include}
         form     (str "(re-frame-pair2.runtime/snapshot-state "
                       (pr-str opts) ")")]
     (-> (ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]
-                 (let [[scrubbed dropped] (scrub-snapshot-sensitive v incl?)]
+                 (let [[scrubbed dropped]    (scrub-snapshot-sensitive v incl?)
+                       [sliced path-status]  (slice-app-db-in-snapshot scrubbed path)]
                    (ok-text (cond-> {:ok?      true
                                      :frames   (if (= :all frames) :all (vec frames))
                                      :include  include
-                                     :snapshot scrubbed}
-                              (pos? dropped) (assoc :dropped-sensitive dropped))))))
+                                     :mode     (if (nil? path) :summary :path-sliced)
+                                     :snapshot sliced}
+                              path                  (assoc :path path)
+                              (seq path-status)     (assoc :path-not-found path-status)
+                              (pos? dropped)        (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :snapshot-failed err))))))
+
+;; ---------------------------------------------------------------------------
+;; Tool: get-path — direct read-by-path against a frame's app-db
+;;       (rf2-tygdv).
+;;
+;; Minimal, focused primitive. The `snapshot` tool is the right surface
+;; when the agent doesn't know yet which slice carries the answer;
+;; `get-path` is the right surface when the agent already knows the
+;; path. Each call is one bencode round-trip; the runtime computes
+;; `(get-in app-db path)` server-side so only the addressed subtree
+;; crosses the wire.
+;;
+;; Path vocabulary mirrors `get-in`: a vector of keys / indices.
+;; ---------------------------------------------------------------------------
+
+(defn- get-path-tool [conn args]
+  (let [build-id (arg-build args)
+        frame    (some-> (arg args :frame) ->frame-keyword)
+        path     (parse-path-arg (arg args :path))]
+    (cond
+      (nil? path)
+      (js/Promise.resolve
+        (err-text {:ok? false :reason :missing-path
+                   :hint "usage: get-path {path '[:cart :items 0 :sku]' [frame :rf/default]}"}))
+
+      :else
+      ;; Server-side eval form: call `snapshot` (full db for the frame)
+      ;; then `get-in` with a missing sentinel, so we can distinguish
+      ;; `path-not-found` from a path that legitimately points at nil.
+      ;; The deepest-valid-prefix loop is inlined so a stale runtime
+      ;; (no helper) still answers correctly.
+      (let [path-edn      (pr-str path)
+            snapshot-call (if frame
+                            (str "(re-frame-pair2.runtime/snapshot " (pr-str frame) ")")
+                            "(re-frame-pair2.runtime/snapshot)")
+            form (str "(let [db " snapshot-call
+                      "      path " path-edn
+                      "      missing #js {}"
+                      "      v (get-in db path missing)]"
+                      "  (if (identical? v missing)"
+                      "    {:ok? false :reason :path-not-found"
+                      "     :path path"
+                      "     :deepest-valid-prefix"
+                      "     (loop [acc [] cur db rem path]"
+                      "       (cond"
+                      "         (empty? rem) acc"
+                      "         (and (map? cur) (contains? cur (first rem)))"
+                      "         (recur (conj acc (first rem)) (get cur (first rem)) (rest rem))"
+                      "         (and (sequential? cur) (integer? (first rem))"
+                      "              (<= 0 (first rem) (dec (count cur))))"
+                      "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
+                      "         :else acc))}"
+                      "    {:ok? true :exists? true :path path :value v}))")]
+        (-> (ensure-runtime! conn build-id)
+            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+            (.then (fn [v]
+                     (ok-text (cond-> v
+                                frame (assoc :frame frame)))))
+            (.catch (fn [err] (err->result :get-path-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: subscribe — streaming trace + epoch channel (rf2-hq49).
@@ -925,6 +1193,12 @@
                       ":app-db, :sub-cache, :machines, :epochs, :traces. "
                       "Server-side composition over the existing per-slice runtime readers. "
                       "Prefer this over chaining 5-10 individual reads. "
+                      "Path slicing (rf2-tygdv): the `:app-db` slice supports a `path` arg (an EDN-encoded "
+                      "vector of keys, e.g. \"[:cart :items 0]\"). With `path`, returns the addressed subtree. "
+                      "Without `path`, returns a `{:rf.mcp/summary ...}` marker for the `:app-db` slice "
+                      "(top-level keys + count + bytes) rather than the full value — keeps the response "
+                      "under the wire cap by default. Agents drill down by re-calling with `path`. The "
+                      "other slices (:sub-cache, :machines, :epochs, :traces) pass through unchanged. "
                       "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
                       "`:sensitive? true`; opt back in with `include-sensitive? true`. App-db / sub-cache / "
                       "machines slices pass through unchanged — payload redaction is the `with-redacted` "
@@ -937,9 +1211,39 @@
                                          :description "Slices to include. Defaults to all five. Recognised: app-db, sub-cache, machines, epochs, traces."
                                          :items {:type "string"
                                                  :enum ["app-db" "sub-cache" "machines" "epochs" "traces"]}}
+                               :path    {:description (str "Path into the :app-db slice. EDN-encoded vector of keys "
+                                                           "(e.g. \"[:cart :items 0]\") or a JSON array of segment "
+                                                           "strings. When supplied, the :app-db slice in the result "
+                                                           "is the subtree at the path. Out-of-range paths surface "
+                                                           "as `:path-not-found` per-frame with deepest-valid-prefix "
+                                                           "attached. When absent, the :app-db slice is a "
+                                                           "`{:rf.mcp/summary ...}` marker (mode :summary).")
+                                         :oneOf [{:type "string"}
+                                                 {:type "array" :items {:type "string"}}]}
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items in the :traces / :epochs slices. Default false."}
                                :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
+                  :additionalProperties false}}
+   {:name "get-path"
+    :description (str "Read a single value at `path` from a frame's app-db. Minimal primitive for "
+                      "targeted reads — the agent already knows the path. Server-side `(get-in db path)`; "
+                      "only the addressed subtree crosses the wire. Returns "
+                      "`{:ok? true :exists? true :path [...] :value <subtree>}` on success or "
+                      "`{:ok? false :reason :path-not-found :path [...] :deepest-valid-prefix [...]}` "
+                      "when the path doesn't resolve. The deepest-valid-prefix lets the agent re-aim "
+                      "without a binary search. Use this when `snapshot`'s summary mode (default) "
+                      "tells you which key carries the answer.")
+    :inputSchema {:type "object"
+                  :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
+                                                         "(e.g. \"[:cart :items 0 :sku]\") or a JSON array "
+                                                         "of segment strings (each parsed as EDN — bare "
+                                                         "strings stay as map-key strings).")
+                                       :oneOf [{:type "string"}
+                                               {:type "array" :items {:type "string"}}]}
+                               :frame {:type "string"
+                                       :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame."}
+                               :build {:type "string"}}
+                  :required ["path"]
                   :additionalProperties false}}
    {:name "subscribe"
     :description (str "Open a streaming subscription on the trace or epoch bus. Push-mode replacement for watch-epochs. "
@@ -999,6 +1303,7 @@
     "watch-epochs"     (watch-epochs-tool conn args)
     "tail-build"       (tail-build-tool conn args)
     "snapshot"         (snapshot-tool  conn args)
+    "get-path"         (get-path-tool  conn args)
     "subscribe"        (subscribe-tool conn args extra)
     "unsubscribe"      (unsubscribe-tool conn args)
     (js/Promise.resolve

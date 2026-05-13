@@ -3,11 +3,13 @@
 //
 // This test does NOT need a live shadow-cljs nREPL — it exercises:
 //   - initialize handshake
-//   - tools/list (expects all nine tools, including the snapshot mega-op
-//     and the subscribe/unsubscribe streaming pair)
+//   - tools/list (expects all ten tools: nine original + get-path under
+//     rf2-tygdv)
 //   - tools/call eval-cljs against an absent nREPL (expects graceful
 //     :nrepl-port-not-found degraded mode)
 //   - tools/call snapshot against an absent nREPL (same degraded mode —
+//     proves the new tool is wired into the dispatch table)
+//   - tools/call get-path against an absent nREPL (same degraded mode —
 //     proves the new tool is wired into the dispatch table)
 //
 // A separate live-nrepl test (spec/INTEGRATION.md) covers the
@@ -81,16 +83,18 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all nine tools (six original + snapshot
+      // 2. tools/list — expect all ten tools (six original + snapshot
       // mega-op from rf2-x70e + subscribe/unsubscribe streaming pair
-      // from rf2-hq49). rf2-7dvg cut inject-runtime in favour of a
-      // shadow-cljs :preloads entry; see SKILL.md §Setup.
+      // from rf2-hq49 + get-path read-by-path primitive from rf2-tygdv).
+      // rf2-7dvg cut inject-runtime in favour of a shadow-cljs
+      // :preloads entry; see SKILL.md §Setup.
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
       const expected = [
         'discover-app',
         'dispatch',
         'eval-cljs',
+        'get-path',
         'snapshot',
         'subscribe',
         'tail-build',
@@ -133,17 +137,34 @@ function run() {
       console.log('OK   unsubscribe descriptor -> sub-id required');
 
       // 2b. Verify the snapshot descriptor carries the documented input
-      // schema (frames + include + build), so accidental future renames
-      // break the test instead of silently shipping a broken contract.
+      // schema (frames + include + path + build), so accidental future
+      // renames break the test instead of silently shipping a broken
+      // contract. `path` joined the schema under rf2-tygdv (path-based
+      // slicing for the :app-db slice).
       const snapDesc = (list.result?.tools || []).find((t) => t.name === 'snapshot');
       if (!snapDesc) throw new Error('snapshot descriptor missing from tools/list');
       const props = snapDesc.inputSchema?.properties || {};
-      for (const k of ['frames', 'include', 'build']) {
+      for (const k of ['frames', 'include', 'path', 'build']) {
         if (!(k in props)) {
           throw new Error('snapshot inputSchema missing property: ' + k);
         }
       }
-      console.log('OK   snapshot descriptor -> frames/include/build');
+      console.log('OK   snapshot descriptor -> frames/include/path/build');
+
+      // 2d. Verify the get-path descriptor (rf2-tygdv). Required
+      // input: `path`; optional: `frame`, `build`.
+      const gpDesc = (list.result?.tools || []).find((t) => t.name === 'get-path');
+      if (!gpDesc) throw new Error('get-path descriptor missing from tools/list');
+      const gpProps = gpDesc.inputSchema?.properties || {};
+      for (const k of ['path', 'frame', 'build']) {
+        if (!(k in gpProps)) {
+          throw new Error('get-path inputSchema missing property: ' + k);
+        }
+      }
+      if (!gpDesc.inputSchema?.required?.includes('path')) {
+        throw new Error('get-path.inputSchema missing required: path');
+      }
+      console.log('OK   get-path descriptor -> path (required) + frame/build');
 
       // 3. tools/call eval-cljs without nREPL — expect graceful degraded result
       const evalResp = await call('tools/call', {
@@ -168,6 +189,18 @@ function run() {
         throw new Error('snapshot degraded mode expected, got: ' + JSON.stringify(snapResp));
       }
       console.log('OK   tools/call snapshot (no nREPL) -> degraded isError');
+
+      // 3b'. tools/call get-path — same degraded path. Proves the
+      // rf2-tygdv tool is wired into the dispatch table.
+      const gpResp = await call('tools/call', {
+        name: 'get-path',
+        arguments: { path: '[:user :email]' },
+      });
+      const gpText = gpResp.result?.content?.[0]?.text || '';
+      if (!gpResp.result?.isError || !gpText.includes('nrepl-port-not-found')) {
+        throw new Error('get-path degraded mode expected, got: ' + JSON.stringify(gpResp));
+      }
+      console.log('OK   tools/call get-path (no nREPL) -> degraded isError');
 
       // 3c. tools/call subscribe (no nREPL) — degraded path. Proves
       // the streaming-shaped tool is wired into the dispatch table

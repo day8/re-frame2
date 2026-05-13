@@ -38,7 +38,8 @@
       :else                            default-max-tokens)))
 
 (def ^:private overflow-hints
-  {"snapshot"      "Narrow scope: pass `frames` to a single frame, or `include` to a single slice (one of app-db, sub-cache, machines, epochs, traces). Combine with future path-slicing args when available."
+  {"snapshot"      "Narrow scope: pass `path [:k1 :k2]` to slice the :app-db slice, `frames` to a single frame, or `include` to a single slice (one of app-db, sub-cache, machines, epochs, traces). Default mode is :summary — drill down via `get-path` once you know the key."
+   "get-path"      "Narrow the path further — pass a deeper segment so the addressed subtree is smaller. Or call `snapshot` with no `path` first for a tree-summary, then re-aim."
    "trace-window"  "Reduce `ms` to a smaller window, narrow with `frame`, or fetch incrementally via `watch-epochs` + `since-id`."
    "watch-epochs"  "Narrow `pred` (e.g. `:event-id-prefix`, `:effects`), pass `frame`, or stream via `subscribe` with `max-events`."
    "subscribe"     "Tighten `filter`, lower `max-buffered`, set `max-events` so each tick stays small."
@@ -258,7 +259,7 @@
   ;; budget). The streaming subscribe + always-tiny ops are covered
   ;; explicitly so we never ship "Response over budget" generic when a
   ;; sharper hint is available.
-  (let [tools-with-data-volume #{"snapshot" "trace-window" "watch-epochs"
+  (let [tools-with-data-volume #{"snapshot" "get-path" "trace-window" "watch-epochs"
                                  "subscribe" "eval-cljs" "discover-app"
                                  "dispatch"}]
     (doseq [t tools-with-data-volume]
