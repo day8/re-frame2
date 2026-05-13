@@ -57,6 +57,10 @@
             [re-frame.story.assertions :as assertions]
             [re-frame.story.fx-stubs  :as fx-stubs]
             [re-frame.story.play      :as play]
+            ;; rf2-5fc15 — Test Codegen recorder. Pure-data state +
+            ;; snippet generator; the CLJS-only UI surface
+            ;; (`re-frame.story.ui.recorder`) wires the trace listener.
+            [re-frame.story.recorder  :as recorder]
             ;; Stage 6 (rf2-zhwd) — SOTA features. layout-debug + share
             ;; live in .cljc; multi-substrate / a11y / panels are
             ;; CLJS-only so the JVM classpath stays lean.
@@ -770,3 +774,60 @@
      v2 may return a collection when multi-shell mounts ship."
      []
      (ui-shell/active-shell)))
+
+;; ---- rf2-5fc15 — Test Codegen recorder public surface --------------------
+;;
+;; Per bead rf2-5fc15 the recorder captures canvas-dispatched events as
+;; a `:play` body. Exposing the entry points here lets tests, MCP
+;; tooling, and headless integrations drive recording programmatically
+;; without going through the toolbar UI.
+
+(defn start-recording!
+  "Begin recording events dispatched against `variant-id`'s frame. Any
+  in-flight recording is stopped first. Returns the new recorder
+  state.
+
+  Use `stop-recording!` to capture the snapshot. The captured events
+  vector is `[:events ...]` on the returned state map; pass it to
+  `gen-play-snippet` to render the `(reg-variant ...)` form."
+  [variant-id]
+  (recorder/start-recording! variant-id))
+
+(defn stop-recording!
+  "Stop the in-flight recording. Returns the recorder state map with
+  `:recording?` false, `:events` carrying the captured event vectors in
+  declared order, and `:variant-id` naming the source variant."
+  []
+  (recorder/stop-recording!))
+
+(defn recording?
+  "Boolean predicate — is a recording in flight?"
+  []
+  (recorder/recording?))
+
+(defn recorder-state
+  "Return the current recorder state map. Read-only view; transitions
+  go through `start-recording!` / `stop-recording!` / `clear-recording!`."
+  []
+  (recorder/current-state))
+
+(defn clear-recording!
+  "Drop any captured events + return the recorder to idle."
+  []
+  (recorder/clear!))
+
+(defn gen-play-snippet
+  "Render an EDN snippet `(reg-variant <id> {... :play [...]})` for
+  `events`. Pure data → string; round-trips through `read-string` and
+  re-frame's registrar machinery.
+
+  `opts` accepts:
+    :variant-id  required — keyword id for the new variant.
+    :doc         optional — short docstring.
+    :extends     optional — keyword id of a variant to `:extends`.
+    :alias       optional — short ns alias for the form (default `story`).
+
+  Empty `events` still produces a valid form (with `:play []`) so the
+  user sees the shape to fill in."
+  [events opts]
+  (recorder/gen-play-snippet events opts))
