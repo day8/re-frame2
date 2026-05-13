@@ -23,9 +23,13 @@ surfaces. It must not add:
 - New component substrates.
 
 The seventeen tools route through the existing
-`re-frame2-causa-mcp.runtime` namespace via `cljs-eval`. Nothing
-new is registered against the framework; nothing new is
-introduced into a consumer app's runtime.
+**injected-runtime namespace** (`day8.re-frame2-causa.runtime`,
+which rides Causa-the-panel's preload — see
+[`000-Vision.md` §Two namespaces, two sides](./000-Vision.md#two-namespaces-two-sides))
+via `cljs-eval`. The MCP-server-side code (`day8.re-frame2-causa-mcp.*`,
+Node-only) is the *renderer* of those eval forms; nothing new is
+registered against the framework on the browser side, and the
+Node-side server is invisible to the consumer app's runtime.
 
 This is the
 [downstream-EPs-consume-foundation rule](../../../spec/Principles.md)
@@ -39,6 +43,62 @@ doesn't expose `:parent-frame`"), file a `bd` bead against
 or the relevant Causa spec. Don't bolt a parallel surface onto
 the MCP server.
 
+## MCP-server-ns and injected-runtime-ns are distinct
+
+Causa-MCP's code lives on two sides of an stdio JSON-RPC pipe;
+each side has its own namespace root, and **the spec calls them
+out separately so the implementation can too** (same posture as
+pair2-mcp's `re-frame-pair2-mcp.*` / `re-frame-pair2.runtime`
+split). The full table — including which side each ns lives in,
+what loads it, and what it's responsible for — is at
+[`000-Vision.md` §Two namespaces, two sides](./000-Vision.md#two-namespaces-two-sides).
+
+The tie-breaker this principle hands implementers and reviewers:
+
+- **MCP-server-side concern?** Code goes under
+  `day8.re-frame2-causa-mcp.*`, lives in `tools/causa-mcp/src/`,
+  ships only inside the Node-side `:node-script` artefact, is
+  never `:require`-d from a browser bundle. Examples: stdio
+  framing, bencode/nREPL bridge, port discovery, eval-form
+  rendering, the `subscribe` notification pump, agent-host
+  capability negotiation.
+- **Injected-runtime-side concern?** Code goes under
+  `day8.re-frame2-causa.runtime` (parented by Causa-the-panel's
+  `day8.re-frame2-causa.*` root, because the runtime rides the
+  panel's `:preloads`), lives in the panel's preload classpath,
+  is the eval target of the MCP server's rendered forms.
+  Examples: per-frame state accessors backing the seventeen
+  tools, the `current-origin` dynamic var, the `session-id`
+  marker, hot-reload re-inject probes.
+
+A surface that *needs* to straddle both sides — e.g. a wire
+schema, an MCP marker keyword like `:rf.mcp/overflow`, the
+verb catalogue at
+[`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md) —
+is owned by the cross-cutting `tools/mcp-conformance/` spec
+folder, not duplicated into either ns.
+
+**Bundle isolation forbids the conflation.** Per
+[`tools/README.md`](../../README.md), nothing in `implementation/`
+or a consumer app's preload classpath may pull MCP-server code.
+If a single namespace held both roles, the consumer app's
+preload would pull the Node-side
+`@modelcontextprotocol/sdk` import + the bencode wire framer +
+the stdio plumbing — wreckage the
+[`tools/causa/`](../../causa/) artefact already pays the lint
+gate to avoid. Two roots, two locations, two roles. Reviewers
+catch the leak at the `:require` line; the spec catches it at
+the architecture line.
+
+The principle has zero impact on the seventeen-tool catalogue
+(per [`DESIGN-RATIONALE.md` Lock #5](./DESIGN-RATIONALE.md)) and
+zero impact on the MCP wire shape (per Locks #1–#3). It's a
+naming + layout rule that costs nothing at the spec level and
+saves a "wait, which side am I writing?" pause at every impl
+PR.
+
+Captured as Lock #11 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
+
 ## Origin tagging is the convention, not a suggestion
 
 Every Causa-MCP-driven side-effect on the trace bus carries
@@ -46,9 +106,12 @@ Every Causa-MCP-driven side-effect on the trace bus carries
 each mutating tool (`dispatch`, `reset-frame-db`,
 `restore-epoch`) and at the boundary of `eval-cljs` (any
 dispatch the eval'd form triggers inherits the tag — the
-runtime install hook reads
-`re-frame2-causa-mcp.runtime/current-origin` for the dynamic
-extent of the eval call).
+**injected-runtime** install hook reads
+`day8.re-frame2-causa.runtime/current-origin` for the dynamic
+extent of the eval call; the MCP-server side
+(`day8.re-frame2-causa-mcp.*`) renders the binding form, the
+browser side holds the dynamic var — see
+[`000-Vision.md` §Two namespaces, two sides](./000-Vision.md#two-namespaces-two-sides)).
 
 This is the **load-bearing differentiator** against generalist
 agent surfaces (Chrome DevTools MCP's `evaluate_script` is
@@ -129,12 +192,19 @@ Concretely:
   on every op (and via the `SHADOW_CLJS_BUILD_ID` env var).
 - Port discovery walks `$SHADOW_CLJS_NREPL_PORT` → standard
   shadow paths → `.nrepl-port`. Any of them satisfy the contract.
-- Runtime presence is marker-detected (the runtime exposes
-  `re-frame2-causa-mcp.runtime/session-id`); a missing sentinel
-  triggers automatic re-injection on the next op rather than a
-  failed boot.
-- The runtime contract is the shape of the seventeen tools, not
-  a specific framework version.
+- Injected-runtime presence is marker-detected (the runtime
+  exposes `day8.re-frame2-causa.runtime/session-id` from the
+  browser side); a missing sentinel triggers automatic
+  re-injection on the next op rather than a failed boot. The
+  detection happens MCP-server-side
+  (`day8.re-frame2-causa-mcp.*`); the marker lives in the
+  browser. The two-ns split (per
+  [`000-Vision.md` §Two namespaces, two sides](./000-Vision.md#two-namespaces-two-sides))
+  is what lets the server reason about the runtime's absence
+  without itself having a `runtime/session-id` to test.
+- The runtime contract is the shape of the seventeen tool
+  accessors `day8.re-frame2-causa.runtime` exposes, not a
+  specific framework version.
 
 A project that adopts a non-default build id, a custom nREPL
 port, or a slightly different shadow layout still gets a working
