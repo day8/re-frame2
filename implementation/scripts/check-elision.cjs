@@ -92,6 +92,21 @@ const DEV_ONLY_SENTINELS = [
   // fragment must elide in production.
   { source: 're-frame.http-managed/abort-on-actor-destroy (rf.http/aborted-on-actor-destroy)',
     sentinel: 'rf.http/aborted-on-actor-destroy' },
+  // re-frame.http-managed — :rf.http/managed-canned-success canned-stub
+  // fx (Spec 014 §Testing, rf2-omsae). The fx registration sits inside
+  // `(when interop/debug-enabled? ...)` so the fx-id keyword's string
+  // fragment, the doc string, and the handler-var reference must all
+  // elide in `:advanced + goog.DEBUG=false` bundles. The probe does NOT
+  // reference this fx-id as a literal keyword in its own code path —
+  // the gated registration body is the only source of reachability for
+  // the literal, which is what the elision assertion turns on.
+  { source: 're-frame.http-managed (rf.http/managed-canned-success registration)',
+    sentinel: 'rf.http/managed-canned-success' },
+  // re-frame.http-managed — :rf.http/managed-canned-failure canned-stub
+  // fx (Spec 014 §Testing, rf2-omsae). Same elision gate and same
+  // probe contract as `:rf.http/managed-canned-success` above.
+  { source: 're-frame.http-managed (rf.http/managed-canned-failure registration)',
+    sentinel: 'rf.http/managed-canned-failure' },
   // re-frame.epoch — :rf.epoch/snapshotted trace op (Tool-Pair §Time-
   // travel, Spec 009 §register-epoch-cb). Emitted by settle! after a
   // drain-settle commits a record. The whole settle! body sits inside
