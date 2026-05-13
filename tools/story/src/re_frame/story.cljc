@@ -50,6 +50,7 @@
             [re-frame.story.args      :as args]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.identity  :as identity]
+            [re-frame.story.late-bind :as late-bind]
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.frames    :as frames]
             [re-frame.story.runtime   :as runtime]
@@ -442,10 +443,11 @@
   ;; dispatchable from agent / chrome surfaces alongside the controls-
   ;; panel button.
   (save-variant/install-canonical-event-handlers!)
-  ;; Wire the late-bound shims so the frames runtime can tap
-  ;; into the assertion module without a circular require.
-  (frames/set-tap-stub-event-fn! fx-stubs/tap-stub-event!)
-  (frames/set-drop-assertion-accumulators-fn!
+  ;; Wire the late-bound shims so the frames runtime can tap into the
+  ;; assertion module without a circular require. The hub lives in
+  ;; `re-frame.story.late-bind` (mirroring the framework's pattern).
+  (late-bind/set-fn! :tap-stub-event fx-stubs/tap-stub-event!)
+  (late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
       (assertions/drop-trace-accumulators! frame-id)
       (play/drop-pending-exceptions! frame-id)))

@@ -43,36 +43,32 @@
   trace events and re-runs `reset!*` for any variant whose registered
   body changed. Stage 3 surfaces the entry point; the trigger lives in
   Stage 4."
-  (:require [re-frame.core            :as rf]
-            [re-frame.story.config    :as config]
+  (:require [re-frame.core             :as rf]
+            [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
-            [re-frame.story.loaders   :as loaders]
-            [re-frame.story.registrar :as registrar]))
+            [re-frame.story.late-bind  :as late-bind]
+            [re-frame.story.loaders    :as loaders]
+            [re-frame.story.registrar  :as registrar]))
 
 ;; ---- fx-override-stub registration ---------------------------------------
-
-;; Late-bound shim: `re-frame.story.fx-stubs/tap-stub-event!` is the
-;; Stage 5 fan-out that records the fx-id into the assertion module's
-;; per-frame accumulator (for `:rf.assert/effect-emitted`). We avoid
-;; a hard `:require` here to keep frames.cljc free of the assertions
-;; module (which depends on this ns transitively via the decorators
-;; resolution). The runtime initialises the shim from `install-helpers!`
-;; below — by the time a stub event fires, the shim is bound.
-(defonce
-  ^{:doc "Per-process fn slot: called as `(tap-stub-event! frame-id
-         fx-id)` from each stub-event handler. Stage 5 binds this to
-         `re-frame.story.fx-stubs/tap-stub-event!`; Stage 3-only builds
-         leave it nil and the call no-ops."}
-  tap-stub-event-fn
-  (atom nil))
-
-(defn set-tap-stub-event-fn!
-  "Install the late-bound stub-event tap. Stage 5 (rf2-h8et) calls this
-  from `re-frame.story/install-canonical-vocabulary!` with the
-  assertions-module-aware implementation."
-  [f]
-  (reset! tap-stub-event-fn f)
-  nil)
+;;
+;; Cross-namespace forward references go through the
+;; `re-frame.story.late-bind` hub rather than per-shim atoms. Two hooks:
+;;
+;;   :tap-stub-event              — fx-stubs binds this; the stub-event
+;;                                  handler calls it with `(frame-id
+;;                                  fx-id)` so the assertion module's
+;;                                  per-frame emitted-fx accumulator
+;;                                  records the call. Stage 3-only
+;;                                  builds leave it unset and the call
+;;                                  no-ops.
+;;
+;;   :drop-assertion-accumulators — assertions+play bind this; the
+;;                                  frame-teardown path calls it with
+;;                                  `(frame-id)` so per-frame
+;;                                  accumulators evict their entries.
+;;
+;; `re-frame.story/install-canonical-vocabulary!` is the producer side.
 
 ;; Per-frame stub-call log. Per spec/002 the `:fx-overrides` map
 ;; redirects fx-id → fx-id, and re-frame's `reg-fx` handlers receive
@@ -108,7 +104,7 @@
   map redirects `fx-id → fx-id`. So the stub MUST be a registered
   `:fx` handler, not an event handler. The stub:
 
-  1. Taps `tap-stub-event-fn` with `(frame, fx-id)` so the assertion
+  1. Taps `late-bind/get-fn :tap-stub-event` with `(frame fx-id)` so the assertion
      module's emitted-fx accumulator records the call (so
      `:rf.assert/effect-emitted` can observe it).
   2. Appends the call to the per-frame `stub-call-log` atom for
@@ -123,7 +119,7 @@
   (rf/reg-fx
     stub-id
     (fn [{:keys [frame] :as _ctx} fx-payload]
-      (when-let [tap @tap-stub-event-fn]
+      (when-let [tap (late-bind/get-fn :tap-stub-event)]
         (try (tap frame fx-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
       (swap! stub-call-log update frame (fnil conj [])
              {:stub-id  stub-id
@@ -227,22 +223,6 @@
 
 ;; ---- destruction ----------------------------------------------------------
 
-(defonce
-  ^{:doc "Per-process fn slot: called as `(drop-assertion-accumulators!
-         frame-id)` on frame teardown. Stage 5 (rf2-h8et) binds this to
-         `re-frame.story.assertions/drop-trace-accumulators!`; the
-         accumulator atoms then evict their per-frame entries so
-         destroyed variants don't leak memory."}
-  drop-assertion-accumulators-fn
-  (atom nil))
-
-(defn set-drop-assertion-accumulators-fn!
-  "Install the late-bound teardown hook for assertion accumulators.
-  Stage 5 calls this at boot."
-  [f]
-  (reset! drop-assertion-accumulators-fn f)
-  nil)
-
 (defn destroy!
   "Tear down a variant frame. Clears the lifecycle watcher table for
   the frame, drops per-frame assertion + stub accumulators, then
@@ -251,7 +231,7 @@
   (when config/enabled?
     (loaders/clear-watchers! variant-id)
     (clear-stub-call-log! variant-id)
-    (when-let [drop @drop-assertion-accumulators-fn]
+    (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
       (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
     (rf/destroy-frame variant-id)
     nil))
