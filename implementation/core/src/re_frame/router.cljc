@@ -606,79 +606,139 @@
       (let [db-after (frame/frame-app-db-value frame-id)]
         (settle! frame-id db-before db-after)))))
 
+;; ---- drain-loop! phases ---------------------------------------------------
+;;
+;; `drain-loop!` decomposes into five named phases per audit RT4 (rf2-hpkjg).
+;; Each phase is a pure-ish helper that owns one piece of the lock-release
+;; contract; the outer `drain-loop!` is now a thin driver that sequences them.
+;;
+;;   mark-drainer!         set `:in-drain?` to the current thread marker
+;;   clear-drainer!        clear `:in-drain?` (finally-block partner)
+;;   take-event!           peek+pop one envelope under the single-drainer
+;;                         invariant (rf2-ynk7); returns nil on empty queue
+;;   run-one-pass!         the inner loop body: process events to fixed
+;;                         point or until depth limit; returns ::halt or
+;;                         ::settled
+;;   force-release-on-halt!  release the drain-lock after a ::halt outcome
+;;                         (queue already drained by `handle-depth-exceeded!`)
+;;   try-release-on-empty!   under lock, re-check queue; release both flags
+;;                         on still-empty (returns false) or signal another
+;;                         pass (returns true) — the orphan-prevention seam.
+
+(defn- mark-drainer!
+  "Stamp `:in-drain?` with this thread's marker so the dispatch-sync guard
+  can distinguish same-thread nesting from a concurrent caller. Per
+  rf2-ynk7. On CLJS — single-threaded — every check is necessarily
+  same-thread, so `true` works as the marker."
+  [router]
+  (swap! router assoc :in-drain? #?(:clj (Thread/currentThread) :cljs true)))
+
+(defn- clear-drainer!
+  "Clear the `:in-drain?` marker. Paired with `mark-drainer!` in a
+  try/finally to ensure the marker never outlives the pass."
+  [router]
+  (swap! router assoc :in-drain? nil))
+
+(defn- take-event!
+  "Atomic peek+pop of one envelope from the router queue. Returns the
+  envelope or nil when the queue is empty.
+
+  Per rf2-ynk7: with the single-drainer invariant held by `:drain-lock`,
+  this peek+pop pair is atomic w.r.t. any other drain attempt. The
+  pre-fix race (executor and main thread both peek the same envelope)
+  cannot occur — the loser of the CAS in `drain-try!` / `drain-block!`
+  never reaches this code."
+  [router]
+  (let [{:keys [queue]} @router]
+    (when-not (empty? queue)
+      (let [envelope (peek queue)]
+        (swap! router update :queue pop)
+        envelope))))
+
+(defn- run-one-pass!
+  "Process events from the queue to fixed point or until `drain-depth` is
+  exceeded. Returns `::settled` when the queue empties cleanly or
+  `::halt` when the depth limit is reached (the depth-exceeded handler
+  has already cleared the queue and the `:scheduled?` flag in that
+  case).
+
+  Each pass takes its pre-cascade `db-before` snapshot from the caller
+  so the epoch settle callback (Tool-Pair §Time-travel) sees the right
+  state for THIS pass."
+  [frame-id router db-before drain-depth]
+  (loop [depth      0
+         last-event nil]
+    (cond
+      (>= depth drain-depth)
+      (do (handle-depth-exceeded! frame-id router db-before depth last-event)
+          ::halt)
+
+      :else
+      (if-let [envelope (take-event! router)]
+        (do (process-event! envelope)
+            (recur (inc depth) (:event envelope)))
+        (do (handle-drain-settled! frame-id router db-before depth)
+            ::settled)))))
+
+(defn- force-release-on-halt!
+  "Release the drain-lock after a `::halt` outcome. The depth-exceeded
+  handler has already forcibly cleared the queue and set `:scheduled?`
+  false, so we only need to drop the lock. Taken under `locking router`
+  to serialize against `ensure-drain-scheduled!`'s flag-read."
+  [router drain-lock]
+  (locking router
+    (reset! drain-lock false)))
+
+(defn- try-release-on-empty!
+  "Under the same lock that submitters take in `ensure-drain-scheduled!`,
+  re-check the queue:
+
+    * Empty  — clear `:scheduled?` AND release `:drain-lock` under one
+               lock so a serialized submitter observes both flags false
+               and schedules a fresh drain. Returns false (drainer is
+               done).
+    * Non-empty — a submitter enqueued between the inner empty-check
+               and now. Leave both flags set and return true so the
+               caller recurs into another pass.
+
+  This is the orphan-prevention seam."
+  [router drain-lock]
+  (locking router
+    (let [{:keys [queue]} @router]
+      (if (empty? queue)
+        (do (swap! router assoc :scheduled? false)
+            (reset! drain-lock false)
+            false)
+        true))))
+
 (defn- drain-loop!
   "The drain body proper. Assumes the caller holds `:drain-lock` (per
   rf2-ynk7 §single-drainer invariant) so this fn has exclusive access
   to the queue's peek+pop pair.
 
-  Outer loop re-enters whenever an envelope arrives between the inner
-  empty-check and the lock-protected release window. Each pass takes a
-  fresh `db-before` snapshot so the epoch settle callback (Tool-Pair
-  §Time-travel) sees the right pre-cascade state for that pass."
+  Sequences three named phases per pass:
+
+    1. mark-drainer! — stamp the in-drain marker (cleared in finally).
+    2. run-one-pass! — process events to fixed point or depth-halt.
+    3. force-release-on-halt! / try-release-on-empty! — outcome-specific
+       release sequence under `locking router`.
+
+  Outer loop re-enters whenever `try-release-on-empty!` reports a
+  submitter raced in between the inner empty-check and the lock-protected
+  release window. Each pass takes a fresh `db-before` snapshot so the
+  epoch settle callback sees the right pre-cascade state for that pass."
   [frame-id router drain-lock drain-depth]
   (loop []
     (let [db-before (frame/frame-app-db-value frame-id)
-          outcome
-          (try
-            ;; Per rf2-ynk7: track which thread holds the drain so the
-            ;; dispatch-sync guard ("nested inside a handler?") can
-            ;; discriminate same-thread nesting from a concurrent caller
-            ;; on a different thread. On CLJS — single-threaded — every
-            ;; check is necessarily same-thread, so `true` works as the
-            ;; marker.
-            (swap! router assoc :in-drain? #?(:clj (Thread/currentThread)
-                                              :cljs true))
-            (loop [depth      0
-                   last-event nil]
-              (cond
-                (>= depth drain-depth)
-                (do (handle-depth-exceeded! frame-id router db-before depth last-event)
-                    ::halt)
-
-                :else
-                (let [{:keys [queue]} @router]
-                  (if (empty? queue)
-                    (do (handle-drain-settled! frame-id router db-before depth)
-                        ::settled)
-                    ;; Per rf2-ynk7: with the single-drainer invariant
-                    ;; held by drain-lock, this peek+pop pair is now
-                    ;; atomic w.r.t. any other drain attempt. The pre-
-                    ;; fix race (executor and main thread both peek the
-                    ;; same envelope) cannot occur — the loser of the
-                    ;; CAS in `drain-try!` / `drain-block!` never reaches
-                    ;; this code.
-                    (let [envelope (peek queue)]
-                      (swap! router update :queue pop)
-                      (process-event! envelope)
-                      (recur (inc depth) (:event envelope)))))))
-            (finally
-              (swap! router assoc :in-drain? nil)))]
-      (cond
-        ;; Depth-exceeded forcibly cleared the queue and set
-        ;; :scheduled? false. Just release the drain-lock — no need to
-        ;; re-check the queue (it's empty by construction).
-        (= outcome ::halt)
-        (locking router
-          (reset! drain-lock false))
-
-        ;; Inner loop saw the queue empty. Under the same lock that
-        ;; submitters take in `ensure-drain-scheduled!`, re-check the
-        ;; queue. If a submitter enqueued between the inner empty-check
-        ;; and now, see the new envelope and recur. Otherwise clear
-        ;; `:scheduled?` AND release `:drain-lock` under one lock so a
-        ;; serialized submitter observes both flags false and schedules
-        ;; a fresh drain. This is the orphan-prevention seam.
-        :else
-        (let [more?
-              (locking router
-                (let [{:keys [queue]} @router]
-                  (if (empty? queue)
-                    (do (swap! router assoc :scheduled? false)
-                        (reset! drain-lock false)
-                        false)
-                    true)))]
-          (when more?
-            (recur)))))))
+          outcome   (try
+                      (mark-drainer! router)
+                      (run-one-pass! frame-id router db-before drain-depth)
+                      (finally
+                        (clear-drainer! router)))]
+      (case outcome
+        ::halt    (force-release-on-halt! router drain-lock)
+        ::settled (when (try-release-on-empty! router drain-lock)
+                    (recur))))))
 
 (defn- drain-emergency-release!
   "Mid-drain panic path. An unhandled exception escaped `drain-loop!`
