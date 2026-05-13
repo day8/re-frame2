@@ -48,7 +48,7 @@ Async completions either carry the token in their follow-up event payload, or us
 When the receiving handler runs, the framework-provided `:nav-token` cofx checks the carried token against the *current* `:rf/route` slice's `:nav-token`:
 
 - **Match** — the token is current; the result is committed normally.
-- **Mismatch** — the token has been superseded; the runtime emits `:route.nav-token/stale-suppressed` and the handler does NOT run. No `:db` write, no `:fx`, no transition.
+- **Mismatch** — the token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` and the handler does NOT run. No `:db` write, no `:fx`, no transition.
 
 ```clojure
 ;; Step 1: User navigates to article id="A". nav-token = "nav-1".
@@ -69,8 +69,8 @@ Suppression alone fixes the user-visible bug. Hosts that support abortable fetch
 
 Two trace events surround the nav-token lifecycle:
 
-- **`:route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token.
-- **`:route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token.
+- **`:rf.route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token.
+- **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token.
 
 ## Navigation blocking — the `:can-leave` protocol
 

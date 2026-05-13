@@ -159,7 +159,7 @@
     ;; navigation allocates a fresh nav-token; async results carry the
     ;; token captured at request time; when a result arrives whose token
     ;; mismatches the current slice's :nav-token, the runtime suppresses
-    ;; it and emits :route.nav-token/stale-suppressed.
+    ;; it and emits :rf.route.nav-token/stale-suppressed.
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
     (rf/reg-event-db :article/loaded
@@ -199,12 +199,12 @@
           "only B's payload committed; A's was suppressed")
 
       (is (some (fn [ev]
-                  (and (= :route.nav-token/stale-suppressed (:operation ev))
+                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= "nav-1" (-> ev :tags :carried-token))
                        (= "nav-2" (-> ev :tags :current-token))
                        (= :article/loaded (-> ev :tags :event-id))))
                 @traces)
-          "expected :route.nav-token/stale-suppressed trace for the A response"))))
+          "expected :rf.route.nav-token/stale-suppressed trace for the A response"))))
 
 ;; ---- Spec 012 §Scroll restoration -----------------------------------------
 

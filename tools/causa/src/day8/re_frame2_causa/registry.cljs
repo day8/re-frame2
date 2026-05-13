@@ -1637,7 +1637,7 @@
     ;; routing surface: the registered-route set (`(rf/handlers
     ;; :route)`), the active `:rf/route` slice on the target frame
     ;; (Spec 012 §The `:rf/route` slice), and recent navigation history
-    ;; (the `:route.nav-token/*` + `:rf.route/url-changed` trace event
+    ;; (the `:rf.route.nav-token/*` + `:rf.route/url-changed` trace event
     ;; stream per Spec 012 §Trace events).
     ;;
     ;; Tests stub the registered-routes surface by writing

@@ -57,12 +57,12 @@
 ;; ---- (1) history-event predicate ---------------------------------------
 
 (deftest route-history-event-classification
-  (testing ":route.nav-token/allocated is a history event"
+  (testing ":rf.route.nav-token/allocated is a history event"
     (is (true? (h/route-history-event?
-                 (history-event 1 :route.nav-token/allocated)))))
-  (testing ":route.nav-token/stale-suppressed is a history event"
+                 (history-event 1 :rf.route.nav-token/allocated)))))
+  (testing ":rf.route.nav-token/stale-suppressed is a history event"
     (is (true? (h/route-history-event?
-                 (history-event 2 :route.nav-token/stale-suppressed)))))
+                 (history-event 2 :rf.route.nav-token/stale-suppressed)))))
   (testing ":rf.route/url-changed is a history event"
     (is (true? (h/route-history-event?
                  (history-event 3 :rf.route/url-changed)))))
@@ -75,10 +75,10 @@
 (deftest filter-history-events-keeps-only-route-ops
   (testing "filter-history-events keeps only the three route operations"
     (let [events [(history-event 1 :event/dispatched)
-                  (history-event 2 :route.nav-token/allocated)
+                  (history-event 2 :rf.route.nav-token/allocated)
                   (history-event 3 :sub/run)
                   (history-event 4 :rf.route/url-changed)
-                  (history-event 5 :route.nav-token/stale-suppressed)]]
+                  (history-event 5 :rf.route.nav-token/stale-suppressed)]]
       (is (= [2 4 5] (mapv :id (h/filter-history-events events)))
           "only the three route operations survive"))))
 
@@ -149,7 +149,7 @@
 (deftest project-history-entry-extracts-tags
   (testing "project-history-entry extracts the per-entry route slots
             from the trace event's :tags map"
-    (let [ev    (history-event 7 :route.nav-token/allocated
+    (let [ev    (history-event 7 :rf.route.nav-token/allocated
                   {:time 100
                    :tags {:route-id    :route/cart
                           :nav-token   "nav-7"
@@ -157,7 +157,7 @@
           entry (h/project-history-entry ev)]
       (is (= 7                          (:id entry)))
       (is (= 100                        (:time entry)))
-      (is (= :route.nav-token/allocated (:operation entry)))
+      (is (= :rf.route.nav-token/allocated (:operation entry)))
       (is (= :route/cart                (:route-id entry)))
       (is (= "nav-7"                    (:nav-token entry)))
       (is (= 42                         (:dispatch-id entry))))))
@@ -177,7 +177,7 @@
 (deftest project-history-is-newest-first
   (testing "project-history reverses oldest-first input into newest-first"
     (let [events (mapv (fn [i]
-                         (history-event i :route.nav-token/allocated
+                         (history-event i :rf.route.nav-token/allocated
                            {:time (* i 100)
                             :tags {:route-id :route/x :nav-token (str "n" i)}}))
                        [1 2 3 4])
@@ -186,14 +186,14 @@
 
 (deftest project-history-caps-at-n
   (testing "project-history honours the cap"
-    (let [events (mapv (fn [i] (history-event i :route.nav-token/allocated))
+    (let [events (mapv (fn [i] (history-event i :rf.route.nav-token/allocated))
                        (range 60))
           rows   (h/project-history events 25)]
       (is (= 25 (count rows)) "cap honoured"))))
 
 (deftest project-history-default-cap
   (testing "project-history's default cap is 50"
-    (let [events (mapv (fn [i] (history-event i :route.nav-token/allocated))
+    (let [events (mapv (fn [i] (history-event i :rf.route.nav-token/allocated))
                        (range 100))]
       (is (= 50 (count (h/project-history events))) "default 50"))))
 
@@ -227,9 +227,9 @@
 
 (deftest project-feed-threads-history
   (testing "project-feed projects history events newest-first"
-    (let [events [(history-event 1 :route.nav-token/allocated)
-                  (history-event 2 :route.nav-token/allocated)
-                  (history-event 3 :route.nav-token/stale-suppressed)]
+    (let [events [(history-event 1 :rf.route.nav-token/allocated)
+                  (history-event 2 :rf.route.nav-token/allocated)
+                  (history-event 3 :rf.route.nav-token/stale-suppressed)]
           feed   (h/project-feed (routes-map) nil events nil)]
       (is (= [3 2 1] (mapv :id (:history feed))) "newest first"))))
 
@@ -261,9 +261,9 @@
   (testing "format-operation produces short labels for the three Spec
             012 trace operations"
     (is (= "nav · allocated"
-           (h/format-operation :route.nav-token/allocated)))
+           (h/format-operation :rf.route.nav-token/allocated)))
     (is (= "nav · stale"
-           (h/format-operation :route.nav-token/stale-suppressed)))
+           (h/format-operation :rf.route.nav-token/stale-suppressed)))
     (is (= "url-changed (fragment)"
            (h/format-operation :rf.route/url-changed)))
     (is (= ":other/op"

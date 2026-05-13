@@ -94,7 +94,7 @@ Each row is "new in re-frame2 → new tooling story Causa must tell."
 | **Issues ribbon** | Unified feed: errors, warnings, schema violations, hydration mismatches. Permanent ribbon, not a console line. | All `:op-type :error` / `:warning` / `:rf.ssr/hydration-mismatch` traces. |
 | **Hydration debugger** | Server vs client render-tree side-by-side; divergent-node pulse; render-tree hash bisector. Only visible when SSR hydration ran. | `:rf.ssr/hydration-mismatch` + payload + first client render-tree hash. |
 | **AI co-pilot** | Pull-only Q&A and slash commands; collapsed by default; ephemeral conversation. | Registrar + epoch history + trace buffer + user's LLM. |
-| **Routing inspector** | `:rf/route` as breadcrumb; nav-token timeline with stale-result suppression. | `(rf/sub :rf/route)` + `:route.nav-token/*` traces. |
+| **Routing inspector** | `:rf/route` as breadcrumb; nav-token timeline with stale-result suppression. | `(rf/sub :rf/route)` + `:rf.route.nav-token/*` traces. |
 | **Settings / filters** | Buffer depths, default frame, theme, AI provider key. Schema'd localStorage; corruption triggers clean reset. | localStorage with `:rf/version` stamp. |
 | **Time-travel scrubber** | Bottom rail; passive scrubbing rebases the view of history; explicit `Rewind here` button calls `restore-epoch`. | `(rf/epoch-history frame-id)` + `restore-epoch` + `reset-frame-db!`. |
 

@@ -76,7 +76,7 @@
                 :rejecting-route :editor/article}}
 
    ;; Step 4 allocates a fresh nav-token for the resumed navigation.
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/cart}}]
 
   :effects-routed

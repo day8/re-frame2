@@ -78,8 +78,8 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 
-- `:route.nav-token/allocated` — fresh nav-token cascade begins.
-- `:route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
+- `:rf.route.nav-token/allocated` — fresh nav-token cascade begins.
+- `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
 - `:rf.route/url-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf/url-changed`, which fires on every URL transition.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
@@ -266,7 +266,7 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
                                  :error      nil
                                  :nav-token  nav-token}))
        :fx (into [[push-fx-id url]
-                  [:rf/trace [:route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]
+                  [:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]
                   (when-let [scroll (resolve-scroll route-meta opts fragment)]
                     [:rf.nav/scroll scroll])]
                  ;; per-route :on-match dispatches (see "Per-route data loading")
@@ -349,7 +349,7 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
                                   :transition (if (seq (:on-match route-meta)) :loading :idle)
                                   :error      nil
                                   :nav-token  nav-token})
-         :fx (into [[:rf/trace [:route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]]
+         :fx (into [[:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]]
                    (for [ev (:on-match route-meta)]
                      [:dispatch ev]))}))))
 ```
@@ -548,7 +548,7 @@ When a route is loading and the user navigates away before the load completes, t
 
 4. **Validation.** When the receiving handler runs, the framework-provided `:nav-token` cofx checks the carried token against the *current* `:rf/route` slice's `:nav-token`:
    - **Match.** The token is current; the result is committed normally.
-   - **Mismatch.** The token has been superseded; the runtime emits `:route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`) and the handler does NOT run — no `:db` write, no `:fx`, no transition.
+   - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`) and the handler does NOT run — no `:db` write, no `:fx`, no transition.
 
 The validating cofx is shared infrastructure: any handler whose registration declares it (or any handler reached via `:rf.route/with-nav-token`) is automatically protected.
 
@@ -577,14 +577,14 @@ Suppression alone fixes the user-visible bug — the older load *does* complete 
 
 Two trace events surround the nav-token lifecycle (added to the trace-op vocabulary per [Spec-Schemas.md](Spec-Schemas.md#rftrace-event)):
 
-- **`:route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token. `:tags {:route-id <id> :nav-token <token>}`.
-- **`:route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`. The handler does NOT run.
+- **`:rf.route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token. `:tags {:route-id <id> :nav-token <token>}`.
+- **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`. The handler does NOT run.
 
 Naming follows the `<feature>/<reason>` convention used by `:rf.machine.timer/stale-after`. See [Pattern-StaleDetection.md](Pattern-StaleDetection.md) for the cross-cutting pattern.
 
 ### Conformance
 
-Fixture `route-stale-nav-token-suppression.edn` exercises the canonical race: load route A; navigate to route B before A finishes; A finishes; verify the late result is suppressed and the trace shows `:route.nav-token/stale-suppressed`.
+Fixture `route-stale-nav-token-suppression.edn` exercises the canonical race: load route A; navigate to route B before A finishes; A finishes; verify the late result is suppressed and the trace shows `:rf.route.nav-token/stale-suppressed`.
 
 ## Standard runtime events
 

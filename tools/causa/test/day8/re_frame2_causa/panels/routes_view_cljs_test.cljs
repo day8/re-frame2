@@ -246,7 +246,7 @@
             "empty marker present when no trace events")))))
 
 (deftest history-feed-surfaces-route-trace-events
-  (testing "with :route.nav-token/* and :rf.route/url-changed events on
+  (testing "with :rf.route.nav-token/* and :rf.route/url-changed events on
             the trace bus the history feed renders them.
 
             Note: each history row carries child spans with their own
@@ -257,7 +257,7 @@
     (setup-causa-frame!)
     (push-trace! {:id        1001
                   :op-type   :info
-                  :operation :route.nav-token/allocated
+                  :operation :rf.route.nav-token/allocated
                   :time      100
                   :tags      {:route-id :route/cart
                               :nav-token "nav-1"
@@ -287,7 +287,7 @@
     (setup-causa-frame!)
     (push-trace! {:id        1
                   :op-type   :info
-                  :operation :route.nav-token/allocated
+                  :operation :rf.route.nav-token/allocated
                   :time      100
                   :tags      {:dispatch-id 42 :route-id :route/cart}})
     (rf/with-frame :rf/causa

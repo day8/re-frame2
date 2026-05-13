@@ -384,7 +384,7 @@ Filters the trace-buffer to events tagged `:tags :origin :causa-mcp`.
 
 Spec: [`spec/012-Routing.md`](../../../spec/012-Routing.md). Surfaces
 registered routes, the active `:rf/route` slice, and recent navigation
-history (the `:route.nav-token/*` + `:rf.route/url-changed` trace
+history (the `:rf.route.nav-token/*` + `:rf.route/url-changed` trace
 stream).
 
 ### Subscriptions

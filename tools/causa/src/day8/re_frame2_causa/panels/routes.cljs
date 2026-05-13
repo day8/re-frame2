@@ -12,7 +12,7 @@
                                        target frame's `:rf/route` slice
                                        (per Spec 012 §The `:rf/route`
                                        slice).
-    - Spec 009 (Instrumentation)     — the `:route.nav-token/*` +
+    - Spec 009 (Instrumentation)     — the `:rf.route.nav-token/*` +
                                        `:rf.route/url-changed` trace
                                        event vocabulary. The panel
                                        filters the Causa trace buffer

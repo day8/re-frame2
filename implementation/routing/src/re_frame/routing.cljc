@@ -724,7 +724,7 @@
 
         :else
         ;; Stale — suppress.
-        (do (trace/emit-error! :route.nav-token/stale-suppressed
+        (do (trace/emit-error! :rf.route.nav-token/stale-suppressed
                                {:carried-token carried-nav-token
                                 :current-token current
                                 :event-id      (when (vector? on-success-event)
@@ -754,7 +754,7 @@
         ;; navigation; consumers discriminate full vs fragment-only by
         ;; :tags (the fragment-only emission carries :prev-fragment /
         ;; :next-fragment and never coincides with a
-        ;; :route.nav-token/allocated on the same drain).
+        ;; :rf.route.nav-token/allocated on the same drain).
         (do (trace/emit! :event :rf.route/url-changed
                          {:route-id      (:id prev)
                           :prev-fragment (:fragment prev)
@@ -783,7 +783,7 @@
                                :saved-pos (when (= :restore strategy)
                                             (lookup-scroll-position db url))
                                :fragment  fragment})]
-          (trace/emit! :event :route.nav-token/allocated
+          (trace/emit! :event :rf.route.nav-token/allocated
                        {:route-id  (:route-id m)
                         :nav-token token})
           {:db (assoc db' :rf/route
