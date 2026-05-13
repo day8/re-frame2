@@ -348,3 +348,184 @@
       (is (cache-hit-result? hit))
       (is (< (count text) 500)
           "cache-hit marker fits well under a 5K-token cap"))))
+
+(deftest cache-hit-marker-carries-via-slot
+  ;; rf2-36xod: the marker carries `:via` to distinguish a pre-eval
+  ;; short-circuit (`:precheck`) from the legacy post-eval match
+  ;; (`:result-hash`). Agents that read the marker can attribute the
+  ;; saving correctly; tooling can graph cache-hit volume by source.
+  (let [args (args-js {:frame ":rf/default"})
+        text "{:ok? true :app-db {:k :v}}"
+        opts {:tool "snapshot" :args args :enabled? true}]
+    (cache/apply-cache (mcp-result text) opts)
+    (let [hit (cache/apply-cache (mcp-result text) opts)
+          v   (edn/read-string (extract-text hit))]
+      (is (= :result-hash (get-in v [:rf.mcp/cache-hit :via]))
+          "apply-cache hit annotates :via :result-hash"))))
+
+;; ---------------------------------------------------------------------------
+;; Precheck — rf2-36xod. Decide cache-hit BEFORE running the tool.
+;;
+;; Same `apply-cache` contract — same `(tool, args)` key, same LRU
+;; semantics, same marker shape — but with an extra `:precheck-hash`
+;; slot the caller can match against a runtime-side cheap hash. On
+;; a match, `precheck` emits the marker WITHOUT the caller ever
+;; running the tool. Saves the nREPL round-trip + full transform
+;; pipeline, not just the wire bytes.
+;; ---------------------------------------------------------------------------
+
+(defn- via-of
+  "Pull the `:via` slot out of a cache-hit marker result."
+  [result]
+  (let [v (edn/read-string (extract-text result))]
+    (get-in v [:rf.mcp/cache-hit :via])))
+
+(deftest precheck-returns-nil-without-prior-entry
+  ;; No prior entry for (tool, args) → precheck has nothing to match
+  ;; against → returns nil (caller proceeds with the full tool eval).
+  (let [args (args-js {:frame ":rf/default"})
+        opts {:tool "snapshot" :args args :enabled? true}]
+    (is (nil? (cache/precheck opts 12345))
+        "cold cache → precheck returns nil")))
+
+(deftest precheck-returns-nil-when-disabled
+  ;; `enabled? false` is a global opt-out — precheck must not engage.
+  ;; First prime the cache with a precheck-hash so a hit COULD happen
+  ;; if precheck were enabled.
+  (let [args      (args-js {:frame ":rf/default"})
+        opts-on   {:tool "snapshot" :args args :enabled? true
+                   :precheck-hash 12345}
+        opts-off  {:tool "snapshot" :args args :enabled? false}]
+    (cache/apply-cache (mcp-result "{:k :v}") opts-on)
+    (is (nil? (cache/precheck opts-off 12345))
+        "disabled cache → precheck always nil, even with matching hash")))
+
+(deftest precheck-returns-nil-for-non-cacheable-tool
+  ;; Action tools never participate in the cache; precheck mirrors
+  ;; that opt-out.
+  (let [args (args-js {:event "[:cart/checkout]"})
+        opts {:tool "dispatch" :args args :enabled? true}]
+    (is (nil? (cache/precheck opts 12345))
+        "dispatch is not cacheable → precheck returns nil")))
+
+(deftest precheck-returns-nil-when-no-current-hash
+  ;; Caller has no precheck wiring for this tool → passes nil → we
+  ;; return nil and let the legacy post-eval path take over.
+  (let [args (args-js {:frame ":rf/default"})
+        opts {:tool "snapshot" :args args :enabled? true}]
+    ;; Prime the cache with a precheck-hash.
+    (cache/apply-cache (mcp-result "{:k :v}")
+                       (assoc opts :precheck-hash 12345))
+    (is (nil? (cache/precheck opts nil))
+        "no current-precheck-hash supplied → precheck returns nil")))
+
+(deftest precheck-returns-nil-when-prior-has-no-precheck-hash
+  ;; A prior entry without a stored :precheck-hash (e.g. cached
+  ;; before precheck wiring existed, or the precheck fetch failed
+  ;; that round) cannot short-circuit even with a current hash.
+  (let [args (args-js {:frame ":rf/default"})
+        opts {:tool "snapshot" :args args :enabled? true}]
+    ;; Prime WITHOUT a precheck-hash.
+    (cache/apply-cache (mcp-result "{:k :v}") opts)
+    (is (nil? (cache/precheck opts 12345))
+        "no stored :precheck-hash → precheck returns nil even with current hash")))
+
+(deftest precheck-hit-short-circuits-with-marker
+  ;; The load-bearing path. Prime the cache with a precheck-hash;
+  ;; a second call carrying the SAME hash → precheck returns the
+  ;; marker. The caller never runs the tool.
+  (let [args (args-js {:frame ":rf/default"})
+        opts {:tool "snapshot" :args args :enabled? true}
+        h    98765]
+    ;; Prime — tool ran once, result + precheck-hash stored.
+    (cache/apply-cache (mcp-result "{:ok? true :app-db {:k :v}}")
+                       (assoc opts :precheck-hash h))
+    ;; Second tool call would be preceded by a precheck.
+    (let [out (cache/precheck opts h)]
+      (is (some? out)
+          "matching precheck-hash → marker returned")
+      (is (cache-hit-result? out)
+          "marker shape is :rf.mcp/cache-hit")
+      (is (= :precheck (via-of out))
+          "marker carries :via :precheck — distinguishes from result-hash path"))))
+
+(deftest precheck-miss-on-different-hash
+  ;; State moved on → current hash differs from stored → precheck
+  ;; returns nil and the caller falls back to the full tool eval.
+  (let [args (args-js {:frame ":rf/default"})
+        opts {:tool "snapshot" :args args :enabled? true}]
+    (cache/apply-cache (mcp-result "{:ok? true :app-db {:k :v}}")
+                       (assoc opts :precheck-hash 12345))
+    (is (nil? (cache/precheck opts 67890))
+        "different current-hash → precheck returns nil")))
+
+(deftest precheck-uses-tool-args-key
+  ;; Cache key is `(tool, args)` — a precheck for (snapshot, frame=:a)
+  ;; must NOT hit an entry stored for (snapshot, frame=:b) even when
+  ;; the hashes match (because the hashes would, in real usage, be
+  ;; the per-frame app-db hash — different frames have different dbs).
+  (let [args-a (args-js {:frame ":rf/a"})
+        args-b (args-js {:frame ":rf/b"})
+        h      11111
+        opts-a {:tool "snapshot" :args args-a :enabled? true}
+        opts-b {:tool "snapshot" :args args-b :enabled? true}]
+    (cache/apply-cache (mcp-result "{:db {:k :v}}")
+                       (assoc opts-a :precheck-hash h))
+    (is (nil? (cache/precheck opts-b h))
+        "different args → different key → precheck returns nil")
+    (is (some? (cache/precheck opts-a h))
+        "matching key → precheck hits")))
+
+(deftest precheck-hit-touches-lru
+  ;; A precheck hit is still a use of the entry — touch the LRU so
+  ;; the entry doesn't rotate out under capacity pressure.
+  (let [opts (fn [i] {:tool "snapshot"
+                      :args (args-js {:frame (str ":f" i)})
+                      :enabled? true})]
+    ;; Fill to capacity with precheck-hashes.
+    (dotimes [i 8]
+      (cache/apply-cache (mcp-result (str "{:i " i "}"))
+                         (assoc (opts i) :precheck-hash (* i 1000))))
+    (is (= 8 (cache/size)))
+    ;; Touch the OLDEST entry via precheck.
+    (is (some? (cache/precheck (opts 0) 0))
+        "oldest entry still precheck-hits")
+    ;; Now add a new entry — the LRU evicts entry 1 (current oldest
+    ;; since entry 0 was just touched), not entry 0.
+    (cache/apply-cache (mcp-result "{:i 99}")
+                       (assoc (opts 99) :precheck-hash 99000))
+    (is (= 8 (cache/size)))
+    (is (some? (cache/precheck (opts 0) 0))
+        "entry 0 survived — precheck-hit touched the LRU")
+    (is (nil? (cache/precheck (opts 1) 1000))
+        "entry 1 evicted as the new oldest")))
+
+(deftest precheck-hash-stored-by-apply-cache
+  ;; `apply-cache` is the single write surface — when the caller
+  ;; supplies `:precheck-hash`, it's stored alongside the result
+  ;; hash so the next `precheck` call can match it.
+  (let [args (args-js {:frame ":rf/default"})
+        opts {:tool "snapshot" :args args :enabled? true
+              :precheck-hash 54321}]
+    (cache/apply-cache (mcp-result "{:k :v}") opts)
+    (is (some? (cache/precheck (dissoc opts :precheck-hash) 54321))
+        "precheck-hash supplied at store time is queryable on the next call")))
+
+(deftest precheck-hash-absent-when-not-supplied
+  ;; Backwards-compat path. When `apply-cache` is called WITHOUT
+  ;; `:precheck-hash` (the rf2-3rt1f-era call sites), the stored
+  ;; entry doesn't carry one; future precheck attempts on that key
+  ;; return nil and the legacy post-eval cache catches the hit.
+  (let [args (args-js {:frame ":rf/default"})
+        opts {:tool "snapshot" :args args :enabled? true}
+        text "{:k :v}"]
+    ;; First store — no precheck-hash.
+    (cache/apply-cache (mcp-result text) opts)
+    (is (nil? (cache/precheck opts 12345))
+        "no stored :precheck-hash → precheck returns nil")
+    ;; Legacy post-eval path still works.
+    (let [hit (cache/apply-cache (mcp-result text) opts)]
+      (is (cache-hit-result? hit)
+          "post-eval cache-hit still fires when text matches")
+      (is (= :result-hash (via-of hit))
+          "marker carries :via :result-hash"))))
