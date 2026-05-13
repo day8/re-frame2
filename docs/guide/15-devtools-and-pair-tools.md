@@ -349,7 +349,7 @@ Six failure modes are enumerated and named for `restore-epoch`, each emitting a 
 | **Version mismatch** | The frame's recorded `:rf/snapshot-version` is incompatible with the currently-loaded machine definition. |
 | **Concurrent-drain rejection** | Called while the frame's drain is still in flight; retry after settle. |
 
-`restore-epoch` returns `true` on success, `false` on any failure. Pair tools display the `:operation` and `:tags` to the user and route from the failure to a remediation. Each failure mode's `:tags` carries the frame-id, the requested epoch-id, and one diagnostic key — `:reason` for unknown / concurrent-drain rejections, `:explanation` (Malli) for schema mismatches, `:missing-id` for missing-handler, `:expected`/`:got` for version-mismatch.
+`restore-epoch` returns `true` on success, `false` on any failure. Pair tools display the `:operation` and `:tags` to the user and route from the failure to a remediation. Each failure mode's `:tags` carries the frame-id, the requested epoch-id, and one diagnostic key — `:reason` for unknown / concurrent-drain rejections, `:explain` (Malli) for schema mismatches, `:missing-id` for missing-handler, `:expected`/`:got` for version-mismatch.
 
 Listening for restore outcomes:
 

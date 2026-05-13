@@ -26,7 +26,7 @@
                    :path   ...
                    :value  ...
                    :schema ...
-                   :explanation ...
+                   :explain ...
                    :frame  ...}
        :time      <ms>}
 
@@ -220,7 +220,7 @@
        :where       <keyword>          ;; from :tags :where
        :path        <vector|nil>       ;; from :tags :path
        :value       <any>              ;; from :tags :value
-       :explanation <any|nil>          ;; from :tags :explanation
+       :explain     <any|nil>          ;; from :tags :explain
        :frame       <keyword|nil>      ;; from :tags :frame
        :dispatch-id <int|nil>          ;; from :tags :dispatch-id
        :raw         <trace-event>}     ;; full event for deep-dives
@@ -237,7 +237,7 @@
    :where       (:where tags)
    :path        (:path tags)
    :value       (:value tags)
-   :explanation (or (:explanation tags) (:explain tags))
+   :explain     (:explain tags)
    :frame       (:frame tags)
    :dispatch-id (:dispatch-id tags)
    :raw         ev})
@@ -475,7 +475,7 @@
   Falls back to a best-effort summary when `:path` / `:value` are
   absent. The full Malli explanation lives in the side-panel detail;
   the tooltip is the cheap glance."
-  [{:keys [path value explanation] :as _violation}]
+  [{:keys [path value explain] :as _violation}]
   (let [path-str  (when (some? path)
                     (str "at " (pr-str path)))
         value-str (when (or (some? value) (nil? value))
@@ -483,11 +483,11 @@
                       (str "got " (pr-str value))
                       (catch #?(:clj Throwable :cljs :default) _
                         "got <unprintable>")))
-        ;; explanation might carry a :message slot (Malli's per-error
+        ;; explain might carry a :message slot (Malli's per-error
         ;; map); surface it when present.
-        msg       (when (map? explanation)
-                    (or (:message explanation)
-                        (some :message (:errors explanation))))]
+        msg       (when (map? explain)
+                    (or (:message explain)
+                        (some :message (:errors explain))))]
     (str/join ", "
               (remove str/blank?
                       [path-str value-str msg]))))

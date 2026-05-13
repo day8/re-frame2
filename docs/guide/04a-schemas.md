@@ -95,7 +95,7 @@ The everyday API. You point it at an `app-db` path and hand it a schema:
 (rf/reg-app-schema [:auth] AuthSlice)
 ```
 
-Now, after every event handler, the runtime extracts whatever's at `[:auth]` in the new `app-db` and validates it against `AuthSlice`. If the handler wrote `:status :loggedin` (a typo not in the enum), the runtime emits `:rf.error/schema-validation-failure` with `:where :app-db :path [:auth] :value {:status :loggedin ...} :explanation {...}` and **rolls back the `:db` effect** — the pre-handler `app-db` is restored, the dispatch is treated as failed.
+Now, after every event handler, the runtime extracts whatever's at `[:auth]` in the new `app-db` and validates it against `AuthSlice`. If the handler wrote `:status :loggedin` (a typo not in the enum), the runtime emits `:rf.error/schema-validation-failure` with `:where :app-db :path [:auth] :value {:status :loggedin ...} :explain {...}` and **rolls back the `:db` effect** — the pre-handler `app-db` is restored, the dispatch is treated as failed.
 
 Rollback is load-bearing. The handler that produced the bad shape is named in the error, the value that failed is in the error, the *app* is still in the last good state. You don't end up debugging a corrupted `app-db` at 2am.
 
