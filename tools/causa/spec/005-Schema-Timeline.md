@@ -130,6 +130,84 @@ When a *new* row gains its first violation, the schema-name label
 flashes once (600ms) — the same attention-cue Causa uses for new
 issues. After that, the label rests until cleared.
 
+### Flash-cue mechanism (rf2-x2d7c)
+
+The flash-cue is the schema timeline's only motion affordance and
+the panel's primary "look here" signal for regressions. Its
+mechanics are normative.
+
+**Trigger.** A row's label MUST flash on the
+**empty→non-empty transition** of its in-window violation set —
+i.e. when the row had **zero** violations inside the visible time
+window on the prior composite recompute and has **one or more**
+violations on the current recompute. Once a row is non-empty, every
+subsequent recompute on which the row remains non-empty MUST NOT
+re-flash. Aging back to empty resets the latch — the next
+non-empty recompute flashes again.
+
+The transition is computed in the row projection from a cached copy
+of the prior recompute's rows (the `:rf.causa/schema-timeline-prev-rows`
+sub per
+[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md)
+§Schema-violation timeline). Each projected row carries a `:first?`
+boolean that is
+`true` for the one recompute on which the transition fires and
+`false` otherwise. The view binds the animation to `:first?`; no
+imperative timer is required.
+
+The trigger is **per-row**, not per-violation: a row that already
+has one in-window dot does NOT re-flash when a second, third or
+hundredth violation lands on the same schema. The empty→non-empty
+test coalesces rapid-fire violations against the same schema by
+construction — only the **transition** fires the cue, never the
+volume. This is the normative throttle: rapid-fire violations
+against an already-flagged schema MUST NOT strobe the label.
+
+**Visual.** The label column (the schema-id text) animates the
+single CSS animation `rf-causa-flash` for exactly
+**600ms ease-out, one iteration**. The 600ms duration is reused
+from the issues-feed new-item flash so the two attention cues read
+as the same gesture across the chrome. The dot track itself does
+NOT animate — only the label. No layout shift, no glow that
+extends beyond the label's bounding box.
+
+**Accessibility.** The flash MUST honour
+`prefers-reduced-motion: reduce` per §Motion + animation in
+[`007-UX-IA.md`](./007-UX-IA.md): under that setting the animation
+clamps to 0 and the label renders statically at next paint. The
+information the cue carries (the schema went from clean to dirty)
+is also carried by the dot appearing on the track and by the row's
+`:first?` data — accessibility is preserved without the motion.
+
+**Clearing.** The cue clears with the animation; there is no
+sticky "recently flashed" decoration on the label after the 600ms
+elapses. Clearing the trace buffer (per
+[`013-Trace-Bus.md`](./013-Trace-Bus.md) §Lifecycle operations)
+drops every row's in-window violations, returning every row to the
+empty state; the next violation against any schema will fire its
+flash again. Scrubbing the time-axis window so that all of a row's
+dots fall outside the visible window is treated identically — the
+row re-enters its empty state and the next in-window violation
+re-arms the cue.
+
+**Scope of the trigger.** The empty→non-empty test is run against
+the **in-window** violation set, comparing the current recompute to
+the prior recompute's cache. Consequences:
+
+- Schema **registration** alone (a row appearing because a new
+  schema was registered via `(rf/app-schemas frame-id)` but
+  carrying no violations) does NOT fire the cue — registration
+  doesn't move the row out of the empty bucket.
+- Selecting a violation, changing the schema-filter, or any other
+  read-only pivot does NOT fire the cue — those don't change the
+  row's in-window violation set.
+- Time-axis **pan or zoom** that brings previously-out-of-window
+  violations into view DOES fire the cue for the affected rows.
+  The cue is a fixed function of the empty→non-empty transition;
+  it does not distinguish "new arrival" from "scrolled into view".
+  This is intentional: the user's attention SHOULD be drawn to a
+  schema that just became visibly dirty, irrespective of cause.
+
 ## Aging out
 
 The timeline reads from the trace buffer (bounded by Spec 009 at 200
