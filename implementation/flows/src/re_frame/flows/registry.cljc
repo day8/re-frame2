@@ -39,6 +39,36 @@
   (atom {}))
 
 ;; ---- validation ----------------------------------------------------------
+;;
+;; Per Spec 013 §Flow shape: `:inputs` is a vector of app-db paths, `:path`
+;; is an app-db path. A path is a non-empty vector of scalar map keys. The
+;; prior validator only enforced `vector?` on each, so three classes of
+;; malformed input slipped through (per audit rf2-o3hok findings Q5 / TE4):
+;;
+;;   - `:inputs [:foo :bar]` (vector of bare keywords) — passed; then
+;;     topo's `prefix?` threw on `(count :foo)`.
+;;   - `:inputs [[:foo] :bar]` (mixed) — same path, same delayed boom.
+;;   - `:path []` — passed; `(prefix? [] anything)` is true, so the empty-
+;;     path flow silently became a depends-on prerequisite of EVERY other
+;;     flow in the frame (per Spec 013 §Dependency rule).
+;;
+;; The tightened validator rejects each malformation up front with a stable
+;; error id and ex-data that names the offending entries / elements so
+;; callers don't have to chase the failure into the topo / evaluator stack.
+
+(defn- valid-path-element?
+  "Path elements are scalar map keys: keyword, string, integer, symbol, or
+  boolean. Collections (vectors / maps / sets / seqs) are never the right
+  value for a `get-in` path step and almost always indicate a caller bug
+  (e.g. passing a bare keyword where a vector-of-paths was expected, then
+  wrapping it one level too many)."
+  [x]
+  (or (keyword? x) (string? x) (integer? x) (symbol? x) (boolean? x)))
+
+(defn- valid-path?
+  "A path is a non-empty vector of valid path elements."
+  [x]
+  (and (vector? x) (seq x) (every? valid-path-element? x)))
 
 (defn- validate-flow [flow]
   (cond
@@ -49,13 +79,36 @@
     (throw (ex-info ":rf.error/flow-bad-inputs"
                     {:flow flow :reason ":inputs must be a vector of paths"}))
 
+    (not (every? vector? (:inputs flow)))
+    (throw (ex-info ":rf.error/flow-bad-inputs"
+                    {:flow flow
+                     :reason ":inputs entries must each be a vector (app-db path)"
+                     :bad-entries (vec (remove vector? (:inputs flow)))}))
+
+    (not (every? valid-path? (:inputs flow)))
+    (throw (ex-info ":rf.error/flow-bad-inputs"
+                    {:flow flow
+                     :reason ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
+                     :bad-entries (vec (remove valid-path? (:inputs flow)))}))
+
     (not (fn? (:output flow)))
     (throw (ex-info ":rf.error/flow-bad-output"
                     {:flow flow :reason ":output must be a fn"}))
 
     (not (vector? (:path flow)))
     (throw (ex-info ":rf.error/flow-bad-path"
-                    {:flow flow :reason ":path must be a vector"}))))
+                    {:flow flow :reason ":path must be a vector"}))
+
+    (empty? (:path flow))
+    (throw (ex-info ":rf.error/flow-bad-path"
+                    {:flow flow
+                     :reason ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"}))
+
+    (not (every? valid-path-element? (:path flow)))
+    (throw (ex-info ":rf.error/flow-bad-path"
+                    {:flow flow
+                     :reason ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
+                     :bad-elements (vec (remove valid-path-element? (:path flow)))}))))
 
 ;; ---- registration --------------------------------------------------------
 
