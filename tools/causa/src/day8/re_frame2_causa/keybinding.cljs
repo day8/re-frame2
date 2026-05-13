@@ -15,8 +15,17 @@
   who prefer Cmd+Shift+C can swap in their browser's keyboard-
   shortcut UI; Phase 1 ships only the Ctrl-modifier path. macOS
   Safari sometimes maps Cmd+Shift+C to dev-tools' Inspect — Causa
-  deliberately uses `ctrl` to avoid that collision."
-  (:require [day8.re-frame2-causa.mount :as mount]))
+  deliberately uses `ctrl` to avoid that collision.
+
+  ## Phase 5 — Ctrl+Shift+/ co-pilot toggle (rf2-rccf3)
+
+  Per spec/009-AI-CoPilot.md §Default state the co-pilot rail toggles
+  on `Ctrl+Shift+/`. The listener routes the keypress through the
+  `:rf.causa/copilot-toggle` event dispatched on the Causa frame, so
+  the panel's open / closed state lives in Causa's app-db (not the
+  host's)."
+  (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.mount :as mount]))
 
 (defonce ^:private attached?
   ;; Sentinel — true once the keydown listener is installed. defonce
@@ -43,11 +52,43 @@
              (= "c" k)
              (= "KeyC" code)))))
 
+(defn- copilot-toggle-key?
+  "True when `event` is a Ctrl+Shift+/ keydown. Per spec/009-AI-
+  CoPilot.md §Default state. Checks the slash key via both `key`
+  (\"/\" / \"?\") and `code` (\"Slash\") — the Shift modifier shifts
+  the printable character on most layouts."
+  [event]
+  (let [^js e event
+        k         (.-key e)
+        code      (.-code e)
+        ctrl?     (.-ctrlKey e)
+        shift?    (.-shiftKey e)
+        meta?     (.-metaKey e)
+        alt?      (.-altKey e)]
+    (and ctrl?
+         shift?
+         (not meta?)
+         (not alt?)
+         (or (= "/" k)
+             (= "?" k)
+             (= "Slash" code)))))
+
 (defn- handle-keydown [^js event]
-  (when (causa-toggle-key? event)
-    (.preventDefault event)
-    (.stopPropagation event)
-    (mount/toggle!)))
+  (cond
+    (causa-toggle-key? event)
+    (do (.preventDefault event)
+        (.stopPropagation event)
+        (mount/toggle!))
+
+    (copilot-toggle-key? event)
+    (do (.preventDefault event)
+        (.stopPropagation event)
+        ;; Per spec/009-AI-CoPilot.md §Default state — Ctrl+Shift+/
+        ;; toggles the co-pilot rail. Routed through Causa's frame so
+        ;; the panel's open / closed state lands on :rf/causa, not the
+        ;; host's :rf/default.
+        (rf/with-frame :rf/causa
+          (rf/dispatch [:rf.causa/copilot-toggle])))))
 
 (defn attach!
   "Install the global Ctrl+Shift+C listener once. No-op on second +

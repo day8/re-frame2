@@ -120,6 +120,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
+            [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]
             [day8.re-frame2-causa.panels.causality-graph-helpers :as cg-helpers]
             [day8.re-frame2-causa.panels.app-db-diff-helpers :as diff-helpers]
@@ -1033,7 +1034,16 @@
 
     (rf/reg-event-fx :rf.causa/copy-path-to-clipboard
       (fn [_ctx [_ path]]
-        {:fx [[:rf.causa.fx/copy-to-clipboard {:text (pr-str path)}]]})))
+        {:fx [[:rf.causa.fx/copy-to-clipboard {:text (pr-str path)}]]}))
+
+    ;; ---- Phase 5 (rf2-rccf3) — AI Co-Pilot panel -----------------------
+    ;;
+    ;; The Co-Pilot owns its own subs / events / fxs (chip parsing, slash
+    ;; commands, conversation buffer, provider streaming). Per the panel
+    ;; convention the panel-ns exposes `install!` which the registry calls
+    ;; from inside its own `compare-and-set!` gate so the panel's
+    ;; registrations are idempotent under shadow-cljs `:after-load`.
+    (ai-co-pilot/install!))
   nil)
 
 (defn reset-for-test!
