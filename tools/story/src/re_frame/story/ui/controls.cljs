@@ -185,36 +185,51 @@
 
 ;; ---- pure: argtype inference --------------------------------------------
 
-(declare infer-widget)
+;; Two complementary widget-derivation paths feed into the same widget
+;; descriptor vocabulary. `infer-widget` walks a Malli schema fragment
+;; (the preferred / schema-driven path); `infer-value-shape` walks a
+;; live CLJS value (the fallback for variants without a registered
+;; schema). Both produce the same descriptor maps so the renderer can
+;; dispatch on `:widget` without caring how the descriptor was derived.
 
-(defn- infer-map-widget
-  "Recurse into a `[:map [k1 s1] [k2 s2] ...]` schema, producing a
-  `:group` widget whose `:entries` is a vector of `{:key :widget}`
-  child descriptors. Order is preserved from the schema."
+(declare infer-widget infer-value-shape)
+
+(defn- schema-map-entries->descriptors
+  "Walk a `[:map [k1 s1] [k2 s2] ...]` schema's child entries, applying
+  `infer-widget` to each entry's child schema. Used to construct the
+  `:entries` vector of a `:group` descriptor."
   [schema]
-  {:widget  :group
-   :kind    :map
-   :entries (mapv (fn [entry]
-                    {:key    (map-entry-key entry)
-                     :widget (infer-widget (map-entry-schema entry))})
-                  (schema-children schema))})
+  (mapv (fn [entry]
+          {:key    (map-entry-key entry)
+           :widget (infer-widget (map-entry-schema entry))})
+        (schema-children schema)))
 
-(defn- infer-vector-widget
-  "Recurse into a `[:vector X]` (or `[:set X]`) schema, producing a
-  `:repeater` widget that carries the element schema in `:element` and
-  records which collection variant it represents."
-  [schema kind]
-  {:widget  :repeater
-   :kind    kind
-   :element (infer-widget (first (schema-children schema)))})
+(defn- value-map-entries->descriptors
+  "Walk a live CLJS map's entries, applying `infer-value-shape` to each
+  value. Used to construct the `:entries` vector of a `:group`
+  descriptor when no schema is on file."
+  [m]
+  (mapv (fn [[k v]]
+          {:key    k
+           :widget (infer-value-shape v)})
+        m))
 
-(defn- infer-tuple-widget
-  "Recurse into a `[:tuple X Y ...]` schema, producing a `:tuple` widget
-  whose `:positions` is the vector of per-index child widgets."
-  [schema]
-  {:widget    :tuple
-   :kind      :tuple
-   :positions (mapv infer-widget (schema-children schema))})
+(defn- group-descriptor
+  "Construct a `:map`-flavoured `:group` widget descriptor."
+  [entries]
+  {:widget :group :kind :map :entries entries})
+
+(defn- repeater-descriptor
+  "Construct a `:vector`- or `:set`-flavoured `:repeater` widget
+  descriptor with `element` as the per-entry sub-widget."
+  [kind element]
+  {:widget :repeater :kind kind :element element})
+
+(defn- tuple-descriptor
+  "Construct a `:tuple` widget descriptor whose `:positions` is the
+  vector of per-index sub-widgets."
+  [positions]
+  {:widget :tuple :kind :tuple :positions positions})
 
 (defn infer-widget
   "Given a Malli schema fragment (or simple keyword type), return a
@@ -254,10 +269,10 @@
     (vector? schema-fragment)
     (case (schema-op schema-fragment)
       :enum   {:widget :select :options (vec (schema-children schema-fragment))}
-      :map    (infer-map-widget schema-fragment)
-      :vector (infer-vector-widget schema-fragment :vector)
-      :set    (infer-vector-widget schema-fragment :set)
-      :tuple  (infer-tuple-widget schema-fragment)
+      :map    (group-descriptor (schema-map-entries->descriptors schema-fragment))
+      :vector (repeater-descriptor :vector (infer-widget (first (schema-children schema-fragment))))
+      :set    (repeater-descriptor :set    (infer-widget (first (schema-children schema-fragment))))
+      :tuple  (tuple-descriptor (mapv infer-widget (schema-children schema-fragment)))
       ;; Unknown vector form — fall back to :text.
       {:widget :text})
 
@@ -267,26 +282,23 @@
 (defn- infer-value-shape
   "Lightweight fallback used when no schema is on file — classify a
   resolved value by its CLJS shape so the controls panel at least
-  renders *something* sensible."
+  renders *something* sensible. Produces the same widget descriptor
+  vocabulary as `infer-widget` (schema-driven path)."
   [v]
   (cond
-    (map? v)         {:widget :group :kind :map
-                      :entries (mapv (fn [[k v']]
-                                       {:key    k
-                                        :widget (infer-value-shape v')})
-                                     v)}
-    (vector? v)      {:widget :repeater :kind :vector
-                      :element (or (some-> v first infer-value-shape)
-                                   {:widget :text})}
-    (set? v)         {:widget :repeater :kind :set
-                      :element (or (some-> v first infer-value-shape)
-                                   {:widget :text})}
-    (string? v)      {:widget :text}
-    (boolean? v)     {:widget :boolean}
-    (integer? v)     {:widget :number}
-    (number? v)      {:widget :number}
-    (keyword? v)     {:widget :text}
-    :else            {:widget :text}))
+    (map? v)     (group-descriptor (value-map-entries->descriptors v))
+    (vector? v)  (repeater-descriptor :vector
+                                       (or (some-> v first infer-value-shape)
+                                           {:widget :text}))
+    (set? v)     (repeater-descriptor :set
+                                       (or (some-> v first infer-value-shape)
+                                           {:widget :text}))
+    (string? v)  {:widget :text}
+    (boolean? v) {:widget :boolean}
+    (integer? v) {:widget :number}
+    (number? v)  {:widget :number}
+    (keyword? v) {:widget :text}
+    :else        {:widget :text}))
 
 (defn resolve-argtypes
   "Build the `{arg-key → widget-spec}` map for a variant. Variant-level
@@ -349,6 +361,96 @@
 
 (declare arg-widget)
 
+;; Per-widget render fns. Each takes `[variant-id path value spec]` and
+;; returns a hiccup form. Factoring out the per-case logic keeps the
+;; dispatch in `scalar-widget` data-driven and each renderer a tight
+;; ~10-line fn.
+
+(defn- on-string-change
+  "Generic text-input on-change handler: writes the raw string value
+  through to the cell-override at `path`."
+  [variant-id path]
+  (fn [e] (on-change-at-path variant-id path (read-event-value e))))
+
+(defn- render-text [variant-id path value _]
+  [:input {:type      "text"
+           :style     (:input styles)
+           :value     (if (nil? value) "" (str value))
+           :on-change (on-string-change variant-id path)}])
+
+(defn- render-textarea [variant-id path value _]
+  [:textarea {:style     (:textarea styles)
+              :value     (if (nil? value) "" (str value))
+              :on-change (on-string-change variant-id path)}])
+
+(defn- render-number [variant-id path value _]
+  [:input {:type      "number"
+           :style     (:input styles)
+           :value     (if (nil? value) "" value)
+           :on-change (fn [e]
+                        (let [s (read-event-value e)
+                              v (when (seq s) (js/parseFloat s))]
+                          (on-change-at-path variant-id path v)))}])
+
+(defn- render-boolean [variant-id path value _]
+  [:input {:type      "checkbox"
+           :checked   (boolean value)
+           :on-change (fn [e]
+                        (on-change-at-path variant-id path
+                                           (read-event-checked e)))}])
+
+(defn- render-select [variant-id path value {:keys [options]}]
+  [:select {:value     (str value)
+            :style     (:input styles)
+            :on-change (on-string-change variant-id path)}
+   (for [opt options]
+     ^{:key (str opt)}
+     [:option {:value (str opt)} (str opt)])])
+
+(defn- render-radio [variant-id path value {:keys [options]}]
+  (into [:div {:style (:radio-row styles)
+               :data-controls-radio-group (str (last path))}]
+        (for [opt options]
+          ^{:key (str opt)}
+          [:label {:style (:radio-label styles)}
+           [:input {:type      "radio"
+                    :name      (str variant-id "/" (pr-str path))
+                    :value     (str opt)
+                    :checked   (= (str value) (str opt))
+                    :on-change (fn [_]
+                                 (on-change-at-path variant-id path opt))}]
+           (str opt)])))
+
+(defn- render-date [variant-id path value _]
+  [:input {:type      "date"
+           :style     (:input styles)
+           :value     (if (nil? value) "" (str value))
+           :on-change (fn [e]
+                        (let [s (read-event-value e)]
+                          (on-change-at-path variant-id path
+                                             (when (seq s) s))))}])
+
+(defn- render-color [variant-id path value _]
+  [:input {:type      "color"
+           :style     (:color-input styles)
+           :value     (if (and (string? value) (seq value))
+                        value
+                        "#000000")
+           :on-change (on-string-change variant-id path)}])
+
+(def ^:private scalar-renderers
+  "Closed scalar-widget vocabulary per spec/007-Stories.md §argtypes.
+  Each renderer takes `[variant-id path value spec]` and returns hiccup.
+  An unknown `:widget` tag falls through to the visible fallback span."
+  {:text     render-text
+   :textarea render-textarea
+   :number   render-number
+   :boolean  render-boolean
+   :select   render-select
+   :radio    render-radio
+   :date     render-date
+   :color    render-color})
+
 (defn scalar-widget
   "Render a scalar widget for `widget-spec` whose value lives at `path`
   inside `variant-id`'s args. Path is `[arg-key & sub-path]`.
@@ -360,75 +462,9 @@
 
   Public (rather than private) so tests can invoke it directly and
   inspect the rendered hiccup without going through Reagent."
-  [variant-id path value {:keys [widget options]}]
-  (case widget
-    :text     [:input {:type      "text"
-                       :style     (:input styles)
-                       :value     (if (nil? value) "" (str value))
-                       :on-change (fn [e]
-                                    (on-change-at-path
-                                      variant-id path
-                                      (read-event-value e)))}]
-    :textarea [:textarea {:style     (:textarea styles)
-                          :value     (if (nil? value) "" (str value))
-                          :on-change (fn [e]
-                                       (on-change-at-path
-                                         variant-id path
-                                         (read-event-value e)))}]
-    :number   [:input {:type      "number"
-                       :style     (:input styles)
-                       :value     (if (nil? value) "" value)
-                       :on-change (fn [e]
-                                    (let [s (read-event-value e)
-                                          v (when (seq s) (js/parseFloat s))]
-                                      (on-change-at-path
-                                        variant-id path v)))}]
-    :boolean  [:input {:type      "checkbox"
-                       :checked   (boolean value)
-                       :on-change (fn [e]
-                                    (on-change-at-path
-                                      variant-id path
-                                      (read-event-checked e)))}]
-    :select   [:select {:value     (str value)
-                        :style     (:input styles)
-                        :on-change (fn [e]
-                                     (on-change-at-path
-                                       variant-id path
-                                       (read-event-value e)))}
-               (for [opt options]
-                 ^{:key (str opt)}
-                 [:option {:value (str opt)} (str opt)])]
-    :radio    (into [:div {:style (:radio-row styles)
-                           :data-controls-radio-group (str (last path))}]
-                    (for [opt options]
-                      ^{:key (str opt)}
-                      [:label {:style (:radio-label styles)}
-                       [:input {:type      "radio"
-                                :name      (str variant-id "/" (pr-str path))
-                                :value     (str opt)
-                                :checked   (= (str value) (str opt))
-                                :on-change (fn [_]
-                                             (on-change-at-path
-                                               variant-id path opt))}]
-                       (str opt)]))
-    :date     [:input {:type      "date"
-                       :style     (:input styles)
-                       :value     (if (nil? value) "" (str value))
-                       :on-change (fn [e]
-                                    (let [s (read-event-value e)]
-                                      (on-change-at-path
-                                        variant-id path
-                                        (when (seq s) s))))}]
-    :color    [:input {:type      "color"
-                       :style     (:color-input styles)
-                       :value     (if (and (string? value)
-                                           (seq value))
-                                    value
-                                    "#000000")
-                       :on-change (fn [e]
-                                    (on-change-at-path
-                                      variant-id path
-                                      (read-event-value e)))}]
+  [variant-id path value {:keys [widget] :as widget-spec}]
+  (if-let [renderer (scalar-renderers widget)]
+    (renderer variant-id path value widget-spec)
     [:span {:style (:empty styles)}
      (str "unsupported widget " widget)]))
 
