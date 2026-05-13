@@ -24,8 +24,7 @@
             ;; resolve.
             [re-frame.machines]
             [realworld.schema :as schema]
-            [realworld.http :as rh]
-            [realworld.routing :as routing])
+            [realworld.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (defn request-slice [data]
@@ -341,11 +340,11 @@
   (let [{:keys [slug title description createdAt favoritesCount author tagList]} article]
     [:div.article-preview
      [:div.article-meta
-      [routing/route-link {:to     :route/profile
+      [rf/route-link {:to     :route/profile
                            :params {:username (:username author)}}
        [:img {:src (:image author)}]]
       [:div.info
-       [routing/route-link {:to     :route/profile
+       [rf/route-link {:to     :route/profile
                             :params {:username (:username author)}
                             :class  "author"}
         (:username author)]
@@ -354,7 +353,7 @@
        {:type "button"
         :on-click #(dispatch [:article/toggle-favorite slug])}
        [:i.ion-heart] " " favoritesCount]]
-     [routing/route-link {:to          :route/article
+     [rf/route-link {:to          :route/article
                           :params      {:slug slug}
                           :class       "preview-link"
                           :data-testid (str "article-preview-link-" slug)}

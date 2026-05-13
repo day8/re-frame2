@@ -47,7 +47,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 | `core.cljs` | implemented | Entry point, app shell, route switch, mount; installs the demo `:rf.http/managed` stub. |
 | `schema.cljs` | implemented | Wire shapes (User/Profile/Article/...) and their per-endpoint response wrappers used as `:decode` schemas. |
 | `http.cljs` | implemented | `request` builder + `data-fetch-retry` policy + `failure->message` projector for `:rf.http/managed`. |
-| `routing.cljs` | implemented | Route table, auth guard, route-link helper, browser wiring. |
+| `routing.cljs` | implemented | Route table, auth guard, browser wiring. Anchors render via `rf/route-link` (framework-shipped, registered at `:route/link`). |
 | `auth.cljs` | implemented | Auth machine plus login/register forms (managed-HTTP). |
 | `articles.cljs` | implemented | Home page, global feed, tag filter UI; managed-HTTP with retry + abort. Home page uses Pattern-NineStates — a `:realworld/articles-home` parallel machine with three regions (`:feed` × `:filter` × `:data`) + a render-priority table; the root view is a `case` over `:articles.home/render`. Popular-tags loading moved to `tags.cljs`. |
 | `favorites.cljs` | implemented | Favorite toggle and followed-authors feed; optimistic updates with managed-HTTP rollback. |
