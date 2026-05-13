@@ -868,6 +868,7 @@ Production-elision applies uniformly: every recovery in this catalogue applies i
 | `:rf.warning/registration-collision` | `:warning` | A `reg-*` re-registration assigned an existing id to a different fn (different source-coord pair, in CLJS reference) rather than a re-eval of the same source file. Last-write-wins by default; the warning surfaces the change so dev tools can flag accidental shadowing. Recommended on in dev. Per [001 §Re-registration of a different function — collision warning](001-Registration.md#re-registration-of-a-different-function--collision-warning) | `:warned-and-replaced` — the new fn replaces the existing slot (last-write-wins); the warning fires | `:kind`, `:id`, `:previous-coord`, `:new-coord` |
 | `:rf.warning/boundary-without-spec` | `:warning` | The `:spec/validate-at-boundary` interceptor (per [010 §Production builds](010-Schemas.md#production-builds)) was attached to an event handler that carries no `:spec` metadata. The interceptor cannot validate without a schema; the dispatch passes through unchecked. Emitted at most once per `event-id` (suppression cache reset across frame destruction). Per [010 §Production builds](010-Schemas.md#production-builds) and rf2-r2uh | `:no-recovery` — the boundary interceptor is a no-op for this dispatch (no schema to validate against); the handler runs as if the interceptor were absent | `:event-id`, `:event` (vector), `:reason` |
 | `:rf.warning/sensitive-without-redaction` | `:warning` | A registration carries `:sensitive? true` but its positional interceptor chain has no `with-redacted` interceptor. Emitted at registration time per `(kind, id)` pair (suppression cache reset across frame destruction). Advisory: the registration's events will be filtered by listener default-drop policy, but the in-buffer / on-box traces still carry the raw payload. The fix is to add `with-redacted` to the chain when the app wants both filter-out and in-place scrub semantics. Per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces) | `:warned-and-replaced` — registration proceeds; the warning fires | `:reg-fn` (e.g. `'reg-event-fx`), `:id`, `:reason` |
+| `:rf.warning/runtime-large-elision` | `:warning` | The `rf/elide-wire-value` walker auto-flagged an app-db path as large during a wire-boundary emit (the value's `pr-str` byte count exceeded `:rf.size/threshold-bytes`). Emitted at most once per `(path, frame)` pair (suppression cache reset across frame destruction). Advisory: the path is now elided on every subsequent emit. The fix is either to promote the slot with `:rf.size/declare-large` (suppresses the warning) or override with a `{:large? false}` declared entry (suppresses both the warning and the elision). Per [§Size elision in traces](#size-elision-in-traces) | `:warned-and-replaced` — the value is elided to a `:rf.size/large-elided` marker; the warning fires once and the path is recorded in `[:rf/elision :runtime-flagged]` | `:frame`, `:path`, `:bytes`, `:reason` |
 | `:rf.error/sanitised-on-projection` | `:error` | The active error projector threw or returned a non-`:rf/public-error` shape; the runtime fell back to the locked generic-500 public shape. Per [011 §Where sanitisation happens — before render](011-SSR.md#where-sanitisation-happens--before-render) | `:replaced-with-default` — runtime falls back to the locked generic-500 public-error shape | `:projector-id`, `:original-operation`, `:projection-failure-reason` |
 | `:rf.epoch/restore-unknown-epoch` | `:error` | `restore-epoch` was called with an `epoch-id` that is not in the frame's current epoch history (either never recorded or aged out by `:depth`). Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:no-recovery` — restore rejected; the frame's state is unchanged | `:frame`, `:epoch-id`, `:history-size` |
 | `:rf.epoch/restore-schema-mismatch` | `:error` | The recorded `:db-after` no longer validates against the currently-registered `app-schemas` set (a schema was added, tightened, or replaced since the snapshot was taken). Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:no-recovery` — restore rejected; the frame's state is unchanged | `:frame`, `:epoch-id`, `:schema-digest-recorded`, `:schema-digest-current`, `:failing-paths` |
@@ -1152,6 +1153,8 @@ Trace events carry dispatched event vectors, handler return values, and (under [
 
 The contract is **two cooperating pieces**: a per-registration declarative flag (`:sensitive?`) that tools route on, and an opt-in redaction interceptor (`with-redacted`) that overwrites named keys in flight. Apps that only need filter-out semantics declare `:sensitive?` on the affected registrations and stop; apps that need keys redacted *within* a still-emitted event reach for `with-redacted`. The two compose — a registration carrying both `:sensitive?` and `with-redacted` emits redacted-payload traces tagged `:sensitive? true`.
 
+> **Unified wire-elision surface.** `:sensitive?` (privacy) and `:large?` (size) are **two orthogonal predicates over the same wire-boundary elision walker** — both consumed by `rf/elide-wire-value` (per [§Size elision in traces](#size-elision-in-traces) below and [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)). The walker emits the `:rf/redacted` sentinel for sensitive values and the `:rf.size/large-elided` marker for large values; when both predicates match the **sensitive drop wins** (the size marker would leak `:path` / `:bytes` and is suppressed). Same shape, two flags, one helper.
+
 #### The `:sensitive?` registration metadata key
 
 `:sensitive?` is an optional **boolean** key on the `:rf/registration-metadata` map (per [Spec 001 §Registration grammar](001-Registration.md#registration-grammar) and [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata)). Every `reg-*` kind accepts it; the conventional use sites are `reg-event-*` (event handlers whose event vectors carry user input) and `reg-sub` (subscriptions whose return values flow user input into views).
@@ -1286,3 +1289,101 @@ Resolved per rf2-ciy by pinning the contract normatively:
 - **Two new catalogue rows** capture the contract-violation paths normatively: `:rf.error/bad-on-error-return` (`:recovery :logged-and-skipped`) for malformed return maps, and `:rf.error/on-error-policy-exception` (`:recovery :no-recovery`) for policy-fn throws.
 
 These resolutions extend the [§Recovery contract](#recovery-contract) enum unchanged — the closed set of `:recovery` keywords (`:no-recovery`, `:replaced-with-default`, `:retried`, `:skipped`, `:warned-and-replaced`, `:logged-and-skipped`, `:ignored`) is the same. What rf2-ciy pins is the **return-contract surface** that user policy code interacts with, not the recovery vocabulary itself. The v1 process-wide `reg-event-error-handler` remains dropped per [MIGRATION §M-13 / §M-26](MIGRATION.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error); the resolution above describes the v2 `:on-error`-per-frame surface that replaces it.
+
+### Size elision in traces
+
+Trace events and pair-tool snapshot slices carry tree-shaped values (`app-db` snapshots under [§Trace event for app-db changes](#trace-event-for-app-db-changes), epoch-record `:db-before` / `:db-after` slots per [Tool-Pair §Time-travel](Tool-Pair.md), sub-cache reads, `get-path` returns) that can individually blow the 5K-token wire cap (`tools/pair2-mcp/spec/Principles.md` §Wire-cap, rf2-rvyzy). A 5 MB base64-encoded PDF preview under `[:user :uploaded-pdf]` is 290× the cap on its own — and a `:path [:user]` drill-down returns it verbatim, bypassing the [`:rf.mcp/summary`](Tool-Pair.md) lazy-summary mechanism (which shapes the top-level response, not per-value descendants).
+
+The contract is structurally parallel to [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces): a per-path declarative flag (`:large?`) that the wire-boundary walker routes on, and a single normative wire marker (`:rf.size/large-elided`) the walker substitutes in place of the elided value. Apps that nominate a large path get every wire emit eliding it; consumers re-fetch on demand via the marker's `:handle` slot through the existing pair2-mcp `get-path` tool — no new tool is needed.
+
+Privacy and size are **two orthogonal predicates over the same elision walker**: `rf/elide-wire-value` (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) consumes both `:sensitive?` and `:large?` and emits the appropriate placeholder. Same shape, two flags, one helper — when both predicates match the **sensitive drop wins**, because emitting the size marker would leak `:path` / `:bytes` / `:digest` (each of which can carry structural information about the redacted slot).
+
+#### Nomination — three entry points
+
+Implementations MUST support all three nomination paths. They populate one in-app-db registry (`[:rf/elision :declarations]`); the walker consults the merged registry at every emit. (The shape lives in [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry); the app-db slot is reserved per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys).)
+
+1. **Schema-driven** — `:large? true` on a Malli slot in `:rf/app-schema` (per [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta)). The canonical AI-discoverable entry: schemas are the AI-first surface for app shape, so an agent reading the schema sees the elision claim alongside the type. The runtime walks every registered app-schema at boot (and on hot-reload of the registration) and writes `{:large? true :source :schema}` entries into the registry under the path the schema slot occupies. Schema-derived entries MUST carry `:source :schema` so introspection (`(get-in db [:rf/elision :declarations <path>])`) reports provenance.
+
+2. **fx-driven** — the framework fx `:rf.size/declare-large` (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) writes a declaration imperatively from any event handler's `:fx`. The symmetric `:rf.size/clear` removes the slot. Two top-level convenience fns, `(rf/declare-large-path! path)` and `(rf/clear-large-path! path)` (per [API.md](API.md#elide-wire-value-the-wire-boundary-walker)), wrap the fx for REPL / boot-time use by issuing a synthetic dispatch — same pattern by which `rf/spawn-machine` wraps `:rf.machine/spawn`. Imperative entries MUST carry `:source :declared`.
+
+3. **Runtime auto-detect** — at the wire-boundary emit, the walker measures the `pr-str` byte count of each top-two-level subtree it walks; values exceeding `:rf.size/threshold-bytes` (default `16384`; see [API.md §Configure keys](API.md#configure-keys)) get a `{:bytes <n> :first-seen-epoch <id>}` slot written into `[:rf/elision :runtime-flagged]` and are elided. On every subsequent emit the runtime-flagged path is short-circuited (no re-walk; the slot is the cached decision). A dedicated warning `:rf.warning/runtime-large-elision` (catalogued in the [§Error event catalogue](#error-event-catalogue)) fires once per `(path, frame)` pair when the heuristic first flags a path, so authors notice and can either (a) promote the slot with `:rf.size/declare-large` to suppress the warning or (b) override with a `{:large? false}` declared entry to suppress both the warning and the elision. Auto-flagged entries MUST carry `:source :runtime-flagged`.
+
+Resolution rule for conflicting entries (declared vs schema vs runtime-flagged on the same path): **declared wins**, then **schema**, then **runtime-flagged**. App knowledge beats schema declaration beats heuristic. The walker consults `[:rf/elision :declarations <path>]` first; if absent, falls back to `[:rf/elision :runtime-flagged <path>]`.
+
+#### Wire marker — `:rf.size/large-elided`
+
+The walker substitutes large values with a single normative marker shape:
+
+```clojure
+{:rf.size/large-elided
+  {:path   [:user :uploaded-pdf]               ;; absolute path inside the slice's root
+   :bytes  5242880                             ;; pr-str byte count, exact when known
+   :type   :string                             ;; one of :map :vector :set :scalar :string
+   :digest "sha256:abc123..."                  ;; hex digest, optional (gated on :include-digests?)
+   :reason :declared                           ;; one of :declared :schema :runtime-flagged
+   :hint   "Upload preview blob"               ;; copied verbatim from the declaration's :hint slot
+   :handle [:rf.elision/at [:user :uploaded-pdf]]}}  ;; EDN form passable to get-path
+```
+
+The shape is captured normatively at [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker). Per-field MUST-level requirements:
+
+- **`:path`** — REQUIRED. The **absolute** path inside the snapshot slice (NOT relative to the elision site). An agent that asked for `:path [:user]` and got a marker back at the `:uploaded-pdf` slot sees `:path [:user :uploaded-pdf]`. The handle is copy-pasteable without rebasing.
+- **`:bytes`** — REQUIRED. The `pr-str` byte count of the elided value. Lets an agent decide "fetch anyway" (small enough for this turn) vs "skip" (over the per-turn budget).
+- **`:type`** — REQUIRED. One of `:map`, `:vector`, `:set`, `:scalar`, `:string`. Tells the agent which access pattern to use — a `:vector` is paginatable via `get-path` with an index range; a `:string` of 5MB is not.
+- **`:reason`** — REQUIRED. One of `:declared`, `:schema`, `:runtime-flagged` — the provenance that drove the elision. Names whether the claim came from app fx, the schema layer, or the heuristic.
+- **`:hint`** — REQUIRED (may be `nil`). A free-form short string copied verbatim from the declaration's `:hint` slot. Schema-derived entries take the `:hint` from the Malli slot's `{:hint "..."}` metadata; runtime-flagged entries carry `:hint nil`.
+- **`:handle`** — REQUIRED. An EDN vector of shape `[:rf.elision/at <path>]` (or `[:rf.elision/at <path> :as-of-epoch <epoch-id>]` when the marker rides inside a past-epoch payload — see §Composition below). The handle is **a normal EDN vector**, not a tagged literal — agents pattern-match on the leading `:rf.elision/at` keyword without needing a reader hook. The path inside the handle is the same as the marker's `:path` field. Passing the handle to the existing pair2-mcp `get-path` tool fetches the literal elided value, subject to that tool's own cap check (a `:rf.mcp/overflow` is the failure mode if the literal is over-cap).
+- **`:digest`** — OPTIONAL. A `sha256:<hex>` content digest, computed only when `:rf.size/include-digests?` is true on the call. Default off because the digest forces a full walk of the elided value, which negates the elision's cost-saving. When enabled (debug builds, integrity-check workflows), callers compare digests across turns to detect change-without-fetch.
+
+The marker is the **fifth wire elision mechanism** alongside the four catalogued in [Tool-Pair.md](Tool-Pair.md) (`:rf.mcp/summary`, `:rf.mcp/overflow`, `:rf.mcp/diff-from`, `:rf.mcp/dedup-table`). The four pre-existing mechanisms shape the **top-level** response; `:rf.size/large-elided` substitutes **per-value** inside any tree-typed payload (`:app-db`, `:sub-cache`, every `:rf/epoch-record` `:db-before` / `:db-after` slot, every `get-path` return).
+
+#### Consumer suppression — the elision policy
+
+The walker accepts a per-call **elision policy** map. The vocabulary lives under the reserved `:rf.size/*` namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) and rides into every tool that emits wire data:
+
+```clojure
+{:rf.size/elision-policy
+  {:rf.size/include-large?    false   ;; default false — large values elide to markers
+   :rf.size/include-digests?  false   ;; default false — :digest slot is omitted from markers
+   :rf.size/threshold-bytes   16384}} ;; runtime auto-detect threshold; (rf/configure :elision ...) is the global knob
+```
+
+Consumer-side defaults (MUST-level):
+
+- **Framework-published off-box listener integrations** (the Sentry / Honeybadger forwarders per [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), the pair2-mcp / Causa-MCP / story-mcp servers per [Tool-Pair.md](Tool-Pair.md)) MUST default `:rf.size/include-large?` to `false` and `:rf.size/include-digests?` to `false`. Tools that ship large-payload-aware integrations (e.g. dedicated artefact-streaming) opt in per-call; the conservative default protects apps that opt into a published integration without reading its source.
+- **On-box listener integrations** (Causa panel, Story panels per [Tool-Pair.md](Tool-Pair.md)) MUST default `:rf.size/include-large?` to `false` (the dev-tools UI shows a `[● ELIDED N]`-style indicator the user clicks to opt in for a single fetch). Production-trust on-box consumers MAY default to `true`; the rationale must be documented per-consumer.
+- **Indicator field on tool responses.** Tools that return structured response maps (every MCP server per [Tool-Pair.md](Tool-Pair.md)) MUST carry an `:elided-large` count alongside the existing `:dropped-sensitive` count (per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)) — one MUST-level row per consumer-facing tool that walks a tree-typed payload.
+
+The walker MUST NOT widen the policy transitively into the underlying registry — the policy is per-call; the registry of declared paths is per-frame state.
+
+#### Composition
+
+With the four other wire mechanisms catalogued in [Tool-Pair.md](Tool-Pair.md), composition is the wire-boundary contract:
+
+- **× `:sensitive?` (privacy).** Sensitive drops **before** size elides. A value matching both predicates produces a `:sensitive? true` trace event with the value already dropped/redacted (per `with-redacted` semantics); no `:rf.size/large-elided` marker is emitted (the marker itself would leak `:path` / `:bytes` / `:digest`). The walker's predicate cascade is:
+
+  ```clojure
+  (cond
+    (and sensitive? large?)  ::drop                  ; no marker; emit :sensitive? true
+    sensitive?               ::redact-or-drop        ; today's :rf/redacted sentinel
+    large?                   ::elide-with-marker     ; :rf.size/large-elided
+    :else                    ::pass-through)
+  ```
+
+- **× `:rf.mcp/diff-from` (epoch diff-encoding).** When a diff patch points at a large value, the walker substitutes the marker inside the patch's `:assoc` slot. The patch itself stays small (path + marker). The `:handle` carries `:as-of-epoch <epoch-id>` when the marker rides a past-epoch payload — `get-path` resolves against the existing epoch-record's `:db-after` snapshot so the agent sees that-epoch's value, not now's.
+- **× `:rf.mcp/dedup-table`.** Marker shapes are small (~150 bytes) — a 5 MB blob referenced from N epoch records produces N markers (~150N bytes) rather than one dedup-table entry plus N references. The marker IS the dedup for large values; no extra dedup work needed. If the agent opts in (`:rf.size/include-large? true`), the underlying values ride the wire and the dedup table picks them up at the slice boundary — the two mechanisms compose cleanly because they operate at different pipeline points.
+- **× `:rf.mcp/summary` (lazy summary).** Independent: summary shapes the top level of the response; large-elision substitutes per-value descendants. A `:path [:user]` drill-down may return a `:rf.mcp/summary` at the top (the slice shape) AND embed `:rf.size/large-elided` markers at any large descendant.
+- **× `:rf.mcp/overflow` (cap backstop).** Elision runs **before** the cap check. After elision the slice is much smaller; the cap usually doesn't fire. When it does — the marker volume plus residual small values still exceeds 5K tokens — the cap fires with its overflow marker and the agent narrows further.
+
+#### Production-elision behaviour
+
+The size-elision mechanism is **dev-time only at the wire boundary**, but the registry itself ships in production:
+
+- The `[:rf/elision :declarations]` slot survives production builds — it lives in app-db, and an app that declares large paths via `:rf.size/declare-large` from a non-elidable event handler ships those declarations to production. The runtime tolerates the slot's presence (it reads as data); production tools that consume `app-db` (diagnostic dumps, off-box snapshot exports) MAY consult the registry to decide elision policy.
+- The `rf/elide-wire-value` walker itself ships in production. Consumer-facing surfaces that call it (every tool consuming the Spec 009 instrumentation API per [Tool-Pair.md](Tool-Pair.md)) elide with the trace surface (per [§Production builds: zero overhead, zero code](#production-builds-zero-overhead-zero-code)). Production builds that wire the walker into non-tool surfaces (off-box error-monitor forwarders, Sentry-style serialisers) get the same elision contract.
+- The `:rf.warning/runtime-large-elision` warning is dev-only — it rides the trace surface and elides with it. Production tools that auto-detect MUST NOT depend on the warning firing.
+- The elision-probe verifier (per [§Production-elision verification](#production-elision-verification)) gains one sentinel: the string fragment `":rf.size/large-elided"` (the marker keyword) MUST survive in production bundles only when the app explicitly wires the walker into a production surface — production builds that consume the walker only from dev-only tooling have the literal DCE'd along with the trace surface.
+
+The single shared walker is the **only** place these markers get emitted; per-tool reimplementation is prohibited. Tools consume the walker through the public `rf/elide-wire-value` surface (per [API.md](API.md#elide-wire-value-the-wire-boundary-walker)); the walker is the natural home for short-circuits (once a sub-tree is elided, don't descend into it further — a large subtree elides its children with it; recursing into a 5 MB JSON blob to find more 5 MB blobs is pure cost).
+
+A dedicated warning category accompanies the contract: `:rf.warning/runtime-large-elision`, catalogued in [§Error event catalogue](#error-event-catalogue). Tools surfacing the warning render it alongside `:rf.warning/sensitive-without-redaction` (the parallel-axis warning from [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)) so authors notice both axes of the unified elision surface.
