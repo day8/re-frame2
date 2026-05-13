@@ -27,8 +27,13 @@
 
   This namespace also owns `abort-actor-in-flight-http!` — the late-bind
   hook into the http-managed artefact (rf2-wvkn) — because both the
-  finalize cascade and the spawn-destroy teardowns invoke it."
+  finalize cascade and the spawn-destroy teardowns invoke it.
+
+  Per rf2-lha2t the actor-teardown app-db dance lives in
+  `re-frame.machines.lifecycle-fx.teardown` — one helper, three (now
+  unified) call-sites."
   (:require [re-frame.late-bind :as late-bind]
+            [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
@@ -173,13 +178,18 @@
               (assoc-in db (conj parent-path :data) new-parent-data)
               db))
           db)
-        ;; (4) Find the actor's `:system-id` binding (if any) BEFORE
-        ;; we mutate the reverse index — so we can release it after
-        ;; `:on-done` ran (D8) and emit the `:released` trace.
-        released-sid
-        (some (fn [[sid mid]]
-                (when (= mid machine-id) sid))
-              (get db-after-on-done :rf/system-ids))
+        ;; (4) Apply the unified teardown projection (per rf2-lha2t):
+        ;; dissoc the child's snapshot, release any `:system-id`
+        ;; reverse-index entry (D8 — after on-done ran), and clear the
+        ;; parent's `[:rf/spawned <parent-id> <invoke-id>]` slot with
+        ;; the lazy-allocation prune. Returns `[new-db released-sid]`;
+        ;; `released-sid` is resolved against db-after-on-done before
+        ;; the reverse index is mutated.
+        [db-after-destroy released-sid]
+        (teardown/teardown-actor db-after-on-done
+                                 {:actor-id  machine-id
+                                  :parent-id parent-id
+                                  :invoke-id invoke-id})
         ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
         ;; (D6 enrichment) BEFORE the registrar unregister so any in-flight
         ;; trace consumers see the destroy signal while the handler still
@@ -190,32 +200,8 @@
                         :system-id  released-sid
                         :parent-id  parent-id
                         :invoke-id  invoke-id
-                        :reason     :rf.machine/finished})
-        ;; (6) Build the destroy-side db: dissoc the child's snapshot;
-        ;; clear the parent's [:rf/spawned <parent-id> <invoke-id>] slot
-        ;; (with lazy-allocation prune); clear [:rf/system-ids <sid>]
-        ;; (D8 — after on-done).
-        db-after-destroy
-        (cond-> db-after-on-done
-          true            (update :rf/machines dissoc machine-id)
-          released-sid    (update :rf/system-ids dissoc released-sid)
-          (and parent-id invoke-id)
-          (update-in [:rf/spawned parent-id] dissoc invoke-id)
-          (and parent-id invoke-id
-               (empty? (get-in db-after-on-done [:rf/spawned parent-id])))
-          (update :rf/spawned dissoc parent-id))
-        db-after-destroy
-        (cond-> db-after-destroy
-          (and parent-id invoke-id
-               (empty? (get db-after-destroy :rf/spawned)))
-          (dissoc :rf/spawned))
-        ;; Also clean up the :rf/system-ids slot if it just emptied.
-        db-after-destroy
-        (cond-> db-after-destroy
-          (and released-sid
-               (empty? (get db-after-destroy :rf/system-ids)))
-          (dissoc :rf/system-ids))]
-    ;; (7) Synchronous side effects: abort in-flight HTTP, emit
+                        :reason     :rf.machine/finished})]
+    ;; (6) Synchronous side effects: abort in-flight HTTP, emit
     ;; system-id-released trace (when applicable), unregister handler.
     (abort-actor-in-flight-http! machine-id)
     (when released-sid
