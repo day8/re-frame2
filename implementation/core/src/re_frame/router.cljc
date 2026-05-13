@@ -390,10 +390,180 @@
                               interop/platform)]
       (fx/do-fx frame fx-vec active-platform fx-overrides event))))
 
+;; ---- process-event* phases ------------------------------------------------
+;;
+;; `process-event*` decomposes into named phases per audit RT1 (rf2-mccjv).
+;; Each phase owns one piece of the per-event cascade; the outer
+;; `process-event*` is a thin driver that sequences them.
+;;
+;;   handle-frame-destroyed!     early-exit: emit :rf.error/frame-destroyed
+;;                               when the frame record is gone (frame disposed
+;;                               between enqueue and dispatch)
+;;   handle-no-handler!          early-exit: emit fallthrough warning (when
+;;                               applicable) plus :rf.error/no-such-handler
+;;   prepare-handler-ctx         build the full interceptor chain + initial
+;;                               context and the effective fx-overrides map;
+;;                               returns a tight map consumed by run-chain
+;;                               and commit-and-flow!
+;;   run-chain                   execute the interceptor chain bracketed in
+;;                               performance marks; skipped when event-payload
+;;                               validation fails (per Spec 010 §Per-step
+;;                               recovery step 1)
+;;   commit-and-flow!            handler-exception emit (if any), :db commit,
+;;                               flows, then walk :fx in source order
+;;   emit-cascade-trailers!      :run-end trace + always-on event-emit fan-out
+;;   run-handler-cascade!        sequence prepare → run → commit → trailers
+;;                               under `trace/with-handler-scope`
+
+(defn- handle-frame-destroyed!
+  "Per Spec 002 §Run-to-completion: a frame disposed between enqueue and
+  dispatch surfaces as `:rf.error/frame-destroyed`; the drain continues
+  with the next envelope."
+  [event frame]
+  (trace/emit-error! :rf.error/frame-destroyed
+                     {:frame frame :event event :reason :frame-destroyed}))
+
+(defn- handle-no-handler!
+  "Per rf2-o8m0: when a dispatch lands on `:rf/default` purely because
+  resolution fell through (no `:frame` opt, dynamic var unbound, adapter
+  context unresolvable) AND the handler is missing from `:rf/default`,
+  the user-supplied event almost certainly belongs to a different frame
+  and the dispatch lost its frame-context binding mid-flight (typically:
+  an async callback attached inside a view body). Emit the warning ahead
+  of the `:rf.error/no-such-handler` error so consumers see the specific
+  diagnostic; the error fires too, preserving the existing handler-
+  missing trace contract."
+  [envelope event-id event frame]
+  (emit-fallthrough-warning! envelope)
+  (trace/emit-error! :rf.error/no-such-handler
+                     {:event-id event-id
+                      :event    event
+                      :frame    frame
+                      :kind     :event
+                      :recovery :replaced-with-default}))
+
+(defn- prepare-handler-ctx
+  "Build the effective interceptor chain and initial context for a
+  resolved handler. Merges per-frame + per-call overrides (Spec 002
+  §Per-frame and per-call overrides) and threads them through the
+  initial cofx map. Returns `{:full-chain :initial-ctx :fx-overrides}`."
+  [envelope frame frame-record handler-meta]
+  (let [{:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
+        full-chain  (vec (concat extra-interceptors (:interceptors handler-meta)))
+        initial-ctx (assemble-initial-ctx envelope frame frame-record fx-overrides)]
+    {:full-chain   full-chain
+     :initial-ctx  initial-ctx
+     :fx-overrides fx-overrides}))
+
+(defn- run-chain
+  "Execute the interceptor chain bracketed in performance marks. When
+  event-payload validation failed the handler is not invoked; per Spec
+  010 §Per-step recovery step 1 the initial context is returned
+  unchanged and the downstream queue continues.
+
+  Per Spec 009 §Performance instrumentation (rf2-du3i): the
+  `performance/mark-and-measure` bracket produces a
+  `rf:event:<event-id>` measure entry under prod builds with the perf
+  flag enabled. Default-off; under `:advanced` +
+  `re-frame.performance/enabled?=false` the bracket DCEs and the call
+  collapses to a plain `execute-chain` invocation."
+  [event-id full-chain initial-ctx event-ok?]
+  (if event-ok?
+    (performance/mark-and-measure :event event-id
+      (interceptor/execute-chain full-chain initial-ctx))
+    initial-ctx))
+
+(defn- commit-and-flow!
+  "Settle the cascade: surface any chain exception, commit :db, run
+  flows, then walk :fx in source order. Per Spec 002 §Drain-loop
+  pseudocode. Trace ordering is load-bearing — :event/db-changed
+  precedes flow evaluation, which precedes :fx walking."
+  [final-ctx event-id event frame frame-record fx-overrides start-ms]
+  (let [effects (:effects final-ctx)
+        error   (:rf/interceptor-error final-ctx)]
+    (when error
+      (emit-handler-exception! error event-id event frame final-ctx start-ms))
+    (commit-db-effect! effects event-id event frame final-ctx)
+    (run-flows! frame event)
+    (run-fx-effects! effects frame frame-record fx-overrides event)
+    error))
+
+(defn- emit-cascade-trailers!
+  "Cascade-tail emissions: the dev-only `:run-end` trace then the
+  always-on event-emit fan-out.
+
+  Per rf2-rirbq: the event-emit substrate is ALWAYS-ON — it survives
+  `:advanced` + `goog.DEBUG=false` while the trace surface above DCEs.
+  Looked up through the late-bind hook table so the router carries no
+  static dependency on `re-frame.event-emit`; when the event-emit
+  namespace has not been loaded the hook is nil and the fan-out is a
+  single nil-check. Per Spec 009 §Event-emit listener.
+
+  Per rf2-rirbq §Record shape: `:elapsed-ms` is an integer.
+  `interop/now-ms` returns a long on the JVM (`System/currentTimeMillis`)
+  but a float on CLJS (`js/performance.now()` carries sub-millisecond
+  precision). Round once at the substrate boundary so the record's
+  contract holds on both platforms."
+  [event-id event frame error start-ms]
+  (trace/emit! :event :event
+               {:event-id event-id
+                :event    event
+                :frame    frame
+                :phase    :run-end})
+  (when-let [emit-event! (late-bind/get-fn :event-emit/dispatch-on-event)]
+    (let [end-ms     (interop/now-ms)
+          elapsed-ms (long (max 0 (- end-ms start-ms)))]
+      (emit-event! event
+                   event-id
+                   frame
+                   end-ms
+                   (if error :error :ok)
+                   elapsed-ms))))
+
+(defn- run-handler-cascade!
+  "Sequence the four cascade phases under the handler's
+  `trace/*handler-scope*` binding.
+
+  Per rf2-ryri7: publish the event handler's HandlerScope —
+  `:trigger-handler` (rf2-3nn8 error path / rf2-lf84g success path) so
+  every trace emitted inside the cascade carries the triggering
+  handler's source-coord; `:sensitive?` (rf2-isdwf) so emits inside the
+  scope get a top-level `:sensitive? true` stamp per Spec 009 §Privacy;
+  `:no-emit?` (rf2-qsjda) so trace emission short-circuits when the
+  handler opts out. `:call-site` and `:dispatch-id` are inherited from
+  the parent scope (bound by `process-event!` outer wrapper) per
+  `inherit-scope`. Scope covers the interceptor chain, db commit, flows,
+  and fx walk — covering :event/db-changed, :event/do-fx, :rf.fx/handled
+  (the inner fx scope re-binds), :sub/run (sub recompute re-binds),
+  :rf.error/* (every error emit inside the chain).
+
+  Per rf2-rirbq: `start-ms` is captured at the very start of cascade
+  execution (unconditional, single `now-ms` call per event) so the
+  always-on event-emit substrate can report `:elapsed-ms` in its per-
+  event record."
+  [envelope event-id event frame frame-record handler-meta]
+  (trace/with-handler-scope
+    (trace/handler-scope-from-meta :event event-id handler-meta)
+    (let [start-ms  (interop/now-ms)
+          _         (trace/emit! :event :event
+                                 {:event-id event-id
+                                  :event    event
+                                  :frame    frame
+                                  :source   (:source envelope)
+                                  :trace-id (:trace-id envelope)
+                                  :phase    :run-start})
+          event-ok? (validate-event! event-id event handler-meta)
+          {:keys [full-chain initial-ctx fx-overrides]}
+          (prepare-handler-ctx envelope frame frame-record handler-meta)
+          final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
+          error     (commit-and-flow! final-ctx event-id event frame
+                                      frame-record fx-overrides start-ms)]
+      (emit-cascade-trailers! event-id event frame error start-ms))))
+
 (defn- process-event*
-  "Per-event drain body. Resolve handler, validate the event vector, run
-  the interceptor chain, then commit :db, run flows, and walk :fx in
-  source order. Per Spec 002 §Drain-loop pseudocode.
+  "Per-event drain body. Resolve handler, then sequence the four cascade
+  phases under the handler-scope binding (see `run-handler-cascade!`).
+  Per Spec 002 §Drain-loop pseudocode.
 
   This is the inner of `process-event!`; the outer wraps it in a
   `trace/*handler-scope*` binding (via `trace/with-dispatch-id+call-site`)
@@ -401,127 +571,26 @@
   in-flight dispatch's id as their `:parent-dispatch-id`, and (b) every
   trace event emitted inside the cascade carries the cascade's
   `:dispatch-id` under `:tags` (per Spec 009 §Dispatch correlation and
-  rf2-g6ih4)."
+  rf2-g6ih4).
+
+  Two early-exit branches precede the cascade: a destroyed frame and a
+  missing handler. Both emit their respective error events and return
+  without disturbing the queue — the drain continues with the next
+  envelope."
   [envelope]
   (let [{:keys [event frame]} envelope
         event-id              (first event)
         frame-record          (frame/frame frame)]
     (cond
       (nil? frame-record)
-      (trace/emit-error! :rf.error/frame-destroyed
-                         {:frame frame :event event :reason :frame-destroyed})
+      (handle-frame-destroyed! event frame)
 
       :else
       (let [handler-meta (resolve-handler event-id)]
-        (cond
-          (nil? handler-meta)
-          (do
-            ;; Per rf2-o8m0: when a dispatch lands on `:rf/default` purely
-            ;; because resolution fell through (no `:frame` opt, dynamic
-            ;; var unbound, adapter context unresolvable) AND the handler
-            ;; is missing from `:rf/default`, the user-supplied event
-            ;; almost certainly belongs to a different frame and the
-            ;; dispatch lost its frame-context binding mid-flight
-            ;; (typically: an async callback attached inside a view
-            ;; body). Emit the warning ahead of the
-            ;; `:rf.error/no-such-handler` error so consumers see the
-            ;; specific diagnostic; the error fires too, preserving the
-            ;; existing handler-missing trace contract.
-            (emit-fallthrough-warning! envelope)
-            (trace/emit-error! :rf.error/no-such-handler
-                               {:event-id event-id
-                                :event    event
-                                :frame    frame
-                                :kind     :event
-                                :recovery :replaced-with-default}))
-
-          :else
-          ;; Per rf2-ryri7: publish the event handler's HandlerScope —
-          ;; `:trigger-handler` (rf2-3nn8 error path / rf2-lf84g success
-          ;; path) so every trace emitted inside the cascade carries the
-          ;; triggering handler's source-coord; `:sensitive?` (rf2-isdwf)
-          ;; so emits inside the scope get a top-level `:sensitive? true`
-          ;; stamp per Spec 009 §Privacy; `:no-emit?` (rf2-qsjda) so
-          ;; trace emission short-circuits when the handler opts out.
-          ;; `:call-site` and `:dispatch-id` are inherited from the parent
-          ;; scope (bound by `process-event!` outer wrapper) per
-          ;; `inherit-scope`. Scope covers the interceptor chain, db
-          ;; commit, flows, and fx walk — covering :event/db-changed,
-          ;; :event/do-fx, :rf.fx/handled (the inner fx scope re-binds),
-          ;; :sub/run (sub recompute re-binds), :rf.error/* (every error
-          ;; emit inside the chain).
-          (trace/with-handler-scope
-            (trace/handler-scope-from-meta :event event-id handler-meta)
-            (let [;; Per rf2-rirbq: capture the wall-clock at the very
-                  ;; start of cascade execution so the always-on
-                  ;; event-emit substrate can report `:elapsed-ms` in
-                  ;; its per-event record. The capture is unconditional
-                  ;; — the event-emit substrate is NOT gated on
-                  ;; `interop/debug-enabled?` and the cost is one
-                  ;; `now-ms` call per event (cheap, no allocation
-                  ;; growth at scale).
-                  start-ms     (interop/now-ms)
-                  _            (trace/emit! :event :event
-                                            {:event-id event-id
-                                             :event    event
-                                             :frame    frame
-                                             :source   (:source envelope)
-                                             :trace-id (:trace-id envelope)
-                                             :phase    :run-start})
-                  event-ok?    (validate-event! event-id event handler-meta)
-                  {:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
-                  full-chain   (vec (concat extra-interceptors (:interceptors handler-meta)))
-                  initial-ctx  (assemble-initial-ctx envelope frame frame-record fx-overrides)
-                  ;; Per Spec 010 §Per-step recovery step 1: when event-payload
-                  ;; validation failed the handler is not invoked; the
-                  ;; downstream queue continues.
-                  ;;
-                  ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
-                  ;; bracket the handler invocation in performance marks so
-                  ;; prod builds with the perf flag enabled produce a
-                  ;; `rf:event:<event-id>` measure entry. Default-off; under
-                  ;; `:advanced` + `re-frame.performance/enabled?=false` the
-                  ;; bracket DCEs and the call collapses to the chain run.
-                  final-ctx    (if event-ok?
-                                 (performance/mark-and-measure :event event-id
-                                   (interceptor/execute-chain full-chain initial-ctx))
-                                 initial-ctx)
-                  effects      (:effects final-ctx)
-                  error        (:rf/interceptor-error final-ctx)]
-              (when error
-                (emit-handler-exception! error event-id event frame final-ctx start-ms))
-              (commit-db-effect! effects event-id event frame final-ctx)
-              (run-flows! frame event)
-              (run-fx-effects! effects frame frame-record fx-overrides event)
-              (trace/emit! :event :event
-                           {:event-id event-id
-                            :event    event
-                            :frame    frame
-                            :phase    :run-end})
-              ;; Per rf2-rirbq: ALWAYS-ON event-emit fan-out. Survives
-              ;; `:advanced` + `goog.DEBUG=false` (the trace surface
-              ;; above DCEs; this hook does not). Looked up through
-              ;; the late-bind hook table so the router carries no
-              ;; static dependency on `re-frame.event-emit`; when the
-              ;; event-emit namespace has not been loaded the hook is
-              ;; nil and the fan-out is a single nil-check. Per Spec
-              ;; 009 §Event-emit listener.
-              (when-let [emit-event! (late-bind/get-fn :event-emit/dispatch-on-event)]
-                (let [end-ms     (interop/now-ms)
-                      ;; Per rf2-rirbq §Record shape: `:elapsed-ms`
-                      ;; is an integer. `interop/now-ms` returns a
-                      ;; long on the JVM (System/currentTimeMillis)
-                      ;; but a float on CLJS (`js/performance.now()`
-                      ;; carries sub-millisecond precision). Round
-                      ;; once at the substrate boundary so the
-                      ;; record's contract holds on both platforms.
-                      elapsed-ms (long (max 0 (- end-ms start-ms)))]
-                  (emit-event! event
-                               event-id
-                               frame
-                               end-ms
-                               (if error :error :ok)
-                               elapsed-ms))))))))))
+        (if (nil? handler-meta)
+          (handle-no-handler! envelope event-id event frame)
+          (run-handler-cascade! envelope event-id event frame
+                                frame-record handler-meta))))))
 
 (defn- process-event!
   "Wrap process-event* in two dynamic bindings:
