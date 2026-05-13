@@ -238,7 +238,7 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
 
 > **Layer:** Public
 
-The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machine*` (per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler)). Note this is the **registry-slot metadata** — `:rf/machine?` discriminates a machine handler from an ordinary event handler in `(handlers :event)` queries.
+The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machine*` (per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler)). This is the **registry-slot metadata** — `:rf/machine?` discriminates a machine handler from an ordinary event handler in `(handlers :event)` queries; the captured machine spec rides at `:rf/machine` and conforms to [`:rf/transition-table`](#rftransition-table) extended with the root-only `:guards` / `:actions` / `:data` / `:doc` slots per [005 §Transition table grammar](005-StateMachines.md#transition-table-grammar).
 
 ```clojure
 (def MachineMeta
@@ -246,11 +246,18 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
    EventHandlerMeta
    [:map
     [:rf/machine?  [:= true]]                                                ;; required true on machine-handler registrations
-    [:rf/machine   :any]                                                     ;; the captured spec map (transition table, :guards, :actions, :on-spawn, ...). Schema is :rf/machine-spec; see [005](005-StateMachines.md).
+    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, also carries :rf.machine/source-coords (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3)).
     ]])
 ```
 
-The spec value at `:rf/machine` carries — when the macro path stamped it — the `:rf.machine/source-coords` per-element coord index (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3)).
+**Two surfaces; one stamp.** The registry slot exposes the machine through two query fns, which read the same underlying entry:
+
+| Lens | Returns | Implementation |
+|---|---|---|
+| `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:spec`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:event/kind`, `:rf/machine? true`, and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
+| `(machine-meta machine-id)` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps, the initial `:data` map, and (when macro-stamped) the `:rf.machine/source-coords` coord index. | `(:rf/machine (handler-meta :event machine-id))` |
+
+Visualisers walking the transition table consume `(machine-meta id)`; tools needing source-coords on the `reg-machine` call site itself (file/line of the declaration) use `(handler-meta :event id)`. The two surfaces are independent and complementary — see [005 §Querying machines](005-StateMachines.md#querying-machines) and the reference implementation at [`implementation/machines/src/re_frame/machines/lifecycle_fx.cljc`](../implementation/machines/src/re_frame/machines/lifecycle_fx.cljc) (`machines` / `machine-meta`).
 
 #### `:rf/flow-meta`
 
