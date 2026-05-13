@@ -73,18 +73,61 @@
            (or (nil? t0)         (and (number? (:time ev))
                                       (<= t0 (:time ev) t1)))))))
 
+;; Mirror of epoch-elapsed-ms (rf2-r3azh): pair :event/run-start with
+;; :event/run-end on :time. Span first run-start → last run-end so
+;; nested same-cascade dispatches roll up correctly.
+(defn epoch-elapsed-ms
+  [{:keys [trace-events]}]
+  (let [run-event? (fn [phase ev]
+                     (and (= :event (:op-type ev))
+                          (= :event (:operation ev))
+                          (= phase (get-in ev [:tags :phase]))))
+        first-time (some (fn [ev] (when (run-event? :run-start ev) (:time ev))) trace-events)
+        last-time  (reduce (fn [acc ev]
+                             (if (run-event? :run-end ev)
+                               (let [t (:time ev)]
+                                 (if (and (number? t) (or (nil? acc) (> t acc))) t acc))
+                               acc))
+                           nil
+                           trace-events)]
+    (when (and (number? first-time) (number? last-time) (>= last-time first-time))
+      (- last-time first-time))))
+
+;; Mirror of parse-timing-pred — accepts numbers (>=N sugar) or
+;; comparison strings.
+(defn parse-timing-pred
+  [v]
+  (cond
+    (number? v)
+    (fn [ms] (and (number? ms) (>= ms v)))
+
+    (string? v)
+    (when-let [m (re-matches #"\s*(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)\s*" v)]
+      (let [op (or (nth m 1) ">=")
+            n  (Double/parseDouble (nth m 2))]
+        (case op
+          ">"  (fn [ms] (and (number? ms) (> ms n)))
+          ">=" (fn [ms] (and (number? ms) (>= ms n)))
+          "<"  (fn [ms] (and (number? ms) (< ms n)))
+          "<=" (fn [ms] (and (number? ms) (<= ms n)))
+          "="  (fn [ms] (and (number? ms) (= ms n)))
+          nil)))))
+
 ;; Mirror of epoch-matches? (subset of the keys the runtime exposes —
 ;; enough to exercise the dispatch routing).
 (defn epoch-matches?
-  [pred {:keys [event-id effects frame]}]
+  [pred {:keys [event-id effects frame] :as epoch}]
   (let [{p-eid    :event-id
          p-fx     :effects
-         p-frame  :frame} pred]
+         p-frame  :frame
+         p-timing :timing-ms} pred
+        timing-fn (when (some? p-timing) (parse-timing-pred p-timing))]
     (boolean
       (and
         (if p-eid    (= p-eid event-id) true)
         (if p-fx     (some #(= p-fx (:fx-id %)) effects) true)
-        (if p-frame  (= p-frame frame) true)))))
+        (if p-frame  (= p-frame frame) true)
+        (if timing-fn (timing-fn (epoch-elapsed-ms epoch)) true)))))
 
 (defn event-byte-size
   "Mirror of `runtime/event-byte-size` — `pr-str` char count."
@@ -276,6 +319,51 @@
 (deftest epoch-filter-matches-by-effects
   (is (epoch-matches? {:effects :http} {:effects [{:fx-id :http} {:fx-id :db}]}))
   (is (not (epoch-matches? {:effects :http} {:effects [{:fx-id :db}]}))))
+
+(deftest epoch-elapsed-ms-pairs-run-start-and-run-end
+  ;; The cascade's wall-clock is derived from `:event/run-start` and
+  ;; `:event/run-end` trace events on `:time`. Span first run-start to
+  ;; last run-end so a same-cascade chain of synchronously-dispatched
+  ;; handlers rolls up to the cascade's total hold time.
+  (let [epoch {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
+                              {:op-type :event :operation :event :time 1150 :tags {:phase :run-end}}]}]
+    (is (= 150 (epoch-elapsed-ms epoch))))
+  (testing "no run-start ⇒ nil (degenerate or trace-elided epoch)"
+    (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-end}}]}))))
+  (testing "no run-end ⇒ nil"
+    (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}]}))))
+  (testing "spans first run-start to LAST run-end across nested dispatches"
+    (let [epoch {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
+                                {:op-type :event :operation :event :time 1050 :tags {:phase :run-end}}
+                                {:op-type :event :operation :event :time 1060 :tags {:phase :run-start}}
+                                {:op-type :event :operation :event :time 1300 :tags {:phase :run-end}}]}]
+      (is (= 300 (epoch-elapsed-ms epoch))))))
+
+(deftest epoch-filter-matches-by-timing-ms-threshold
+  ;; `:timing-ms` (rf2-r3azh): server-side timing filter. Number sugar
+  ;; (`>= N`) and comparison-string forms (`">100"`, `"<=50"`, …) both
+  ;; supported.
+  (let [slow-epoch {:event-id :cart/add
+                    :trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
+                                   {:op-type :event :operation :event :time 1150 :tags {:phase :run-end}}]}
+        fast-epoch {:event-id :cart/add
+                    :trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
+                                   {:op-type :event :operation :event :time 1005 :tags {:phase :run-end}}]}]
+    (testing "number `100` is sugar for `>= 100` — slow matches, fast doesn't"
+      (is (epoch-matches? {:timing-ms 100} slow-epoch))
+      (is (not (epoch-matches? {:timing-ms 100} fast-epoch))))
+    (testing "string `\">100\"` is strict-greater-than"
+      (is (epoch-matches? {:timing-ms ">100"} slow-epoch))
+      (is (not (epoch-matches? {:timing-ms ">100"} fast-epoch))))
+    (testing "string `\"<=50\"` matches the fast epoch only"
+      (is (epoch-matches? {:timing-ms "<=50"} fast-epoch))
+      (is (not (epoch-matches? {:timing-ms "<=50"} slow-epoch))))
+    (testing "epoch with no timing (no run-start/run-end pair) doesn't match a numeric threshold"
+      (let [no-timing-epoch {:event-id :cart/add :trace-events []}]
+        (is (not (epoch-matches? {:timing-ms 100} no-timing-epoch)))))
+    (testing "timing-ms composes with other predicate keys (AND)"
+      (is (epoch-matches? {:event-id :cart/add :timing-ms 100} slow-epoch))
+      (is (not (epoch-matches? {:event-id :cart/remove :timing-ms 100} slow-epoch))))))
 
 (deftest subscribe-and-drain-roundtrips
   (let [subs (-> {} (subscribe! "s1" {:topic :trace :filter {:op-type :error}}))]

@@ -1272,6 +1272,69 @@
 ;; :trigger-event are top-level slots; :sub-runs / :renders / :effects
 ;; are pre-projected; the trace-events vector carries everything else.
 
+(defn epoch-elapsed-ms
+  "Compute the handler's wall-clock elapsed-ms for an epoch by pairing
+   the cascade's `:event/run-start` and `:event/run-end` trace events
+   on `:time` (the host-clock timestamp every trace event carries per
+   Spec 009 §Trace event shape).
+
+   The epoch record itself has no top-level timing slot — derivation
+   happens here. Multiple run-start/run-end pairs can appear inside a
+   single epoch when a handler synchronously dispatches further events;
+   we span from the FIRST run-start to the LAST run-end so the value
+   answers 'how long did this cascade's handler-chain hold the
+   thread?', which is the intuition `--timing-ms` users have from the
+   bash shim.
+
+   Returns nil when neither bracket is present (degenerate cascades, or
+   epochs whose `:trace-events` slot was elided for ring-buffer age —
+   see Spec-Schemas §`:rf/epoch-record`)."
+  [{:keys [trace-events]}]
+  (let [run-event? (fn [phase ev]
+                     (and (= :event (:op-type ev))
+                          (= :event (:operation ev))
+                          (= phase (get-in ev [:tags :phase]))))
+        first-time (some (fn [ev] (when (run-event? :run-start ev) (:time ev))) trace-events)
+        last-time  (reduce (fn [acc ev]
+                             (if (run-event? :run-end ev)
+                               (let [t (:time ev)] (if (and (number? t) (or (nil? acc) (> t acc))) t acc))
+                               acc))
+                           nil
+                           trace-events)]
+    (when (and (number? first-time) (number? last-time) (>= last-time first-time))
+      (- last-time first-time))))
+
+(defn ^:private parse-timing-pred
+  "Parse a `:timing-ms` predicate value into a one-arg matcher fn.
+
+   Accepts:
+     - a number `N` — sugar for `>= N` (the common 'slow events'
+       intuition: `100` ≡ '100 ms or slower').
+     - a string `\">N\"`, `\">=N\"`, `\"<N\"`, `\"<=N\"`, `\"=N\"` —
+       comparison against the parsed numeric threshold.
+
+   Returns `nil` for unparseable inputs; callers treat nil as
+   'predicate absent' so a malformed filter doesn't accidentally
+   match everything."
+  [v]
+  (cond
+    (number? v)
+    (fn [ms] (and (number? ms) (>= ms v)))
+
+    (string? v)
+    (let [m (re-matches #"\s*(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)\s*" v)]
+      (when m
+        (let [op (or (nth m 1) ">=")
+              n  (js/parseFloat (nth m 2))]
+          (when-not (js/isNaN n)
+            (case op
+              ">"  (fn [ms] (and (number? ms) (> ms n)))
+              ">=" (fn [ms] (and (number? ms) (>= ms n)))
+              "<"  (fn [ms] (and (number? ms) (< ms n)))
+              "<=" (fn [ms] (and (number? ms) (<= ms n)))
+              "="  (fn [ms] (and (number? ms) (= ms n)))
+              nil)))))))
+
 (defn epoch-matches?
   "Test an epoch record against a predicate map built from
    `watch-epochs.sh` CLI args.
@@ -1280,7 +1343,16 @@
    :fx-id in the projection), :touches-path (anywhere in db-before /
    db-after), :sub-ran (matches :sub-id or first of :query-v),
    :render (matches :render-key as a string), :origin (matches
-   :origin in :event/dispatched trace events), :frame.
+   :origin in :event/dispatched trace events), :frame, :timing-ms.
+
+   `:timing-ms` (rf2-r3azh) — server-side timing filter. Accepts a
+   number (sugar for `>= N`) or a comparison string (`\">100\"`,
+   `\"<=50\"`, `\">=100\"`, `\"<200\"`, `\"=42\"`). Compares against
+   the epoch's wall-clock elapsed-ms derived from the cascade's
+   `:event/run-start` / `:event/run-end` trace pair (see
+   `epoch-elapsed-ms`). Filtering rides server-side so the wire
+   payload shrinks before bytes cross the boundary — matters for the
+   'alert me on slow events' recipe under streaming subscriptions.
 
    Prefix matching uses `str` on both sides so `:cart` matches
    `:cart/apply-coupon`."
@@ -1293,7 +1365,9 @@
          p-sub    :sub-ran
          p-render :render
          p-origin :origin
-         p-frame  :frame} pred]
+         p-frame  :frame
+         p-timing :timing-ms} pred
+        timing-fn (when (some? p-timing) (parse-timing-pred p-timing))]
     (boolean
      (and
       (if p-eid    (= p-eid event-id) true)
@@ -1310,7 +1384,8 @@
                                       (= p-origin (get-in t [:tags :origin]))))
                          trace-events)
                    true)
-      (if p-frame  (= p-frame frame) true)))))
+      (if p-frame  (= p-frame frame) true)
+      (if timing-fn (timing-fn (epoch-elapsed-ms epoch)) true)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch-and-collect

@@ -289,13 +289,27 @@ loop should call us repeatedly with the same `since-id`.
 **Args**: `since-id` (string, optional — omit to start fresh; supplanted
 by `cursor` when both are supplied), `pred` (object, optional predicate
 filter, keys from: `:event-id`, `:event-id-prefix`, `:effects`,
-`:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`), `frame`,
+`:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`,
+`:timing-ms`), `frame`,
 `limit` (int, default 50 — see §Cursor pagination above), `cursor`
 (string, opaque continuation token — see §Cursor pagination above),
 `epochs-mode` (string — `"diff"` (default) or `"full"`, see
 `trace-window` §Diff-encoded `:db-after`), `dedup` (boolean,
 default `true` — see §Structural dedup at the top of this
 catalogue), `build`.
+
+`:timing-ms` (rf2-r3azh) — server-side wall-clock filter on the
+cascade's elapsed-ms (derived from the `:event/run-start` /
+`:event/run-end` trace pair on `:time`; spans first run-start to last
+run-end so synchronously-dispatched same-cascade chains roll up). The
+filter rides server-side so non-matching epochs never cross the wire
+— `typicalTokens` is the worst case; narrowing on `:timing-ms` (e.g.
+`">100"` to surface only slow events) shrinks the payload roughly
+proportional to the match rate. Accepts either a number (sugar for
+`>= N`) or a comparison string `">N"` / `">=N"` / `"<N"` / `"<=N"` /
+`"=N"`. Epochs whose `:trace-events` slot was elided (long-aged ring
+entries) carry no derivable timing and never match a numeric
+threshold.
 
 **Returns**: `{:ok? true :matches [...] :limit L :count K :head-id "..." :id-aged-out? bool :epochs-mode :diff|:full :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
 
@@ -581,6 +595,7 @@ vocab `watch-epochs` already accepts):
 | `:render`            | `(some #(= render (str (:render-key %))) (:renders e))`       |
 | `:origin`            | One of the `:event/dispatched` traces has `(:tags :origin)` = `origin`. |
 | `:frame`             | `(= frame (:frame e))`                                        |
+| `:timing-ms`         | Cascade elapsed-ms (first `:event/run-start` → last `:event/run-end` on `:time`) matches the threshold. Number `N` is sugar for `>= N`; strings `">N"` / `">=N"` / `"<N"` / `"<=N"` / `"=N"` set the comparator. Epochs with no derivable timing never match (rf2-r3azh). |
 
 ### Args
 

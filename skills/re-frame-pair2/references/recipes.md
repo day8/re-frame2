@@ -173,9 +173,9 @@ See [streaming-subscriptions.md](streaming-subscriptions.md) for topic / filter 
 
 ## "Alert me on slow events"
 
-Prefer `mcp__re-frame-pair2__subscribe {topic: "epoch"}` with no server-side filter (the `epoch-matches?` filter vocab doesn't include a timing predicate — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). On each `notifications/progress` tick, caller-side check the epoch's `:event/run` duration against the threshold; report matches with per-interceptor timings from the raw trace. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
+Prefer `mcp__re-frame-pair2__subscribe {topic: "epoch", filter: {":timing-ms": ">100"}}` — the `:timing-ms` predicate (rf2-r3azh) rides server-side so only slow cascades cross the wire. Accepts a number (sugar for `>= N`) or a comparison string (`">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"`); see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape. On each `notifications/progress` tick, narrate matches and pull per-interceptor timings from the raw trace if needed. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
 
-Fallback: `mcp__re-frame-pair2__watch-epochs {stream: true, pred: {"timing-ms": ">100"}}` (the timing predicate is applied caller-side under pull-mode; the wrapper hides that detail).
+Fallback (pull-mode, no host progress notifications): `mcp__re-frame-pair2__watch-epochs {pred: {"timing-ms": ">100"}}`.
 
 ## "Watch for X while I interact"
 
