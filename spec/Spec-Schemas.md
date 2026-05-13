@@ -1637,16 +1637,26 @@ Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spaw
    [:bytes             :int]                                                 ;; pr-str byte count at first sight
    [:first-seen-epoch  {:optional true} :int]])                              ;; the epoch-id of the first sighting; absent on pre-epoch ports
 
+(def SensitiveDeclaration
+  ;; Privacy sibling of ElisionDeclaration. Same shape contract — the per-path
+  ;; declaration carries the predicate flag, the optional hint, and the source
+  ;; provenance — so the registry's two sub-maps compose cleanly under one walker.
+  [:map
+   [:sensitive? :boolean]                                                    ;; the privacy predicate
+   [:hint       {:optional true} [:maybe :string]]                           ;; free-form short description; propagated verbatim from the slot's props
+   [:source     [:enum :declared :schema :runtime-flagged]]])                ;; provenance; :runtime-flagged reserved for symmetry — currently unused for sensitivity
+
 (def ElisionRegistry
   [:map
-   [:declarations    {:optional true} [:map-of [:vector :any] ElisionDeclaration]]
-   [:runtime-flagged {:optional true} [:map-of [:vector :any] ElisionRuntimeFlag]]])
+   [:declarations           {:optional true} [:map-of [:vector :any] ElisionDeclaration]]
+   [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]
+   [:runtime-flagged        {:optional true} [:map-of [:vector :any] ElisionRuntimeFlag]]])
 
 ;; registered by the runtime at boot:
 (rf/reg-app-schema [:rf/elision] ElisionRegistry)
 ```
 
-The `:declarations` sub-map is **app-managed** (via the `:rf.size/declare-large` / `:rf.size/clear` fx per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids), plus schema-driven boot population for every `:large? true` slot in `(rf/app-schema)` per [§`:rf/app-schema-meta`](#rfapp-schema-meta) above). The `:runtime-flagged` sub-map is **runtime-managed** by the auto-detect walker. Conflict-resolution rule (specified normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)): declared wins, schema wins, runtime-flagged loses; the walker consults `:declarations` first.
+The `:declarations` sub-map is **app-managed** (via the `:rf.size/declare-large` / `:rf.size/clear` fx per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids), plus schema-driven boot population for every `:large? true` slot in `(rf/app-schema)` per [§`:rf/app-schema-meta`](#rfapp-schema-meta) above). The `:sensitive-declarations` sub-map is the **privacy sibling** — schema-driven boot population for every `:sensitive? true` slot in `(rf/app-schema)` (rf2-c1l4d / rf2-kj51z; consumed by the schema-validation emit-site's `:value` / `:explain` redaction path per [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)). The `:runtime-flagged` sub-map is **runtime-managed** by the auto-detect walker. Conflict-resolution rule (specified normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)): declared wins, schema wins, runtime-flagged loses; the walker consults `:declarations` first. The privacy sibling follows the same rule — app-declared sensitive paths beat schema-derived ones.
 
 Allocated lazily — absent until the first declaration. Per-frame isolation is automatic; declarations survive `restore-epoch` because they ride app-db (this is the named mechanism by which the elision contract inherits [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility)).
 
