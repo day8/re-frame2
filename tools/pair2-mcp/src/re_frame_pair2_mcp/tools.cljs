@@ -1778,7 +1778,7 @@
 ;;   :epoch  — every assembled `:rf/epoch-record` matching `:filter`.
 ;;             `:filter` keys: :event-id :event-id-prefix :effects
 ;;                            :touches-path :sub-ran :render :origin
-;;                            :frame  (mirrors `epoch-matches?`).
+;;                            :frame :timing-ms  (mirrors `epoch-matches?`).
 ;;   :fx     — sugar for :topic :trace :filter {:op-type :fx ...}.
 ;;   :error  — sugar for :topic :trace :filter {:op-type :error ...}.
 ;; ---------------------------------------------------------------------------
@@ -2254,7 +2254,14 @@
    {:name "watch-epochs"
     :description (str "Pull-mode poll: returns the epochs matching `pred` that landed after `since-id`. "
                       "Call repeatedly to live-watch. Predicate keys: :event-id, :event-id-prefix, :effects, "
-                      ":touches-path, :sub-ran, :render, :origin, :frame. Per spec/009 §Privacy this forwarder "
+                      ":touches-path, :sub-ran, :render, :origin, :frame, :timing-ms. "
+                      ":timing-ms (rf2-r3azh) is a server-side wall-clock filter — accepts a number (sugar for "
+                      "`>= N`) or a comparison string (`\">100\"`, `\"<=50\"`, `\">=100\"`, `\"<200\"`, `\"=42\"`). "
+                      "Compares against the cascade's elapsed-ms derived from the `:event/run-start` / "
+                      "`:event/run-end` trace pair. The filter rides server-side so non-matching epochs "
+                      "never cross the wire — typicalTokens above is the worst case, narrowing on :timing-ms "
+                      "(e.g. only :>100ms epochs) shrinks the payload roughly proportional to the match rate. "
+                      "Per spec/009 §Privacy this forwarder "
                       "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`. "
                       "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
                       "— pass `epochs-mode \"full\"` for the legacy full-pair shape. "
@@ -2405,7 +2412,9 @@
                       "Filter vocab depends on topic — :trace/:fx/:error accept the (rf/trace-buffer) filter map "
                       "(:operation :op-type :frame :severity :event-id :handler-id :source :origin :dispatch-id :since-ms :between); "
                       ":epoch accepts the epoch-matches? predicate map (:event-id :event-id-prefix :effects :touches-path "
-                      ":sub-ran :render :origin :frame). Pass `filter` either as a JSON object or as an EDN-encoded string. "
+                      ":sub-ran :render :origin :frame :timing-ms). :timing-ms (rf2-r3azh) is a server-side wall-clock "
+                      "filter — number (sugar for `>= N`) or comparison string (`\">100\"`, `\"<=50\"`, …). "
+                      "Pass `filter` either as a JSON object or as an EDN-encoded string. "
                       "Per spec/009 §Privacy this forwarder default-drops events carrying `:sensitive? true` at the top "
                       "level; opt back in with `include-sensitive? true`. Dropped count surfaces as `:dropped-sensitive` "
                       "on each progress payload (when non-zero) and the final summary. "

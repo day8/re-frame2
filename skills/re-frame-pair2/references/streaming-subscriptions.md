@@ -78,8 +78,7 @@ Mirrors the `watch-epochs` pull-mode pred map. Recognised keys:
 - `:render` — render-key (stringified) appearing in `:renders`
 - `:origin` — `:origin` tag on the trigger event's `:event/dispatched` trace
 - `:frame` — frame id
-
-**No timing-ms filter on the server side.** The `:epoch` vocab doesn't include timing predicates; for "alert me on slow events" you subscribe with no timing filter and apply the threshold caller-side on each progress tick.
+- `:timing-ms` — server-side wall-clock filter on the cascade's elapsed-ms (rf2-r3azh). Number `N` is sugar for `>= N`; strings `">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"` set the comparator. Derived from the `:event/run-start` / `:event/run-end` trace pair on `:time` — spans first run-start to last run-end so synchronously-dispatched same-cascade chains roll up. Use this for "alert me on slow events"; the filter rides server-side so non-matching epochs never cross the wire.
 
 ## Progress-notification correlation
 
