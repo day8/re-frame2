@@ -17,7 +17,7 @@
 
 {:fixture/id           :machine/spawn-from-action
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy}
  :fixture/doc          "An action returns :fx [[:rf.machine/spawn {...}]]; pure machine-transition surfaces the spawn fx in the result. Confirms imperative spawn from an action emits the same shape the declarative :invoke desugar produces."
 
  :fixture/registry

@@ -103,7 +103,7 @@
     :routing/fragment
     :routing/blocking
     :routing/nav-token
-    :actor/spawn
+    :actor/spawn-destroy   ;; rf2-mtq4h — renamed from :actor/spawn to align with spec vocabulary
     :actor/invoke
     :actor/spawn-and-join
     :actor/system-id

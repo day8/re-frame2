@@ -14,7 +14,7 @@
 
 {:fixture/id           :machine/destroy-clears-snapshot
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy}
  :fixture/doc          "An action returns :fx [[:rf.machine/destroy actor-id]]; pure machine-transition surfaces the destroy fx. The runtime's :rf.machine/destroy fx handler removes [:rf/machines actor-id] from app-db; here we verify the fx-emission half of that contract."
 
  :fixture/registry

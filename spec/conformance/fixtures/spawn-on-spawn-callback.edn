@@ -23,7 +23,7 @@
 
 {:fixture/id           :machine/spawn-on-spawn-callback
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke}
  :fixture/doc          "The :on-spawn callback receives (data, spawned-id) and returns new data. Verifies the callback fires with the just-allocated actor-id by recording the id in :data under a distinct key."
 
  :fixture/registry

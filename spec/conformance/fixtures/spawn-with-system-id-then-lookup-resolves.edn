@@ -14,7 +14,7 @@
 
 {:fixture/id           :machine/spawn-with-system-id-then-lookup-resolves
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/system-id}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/system-id}
  :fixture/doc          "Spawn with :system-id binds the per-frame reverse index; snapshot lives at [:rf/machines <spawned-id>]; lookup by name resolves."
 
  :fixture/registry

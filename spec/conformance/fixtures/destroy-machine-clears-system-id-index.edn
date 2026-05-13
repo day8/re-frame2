@@ -15,7 +15,7 @@
 
 {:fixture/id           :machine/destroy-machine-clears-system-id-index
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/system-id}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/system-id}
  :fixture/doc          "Destroying a :system-id-bound machine clears [:rf/system-ids] and [:rf/machines <id>] atomically; emits :rf.machine/system-id-released."
 
  :fixture/registry

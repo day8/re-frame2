@@ -14,7 +14,7 @@
 
 {:fixture/id           :machine/invoke-all-n-of-cancels-extras
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/spawn-and-join}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/spawn-and-join}
  :fixture/doc          "An :invoke-all with :join {:n 3} and 5 children desugars to one invoke-all-init fx + 5 spawn fxs on entry; the exit cascade emits ONE :rf.machine/destroy fx with :rf/invoke-all true (the runtime's destroy handler tears down all live :children). Verifies entry- and exit-side fx emission for the {:n N} join shape."
 
  :fixture/registry

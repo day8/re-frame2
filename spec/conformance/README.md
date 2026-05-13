@@ -167,7 +167,7 @@ The conventions above describe the schema; the corpus itself shows what those ta
 |---|---|---|
 | `counter-inc-once.edn` | `#{:core/event-handler :core/sub}` | The simplest pattern-required-only fixture: a single event handler, one sub. Every conformant port runs this. |
 | `after-hierarchy.edn` | `#{:fsm/hierarchical :fsm/delayed-after}` | A parent compound state with an `:after` timer. Only ports that claim both hierarchical FSM and `:after` will run it. |
-| `spawn-from-action.edn` | `#{:fsm/flat :actor/spawn}` | Imperative spawn of a child actor from inside a transition action. Requires the actor-model spawn capability on top of flat FSMs. |
+| `spawn-from-action.edn` | `#{:fsm/flat :actor/spawn-destroy}` | Imperative spawn of a child actor from inside a transition action. Requires the actor-model spawn-destroy capability on top of flat FSMs. |
 | `flow-lifecycle-emits-traces.edn` | `#{:core/event-handler :flow/basic :flow/trace}` | The flow primitive emits its five lifecycle trace events. Requires the flow substrate and the flow-trace stream. |
 | `http-managed-get-success.edn` | `#{:core/event-handler :core/sub :core/fx :rf.http/managed}` | The managed-HTTP fx happy path. Builds on the core triad and adds the managed-HTTP capability from [Spec 014](../014-HTTPRequests.md). |
 
