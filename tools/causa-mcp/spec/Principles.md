@@ -281,9 +281,9 @@ triplet because its catalogue includes
 the `subscribe` stream, all of which return payloads whose
 size scales with runtime state.
 
-The discipline rests on **five normative mechanisms**, each
+The discipline rests on **six normative mechanisms**, each
 catalogued below. Every catalogue entry (when
-`003-Tool-Catalogue.md` lands) MUST declare which of the five
+`003-Tool-Catalogue.md` lands) MUST declare which of the six
 apply to that tool, with a **typical-token** hint
 (`~1.2k`, `~3k under :sample`) and a **cap-reached** behaviour
 note. The hints surface in `list-tools` so the agent can plan
@@ -395,7 +395,126 @@ substituting refs against the table. Dedup is **opt-out** per
 call (`:dedup? false`); on by default for trace-shaped
 sequences and off for everything else.
 
-The five mechanisms together are the load-bearing budget
+### 6. Size elision (`:rf.size/large-elided` marker)
+
+Mechanisms 1-5 cap the **top-level** response shape; the sixth
+mechanism substitutes **per-value** inside any tree-typed
+payload. A single large slot — say a 100KB base64 PDF on
+`[:user :uploaded-pdf]`, a 5MB cached fetch response on
+`[:net :last-payload]` — would otherwise ride the wire
+verbatim and either trip the cap (forcing the agent to re-aim)
+or, worse, slip through under cap and burn the agent host's
+context budget. The framework's size-elision walker
+(`re-frame.core/elide-wire-value`, per
+[`spec/API.md` §`elide-wire-value`](../../../spec/API.md#elide-wire-value-the-wire-boundary-walker))
+substitutes such slots with a canonical marker carrying a
+fetch handle.
+
+**Wire shape**. The marker is normative across the MCP triplet
+(pair2-mcp, story-mcp, causa-mcp) and is catalogued at
+[`spec/Spec-Schemas.md §:rf/elision-marker`](../../../spec/Spec-Schemas.md#rfelision-marker)
+and [`spec/009-Instrumentation.md §Size elision in traces`](../../../spec/009-Instrumentation.md#size-elision-in-traces):
+
+```clojure
+{:rf.size/large-elided
+ {:path   [<segment>...]            ; absolute path inside the slice's root
+  :bytes  <int>                     ; pr-str byte count, exact when known
+  :type   :map | :vector | :set | :scalar | :string
+  :reason :declared | :schema | :runtime-flagged
+  :hint   <string-or-nil>           ; copied verbatim from the registry entry
+  :digest <"sha256:hex">            ; OPTIONAL; gated on :rf.size/include-digests?
+  :handle [:rf.elision/at <path>]}} ; EDN handle passable to get-path
+```
+
+The marker is a **substitution at the elided slot**, not a
+wrapper around the response. A 1MB app-db with a 100KB `:large?`
+slot at `[:user :uploaded-pdf]` returns the small siblings
+verbatim and the marker at the elided slot. The `:rf.elision/at`
+handle is a normal EDN vector (no reader hook needed); agents
+pattern-match on the leading keyword. The marker keyword and
+handle-namespace are reserved in
+[`spec/Conventions.md §Reserved namespaces`](../../../spec/Conventions.md#reserved-namespaces-framework-owned).
+
+**Composition with `:sensitive?` — sensitive wins**. The walker
+operates downstream of the privacy filter (§"Privacy:
+default-drop `:sensitive?` events at the MCP boundary" above)
+and the predicate cascade is:
+
+```clojure
+(cond
+  (and sensitive? large?)  ::drop                  ; no marker; sensitive wins
+  sensitive?               ::redact-or-drop        ; :rf/redacted sentinel
+  large?                   ::elide-with-marker     ; :rf.size/large-elided
+  :else                    ::pass-through)
+```
+
+A value matching both predicates is dropped/redacted **without**
+emitting a marker — the marker itself carries `:path` /
+`:bytes` / `:digest` slots that would leak signal an audit
+mustn't see. The two axes (drop-and-forget for `:sensitive?`,
+elide-with-fetch-handle for `:large?`) compose into a single
+predictable cascade. Per
+[`spec/009-Instrumentation.md §Composition`](../../../spec/009-Instrumentation.md#size-elision-in-traces).
+
+**When this fires**. Any tool emitting a tree-typed payload —
+the canonical Causa-MCP set is `get-app-db`, `app-db-diff`,
+`get-epoch`, `get-epoch-history` (per-record `:db-before` /
+`:db-after`), `get-machine-snapshot`, `get-causality-graph`,
+and `subscribe` payloads carrying trace events with rich
+coeffect / effect slots. Each runs the elided slice through
+the walker inside the eval form sent over nREPL (the registry
+lives in app-db; the Node process can't reach it directly).
+The walker is the **single normative emission site** — per-tool
+reimplementation is prohibited.
+
+**Where in the pipeline**. Elision runs **first**. The downstream
+mechanisms (mechanisms 1-5) operate on the post-elision
+payload: the cap measures post-elision bytes, summary /
+sample / full modes see markers in place of large values,
+dedup pools across already-elided slices. A single declared
+`:large?` slot can no longer blow the cap on its own; the cap
+stays a backstop, not the primary mechanism for the common case.
+
+**Per-call opt-out**. Every tool whose return walks a tree-typed
+payload accepts an `:include-large?` boolean argument (default
+`false` — markers ride; large values stay home). Passing
+`:include-large? true` bypasses the walker entirely — useful
+for the rare workflow where the agent has explicit permission
+and budget to fetch the full payload (e.g. debugging a
+declared-large slot itself, or a session running with a
+purpose-built large-context model). The argument slot is
+cross-server identical (`:include-large?` is the same key on
+pair2-mcp's `snapshot` / `get-path` tools, on story-mcp, and
+on causa-mcp's catalogue when impl lands).
+
+**Per-call digest opt-in**. The `:rf.size/include-digests?`
+slot defaults `false`; setting `true` computes a `sha256:<hex>`
+content digest per elided value. The digest forces a full walk
+of each elided value, which negates the cost-saving — opt in
+deliberately for integrity-check workflows (compare digests
+across turns to detect change-without-fetch).
+
+**Indicator field**. Tool responses that walk tree-typed
+payloads carry an `:elided-large` count alongside the existing
+`:dropped-sensitive` count — one per consumer-facing tool. The
+two counts surface together so an agent sees both axes
+("trimmed 3 sensitive events; elided 2 large values") on the
+same envelope.
+
+**Cross-MCP consumer state**. pair2-mcp already consumes the
+marker through its `snapshot` and `get-path` tools (rf2-urjnc,
+per
+[pair2-mcp Principles §"Size-elision wire markers"](../../pair2-mcp/spec/Principles.md#size-elision-wire-markers-rf2-urjnc));
+the marker shape is identical on the wire. Causa-MCP's
+catalogue (`003-Tool-Catalogue.md`, when it lands) MUST declare
+the `:include-large?` slot, the `:elided-large` indicator
+field, and the default elision-policy on every tool emitting
+tree-typed payloads. Impl alignment is tracked separately —
+this section is the spec-side normative pin; the
+implementation pass lands against the catalogue once
+`tools/causa-mcp/src/` exists.
+
+The six mechanisms together are the load-bearing budget
 posture for Causa-MCP's agent-host workflow: keep the per-op
 cost predictable, push the agent to ask for what it actually
 needs, and never let a single op blow the session. Causa-MCP's
@@ -415,19 +534,18 @@ The `subscribe` stream returns one event per JSON-RPC
 `notifications/progress`, not a buffered batch. The cap applies
 per notification; the agent host meters consumption. A
 `subscribe` topic whose individual events can exceed the cap
-(a trace event with a large coeffect payload) MUST attach a
-server-side trimmer (drop the heavy fields, substitute the
-canonical `:rf.size/large-elided` marker at the elided slot —
-body shape per
+(a trace event with a large coeffect payload) relies on
+mechanism 6 (size elision) running per-notification — the
+walker substitutes the canonical `:rf.size/large-elided` marker
+at each elided slot (body shape per
 [spec/Spec-Schemas §`:rf/elision-marker`](../../../spec/Spec-Schemas.md#rfelision-marker),
-fetch-handle `[:rf.elision/at <path>]` per
-[pair2-mcp Principles §"Size-elision wire markers"](../../pair2-mcp/spec/Principles.md#size-elision-wire-markers-rf2-urjnc) —
-and surface a follow-up `get-trace-buffer` cursor).
-Mechanisms 1, 4, and 5 apply per-notification; mechanisms 2 and
-3 are inapplicable inside a single notification but DO apply to
-the `subscribe` call's own arguments (e.g., a `:path` filter on
-the topic, a `:limit` on total notifications before
-auto-unsubscribe).
+fetch-handle `[:rf.elision/at <path>]`) — and surfaces a
+follow-up `get-trace-buffer` cursor when the trimmed
+notification still trips the cap. Mechanisms 1, 4, 5, and 6
+apply per-notification; mechanisms 2 and 3 are inapplicable
+inside a single notification but DO apply to the `subscribe`
+call's own arguments (e.g., a `:path` filter on the topic, a
+`:limit` on total notifications before auto-unsubscribe).
 
 ## Backed by Causa's and the framework's principles
 
