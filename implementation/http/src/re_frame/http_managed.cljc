@@ -235,21 +235,18 @@
 
 ;; The two canned-stub fxs are gated on `interop/debug-enabled?` so they
 ;; elide in production. Per Spec 014 §Testing — "Don't ship the canned-
-;; stub fxs as production-eligible".
-#?(:clj  (when interop/debug-enabled?
-           (fx/reg-fx :rf.http/managed-canned-success
-                      {:doc "Spec 014 — synthesised success reply (test stub)."}
-                      machine-wrapper/canned-success-handler)
-           (fx/reg-fx :rf.http/managed-canned-failure
-                      {:doc "Spec 014 — synthesised failure reply (test stub)."}
-                      machine-wrapper/canned-failure-handler))
-   :cljs (do
-           (fx/reg-fx :rf.http/managed-canned-success
-                      {:doc "Spec 014 — synthesised success reply (test stub)."}
-                      machine-wrapper/canned-success-handler)
-           (fx/reg-fx :rf.http/managed-canned-failure
-                      {:doc "Spec 014 — synthesised failure reply (test stub)."}
-                      machine-wrapper/canned-failure-handler)))
+;; stub fxs as production-eligible". The gate applies on BOTH hosts: on
+;; JVM `debug-enabled?` is `true` so the registrations run; on CLJS the
+;; gate folds to `(when goog/DEBUG ...)` and `:advanced + goog.DEBUG=
+;; false` DCEs the entire body — fx-id keywords, doc string, handler
+;; var references and all (rf2-omsae).
+(when interop/debug-enabled?
+  (fx/reg-fx :rf.http/managed-canned-success
+             {:doc "Spec 014 — synthesised success reply (test stub)."}
+             machine-wrapper/canned-success-handler)
+  (fx/reg-fx :rf.http/managed-canned-failure
+             {:doc "Spec 014 — synthesised failure reply (test stub)."}
+             machine-wrapper/canned-failure-handler))
 
 ;; ---- with-managed-request-stubs (macro form) -----------------------------
 ;;

@@ -89,7 +89,7 @@
   (registrar/unregister!  :event :probe/inc)
   (registrar/clear-kind!  :sub))
 
-;; ---- Spec 014 :rf.http/managed surface (rf2-cfig) -------------------------
+;; ---- Spec 014 :rf.http/managed surface (rf2-cfig, rf2-omsae) --------------
 
 (defn ^:export touch-http-managed! []
   ;; Spec 014 — `:rf.http/managed` ships gated trace ops:
@@ -103,22 +103,34 @@
   ;; string sentinels (e.g. "rf.http/retry-attempt") should NOT appear
   ;; in the production bundle.
   ;;
+  ;; rf2-omsae — the canned-stub fxs (`:rf.http/managed-canned-success`,
+  ;; `:rf.http/managed-canned-failure`) are themselves registered inside
+  ;; the same `(when interop/debug-enabled? ...)` gate. Their fx-id
+  ;; keyword string fragments must NOT appear in the production bundle
+  ;; either. The probe must NOT reference those fx-ids as literal
+  ;; keywords in its own (non-gated) dispatch path — that would smuggle
+  ;; the literals into the prod bundle from probe code and the elision
+  ;; assertion would false-fail.
+  ;;
   ;; The probe roots the dependency graph by:
   ;;   1. requiring re-frame.http-managed (forces its ns body to be
   ;;      compiled into the bundle, which is where the gated branches
-  ;;      live);
-  ;;   2. referencing the public canned-stub fx via dispatch — pulls in
-  ;;      `dispatch-reply!`, `build-reply-event`, and the surrounding
-  ;;      retry / decode ctx so the gated emits sit in a reachable
+  ;;      AND the gated canned-stub fx registrations live);
+  ;;   2. touching `dispatch-reply!`, `build-reply-event`, and the
+  ;;      surrounding retry / decode ctx through the public `:rf.http/
+  ;;      managed-abort` fx (which is dev+prod) and the abort-on-actor-
+  ;;      destroy path so the gated trace emits sit in a reachable
   ;;      module graph (DCE only eliminates branches it can prove dead;
   ;;      reachability comes from the require + the dispatch path).
-  (rf/reg-event-fx :probe/http-touch
+  ;;
+  ;; The canned-stub fx-id keywords are NEVER referenced from probe code;
+  ;; their only source of reachability is the gated registration body in
+  ;; re-frame.http-managed itself, which is exactly what we want to
+  ;; assert lives only in the control bundle.
+  (rf/reg-event-fx :probe/http-abort-touch
     (fn [_ _]
-      {:fx [[:rf.http/managed-canned-success
-             {:request {:method :get :url "/probe"}
-              :on-success nil
-              :value   {:probed true}}]]}))
-  (rf/dispatch-sync [:probe/http-touch])
+      {:fx [[:rf.http/managed-abort :probe/never-issued-request]]}))
+  (rf/dispatch-sync [:probe/http-abort-touch])
   ;; Touch clear-all-in-flight! so the in-flight registry surface is
   ;; reachable; the probe doesn't actually issue a real request.
   (http-managed/clear-all-in-flight!)
