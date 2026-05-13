@@ -330,6 +330,225 @@ This is the same shape as [`004-App-DB-Diff.md`](./004-App-DB-Diff.md)
 that pivots Causa from "I notice this is wrong" to "show me why" in
 two clicks.
 
+## Algorithm
+
+The badge taxonomy and the chain walk are both computed as pure
+data → data projections over the surfaces enumerated under §Data
+sources: live sub-cache + `:rf/epoch-record :sub-runs` + Causa's
+error-cache + the cascade's changed-paths set → projection record
+the view consumes. The pipeline is JVM-runnable so it can be tested
+without a DOM (the helpers ns is `.cljc`, exercised under
+`clojure -M:test`); on JVM the sub-cache is `nil` and the chain
+short-circuits to `:missing? true` (per §JVM behaviour). The view
+emits hiccup; nothing in the algorithm reaches into the substrate or
+mutates runtime state.
+
+### Input model
+
+The projection consumes four sources, indexed once per call:
+
+- **`sub-cache`** — the per-frame `{query-v cache-entry}` map exposed
+  by `(rf/sub-cache frame-id)`. Each entry MUST carry `:layer`,
+  `:ref-count`, `:input-subs`, plus the runtime-set `:invalidated?`
+  and `:rerunning?` flags whose semantics are fixed in
+  [Spec 006 §Invalidation algorithm](../../../spec/006-ReactiveSubstrate.md#invalidation-algorithm).
+  Layer-1 entries additionally carry `:paths` — the `app-db` paths
+  the body reads — which the layer-1 attribution step intersects
+  with changed-paths. CLJS-only; on JVM the cache is `nil` and the
+  chain projection returns `{:missing? true}`.
+- **`sub-runs`** — the just-settled epoch's
+  [`:rf/epoch-record :sub-runs`](../../../spec/Spec-Schemas.md#rfepoch-record)
+  vector. Indexed once at projection start by `:query-v` for O(1)
+  "did this sub re-run this cascade?" lookups; the re-index per call
+  is acceptable because `:sub-runs` is per-cascade-bounded.
+- **`error-cache`** — Causa's `{query-v <error-info>}` map, collected
+  on framework `:error` trace events that carry a `:sub-id`. Treated
+  as an opaque lookup by the projection.
+- **`changed-paths`** — the cascade's set of `app-db` paths that
+  changed this epoch, computed per
+  [`004-App-DB-Diff.md` §Changed-paths derivation](./004-App-DB-Diff.md#changed-paths-derivation).
+  Empty / `nil` means "no path filtering" — the chain returns the
+  full set of layer-1 paths the walk touched, unfiltered, so the
+  view can still render `:app-db-paths` when changed-paths hasn't
+  been computed yet (e.g. on first paint before the diff lands).
+
+### Chain walk
+
+The walk is **breadth-first by sub layer**, from the focused sub
+down toward layer-1, **bounded at 8 layers** (the §Performance cap).
+BFS — not DFS — because the per-level cap is a layer count and BFS
+trivially yields it; a DFS would have to track depth explicitly and
+backtrack on overflow. The walk targets a transitive closure: from
+an invalidated sub → every contributing input that re-ran this
+cascade → THEIR contributing inputs, recursively, until layer-1 or
+the cap.
+
+The host-agnostic contract:
+
+```
+Walk focused-q-v in sub-cache S, sub-runs R, error-cache E, layer-cap C:
+  by-q-v ← index R by :query-v
+  visited ← #{}
+  queue   ← [(focused-q-v, depth-0)]
+  rows    ← []
+  while queue non-empty:
+    (q-v, depth) ← pop-front queue
+    if q-v ∈ visited OR depth ≥ C: continue
+    visited ← visited ∪ {q-v}
+    entry   ← S[q-v]
+    if entry is nil: continue                ;; aged out / never materialised
+    run     ← by-q-v[q-v]
+    status  ← compute-status(entry, run, E[q-v] non-nil)
+    rows    ← rows ++ {q-v, layer entry.:layer, status, depth, ...}
+    for each input-q-v in entry.:input-subs:
+      run' ← by-q-v[input-q-v]
+      err' ← E[input-q-v]
+      ;; Drop inputs that did not re-run AND did not error — they did
+      ;; not contribute to this invalidation.
+      if (run' carries :recomputed? true) OR (err' non-nil):
+        push-back queue ← (input-q-v, depth+1)
+  return rows
+```
+
+The **drop-non-recomputed-inputs** step is MUST: an input that did
+not change value cannot have caused the focused sub to re-run, by
+the input-equality invariant ([Spec 006 §Invalidation algorithm](../../../spec/006-ReactiveSubstrate.md#invalidation-algorithm))
+— including it in the chain would mis-attribute causality.
+
+> **v1 scope.** The v1 helper renders the focused sub + **one level**
+> of contributing inputs only (`compute-chain` walks
+> `entry.:input-subs` once and stops; the recursive descent above
+> describes the spec'd target). The deeper recursive walk lands in a
+> follow-on bead — the v1 surface validates the data plane (helper
+> contract, registry composite, view boundary); the deeper walk is a
+> projection extension over the same inputs and does not require new
+> runtime surfaces or new trace events.
+
+### Layer-cap
+
+The display cap is **8 layers** by default (per §Performance —
+"Chain walk is O(depth) in the sub graph, capped at 8 layers by
+default"). When the BFS terminates at the cap with `:input-subs`
+still queued, the chain projection MUST surface `:truncated? true`
+and a `:layers-above` count; the view renders the
+`▸ (N more layers above)` row described under §"How the chain is
+computed". Click-to-expand re-runs the projection with the cap
+raised — the cap is a display device, never a runtime device. The
+runtime ships every layer the sub-cache carries; Causa elides at the
+panel boundary to keep the chain card scannable.
+
+### Cycle handling
+
+Sub graphs are a **DAG by construction**: `reg-sub` resolves `:<-`
+inputs at registration time, the registrar refuses a recursive sub
+definition, and the sub-cache mirrors that registration shape (per
+[Spec 006 §Lookup algorithm](../../../spec/006-ReactiveSubstrate.md#lookup-algorithm)).
+A cycle in the cache is therefore a runtime malformation, not an
+expected case.
+
+The walker is nonetheless defensive: the `visited` set above admits
+each `query-v` **at most once**. A malformed input (a hand-edited
+cache, a test fixture with a forged `:input-subs` pointing back at
+an ancestor) terminates rather than loops. Causa MUST NOT project a
+distinct `:rf.causa/error` for the cycle — the source of truth is
+the runtime; the runtime cannot emit cycles; surfacing one would
+contradict the read-only-by-default contract
+([`Principles.md`](./Principles.md) §Observation only — no new
+runtime surfaces).
+
+### Freshness-badge derivation
+
+The five-status taxonomy under §"The five statuses" is computed in
+the same projection — once per visible row, not just for chain
+inputs. The decision order, normative:
+
+1. `:error` — the error-cache carries an entry for the row's
+   `query-v`.
+2. `:re-running` — the cache entry's `:rerunning?` flag is `true`
+   (set by the runtime during a layer-2+ recompute inside the
+   drain).
+3. `:fresh` — the row's `:sub-runs` record exists AND carries
+   `:recomputed? true`. The sub re-ran this cascade and its current
+   cached value is the cascade's output.
+4. `:invalidated` — the cache entry's `:invalidated?` flag is `true`
+   (an input changed but no watcher drove the recompute; a future
+   deref would rebuild).
+5. `:cached-no-watcher` — fallback when `:ref-count` is `nil` or `0`.
+6. `:fresh` — fallback when the sub has a watcher and no signal of
+   invalidation.
+
+The decision order MUST be evaluated top-down — earlier checks
+dominate later ones — so a sub that errored this cascade renders
+`:error` even if its cache entry is also marked `:invalidated?`. The
+order is the panel's contract; reordering breaks the at-a-glance
+legibility the taxonomy ships for. **`:ref-count` is consulted only
+to distinguish `:fresh` from `:cached-no-watcher`** for stably-cached
+subs — the fresh / invalidated split is the runtime's call via the
+`:invalidated?` flag (per Spec 006), not a derivation Causa makes.
+
+The TanStack-Query peer mapping: fresh / fetching / paused / inactive
+→ `:fresh` / `:re-running` / *(no analogue)* / `:cached-no-watcher`.
+Causa deliberately drops `:stale` (per §"Stale vs invalidated")
+because re-frame's cache is equality-driven, not wall-clock-driven;
+the five statuses above are the only legible mapping onto re-frame's
+runtime, and adding a sixth would introduce a category with no
+runtime referent.
+
+### Layer-1 attribution
+
+At depth-cap or at a layer-1 leaf, the chain MUST cross-reference
+the leaf's `:paths` slot (the `app-db` paths the layer-1 body reads)
+against the cascade's `changed-paths` set. The intersection is the
+**originating slice or slices** — the bottom of the chain card under
+§"What the affordance renders".
+
+When `changed-paths` is empty / `nil`, the projection returns the
+union of layer-1 `:paths` unfiltered, so the view can still surface
+"paths this sub reads" before the diff has landed. Once the diff
+lands, the view re-projects and narrows to the changed subset.
+
+### Rendering contract
+
+The projection hands the panel view a plain map:
+`{:rows :status-counts :total :selected-query-v :active-filters
+:chain-open? :chain}` (per
+[`014-Registry-Catalogue.md` §Subscriptions panel](./014-Registry-Catalogue.md#subscriptions-panel)).
+The view consumes those data and emits hiccup; visual encoding
+(badge glyph + colour token + tooltip) is computed per-row off
+`:status` per §"Colour is never alone". The pipeline MUST NOT emit
+hiccup or React: keeping projection + chain walk pure data
+preserves the JVM-test surface and lets every surface that names a
+sub (list view, graph view, event-detail's "Subs recomputed",
+causality-graph sub chips, command palette — per §"Where badges
+appear") consume the same projection without re-implementing it.
+
+### Diamond rendering
+
+The branch shape under §"Diamond dependencies" falls out of the same
+walk when the focused sub has multiple inputs that re-ran this
+cascade. The BFS visits each branch in `:input-subs` order; the view
+groups rows by their nearest-common-ancestor in the walk and renders
+every contributing branch from the focused sub down to a distinct
+originating slice as a separate column. The "most-deep first"
+heuristic (collapse all but the deepest branch by default) is a view
+concern; the projection emits the full branch set and the view picks
+the default-open branch.
+
+### Registry surface
+
+The pipeline is exposed to the panel via one composite subscription,
+`:rf.causa/subscriptions-data`, enumerated in
+[`014-Registry-Catalogue.md` §Subscriptions panel](./014-Registry-Catalogue.md#subscriptions-panel).
+The composite's inputs are `:rf.causa/sub-cache`,
+`:rf.causa/sub-error-cache`, `:rf.causa/selected-sub`,
+`:rf.causa/sub-filters`, `:rf.causa/sub-chain-open?`, plus the
+just-settled epoch-record (whence `:sub-runs` and changed-paths
+derive). Its output shape is the rendering-contract map above. The
+panel adds no new events for the chain walk itself — the affordance
+opens via `:rf.causa/show-invalidation-chain` and closes via
+`:rf.causa/hide-invalidation-chain`, both enumerated in the
+catalogue.
+
 ## JVM behaviour
 
 The Subscription panel is **CLJS-only** in the same way
