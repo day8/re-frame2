@@ -24,8 +24,20 @@
   The buffer is gated on `re-frame.interop/debug-enabled?` (the
   universal `goog.DEBUG` gate) — production builds drop the buffer
   entirely. CLJC so the pure-data shape is JVM-runnable for tests
-  (the CLJS-only side-effect bits live in preload.cljs)."
-  (:require [re-frame.interop :as interop]))
+  (the CLJS-only side-effect bits live in preload.cljs).
+
+  ## Privacy gate (rf2-azls9 — :sensitive? trace events)
+
+  Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published
+  trace-consuming integrations MUST default-suppress `:sensitive? true`
+  events. `collect-trace!` gates each incoming event on
+  `config/suppress-sensitive?` before any buffer push; suppressed
+  events bump a per-frame counter that drives the bottom-rail's
+  `[● REDACTED N]` hint. An engineer debugging redaction policy
+  opts in via `(causa-config/configure! {:trace/show-sensitive?
+  true})`."
+  (:require [re-frame.interop :as interop]
+            [day8.re-frame2-causa.config :as config]))
 
 ;; ---- ring-buffer state ----------------------------------------------------
 
@@ -65,10 +77,23 @@
   `(rf/register-trace-cb! :rf.causa/trace-collector ...)` at preload
   time. Production builds elide the call (the framework's trace
   emission is gated on `interop/debug-enabled?` and never invokes the
-  callback)."
+  callback).
+
+  Per Spec 009 §Privacy + rf2-azls9: events whose `:sensitive?` flag
+  is true are dropped before the buffer push when the global
+  `:trace/show-sensitive?` flag is false (the default). The
+  suppressed-events counter bumps for the targeted frame so the
+  shell can surface a `[● REDACTED N]` hint. Opt in via
+  `(causa-config/configure! {:trace/show-sensitive? true})` to
+  surface the raw cascade while debugging redaction policy."
   [event]
   (when interop/debug-enabled?
-    (swap! buffer-state push @buffer-depth event)))
+    (cond
+      (config/suppress-sensitive? event)
+      (config/note-suppressed! (get-in event [:tags :frame]))
+
+      :else
+      (swap! buffer-state push @buffer-depth event))))
 
 ;; ---- read-side accessors -------------------------------------------
 
@@ -176,10 +201,14 @@
 
 (defn clear-buffer!
   "Empty the buffer. Tooling uses this between sessions. No-op in
-  production."
+  production. Per rf2-azls9, also resets the per-frame
+  suppressed-sensitive counters so the bottom-rail `[● REDACTED N]`
+  hint disappears alongside the cleared events — clearing the buffer
+  is the natural moment to drop the 'you missed N events' overhang."
   []
   (when interop/debug-enabled?
-    (reset! buffer-state []))
+    (reset! buffer-state [])
+    (config/reset-suppressed-count!))
   nil)
 
 (defn set-buffer-depth!

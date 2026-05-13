@@ -143,6 +143,7 @@
   Subsequent panel beads add their own per-panel events / subs / fxs."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]
@@ -208,6 +209,22 @@
     (rf/reg-sub :rf.causa/trace-buffer
       (fn [_db _query]
         (trace-bus/buffer)))
+
+    ;; Total count of :sensitive? trace events the collector has
+    ;; suppressed under the current `:trace/show-sensitive?` setting
+    ;; (rf2-azls9). The shell's bottom-rail renders a `[● REDACTED N]`
+    ;; hint when this is positive so the user sees why the buffer is
+    ;; shorter than the runtime's actual emit count.
+    ;;
+    ;; The counter lives in `config/suppressed-counters` (a plain
+    ;; atom). This sub thunks the pure-data accessor; like
+    ;; `:rf.causa/trace-buffer` it relies on the surrounding
+    ;; subscribe-graph recompute cycle for staleness — the bottom-rail
+    ;; re-renders whenever any of its sibling subs re-fire, and the
+    ;; counter is read fresh on each pass.
+    (rf/reg-sub :rf.causa/suppressed-sensitive-count
+      (fn [_db _query]
+        (config/suppressed-count)))
 
     ;; Currently-active panel — drives the canvas's switch logic in
     ;; shell.cljs. Default is the hero panel per §10 Lock 7.
