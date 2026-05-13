@@ -122,13 +122,37 @@
     (let [db (frame/frame-app-db-value frame-id)]
       (when db (:rf/route db)))))
 
+(defn- render-head*
+  "Resolve a normalised opts map and run the registered head fn. Split
+  from `render-head` per audit rf2-asmj1 H7 / cluster rf2-sljs1 so the
+  caller-facing fn carries the documented two-shape contract on its
+  signature and a private helper carries the work."
+  [head-id {:keys [frame] :as opts}]
+  (let [route (if (contains? opts :route)
+                (:route opts)
+                (frame-route frame))
+        meta  (registrar/lookup :head head-id)]
+    (when-not meta
+      (throw (ex-info ":rf.error/no-such-head"
+                      {:head-id  head-id
+                       :reason   (str "No head registered under " head-id ".")
+                       :recovery :no-recovery})))
+    (let [head-fn (:handler-fn meta)
+          db      (when frame (frame/frame-app-db-value frame))
+          model   (head-fn db route)]
+      (record-fragment! frame head-id model)
+      model)))
+
 (defn render-head
   "Apply the head fn registered under `head-id` against a frame's
   app-db and active route, returning the produced `:rf/head-model`.
 
-  Two arities mirror the two documented call shapes — explicit per
-  audit rf2-asmj1 H7 / cluster rf2-sljs1 so the `defn` line matches the
-  docstring rather than dispatching on `(keyword? opts)` inline:
+  The 2-arity form dispatches on its second argument's shape — a
+  keyword is treated as a frame-id (shorthand for `{:frame keyword}`),
+  a map carries the full `{:frame :route}` opts. Audit rf2-asmj1 H7 /
+  cluster rf2-sljs1: the explicit dispatch lives at the documented
+  surface (rather than in a deeper helper) so callers see the two
+  shapes on the fn boundary:
 
     (render-head head-id frame-id)
     (render-head head-id {:frame frame-id :route route})
@@ -140,24 +164,11 @@
 
   Raises `:rf.error/no-such-head` when `head-id` is not registered.
   Per Spec 011 §`render-head`."
-  ([head-id frame-id]
-   (render-head head-id {:frame frame-id}))
-  ([head-id {:keys [frame route] :as opts}]
-   (let [frame-id frame
-         route    (if (contains? opts :route)
-                    route
-                    (frame-route frame-id))
-         meta     (registrar/lookup :head head-id)]
-     (when-not meta
-       (throw (ex-info ":rf.error/no-such-head"
-                       {:head-id  head-id
-                        :reason   (str "No head registered under " head-id ".")
-                        :recovery :no-recovery})))
-     (let [head-fn (:handler-fn meta)
-           db      (when frame-id (frame/frame-app-db-value frame-id))
-           model   (head-fn db route)]
-       (record-fragment! frame-id head-id model)
-       model))))
+  [head-id opts-or-frame-id]
+  (render-head* head-id
+                (if (keyword? opts-or-frame-id)
+                  {:frame opts-or-frame-id}
+                  opts-or-frame-id)))
 
 ;; ---- active-head ----------------------------------------------------------
 
