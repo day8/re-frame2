@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # verify-version-lockstep.sh (rf2-ace2; substrate-paths updated rf2-zha9;
-# adapters/ rename rf2-0imy)
+# adapters/ rename rf2-0imy; tools/ coverage rf2-lwtke)
 #
 # Asserts the lockstep-version contract documented in spec/Conventions.md
 # §Packaging conventions: every published artefact picks up its version
 # from the single repo-root VERSION file via :clein/build :version,
-# and every artefact references core via the in-repo :local/root
-# coordinate (which the release workflow rewrites to the matching
+# and every artefact references its in-repo dependencies via :local/root
+# coordinates (which the release workflow rewrites to the matching
 # :mvn/version at deploy time).
 #
 # Per rf2-zha9 the adapters (reagent, uix, helix) live at
@@ -17,6 +17,13 @@
 # declare :version "../../../VERSION" and :local/root "../../core";
 # per-feature artefacts and core declare :version "../../VERSION" and
 # (for non-core) :local/root "../core".
+#
+# Per rf2-lwtke the deployable jars under tools/* also participate in
+# lockstep — every Clojars-publishable tool (causa, story, story-mcp,
+# template) carries :clein/build :version "../../VERSION" and must not
+# hand-edit a literal :mvn/version for any day8/re-frame2-* artefact.
+# tools/pair2-mcp/ ships as a Node binary on npm and carries no
+# :clein/build alias, so it is intentionally excluded.
 #
 # This script is the single source of truth for the lockstep contract;
 # both .github/workflows/test.yml (PR-time drift detection) and
@@ -30,7 +37,7 @@
 # Usage:
 #   ./.github/scripts/verify-version-lockstep.sh
 #
-# rf2-ace2 / rf2-w05l / rf2-zha9.
+# rf2-ace2 / rf2-w05l / rf2-zha9 / rf2-lwtke.
 
 set -euo pipefail
 
@@ -99,6 +106,39 @@ is_adapter() {
 
 errors=0
 
+# Asserts (a) :clein/build :version points at the repo-root VERSION via
+# the given relative path, and (b) the deps.edn carries no literal
+# :mvn/version coordinate for any day8/re-frame2-* artefact in a
+# non-comment line. Shared by implementation/* and tools/* artefacts.
+#
+# Args: $1 = absolute deps.edn path, $2 = repo-relative label for error
+# lines, $3 = expected :version literal (e.g. '"../../VERSION"').
+check_version_and_no_mvn_literal() {
+  local deps_file="$1"
+  local rel_label="$2"
+  local expected_version="$3"
+
+  if ! grep -qF ":version  ${expected_version}" "${deps_file}" \
+     && ! grep -qF ":version ${expected_version}"  "${deps_file}"; then
+    echo "::error file=${rel_label}::expected ':version ${expected_version}' in :clein/build (lockstep contract)"
+    errors=$((errors + 1))
+  fi
+
+  # No artefact may carry a literal :mvn/version coordinate for any of
+  # the day8/re-frame2-* artefacts in its committed deps.edn. The
+  # release workflow rewrites :local/root → :mvn/version at deploy
+  # time on a throwaway checkout; a literal in the committed file means
+  # someone hand-edited it and the lockstep is broken.
+  #
+  # Strip comments first (deps.edn line comments start with `;;`) — the
+  # consumer-facing usage examples in artefact deps.edn headers
+  # legitimately show `day8/re-frame2 {:mvn/version "..."}` snippets.
+  if sed 's/;;.*$//' "${deps_file}" | grep -qE 'day8/re-frame2[^[:space:]]*[[:space:]]+\{:mvn/version'; then
+    echo "::error file=${rel_label}::found literal :mvn/version for a day8/re-frame2-* artefact in non-comment line (lockstep expects :local/root in committed deps.edn)"
+    errors=$((errors + 1))
+  fi
+}
+
 for artefact in "${ARTEFACTS[@]}"; do
   subpath="${ARTEFACT_PATHS[$artefact]}"
   deps_file="${REPO_ROOT}/implementation/${subpath}/deps.edn"
@@ -116,33 +156,10 @@ for artefact in "${ARTEFACTS[@]}"; do
   # single-source-of-truth and would let an artefact ship at a stale
   # version number.
   if is_adapter "${artefact}"; then
-    expected_version='"../../../VERSION"'
-    if ! grep -qF ":version  ${expected_version}" "${deps_file}" \
-       && ! grep -qF ":version ${expected_version}"  "${deps_file}"; then
-      echo "::error file=${rel_label}::expected ':version ${expected_version}' in :clein/build (lockstep contract; adapters live one level deeper)"
-      errors=$((errors + 1))
-    fi
+    # Adapters live one level deeper: implementation/adapters/<name>/.
+    check_version_and_no_mvn_literal "${deps_file}" "${rel_label}" '"../../../VERSION"'
   else
-    expected_version='"../../VERSION"'
-    if ! grep -qF ":version  ${expected_version}" "${deps_file}" \
-       && ! grep -qF ":version ${expected_version}"  "${deps_file}"; then
-      echo "::error file=${rel_label}::expected ':version ${expected_version}' in :clein/build (lockstep contract)"
-      errors=$((errors + 1))
-    fi
-  fi
-
-  # No artefact may carry a literal :mvn/version coordinate for any of
-  # the day8/re-frame2-* artefacts in its committed deps.edn. The
-  # release workflow rewrites :local/root → :mvn/version at deploy
-  # time on a throwaway checkout; a literal in the committed file means
-  # someone hand-edited it and the lockstep is broken.
-  #
-  # Strip comments first (deps.edn line comments start with `;;`) — the
-  # consumer-facing usage examples in artefact deps.edn headers
-  # legitimately show `day8/re-frame2 {:mvn/version "..."}` snippets.
-  if sed 's/;;.*$//' "${deps_file}" | grep -qE 'day8/re-frame2[^[:space:]]*[[:space:]]+\{:mvn/version'; then
-    echo "::error file=${rel_label}::found literal :mvn/version for a day8/re-frame2-* artefact in non-comment line (lockstep expects :local/root in committed deps.edn)"
-    errors=$((errors + 1))
+    check_version_and_no_mvn_literal "${deps_file}" "${rel_label}" '"../../VERSION"'
   fi
 done
 
@@ -166,10 +183,89 @@ for artefact in "${NON_CORE[@]}"; do
   fi
 done
 
+# Tools/* deployable jars (rf2-lwtke). Each tools/<name>/deps.edn that
+# carries a :clein/build alias publishes to Clojars at the same lockstep
+# version as the framework artefacts above — every consumer that pins
+# `day8/re-frame2 {:mvn/version X}` should be able to pin
+# `day8/re-frame2-causa {:mvn/version X}` and get a coherent set. Without
+# this loop a hand-edit to tools/<name>/deps.edn would not surface as a
+# drift report and could cut a broken release.
+#
+# Each entry lists the tool's on-disk subpath under tools/ and the
+# expected :local/root references that the release workflow's
+# :local/root → :mvn/version rewrite consumes. Tools live two levels
+# down from the repo root (tools/<name>/), same depth as
+# implementation/<name>/, so :version "../../VERSION" is correct.
+#
+# tools/pair2-mcp/ is deliberately excluded: it ships as a Node binary
+# on npm (@day8/re-frame-pair2-mcp) and carries no :clein/build alias —
+# there is no Clojars publish path for it to drift on. Per its
+# deps.edn header it has no :local/root dep on implementation/ either.
+declare -A TOOLS_PATHS=(
+  [causa]="causa"
+  [story]="story"
+  [story-mcp]="story-mcp"
+  [template]="template"
+)
+
+# Newline-separated `tool|"day8/re-frame2-x {:local/root \"…\"}"` pairs
+# expressing every re-frame2-* :local/root coordinate the release workflow
+# would need to rewrite to :mvn/version at deploy time. Tools that
+# legitimately reference zero re-frame2-* artefacts in deps.edn (i.e.
+# template — a clj-new scaffolding tool with no runtime re-frame2 dep)
+# simply contribute zero entries. A bash associative array can't carry
+# multi-valued entries cleanly, so we use a single multi-line string and
+# split on `|`.
+TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
+causa|day8/re-frame2 {:local/root "../../implementation/core"}
+story|day8/re-frame2 {:local/root "../../implementation/core"}
+story|day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
+story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
+story-mcp|day8/re-frame2-story {:local/root "../story"}
+EOF
+)
+
+TOOLS=(causa story story-mcp template)
+
+for tool in "${TOOLS[@]}"; do
+  subpath="${TOOLS_PATHS[$tool]}"
+  deps_file="${REPO_ROOT}/tools/${subpath}/deps.edn"
+  rel_label="tools/${subpath}/deps.edn"
+
+  if [[ ! -f "${deps_file}" ]]; then
+    echo "::error file=${rel_label}::deps.edn missing for tool '${tool}'"
+    errors=$((errors + 1))
+    continue
+  fi
+
+  # Tools sit at tools/<name>/, same depth from VERSION as the
+  # per-feature artefacts under implementation/<name>/.
+  check_version_and_no_mvn_literal "${deps_file}" "${rel_label}" '"../../VERSION"'
+
+  # Belt-and-braces: assert each expected :local/root coordinate. The
+  # release workflow's rewrite step (release.yml) keys off the
+  # `:local/root "<path>"` substring; the artefact-key pairing here is
+  # an extra signal that a hand-edit hasn't, say, swapped the keys.
+  #
+  # tools/story/deps.edn pads its dep map with column-aligned whitespace
+  # (`day8/re-frame2          {:local/root …}`) so we collapse all
+  # runs of whitespace to a single space before matching.
+  normalised="$(tr -s '[:space:]' ' ' < "${deps_file}")"
+  while IFS='|' read -r entry_tool entry_local_root; do
+    [[ -z "${entry_tool}" ]] && continue
+    [[ "${entry_tool}" == "${tool}" ]] || continue
+    if ! grep -qF "${entry_local_root}" <<< "${normalised}"; then
+      echo "::error file=${rel_label}::expected '${entry_local_root}' (lockstep contract; the release workflow rewrites this to :mvn/version at deploy time)"
+      errors=$((errors + 1))
+    fi
+  done <<< "${TOOLS_LOCAL_ROOTS}"
+done
+
 if [[ "${errors}" -gt 0 ]]; then
   echo "::error::lockstep version verification FAILED (${errors} drift(s) detected)"
   exit 1
 fi
 
-echo "lockstep version verification PASSED — all ${#ARTEFACTS[@]} artefacts pinned to repo-root VERSION ${VERSION}"
+total_count=$((${#ARTEFACTS[@]} + ${#TOOLS[@]}))
+echo "lockstep version verification PASSED — all ${total_count} artefacts (${#ARTEFACTS[@]} implementation/ + ${#TOOLS[@]} tools/) pinned to repo-root VERSION ${VERSION}"
 exit 0
