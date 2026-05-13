@@ -22,6 +22,12 @@
             ;; stories ns still loads (it's a regular CLJS ns) but
             ;; every reg-* expansion elides to nil.
             [counter-with-stories.views :as views]
+            ;; Privacy + Size elision demo (rf2-vw0to). Requiring the
+            ;; ns fires the `:auth/sign-in` :sensitive? handler reg,
+            ;; the `:user/avatar-pdf` :large? schema reg, the demo
+            ;; subs, and exposes `install-listener!` for the boot
+            ;; sequence below.
+            [counter-with-stories.elision-demo :as elision]
             [counter-with-stories.stories])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -35,7 +41,8 @@
     "Open "
     [:a {:href "#/stories"} "#/stories"]
     " for the Story playground."]
-   [views/counter-card {:label "Count"}]])
+   [views/counter-card {:label "Count"}]
+   [elision/elision-card]])
 
 ;; -- Routing between app and story shell ----------------------------------
 ;;
@@ -85,6 +92,13 @@
   (story/configure! {:global-args {:locale :en}})
   ;; Seed the live app's `:count` slot.
   (rf/dispatch-sync [:counter/initialise 5])
+  ;; Install the always-on event-emit listener (rf2-vw0to /
+  ;; rf2-rirbq). The listener prints every dispatched event's
+  ;; elided record to the browser console — visitors can see
+  ;; `:rf/redacted` substitution for the `:sensitive?` handler and
+  ;; the `:rf.size/large-elided` marker for the `:large?` schema
+  ;; slot without needing the trace surface or Causa attached.
+  (elision/install-listener!)
   ;; Wire hash-change so reloading `#/stories` lands on the shell
   ;; without a manual click-through.
   (.addEventListener js/window "hashchange" on-hash-change!)
