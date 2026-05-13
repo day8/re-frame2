@@ -124,6 +124,63 @@ and arg shapes — only the transport differs. The MCP-only additions
 no shim equivalent. This is what makes the back-compat tractable: the
 overlap is contract-identical; the plumbing underneath is different.
 
+## Tight token budget per response
+
+Each MCP tool response is bounded at **≤ 5,000 tokens** by
+default. The cap is normative, not aspirational: a tool that
+cannot answer inside the budget MUST trim, summarise, or
+paginate rather than over-spend.
+
+The motivation is the 2026 trend axis. Microsoft's April 2026
+recommendation (Playwright CLI **over** Playwright MCP for
+coding agents) was driven by MCP responses being roughly 4×
+larger in tokens than the equivalent CLI output. Anthropic's
+own router-SKILL guidance lands at the same ~5k ceiling. An
+agent host with a 200k context window can absorb a handful of
+20k tool returns, but the realistic working session fires
+dozens of tool calls — pair2-mcp's `snapshot` mega-op and the
+`subscribe` streaming pair are the exposed surfaces here. A
+single oversized response burns the budget the agent needs
+for the next ten ops.
+
+The discipline applies across three axes:
+
+- **Pagination / cursor for unbounded surfaces.** Any op that
+  returns a list whose size is a function of runtime state
+  (`trace-window`, `subscribe` epoch batches, `handlers`
+  listings under `discover-app`) MUST accept a `:limit`
+  argument and return a `:cursor` for continuation. The
+  default `:limit` MUST keep the response under the cap. No
+  unbounded list responses; no "best-effort" omission of
+  pagination.
+- **Summarisation modes for rich payloads.** Ops with rich
+  per-item shape (`snapshot`, `trace-window`, `discover-app`)
+  MUST expose a `:mode` (or equivalent) argument with at
+  least `:count` (return totals only), `:sample` (return a
+  bounded prefix or stratified sample with sizes attached),
+  and `:full` (return everything, paginated). The default
+  MUST be `:sample` for any op whose `:full` payload can
+  exceed the cap. Agents opt into `:full` when they actually
+  need it.
+- **Streaming over batch where appropriate.** `subscribe`
+  returns one event per JSON-RPC notification, not a buffered
+  batch. The cap applies per notification; the agent host
+  meters consumption. Batching is reserved for ops whose
+  payload is naturally bounded and small.
+
+The cap is enforced at the runtime boundary, not just
+documented. Each op's reference entry in
+[`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) carries a
+**typical-token** hint (e.g., `~1.2k`, `~3k under :sample`)
+and a **cap-reached** behaviour note (truncate-with-cursor,
+return `:reason :budget-exceeded` with a hint, etc.). The
+hints surface in `list-tools` so the agent can plan ahead.
+
+This is the load-bearing budget posture for pair2-mcp's
+agent-host workflow: keep the per-op cost predictable, push
+the agent to ask for what it actually needs, and never let a
+single op blow the session.
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
