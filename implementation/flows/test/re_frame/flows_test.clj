@@ -128,6 +128,147 @@
                  (rf/reg-flow {:id :bad :inputs [[:n]]
                                :output identity :path :not-a-vec})))))
 
+;; ---------------------------------------------------------------------------
+;; 1b. validate-flow well-formedness (rf2-gnl7q)
+;;
+;; Per audit rf2-o3hok findings Q5 / TE4 — the prior `validate-flow` only
+;; checked `(vector? (:inputs flow))` and `(vector? (:path flow))`, so:
+;;
+;;   - `:inputs [:foo :bar]` (vector of bare keywords, NOT vector-of-paths)
+;;     passed validation and then threw deep inside topo-sort's `prefix?`
+;;     when it called `(count :foo)`.
+;;   - `:inputs [[:foo] :bar]` (mixed) likewise passed, then exploded on
+;;     the bare-keyword entry.
+;;   - `:path []` passed; `(prefix? [] anything)` returns true, silently
+;;     making the empty-path flow a depends-on prerequisite of EVERY other
+;;     flow in the frame.
+;;
+;; These tests pin the tightened contract: each malformation is rejected
+;; up front with a stable error id (`:rf.error/flow-bad-inputs` or
+;; `:rf.error/flow-bad-path`) and ex-data that names the offending entries
+;; so callers can fix their flow map without a stack-trace scavenger hunt.
+
+(defn- flow-bad-inputs? [^Throwable t]
+  (= ":rf.error/flow-bad-inputs" (ex-message t)))
+
+(defn- flow-bad-path? [^Throwable t]
+  (= ":rf.error/flow-bad-path" (ex-message t)))
+
+(deftest reg-flow-rejects-bare-keyword-inputs
+  (testing ":inputs [:foo :bar] is rejected (vector of bare keywords, not vector-of-paths)"
+    ;; Pre-fix this would pass validate-flow and then throw with
+    ;; (count :foo) somewhere deep in topo's prefix?.
+    (let [ex (try
+               (rf/reg-flow {:id     :bad
+                             :inputs [:foo :bar]
+                             :output (fn [_ _] nil)
+                             :path   [:out]})
+               (catch Throwable t t))]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-inputs? ex)
+          "error id is :rf.error/flow-bad-inputs")
+      (is (= [:foo :bar] (:bad-entries (ex-data ex)))
+          "ex-data names the offending entries (both bare keywords)"))))
+
+(deftest reg-flow-rejects-mixed-input-shapes
+  (testing ":inputs [[:foo] :bar] is rejected (one bare keyword among well-formed paths)"
+    (let [ex (try
+               (rf/reg-flow {:id     :bad
+                             :inputs [[:foo] :bar]
+                             :output (fn [_ _] nil)
+                             :path   [:out]})
+               (catch Throwable t t))]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-inputs? ex)
+          "error id is :rf.error/flow-bad-inputs")
+      (is (= [:bar] (:bad-entries (ex-data ex)))
+          "only the bare-keyword entry is named — the vector entry is fine"))))
+
+(deftest reg-flow-rejects-empty-input-path
+  (testing ":inputs [[]] is rejected (empty path is not a meaningful app-db read)"
+    (let [ex (try
+               (rf/reg-flow {:id     :bad
+                             :inputs [[]]
+                             :output (fn [_] nil)
+                             :path   [:out]})
+               (catch Throwable t t))]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-inputs? ex)
+          "error id is :rf.error/flow-bad-inputs"))))
+
+(deftest reg-flow-rejects-collection-input-elements
+  (testing ":inputs [[[:nested]]] is rejected (path step is a vector, not a scalar key)"
+    (let [ex (try
+               (rf/reg-flow {:id     :bad
+                             :inputs [[[:nested]]]
+                             :output (fn [_] nil)
+                             :path   [:out]})
+               (catch Throwable t t))]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-inputs? ex)
+          "error id is :rf.error/flow-bad-inputs"))))
+
+(deftest reg-flow-rejects-empty-path
+  (testing ":path [] is rejected (would make this flow a prerequisite of every other flow)"
+    ;; Pre-fix: (prefix? [] anything) returns true, so an empty-path flow
+    ;; becomes depends-on for every other flow in the frame. Per Spec 013
+    ;; §Dependency rule this is never what the caller means.
+    (let [ex (try
+               (rf/reg-flow {:id     :bad
+                             :inputs [[:n]]
+                             :output identity
+                             :path   []})
+               (catch Throwable t t))]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-path? ex)
+          "error id is :rf.error/flow-bad-path")
+      (is (re-find #"non-empty" (:reason (ex-data ex)))
+          "ex-data :reason mentions the non-empty requirement"))))
+
+(deftest reg-flow-rejects-collection-path-elements
+  (testing ":path [[:nested]] is rejected (path step is a vector, not a scalar key)"
+    (let [ex (try
+               (rf/reg-flow {:id     :bad
+                             :inputs [[:n]]
+                             :output identity
+                             :path   [[:nested]]})
+               (catch Throwable t t))]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-path? ex)
+          "error id is :rf.error/flow-bad-path")
+      (is (= [[:nested]] (:bad-elements (ex-data ex)))
+          "ex-data names the offending element(s)"))))
+
+(deftest reg-flow-accepts-scalar-path-elements
+  (testing "scalar path elements (keyword / string / integer / symbol / boolean) all pass"
+    ;; Sanity check for valid-path-element?: each documented scalar key
+    ;; type round-trips through reg-flow without throwing. Tighter
+    ;; validation must not regress the common case.
+    (doseq [[label elt] [[:kw     :kw]
+                         [:string "str"]
+                         [:int    42]
+                         [:symbol 'sym]
+                         [:bool   true]]]
+      (let [flow-id (keyword "elt" (name label))]
+        (is (some? (rf/reg-flow {:id     flow-id
+                                 :inputs [[elt]]
+                                 :output identity
+                                 :path   [elt]}))
+            (str "scalar path element " (pr-str elt) " is accepted"))
+        (rf/clear-flow flow-id)))))
+
+(deftest reg-flow-accepts-empty-inputs-vector
+  (testing ":inputs [] is allowed (one-shot flow with no app-db dependencies)"
+    ;; The well-formedness checks reject malformed entries inside :inputs,
+    ;; but an empty :inputs vector itself remains valid — a zero-arg flow
+    ;; that fires once and stays put (no path can change to dirty it). Pin
+    ;; this so the new every?-based checks don't accidentally reject the
+    ;; legitimate empty-inputs case.
+    (is (some? (rf/reg-flow {:id     :constant
+                             :inputs []
+                             :output (fn [] 42)
+                             :path   [:k]})))))
+
 (deftest reg-flow-detects-cycles-at-registration
   (testing ":a depends on :b, :b depends on :a — registering the second throws"
     (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
