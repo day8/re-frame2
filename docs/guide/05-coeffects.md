@@ -22,7 +22,7 @@ The handler destructures `:db` out of its first argument. That first argument *i
 
 | Coeffect | What it is | Set by |
 |---|---|---|
-| `:db` | The frame's `app-db` value at drain start. | The drain loop, before the interceptor chain runs. |
+| `:db` | The current `app-db` value at drain start. | The drain loop, before the interceptor chain runs. |
 | `:event` | The dispatched event vector. | The dispatch envelope. |
 
 These two are always present; you can rely on them being there. Everything beyond `:db` and `:event` — every other piece of "data from outside the handler" — is opt-in, named, and injected by a small piece of machinery: a registered **cofx**, fetched into the coeffects map by an **`inject-cofx`** interceptor.
@@ -287,18 +287,20 @@ This is the payoff. A handler that uses `(inject-cofx :now)` is testable without
       (fn [ctx]
         (assoc-in ctx [:coeffects :new-id] #uuid "00000000-0000-0000-0000-000000000001")))
 
-    (rf/with-frame [f (rf/make-frame {})]
-      (rf/dispatch-sync [:todo/add "buy milk"])
-      (let [todo (-> (rf/get-frame-db f)
-                     :todos
-                     (get #uuid "00000000-0000-0000-0000-000000000001"))]
-        (is (= "buy milk" (:title todo)))
-        (is (= #inst "2026-01-01T12:00:00.000Z" (:created-at todo)))))))
+    (let [handler (:handler-fn (rf/handler-meta :event :todo/add))
+          coeffects {:db        {}
+                     :event     [:todo/add "buy milk"]
+                     :now       #inst "2026-01-01T12:00:00.000Z"
+                     :new-id    #uuid "00000000-0000-0000-0000-000000000001"}
+          {:keys [db]} (handler coeffects [:todo/add "buy milk"])
+          todo (get-in db [:todos #uuid "00000000-0000-0000-0000-000000000001"])]
+      (is (= "buy milk" (:title todo)))
+      (is (= #inst "2026-01-01T12:00:00.000Z" (:created-at todo))))))
 ```
 
 Three things to notice:
 
-**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. A frame's `:interceptor-overrides` slot can go further still — swapping the *interceptor itself* (e.g. `:rf/inject-cofx-now`) for one frame's events when you want the stub scoped to one frame rather than to the whole test registry.
+**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. [Chapter 13](13-testing.md) walks the end-to-end-through-the-dispatch-loop variant of this test; this chapter shows the pure-function-of-coeffects shape.
 
 **`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 13 §Registrar isolation](13-testing.md#registrar-isolation-with-fresh-registrar).
 

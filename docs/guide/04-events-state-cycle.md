@@ -109,7 +109,7 @@ The button's `on-click` fires:
 [:button {:on-click #(dispatch [:counter/inc])} "+"]
 ```
 
-`dispatch` puts the event vector `[:counter/inc]` onto the frame's queue and returns immediately. No handler has run yet. The click handler is done. The browser's event loop can move on.
+`dispatch` puts the event vector `[:counter/inc]` onto the runtime's queue and returns immediately. No handler has run yet. The click handler is done. The browser's event loop can move on.
 
 The event is *data*: a vector with a keyword id and (optionally) more args. Nothing more.
 
@@ -136,7 +136,7 @@ That's the entire effect map for this event. No `:fx` vector — no HTTP, no loc
 
 ### Domino 4 — Effects executed
 
-The runtime walks the effect map. It sees `:db` and resets the frame's `app-db` to `{:count 6}` as a single atomic swap. No intermediate state is visible. If there were an `:fx` vector, the runtime would walk it next, looking up each registered fx by id and invoking it with its args; for this event there is none.
+The runtime walks the effect map. It sees `:db` and resets `app-db` to `{:count 6}` as a single atomic swap. No intermediate state is visible. If there were an `:fx` vector, the runtime would walk it next, looking up each registered fx by id and invoking it with its args; for this event there is none.
 
 The queue is now empty. The cycle proceeds to subscriptions.
 
@@ -165,7 +165,7 @@ The `counter-buttons` view derefs `:count`:
 
 Reagent re-runs the function body. `@(subscribe [:count])` now returns `6`. The new hiccup tree is `[:div [:button "-"] [:span 6] [:button "+"]]`. Reagent diffs against the previous tree, sees that only the `<span>`'s text content changed, and patches the DOM.
 
-And the view re-renders. One event, six dominoes, frame stays consistent.
+And the view re-renders. One event, six dominoes, the app stays consistent.
 
 ## The standard effect map
 
@@ -206,7 +206,7 @@ Three things to notice:
 
 1. **`reg-fx` is the *only* place in your codebase that calls `js/localStorage`.** The handler that triggered the write didn't. The handler that reads the value back later doesn't either. The browser-side imperative call appears once. That's the entire surface for the effect.
 
-2. **The fx receives a frame context (carrying `:frame`, `:event`, etc.) and the args the event handler put in the effect map.** Most fxs only use the args; ones that re-dispatch follow-up events thread the frame through so the dispatch lands in the right frame.
+2. **The fx receives a runtime context (carrying `:event` and other dispatch metadata) and the args the event handler put in the effect map.** Most fxs only use the args; ones that re-dispatch follow-up events thread the context through so the dispatch routes correctly.
 
 3. **`:platforms` says where this effect is allowed to run.** `#{:client}` means it's skipped during SSR with a `:rf.fx/skipped-on-platform` trace event; the handler doesn't have to branch. We'll come back to this in [chapter 11](11-server-side.md).
 
@@ -246,18 +246,7 @@ The benefits:
 
 **Tests don't need a network.** The handler that produces the effect map can be tested as a pure function. The success and error handlers similarly. The fx itself can be tested by stubbing the HTTP call. None of these tests need React, JSDOM, or a running server.
 
-**You can swap the implementation.** A test wants `:rf.http/managed` to return a canned response? Override it for that test:
-
-```clojure
-(rf/with-managed-request-stubs
-  {[:get "/api/inc.json"] {:reply {:ok {:delta 1}}}}
-  (rf/with-frame [f (rf/make-frame
-                     {:on-create [:counter/initialise]})]
-    (rf/dispatch-sync [:counter/inc-from-server] {:frame f})
-    (is (= 6 (:count (rf/get-frame-db f))))))
-```
-
-The framework ships `with-managed-request-stubs` (and the lower-level `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs) precisely so tests can synthesise managed-HTTP replies without a network. It's a registry redirect, not a mock — the same dispatch shape the real fx produces lands in the test handler.
+**You can swap the implementation.** Effects are looked up by id. A test that wants `:rf.http/managed` to return a canned response overrides the entry for the test's duration — the framework ships `with-managed-request-stubs` (and the lower-level `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs) precisely so tests can synthesise managed-HTTP replies without a network. It's a registry redirect, not a mock — the same dispatch shape the real fx produces lands in the test handler. [Chapter 13](13-testing.md) walks through the full testing surface; the upshot for this chapter is: effects-as-data is what makes that override possible at all.
 
 **You can record what happened.** Because effects are data, the runtime can log them, replay them, ship them across the wire, store them in a fixture file. re-frame2's trace stream surfaces every effect that fired, with its args, in order. Debugging an asynchronous interaction stops being archaeology.
 
@@ -269,7 +258,7 @@ The framework ships `with-managed-request-stubs` (and the lower-level `:rf.http/
 
 Pulling it all together, here's the cycle for one event with effects:
 
-1. **Something dispatches** an event. The event vector lands in the frame's queue.
+1. **Something dispatches** an event. The event vector lands in the runtime's queue.
 
 2. **The runtime pops the event** and looks up the registered handler.
 
@@ -280,7 +269,7 @@ Pulling it all together, here's the cycle for one event with effects:
    - Walks `:fx`, looking up each registered fx handler by id and invoking it with the args.
    - Each fx may, in turn, dispatch follow-up events. Those events join the queue.
 
-5. **The runtime drains the queue.** It pops the next event and repeats. This continues *until the queue is empty*. Subscriptions only update once at the end — the app moves from one well-defined state to the next, with no intermediate frames visible to the view.
+5. **The runtime drains the queue.** It pops the next event and repeats. This continues *until the queue is empty*. Subscriptions only update once at the end — the app moves from one well-defined state to the next, with no intermediate snapshots visible to the view.
 
 6. **Subscriptions recompute.** The view re-renders. The DOM updates.
 
@@ -292,7 +281,7 @@ The detail in step 5 is worth a pause. The runtime drains the *whole queue* befo
 
 This is called **run-to-completion drain semantics**, and it's a fairly opinionated choice. The alternative — letting each event update the view independently — is what most React apps do. It's faster in microbenchmarks. It's also why React apps occasionally show flickers, half-updated states, or out-of-order renders during fast interactions.
 
-Run-to-completion says: *the user sees coherent states, not transitions*. Either the form is in submitting state, or it's in error state, never both for a frame. Either the page has navigated, or it hasn't, never the in-between. The cost is some flexibility for the developer; the gain is dramatically more predictable behaviour for the user.
+Run-to-completion says: *the user sees coherent states, not transitions*. Either the form is in submitting state, or it's in error state, never both for one render. Either the page has navigated, or it hasn't, never the in-between. The cost is some flexibility for the developer; the gain is dramatically more predictable behaviour for the user.
 
 ## Effects as the testable surface
 
@@ -319,11 +308,11 @@ The rest of the Pattern catalogue — Forms, Boot, WebSocket, LongRunningWork, S
 
 ## A note on revertibility
 
-One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. Any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
+One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire app's state at any moment is a single value**. That value can be captured, stored, compared, restored. Any prior value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
 
 ## A note on app-db shape
 
-A frame's `app-db` is "your app's state, in one map." There's no required schema, but a useful convention is one top-level key per *feature* — each feature owning its own slice, accessed through that feature's subs and events:
+`app-db` is "your app's state, in one map." There's no required schema, but a useful convention is one top-level key per *feature* — each feature owning its own slice, accessed through that feature's subs and events:
 
 ```clojure
 {:auth     {:user nil :loading? false :error nil}
