@@ -360,17 +360,36 @@
 
 ;; ---- chrome-level test widget (rf2-q0irb) -------------------------------
 
+(defn run-opts-for-variant
+  "Build the `run-variant` opts map for `vid` from the current shell
+  state, threading the per-variant cell-overrides through so a Run-all
+  reproduces the same effective-args as the canvas / docs / share /
+  workspace surfaces (rf2-zq6sn).
+
+  The cell-overrides slot is `{variant-id → override-map}` (state.cljc
+  §49); each variant must look up its OWN entry — passing a single
+  blanket map (or `nil`) for every variant drops the per-variant
+  controls the user set in the controls panel."
+  [shell vid]
+  {:active-modes   (:active-modes shell)
+   :cell-overrides (get-in shell [:cell-overrides vid])
+   :substrate      (:substrate shell)})
+
 (defn- run-one-test!
   "Dispatch a single `run-variant` against `vid` and fold the result
   into the shell-state `:test-runs` slot. Marks `:running` up front,
   records pass/fail/skip counts on resolve, and clears the slot on
   rejection. Shared between the chrome widget's 'Run all' button and
-  the watch-mode auto-re-run (rf2-z1h0f)."
+  the watch-mode auto-re-run (rf2-z1h0f).
+
+  Per rf2-zq6sn each variant's run threads its OWN cell-overrides
+  entry from shell state — same lookup the canvas / pane / share-url
+  paths perform. The shell-state snapshot is taken once per variant
+  so concurrent runs don't race against a swap-state! between the
+  read and the dispatch."
   [vid]
   (state/swap-state! state/mark-test-running vid)
-  (let [opts {:active-modes   (:active-modes (state/get-state))
-              :cell-overrides nil
-              :substrate      (:substrate (state/get-state))}]
+  (let [opts (run-opts-for-variant (state/get-state) vid)]
     (-> (runtime/run-variant vid opts)
         (async/then  (fn [result]
                        ;; The aggregate-summary helper lives in

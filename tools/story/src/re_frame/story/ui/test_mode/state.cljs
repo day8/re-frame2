@@ -127,11 +127,17 @@
 (defn run-variant-pane!
   "Drive a fresh `reset-variant` against the variant's frame and
   swap the result into local state when it resolves. No-ops if
-  the slot already carries `:running?`."
+  the slot already carries `:running?`.
+
+  Per rf2-zq6sn the variant's run threads its OWN cell-overrides
+  entry from shell state — same lookup the canvas / sidebar /
+  share-url paths perform — so the test pane re-runs against the
+  same effective-args the user has been editing in the controls
+  panel."
   [variant-id]
   (let [shell @state/shell-state-atom
         opts  {:active-modes   (:active-modes shell)
-               :cell-overrides nil
+               :cell-overrides (get-in shell [:cell-overrides variant-id])
                :substrate      (:substrate shell)}]
     (begin-run! variant-id)
     (-> (runtime/reset-variant variant-id opts)

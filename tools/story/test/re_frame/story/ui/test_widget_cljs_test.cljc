@@ -270,6 +270,34 @@
          (is (some? btn))
          (is (true? (get (second btn) :disabled)))))))
 
+;; ---- regression: per-variant cell-overrides threading (rf2-zq6sn) -------
+
+#?(:cljs
+   (deftest run-opts-threads-per-variant-cell-overrides
+     (testing "the chrome widget's Run-all path (run-opts-for-variant)
+               threads each variant's OWN cell-overrides entry from
+               shell state — the same lookup canvas / pane / share-url
+               perform. The pre-fix bug passed `:cell-overrides nil`
+               for every variant, dropping the user's controls-panel
+               edits on a Run-all (rf2-zq6sn)."
+       (let [shell (-> state/default-shell-state
+                       (assoc :active-modes #{:dark}
+                              :substrate :reagent)
+                       (state/set-cell-override :story.x/a :n 5)
+                       (state/set-cell-override :story.x/b :label "B"))
+             opts-a (sidebar/run-opts-for-variant shell :story.x/a)
+             opts-b (sidebar/run-opts-for-variant shell :story.x/b)
+             opts-c (sidebar/run-opts-for-variant shell :story.x/c)]
+         (testing ":story.x/a opts carry only :a's overrides"
+           (is (= {:n 5} (:cell-overrides opts-a)))
+           (is (= #{:dark} (:active-modes opts-a)))
+           (is (= :reagent (:substrate opts-a))))
+         (testing ":story.x/b opts carry only :b's overrides (NOT :a's)"
+           (is (= {:label "B"} (:cell-overrides opts-b))))
+         (testing "an unedited variant gets nil overrides (no leakage
+                   from sibling variants)"
+           (is (nil? (:cell-overrides opts-c))))))))
+
 #?(:clj
    (deftest jvm-only-summary-from-fixture
      (testing "JVM corpus exercises the pure summary helper without
