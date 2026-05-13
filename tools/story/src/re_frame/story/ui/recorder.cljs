@@ -60,7 +60,8 @@
   Every public fn opens with `(when config/enabled? ...)` so production
   CLJS builds short-circuit before any DOM call. The listener install
   is also gated."
-  (:require [clojure.string :as str]
+  (:require [cljs.reader]
+            [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.story.config :as config]
             [re-frame.story.recorder :as recorder]
@@ -248,7 +249,89 @@
                  :font-size "11px"}
    :hint        {:color "#9a9a9a"
                  :font-style "italic"
-                 :font-size "10px"}})
+                 :font-size "10px"}
+   ;; Mid-recording assertion picker (rf2-39u9e)
+   :assert-btn  {:padding "3px 9px"
+                 :background "#0e639c"
+                 :color "white"
+                 :border "none"
+                 :border-radius "3px"
+                 :cursor "pointer"
+                 :font-family "monospace"
+                 :font-size "11px"}
+   :picker-back {:position "fixed"
+                 :top "0" :left "0" :right "0" :bottom "0"
+                 :background "rgba(0,0,0,0.55)"
+                 :z-index 1750
+                 :display "flex"
+                 :align-items "center"
+                 :justify-content "center"}
+   :picker      {:width "520px"
+                 :max-width "90vw"
+                 :max-height "80vh"
+                 :background "#1e1e1e"
+                 :color "#ddd"
+                 :border "1px solid #444"
+                 :border-radius "6px"
+                 :padding "14px"
+                 :font-family "monospace"
+                 :font-size "12px"
+                 :display "flex"
+                 :flex-direction "column"
+                 :gap "10px"
+                 :overflow "auto"
+                 :box-shadow "0 12px 32px rgba(0,0,0,0.7)"}
+   :picker-title {:font-weight "bold"
+                  :color "#9cdcfe"
+                  :font-size "13px"}
+   :picker-grid {:display "grid"
+                 :grid-template-columns "1fr 1fr"
+                 :gap "6px"}
+   :picker-row  {:padding "6px 8px"
+                 :background "#252526"
+                 :color "#ddd"
+                 :border "1px solid #333"
+                 :border-radius "3px"
+                 :cursor "pointer"
+                 :text-align "left"
+                 :font-family "monospace"
+                 :font-size "11px"
+                 :display "flex"
+                 :flex-direction "column"
+                 :gap "2px"}
+   :picker-row-id    {:color "#9cdcfe"
+                      :font-weight "bold"}
+   :picker-row-hint  {:color "#9a9a9a"
+                      :font-size "10px"
+                      :font-style "italic"}
+   :field-row   {:display "flex"
+                 :flex-direction "column"
+                 :gap "3px"}
+   :field-label {:color "#9cdcfe"
+                 :font-size "11px"}
+   :field-input {:padding "5px 7px"
+                 :background "#252526"
+                 :color "white"
+                 :border "1px solid #444"
+                 :border-radius "3px"
+                 :font-family "monospace"
+                 :font-size "12px"
+                 :width "100%"
+                 :box-sizing "border-box"}
+   :field-error {:color "#f08080"
+                 :font-size "10px"
+                 :font-style "italic"}
+   :preview     {:background "#0e0e10"
+                 :color "#dcdcaa"
+                 :padding "8px"
+                 :border "1px solid #333"
+                 :border-radius "3px"
+                 :white-space "pre"
+                 :overflow "auto"
+                 :max-height "30vh"
+                 :font-family "monospace"
+                 :font-size "11px"
+                 :line-height "1.4"}})
 
 ;; ---------------------------------------------------------------------------
 ;; Modal state — a single flag for whether the save-as-variant dialog
@@ -359,10 +442,183 @@
        [:span {:style {:opacity "0.85"}}
         (str "  " (count (:events rec)))])]))
 
+;; ---------------------------------------------------------------------------
+;; Mid-recording assertion picker (rf2-39u9e)
+;;
+;; The recording overlay carries a `+ assert` button next to `stop`.
+;; Click → `ui-picker` flips `:open?` true and the modal renders.
+;; The picker has two phases:
+;;
+;;   1. Vocabulary list — seven canonical `:rf.assert/*` ids as
+;;      buttons. Click selects one + advances to phase 2.
+;;   2. Field entry — one EDN input per payload field declared in the
+;;      vocabulary entry. A live preview shows the event vector that
+;;      will land in the captured `:play` body. 'Insert' calls
+;;      `recorder/insert-assertion!`; 'cancel' returns to phase 1.
+;;
+;; The picker is overlay-style modal so it stays visible while the
+;; user clicks back over the canvas — but the recording stays in
+;; flight underneath. The point is fast iteration; the picker doesn't
+;; pause recording (the user can keep dispatching after inserting).
+;; ---------------------------------------------------------------------------
+
+(defonce ui-picker
+  (r/atom {:open?       false
+           :assertion   nil      ; the picked id, or nil while on phase 1
+           :field-text  {}       ; field-key → raw input string
+           :error       nil}))
+
+(defn- open-picker! []
+  (reset! ui-picker {:open? true :assertion nil :field-text {} :error nil}))
+
+(defn- close-picker! []
+  (swap! ui-picker assoc :open? false))
+
+(defn- pick-assertion! [assertion-id]
+  (swap! ui-picker assoc :assertion assertion-id :field-text {} :error nil))
+
+(defn- set-field-text! [field-key s]
+  (swap! ui-picker assoc-in [:field-text field-key] s))
+
+(defn- parse-edn
+  "Read `s` as EDN; on parse failure return `::parse-error`. Used by
+  the picker to translate field inputs into payload values."
+  [s]
+  (try
+    (if (and (string? s) (seq (str/trim s)))
+      (cljs.reader/read-string s)
+      nil)
+    (catch :default _ ::parse-error)))
+
+(defn- build-payload
+  "Walk the selected assertion's `:fields` and build a payload map by
+  parsing each input. Returns `[:ok payload]` on success or
+  `[:err {:field <k> :raw <s>}]` on first parse error."
+  [{:keys [assertion field-text]}]
+  (let [{:keys [fields]} (recorder/vocabulary-entry assertion)]
+    (loop [fs fields payload {}]
+      (if-let [{:keys [key type]} (first fs)]
+        (let [raw (get field-text key "")]
+          (case type
+            :string
+            (recur (rest fs) (assoc payload key raw))
+
+            :edn
+            (let [v (parse-edn raw)]
+              (if (= v ::parse-error)
+                [:err {:field key :raw raw}]
+                (recur (rest fs) (assoc payload key v))))))
+        [:ok payload]))))
+
+(defn- preview-event
+  "Build the event vector preview from the picker's current state.
+  Returns the event vec or `nil` if the payload doesn't parse."
+  [picker]
+  (let [[outcome payload] (build-payload picker)]
+    (when (= outcome :ok)
+      (recorder/make-assertion (:assertion picker) payload))))
+
+(defn- insert!
+  "Commit the picker's current state by inserting the assertion into
+  the active recording. No-ops if the payload doesn't parse — the
+  picker surfaces a `:error` message instead."
+  []
+  (let [picker @ui-picker
+        [outcome detail] (build-payload picker)]
+    (if (= outcome :ok)
+      (do
+        (recorder/insert-assertion! (:assertion picker) detail)
+        (close-picker!))
+      (swap! ui-picker assoc :error detail))))
+
+(defn assertion-picker
+  "Modal picker for mid-recording assertion insertion. Public so the
+  shell can mount it alongside the recorder overlay (and so tests can
+  introspect the hiccup)."
+  []
+  (let [{:keys [open? assertion field-text error] :as picker} @ui-picker]
+    (when open?
+      [:div
+       {:style    (:picker-back styles)
+        :data-test "story-recorder-picker"
+        :on-click (fn [e]
+                    (when (= (.-target e) (.-currentTarget e))
+                      (close-picker!)))}
+       [:div {:style (:picker styles)
+              :on-click (fn [e] (.stopPropagation e))}
+        [:div {:style (:picker-title styles)}
+         (if assertion
+           (str "Add assertion — " (pr-str assertion))
+           "Add assertion — pick from the canonical vocabulary")]
+
+        (if (nil? assertion)
+          ;; Phase 1: vocabulary list.
+          [:div {:style (:picker-grid styles)
+                 :data-test "story-recorder-picker-vocab"}
+           (for [{:keys [id label hint]} recorder/assertion-vocabulary]
+             ^{:key id}
+             [:button
+              {:style      (:picker-row styles)
+               :data-test  (str "story-recorder-picker-id-"
+                                (namespace id) "-" (name id))
+               :on-click   (fn [_] (pick-assertion! id))}
+              [:span {:style (:picker-row-id styles)} (pr-str id)]
+              [:span {:style (:picker-row-hint styles)} hint]])]
+
+          ;; Phase 2: field entry + preview.
+          (let [{:keys [fields hint]} (recorder/vocabulary-entry assertion)
+                preview (preview-event picker)]
+            [:div {:style {:display "flex" :flex-direction "column" :gap "10px"}
+                   :data-test "story-recorder-picker-fields"}
+             [:div {:style (:hint styles)} hint]
+             (for [{:keys [key prompt placeholder]} fields]
+               ^{:key key}
+               [:label {:style (:field-row styles)}
+                [:span {:style (:field-label styles)} prompt]
+                [:input
+                 {:type        "text"
+                  :style       (:field-input styles)
+                  :data-test   (str "story-recorder-picker-field-" (name key))
+                  :placeholder placeholder
+                  :value       (get field-text key "")
+                  :on-change   (fn [e] (set-field-text! key (.. e -target -value)))}]
+                (when (and error (= (:field error) key))
+                  [:span {:style (:field-error styles)
+                          :data-test "story-recorder-picker-error"}
+                   "EDN didn't parse — " (pr-str (:raw error))])])
+             (when (seq fields)
+               [:div {:style {:font-size "10px" :color "#9a9a9a"}}
+                "preview:"])
+             (when preview
+               [:pre {:style     (:preview styles)
+                      :data-test "story-recorder-picker-preview"}
+                (pr-str preview)])
+             [:div {:style (:btn-row styles)}
+              [:button
+               {:style    (:btn-muted styles)
+                :data-test "story-recorder-picker-back"
+                :on-click (fn [_] (swap! ui-picker assoc
+                                         :assertion nil
+                                         :field-text {}
+                                         :error nil))}
+               "← back"]
+              [:button
+               {:style    (:btn-muted styles)
+                :data-test "story-recorder-picker-cancel"
+                :on-click (fn [_] (close-picker!))}
+               "cancel"]
+              [:button
+               {:style     (:btn styles)
+                :data-test "story-recorder-picker-insert"
+                :disabled  (some? error)
+                :on-click  (fn [_] (insert!))}
+               "insert"]]]))]])))
+
 (defn recording-overlay
   "Fixed-position banner that floats at the top-right of the shell
   while a recording is in flight. Surfaces the target variant + the
-  running event count."
+  running event count + a `+ assert` button for mid-recording
+  assertion insertion (rf2-39u9e)."
   []
   (let [{:keys [recording? variant-id events]} @ui-state]
     (when recording?
@@ -377,6 +633,12 @@
         (pr-str variant-id)]
        [:span {:style {:color "#9a9a9a"}}
         (str (count events) " event" (when (not= 1 (count events)) "s"))]
+       [:button
+        {:style     (:assert-btn styles)
+         :data-test "story-recorder-add-assertion"
+         :title     "Insert a :rf.assert/* assertion into the captured :play body"
+         :on-click  (fn [_] (open-picker!))}
+        "+ assert"]
        [:button
         {:style    (:btn-muted styles)
          :data-test "story-recorder-stop"

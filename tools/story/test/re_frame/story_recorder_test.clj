@@ -247,6 +247,174 @@
       (is (some? play-str) "extractor found a :play vector substring")
       (is (= events (edn/read-string play-str))))))
 
+;; ---- mid-recording assertion insertion (rf2-39u9e) ----------------------
+
+(deftest assertion-vocabulary-covers-canonical-seven
+  (testing "the picker vocabulary enumerates all seven canonical :rf.assert/* ids"
+    (let [ids (set (map :id recorder/assertion-vocabulary))]
+      (is (= #{:rf.assert/path-equals
+               :rf.assert/path-matches
+               :rf.assert/sub-equals
+               :rf.assert/dispatched?
+               :rf.assert/state-is
+               :rf.assert/no-warnings
+               :rf.assert/effect-emitted}
+             ids)
+          "all seven canonical assertion ids from spec/004 are present"))))
+
+(deftest assertion-vocabulary-entries-are-well-formed
+  (testing "every vocabulary entry carries the picker's required keys"
+    (doseq [entry recorder/assertion-vocabulary]
+      (is (qualified-keyword? (:id entry)))
+      (is (string? (:label entry)))
+      (is (string? (:hint entry)))
+      (is (vector? (:fields entry)))
+      (doseq [{:keys [key prompt placeholder type]} (:fields entry)]
+        (is (keyword? key))
+        (is (string? prompt))
+        (is (string? placeholder))
+        (is (#{:edn :string} type))))))
+
+(deftest make-assertion-builds-well-formed-events
+  (testing "make-assertion builds canonical event vectors from a payload map"
+    (is (= [:rf.assert/path-equals [:auth :status] :ok]
+           (recorder/make-assertion :rf.assert/path-equals
+                                    {:path [:auth :status] :expected :ok})))
+    (is (= [:rf.assert/sub-equals [:counter] 3]
+           (recorder/make-assertion :rf.assert/sub-equals
+                                    {:sub [:counter] :expected 3})))
+    (is (= [:rf.assert/dispatched? [:counter/inc]]
+           (recorder/make-assertion :rf.assert/dispatched?
+                                    {:event [:counter/inc]})))
+    (is (= [:rf.assert/state-is :auth/machine :authenticated]
+           (recorder/make-assertion :rf.assert/state-is
+                                    {:machine :auth/machine
+                                     :state   :authenticated})))
+    (is (= [:rf.assert/effect-emitted :http]
+           (recorder/make-assertion :rf.assert/effect-emitted {:fx-id :http})))))
+
+(deftest make-assertion-no-payload-form
+  (testing "make-assertion handles assertions with no payload (no-warnings)"
+    (is (= [:rf.assert/no-warnings]
+           (recorder/make-assertion :rf.assert/no-warnings {})))))
+
+(deftest make-assertion-rejects-unknown-id
+  (testing "make-assertion returns nil for an unknown assertion id"
+    (is (nil? (recorder/make-assertion :rf.assert/not-a-real-one {})))
+    (is (nil? (recorder/make-assertion :counter/inc {})))))
+
+(deftest make-assertion-fills-missing-fields-as-nil
+  (testing "make-assertion fills in missing payload fields as nil (partial picker entry)"
+    (is (= [:rf.assert/path-equals [:auth :status] nil]
+           (recorder/make-assertion :rf.assert/path-equals
+                                    {:path [:auth :status]})))))
+
+(deftest append-assertion-pure-state-machine
+  (testing "append-assertion appends valid :rf.assert/* events through the filter"
+    (let [s0 (recorder/start recorder/initial-state :story.x/y 0)
+          s1 (-> s0
+                 (recorder/append [:counter/inc])
+                 (recorder/append-assertion
+                   [:rf.assert/path-equals [:n] 1])
+                 (recorder/append [:counter/inc])
+                 (recorder/append-assertion
+                   [:rf.assert/sub-equals [:counter] 2]))]
+      (is (= [[:counter/inc]
+              [:rf.assert/path-equals [:n] 1]
+              [:counter/inc]
+              [:rf.assert/sub-equals [:counter] 2]]
+             (:events s1))
+          "assertions are interleaved inline with dispatched events"))))
+
+(deftest append-assertion-rejects-non-assertions
+  (testing "append-assertion is a no-op for non-:rf.assert/* event vectors"
+    (let [s0 (recorder/start recorder/initial-state :story.x/y 0)
+          s1 (-> s0
+                 (recorder/append-assertion [:counter/inc])
+                 (recorder/append-assertion [:rf.story/lifecycle-tick])
+                 (recorder/append-assertion nil)
+                 (recorder/append-assertion []))]
+      (is (= [] (:events s1))
+          "only :rf.assert/* event vectors land via append-assertion"))))
+
+(deftest append-assertion-noop-when-not-recording
+  (testing "append-assertion drops events when :recording? is false"
+    (let [s0 recorder/initial-state
+          s1 (recorder/append-assertion s0 [:rf.assert/no-warnings])]
+      (is (= [] (:events s1))))))
+
+(deftest insert-assertion!-event-vec-arity
+  (testing "insert-assertion! one-arg form appends a pre-built event vector"
+    (recorder/start-recording! :story.x/y 0)
+    (recorder/record-event! [:counter/inc])
+    (recorder/insert-assertion! [:rf.assert/path-equals [:n] 1])
+    (recorder/record-event! [:counter/inc])
+    (recorder/insert-assertion! [:rf.assert/no-warnings])
+    (is (= [[:counter/inc]
+            [:rf.assert/path-equals [:n] 1]
+            [:counter/inc]
+            [:rf.assert/no-warnings]]
+           (recorder/recorded-events)))))
+
+(deftest insert-assertion!-id-plus-payload-arity
+  (testing "insert-assertion! two-arg form builds + appends from id+payload"
+    (recorder/start-recording! :story.x/y 0)
+    (recorder/record-event! [:counter/inc])
+    (recorder/insert-assertion!
+      :rf.assert/sub-equals {:sub [:counter] :expected 1})
+    (recorder/record-event! [:counter/inc])
+    (recorder/insert-assertion!
+      :rf.assert/path-equals {:path [:n] :expected 2})
+    (is (= [[:counter/inc]
+            [:rf.assert/sub-equals [:counter] 1]
+            [:counter/inc]
+            [:rf.assert/path-equals [:n] 2]]
+           (recorder/recorded-events)))))
+
+(deftest insert-assertion!-rejects-non-assertion-event
+  (testing "insert-assertion! drops anything that isn't an :rf.assert/* event"
+    (recorder/start-recording! :story.x/y 0)
+    (recorder/insert-assertion! [:counter/inc])           ; wrong namespace
+    (recorder/insert-assertion! [:rf.story/lifecycle-tick]) ; internal
+    (recorder/insert-assertion! nil)
+    (is (= [] (recorder/recorded-events)))))
+
+(deftest insert-assertion!-noop-when-not-recording
+  (testing "insert-assertion! is harmless when no recording is in flight"
+    (is (not (recorder/recording?)))
+    (recorder/insert-assertion! :rf.assert/no-warnings {})
+    (is (= [] (recorder/recorded-events)))))
+
+(deftest gen-play-snippet-round-trips-with-inserted-assertions
+  (testing "the EDN snippet round-trips when the captured trace includes assertions"
+    (recorder/start-recording! :story.counter/x 0)
+    (recorder/record-event! [:counter/inc])
+    (recorder/insert-assertion! :rf.assert/sub-equals
+                                {:sub [:counter] :expected 1})
+    (recorder/record-event! [:counter/by 7])
+    (recorder/insert-assertion! :rf.assert/path-equals
+                                {:path [:n] :expected 8})
+    (recorder/stop-recording!)
+    (let [events   (recorder/recorded-events)
+          snippet  (recorder/gen-play-snippet
+                     events
+                     {:variant-id :story.counter/recorded
+                      :extends    :story.counter/x})
+          play-str (extract-play-vector snippet)]
+      (is (= [[:counter/inc]
+              [:rf.assert/sub-equals [:counter] 1]
+              [:counter/by 7]
+              [:rf.assert/path-equals [:n] 8]]
+             events)
+          "user dispatches AND inserted assertions are interleaved")
+      (is (str/includes? snippet ":rf.assert/sub-equals"))
+      (is (str/includes? snippet ":rf.assert/path-equals"))
+      (is (str/includes? snippet "[:counter/inc]"))
+      (is (some? play-str)
+          "extractor found the rendered :play vector")
+      (is (= events (edn/read-string play-str))
+          "the :play vector round-trips through read-string"))))
+
 ;; ---- end-to-end: trace-bus integration -----------------------------------
 
 (defn- reset-rf-state! []

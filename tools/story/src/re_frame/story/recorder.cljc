@@ -42,6 +42,29 @@
   Reagent / toolbar UI surface live in `re-frame.story.ui.recorder`
   (CLJS-only).
 
+  ## Mid-recording assertion insertion (rf2-39u9e)
+
+  Recording captures user dispatches. Assertions are the dual — the
+  user wants to say 'after I click this button, the counter shows 3'.
+  The canonical seven `:rf.assert/*` ids (per spec/004) compose with
+  the captured `:play` body exactly the way they compose with a hand-
+  authored one — `dispatch-sync` them in line. The `recordable-event?`
+  filter drops them off the trace bus (assertions are authored, not
+  observed), so we expose an explicit insertion path:
+
+  - `assertion-vocabulary` enumerates the canonical seven ids + their
+    payload shapes.
+  - `make-assertion` builds a well-formed assertion event vector from
+    an id + a payload map (`:path` / `:expected` / `:sub` / etc.).
+  - `append-assertion` (pure) appends an assertion event onto the
+    captured `:events`, bypassing `recordable-event?`'s filter.
+  - `insert-assertion!` (impure) is the UI's entry point — it builds
+    the event vector and writes it through the recorder atom.
+
+  The picker UI (`re-frame.story.ui.recorder`) is one click + one
+  prompt per assertion: pick the id, supply the payload, the assertion
+  shows up inline in the captured trace.
+
   ## Public surface
 
   - `recordable-event?`       — pure predicate (JVM + CLJS).
@@ -49,7 +72,11 @@
   - `state` / `current-state` — recorder state accessors.
   - `recording?`              — boolean state accessor.
   - `start-recording!` / `stop-recording!` / `toggle!` / `clear!`
-  - `record-event!`           — called by the listener / tests."
+  - `record-event!`           — called by the listener / tests.
+  - `assertion-vocabulary`    — pure data; the 7 canonical assertion ids.
+  - `make-assertion`          — pure: build an `:rf.assert/*` event vec.
+  - `append-assertion`        — pure: state → state with assertion appended.
+  - `insert-assertion!`       — impure entrypoint for the picker UI."
   (:require [clojure.string :as str]
             [re-frame.story.config :as config]
             [re-frame.trace :as trace]))
@@ -130,12 +157,144 @@
          "\n  {" body-str "})")))
 
 ;; ---------------------------------------------------------------------------
-;; Recorder state
+;; Pure: canonical assertion vocabulary
 ;;
-;; A single per-process atom carries the active recording. v1 supports
-;; one active recording at a time — the toolbar's REC chip is a
-;; chrome-wide affordance, paralleling the chrome-wide `:active-modes`.
+;; Per spec/004 §Canonical assertion vocabulary the seven `:rf.assert/*`
+;; ids are reserved. The recorder's mid-recording insertion picker
+;; enumerates these to drive a single-click 'add assertion' affordance —
+;; pick the id, supply the payload, the assertion event lands inline
+;; in the captured `:play` body alongside the dispatched events.
+;;
+;; The vocabulary is data, not behaviour — the actual handlers live in
+;; `re-frame.story.assertions`. This list is for the picker UI and for
+;; the EDN snippet renderer.
 ;; ---------------------------------------------------------------------------
+
+(def assertion-vocabulary
+  "The seven canonical assertion ids the picker UI enumerates. Each
+  entry carries:
+
+  - `:id`      — the `:rf.assert/*` keyword.
+  - `:label`   — short human-readable label for the picker button.
+  - `:hint`    — one-line description of the assertion semantics.
+  - `:fields`  — vector of payload field specs, in the order they
+                 appear in the event vector. Each field is a map of
+                 `{:key :prompt :placeholder :type}` where `:type` is
+                 one of `:edn` (read-string) / `:string` (raw).
+
+  Per spec/004 §Canonical assertion vocabulary."
+  [{:id          :rf.assert/path-equals
+    :label       "path-equals"
+    :hint        "Assert (= (get-in @app-db <path>) <expected>)."
+    :fields      [{:key :path
+                   :prompt "App-db path (EDN, e.g. [:auth :status])"
+                   :placeholder "[:auth :status]"
+                   :type :edn}
+                  {:key :expected
+                   :prompt "Expected value (EDN, e.g. :ok)"
+                   :placeholder ":ok"
+                   :type :edn}]}
+   {:id          :rf.assert/path-matches
+    :label       "path-matches"
+    :hint        "Assert app-db path matches a Malli schema."
+    :fields      [{:key :path
+                   :prompt "App-db path (EDN)"
+                   :placeholder "[:user]"
+                   :type :edn}
+                  {:key :schema
+                   :prompt "Malli schema (EDN)"
+                   :placeholder "[:map [:id :uuid]]"
+                   :type :edn}]}
+   {:id          :rf.assert/sub-equals
+    :label       "sub-equals"
+    :hint        "Assert (= @(subscribe <sub-vec>) <expected>)."
+    :fields      [{:key :sub
+                   :prompt "Sub vector (EDN, e.g. [:counter])"
+                   :placeholder "[:counter]"
+                   :type :edn}
+                  {:key :expected
+                   :prompt "Expected value (EDN, e.g. 3)"
+                   :placeholder "3"
+                   :type :edn}]}
+   {:id          :rf.assert/dispatched?
+    :label       "dispatched?"
+    :hint        "Assert the event was dispatched against the frame."
+    :fields      [{:key :event
+                   :prompt "Event vector (EDN, e.g. [:counter/inc])"
+                   :placeholder "[:counter/inc]"
+                   :type :edn}]}
+   {:id          :rf.assert/state-is
+    :label       "state-is"
+    :hint        "Assert reg-machine `<machine-id>` is in `<state>`."
+    :fields      [{:key :machine
+                   :prompt "Machine id (EDN keyword)"
+                   :placeholder ":auth/machine"
+                   :type :edn}
+                  {:key :state
+                   :prompt "State (EDN keyword)"
+                   :placeholder ":authenticated"
+                   :type :edn}]}
+   {:id          :rf.assert/no-warnings
+    :label       "no-warnings"
+    :hint        "Assert no :rf.warn/* events seen during play."
+    :fields      []}
+   {:id          :rf.assert/effect-emitted
+    :label       "effect-emitted"
+    :hint        "Assert the variant's drain emitted <fx-id>."
+    :fields      [{:key :fx-id
+                   :prompt "Effect id (EDN keyword)"
+                   :placeholder ":http"
+                   :type :edn}]}])
+
+(defn vocabulary-entry
+  "Return the `assertion-vocabulary` entry whose `:id` matches
+  `assertion-id`, or `nil`. Used by the picker UI to render field
+  prompts after the user has picked an assertion."
+  [assertion-id]
+  (some #(when (= assertion-id (:id %)) %) assertion-vocabulary))
+
+(defn make-assertion
+  "Build a well-formed `:rf.assert/*` event vector for `assertion-id`
+  from the field-keyed `payload` map. Pure data → event vector.
+
+  Looks the spec up in `assertion-vocabulary`, walks the `:fields` list
+  in order, and pulls each field's value out of `payload`. Missing
+  fields fall through as `nil` so the user can supply a partial payload
+  while iterating. Returns `nil` for an unknown assertion id.
+
+  Examples:
+
+      (make-assertion :rf.assert/path-equals
+                      {:path [:auth :status] :expected :ok})
+      ;; => [:rf.assert/path-equals [:auth :status] :ok]
+
+      (make-assertion :rf.assert/no-warnings {})
+      ;; => [:rf.assert/no-warnings]
+
+      (make-assertion :rf.assert/sub-equals {:sub [:counter] :expected 3})
+      ;; => [:rf.assert/sub-equals [:counter] 3]"
+  [assertion-id payload]
+  (when-let [{:keys [fields]} (vocabulary-entry assertion-id)]
+    (into [assertion-id]
+          (map (fn [{:keys [key]}] (get payload key)) fields))))
+
+(defn append-assertion
+  "Pure: append an `:rf.assert/*` event to the captured `:events` of
+  the recorder `state`. Bypasses `recordable-event?`'s filter — the
+  user is deliberately inserting an assertion, not observing one off
+  the trace bus. Idempotent against non-recording state (drops the
+  event if no recording is in flight) and against malformed inputs
+  (must be a vector with an `:rf.assert/*` keyword head).
+
+  Returns the new state."
+  [state event]
+  (cond-> state
+    (and (:recording? state)
+         (vector? event)
+         (seq event)
+         (keyword? (first event))
+         (= "rf.assert" (namespace (first event))))
+    (update :events (fnil conj []) (vec event))))
 
 (def initial-state
   "The recorder's idle state shape. `:recording?` flips true while a
@@ -259,6 +418,26 @@
   (when config/enabled?
     (swap! state append event))
   nil)
+
+(defn insert-assertion!
+  "Insert an `:rf.assert/*` assertion into the captured `:events` of
+  the active recording. Drives the mid-recording 'add assertion'
+  picker (rf2-39u9e). Two arities:
+
+  - `(insert-assertion! event-vec)` — caller has already built the
+    event vector (e.g. `[:rf.assert/path-equals [:n] 3]`).
+  - `(insert-assertion! assertion-id payload)` — caller passes the id
+    + a field-keyed payload map; `make-assertion` builds the vector.
+
+  No-op when no recording is in flight or when the input doesn't
+  resolve to a valid `:rf.assert/*` event vector. Returns the new
+  recorder state on success, the current state on no-op."
+  ([event-vec]
+   (when config/enabled?
+     (swap! state append-assertion event-vec))
+   @state)
+  ([assertion-id payload]
+   (insert-assertion! (make-assertion assertion-id payload))))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace-bus listener
