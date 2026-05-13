@@ -19,7 +19,7 @@
 
 {:fixture/id           :machine/invoke-all-join-any-fails-cancels
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/spawn-and-join}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/spawn-and-join}
  :fixture/doc          "Exiting an :invoke-all-bearing state emits one :rf.machine/destroy fx whose args carry :rf/invoke-all true. The destroy-fx handler reads the join-state map at [:rf/spawned <parent> <invoke-id>] and tears each child down. Verifies the exit-side fx emission for the cancel-on-decision = true (default) path."
 
  :fixture/registry

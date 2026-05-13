@@ -20,7 +20,7 @@
 
 {:fixture/id           :machine/cross-actor-send
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy}
  :fixture/doc          "Cross-actor send via :fx. The sender's action returns a [:dispatch [:receiver [:ping]]] fx; verified by inspecting the sender's fx vector. The receiver's pure machine-transition for the inner [:ping] event produces the :received state — confirming the round-trip works as ordinary dispatch with no special substrate."
 
  :fixture/registry

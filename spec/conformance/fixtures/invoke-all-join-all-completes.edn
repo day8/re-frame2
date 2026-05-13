@@ -24,7 +24,7 @@
 
 {:fixture/id           :machine/invoke-all-join-all-completes
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/spawn-and-join}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/spawn-and-join}
  :fixture/doc          "Declarative :invoke-all spawn-and-join with :join :all desugars to entry-cascade :rf.machine/invoke-all-init + N :rf.machine/spawn fxs at registration time. Verifies the entry-side fx emission for the auth-flow worked example shape (3 parallel children)."
 
  :fixture/registry

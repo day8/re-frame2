@@ -17,7 +17,7 @@
 
 {:fixture/id           :machine/actor-isolation
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy}
  :fixture/doc          "Two machines coexist; events to one don't perturb the other. Pure machine-transition is parameterised by (machine, snapshot, event) — by construction each call's snapshot is the only state mutated. The fixture confirms the contract by interleaving transitions on two distinct machines and asserting each ends in its own expected snapshot."
 
  :fixture/registry

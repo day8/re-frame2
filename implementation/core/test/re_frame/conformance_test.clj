@@ -62,7 +62,7 @@
     :routing/fragment
     :routing/blocking
     :routing/nav-token
-    :actor/spawn
+    :actor/spawn-destroy                               ;; rf2-mtq4h — renamed from :actor/spawn to align with spec vocabulary
     :actor/invoke
     :actor/spawn-and-join                              ;; rf2-6vmw / rf2-er0t
     :actor/system-id                                   ;; rf2-suue / rf2-ecv4

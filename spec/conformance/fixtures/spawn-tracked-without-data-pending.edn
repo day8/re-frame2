@@ -34,7 +34,7 @@
 
 {:fixture/id           :machine/spawn-tracked-without-data-pending
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke}
  :fixture/doc          "rf2-t07u (Option A revised) — the runtime tracks each declarative-:invoke spawn-id at [:rf/spawned <parent-id> <invoke-id>]. The fixture's machine omits :on-spawn entirely; the destroy fx still resolves the actor on state-exit because the runtime no longer reads :data :pending."
 
  :fixture/registry

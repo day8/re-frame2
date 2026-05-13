@@ -15,7 +15,7 @@
 
 {:fixture/id           :machine/system-id-collision-warns-and-rebinds
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn :actor/system-id}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/system-id}
  :fixture/doc          "Re-spawning under an already-bound :system-id emits :rf.error/system-id-collision and rebinds the slot (last-write-wins)."
 
  :fixture/registry
