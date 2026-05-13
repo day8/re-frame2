@@ -552,7 +552,6 @@ For sub-namespaces of a facade namespace (the canonical case is `re-frame.core` 
 | `re-frame.core.ssr` | `re-frame.core-ssr` |
 | `re-frame.core.epoch` | `re-frame.core-epoch` |
 | `re-frame.core.http` | `re-frame.core-http` |
-| `re-frame.core.legacy` | `re-frame.core-legacy` |
 
 The user-facing alias `(:require [re-frame.core :as rf])` still resolves the documented symbols — `rf/reg-flow`, `rf/reg-machine`, etc. — via re-exports inside `re-frame.core` itself. The sub-namespace's existence is an implementation detail of the per-feature artefact (per [§Packaging conventions](#packaging-conventions)); the dash-form name is what makes the artefact loadable alongside core on the CLJS host.
 
