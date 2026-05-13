@@ -15,8 +15,7 @@
   cannot break the cascade or sibling listeners. The runtime does NOT
   recursively emit through any emit-substrate on a listener throw.
 
-  See Spec 009 §Production debugging for normative framing."
-  (:require))
+  See Spec 009 §Production debugging for normative framing.")
 
 (defn make-listener-registry
   "Construct an isolated always-on listener registry. Returns a map:
