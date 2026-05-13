@@ -1,23 +1,29 @@
 ---
 name: re-frame2-setup
 description: >
-  Scaffolds a fresh re-frame2 ClojureScript project from nothing — adds
-  the artefact dependencies, writes a minimal shadow-cljs.edn for a Reagent
+  Greenfield-only bootstrap for re-frame2 ClojureScript projects. Scope:
+  brand-new apps from nothing, or empty CLJS projects (shadow-cljs /
+  Clojure already present but zero re-frame2 wiring). Adds the artefact
+  dependencies, writes a minimal shadow-cljs.edn for a Reagent
   single-page app, lays down the canonical entry namespace (with
   `rf/init!` + the Reagent adapter), and walks the author through their
   first mounted counter. Trigger on phrasing like "start a re-frame2
-  project", "scaffold re-frame2", "add re-frame2 to my repo",
-  "hello-world re-frame2 app", or a build failure that traces to missing
-  `re-frame.core` / `re-frame.adapter.reagent` wiring. Do not use for:
-  writing application code on a working project (use `re-frame2`),
-  live-app inspection (use `re-frame-pair2`), v1→v2 migration
-  (use `re-frame-migration`), or porting re-frame2 itself
-  (use `re-frame2-implementor`). Exits once the counter mounts.
+  project", "scaffold re-frame2", "hello-world re-frame2 app", "new
+  re-frame2 app", or a build failure on a freshly-scaffolded project that
+  traces to missing `re-frame.core` / `re-frame.adapter.reagent` wiring.
+  Do not use for: adding re-frame2 to an existing application that
+  already has its own state management or non-trivial code (that is an
+  authoring task — use `re-frame2`); writing application code on a
+  working re-frame2 project (use `re-frame2`); live-app inspection (use
+  `re-frame-pair2`); v1→v2 migration of an existing re-frame v1 codebase
+  (use `re-frame-migration`); spec, architecture, or porting questions
+  about re-frame2 itself (use `re-frame2-implementor`). Exits once the
+  counter mounts.
 ---
 
 # re-frame2-setup
 
-Bootstraps a fresh re-frame2 ClojureScript project. When done: the project compiles under `shadow-cljs watch`, a counter mounts in the browser, and the author can switch to **`re-frame2`** for code-writing.
+Bootstraps a fresh re-frame2 ClojureScript project. **Greenfield only** — a brand-new app from nothing, or an empty CLJS project (shadow-cljs / Clojure already present but zero re-frame2 wiring). When done: the project compiles under `shadow-cljs watch`, a counter mounts in the browser, and the author can switch to **`re-frame2`** for code-writing.
 
 This skill teaches **only re-frame2-specific wiring**. Assume the author knows `deps.edn`, `npm`, `shadow-cljs`. It does not teach re-frame2's API — that's `re-frame2`'s job.
 
@@ -25,10 +31,11 @@ This skill teaches **only re-frame2-specific wiring**. Assume the author knows `
 
 | Author intent | Route to |
 |---|---|
-| Write application code on a working project | `skills/re-frame2/` |
+| Add re-frame2 to an existing app with other state management or non-trivial code | `skills/re-frame2/` |
+| Write application code on a working re-frame2 project | `skills/re-frame2/` |
 | Inspect / debug / pair with a running app | `skills/re-frame-pair2/` |
-| Migrate from re-frame v1 to v2 | `skills/re-frame-migration/` |
-| Implement re-frame2 itself in another host/substrate | `skills/re-frame2-implementor/` |
+| Migrate an existing re-frame v1 codebase to v2 | `skills/re-frame-migration/` |
+| Spec, architecture, or porting questions about re-frame2 itself | `skills/re-frame2-implementor/` |
 
 Any non-setup question → route to the right skill; don't improvise here.
 
