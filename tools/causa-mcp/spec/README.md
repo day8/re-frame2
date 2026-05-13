@@ -19,7 +19,7 @@ shape, the implementation phase will add:
 
 - `001-Wire-Protocol.md` — Newline-delimited JSON-RPC 2.0 over stdio per the MCP 2025-06-18 transport spec.
 - `002-nREPL-Transport.md` — Persistent TCP socket; bencode framing; port discovery; runtime injection.
-- `003-Tool-Catalogue.md` — The eighteen tools, with full signatures and return shapes. (Currently the catalogue lives in [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md) §Tool catalogue; the prose will migrate here. The eighteenth tool — `subscription-info` — is locked here by [`DESIGN-RATIONALE.md` Lock #12](DESIGN-RATIONALE.md); the upstream catalogue prose will catch up when `003-Tool-Catalogue.md` lands.)
+- `003-Tool-Catalogue.md` — The eighteen tools, with full signatures and return shapes. (Currently the catalogue lives in [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md) §Tool catalogue; the prose will migrate here when impl lands. The eighteenth tool — `subscription-info`, in band Streaming — is locked by [`DESIGN-RATIONALE.md` Lock #12](DESIGN-RATIONALE.md) for cross-server parity with pair2-mcp.)
 - `API.md` — Consolidated user-facing reference: install, configure, launch, call.
 - `findings/` — Exploratory working substrate; audit lineage, not normative.
 
@@ -31,7 +31,7 @@ that's how drift is prevented when a count next moves.
 
 | Count | Value | Source-of-truth |
 |---|---|---|
-| **Tools** | **18** | [`000-Vision.md`](000-Vision.md) §MCP catalogue summary enumerates the bands; the upstream prose at [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md) §Tool catalogue describes seventeen and migrates to `003-Tool-Catalogue.md` when impl lands. The eighteenth (`subscription-info`, in band Streaming) is locked here by [`DESIGN-RATIONALE.md` Lock #12](DESIGN-RATIONALE.md) for cross-server parity with pair2-mcp. |
+| **Tools** | **18** | [`000-Vision.md`](000-Vision.md) §MCP catalogue summary enumerates the bands; the catalogue prose with full signatures and return shapes lives in [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md) §Tool catalogue and migrates to `003-Tool-Catalogue.md` when impl lands. The eighteenth (`subscription-info`, in band Streaming) is locked by [`DESIGN-RATIONALE.md` Lock #12](DESIGN-RATIONALE.md) for cross-server parity with pair2-mcp. |
 | **Bands** | **5** | Inspection (9) + Mutation (3) + Streaming (3) + Escape hatch (1) + Meta (2) = 18. Enumerated in [`000-Vision.md`](000-Vision.md) §MCP catalogue summary. |
 | **Mechanisms** | **6** | [`Principles.md`](Principles.md) §"Tight token budget per response" — token cap, path slicing, cursor pagination, lazy summary, structural dedup, size elision. Mechanism #6 promoted by Lock #10. |
 | **Locks** | **12** | [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §Summary table. |

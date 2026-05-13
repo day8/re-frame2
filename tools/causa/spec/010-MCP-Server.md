@@ -12,7 +12,7 @@ without opening Causa's UI.
 > [`DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md).
 > The design locks accumulated in this file have been lifted there;
 > citations point to their canonical homes. This file remains the
-> **catalogue prose** (the seventeen tools enumerated with signatures
+> **catalogue prose** (the eighteen tools enumerated with signatures
 > and return shapes); when implementation lands and
 > `tools/causa-mcp/spec/003-Tool-Catalogue.md` is authored, the
 > catalogue prose migrates there and this file shrinks to a pointer.
@@ -117,17 +117,23 @@ the actual op runs. Mirrors the bash-shim chain's
 
 ## Tool catalogue
 
-Seventeen MCP tools across five bands: inspection (read-only),
+Eighteen MCP tools across five bands: inspection (read-only),
 mutation (user-confirmed equivalents in the UI), streaming
-(`notifications/progress`-shaped), escape hatch (`eval-cljs`), and
-meta (session-lifecycle). Each maps to a Causa surface; together
-they let an agent observe, dispatch, time-travel, stream, and
-inspect.
+(`notifications/progress`-shaped, plus the `subscription-info`
+diagnostic), escape hatch (`eval-cljs`), and meta
+(session-lifecycle). Each maps to a Causa surface (or, for
+`subscription-info`, to a cross-server-symmetric slot shipped by
+pair2-mcp — see
+[`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md)
+Lock #12); together they let an agent observe, dispatch,
+time-travel, stream, and inspect.
 
-The seventeen-tool cardinality and closed-set policy are locked at
+The eighteen-tool cardinality and closed-set policy are locked at
 [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-5--tool-catalogue-cardinality-and-shape)
-Lock #5; the closed-set discipline and `eval-cljs` escape valve
-posture live at
+Lock #5 (as amended by
+[Lock #12](../../causa-mcp/spec/DESIGN-RATIONALE.md) for the
+`subscription-info` parity entry); the closed-set discipline and
+`eval-cljs` escape valve posture live at
 [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
 §Closed-set tool catalogue, deliberate escape valve. The
 **catalogue prose itself** (the tables below) remains here until
@@ -188,6 +194,7 @@ final `tools/call` result is a summary
 |---|---|---|
 | `subscribe` | `:trace`, `:epoch`, `:fx`, `:error` | Stream of events matching `filter`; topic-mediated base filter overlaid by user filter (user wins on conflict). Filter vocabulary mirrors [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary) for `:trace` / `:fx` / `:error`; mirrors `watch-epochs` for `:epoch`. |
 | `unsubscribe` | (n/a) | Idempotent close. Returns `{:ok? true :sub-id <id> :existed? <bool>}`. Useful when the agent host can't propagate `tools/call` cancellation cleanly. |
+| `subscription-info` | (n/a — filter args) | Pure-read diagnostic over the in-memory subscriptions registry (no queue drain). Args (all optional): `:topic` filters to one of `:trace` / `:epoch` / `:fx` / `:error`; `:sub-id` returns only the matching sub. Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}]}`. Empty `:subs` vector when no streams are open. A non-nil `:overflow-reason` signals the queue has been evicting older events — tune `:max-buffered-events` / `:max-buffered-bytes` on the next `subscribe` call. Mirrors pair2-mcp's identically-named slot (per [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscription_info.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools/subscription_info.cljs)) for cross-server symmetry — see [Lock #12](../../causa-mcp/spec/DESIGN-RATIONALE.md). |
 
 Termination paths: client cancel → `:reason :aborted`; out-of-band
 `unsubscribe` → `:reason :sub-gone`; cap reached → `:reason
@@ -207,7 +214,7 @@ Args: `form` (string, required — EDN-encoded CLJS form), `frame`
 triggers), `build` (string, optional).
 
 `eval-cljs` is the **deliberate escape valve**: the catalogue is
-closed-set on purpose (sixteen named surfaces alongside this one
+closed-set on purpose (seventeen named surfaces alongside this one
 escape hatch), but agents occasionally need to reach for something
 not yet catalogued. Rather than refuse them and force a workaround through
 Chrome MCP's `evaluate_script` (which loses the `:origin` tag), we
@@ -276,7 +283,7 @@ automatic re-inject → op proceeds.
 | Axis | `tools/pair2-mcp/` | `tools/causa-mcp/` |
 |---|---|---|
 | **Audience** | Editor-side AI workflows (pair-programming). | Debugger-side AI workflows (inspection, time-travel). |
-| **Surface** | 9 tools focused on dispatch / eval / hot-swap / trace, plus streaming. | 17 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming + escape hatch + session lifecycle. |
+| **Surface** | 11 tools focused on dispatch / eval / hot-swap / trace, plus streaming (inc. `subscription-info`). | 18 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming (inc. `subscription-info`) + escape hatch + session lifecycle. |
 | **`:origin` tag** | `:pair` | `:causa-mcp` |
 | **Runtime injection** | `re-frame-pair2.runtime` | `re-frame2-causa-mcp.runtime` |
 | **Implementation** | shadow-cljs `:node-script`, npm-published. | Same. |
