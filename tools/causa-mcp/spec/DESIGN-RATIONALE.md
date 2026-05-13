@@ -68,7 +68,7 @@ Causa-MCP additionally benefits from sharing the toolchain with
 pair2-mcp: forking the project layout (`deps.edn`,
 `shadow-cljs.edn`, `pilot/` smoke harness, runtime ns
 conventions) means the implementation cost is dominated by
-writing the eighteen-tool dispatcher rather than rebuilding the
+writing the seventeen-tool dispatcher rather than rebuilding the
 transport plumbing.
 
 ### Date locked
@@ -266,7 +266,7 @@ proper home.
 
 ## Lock #5 — Tool catalogue cardinality and shape
 
-**Locked 2026-05-12 (Mike).** **Eighteen tools across five
+**Locked 2026-05-12 (Mike).** **Seventeen tools across five
 bands** (inspection / mutation / streaming / escape hatch / meta).
 The catalogue is closed-set; additions require a Lock entry
 here. `eval-cljs` is the deliberate escape valve.
@@ -284,7 +284,7 @@ How many MCP tools does Causa-MCP expose, and which ones?
 - **Hand-rolled minimal set** (~6 tools — `get-trace`,
   `get-app-db`, `dispatch`, `restore-epoch`, `eval-cljs`,
   `discover-app`). Less surface, less to maintain.
-- **Eighteen tools mapped to Causa panels** (per
+- **Seventeen tools mapped to Causa panels** (per
   [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
   §Tool catalogue). One tool per Causa-visible affordance plus
   the streaming pair, the escape hatch, and the meta tools.
@@ -293,7 +293,7 @@ How many MCP tools does Causa-MCP expose, and which ones?
 
 ### Pick
 
-**Eighteen tools across five bands.** The catalogue is
+**Seventeen tools across five bands.** The catalogue is
 closed-set on purpose — additions are deliberate (a Lock entry
 here, a discussion). `eval-cljs` absorbs the long tail.
 
@@ -301,9 +301,9 @@ here, a discussion). `eval-cljs` absorbs the long tail.
 
 - **One tool per Causa panel is the symmetry.** Causa's pitch
   is "the cascade you can see"; Causa-MCP's pitch is "the
-  cascade your agent can read." Eighteen tools map cleanly to
-  eighteen Causa surfaces (9 read + 3 mutate + 2 stream + 1
-  escape hatch + 2 meta + 1 reserved). The agent reading
+  cascade your agent can read." Seventeen tools map cleanly to
+  seventeen Causa surfaces (9 read + 3 mutate + 2 stream + 1
+  escape hatch + 2 meta). The agent reading
   `tools/list` sees a one-to-one map.
 - **Pair2-mcp's catalogue is editor-side; Causa's is
   debugger-side.** Mirroring pair2 wholesale would leave
@@ -311,7 +311,7 @@ here, a discussion). `eval-cljs` absorbs the long tail.
   Causa-shaped questions (`get-app-db-diff`,
   `get-machine-list`, `get-issues`) — losing the `:origin` tag
   and the structured trace's filter vocabulary.
-- **Closed-set keeps the surface comprehensible.** Eighteen
+- **Closed-set keeps the surface comprehensible.** Seventeen
   named tools is at the upper edge of what an agent can hold in
   context comfortably. Beyond that, agent confusion (calling
   the wrong tool) starts to dominate; closed-set with an
@@ -324,7 +324,7 @@ here, a discussion). `eval-cljs` absorbs the long tail.
 
 ### Date locked
 
-2026-05-12 (Mike). The eighteen-tool catalogue was assembled
+2026-05-12 (Mike). The seventeen-tool catalogue was assembled
 during Causa's
 [`010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 authoring on 2026-05-12; the lock entry below pins the
@@ -527,7 +527,7 @@ pin doesn't silently drift on a future `npm audit` pass.
 
 ---
 
-## Lock #9 — Wire-protocol budget posture (five mechanisms)
+## Lock #9 — Wire-protocol budget posture (the mechanism cascade)
 
 **Locked 2026-05-13 (Mike).** **Five normative mechanisms bake
 the token cap into the spec before implementation begins:**
@@ -737,11 +737,11 @@ catalogue contract".
 | 2 | Agent-host transport | **MCP over stdio** (inherited from pair2-mcp Lock #2) | 2026-05-12 |
 | 3 | Connection model | **Single persistent nREPL socket** (inherited from pair2-mcp Lock #3) | 2026-05-12 |
 | 4 | Origin tagging | **Default-on, opt-out per call — `:origin :causa-mcp`** | 2026-05-12 |
-| 5 | Tool catalogue | **Eighteen tools across five bands; closed-set + `eval-cljs` escape valve** | 2026-05-12 |
+| 5 | Tool catalogue | **Seventeen tools across five bands; closed-set + `eval-cljs` escape valve** | 2026-05-12 |
 | 6 | npm package coord | **`@day8/re-frame2-causa-mcp`** | 2026-05-12 |
 | 7 | Chrome DevTools MCP posture | **Co-install, stay in lane** | 2026-05-12 |
 | 8 | bencode pinning | **`bencode@~2.0.3`** (inherited from pair2-mcp Lock #5) | 2026-05-12 |
-| 9 | Wire-protocol budget posture | **Five mechanisms baked into spec before impl** (cap + slicing + pagination + lazy-summary + dedup) | 2026-05-13 |
+| 9 | Wire-protocol budget posture | **Six mechanisms baked into spec before impl** (cap + slicing + pagination + lazy-summary + dedup + size-elision; mechanism #6 added by Lock #10) | 2026-05-13 |
 | 10 | Size-elision marker shape | **`:rf.size/large-elided` is the sixth mechanism; shape normative across MCP triplet; sensitive wins on composition** | 2026-05-13 |
 
 These ten locks define Causa-MCP's pre-implementation surface.
