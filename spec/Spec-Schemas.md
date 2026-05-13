@@ -462,7 +462,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.epoch` | Epoch-history events (snapshotted, restored, db-replaced) | Tool-Pair |
 | `:frame` | Frame-lifecycle events (created, re-registered, destroyed) | 002 |
 
-The error category schemas in [009 §Error contract](009-Instrumentation.md#error-contract) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
+The error category schemas in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
 
 **Non-error refinements.** A small set of TraceEvent refinements describe frame-lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-interrupted` — emitted when a frame's drain loop detects the frame was destroyed mid-cycle and drops remaining queued events. The `:tags` schema is `DrainInterruptedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:category :rf.frame/drain-interrupted, :frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-interrupted` to filter; the `:op-type :frame` discriminator places it alongside the rest of the `:frame/*` lifecycle family (`:frame/created`, `:frame/destroyed`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
 
@@ -470,7 +470,7 @@ The error category schemas in [009 §Error contract](009-Instrumentation.md#erro
 
 > **Layer:** Runtime
 
-A refinement of `:rf/trace-event` for the unified error/warning envelope. Every error or warning emitted by the runtime conforms to this shape; per-category schemas (in [009 §Error contract](009-Instrumentation.md#error-contract)) further constrain `:tags`.
+A refinement of `:rf/trace-event` for the unified error/warning envelope. Every error or warning emitted by the runtime conforms to this shape; per-category schemas (one per row in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) further constrain `:tags`.
 
 ```clojure
 (def ErrorEvent
@@ -509,7 +509,7 @@ The optional `:rf.trace/trigger-handler` slot (top-level, NOT under `:tags`) nam
 
 The optional `:rf.trace/call-site` slot (top-level, sibling of `:rf.trace/trigger-handler`) names the **invocation** line of the user-facing surface that triggered the error — the `(rf/dispatch [:bad-event])` line, the `(rf/subscribe [:bad-sub])` line, the `(rf/inject-cofx :missing)` line. Where `:rf.trace/trigger-handler` answers "where is the failing handler **defined**?", `:rf.trace/call-site` answers "where is the failing handler **called**?". Tools that consume both render two clickable links per error: registration-site jump and invocation-site jump. Present when the surface was reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`); absent when reached through the runtime-callable fn form (`dispatch*`, `dispatch-sync*`, `subscribe*`, `inject-cofx*`) — HoF use, programmatic / REPL paths, view-render closures captured by `(rf/dispatcher)` / `(rf/subscriber)` — and absent under `:advanced` + `goog.DEBUG=false` builds (per rf2-ts1a Q3=B: dev-only elision; the macro's stamp branch DCEs and the literal map vanishes). Per rf2-ts1a.
 
-The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing categories cannot be renamed or removed; new categories are added by extending the operation namespace. The current set is enumerated in [009 §Error categories](009-Instrumentation.md#error-categories-initial-set) and reproduced in [API.md §Error contract](API.md#error-contract). Reserved operation namespaces:
+The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing categories cannot be renamed or removed; new categories are added by extending the operation namespace. The current set is enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — the single source of truth for the `:operation` enum domain (every row of the catalogue corresponds to one reserved keyword in this enum). [API.md §Error contract](API.md#error-contract) points consumers at the catalogue rather than reproducing it. Reserved operation namespaces:
 
 | Namespace | Severity | Used for |
 |---|---|---|
@@ -527,7 +527,7 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 
 > **Layer:** Runtime
 
-Each error / warning category enumerated in [009 §Error categories](009-Instrumentation.md#error-categories-initial-set) has a registered Malli schema describing its `:tags` payload, so consumers can validate without ad-hoc parsing. The schemas below are the canonical CLJS-reference shapes; ports translate them mechanically into the host's schema language (per [§Scope](#scope)).
+Each error / warning category enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) has a registered Malli schema describing its `:tags` payload, so consumers can validate without ad-hoc parsing. The schemas below are the canonical CLJS-reference shapes; ports translate them mechanically into the host's schema language (per [§Scope](#scope)).
 
 Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from the `:rf/error-event` envelope above; the per-category schemas below describe the *additional* category-specific keys. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
 

@@ -2197,7 +2197,7 @@ Symmetric to how `re-frame.machines` already publishes `:machines/spawn-fx` / `:
 
 ### Trace event
 
-Each individual abort emits `:rf.http/aborted-on-actor-destroy` (registered in [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set)). One trace per cancelled request. The trace's `:tags` carry `:request-id` (when set on the request), `:actor-id` (the destroyed spawned-actor address), and `:url` (the request's URL).
+Each individual abort emits `:rf.http/aborted-on-actor-destroy` (registered in [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). One trace per cancelled request. The trace's `:tags` carry `:request-id` (when set on the request), `:actor-id` (the destroyed spawned-actor address), and `:url` (the request's URL).
 
 The reply payload itself is a standard `:rf.http/aborted` failure; tools that subscribe to the http-failure-category trace stream see this category alongside the user-initiated aborts. The `:reason :actor-destroyed` tag is the discriminator.
 
@@ -2212,7 +2212,7 @@ The same hook fires across every destroy trigger — `:invoke` exit, `:invoke-al
 ### Cross-references
 
 - [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — the http side of the contract; trace event registration; envelope details.
-- [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) — `:rf.http/aborted-on-actor-destroy` category registration.
+- [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — `:rf.http/aborted-on-actor-destroy` category registration.
 - [§Declarative `:invoke` §Desugaring rules](#desugaring-rules) — the `:rf.machine/destroy` fx that fires the hook.
 - [§Cancel-on-decision](#cancel-on-decision-default-true) — `:invoke-all`'s sibling-cancel cascade routes through the same destroy fx.
 - [§Whichever fires first wins](#whichever-fires-first-wins) — the `:after` cascade routes through the same destroy fx.

@@ -414,42 +414,9 @@ Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-a
 
 ### Error contract
 
-Errors are emitted as structured trace events with `:op-type :error` and a per-category `:operation` keyword. See [009 §Error contract](009-Instrumentation.md#error-contract) for the full category list.
+Errors are emitted as structured trace events with `:op-type :error` (or `:warning` / `:info` / `:fx` / `:frame`) and a per-category `:operation` keyword. The complete normative catalogue — every `:rf.error/*`, `:rf.warning/*`, `:rf.fx/*`, `:rf.cofx/*`, `:rf.ssr/*`, `:rf.epoch/*`, `:rf.http/*`, `:rf.http.interceptor/*`, `:rf.frame/*`, and `:route.nav-token/*` event the runtime emits — lives at [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (single source of truth for category names, `:op-type` discriminator, trigger conditions, default `:recovery`, and `:tags` payload keys). Per-category Malli `:tags` schemas are canonicalised at [Spec-Schemas §Per-category `:tags` schemas](Spec-Schemas.md#per-category-tags-schemas) — one schema per catalogue row.
 
-Pattern-level error categories:
-
-| `:operation` | Meaning |
-|---|---|
-| `:rf.error/handler-exception` | An event handler threw |
-| `:rf.error/fx-handler-exception` | A registered fx threw |
-| `:rf.error/sub-exception` | A subscription's computation threw |
-| `:rf.error/no-such-sub` | A subscription's `:<-` input refers to an unregistered sub |
-| `:rf.error/schema-validation-failure` | A `:spec`-validated value failed validation |
-| `:rf.error/drain-depth-exceeded` | Run-to-completion drain hit its depth limit |
-| `:rf.error/no-such-handler` | A registrar-shaped lookup missed — discriminated by the `:kind` tag: `:event` (dispatch with no registered event handler), `:frame` (Tool-Pair surface addressed an unregistered frame-id), or `:route` (`handle-url-change` saw an unmatched URL). See [009 §Error categories — `:rf.error/no-such-handler`](009-Instrumentation.md#error-categories-initial-set) for the per-`:kind` tag schemas |
-| `:rf.error/dispatch-sync-in-handler` | `dispatch-sync` was called from inside a running event handler (use `:fx [[:dispatch event]]`) |
-| `:rf.error/machine-action-wrote-db` | A machine action's effect map contained `:db` |
-| `:rf.error/machine-raise-depth-exceeded` | A machine event's `:raise` cascade exceeded its depth limit |
-| `:rf.error/machine-always-depth-exceeded` | A machine event's `:always` microstep loop exceeded its depth limit |
-| `:rf.error/machine-always-self-loop` | A state's `:always` vector declares a same-state same-guard self-loop |
-| `:rf.error/machine-grammar-not-in-v1` | A v1 helper encountered a post-v1 transition-table feature |
-| `:rf.error/machine-unresolved-guard` | Transition table references an unknown `:guard` keyword |
-| `:rf.error/machine-unresolved-action` | Transition table references an unknown `:action` keyword |
-| `:rf.error/unknown-preset` | `reg-frame` / `make-frame` was called with a `:preset` value not in the closed v1 set (`:default`, `:test`, `:story`, `:ssr-server`) |
-| `:rf.error/override-fallthrough` | An override targeted an unregistered id |
-| `:rf.error/duplicate-url-binding` | Two frames declared `:url-bound? true` simultaneously (per Spec 012 R-4) |
-| `:rf.error/adapter-already-installed` | `install-adapter!` called after frames exist (per Spec 006 S-1) |
-| `:rf.error/no-adapter-specified` | `(rf/init! …)` was called with nil or a non-map argument (e.g. a keyword). The only legal call shape is `(rf/init! adapter-map)` — require the adapter ns and pass its `adapter` Var (per Spec 006 §Adapter selection at boot, rf2-agql). (The no-arg form `(rf/init!)` raises `ArityException` at compile/load time per rf2-3ubmv — that case never reaches runtime.) |
-| `:rf.error/derived-container-replaced` | `replace-container!` called on a derived container (per Spec 006 §make-derived-value) |
-| `:rf.error/adapter-disposed` | An adapter function was called after `dispose-adapter!` ran |
-| `:rf.fx/skipped-on-platform` | Fx was skipped because `:platforms` excluded the active platform |
-| `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree, OR client-computed head differs from server-supplied head. `:failing-id` discriminates (`:rf/hydrate` for the body; `:rf.ssr/head-mismatch` for the head) |
-| `:rf.warning/plain-fn-under-non-default-frame-once` | Plain Reagent fn rendered under a non-default frame; emitted once per `(component-id, non-default-frame-id)` pair |
-| `:rf.warning/no-clock-configured` | A timing-sensitive substrate feature was exercised on a host whose interop clock layer is unwired |
-| `:rf.warning/route-shadowed-by-equal-score` | Two registered routes have an equal structural rank |
-| `:rf.warning/multiple-status-set` | Two or more `:rf.server/set-status` calls in the same request drain (last-write-wins) |
-| `:rf.warning/multiple-redirects` | Two or more `:rf.server/redirect` calls in the same request drain (last-write-wins) |
-| `:rf.error/sanitised-on-projection` | Error projector threw or returned a non-conforming shape; runtime fell back to the locked generic-500 public-error |
+Per-Spec emit-sites: [002-Frames](002-Frames.md), [005-StateMachines](005-StateMachines.md), [006-ReactiveSubstrate](006-ReactiveSubstrate.md), [010-Schemas](010-Schemas.md), [011-SSR](011-SSR.md), [012-Routing](012-Routing.md), [013-Flows](013-Flows.md), [014-HTTPRequests](014-HTTPRequests.md), [Tool-Pair](Tool-Pair.md). Each catalogue row's "Per [N]" cross-link names the owning Spec section.
 
 ---
 

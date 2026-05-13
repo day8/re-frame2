@@ -469,7 +469,7 @@ Apps that want HTTP requests tied to the lifetime of a state-machine state shoul
 #### Cross-references
 
 - [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — the machine side of the contract.
-- [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) — `:rf.http/aborted-on-actor-destroy` taxonomy entry.
+- [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — `:rf.http/aborted-on-actor-destroy` taxonomy entry.
 - [`:request-id` (internal)](#request-id-internal) — the orthogonal app-level abort surface.
 - Boot-as-state-machine §M2 (rf2-wvkn) — the original gap analysis motivating this contract.
 
@@ -519,7 +519,7 @@ The fn returns the (possibly-modified) ctx. The runtime threads its `:request` o
 
 A throw inside any `:before` classifies as `:rf.error/http-interceptor-failed`. The runtime:
 
-1. Emits a `:rf.error/http-interceptor-failed` trace event with `:frame`, `:interceptor-id`, `:url`, and `:cause` tags (per [009 §Error categories](009-Instrumentation.md#error-categories-initial-set)).
+1. Emits a `:rf.error/http-interceptor-failed` trace event with `:frame`, `:interceptor-id`, `:url`, and `:cause` tags (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
 2. Re-throws the wrapped ex-info, which the `re-frame.fx` outer catch converts to `:rf.error/fx-handler-exception` (so `:rf.fx/handled` does NOT fire).
 3. Does NOT dispatch the request — the transport never sees it.
 
