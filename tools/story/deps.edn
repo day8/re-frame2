@@ -22,7 +22,7 @@
          ;; explicit because Story's UI shell directly :require's reagent.
          ;; If implementation/core's coupling to Reagent ever loosens, this
          ;; dep stays.
-         reagent/reagent         {:mvn/version "1.2.0"}
+         reagent/reagent         {:mvn/version "2.0.1"}
 
          ;; Stage 3 (rf2-von3) — the loader four-phase lifecycle is
          ;; implemented as a state machine via `re-frame.machines` per
