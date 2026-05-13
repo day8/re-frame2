@@ -220,6 +220,23 @@ The sidebar's foot carries a **test widget** that aggregates `run-variant` outco
 
 This is Story's Vitest-reporter parity per [`tools/story/spec/009-Test-Mode.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/009-Test-Mode.md) §Chrome-level test widget — when a project's CI gates on `assertions-passing?`, the chrome widget is the at-a-glance gauge that says "every variant is green right now". Watch-mode auto-re-run is deferred to v2 (needs a registration-diff signal the runtime doesn't yet expose).
 
+## Save current canvas state as a new variant
+
+Tweak the controls on an existing variant, click **save as new variant…** at the bottom of the controls panel, and Story emits a `(reg-variant ...)` form pinned to the current selection — args, mode overrides, and cell-local edits collapsed into one snapshot. The form opens in a modal preview: edit the new variant id inline, copy to clipboard, paste into your stories namespace.
+
+```clojure
+;; Click 'save as new variant…' after dragging :n up to 7 in a :dark mode →
+(story/reg-variant :story.counter/saved-739221
+  {:extends :story.counter/happy-path
+   :args    {:label "Counter"
+             :n     7
+             :theme :dark}})
+```
+
+The captured `:args` are the **effective** args — the five-layer precedence chain (global < story < modes < variant < cell-overrides) resolved to a single map. Source is never written directly; the modal preview gives you a review-then-commit step. This is Story's parity with Storybook 9's 'Save' affordance — without the AST-rewrite plumbing.
+
+You can also drive the flow programmatically — the `:rf.story/save-current-as-variant` event dispatches against the standard re-frame router and accepts an optional `{:variant-id ...}` payload to target a non-focused variant (the agent-facing surface in [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) consumes this path).
+
 ## Mounting the Story shell
 
 In your app's entry namespace:

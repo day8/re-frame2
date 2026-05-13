@@ -61,6 +61,11 @@
             ;; snippet generator; the CLJS-only UI surface
             ;; (`re-frame.story.ui.recorder`) wires the trace listener.
             [re-frame.story.recorder  :as recorder]
+            ;; rf2-one3t — save-current-canvas-state-as-variant.
+            ;; Pure-data args snapshot + EDN-form code-gen; the CLJS-
+            ;; only UI surface (`re-frame.story.ui.save-variant`) wires
+            ;; the controls-panel button + modal dialog.
+            [re-frame.story.save-variant :as save-variant]
             ;; Stage 6 (rf2-zhwd) — SOTA features. layout-debug + share
             ;; live in .cljc; multi-substrate / a11y / panels are
             ;; CLJS-only so the JVM classpath stays lean.
@@ -394,6 +399,11 @@
   ;; Stage 5 — assertions + play + force-fx-stub.
   (assertions/install-canonical-assertions!)
   (fx-stubs/install-canonical-fx-stubs!)
+  ;; rf2-one3t — `:rf.story/save-current-as-variant` event handler.
+  ;; Registers a global event-fx handler so the save flow is
+  ;; dispatchable from agent / chrome surfaces alongside the controls-
+  ;; panel button.
+  (save-variant/install-canonical-event-handlers!)
   ;; Wire the late-bound shims so the frames runtime can tap
   ;; into the assertion module without a circular require.
   (frames/set-tap-stub-event-fn! fx-stubs/tap-stub-event!)

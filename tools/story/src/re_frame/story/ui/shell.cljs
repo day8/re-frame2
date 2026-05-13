@@ -50,6 +50,7 @@
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.recorder :as recorder-ui]
+            [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
@@ -361,6 +362,11 @@
          ;; it installed is free; we only need to make sure it
          ;; exists before the user clicks REC.
          (recorder-ui/install-trace-listener!)
+         ;; rf2-one3t: install the save-as-variant dialog-open callback
+         ;; against the pure ns so `save-variant/save-current-as-variant!`
+         ;; can drive the modal without coupling the .cljc helper to
+         ;; Reagent / DOM. Idempotent.
+         (save-variant-ui/install!)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
            (ensure-listeners-for-variant! vid))))
      :component-will-unmount
@@ -391,7 +397,12 @@
         ;; (opens after stop). Both are fixed-position so they float
         ;; above the three-pane layout.
         [recorder-ui/recording-overlay]
-        [recorder-ui/save-dialog]])}))
+        [recorder-ui/save-dialog]
+        ;; rf2-one3t: save-current-canvas-state-as-variant dialog. Lives
+        ;; alongside the recorder's save dialog — both float above the
+        ;; three-pane layout via fixed positioning; both surface the
+        ;; generated EDN snippet for review-then-commit.
+        [save-variant-ui/save-dialog]])}))
 
 ;; ---- mount / unmount surface ---------------------------------------------
 

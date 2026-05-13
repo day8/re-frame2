@@ -205,6 +205,99 @@ back to the user's stories namespace. That bead is filed separately
 as a P2 follow-up; this spec locks the recorder's runtime contract
 so the MCP side can build against a stable surface.
 
+### Save current canvas state as variant (rf2-one3t)
+
+Storybook 9's second story-from-UI surface (per the SB9 parity audit
+at `ai/findings/story-storybook9-parity-20260513.md` §2.2): tweak
+controls on an existing story, click 'Save', and the change writes
+back to source as a new exported story. SB9's implementation
+auto-writes the source file via a Vite plugin (format-on-save
+respects project Prettier config). Story takes the
+review-then-commit path instead — same as Test Codegen — because
+auto-writing entangles the playground with the project's editor
+config, source-control conflicts, and CI hooks.
+
+The save flow is a **controls-panel button**: with a variant focused,
+clicking 'save as new variant…' captures the live effective args (per
+[`002-Runtime.md`](002-Runtime.md) §Args resolution) and surfaces an
+EDN `(reg-variant ...)` form in a modal. The user reviews, edits the
+new variant id inline, and copies the form to the clipboard for
+pasting into their stories namespace:
+
+```clojure
+(story/reg-variant :story.counter/saved-739221
+  {:extends :story.counter/happy-path
+   :args    {:label "Counter"
+             :n     7
+             :theme :dark}})
+```
+
+The captured args are the **resolved** effective args — the five-layer
+precedence chain (global < story < modes < variant < cell-overrides
+per [`002-Runtime.md`](002-Runtime.md) §Args resolution) collapses to a
+single snapshot map. Tweaking a control then saving produces a variant
+that re-renders with the exact state the user was looking at, with no
+extra plumbing.
+
+#### Public API
+
+```clojure
+;; In re-frame.story.save-variant
+(snapshot-args                 variant-id)           ; pure args snapshot
+(snapshot-args                 variant-id opts)      ; with :active-modes, :cell-overrides
+(gen-variant-snippet           opts)                 ; render (reg-variant ...)
+(save-current-as-variant!)                           ; impure trigger — uses focused variant
+(save-current-as-variant!      {:variant-id ...})    ; explicit target
+
+;; Event surface — dispatchable from agent / chrome contexts
+(rf/dispatch [:rf.story/save-current-as-variant])
+(rf/dispatch [:rf.story/save-current-as-variant {:variant-id ...}])
+```
+
+`opts` for `gen-variant-snippet`:
+
+- `:variant-id` (required) — keyword id for the new variant.
+- `:extends`    (optional) — source variant id (pins `:component`,
+                              `:decorators`, non-overridden args).
+- `:args`       (required) — the captured args map.
+- `:doc`        (optional) — docstring.
+- `:alias`      (optional) — short alias for the form (default `story`).
+
+Pure data → string; the emitted form is `read-string`-able and
+round-trips through re-frame's registrar machinery. Args keys render
+in sorted order for determinism.
+
+#### Why this is structurally simpler than Storybook's save-as
+
+Storybook 9 inspects the project's source tree at build time, parses
+the existing CSF file's AST, splices a new exported story object into
+the module, and re-writes the source via a Vite plugin that honours
+the project's Prettier config. The plugin has to handle TypeScript
+type imports, named exports, default exports, `meta` objects,
+control-spec types, and decorator chains — all in JavaScript text
+form. Story's save-as is one snapshot of the args atom + one EDN
+pretty-printer. No AST. No source-file write. No format-on-save
+config. The user pastes the snippet; the project's editor handles
+the formatting via the editor's own re-frame / Clojure tooling.
+
+The `:rf.story/save-current-as-variant` event id sits under the
+`:rf.story/*` reserved namespace (per
+[spec/Conventions.md](../../../spec/Conventions.md) §Reserved namespaces)
+and is filtered by the Test Codegen recorder's `recordable-event?`
+predicate — a save dispatched during an active recording never appears
+in the recorded `:play` body.
+
+#### MCP wiring
+
+The agent-facing path mirrors the Test Codegen flow: a story-mcp
+`save-current-as-variant` tool dispatches
+`:rf.story/save-current-as-variant` against the live Story process
+through the Tool-Pair bridge (per
+[`006-MCP-Surface.md`](006-MCP-Surface.md)), reads the snippet from
+the resulting dialog state, and returns the EDN form as structured
+output. Filed as a separate P3 follow-up; this spec locks the
+runtime contract so the MCP side can build against a stable surface.
+
 ## v1.1 deferrals
 
 ### Live performance ribbon
