@@ -16,8 +16,9 @@ The op vocabulary the skill operates through. Each op is a short `scripts/eval-c
 
 | Op | Invocation | Returns |
 |---|---|---|
-| `app-db/snapshot` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/snapshot)'` | Current app-db value for the operating frame (via `rf/get-frame-db`) |
-| `app-db/get` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/app-db-at [:path :to :value])'` | Path-scoped value (via `rf/snapshot-of`) |
+| `app-db/snapshot` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/snapshot)'` | Current app-db value for the operating frame (via `rf/get-frame-db`). Note: the MCP `snapshot` tool wraps this with `:summary`-by-default + `:path`-slicing at the wire boundary (rf2-tygdv) — see [`mcp-transport.md` §:app-db slice modes](mcp-transport.md#when-to-use-snapshot-vs-the-per-op-reads). The runtime form here returns the full value unchanged. |
+| `app-db/get` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/app-db-at [:path :to :value])'` | Path-scoped value (via `rf/snapshot-of`). For targeted reads from the MCP transport, prefer the `get-path` tool — single round-trip, structured `{:exists?}` answer, shared `:path` vocabulary with `snapshot`. |
+| `app-db/get-path` (MCP) | `mcp__re-frame-pair2__get-path {path: "[:cart :items 0 :sku]"}` | Targeted read at `path` (rf2-tygdv). `{:ok? true :exists? true :value <subtree>}` on hit; `{:ok? false :reason :path-not-found :deepest-valid-prefix [...]}` on miss. `:exists?` distinguishes a path that points at `nil` from a missing path. |
 | `app-db/schemas` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/schemas)'` | Map of `path → schema` from `rf/app-schemas` |
 | `registrar/list` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/registrar-list :event)'` | Ids registered under `:event` / `:sub` / `:fx` / `:cofx` (via `rf/handlers`) |
 | `registrar/describe` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/registrar-describe :event :cart/apply-coupon)'` | Full handler metadata: kind, interceptor ids, `:ns` / `:line` / `:file`, `:rf/machine?`, retained source form when present |

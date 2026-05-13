@@ -22,6 +22,7 @@ allowed-tools:
   - mcp__re-frame-pair2__watch-epochs
   - mcp__re-frame-pair2__tail-build
   - mcp__re-frame-pair2__snapshot
+  - mcp__re-frame-pair2__get-path
   - mcp__re-frame-pair2__subscribe
   - mcp__re-frame-pair2__unsubscribe
   - Read
