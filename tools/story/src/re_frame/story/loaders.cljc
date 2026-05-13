@@ -81,6 +81,36 @@
 (def event-errored           :rf.story.lifecycle/errored)
 
 ;; ---- machine spec ---------------------------------------------------------
+;;
+;; Each state node is a named def so the machine literal reads as
+;; assembly rather than a 50-line nested map. The transition table
+;; below is the canonical reference; the machine reference at the end
+;; of this section composes the nodes into the spec/005 machine shape.
+
+(def ^:private pre-mount-node
+  "Initial state. Accepts :mount (→ :mounting) and :errored (→ :error)."
+  {:on {event-mount             :mounting
+        event-errored           :error}})
+
+(def ^:private mounting-node
+  "Frame allocated, awaiting loader phase. Accepts :loaders-started
+  (→ :loading) and :errored (→ :error)."
+  {:on {event-loaders-started   :loading
+        event-errored           :error}})
+
+(def ^:private loading-node
+  "Loaders draining. Accepts :loaders-complete (→ :ready) and :errored
+  (→ :error)."
+  {:on {event-loaders-complete  :ready
+        event-errored           :error}})
+
+(def ^:private ready-node
+  "Render allowed. Only transition is :errored (→ :error)."
+  {:on {event-errored           :error}})
+
+(def ^:private error-node
+  "Terminal — no outgoing transitions."
+  {})
 
 (def lifecycle-machine
   "The lifecycle machine. Per Spec 005's machine grammar.
@@ -118,24 +148,11 @@
   {:doc      "re-frame2-story lifecycle machine."
    :initial  :pre-mount
    :data     {}
-   :states
-   {:pre-mount
-    {:on {:rf.story.lifecycle/mount            :mounting
-          :rf.story.lifecycle/errored          :error}}
-
-    :mounting
-    {:on {:rf.story.lifecycle/loaders-started  :loading
-          :rf.story.lifecycle/errored          :error}}
-
-    :loading
-    {:on {:rf.story.lifecycle/loaders-complete :ready
-          :rf.story.lifecycle/errored          :error}}
-
-    :ready
-    {:on {:rf.story.lifecycle/errored          :error}}
-
-    :error
-    {}}})
+   :states   {:pre-mount pre-mount-node
+              :mounting  mounting-node
+              :loading   loading-node
+              :ready     ready-node
+              :error     error-node}})
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -255,13 +272,23 @@
         (assoc db :rf.story/lifecycle state)))))
 
 ;; ---- public driver helpers -----------------------------------------------
+;;
+;; Each helper is a thin wrapper around `dispatch-lifecycle-event!` that
+;; pins the inner event-id. Per-name fns (rather than a single
+;; `transition!`) keep the call sites greppable for each lifecycle
+;; phase.
 
-(defn mount!         [frame-id] (dispatch-lifecycle-event! frame-id [event-mount]))
-(defn start-loaders! [frame-id] (dispatch-lifecycle-event! frame-id [event-loaders-started]))
-(defn finish-loaders! [frame-id] (dispatch-lifecycle-event! frame-id [event-loaders-complete]))
-(defn finish-events! [frame-id] (dispatch-lifecycle-event! frame-id [event-events-complete]))
-(defn error!         [frame-id err]
-  (dispatch-lifecycle-event! frame-id [event-errored err]))
+(defn- transition!
+  "Drive the lifecycle machine for `frame-id` via the canonical inner
+  event vector `[event-id & args]`. Returns the post-transition state."
+  [frame-id event-id & args]
+  (dispatch-lifecycle-event! frame-id (into [event-id] args)))
+
+(defn mount!          [frame-id]     (transition! frame-id event-mount))
+(defn start-loaders!  [frame-id]     (transition! frame-id event-loaders-started))
+(defn finish-loaders! [frame-id]     (transition! frame-id event-loaders-complete))
+(defn finish-events!  [frame-id]     (transition! frame-id event-events-complete))
+(defn error!          [frame-id err] (transition! frame-id event-errored err))
 
 ;; ---- loaders-complete-when evaluation -----------------------------------
 
