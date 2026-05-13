@@ -518,7 +518,12 @@
 
               :else
               (try
-                (let [id (story/reg-variant* vk body-v)]
+                ;; Stamp `:origin :story-mcp` per
+                ;; spec/Cross-Cutting-Designs.md §5 — every write
+                ;; surface tags its writes so post-mortem queries can
+                ;; identify which actor produced the registration.
+                (let [stamped (assoc body-v :origin config/origin)
+                      id      (story/reg-variant* vk stamped)]
                   (let [payload {:variant-id id :registered? true}]
                     (text-result (pr-edn payload) payload)))
                 (catch Throwable e
@@ -663,8 +668,14 @@
                   ;; captured :play body. We preserve the source variant's
                   ;; existing body keys (so :component, :args, :decorators
                   ;; survive) and overwrite :play with the captured events.
+                  ;; Stamp `:origin :story-mcp` per
+                  ;; spec/Cross-Cutting-Designs.md §5 — the write-back
+                  ;; produces a new variant body, and the origin tag
+                  ;; identifies the MCP write surface as its producer.
                   (try
-                    (let [new-body (assoc body :play events)
+                    (let [new-body (-> body
+                                       (assoc :play events)
+                                       (assoc :origin config/origin))
                           id       (story/reg-variant* target-vid new-body)
                           payload  (assoc base-payload
                                           :written-back?   true
