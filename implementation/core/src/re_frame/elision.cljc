@@ -31,6 +31,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
+            [re-frame.privacy :as privacy]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
@@ -423,11 +424,13 @@
 
 (def ^:private redacted-sentinel
   "The `:rf/redacted` privacy sentinel emitted by the walker for slots
-   matching the `:sensitive?` predicate. Per [009 §Privacy / sensitive
-   data in traces] — the existing surface; the walker is the single
-   normative emission site (rf2-isdwf wires the per-event `:sensitive?`
-   stamping that this walker consults)."
-  :rf/redacted)
+   matching the `:sensitive?` predicate. Re-exported from
+   `re-frame.privacy/redacted-sentinel` per rf2-iwqu9 so the in-handler
+   `with-redacted` interceptor and this wire-walker emit the same value
+   from a single source of truth. Per [009 §Privacy / sensitive data
+   in traces] — privacy owns the policy locus; the walker remains the
+   single normative emission site for the elision pathway."
+  privacy/redacted-sentinel)
 
 (defn- sensitive-decl?
   "Per-path `:sensitive?` predicate. Today the registry doesn't carry

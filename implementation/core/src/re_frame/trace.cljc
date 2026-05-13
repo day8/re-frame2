@@ -73,34 +73,28 @@
        :id           id
        :source-coord coord})))
 
-(defn sensitive?-from-meta
-  "True iff `meta` carries `:sensitive? true`. Used at queue-time
-  `:event/dispatched` emit, before the handler-scope binding exists.
-  Per Spec 009 §Privacy / sensitive data in traces."
-  [meta]
-  (true? (:sensitive? meta)))
-
 (defn no-emit?-from-meta
   "True iff `meta` carries `:rf.trace/no-emit? true`. Used at queue-time
   `:event/dispatched` emit, before the handler-scope binding exists.
-  Per Spec 009 §Trace-emission opt-out."
+  Per Spec 009 §Trace-emission opt-out.
+
+  Sibling reader for `:sensitive?` lives in `re-frame.privacy`
+  (`privacy/sensitive?-from-meta`) per rf2-iwqu9 — privacy owns the
+  policy-locus; trace owns the emit-locus."
   [meta]
   (true? (:rf.trace/no-emit? meta)))
-
-(defn sensitive?
-  "Predicate: is `trace-event`'s top-level `:sensitive?` field truthy?
-  The framework-published predicate every trace consumer gates on.
-  Per Spec 009 §Privacy / sensitive data in traces."
-  [trace-event]
-  (and (map? trace-event)
-       (true? (:sensitive? trace-event))))
 
 (defn handler-scope-from-meta
   "Build a HandlerScope from a registrar slot's `meta` for a handler
   about to execute. Computes the three meta-derived slots
   (`:trigger-handler` / `:sensitive?` / `:no-emit?`); leaves
   `:call-site` and `:dispatch-id` nil — `with-handler-scope` fills
-  them from the parent scope on bind. Per Spec 009 §Handler-scope."
+  them from the parent scope on bind. Per Spec 009 §Handler-scope.
+
+  The `:sensitive?` reading is inlined here to avoid a require cycle
+  with `re-frame.privacy` (privacy requires trace). The same boolean
+  shape is exposed as `re-frame.privacy/sensitive?-from-meta` for
+  every other consumer (router / event-emit) per rf2-iwqu9."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil

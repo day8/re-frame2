@@ -26,7 +26,7 @@
   classpath); story-mcp / causa-mcp are JVM-side and DO have the
   framework primitive available. The predicate itself
   (`(and (map? ev) (true? (:sensitive? ev)))`) is conservative and
-  identical to `re-frame.trace/sensitive?`; per the spec the runtime
+  identical to `re-frame.privacy/sensitive?`; per the spec the runtime
   always stamps the literal boolean. Consumers that want to bind to
   the framework primitive (story-mcp does, for code-review locality)
   alias the surface in their own ns and delegate through here.")

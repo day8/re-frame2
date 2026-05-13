@@ -23,7 +23,7 @@
   - Composition with walker: stamped event flows through
     `elide-wire-value` and the sensitive-drop wins.
   - `trace-buffer {:sensitive? false}` filter excludes sensitive events.
-  - `trace/sensitive?` predicate returns true on top-level-stamped events.
+  - `privacy/sensitive?` predicate returns true on top-level-stamped events.
 
   JVM-only — the dynamic-var binding mechanism is platform-agnostic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -499,9 +499,11 @@
     (is (false? (rf/sensitive? {:tags {:sensitive? true}}))
         "nested :sensitive? inside :tags does NOT count — only the
          top-level field per Spec 009 line 1175"))
-  (testing "rf/sensitive? and re-frame.trace/sensitive? are the same fn
-   — re-frame.core re-exports from re-frame.trace via (def ...) (rf2-sqxjn)"
-    (is (identical? rf/sensitive? trace/sensitive?))))
+  (testing "rf/sensitive? and re-frame.privacy/sensitive? are the same fn
+   — re-frame.core re-exports from re-frame.privacy via (def ...)
+   (rf2-iwqu9 — moved from re-frame.trace, which retains no
+   sensitive? predicate; trace is the emit site, privacy the policy site)"
+    (is (identical? rf/sensitive? privacy/sensitive?))))
 
 ;; ---- composition with wire-elision walker --------------------------------
 

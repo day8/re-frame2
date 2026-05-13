@@ -554,7 +554,7 @@
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 
 (def with-redacted        privacy/with-redacted)
-(def sensitive?           trace/sensitive?)
+(def sensitive?           privacy/sensitive?)
 (def validate-at-boundary spec/validate-at-boundary)
 
 (def register-trace-cb!  trace/register-trace-cb!)

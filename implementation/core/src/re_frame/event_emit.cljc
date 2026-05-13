@@ -27,6 +27,7 @@
   (:require [re-frame.elision       :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.late-bind     :as late-bind]
+            [re-frame.privacy       :as privacy]
             [re-frame.registrar     :as registrar]))
 
 ;; ---- listener registry ----------------------------------------------------
@@ -79,7 +80,7 @@
   [event event-id frame time outcome elapsed-ms]
   (when (seq @listeners)
     (let [handler-meta (registrar/lookup :event event-id)]
-      (when-not (or (:sensitive?        handler-meta)
+      (when-not (or (privacy/sensitive?-from-meta handler-meta)
                     (:rf.trace/no-emit? handler-meta))
         (let [elided-event (elision/elide-wire-value event {:frame frame})
               record       {:event      elided-event

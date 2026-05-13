@@ -1,31 +1,45 @@
 (ns re-frame.privacy
-  "Per Spec 009 §Privacy / sensitive data in traces (lines 1149-1268,
-  resolved by rf2-a32kd; runtime implementation rf2-isdwf).
+  "Single policy locus for re-frame privacy / sensitive data / redaction
+  per Spec 009 §Privacy / sensitive data in traces (lines 1149-1268,
+  resolved by rf2-a32kd; runtime implementation rf2-isdwf; ns
+  consolidation rf2-iwqu9).
 
-  Two cooperating pieces:
+  This ns owns:
 
-  1. **Registration-time `:sensitive?` metadata key.** A boolean flag
-     on the `:rf/registration-metadata` map for any `reg-*` kind. The
-     registrar copies it onto the registry slot's stored meta; the
-     runtime hoists `:sensitive? true` to the top level of every trace
-     event emitted within the handler's execution scope. The plumbing
-     for the runtime stamp lives in `re-frame.trace` (the `:sensitive?`
-     slot of the `*handler-scope*` record, bound at every handler-scope
-     binding site per rf2-ryri7).
+  - **`redacted-sentinel`** — the single `:rf/redacted` sentinel; both
+    `with-redacted` (in-handler payload scrub) and
+    `re-frame.elision/elide-wire-value` (wire-walker substitution for
+    `:sensitive?` paths) emit this same value, sourced from here.
 
-  2. **`with-redacted` interceptor.** A positional interceptor that
-     overwrites named keys in the event payload with the sentinel
-     keyword `:rf/redacted` before the handler chain runs. The
-     handler body itself sees the UNREDACTED payload via the regular
-     `:event` coeffect slot (handlers need the real value to do their
-     work). The redaction is for the trace surface — every downstream
-     emit that copies the event vector (`:event/dispatched` already
-     fired by the time the interceptor `:before` runs, but the
-     handler's `:rf.trace/trigger-handler` cofx view of the event,
-     the `:event/db-changed` `:tags :app-db-before` / `:app-db-after`
-     when the corresponding paths exist in app-db, and any
-     `:rf.error/handler-exception` `:tags :event` slot the runtime
-     emits for a throw from this handler) picks up the redacted form.
+  - **Registration-meta readers**: `sensitive?-from-meta` reads the
+    boolean `:sensitive?` flag off a registrar slot's stored meta.
+    Every site that needs to know whether a not-yet-bound handler is
+    sensitive (the queue-time `:event/dispatched` emit in router, the
+    always-on event-emit listener fan-out, the handler-scope binding
+    in trace) reads through this single helper.
+
+  - **Public predicate**: `sensitive?` — does this trace event carry
+    a top-level `:sensitive? true` field? The filter-out reader every
+    off-box listener gates on.
+
+  - **`with-redacted` interceptor**: positional interceptor that
+    overwrites named keys in the event payload with `:rf/redacted`
+    before the handler chain runs. The handler body itself sees the
+    UNREDACTED payload via the regular `:event` coeffect slot; the
+    redaction is for the trace surface — every downstream emit that
+    copies the event vector (the handler's `:rf.trace/trigger-handler`
+    cofx view of the event, the `:event/db-changed` `:tags :app-db-before`
+    / `:app-db-after` slots when the corresponding paths exist in
+    app-db, and any `:rf.error/handler-exception` `:tags :event` slot
+    the runtime emits for a throw from this handler) picks up the
+    redacted form.
+
+  - **Registration-time warning**: `:rf.warning/sensitive-without-redaction`
+    fires when a registration declares `:sensitive? true` but the
+    positional interceptor chain has no `with-redacted` and the
+    registration metadata carries no `:no-redaction-needed?` opt-out.
+    One emit per `(kind, id)` pair (cached); the cache is reset on
+    every fresh registration cycle so re-declarations after fix re-fire.
 
   Composition: a handler carrying both `:sensitive? true` in its
   metadata-map AND `[(with-redacted [...])]` in its positional
@@ -35,12 +49,11 @@
   the in-place scrub. The conservative recommended pattern for new
   sensitive handlers is to declare both.
 
-  Registration-time warning: `:rf.warning/sensitive-without-redaction`
-  fires when a registration declares `:sensitive? true` but the
-  positional interceptor chain has no `with-redacted` and the
-  registration metadata carries no `:no-redaction-needed?` opt-out.
-  One emit per `(kind, id)` pair (cached); the cache is reset on
-  every fresh registration cycle so re-declarations after fix re-fire."
+  Architectural separation: **trace is the emission site, privacy is
+  the policy site.** `re-frame.trace` consults privacy when assembling
+  the `*handler-scope*` record (for the per-event `:sensitive?` hoist),
+  and `re-frame.elision` re-exports the sentinel from here so the
+  wire-walker and `with-redacted` emit the same value."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
@@ -53,10 +66,43 @@
   produce it as a payload value. Consumers wanting \"was this redacted?\"
   check `(= :rf/redacted v)`.
 
-  Mirrors the sentinel emitted by `re-frame.elision/elide-wire-value`
-  for sensitive-value substitution — same wire shape, two emit sites
-  (in-handler redaction here, wire-walker substitution there)."
+  Single source of truth: `with-redacted` (this ns) and the elision
+  wire-walker (`re-frame.elision/elide-wire-value`) both substitute
+  this same value; the walker re-exports through `(def redacted-sentinel
+  privacy/redacted-sentinel)` rather than declaring a duplicate."
   :rf/redacted)
+
+;; ---- registration-meta readers -------------------------------------------
+;;
+;; Single policy reading for the boolean `:sensitive?` flag on a registrar
+;; slot's stored meta. Three call sites consult this helper:
+;;   - `re-frame.router/emit-dispatched-trace!` — queue-time, before the
+;;     handler-scope binding exists.
+;;   - `re-frame.event-emit/dispatch-on-event!` — always-on event-emit
+;;     fan-out drops sensitive records before fan-out.
+;;   - `re-frame.trace/handler-scope-from-meta` — binds the
+;;     `*handler-scope*` `:sensitive?` slot for per-event hoist.
+;;
+;; Per Spec 009 §Privacy / sensitive data in traces — the meta-key shape
+;; is normative; this is its single reader.
+
+(defn sensitive?-from-meta
+  "True iff `meta` (a registrar slot's stored meta map) carries
+  `:sensitive? true`. Returns false on nil, missing key, or
+  non-boolean. Per Spec 009 §Privacy / sensitive data in traces."
+  [meta]
+  (true? (:sensitive? meta)))
+
+;; ---- public predicate ----------------------------------------------------
+
+(defn sensitive?
+  "Predicate: is `trace-event`'s top-level `:sensitive?` field truthy?
+  The framework-published predicate every trace consumer gates on.
+  Re-exported as `re-frame.core/sensitive?`. Per Spec 009 §Privacy /
+  sensitive data in traces."
+  [trace-event]
+  (and (map? trace-event)
+       (true? (:sensitive? trace-event))))
 
 ;; ---- helpers --------------------------------------------------------------
 
