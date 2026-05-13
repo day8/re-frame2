@@ -63,9 +63,10 @@
   (:require [cljs.reader]
             [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.story.config :as config]
-            [re-frame.story.recorder :as recorder]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.config         :as config]
+            [re-frame.story.recorder       :as recorder]
+            [re-frame.story.review-dialog  :as review-dialog]
+            [re-frame.story.ui.state       :as state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Reagent mirror of the recorder state
@@ -182,52 +183,9 @@
                  :display      "flex"
                  :align-items  "center"
                  :gap          "8px"}
-   :modal-back  {:position "fixed"
-                 :top "0" :left "0" :right "0" :bottom "0"
-                 :background "rgba(0,0,0,0.55)"
-                 :z-index 1700
-                 :display "flex"
-                 :align-items "center"
-                 :justify-content "center"}
-   :modal       {:width        "640px"
-                 :max-width    "90vw"
-                 :max-height   "80vh"
-                 :background   "#1e1e1e"
-                 :color        "#ddd"
-                 :border       "1px solid #444"
-                 :border-radius "6px"
-                 :padding      "16px"
-                 :font-family  "monospace"
-                 :font-size    "12px"
-                 :display      "flex"
-                 :flex-direction "column"
-                 :gap          "12px"
-                 :box-shadow   "0 12px 32px rgba(0,0,0,0.7)"
-                 :overflow     "hidden"}
-   :modal-title {:font-weight "bold"
-                 :color "#9cdcfe"
-                 :font-size "13px"}
-   :id-input    {:padding "6px 8px"
-                 :background "#252526"
-                 :color "white"
-                 :border "1px solid #444"
-                 :border-radius "3px"
-                 :font-family "monospace"
-                 :font-size "12px"
-                 :width "100%"
-                 :box-sizing "border-box"}
-   :snippet     {:background "#0e0e10"
-                 :color "#dcdcaa"
-                 :padding "10px"
-                 :border "1px solid #333"
-                 :border-radius "4px"
-                 :white-space "pre"
-                 :overflow "auto"
-                 :max-height "44vh"
-                 :font-family "monospace"
-                 :font-size "11px"
-                 :line-height "1.45"
-                 :flex "1 1 auto"}
+   ;; Modal styling for the save-as-variant dialog moved to
+   ;; `re-frame.story.review-dialog` (rf2-7jpky); only the chip /
+   ;; overlay / picker styles remain here.
    :btn-row     {:display "flex"
                  :gap "8px"
                  :justify-content "flex-end"}
@@ -334,8 +292,13 @@
                  :line-height "1.4"}})
 
 ;; ---------------------------------------------------------------------------
-;; Modal state — a single flag for whether the save-as-variant dialog
-;; is open + a draft variant id the user types into.
+;; Modal state — driven by `re-frame.story.review-dialog`. The shared
+;; dialog state map carries `:open?` / `:draft-id` / `:source-id` /
+;; `:context`; the recorder's flow stashes the recorded source
+;; variant id in `:source-id` and reads the captured `:events` off
+;; `@ui-state` at render time (the recorder atom is the source of
+;; truth for events; the dialog is just the review-then-commit
+;; surface).
 ;;
 ;; The dialog opens automatically when the user STOPS recording and
 ;; there are captured events; it can also be reopened from the toolbar
@@ -343,44 +306,21 @@
 ;; only — re-open is a v1.1 polish).
 ;; ---------------------------------------------------------------------------
 
-(defonce ui-dialog
-  (r/atom {:open? false
-           :draft-id nil}))
+(def ^:const default-id-prefix
+  "Per-flow prefix for the auto-derived default new-variant id."
+  "recorded")
 
-(defn- default-variant-id
-  "Derive a sensible default id for the new variant. Uses the recorded
-  variant's namespace + '/recorded-N' where N is a wall-clock-derived
-  short suffix so multiple recordings against the same variant don't
-  clobber each other."
-  [source-variant-id]
-  (when (and source-variant-id (qualified-keyword? source-variant-id))
-    (let [suffix (-> (.now js/Date)
-                     (mod 1000000)
-                     str)]
-      (keyword (namespace source-variant-id)
-               (str "recorded-" suffix)))))
+(defonce ui-dialog
+  (review-dialog/make-dialog-atom))
 
 (defn- open-dialog! [source-variant-id]
-  (swap! ui-dialog assoc
-         :open? true
-         :draft-id (default-variant-id source-variant-id)))
+  (review-dialog/swap-open-now! ui-dialog source-variant-id nil default-id-prefix))
 
 (defn- close-dialog! []
-  (swap! ui-dialog assoc :open? false))
+  (review-dialog/swap-close! ui-dialog))
 
 (defn- set-draft-id! [s]
-  (let [k (try
-            (let [stripped (cond-> s
-                             (and (string? s)
-                                  (re-find #"^:" s))
-                             (subs 1))]
-              (when (and (string? stripped) (seq stripped))
-                (if (re-find #"/" stripped)
-                  (let [[ns nm] (str/split stripped #"/" 2)]
-                    (keyword ns nm))
-                  (keyword stripped))))
-            (catch :default _ nil))]
-    (swap! ui-dialog assoc :draft-id (or k s))))
+  (review-dialog/swap-parse-and-set-draft-id! ui-dialog s))
 
 ;; ---------------------------------------------------------------------------
 ;; Toolbar chip + overlay components
@@ -649,14 +589,8 @@
         "stop"]])))
 
 ;; ---------------------------------------------------------------------------
-;; Save-as-variant dialog
+;; Save-as-variant dialog — delegated to `re-frame.story.review-dialog`
 ;; ---------------------------------------------------------------------------
-
-(defn- copy-to-clipboard! [snippet]
-  (try
-    (when (and (exists? js/navigator) (.-clipboard js/navigator))
-      (.writeText (.-clipboard js/navigator) snippet))
-    (catch :default _ nil)))
 
 (defn save-dialog
   "Modal dialog rendered after the user stops a non-empty recording.
@@ -666,53 +600,27 @@
   The user edits the variant id inline; the snippet re-generates on
   every keystroke. Discard / close drop the captured events."
   []
-  (let [{:keys [open? draft-id]}      @ui-dialog
-        {:keys [variant-id events]}   @ui-state]
-    (when open?
-      (let [snippet (recorder/gen-play-snippet
-                      events
-                      {:variant-id (or draft-id :story.recorded/example)
-                       :extends    variant-id})]
-        [:div {:style (:modal-back styles)
-               :data-test "story-recorder-dialog"
-               :on-click  (fn [e]
-                            (when (= (.-target e) (.-currentTarget e))
-                              (close-dialog!)))}
-         [:div {:style (:modal styles)
-                :on-click (fn [e] (.stopPropagation e))}
-          [:div {:style (:modal-title styles)}
-           "Test Codegen — save recording as variant"]
-          [:div {:style (:hint styles)}
-           "EDN snippet generated from "
-           (count events) " captured event"
-           (when (not= 1 (count events)) "s")
-           " against " (pr-str variant-id) ". Edit the variant id then "
-           "copy + paste into your stories namespace."]
-          [:input
-           {:type       "text"
-            :style      (:id-input styles)
-            :data-test  "story-recorder-id-input"
-            :default-value (pr-str (or draft-id :story.recorded/example))
-            :on-change  (fn [e] (set-draft-id! (.. e -target -value)))
-            :placeholder ":story.your-story/recorded-flow"}]
-          [:pre {:style (:snippet styles)
-                 :data-test "story-recorder-snippet"}
-           snippet]
-          [:div {:style (:btn-row styles)}
-           [:button
-            {:style    (:btn-muted styles)
-             :data-test "story-recorder-discard"
-             :on-click (fn [_]
-                         (recorder/clear!)
-                         (close-dialog!))}
-            "discard"]
-           [:button
-            {:style     (:btn styles)
-             :data-test "story-recorder-copy"
-             :on-click  (fn [_] (copy-to-clipboard! snippet))}
-            "copy to clipboard"]
-           [:button
-            {:style    (:btn-muted styles)
-             :data-test "story-recorder-close"
-             :on-click (fn [_] (close-dialog!))}
-            "close"]]]]))))
+  (let [dialog                    @ui-dialog
+        {:keys [variant-id events]} @ui-state]
+    (when (:open? dialog)
+      (let [draft-id (:draft-id dialog)
+            snippet  (recorder/gen-play-snippet
+                       events
+                       {:variant-id (or draft-id :story.recorded/example)
+                        :extends    variant-id})]
+        (review-dialog/review-dialog dialog
+          {:title             "Test Codegen — save recording as variant"
+           :hint              (str "EDN snippet generated from "
+                                   (count events) " captured event"
+                                   (when (not= 1 (count events)) "s")
+                                   " against " (pr-str variant-id)
+                                   ". Edit the variant id then "
+                                   "copy + paste into your stories namespace.")
+           :snippet           snippet
+           :placeholder-id    :story.recorded/example
+           :placeholder-input ":story.your-story/recorded-flow"
+           :on-edit-id        set-draft-id!
+           :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
+           :on-discard        (fn [] (recorder/clear!) (close-dialog!))
+           :on-close          close-dialog!
+           :data-test-prefix  "story-recorder"})))))

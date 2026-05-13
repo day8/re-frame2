@@ -27,22 +27,22 @@
   CLJS builds short-circuit before any DOM call. The UI-callback wiring
   via `install!` is the only impure registration the ns owns; idempotent
   on re-mount."
-  (:require [clojure.string :as str]
-            [reagent.core :as r]
-            [re-frame.story.config       :as config]
-            [re-frame.story.save-variant :as save-variant]
-            [re-frame.story.ui.state     :as state]))
+  (:require [reagent.core :as r]
+            [re-frame.story.config        :as config]
+            [re-frame.story.review-dialog :as review-dialog]
+            [re-frame.story.save-variant  :as save-variant]))
 
 ;; ---------------------------------------------------------------------------
-;; Dialog ratom — the impure mirror of `save-variant/initial-dialog-state`.
+;; Dialog ratom — the impure mirror of `review-dialog/initial-state`.
 ;;
-;; The pure transitions in `save-variant` produce new state maps; the
-;; UI swaps the ratom around them so Reagent re-renders the modal on
-;; every keystroke.
+;; The pure transitions in `re-frame.story.review-dialog` +
+;; `re-frame.story.save-variant` produce new state maps; the UI swaps
+;; the ratom around them so Reagent re-renders the modal on every
+;; keystroke.
 ;; ---------------------------------------------------------------------------
 
 (defonce ui-dialog
-  (r/atom save-variant/initial-dialog-state))
+  (r/atom review-dialog/initial-state))
 
 (defn- open-dialog!
   "Open the dialog against `source-variant-id` with the captured
@@ -54,18 +54,7 @@
   (swap! ui-dialog save-variant/close))
 
 (defn- set-draft-id! [s]
-  (let [k (try
-            (let [stripped (cond-> s
-                             (and (string? s)
-                                  (re-find #"^:" s))
-                             (subs 1))]
-              (when (and (string? stripped) (seq stripped))
-                (if (re-find #"/" stripped)
-                  (let [[ns nm] (str/split stripped #"/" 2)]
-                    (keyword ns nm))
-                  (keyword stripped))))
-            (catch :default _ nil))]
-    (swap! ui-dialog save-variant/set-draft-id (or k s))))
+  (review-dialog/swap-parse-and-set-draft-id! ui-dialog s))
 
 ;; ---------------------------------------------------------------------------
 ;; Install — register the CLJS open-callback against the pure ns so
@@ -82,20 +71,22 @@
     nil))
 
 ;; ---------------------------------------------------------------------------
-;; Styling — mirrors the recorder's dialog so the two save-as flows
-;; (record-as-:play + snapshot-as-:args) share visual language.
+;; Button styling — the controls-panel-local affordance. The modal
+;; itself reuses `re-frame.story.review-dialog`'s shared styles so the
+;; two save-as flows (record-as-:play + snapshot-as-:args) share
+;; visual language.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private styles
-  {:button       {:padding         "4px 8px"
-                  :background      "#0e639c"
-                  :color           "white"
-                  :border          "none"
-                  :border-radius   "3px"
-                  :cursor          "pointer"
-                  :font-size       "10px"
-                  :margin-top      "8px"
-                  :font-family     "monospace"}
+(def ^:private button-styles
+  {:button          {:padding       "4px 8px"
+                     :background    "#0e639c"
+                     :color         "white"
+                     :border        "none"
+                     :border-radius "3px"
+                     :cursor        "pointer"
+                     :font-size     "10px"
+                     :margin-top    "8px"
+                     :font-family   "monospace"}
    :button-disabled {:padding       "4px 8px"
                      :background    "#2d2d30"
                      :color         "#777"
@@ -104,75 +95,7 @@
                      :cursor        "not-allowed"
                      :font-size     "10px"
                      :margin-top    "8px"
-                     :font-family   "monospace"}
-   :modal-back   {:position "fixed"
-                  :top "0" :left "0" :right "0" :bottom "0"
-                  :background "rgba(0,0,0,0.55)"
-                  :z-index 1700
-                  :display "flex"
-                  :align-items "center"
-                  :justify-content "center"}
-   :modal        {:width        "640px"
-                  :max-width    "90vw"
-                  :max-height   "80vh"
-                  :background   "#1e1e1e"
-                  :color        "#ddd"
-                  :border       "1px solid #444"
-                  :border-radius "6px"
-                  :padding      "16px"
-                  :font-family  "monospace"
-                  :font-size    "12px"
-                  :display      "flex"
-                  :flex-direction "column"
-                  :gap          "12px"
-                  :box-shadow   "0 12px 32px rgba(0,0,0,0.7)"
-                  :overflow     "hidden"}
-   :modal-title  {:font-weight "bold"
-                  :color "#9cdcfe"
-                  :font-size "13px"}
-   :id-input     {:padding "6px 8px"
-                  :background "#252526"
-                  :color "white"
-                  :border "1px solid #444"
-                  :border-radius "3px"
-                  :font-family "monospace"
-                  :font-size "12px"
-                  :width "100%"
-                  :box-sizing "border-box"}
-   :snippet      {:background "#0e0e10"
-                  :color "#dcdcaa"
-                  :padding "10px"
-                  :border "1px solid #333"
-                  :border-radius "4px"
-                  :white-space "pre"
-                  :overflow "auto"
-                  :max-height "44vh"
-                  :font-family "monospace"
-                  :font-size "11px"
-                  :line-height "1.45"
-                  :flex "1 1 auto"}
-   :btn-row      {:display "flex"
-                  :gap "8px"
-                  :justify-content "flex-end"}
-   :btn          {:padding "5px 12px"
-                  :background "#0e639c"
-                  :color "white"
-                  :border "none"
-                  :border-radius "3px"
-                  :cursor "pointer"
-                  :font-family "monospace"
-                  :font-size "11px"}
-   :btn-muted    {:padding "5px 12px"
-                  :background "transparent"
-                  :color "#cccccc"
-                  :border "1px solid #444"
-                  :border-radius "3px"
-                  :cursor "pointer"
-                  :font-family "monospace"
-                  :font-size "11px"}
-   :hint         {:color "#9a9a9a"
-                  :font-style "italic"
-                  :font-size "10px"}})
+                     :font-family   "monospace"}})
 
 ;; ---------------------------------------------------------------------------
 ;; Controls-panel button
@@ -193,8 +116,8 @@
   (let [enabled? (some? variant-id)]
     [:button
      {:style     (if enabled?
-                   (:button styles)
-                   (:button-disabled styles))
+                   (:button button-styles)
+                   (:button-disabled button-styles))
       :disabled  (not enabled?)
       :data-test "story-save-variant-button"
       :title     (if enabled?
@@ -207,18 +130,12 @@
      "save as new variant…"]))
 
 ;; ---------------------------------------------------------------------------
-;; Modal dialog — review-then-commit
+;; Modal dialog — delegated to `re-frame.story.review-dialog`
 ;;
 ;; The user reviews the generated EDN snippet, edits the new variant id
 ;; inline, copies to clipboard, and pastes into source. Source is never
 ;; written directly — same as the recorder's save-as-variant dialog.
 ;; ---------------------------------------------------------------------------
-
-(defn- copy-to-clipboard! [snippet]
-  (try
-    (when (and (exists? js/navigator) (.-clipboard js/navigator))
-      (.writeText (.-clipboard js/navigator) snippet))
-    (catch :default _ nil)))
 
 (defn save-dialog
   "Render the save-variant modal. Visible iff `:open?` is true on the
@@ -229,44 +146,23 @@
   Public so tests can render the dialog hiccup directly after seeding
   the dialog ratom."
   []
-  (let [{:keys [open? draft-id source-id args]} @ui-dialog]
-    (when open?
-      (let [snippet (save-variant/gen-variant-snippet
+  (let [dialog @ui-dialog]
+    (when (:open? dialog)
+      (let [{:keys [draft-id source-id args]} dialog
+            snippet (save-variant/gen-variant-snippet
                       {:variant-id (or draft-id :story.saved/example)
                        :extends    source-id
                        :args       args})]
-        [:div {:style (:modal-back styles)
-               :data-test "story-save-variant-dialog"
-               :on-click  (fn [e]
-                            (when (= (.-target e) (.-currentTarget e))
-                              (close-dialog!)))}
-         [:div {:style (:modal styles)
-                :on-click (fn [e] (.stopPropagation e))}
-          [:div {:style (:modal-title styles)}
-           "Save current canvas state as new variant"]
-          [:div {:style (:hint styles)}
-           "Args snapshot captured from "
-           (pr-str source-id)
-           " — edit the new variant id and copy + paste into your "
-           "stories namespace. Source is never written directly."]
-          [:input
-           {:type          "text"
-            :style         (:id-input styles)
-            :data-test     "story-save-variant-id-input"
-            :default-value (pr-str (or draft-id :story.saved/example))
-            :on-change     (fn [e] (set-draft-id! (.. e -target -value)))
-            :placeholder   ":story.your-story/saved-flow"}]
-          [:pre {:style     (:snippet styles)
-                 :data-test "story-save-variant-snippet"}
-           snippet]
-          [:div {:style (:btn-row styles)}
-           [:button
-            {:style     (:btn styles)
-             :data-test "story-save-variant-copy"
-             :on-click  (fn [_] (copy-to-clipboard! snippet))}
-            "copy to clipboard"]
-           [:button
-            {:style    (:btn-muted styles)
-             :data-test "story-save-variant-close"
-             :on-click (fn [_] (close-dialog!))}
-            "close"]]]]))))
+        (review-dialog/review-dialog dialog
+          {:title             "Save current canvas state as new variant"
+           :hint              (str "Args snapshot captured from "
+                                   (pr-str source-id)
+                                   " — edit the new variant id and copy + paste into your "
+                                   "stories namespace. Source is never written directly.")
+           :snippet           snippet
+           :placeholder-id    :story.saved/example
+           :placeholder-input ":story.your-story/saved-flow"
+           :on-edit-id        set-draft-id!
+           :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
+           :on-close          close-dialog!
+           :data-test-prefix  "story-save-variant"})))))
