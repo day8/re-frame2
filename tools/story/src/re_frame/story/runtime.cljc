@@ -91,14 +91,27 @@
   collects `:rf.error/handler-exception` events targeting `variant-id`'s
   frame. After the body returns, walks the captured errors and records
   each as a phase-tagged assertion via `record-error!`. Returns `body-fn`'s
-  return value."
+  return value.
+
+  Per Spec 009 §Privacy + rf2-bclgj: handler-exception trace events
+  whose `:sensitive?` flag is true are dropped from the capture set
+  when the global `:trace/show-sensitive?` flag is false (the
+  default). A counter bump is recorded so the UI's redaction hint
+  can surface 'N sensitive events suppressed'. Sensitive cascades
+  fail silently to the developer's eye on purpose — opt in via
+  `(story/configure! {:trace/show-sensitive? true})` to surface them
+  in the assertions list while debugging redaction policy."
   [variant-id phase body-fn]
   (let [collected (atom [])
         cb-id     (keyword "re-frame.story.runtime"
                            (str "capture-" (swap! capture-counter inc)))
         listener  (fn [ev]
-                    (when (and (= :rf.error/handler-exception (:operation ev))
-                               (= variant-id (get-in ev [:tags :frame])))
+                    (cond
+                      (config/suppress-sensitive? ev)
+                      (config/note-suppressed! (get-in ev [:tags :frame]))
+
+                      (and (= :rf.error/handler-exception (:operation ev))
+                           (= variant-id (get-in ev [:tags :frame])))
                       (swap! collected conj ev)))]
     (trace/register-trace-cb! cb-id listener)
     (try

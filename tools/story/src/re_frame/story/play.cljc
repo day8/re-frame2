@@ -109,28 +109,39 @@
 
   Listener executes INSIDE the running dispatch drain, so it never
   re-enters dispatch-sync — it stores side-effects in atoms and lets
-  the play-runner drain them between events."
+  the play-runner drain them between events.
+
+  Per Spec 009 §Privacy + rf2-bclgj: events whose `:sensitive?` flag
+  is true are dropped before any accumulator updates when the global
+  `:trace/show-sensitive?` flag is false (the default). The
+  suppressed-events counter bumps for the targeted frame so the UI
+  can surface a `[● REDACTED]` hint."
   [frame-id]
   (fn [ev]
     (when (= frame-id (frame-of ev))
-      (case (:op-type ev)
-        :warning      (assertions/record-warning! frame-id ev)
-        :error        (do (assertions/record-warning! frame-id ev)
-                          (when (= :rf.error/handler-exception (:operation ev))
-                            (record-pending-exception! frame-id ev)))
-        :event        (when (= :event/dispatched (:operation ev))
-                        (let [event-vec (get-in ev [:tags :event])]
-                          (when (and event-vec
-                                     (not (assertions/assertion-event? event-vec)))
-                            (assertions/record-dispatched! frame-id event-vec))))
-        :event/do-fx  (let [fx-map (get-in ev [:tags :fx])]
-                        (when (map? fx-map)
-                          (doseq [fx-id (keys fx-map)]
-                            (assertions/record-emitted-fx! frame-id fx-id))))
-        :fx           (let [fx-id (get-in ev [:tags :fx-id])]
-                        (when fx-id
-                          (assertions/record-emitted-fx! frame-id fx-id)))
-        nil))))
+      (cond
+        (config/suppress-sensitive? ev)
+        (config/note-suppressed! frame-id)
+
+        :else
+        (case (:op-type ev)
+          :warning      (assertions/record-warning! frame-id ev)
+          :error        (do (assertions/record-warning! frame-id ev)
+                            (when (= :rf.error/handler-exception (:operation ev))
+                              (record-pending-exception! frame-id ev)))
+          :event        (when (= :event/dispatched (:operation ev))
+                          (let [event-vec (get-in ev [:tags :event])]
+                            (when (and event-vec
+                                       (not (assertions/assertion-event? event-vec)))
+                              (assertions/record-dispatched! frame-id event-vec))))
+          :event/do-fx  (let [fx-map (get-in ev [:tags :fx])]
+                          (when (map? fx-map)
+                            (doseq [fx-id (keys fx-map)]
+                              (assertions/record-emitted-fx! frame-id fx-id))))
+          :fx           (let [fx-id (get-in ev [:tags :fx-id])]
+                          (when fx-id
+                            (assertions/record-emitted-fx! frame-id fx-id)))
+          nil)))))
 
 (defn- drain-pending-exceptions!
   "Append any pending exception trace events from `frame-id` as
