@@ -81,6 +81,10 @@
    {:key         :schemas/validate-cofx!
     :producer-ns 're-frame.schemas
     :description "Validate a cofx map against the registered cofx schema."}
+   {:key         :schemas/validate-fx!
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-xp2o3"
+    :description "Validate an fx-handler's args against the registered fx schema (Spec 010 step 5)."}
    {:key         :schemas/validate-sub-return!
     :producer-ns 're-frame.schemas
     :description "Validate a subscription's return value against its schema."}

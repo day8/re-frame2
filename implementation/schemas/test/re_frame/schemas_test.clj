@@ -29,6 +29,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.flows :as flows]
             [re-frame.interop :as interop]
@@ -277,6 +278,161 @@
                                 (:operation %))
                             @traces))
             "no schema-validation-failure trace fires for a conforming cofx")))))
+
+;; ---- rf2-xp2o3 — fx-args validation (Spec 010 step 5) --------------------
+
+(deftest fx-args-validation-fires-and-skips-only-the-offending-fx
+  (testing "Per Spec 010 §step 5 (rf2-xp2o3): an fx whose args fail its :spec
+            emits :rf.error/schema-validation-failure :where :fx-args; the
+            offending fx is skipped, sibling fx in the same :fx vector
+            continue to run (recovery: :skipped)"
+    (let [bad-fx-calls  (atom 0)
+          good-fx-calls (atom 0)]
+      (rf/reg-fx :my/notify
+        {:spec [:map [:level :keyword] [:message :string]]}
+        (fn [_ctx _args] (swap! bad-fx-calls inc)))
+      (rf/reg-fx :my/log
+        (fn [_ctx _args] (swap! good-fx-calls inc)))
+      (rf/reg-event-fx :ui/announce
+        (fn [_ _]
+          {:fx [[:my/notify {:level "error"          ;; bad: needs keyword
+                             :message "boom"}]
+                [:my/log    "anything"]]}))           ;; sibling — must still run
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::fxv (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:ui/announce])
+        (rf/remove-trace-cb! ::fxv)
+        (is (= 0 @bad-fx-calls)
+            "the offending fx handler was skipped — its body did NOT run")
+        (is (= 1 @good-fx-calls)
+            "the sibling fx in the same :fx vector still ran (cascade continues)")
+        (let [violations (filter #(= :rf.error/schema-validation-failure
+                                     (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations)))
+          (let [v (first violations)]
+            (is (= :fx-args (-> v :tags :where)))
+            (is (= :my/notify (-> v :tags :failing-id)))
+            (is (= :my/notify (-> v :tags :fx-id)))
+            (is (= :my/notify (-> v :tags :spec-id)))
+            (is (= :ui/announce (-> v :tags :event-id))
+                "the originating event-id threads through to the fx-args trace")
+            (is (= :skipped (:recovery v))
+                "fx-args failure recovery is :skipped per Spec 010 row 5")))
+        (let [handled (filter #(= :rf.fx/handled (:operation %)) @traces)]
+          (is (= 1 (count handled))
+              ":rf.fx/handled fires only for the sibling that actually ran"))))))
+
+(deftest fx-args-validation-passes-when-conforming
+  (testing "well-typed fx args flow through to the fx handler — no trace, handler runs"
+    (let [calls (atom 0)
+          seen (atom nil)]
+      (rf/reg-fx :my/email
+        {:spec [:map [:to :string]]}
+        (fn [_ctx args]
+          (swap! calls inc)
+          (reset! seen args)))
+      (rf/reg-event-fx :user/welcome
+        (fn [_ _]
+          {:fx [[:my/email {:to "alice@example.com"}]]}))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::fxv2 (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:user/welcome])
+        (rf/remove-trace-cb! ::fxv2)
+        (is (= 1 @calls) "fx handler ran exactly once")
+        (is (= {:to "alice@example.com"} @seen) "fx handler saw the well-typed args")
+        (is (empty? (filter #(= :rf.error/schema-validation-failure
+                                (:operation %))
+                            @traces))
+            "no schema-validation-failure trace fires for a conforming fx-args")))))
+
+(deftest fx-args-validation-elides-when-debug-disabled
+  (testing "validate-fx! is a no-op when debug-enabled? is false (production)"
+    (let [calls (atom 0)]
+      (rf/reg-fx :strict/fx
+        {:spec [:map [:x :int]]}
+        (fn [_ctx _args] (swap! calls inc)))
+      (rf/reg-event-fx :strict/trigger
+        (fn [_ _]
+          {:fx [[:strict/fx {:x "not-an-int"}]]}))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::fxv3 (fn [ev] (swap! traces conj ev)))
+        (with-redefs [interop/debug-enabled? false]
+          (rf/dispatch-sync [:strict/trigger]))
+        (rf/remove-trace-cb! ::fxv3)
+        (is (empty? (filter #(= :rf.error/schema-validation-failure
+                                (:operation %))
+                            @traces))
+            "no validation trace when debug-enabled? is false")
+        (is (= 1 @calls)
+            "fx handler runs anyway — production validation is elided")))))
+
+(deftest fx-args-validation-direct-call-shape
+  (testing "validate-fx! returns true on pass, false on fail; emits the canonical
+            :where :fx-args trace with the locked tag shape"
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::fxv4 (fn [ev] (swap! traces conj ev)))
+      ;; Direct call — exercises the validate-fx! fn itself, not the integration.
+      (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {:spec [:map [:x :int]]}))
+          "well-typed args pass")
+      (is (false? (schemas/validate-fx! :my/fx :ev/origin {:x "bad"} {:spec [:map [:x :int]]}))
+          "malformed args fail")
+      (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {}))
+          "no :spec → soft pass")
+      (rf/remove-trace-cb! ::fxv4)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 1 (count violations)))
+        (let [v (first violations)]
+          (is (= :fx-args   (-> v :tags :where)))
+          (is (= :my/fx     (-> v :tags :fx-id)))
+          (is (= :my/fx     (-> v :tags :failing-id)))
+          (is (= :my/fx     (-> v :tags :spec-id)))
+          (is (= :ev/origin (-> v :tags :event-id)))
+          (is (= {:x "bad"} (-> v :tags :fx-args)))
+          (is (= {:x "bad"} (-> v :tags :value)))
+          (is (= {:x "bad"} (-> v :tags :received)))
+          (is (= :skipped   (:recovery v))))))))
+
+(deftest fx-args-validation-redacts-when-sensitive
+  (testing "validate-fx! consults `:sensitive?` on the fx-meta AND on the schema
+            tree; on redaction it scrubs `:value`/`:received`/`:explain`/
+            `:malli-error`/`:fx-args` and stamps `:sensitive? true`"
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::fxv5 (fn [ev] (swap! traces conj ev)))
+      (is (false? (schemas/validate-fx! :my/secret
+                                        :ev/origin
+                                        {:token 42}
+                                        {:spec [:map [:token :string]]
+                                         :sensitive? true})))
+      (rf/remove-trace-cb! ::fxv5)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 1 (count violations)))
+        (let [v (first violations)]
+          ;; `:sensitive?` is hoisted from `:tags` to the top-level per
+          ;; Spec 009 §Trace-event field `:sensitive?` (rf2-isdwf).
+          (is (true? (:sensitive? v))
+              "top-level :sensitive? stamp consumers filter on")
+          (is (= :rf/redacted (-> v :tags :value)))
+          (is (= :rf/redacted (-> v :tags :received)))
+          (is (= :rf/redacted (-> v :tags :fx-args)))
+          (is (= :rf/redacted (-> v :tags :explain)))
+          (is (= :rf/redacted (-> v :tags :malli-error)))
+          ;; Non-redacted slots survive redaction.
+          (is (= :my/secret (-> v :tags :fx-id)))
+          (is (= :my/secret (-> v :tags :failing-id)))
+          (is (= :fx-args   (-> v :tags :where))))))))
+
+(deftest fx-args-validation-late-bind-hook-published
+  (testing "the :schemas/validate-fx! late-bind hook IS published — the
+            schemas artefact's contract surface includes this fn alongside
+            the four siblings"
+    (let [resolved (re-frame.late-bind/get-fn :schemas/validate-fx!)]
+      (is (some? resolved) "hook resolves to a fn when schemas is loaded")
+      (is (= schemas/validate-fx! resolved) "hook points at the public fn"))))
 
 ;; ---- error projector → :rf/public-error mapping --------------------------
 

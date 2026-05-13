@@ -68,6 +68,7 @@
   (schemas/validate-app-db! {:user {:name 42}}    :probe/event)
   (schemas/validate-event!  :probe/event [:probe/event 1] {:spec :int})
   (schemas/validate-cofx!   :probe/cofx :probe/event {} {:spec :map})
+  (schemas/validate-fx!     :probe/fx :probe/event {} {:spec :map})
   (schemas/validate-sub-return! :probe/sub [:probe/sub] :foo {:spec :keyword}))
 
 ;; ---- registrar trace emit -------------------------------------------------

@@ -1115,6 +1115,74 @@
       true)
     true))
 
+(defn validate-fx!
+  "Per Spec 010 §Validation order step 5 — before an fx handler runs,
+  validate its args against any :spec on the fx's metadata.
+
+  Returns true on pass, false on fail. Failures emit
+  :rf.error/schema-validation-failure with :where :fx-args; per Spec 010
+  §Per-step recovery row 5 the caller is responsible for skipping the
+  offending fx only (recovery: :skipped) — sibling fx in the same `:fx`
+  vector continue to run, and downstream queued events still drain.
+
+  Per Spec 010 §`:sensitive?` privacy: redaction triggers when either
+  the fx's registration meta carries `:sensitive? true` or the schema
+  itself declares a `:sensitive?` slot anywhere in its tree. The
+  failing args value, the schema explanation, and the doubled `:value`
+  / `:received` slots are all redacted in the emitted tags.
+
+  Per Spec 009 §Production builds the entire body lives inside a
+  `(when interop/debug-enabled? ...)` gate so :advanced+goog.DEBUG=false
+  DCE-elides every reason string, every keyword, and every validator
+  call. Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
+  pluggable; when none is registered this fn returns true."
+  [fx-id event-id args fx-meta]
+  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
+  ;; DCE-elides the entire body. The `@validator-fn` deref must live
+  ;; INSIDE the gate (atom deref is not a compile-time constant).
+  (if interop/debug-enabled?
+    (if @validator-fn
+      (if-let [schema (:spec fx-meta)]
+        (if (run-validator schema args)
+          true
+          (let [explanation (run-explainer schema args)
+                ;; Per Spec 010 §`:sensitive?` — privacy in
+                ;; schema-validation error traces (rf2-kj51z).
+                ;; Fx-meta or container-level schema-prop both
+                ;; trigger redaction.
+                sensitive? (or (meta-sensitive? fx-meta)
+                               (schema-has-sensitive? schema))
+                base-tags  (cond-> {:where       :fx-args
+                                    :fx-id       fx-id
+                                    :fx-args     args
+                                    :failing-id  fx-id
+                                    :spec-id     fx-id
+                                    :received    args
+                                    :value       args
+                                    :malli-error explanation
+                                    :explain     explanation
+                                    :reason      (str "Effect " fx-id
+                                                      " args failed schema "
+                                                      schema ", got "
+                                                      (type-of-value args) ".")
+                                    :recovery    :skipped}
+                             event-id (assoc :event-id event-id))
+                ;; When the fx args themselves are redacted, the
+                ;; doubled `:fx-args` slot must also be scrubbed —
+                ;; redact-tags handles `:value`/`:received`/`:explain`/
+                ;; `:malli-error`; explicitly clear `:fx-args` here so
+                ;; the redaction is symmetric with the cofx/event
+                ;; surfaces.
+                tags       (if sensitive?
+                             (assoc (redact-tags base-tags)
+                                    :fx-args redacted-sentinel)
+                             base-tags)]
+            (trace/emit-error! :rf.error/schema-validation-failure tags)
+            false))
+        true)
+      true)
+    true))
+
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
 ;;
 ;; The boundary-validation interceptor (`re-frame.spec/validate-at-boundary`,
@@ -1177,6 +1245,7 @@
 (late-bind/set-fn! :schemas/validate-event!      validate-event!)
 (late-bind/set-fn! :schemas/validate-sub-return! validate-sub-return!)
 (late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)
+(late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
 (late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)
 
 ;; Boundary-validation seam (rf2-r2uh integration).
