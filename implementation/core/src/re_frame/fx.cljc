@@ -26,7 +26,8 @@
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace
+             #?@(:cljs [:include-macros true])]))
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -203,13 +204,13 @@
   trace stream.
 
   Per rf2-lf84g: when called inside the fx-handler's
-  `*current-trigger-handler*` binding (the user-registered fx branch),
-  `emit!` hoists the fx handler's registration coord onto the emitted
-  event's `:rf.trace/trigger-handler` slot — so consumers can jump to
-  the fx's `reg-fx` site from the success trace. Reserved fx-id calls
+  `*handler-scope*` binding (the user-registered fx branch), `emit!`
+  hoists the fx handler's registration coord onto the emitted event's
+  `:rf.trace/trigger-handler` slot — so consumers can jump to the fx's
+  `reg-fx` site from the success trace. Reserved fx-id calls
   (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`)
   emit outside any fx-handler binding; the outer event handler's
-  binding (if any) stamps the event handler's coord instead, which is
+  scope (if any) stamps the event handler's coord instead, which is
   the right attribution for those — they don't have their own
   registration site."
   [fx-id args frame-id]
@@ -319,36 +320,24 @@
           ;; NOT emit a sibling warning (the schema-validation-failure
           ;; trace IS the warning, per Spec 010).
           nil
-          ;; Per rf2-3nn8 (error path) and rf2-lf84g (success path): bind
-          ;; `*current-trigger-handler*` for the duration of the fx
-          ;; handler's invocation AND for the success-path `:rf.fx/handled`
-          ;; emit that follows. Error traces emitted from inside the fx
-          ;; body (`:rf.error/fx-handler-exception` here and anything the
-          ;; body itself surfaces) carry the fx handler's source-coord;
-          ;; the success-path `:rf.fx/handled` emit picks up the same
-          ;; coord through `emit!`'s hoist of `*current-trigger-handler*`
-          ;; (the outer event handler's binding would otherwise stamp the
-          ;; event handler's coord onto the `:rf.fx/handled` event, which
-          ;; is not what consumers want — Story/Causa want jump-to-source
-          ;; to land on the fx handler's `reg-fx` site, not the event
-          ;; handler that produced the fx vector).
-          ;; Per rf2-isdwf: bind `*current-sensitive?*` to the fx
-          ;; handler's reading so any trace event emitted inside the
-          ;; fx body's scope (including the success `:rf.fx/handled`
-          ;; emit) carries the fx-handler-level sensitivity flag.
-          ;; Per Spec 009 §Privacy "innermost in-scope handler's flag
-          ;; wins" rule: when an event handler is sensitive but the fx
-          ;; handler it dispatches to is not, the `:rf.fx/handled`
-          ;; trace event reflects the FX handler's reading.
-          ;; Per rf2-qsjda: bind `*current-no-emit?*` to the fx
-          ;; handler's reading so the "innermost in-scope handler
-          ;; wins" rule applies to trace-emission opt-out too.
-          (binding [trace/*current-trigger-handler*
-                    (trace/trigger-handler-from-meta :fx fx-id meta)
-                    trace/*current-sensitive?*
-                    (trace/sensitive?-from-meta meta)
-                    trace/*current-no-emit?*
-                    (trace/no-emit?-from-meta meta)]
+          ;; Per rf2-ryri7: publish the fx handler's HandlerScope —
+          ;; `:trigger-handler` (rf2-3nn8 / rf2-lf84g) for the fx
+          ;; handler's invocation AND for the success-path
+          ;; `:rf.fx/handled` emit that follows; `:sensitive?`
+          ;; (rf2-isdwf) and `:no-emit?` (rf2-qsjda) per the
+          ;; Spec 009 "innermost handler wins" rule. Errors emitted
+          ;; from inside the fx body (`:rf.error/fx-handler-exception`
+          ;; here and anything the body itself surfaces) carry the fx
+          ;; handler's source-coord; the success-path `:rf.fx/handled`
+          ;; emit picks up the same coord through `emit!`'s hoist of
+          ;; `*handler-scope*` — the outer event handler's scope would
+          ;; otherwise stamp the event handler's coord onto the
+          ;; `:rf.fx/handled` event (Story/Causa want jump-to-source to
+          ;; land on the fx handler's `reg-fx` site, not the event
+          ;; handler that produced the fx vector). `:call-site` /
+          ;; `:dispatch-id` are inherited from the outer scope.
+          (trace/with-handler-scope
+            (trace/handler-scope-from-meta :fx fx-id meta)
             (let [ok? (try
                         ((:handler-fn meta) (cond-> {:frame frame-id}
                                               origin-event (assoc :event origin-event))
