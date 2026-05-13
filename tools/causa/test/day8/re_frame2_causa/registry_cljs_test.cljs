@@ -4,7 +4,7 @@
   ## Scope
 
   `registry.cljs` (1818 LoC) is the central registrar for Causa's
-  framework surface — 64 reg-subs + 58 reg-event-(db|fx) + 3 reg-fx,
+  framework surface — 64 reg-subs + 60 reg-event-(db|fx) + 3 reg-fx,
   all under the `:rf.causa/*` namespace, targeting the `:rf/causa`
   frame. Prior to this file the only coverage was *transitive* through
   per-panel view tests (each panel test calls `(registry/reset-for-test!)`
@@ -170,12 +170,14 @@
    :rf.causa/epoch-recorded
    :rf.causa/focus-slice-path
    :rf.causa/hide-invalidation-chain
+   :rf.causa/note-sensitive-suppressed
    :rf.causa/open-in-editor
    :rf.causa/pin-current
    :rf.causa/pin-slice
    :rf.causa/rename-pin
    :rf.causa/reorder-pinned-slices
    :rf.causa/reroot-tree-view
+   :rf.causa/reset-suppressed-counters
    :rf.causa/reset-to-epoch
    :rf.causa/reset-to-pinned
    :rf.causa/select-dispatch-id
@@ -239,9 +241,9 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 64 subs + 58 events + 3 fxs (rf2-5zl7l)"
+  (testing "registry holds exactly 64 subs + 60 events + 3 fxs (rf2-5zl7l; +2 events for rf2-0vxdn)"
     (is (= 64 (count all-sub-names)))
-    (is (= 58 (count all-event-names)))
+    (is (= 60 (count all-event-names)))
     (is (= 3  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
@@ -277,21 +279,27 @@
     (is (= 1 (count (trace-bus/buffer)))
         "the bus holds the pushed event")))
 
-(deftest sub-suppressed-sensitive-count-reads-config
-  (testing ":rf.causa/suppressed-sensitive-count thunks config/suppressed-count
-            — first deref returns 0; the count accessor itself reflects
-            mutations to the process-global counter atom"
+(deftest sub-suppressed-sensitive-count-reads-app-db
+  (testing ":rf.causa/suppressed-sensitive-count reads from Causa's
+            app-db at `:suppressed-counters` (rf2-0vxdn) — first deref
+            returns 0; each `:rf.causa/note-sensitive-suppressed`
+            dispatch re-fires the sub on the standard write path
+            (immediate reactive update, no clear-subscription-cache!
+            workaround required)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (= 0 @(rf/subscribe [:rf.causa/suppressed-sensitive-count])))
-      (config/note-suppressed! :rf/default)
-      (config/note-suppressed! :rf/default)
-      ;; The accessor itself is the contract under test (subs cache on
-      ;; their input-signal, not the underlying atom — the panel reads
-      ;; this slot inside a render cycle that's already driven by
-      ;; another sub re-firing).
-      (is (= 2 (config/suppressed-count))
-          "the config-layer accessor reflects the bumps"))))
+      (is (= 0 @(rf/subscribe [:rf.causa/suppressed-sensitive-count]))
+          "empty :suppressed-counters slot → total of 0")
+      (rf/dispatch-sync [:rf.causa/note-sensitive-suppressed :rf/default])
+      (rf/dispatch-sync [:rf.causa/note-sensitive-suppressed :rf/default])
+      (is (= 2 @(rf/subscribe [:rf.causa/suppressed-sensitive-count]))
+          "two bumps via dispatch → sub returns 2 immediately")
+      (rf/dispatch-sync [:rf.causa/note-sensitive-suppressed :rf/causa])
+      (is (= 3 @(rf/subscribe [:rf.causa/suppressed-sensitive-count]))
+          "different frame bucket bumps the same total")
+      (rf/dispatch-sync [:rf.causa/reset-suppressed-counters])
+      (is (= 0 @(rf/subscribe [:rf.causa/suppressed-sensitive-count]))
+          "reset event drops every bucket"))))
 
 (deftest sub-selected-panel-defaults-to-event-detail
   (testing ":rf.causa/selected-panel falls back to the hero panel"
