@@ -1,11 +1,14 @@
 (ns realworld.routing
   "Routes for the RealWorld (Conduit) example.
 
-   This file owns the route table, an app-specific auth guard, and a local
-   route-link helper view. It uses the current runtime routing surface
-   directly:
+   This file owns the route table and an app-specific auth guard. The
+   anchor view is the framework-shipped `rf/route-link` (registered at
+   `:route/link`); call sites pass `:class` / `:data-testid` through to
+   the underlying `<a>`. The example uses the current runtime routing
+   surface directly:
 
    - `reg-route`
+   - `rf/route-link` (registered view at `:route/link`)
    - `:rf.route/navigate`
    - `:rf.route/handle-url-change`
    - `:rf.route/continue` / `:rf.route/cancel`
@@ -17,8 +20,7 @@
             ;; Requiring re-frame.routing here triggers its load-time
             ;; hook + reg-sub registrations; without it, the rf/reg-route
             ;; calls below throw :rf.error/routing-artefact-missing.
-            [re-frame.routing])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.routing]))
 
 ;; ============================================================================
 ;; ROUTES
@@ -111,37 +113,6 @@
 
 (rf/reg-sub :rf/pending-navigation
   (fn [db _] (:rf/pending-navigation db)))
-
-;; ============================================================================
-;; LINK VIEW
-;; ============================================================================
-
-(reg-view ^{:doc "Anchor helper for the RealWorld example. Uses the runtime's
-                   `:rf/url-requested` event so modifier-key and browser-navigation
-                   semantics stay on the framework path.
-
-                   `:data-testid` (optional) is propagated to the underlying
-                   anchor so Playwright specs can target individual nav
-                   links and article-preview cards by stable id."}
-          route-link [{:keys [to params query fragment class data-testid]} & children]
-  (let [base-url (rf/route-url to (or params {}) (or query {}))
-        url      (str base-url (when fragment (str "#" fragment)))]
-    [:a (cond-> {:href     url
-                 :class    class
-                 :on-click (fn [e]
-                             (when (and (zero? (.-button e))
-                                        (not (.-metaKey e))
-                                        (not (.-ctrlKey e))
-                                        (not (.-shiftKey e)))
-                               (.preventDefault e)
-                               (dispatch [:rf/url-requested
-                                          {:url url
-                                           :to to
-                                           :params params
-                                           :query query
-                                           :fragment fragment}])))}
-          data-testid (assoc :data-testid data-testid))
-     (into [:<>] children)]))
 
 ;; ============================================================================
 ;; ROUTER WIRING

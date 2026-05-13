@@ -9,8 +9,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [realworld.schema :as schema]
-            [realworld.http :as rh]
-            [realworld.routing :as routing])
+            [realworld.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (defn comment-form-defaults []
@@ -296,7 +295,7 @@
     [:div.card {:data-testid (str "comment-card-" (:id comment))}
      [:div.card-block [:p.card-text {:data-testid "comment-body"} (:body comment)]]
      [:div.card-footer
-      [routing/route-link {:to     :route/profile
+      [rf/route-link {:to     :route/profile
                            :params {:username (get-in comment [:author :username])}
                            :class  "comment-author"}
        [:img.comment-author-img {:src (get-in comment [:author :image])}]
@@ -354,7 +353,7 @@
               [:li.tag-default.tag-pill.tag-outline tag])]]]
          [:hr]
          [:div.article-actions
-          [routing/route-link {:to :route/home} "Back to feed"]]
+          [rf/route-link {:to :route/home} "Back to feed"]]
          [:div.row
           [:div.col-xs-12.col-md-8.offset-md-2
            (if current-user
@@ -383,9 +382,9 @@
               (when submit-error
                 [:div.error-messages submit-error])]
              [:p
-              [routing/route-link {:to :route/login} "Sign in"]
+              [rf/route-link {:to :route/login} "Sign in"]
               " or "
-              [routing/route-link {:to :route/register} "sign up"]
+              [rf/route-link {:to :route/register} "sign up"]
               " to add comments."])
            (when comments-error
              [:div.article-preview.error

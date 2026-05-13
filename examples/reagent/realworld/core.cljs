@@ -95,20 +95,20 @@
         user    @(subscribe [:auth/user])]
     [:nav.navbar.navbar-light
      [:div.container
-      [routing/route-link {:to :route/home :class "navbar-brand"} "conduit"]
+      [rf/route-link {:to :route/home :class "navbar-brand"} "conduit"]
       [:ul.nav.navbar-nav.pull-xs-right
        [:li.nav-item
-        [routing/route-link {:to :route/home :class "nav-link"} "Home"]]
+        [rf/route-link {:to :route/home :class "nav-link"} "Home"]]
        (if authed?
          [:<>
           [:li.nav-item
-           [routing/route-link {:to :route/editor :class "nav-link"}
+           [rf/route-link {:to :route/editor :class "nav-link"}
             [:i.ion-compose] " New Article"]]
           [:li.nav-item
-           [routing/route-link {:to :route/settings :class "nav-link"}
+           [rf/route-link {:to :route/settings :class "nav-link"}
             [:i.ion-gear-a] " Settings"]]
           [:li.nav-item
-           [routing/route-link {:to :route/profile
+           [rf/route-link {:to :route/profile
                                 :params {:username (:username user)}
                                 :class "nav-link"
                                 :data-testid "nav-username"}
@@ -121,12 +121,12 @@
             "Logout"]]]
          [:<>
           [:li.nav-item
-           [routing/route-link {:to :route/login
+           [rf/route-link {:to :route/login
                                 :class "nav-link"
                                 :data-testid "nav-signin"}
             "Sign in"]]
           [:li.nav-item
-           [routing/route-link {:to :route/register
+           [rf/route-link {:to :route/register
                                 :class "nav-link"
                                 :data-testid "nav-signup"}
             "Sign up"]]])]]]))
@@ -134,7 +134,7 @@
 (reg-view footer []
   [:footer
    [:div.container
-    [routing/route-link {:to :route/home :class "logo-font"} "conduit"]
+    [rf/route-link {:to :route/home :class "logo-font"} "conduit"]
     [:span.attribution "An interactive learning project from Thinkster."
      " Code & design licensed under MIT."]]])
 
@@ -155,7 +155,7 @@
     [:div.not-found-page
      [:h1 "Page not found"]
      (when url [:p (str "No route matches: " url)])
-     [routing/route-link {:to :route/home} "Home"]]))
+     [rf/route-link {:to :route/home} "Home"]]))
 
 (reg-view ^{:doc "App-level root. Switches on :rf.route/id to render the active page."}
           root-view []

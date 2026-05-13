@@ -33,7 +33,6 @@
             [re-frame.machines]
             [realworld.schema :as schema]
             [realworld.http :as rh]
-            [realworld.routing :as routing]
             [realworld.articles :as articles])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -406,7 +405,7 @@
          [:h4 (:username profile)]
          [:p (:bio profile)]
          (if own?
-           [routing/route-link {:to :route/settings
+           [rf/route-link {:to :route/settings
                                 :class "btn btn-sm btn-outline-secondary action-btn"}
             [:i.ion-gear-a] " Edit Profile Settings"]
            [:button.btn.btn-sm.btn-outline-secondary.action-btn
@@ -422,12 +421,12 @@
         [:div.articles-toggle
          [:ul.nav.nav-pills.outline-active
           [:li.nav-item
-           [routing/route-link {:to     :route/profile
+           [rf/route-link {:to     :route/profile
                                 :params {:username (:username profile)}
                                 :class  (str "nav-link" (when-not on-favs? " active"))}
             "My Articles"]]
           [:li.nav-item
-           [routing/route-link {:to     :route/profile.favorites
+           [rf/route-link {:to     :route/profile.favorites
                                 :params {:username (:username profile)}
                                 :class  (str "nav-link" (when on-favs? " active"))}
             "Favorited Articles"]]]]

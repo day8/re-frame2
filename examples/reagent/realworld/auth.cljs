@@ -18,8 +18,7 @@
             ;; sub resolve.
             [re-frame.machines]
             [realworld.schema :as schema]
-            [realworld.http :as rh]
-            [realworld.routing :as routing])
+            [realworld.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -315,7 +314,7 @@
         err         @(subscribe [:auth/error])]
     [:div.auth-page {:data-testid "login-page"}
      [:h1 "Sign in"]
-     [routing/route-link {:to :route/register} "Need an account?"]
+     [rf/route-link {:to :route/register} "Need an account?"]
      (when err [:ul.error-messages [:li err]])
      [:form
       {:data-testid "login-form"
@@ -349,7 +348,7 @@
         err         @(subscribe [:auth/error])]
     [:div.auth-page
      [:h1 "Sign up"]
-     [routing/route-link {:to :route/login} "Have an account?"]
+     [rf/route-link {:to :route/login} "Have an account?"]
      (when err [:ul.error-messages [:li err]])
      [:form
       {:on-submit (fn [e]
