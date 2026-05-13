@@ -8,6 +8,7 @@
   something to read."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
+            [re-frame.story.recorder :as recorder]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
@@ -23,6 +24,9 @@
   (story/clear-all!)
   (story/install-canonical-vocabulary!)
   (config/set-allow-writes! false)
+  ;; Recorder atom is per-process — clear between tests so a previous
+  ;; test's captured events don't bleed in.
+  (recorder/clear!)
   ;; Fixture story + variant.
   (story/reg-story :story.button
     {:doc       "A clickable button."
@@ -100,7 +104,8 @@
       (is (contains? names "read-failures"))
       ;; Write
       (is (contains? names "register-variant"))
-      (is (contains? names "unregister-variant")))))
+      (is (contains? names "unregister-variant"))
+      (is (contains? names "record-as-variant")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dev tools
@@ -314,6 +319,123 @@
     (is (success? r))
     (is (true? (-> r :structuredContent :unregistered?)))
     (is (nil? (story/variant->edn :story.button/primary)))))
+
+;; ---------------------------------------------------------------------------
+;; record-as-variant (rf2-luhdu)
+;;
+;; The recorder normally captures events off the trace bus; for these tests
+;; we drive `recorder/record-event!` directly during the tool's blocking
+;; window via a worker thread so the assertions exercise the start →
+;; capture → snippet plumbing without needing a live trace emitter.
+;; ---------------------------------------------------------------------------
+
+(defn- drive-events-during-recording
+  "Helper: spawn a worker thread that, after a short delay (to ensure the
+  tool has called `start-recording!`), pushes `events` into the recorder
+  one at a time. The tool's `:duration-ms` must outlast the delay."
+  [events ^long delay-ms]
+  (doto (Thread.
+          ^Runnable
+          (fn []
+            (Thread/sleep delay-ms)
+            (doseq [ev events]
+              (recorder/record-event! ev))))
+    (.setDaemon true)
+    (.start)))
+
+(deftest record-as-variant-not-found
+  (testing "unknown source variant ⇒ tool-execution error"
+    (let [r (invoke "record-as-variant" {:variant-id "story.nope/missing"})]
+      (is (error? r))
+      (is (re-find #"not found" (-> r :content first :text))))))
+
+(deftest record-as-variant-missing-arg
+  (testing "missing :variant-id ⇒ tool-execution error"
+    (let [r (invoke "record-as-variant" {})]
+      (is (error? r))
+      (is (re-find #"variant-id" (-> r :content first :text))))))
+
+(deftest record-as-variant-zero-duration-empty-capture
+  (testing "duration 0 with no in-flight dispatches ⇒ empty :play snippet"
+    (let [r (invoke "record-as-variant" {:variant-id "story.button/primary"})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= :story.button/primary (:variant-id s)))
+      (is (= 0 (:recorded-event-count s)))
+      (is (false? (:written-back? s)))
+      (is (string? (:play-snippet s)))
+      (is (re-find #":play \[\]" (:play-snippet s)))
+      (is (re-find #":story\.button/primary" (:play-snippet s))))))
+
+(deftest record-as-variant-captures-events-during-window
+  (testing "events pushed during the blocking window land in :captured"
+    (drive-events-during-recording [[:counter/inc] [:counter/by 7]] 20)
+    (let [r (invoke "record-as-variant"
+                    {:variant-id  "story.button/primary"
+                     :duration-ms 100})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= 2 (:recorded-event-count s)))
+      (is (= [[:counter/inc] [:counter/by 7]] (:captured s)))
+      (is (re-find #":counter/inc" (:play-snippet s)))
+      (is (re-find #":counter/by 7" (:play-snippet s))))))
+
+(deftest record-as-variant-write-back-gated-by-default
+  (testing "write-back? true with allow-writes? false ⇒ gated error"
+    (is (false? (config/writes-allowed?)))
+    (let [r (invoke "record-as-variant" {:variant-id  "story.button/primary"
+                                         :write-back? true})]
+      (is (error? r))
+      (is (re-find #"Write surface disabled" (-> r :content first :text)))
+      (is (true? (-> r :structuredContent :gated))))))
+
+(deftest record-as-variant-write-back-overwrites-source
+  (testing "write-back? true with gate open re-registers the source variant"
+    (config/set-allow-writes! true)
+    (drive-events-during-recording [[:counter/inc] [:counter/inc]] 20)
+    (let [r (invoke "record-as-variant"
+                    {:variant-id  "story.button/primary"
+                     :duration-ms 100
+                     :write-back? true})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (true? (:written-back? s)))
+      (is (= :story.button/primary (:new-variant-id s)))
+      ;; Source variant's :play slot now carries the captured events.
+      (is (= [[:counter/inc] [:counter/inc]]
+             (:play (story/variant->edn :story.button/primary))))
+      ;; Pre-existing body keys survive (e.g. :doc).
+      (is (= "Primary button." (:doc (story/variant->edn :story.button/primary)))))))
+
+(deftest record-as-variant-write-back-new-id
+  (testing ":new-variant-id lands the capture under a fresh id"
+    (config/set-allow-writes! true)
+    (drive-events-during-recording [[:counter/inc]] 20)
+    (let [r (invoke "record-as-variant"
+                    {:variant-id     "story.button/primary"
+                     :new-variant-id "story.button/recorded"
+                     :duration-ms    100
+                     :write-back?    true})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (true? (:written-back? s)))
+      (is (= :story.button/recorded (:new-variant-id s)))
+      (is (= [[:counter/inc]] (:play (story/variant->edn :story.button/recorded))))
+      ;; Source variant is untouched.
+      (is (nil? (:play (story/variant->edn :story.button/primary)))))))
+
+(deftest record-as-variant-snippet-honours-doc-and-alias
+  (testing ":doc and :alias flow into the rendered snippet"
+    (let [r (invoke "record-as-variant"
+                    {:variant-id "story.button/primary"
+                     :doc        "Recorded counter run."
+                     :alias      "s"})
+          snippet (-> r :structuredContent :play-snippet)]
+      (is (success? r))
+      (is (re-find #"\(s/reg-variant" snippet))
+      (is (re-find #"Recorded counter run\." snippet))
+      ;; Default :extends = source variant id.
+      (is (re-find #":extends :story\.button/primary" snippet)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server dispatcher (initialize, tools/list, tools/call, error paths)
