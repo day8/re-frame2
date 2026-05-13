@@ -57,7 +57,7 @@ taught to call `expand`).
 
 The marker key `:rf.mcp/dedup-table` matches the cross-MCP
 vocabulary declared in
-[causa-mcp `Principles.md` §5](../../causa-mcp/spec/Principles.md) —
+[causa-mcp `004-Wire-Pipeline.md` §5](../../causa-mcp/spec/004-Wire-Pipeline.md) —
 an agent that learned the slot on causa-mcp sees the same slot
 here.
 

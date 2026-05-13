@@ -29,7 +29,7 @@ This test is the conformance gate. It asserts:
 1. **One canonical Malli schema per marker.** The schemas live in
    `wire_vocab_test.clj`, derived from
    [`spec/Spec-Schemas.md` §`:rf/elision-marker`](../../../spec/Spec-Schemas.md),
-   [`tools/causa-mcp/spec/Principles.md` §"5 mechanisms"](../../causa-mcp/spec/Principles.md),
+   [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §"5 mechanisms"](../../causa-mcp/spec/004-Wire-Pipeline.md),
    and [`tools/pair2-mcp/src/.../tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)
    (pair2-mcp's `overflow-payload`, `tree-summary`, `dedup-value`,
    `diff-encode-db-after`).
@@ -87,9 +87,9 @@ actual source/spec text. Two complementary gates; one wire.
 
 causa-mcp's implementation has not landed yet (its `tools/causa-mcp/`
 tree contains `README.md` + `spec/` but no `src/`). The fixtures and
-the spec-grep step against `tools/causa-mcp/spec/Principles.md` cover
-the vocabulary today. When the impl lands, a follow-up bead extends
-this test to:
+the spec-grep step against `tools/causa-mcp/spec/Principles.md` +
+`tools/causa-mcp/spec/004-Wire-Pipeline.md` cover the vocabulary today.
+When the impl lands, a follow-up bead extends this test to:
 
 - Grep `tools/causa-mcp/src/` for the canonical literals.
 - Add live-emission fixtures if their actual emitted shape diverges

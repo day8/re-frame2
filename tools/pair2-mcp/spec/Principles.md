@@ -157,7 +157,7 @@ for the next ten ops.
 
 The discipline rests on **eight normative mechanisms**.
 Mechanisms 1-6 align deliberately with
-[`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
+[`tools/causa-mcp/spec/004-Wire-Pipeline.md`](../../causa-mcp/spec/004-Wire-Pipeline.md)
 §Tight token budget per response so that an agent learning
 the slot on one server gets the same slot on the others;
 mechanisms 7-8 are pair2-mcp-specific (epoch-record diff
@@ -221,7 +221,7 @@ cross-reference.
 ### The wire-boundary cap (enforced, rf2-rvyzy)
 
 Mechanism 1 — the token-budget-cap peer of causa-mcp's
-[Principles §1 Token budget cap](../../causa-mcp/spec/Principles.md).
+[Wire-Pipeline §1 Token budget cap](../../causa-mcp/spec/004-Wire-Pipeline.md).
 Cap, override slot, and overflow-marker reserved key are
 identical cross-server; the marker's internal slot shape
 differs (see callout below).
@@ -269,7 +269,7 @@ internals.
   recognises it once recognises it everywhere.
 
   *Differs from causa-mcp.* causa-mcp's
-  [Principles §1 Token budget cap](../../causa-mcp/spec/Principles.md)
+  [Wire-Pipeline §1 Token budget cap](../../causa-mcp/spec/004-Wire-Pipeline.md)
   documents the marker with slot names `:cap` / `:would-be` /
   `:hint` / `:continuation`; pair2-mcp's implemented shape uses
   `:limit :reached` plus `:token-count` / `:cap-tokens` /
@@ -300,7 +300,7 @@ internals.
 ### Path slicing (rf2-tygdv, generalised in rf2-u2029)
 
 Mechanism 2 — the path-slicing peer of causa-mcp's
-[Principles §2 Path slicing](../../causa-mcp/spec/Principles.md).
+[Wire-Pipeline §2 Path slicing](../../causa-mcp/spec/004-Wire-Pipeline.md).
 Argument name (`:path`), EDN encoding, default-summary
 behaviour, and `:path-not-found` error are identical
 cross-server.
@@ -319,7 +319,7 @@ rich). Out-of-range paths return `:ok? false :reason :path-not-found`
 with the deepest valid prefix attached so the agent can
 re-aim. This is the same slicing convention causa-mcp adopts
 in
-[Principles §2 Path slicing](../../causa-mcp/spec/Principles.md);
+[Wire-Pipeline §2 Path slicing](../../causa-mcp/spec/004-Wire-Pipeline.md);
 an agent that learned the slot on causa-mcp sees the same
 slot here.
 
@@ -340,8 +340,8 @@ agent side.
 
 Covers mechanisms 3 (cursor pagination) and 4 (lazy summary)
 together — the per-tool-shape-discipline peers of causa-mcp's
-[Principles §3 Cursor pagination](../../causa-mcp/spec/Principles.md)
-and [§4 Lazy summary](../../causa-mcp/spec/Principles.md).
+[Wire-Pipeline §3 Cursor pagination](../../causa-mcp/spec/004-Wire-Pipeline.md)
+and [§4 Lazy summary](../../causa-mcp/spec/004-Wire-Pipeline.md).
 `:cursor` / `:limit` slot names, `:mode :summary` default,
 and the `{:rf.mcp/summary {:type ... :keys ... :counts ...
 :bytes ...}}` shape are identical cross-server.
@@ -483,7 +483,7 @@ prefix.
 ### Structural dedup (rf2-obpa9)
 
 Mechanism 5 — the structural-dedup peer of causa-mcp's
-[Principles §5 Structural dedup](../../causa-mcp/spec/Principles.md).
+[Wire-Pipeline §5 Structural dedup](../../causa-mcp/spec/004-Wire-Pipeline.md).
 The wire shape (`:rf.mcp/dedup-table` substitution table) is
 identical; the algorithm
 ([`day8/de-dupe`](https://github.com/day8/de-dupe)) is shared.
@@ -525,7 +525,7 @@ calling `(de-dupe.core/expand cache-map)` — one library call,
 exact round-trip. The marker key
 (`:rf.mcp/dedup-table`) matches the cross-MCP vocabulary
 declared in
-[causa-mcp `Principles.md` §5 Structural dedup](../../causa-mcp/spec/Principles.md);
+[causa-mcp `004-Wire-Pipeline.md` §5 Structural dedup](../../causa-mcp/spec/004-Wire-Pipeline.md);
 an agent that learned the slot on causa-mcp sees the same slot
 here.
 
@@ -582,7 +582,7 @@ blob.
 ### Size-elision wire markers (rf2-urjnc)
 
 Mechanism 6 — the size-elision peer of causa-mcp's
-[Principles §6 Size elision (`:rf.size/large-elided` marker)](../../causa-mcp/spec/Principles.md).
+[Wire-Pipeline §6 Size elision (`:rf.size/large-elided` marker)](../../causa-mcp/spec/004-Wire-Pipeline.md).
 The marker shape (`{:rf.size/large-elided {:path ... :bytes ...
 :type ... :reason ... :hint ... :handle [:rf.elision/at ...]}}`)
 is reserved cross-server per
@@ -703,7 +703,7 @@ edge — the runtime-side queue feeding the `subscribe` tool —
 rather than at the wire boundary itself.
 
 *Differs from causa-mcp.* causa-mcp's
-[Principles §Streaming over batch](../../causa-mcp/spec/Principles.md)
+[Wire-Pipeline §Streaming over batch](../../causa-mcp/spec/004-Wire-Pipeline.md)
 documents `subscribe` as a per-notification cap with the
 upstream-queue model deferred to impl. pair2-mcp ships a
 runtime-side OR-combined event-count + byte budget today; when
