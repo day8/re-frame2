@@ -13,14 +13,14 @@ A server-side render is just *another instance of the app*, running in another r
 Concretely:
 
 1. An HTTP request arrives at the server.
-2. The server creates a frame for this request.
-3. The frame's `:on-create` event fires; setup events dispatch (load user session, fetch initial data, set the route).
+2. The host adapter (e.g. `re-frame.ssr.ring`) creates a frame for this request and binds the request map so handlers can read it via the `:rf.server/request` cofx (see [§The Ring host adapter](#the-ring-host-adapter) and [§Reading the request — the `:rf.server/request` cofx](#reading-the-request--the-rfserverrequest-cofx) below).
+3. The frame's `:on-create` event fires; setup events dispatch (load user session, fetch initial data in parallel via [Pattern-SSR-Loaders](../../spec/Pattern-SSR-Loaders.md), set the route).
 4. The runtime drains. State settles.
 5. The server calls the registered root view fn, gets back a hiccup tree.
 6. The server runs `render-to-string` on the hiccup, producing HTML.
 7. The server ships the HTML *and* the serialised state down to the client.
 8. The client boots, reads the serialised state, dispatches `:rf/hydrate` to seed its own frame, then renders. The client's first render produces the same HTML the server sent.
-9. From there on, the app is interactive.
+9. From there on, the app is interactive. Subsequent form POSTs flow through the same handler tree via [Pattern-FormAction](../../spec/Pattern-FormAction.md).
 
 The crucial fact: **steps 2-5 are running the same handlers and views you've already written**. There's no separate "server code" you maintain in parallel. There's one app. It happens to run twice — once on the server, then again on the client — with a state-shipping handshake in between.
 
@@ -131,7 +131,48 @@ This means **the same event handler works in both contexts**. A login flow's `:a
 
 ## Reference and advanced topics
 
-The sections that follow are per-topic reference material. They're independent of one another — reach for them when the topic comes up. The server-response fxs enumerate the HTTP-response surface the substrate owns. Head/meta is data derived from app-db, like the body. Server errors are sanitised before they reach the response. Per-request frames isolate concurrent requests; routing on the server is the same code as on the client. The constraints section, streaming-SSR scope note, and hosting note close the chapter.
+The sections that follow are per-topic reference material. They're independent of one another — reach for them when the topic comes up. The Ring host adapter is the canonical wiring from a real HTTP server into the SSR runtime; the `:rf.server/request` cofx is the access surface for request data. The server-response fxs enumerate the HTTP-response surface the substrate owns. Pattern-SSR-Loaders and Pattern-FormAction are the standard composition shapes for parallel-fetch and form-POST handling. Head/meta is data derived from app-db, like the body. Server errors are sanitised before they reach the response. Per-request frames isolate concurrent requests; routing on the server is the same code as on the client. The constraints section, streaming-SSR scope note, and hosting note close the chapter.
+
+## The Ring host adapter
+
+The SSR runtime owns the request lifecycle (frame create → drain → response read → frame destroy) and a structured response shape, but it never writes to a network socket. The **host adapter** wires that shape to a real HTTP server. The CLJS reference ships **`re-frame.ssr.ring`** as the canonical adapter for Ring — the standard Clojure HTTP-server abstraction that Pedestal, HttpKit, Reitit-ring, and Jetty all accept.
+
+```clojure
+(require '[ring.adapter.jetty :as jetty]
+         '[re-frame.ssr.ring  :as ssr-ring])
+
+(def handler
+  (ssr-ring/ssr-handler
+    {:on-create  [:rf/server-init]      ;; the Ring request is conj'd as the last arg
+     :root-view  [(rf/view :app/root)]
+     :html-shell my-app/html-shell}))   ;; optional; a sensible default ships
+
+(jetty/run-jetty handler {:port 3000 :join? false})
+```
+
+`ssr-handler` binds `*current-request*` to the Ring request map for the duration of each request (the `:rf.server/request` cofx reads from this binding), calls `make-frame` with `:platform :server`, lets the drain settle synchronously, then reads the response accumulator, renders the root view, materialises structured cookies and headers to wire shape, and destroys the per-request frame in a `finally` block. A redirect short-circuits the body render. The adapter is also available as Ring middleware (`ssr-middleware`) when SSR is one of several handlers in a stack.
+
+Non-Ring hosts (Pedestal-direct, HttpKit native, custom JVM transports) implement the same contract: bind a per-request var the cofx can read, drive the runtime through `make-frame` / `get-response` / `render-to-string`, materialise the resolved response. See [`spec/011-SSR.md §HTTP response contract`](../../spec/011-SSR.md#http-response-contract) for the host-adapter contract surface.
+
+## Reading the request — the `:rf.server/request` cofx
+
+The host adapter binds the request; **`:rf.server/request`** is the cofx event handlers use to read it. It's gated `:platforms #{:server}`, so client dispatches no-op via `:rf.cofx/skipped-on-platform` — the same handler runs on both platforms; the read just returns `nil` on the client.
+
+```clojure
+(rf/reg-event-fx :rf/server-init
+  {:platforms #{:server}}
+  [(rf/inject-cofx :rf.server/request)]
+  (fn [{:keys [db rf.server/request]} _]
+    (let [{:keys [uri request-method headers session]} request]
+      {:db (-> db
+               (assoc :session session)
+               (assoc :route   (parse-url uri)))
+       :fx [[:dispatch [:rf.route/handle-url-change uri]]]})))
+```
+
+The request map carries everything the handler might want: `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params` (set by the host adapter for POSTs), `:session`, `:cookies`. Read the cofx **once**, at `:rf/server-init`; bind the values you need into your loader/action machinery via the spawn-spec or the dispatched event's args. Don't read it from deep inside child machines — that would make those children server-only and break the "same machine for client navigation" property.
+
+The 2-arity form `(inject-cofx :rf.server/request {:uri "/articles" ...})` supplies an explicit value override, useful in tests and conformance harnesses that drive the drain without a host adapter.
 
 ## The server response is more than HTML
 
@@ -269,6 +310,22 @@ The view dispatches on the route id (case-on-`:rf.route/id` at the root, per the
 
 The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. [Chapter 17](17-routing.md) covers all of it. The server-side relevance: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
 
+## Parallel data fetch during drain — Pattern-SSR-Loaders
+
+The example `:rf/server-init` above issues one managed-HTTP request and lets the drain settle. Real pages need *several* independent fetches before render — the product, the related items, the most-recent reviews — and serialising three back-to-back `:rf.http/managed` calls from a single setup event adds their wall-clock costs together. The drain runs to fixed point but it runs in a single thread; the JVM transport blocks the drain on each call.
+
+**[Pattern-SSR-Loaders](../../spec/Pattern-SSR-Loaders.md)** is the canonical fan-out shape: a state-machine spawned at `:on-create` time uses `:invoke-all` (per [chapter 08](08-state-machines.md)) to spawn N HTTP-fetching children in parallel, joins on all-complete, and writes the results into `app-db` from the join's `:entry`. Total wall-clock cost falls to `max(fetch-i) + overhead`. A phase-level `:after` deadline guards against a single fetch hanging the request. The same machine drives client-side navigation-fetch — only the spawn site changes (`:on-create` server-side, the route's `:on-match` client-side); the rest of the handler tree is identical.
+
+This is the SSR-side answer to "how do I write the Next.js `Promise.all([...])` shape in re-frame2." It's a convention, not Spec — the primitives (`:invoke-all`, `:rf.http/managed`, the `:rf.server/request` cofx) are all locked; the Pattern names the composition.
+
+## Form POST handling — Pattern-FormAction
+
+The chapter so far has covered GET requests: the server renders, the client hydrates, the user is now on an interactive page. But SSR apps also have to handle **POSTs** — form submissions, especially in the no-JS / pre-hydration window. A form must work without JavaScript (the server processes the POST and re-renders), and the same submission code path should run client-side once JS hydrates (the client intercepts `:on-submit`, dispatches the same event, no full-page reload).
+
+**[Pattern-FormAction](../../spec/Pattern-FormAction.md)** is the canonical shape. The HTML form renders with `method="POST" action="/<route>"` and a hidden CSRF token; the host adapter parses the POST body and binds it to the request as `:form-params`; `:rf/server-init` routes GET → page loader, POST → action event; the action event-handler validates against the registered schema (per [chapter 04a](04a-schemas.md)) and either emits `[:rf.server/redirect {:status 303 :location ...}]` on success (canonical POST-redirect-GET) or writes structured errors into the form slice and lets the standard re-render show them inline. The view's `:on-submit` interceptor — `(.preventDefault e); (dispatch [:cart/add-item ...])` — is purely additive once JS is alive; the *same* domain event runs in both contexts.
+
+Pattern-FormAction composes with [Pattern-Forms](../../spec/Pattern-Forms.md) (the client-side form-slice convention from [chapter 09](09-forms.md)) and with the [server error projector](../../spec/011-SSR.md#server-error-projection) (which maps schema failures to the 400 public-error shape). A page may use both Patterns — Loaders for the initial GET, FormAction for subsequent POSTs.
+
 ## What you give up
 
 A fully server-side-rendered SPA has constraints:
@@ -291,7 +348,7 @@ This is a deliberate scope decision. Streaming SSR adds complexity (chunked HTTP
 
 ## A note on hosting
 
-re-frame2's CLJS reference uses the JVM for the server side: a Clojure server (Ring, Pedestal, or your choice) calls `handle-request`, which uses re-frame2's pure functions to render. The `app-db` lives in a request-scoped atom; the rendering is JVM-only and synchronous.
+re-frame2's CLJS reference uses the JVM for the server side: a Clojure server (Ring, Pedestal, or your choice) drives [`re-frame.ssr.ring/ssr-handler`](#the-ring-host-adapter), which uses re-frame2's pure functions to render. The `app-db` lives in a request-scoped atom; the rendering is JVM-only and synchronous.
 
 For non-JVM hosts (Bun, Node, Deno), the same pattern applies but the implementation differs — the runtime would compile to JS and run in the host's runtime. Several CLJS projects already do this for Node-flavoured server-side. re-frame2's reference doesn't currently provide a Node-side runtime, but the pattern doesn't preclude it.
 
@@ -302,8 +359,11 @@ For non-Clojure hosts entirely (a TypeScript port of re-frame2), the exact same 
 - SSR is a first-class concern; re-frame2's architecture supports it from day one.
 - The core idea: run the same app on the server, render to a string, ship state to the client, hydrate.
 - Pure handlers + pure subs + serialisable render-tree make this possible structurally.
+- `re-frame.ssr.ring/ssr-handler` is the canonical Ring host adapter — the wiring from a real HTTP server into the SSR runtime.
+- The `:rf.server/request` cofx is the access surface for URL, headers, session, and form-params.
 - `:platforms` metadata gates which fx run server-side.
 - The HTTP response is owned by the substrate — status, headers, cookies, redirects flow through registered server fxs.
+- Pattern-SSR-Loaders is the canonical parallel-fetch shape for the GET path; Pattern-FormAction is the canonical form-POST shape for progressive-enhancement-friendly submissions.
 - Head/meta is data, derived from app-db via a registered head function; head mismatches are detected the same way body mismatches are.
 - Server errors are sanitised before they reach the response — internal detail rides the trace stream, the public projection is a locked four-key shape.
 - Hydration is locked at `:replace-app-db`; opt-in merge is the user's customisation.
