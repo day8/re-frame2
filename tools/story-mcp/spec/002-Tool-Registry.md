@@ -1,6 +1,6 @@
 # Story-MCP — Tool Registry
 
-> The 16 tools the server exposes, across four categories — Dev,
+> The 17 tools the server exposes, across four categories — Dev,
 > Docs, Testing, Write. One section per category, one paragraph per
 > tool. The wire-shape for each tool (input schema, output shape)
 > lives in [`API.md`](API.md); this document is the orientation read.
@@ -131,9 +131,11 @@ last-run state without paying the cost of a fresh `run-variant`.
 
 ## Write — v1.1, dev-only, gated
 
-Two write tools, both gated behind
-`re-frame.story-mcp.config/allow-writes?` per
-[`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md).
+Three write tools. `register-variant` and `unregister-variant` are
+both gated behind `re-frame.story-mcp.config/allow-writes?` per
+[`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md);
+`record-as-variant` is ungated for the recording path and gated only
+when `:write-back?` is set.
 
 ### `register-variant`
 
@@ -145,6 +147,35 @@ string.
 
 Invokes `re-frame.story/unregister! :variant <id>`. Symmetric to
 `register-variant`. Same gate.
+
+### `record-as-variant`
+
+Bridges the recorder primitives (`start-recording!` → `stop-recording!`
+→ `gen-play-snippet`) across the MCP boundary. The agent calls the tool
+naming an existing variant id; the server starts a recording against
+that variant's frame, blocks for `:duration-ms` while the agent (or
+human-in-canvas) drives dispatches, stops the recording, and returns
+the `(reg-variant ...)` snippet `gen-play-snippet` emits.
+
+Filter layers are inherited verbatim from
+`re-frame.story.recorder/recordable-event?` — op-type `:event/dispatched`,
+frame scope match against the recording target, and an internal-namespace
+skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`). The tool
+does not expose a free-form filter knob; the recorder owns that
+contract per
+[`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
+§Test Codegen.
+
+Optional `:write-back?` re-registers the source variant with
+`:play <captured-events>` via `reg-variant*` (preserving the
+existing `:component`, `:args`, `:decorators`, etc.). This branch is
+gated behind the same `allow-writes?` flag as `register-variant`; the
+read-only path (snippet only) needs no gate.
+
+`:new-variant-id` lets the write-back land under a different id (the
+default is to overwrite the source). `:extends` defaults to the source
+variant so the emitted snippet re-uses its `:component` / `:args` /
+`:decorators` rather than duplicating them.
 
 The agent's self-healing loop (write story → run → read failures →
 fix) activates with the write surface; without it the loop is
@@ -177,5 +208,6 @@ Each of these is a deliberate omission:
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   how the Write category gates.
 - [`API.md`](API.md) — per-tool input / output schemas.
+- [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md) §Test Codegen — the recorder primitives `record-as-variant` wraps.
 - [`tools/story/spec/006-MCP-Surface.md`](../../story/spec/006-MCP-Surface.md) —
   Story's side of the read/write primitives.

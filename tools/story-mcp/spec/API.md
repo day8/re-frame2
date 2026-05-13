@@ -200,6 +200,50 @@ Both tools require `:rf.story-mcp/allow-writes?` to be true; see
 **Errors.** `isError: true` when gate is closed; `isError: true`
 when variant is not registered.
 
+### `record-as-variant`
+
+Bridges `re-frame.story`'s recorder primitives (per
+[`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
+§Test Codegen) across the MCP boundary.
+
+**Input.**
+
+```clojure
+{:variant-id     keyword (required)
+ :duration-ms    integer (optional, default 0)    ; ms to block between start and stop
+ :new-variant-id keyword (optional)                ; defaults to :variant-id
+ :doc            string  (optional)                ; embedded in snippet
+ :extends        keyword (optional)                ; defaults to :variant-id
+ :alias          string  (optional, default "story")
+ :write-back?    boolean (optional, default false) ; re-register with :play <captured>
+}
+```
+
+**Output.**
+
+```clojure
+{:variant-id           keyword           ; the source variant id
+ :play-snippet         string            ; (reg-variant ...) form, read-string-able
+ :recorded-event-count integer
+ :duration-ms          integer           ; actual ms blocked
+ :captured             [event-vec]       ; the recorded event vectors
+ :written-back?        boolean
+ :new-variant-id       keyword (when :written-back? is true)}
+```
+
+**Errors.**
+- `isError: true` when the source `:variant-id` is not registered.
+- `isError: true` when `:write-back?` is true but the gate is closed
+  (`{:gated true}` in `structuredContent`).
+- `isError: true` when the write-back `reg-variant*` call fails (shape
+  validation, unresolved `:extends`, etc.).
+
+Filter layers (op-type `:event/dispatched`, frame scope, internal-ns
+skip) are inherited from the recorder; this tool does not expose a
+free-form filter knob.
+
+**Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Write.
+
 ## Protocol-level methods
 
 Not tools per se, but documented here for completeness:
@@ -221,7 +265,7 @@ Full wire details in
 - [`000-Vision.md`](000-Vision.md) — what this jar is for.
 - [`001-Wire-Protocol.md`](001-Wire-Protocol.md) — JSON-RPC envelope
   + framing.
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 16 tools in
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 17 tools in
   prose.
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   write-gate behaviour.

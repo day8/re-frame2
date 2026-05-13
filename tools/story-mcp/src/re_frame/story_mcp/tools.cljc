@@ -539,6 +539,145 @@
               (text-result (pr-edn payload) payload)))))))
 
 ;; ---------------------------------------------------------------------------
+;; record-as-variant — the recorder's MCP surface (rf2-luhdu)
+;;
+;; Wraps `re-frame.story`'s recorder primitives (start-recording! →
+;; sleep for :duration-ms → stop-recording! → gen-play-snippet) per
+;; tools/story/spec/005-SOTA-Features.md §Test Codegen "MCP wiring".
+;;
+;; This tool's job is the cross-process bridge: an agent calls it and
+;; gets back the `(reg-variant ...)` snippet for whatever the canvas
+;; dispatched during the recording window. The recorder itself does the
+;; filter work (op-type :event/dispatched, frame scope, internal-ns
+;; suppression) — see `re-frame.story.recorder/recordable-event?`.
+;;
+;; Optional `:write-back?` re-registers the source variant with the
+;; captured `:play` slot — gated by the same `allow-writes?` flag as
+;; `register-variant`. This is the self-healing-loop hook the spec
+;; mentions: agent drives canvas → tool returns snippet AND patches the
+;; variant in place.
+;; ---------------------------------------------------------------------------
+
+(defn- sleep-ms
+  "Block the caller for `ms` milliseconds. CLJS host has no blocking
+  primitive, so this is a no-op there — CLJS callers wanting a recording
+  window dispatch their interactions between `start-recording!` and the
+  tool's stop step from their own scheduler. The MCP server's canonical
+  deploy is JVM, where `Thread/sleep` is honest."
+  [ms]
+  #?(:clj  (when (pos? ms) (Thread/sleep ^long ms))
+     :cljs nil))
+
+(defn- now-ms
+  []
+  #?(:clj  (System/currentTimeMillis)
+     :cljs (.now js/Date)))
+
+(defn- tool-record-as-variant
+  "Dev (or Write when `:write-back?` is true): bridge the recorder's
+  start → capture → snippet pipeline across the MCP boundary.
+
+  Args:
+    :variant-id    required — keyword id of the existing variant to
+                              record against (the recording's target
+                              frame).
+    :duration-ms   optional — block the tool call for this many ms
+                              between `start-recording!` and
+                              `stop-recording!`. Default 0 (the caller
+                              is expected to drive dispatches in
+                              parallel and stop the recording out-of-
+                              band). JVM only — CLJS sleeps are a no-op.
+    :new-variant-id optional — when `:write-back?` is true, register the
+                              captured `:play` body as a NEW variant
+                              with this id. Defaults to the source
+                              `:variant-id` (overwrites in place).
+    :doc           optional — docstring to embed in the snippet.
+    :extends       optional — variant id to embed as the snippet's
+                              `:extends` slot (defaults to the source
+                              `:variant-id` — recording extends from the
+                              canvas it ran against).
+    :alias         optional — short ns alias in the rendered form
+                              (default `\"story\"`).
+    :write-back?   optional — when true, also re-register the variant
+                              via `reg-variant*` with `:play <captured>`.
+                              Requires `allow-writes?` (same gate as
+                              `register-variant`).
+
+  Output:
+    `{:variant-id <source>
+      :play-snippet <string>
+      :recorded-event-count <int>
+      :duration-ms <actual ms blocked>
+      :captured [<event-vec>]
+      :written-back? <bool>
+      :new-variant-id <new>?      ; only when write-back happened
+     }`
+
+  Errors:
+    - Source `:variant-id` is not registered.
+    - `:write-back?` true but `allow-writes?` is false.
+    - `:write-back?` true and the underlying `reg-variant*` fails (shape
+      validation, unknown extends, etc.).
+
+  Filter layers are inherited from the recorder verbatim (op-type
+  `:event/dispatched`, frame scope match, internal-namespace skip). The
+  tool does not expose a free-form filter knob — the recorder owns that
+  contract."
+  [args]
+  (let [[vid err] (required-arg args :variant-id)]
+    (if err err
+      (let [vk           (read-keyword vid)
+            body         (story/variant->edn vk)]
+        (if (nil? body)
+          (error-result (str "Variant not found: " (pr-str vk)))
+          (let [write-back?   (boolean (:write-back? args))
+                gate-err      (when write-back? (assert-writes-allowed))]
+            (if gate-err gate-err
+              (let [duration-ms (or (:duration-ms args) 0)
+                    new-vid     (some-> (:new-variant-id args) read-keyword)
+                    target-vid  (or new-vid vk)
+                    doc         (:doc args)
+                    extends     (or (some-> (:extends args) read-keyword) vk)
+                    alias-arg   (:alias args)
+                    started     (now-ms)
+                    _           (story/start-recording! vk)
+                    _           (sleep-ms duration-ms)
+                    final-state (story/stop-recording!)
+                    actual-ms   (- (now-ms) started)
+                    events      (vec (:events final-state))
+                    snippet-opts (cond-> {:variant-id target-vid
+                                          :extends    extends}
+                                   (string? doc)       (assoc :doc doc)
+                                   (string? alias-arg) (assoc :alias alias-arg))
+                    snippet     (story/gen-play-snippet events snippet-opts)
+                    base-payload {:variant-id           vk
+                                  :play-snippet         snippet
+                                  :recorded-event-count (count events)
+                                  :duration-ms          actual-ms
+                                  :captured             events
+                                  :written-back?        false}]
+                (if-not write-back?
+                  (text-result (pr-edn base-payload) base-payload)
+                  ;; Write-back: re-register the target variant with the
+                  ;; captured :play body. We preserve the source variant's
+                  ;; existing body keys (so :component, :args, :decorators
+                  ;; survive) and overwrite :play with the captured events.
+                  (try
+                    (let [new-body (assoc body :play events)
+                          id       (story/reg-variant* target-vid new-body)
+                          payload  (assoc base-payload
+                                          :written-back?   true
+                                          :new-variant-id  id)]
+                      (text-result (pr-edn payload) payload))
+                    (catch #?(:clj Throwable :cljs :default) e
+                      (error-result (str "Write-back failed: " (ex-message e))
+                                    (merge base-payload
+                                           {:written-back? false
+                                            :new-variant-id target-vid}
+                                           (select-keys (ex-data e)
+                                                        [:rf.error :explain]))))))))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Tool registry
 ;; ---------------------------------------------------------------------------
 
@@ -698,7 +837,28 @@
                   :properties {:variant-id kw-or-string}
                   :required ["variant-id"]
                   :additionalProperties false}
-    :handler     tool-unregister-variant}])
+    :handler     tool-unregister-variant}
+
+   {:name        "record-as-variant"
+    :category    :write
+    :description "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`)."
+    :inputSchema {:type "object"
+                  :properties {:variant-id     kw-or-string
+                               :duration-ms    {:type "integer" :minimum 0
+                                                :description "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op)."}
+                               :new-variant-id (assoc kw-or-string
+                                                 :description "When `:write-back?` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
+                               :doc            {:type "string"
+                                                :description "Optional docstring embedded in the rendered snippet."}
+                               :extends        (assoc kw-or-string
+                                                 :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
+                               :alias          {:type "string"
+                                                :description "Short ns alias for the rendered form (default \"story\")."}
+                               :write-back?    {:type "boolean"
+                                                :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}}
+                  :required ["variant-id"]
+                  :additionalProperties false}
+    :handler     tool-record-as-variant}])
 
 (defn tool-descriptors
   "Build the `tools/list` response payload: each tool's name +
