@@ -33,15 +33,52 @@
   Story's core jar exposes `handlers`, `handler-meta`, `run-variant`,
   `variant->edn`, `snapshot-identity`, `list-tags`, `list-modes`, the
   Stage 5 assertion helpers, and `variant-share-url`. Nothing here
-  reaches past that public surface."
+  reaches past that public surface.
+
+  ## Wire-egress privacy (rf2-73wuj)
+
+  Per spec/Tool-Pair.md §Direct-read privacy posture (lines 544-566)
+  every pair-shaped tool surfacing live frame state MUST route the
+  value through `re-frame.core/elide-wire-value` before the value
+  crosses the wire egress. Two surfaces in story-mcp ship live-state
+  reads:
+
+    - `preview-variant` + `run-variant` return the variant frame's
+      `:app-db` slice (`re-frame.story.runtime/record-result-map` —
+      the slot is `(rf/get-frame-db variant-id)` verbatim).
+    - `read-failures` returns the variant frame's
+      `:rf.story/assertions` accumulator.
+
+  The walker reads the live `[:rf/elision :declarations]` and
+  `[:rf/elision :runtime-flagged]` registries from the named frame's
+  app-db, so the `:frame variant-id` opts slot is load-bearing — the
+  per-variant registry is the one that gets consulted. Off-box
+  defaults apply: `:rf.size/include-sensitive?` and
+  `:rf.size/include-large?` both default `false`. The cross-MCP
+  `:include-sensitive?` arg (per rf2-vw4sq and the shared
+  `re-frame.mcp-base.sensitive` convention) is the documented opt-in
+  escape hatch — every tool that ships an `:app-db` or
+  assertion-accumulator surface inherits the same arg name an agent
+  learns once.
+
+  The assertion accumulator is a vector of records (not a map). It
+  rides `strip-sensitive` (the trace-event filter from
+  `mcp-base.sensitive`) because the records use the same
+  `:sensitive?` top-level stamping convention as trace events — when
+  an assertion fires inside the scope of a registration declared
+  `:sensitive? true`, the record will carry the stamp. The walker
+  handles the registry-driven path elision; the filter handles the
+  per-record stamp. The two compose."
   (:require [clojure.edn :as edn]
             [clojure.set :as set]
             [clojure.string :as str]
+            [re-frame.core :as rf]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.story :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async :as async]
-            [re-frame.story-mcp.config :as config]))
+            [re-frame.story-mcp.config :as config]
+            [re-frame.story-mcp.sensitive :as sensitive]))
 
 ;; ---------------------------------------------------------------------------
 ;; Result-builder helpers
@@ -114,6 +151,38 @@
       [v nil])))
 
 ;; ---------------------------------------------------------------------------
+;; Wire-egress scrubbers (rf2-73wuj). See ns docstring for the spec
+;; references and design rationale.
+;; ---------------------------------------------------------------------------
+
+(defn- elide-app-db
+  "Run `app-db` through `re-frame.core/elide-wire-value` against
+  `variant-id`'s frame registry. Returns the elided value, or the input
+  unchanged when `include?` is true. Nil-safe — a nil `app-db` short-
+  circuits (the walker treats nil as a non-elidable scalar, but we
+  pre-check to avoid the registry lookup on the empty-frame happy path)."
+  [app-db variant-id include?]
+  (cond
+    (nil? app-db) app-db
+    include?      (rf/elide-wire-value app-db
+                                       {:frame                       variant-id
+                                        :rf.size/include-sensitive?  true
+                                        :rf.size/include-large?      true})
+    :else         (rf/elide-wire-value app-db {:frame variant-id})))
+
+(defn- scrub-assertions
+  "Default-drop any assertion records carrying the top-level
+  `:sensitive? true` stamp. Reuses `strip-sensitive` (the shared trace-
+  event filter from `mcp-base.sensitive`) — assertion records and trace
+  events both honour the same convention, so a single primitive covers
+  both surfaces.
+
+  Returns the kept-vec (the `dropped-count` second slot is suppressed
+  here; the caller is the wire egress, not an audit surface)."
+  [records include?]
+  (first (sensitive/strip-sensitive (vec (or records [])) include?)))
+
+;; ---------------------------------------------------------------------------
 ;; Dev tools (instructions + preview)
 ;; ---------------------------------------------------------------------------
 
@@ -176,7 +245,12 @@
 
   Also includes the variant share URL (per IMPL-SPEC §2.8.5 + Stage 6
   `story/variant-share-url`) so the agent can hand the cell to a
-  human collaborator."
+  human collaborator.
+
+  Wire-egress posture (rf2-73wuj): the `:app-db` slot is routed
+  through `re-frame.core/elide-wire-value`; the `:assertions` vec is
+  filtered through `strip-sensitive`. Off-box defaults apply unless
+  the caller passes `:include-sensitive? true`."
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
@@ -202,12 +276,13 @@
                                 :assertions [{:assertion :rf.error/run-failed
                                               :passed? false
                                               :reason (ex-message e)}]}))
+                incl?      (sensitive/include-sensitive? args)
                 payload    {:variant-id   vk
                             :share-url    share-url
                             :lifecycle    (:lifecycle result)
                             :elapsed-ms   (:elapsed-ms result)
-                            :app-db       (:app-db result)
-                            :assertions   (:assertions result)
+                            :app-db       (elide-app-db (:app-db result) vk incl?)
+                            :assertions   (scrub-assertions (:assertions result) incl?)
                             :rendered-hiccup (:rendered-hiccup result)
                             :snapshot     (:snapshot result)
                             :effective-args (:effective-args result)}]
@@ -367,7 +442,9 @@
     :substrate      optional — keyword or string
     :active-modes   optional — coll of mode ids
     :cell-overrides optional — map of arg overrides
-    :timeout-ms     optional — JVM blocking timeout; default 10000"
+    :timeout-ms     optional — JVM blocking timeout; default 10000
+    :include-sensitive? optional — opt out of wire-egress redaction
+                                   (default false; rf2-73wuj)"
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
@@ -389,9 +466,10 @@
                               :assertions [{:assertion :rf.error/run-failed
                                             :passed? false
                                             :reason (ex-message e)}]}))
+                incl?    (sensitive/include-sensitive? args)
                 payload  {:frame           (:frame result vk)
-                          :app-db          (:app-db result)
-                          :assertions      (:assertions result)
+                          :app-db          (elide-app-db (:app-db result) vk incl?)
+                          :assertions      (scrub-assertions (:assertions result) incl?)
                           :rendered-hiccup (:rendered-hiccup result)
                           :elapsed-ms      (:elapsed-ms result)
                           :snapshot        (:snapshot result)
@@ -454,12 +532,22 @@
   via `re-frame.story/read-assertions`.
 
   Useful for an agent that ran a variant a moment ago and wants to
-  inspect failures without re-running."
+  inspect failures without re-running.
+
+  Wire-egress posture (rf2-73wuj): assertion records carrying the
+  top-level `:sensitive? true` stamp are dropped via
+  `strip-sensitive`. The `:passing?` predicate runs against the
+  scrubbed vec so the agent's view of green/red is consistent with
+  the records it actually sees — a dropped sensitive failure doesn't
+  quietly flip `:passing?` to true. Default off; opt out with
+  `:include-sensitive? true`."
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
       (let [vk         (read-keyword vid)
-            all        (assertions/read-assertions vk)
+            incl?      (sensitive/include-sensitive? args)
+            raw        (assertions/read-assertions vk)
+            all        (scrub-assertions raw incl?)
             failures   (filterv (complement :passed?) all)
             payload    {:variant-id vk
                         :total      (count all)
@@ -707,11 +795,29 @@
   {:type "integer" :minimum 0
    :description "Per-call wire-boundary token cap. 0 disables; default 5000 (per `spec/Cross-Cutting-Designs.md §3`)."})
 
+(def ^:private include-sensitive-schema
+  "Recurring JSON-schema fragment — every tool that surfaces a live
+  `:app-db` slice or assertion accumulator accepts the cross-MCP
+  `:include-sensitive?` opt-in (rf2-73wuj). Default false: declared-
+  sensitive paths land `:rf/redacted` via `elide-wire-value`, and
+  assertion records stamped `:sensitive? true` are dropped via
+  `strip-sensitive`. Pass true to forward the raw values; per the
+  cross-MCP convention from `re-frame.mcp-base.sensitive`."
+  {:type "boolean"
+   :description "Opt in to forwarding sensitive `:app-db` slots and assertion records. Default false (declared-sensitive paths return `:rf/redacted`; assertion records stamped `:sensitive? true` are dropped). Per spec/Tool-Pair.md §Direct-read privacy posture."})
+
 (defn- with-max-tokens
   "Inject the `:max-tokens` slot into a tool's `:properties` map. Every
   tool inherits the slot so the cap is uniformly overrideable per call."
   [props]
   (assoc props :max-tokens max-tokens-schema))
+
+(defn- with-include-sensitive
+  "Inject the `:include-sensitive?` slot into a tool's `:properties`
+  map. Used by tools that surface a live `:app-db` slice or assertion
+  accumulator (`preview-variant`, `run-variant`, `read-failures`)."
+  [props]
+  (assoc props :include-sensitive? include-sensitive-schema))
 
 (def tool-registry
   "The full tool registry. Order matters for `tools/list` output —
@@ -727,16 +833,17 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL."
+    :description    "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive? true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
     :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties (with-max-tokens
-                                {:variant-id kw-or-string
-                                 :substrate kw-or-string
-                                 :active-modes {:type "array" :items kw-or-string}
-                                 :cell-overrides {:type "object"}
-                                 :base-url {:type "string"
-                                            :description "Optional base URL for the share link (no default)."}})
+                                (with-include-sensitive
+                                  {:variant-id kw-or-string
+                                   :substrate kw-or-string
+                                   :active-modes {:type "array" :items kw-or-string}
+                                   :cell-overrides {:type "object"}
+                                   :base-url {:type "string"
+                                              :description "Optional base URL for the share link (no default)."}}))
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-preview-variant}
@@ -814,16 +921,17 @@
    ;; ---- Testing ---------------------------------------------------------
    {:name           "run-variant"
     :category       :testing
-    :description    "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`)."
+    :description    "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive? true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
     :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties (with-max-tokens
-                                {:variant-id kw-or-string
-                                 :substrate kw-or-string
-                                 :active-modes {:type "array" :items kw-or-string}
-                                 :cell-overrides {:type "object"}
-                                 :timeout-ms {:type "integer" :minimum 1
-                                              :description "JVM blocking timeout. Default 10000."}})
+                                (with-include-sensitive
+                                  {:variant-id kw-or-string
+                                   :substrate kw-or-string
+                                   :active-modes {:type "array" :items kw-or-string}
+                                   :cell-overrides {:type "object"}
+                                   :timeout-ms {:type "integer" :minimum 1
+                                                :description "JVM blocking timeout. Default 10000."}}))
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-run-variant}
@@ -853,10 +961,12 @@
 
    {:name           "read-failures"
     :category       :testing
-    :description    "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`."
+    :description    "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`. Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive? true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
     :typicalTokens  500
     :inputSchema {:type "object"
-                  :properties (with-max-tokens {:variant-id kw-or-string})
+                  :properties (with-max-tokens
+                                (with-include-sensitive
+                                  {:variant-id kw-or-string}))
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-read-failures}
