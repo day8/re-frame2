@@ -19,6 +19,16 @@ description: >
   (use `re-frame-migration`); spec, architecture, or porting questions
   about re-frame2 itself (use `re-frame2-implementor`). Exits once the
   counter mounts.
+allowed-tools:
+  - Bash(clojure *)
+  - Bash(npm *)
+  - Bash(npx *)
+  - Bash(shadow-cljs *)
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 ---
 
 # re-frame2-setup
