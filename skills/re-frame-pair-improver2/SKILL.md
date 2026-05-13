@@ -26,6 +26,7 @@ allowed-tools:
   - Write
   - Grep
   - Glob
+  - mcp__re-frame-pair2__discover-app
 ---
 
 # re-frame-pair-improver2

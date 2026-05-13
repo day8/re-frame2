@@ -131,6 +131,18 @@ Typical improvements:
 - make "I am attached to a production-elided build" a first-class result state
 - recipe for switching to a dev build before continuing
 
+### Tool-catalogue / build-capability uncertainty
+
+Signals:
+- the retrospective is unsure whether a tool the user "should have reached for" was actually exposed by the running pair2-mcp build, or whether it was reasoning from stale docs
+- the session reasons about tool availability from `re-frame-pair2/references/ops.md` alone — that doc can drift from the live `tools.cljs` catalogue (see rf2-flzdp on the drift gate)
+- a "why didn't they use tool X?" thread surfaces with no way to confirm X was actually callable in that session
+
+Typical improvements:
+- run `mcp__re-frame-pair2__discover-app` once at the start of a retrospective to capture the live build's id, health, and session sentinel — confirms the runtime the user was operating against and (combined with the server's `tools/list`) sanity-checks "tool X was actually available"
+- when proposing a fix that adds or renames a tool, cross-reference the live catalogue rather than the skill's docs alone
+- if `discover-app` itself fails or returns `:reason :runtime-not-preloaded`, that becomes evidence the user's environment never had the pair2 surface — a finding in its own right, not a retro blocker
+
 ### Source-coordinate availability
 
 Signals:
