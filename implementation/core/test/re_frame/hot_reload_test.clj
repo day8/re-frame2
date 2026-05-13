@@ -212,10 +212,10 @@
             "machine snapshot is preserved across frame re-registration"))
       ;; Metadata was updated.
       (is (= "v2 metadata"
-             (get-in (rf/frame-meta :tenant) [:config :doc]))
+             (:doc (rf/frame-meta :tenant)))
           ":doc reflects the v2 metadata")
-      (is (= 2 (get-in (rf/frame-meta :tenant) [:config :version]))
-          "new :version key is present in the merged config")
+      (is (= 2 (:version (rf/frame-meta :tenant)))
+          "new :version key is present in the merged metadata")
       ;; The machine still progresses against its preserved snapshot.
       (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
       (let [final-snapshot (get-in (rf/get-frame-db :tenant)

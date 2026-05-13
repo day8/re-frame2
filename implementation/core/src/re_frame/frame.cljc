@@ -61,13 +61,24 @@
       f)))
 
 (defn frame-meta
-  "Per Spec 002 §The public registrar query API: return the public metadata
-  for a frame (config, lifecycle info, override maps)."
+  "Per Spec 002 §The public registrar query API and Spec-Schemas
+  §`:rf/frame-meta`: return the effective metadata map for a frame as a
+  flat shape — `:id` plus the post-preset-expansion user-supplied
+  metadata keys (`:preset`, `:fx-overrides`, `:drain-depth`, `:doc`,
+  `:tags`, `:url-bound?`, `:platform`, `:on-error`, `:ssr`, …) merged
+  with the lifecycle fields (`:created-at`, `:destroyed?`, `:listeners`).
+
+  Per Spec 002 §Frame presets, the `:preset` key is preserved verbatim
+  on the returned map so tools can inspect which preset was applied; the
+  expansion keys appear at the top level alongside it. The internal
+  storage groupings (`:config` / `:lifecycle` on the frame record) are
+  flattened away — tools must not depend on the registry's storage
+  organisation, only on the canonical `:rf/frame-meta` shape."
   [id]
   (when-let [f (frame id)]
-    {:id        (:id f)
-     :config    (:config f)
-     :lifecycle (:lifecycle f)}))
+    (merge (:config f)
+           (:lifecycle f)
+           {:id (:id f)})))
 
 (defn frame-ids
   "All registered, non-destroyed frame ids.

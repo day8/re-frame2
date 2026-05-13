@@ -181,9 +181,9 @@
    place of `:rf.machine.timer/scheduled`."
   (rf/reg-frame :req {:preset :ssr-server})
   (let [meta (rf/frame-meta :req)]
-    (is (= :server (get-in meta [:config :platform]))
-        ":ssr-server preset sets :platform :server on the frame config")
-    (is (= :rf.error/server-projection (get-in meta [:config :on-error]))
+    (is (= :server (:platform meta))
+        ":ssr-server preset sets :platform :server on the frame metadata")
+    (is (= :rf.error/server-projection (:on-error meta))
         ":ssr-server preset wires :on-error to :rf.error/server-projection"))
   ;; Register a machine whose `:loading` state declares an `:after` table.
   ;; The transition `:idle → :loading` enters an `:after`-bearing state;

@@ -270,9 +270,10 @@
 
 (defn variant-frame?
   "True iff `frame-id` is a variant frame (was allocated via
-  `allocate!`). Reads the frame's `:config :rf/story?` slot."
+  `allocate!`). Reads the frame's `:rf/story?` slot on its frame-meta
+  (per Spec-Schemas §`:rf/frame-meta` — flat shape)."
   [frame-id]
-  (true? (get-in (rf/frame-meta frame-id) [:config :rf/story?])))
+  (true? (:rf/story? (rf/frame-meta frame-id))))
 
 (defn variant-frames
   "Return every registered variant frame id. Stage 4's UI shell uses
