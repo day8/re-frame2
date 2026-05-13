@@ -124,6 +124,7 @@
             [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]
             [day8.re-frame2-causa.panels.causality-graph-helpers :as cg-helpers]
             [day8.re-frame2-causa.panels.app-db-diff-helpers :as diff-helpers]
+            [day8.re-frame2-causa.panels.flows-helpers :as flows-helpers]
             [day8.re-frame2-causa.panels.hydration-debugger-helpers :as hd-helpers]
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as issues-helpers]
             [day8.re-frame2-causa.panels.performance-helpers :as perf-helpers]
@@ -1129,6 +1130,144 @@
             (dissoc :issues-active-prefixes)
             (dissoc :issues-since-ms))))
 
+    ;; ---- Phase 5 (rf2-83irn) — Flows panel ----------------------------
+    ;;
+    ;; Surfaces re-frame2's registered flows + their per-flow inputs /
+    ;; output path / live recomputation indicator. Consumer of Spec 013
+    ;; (the registered-flow surface) + Spec 009 (the `:rf.flow/*` trace
+    ;; event vocabulary).
+    ;;
+    ;; The panel reads two surfaces — the framework's registered-flow
+    ;; map (`(rf/handlers :flow)`) and the Causa trace-buffer's
+    ;; `:op-type :flow` slice — and folds them via
+    ;; `flows-helpers/project-rows` into one row per registered flow.
+    ;;
+    ;; Tests stub the registered-flows surface by writing
+    ;; `:registered-flows-override` to Causa's app-db (via
+    ;; `:rf.causa/set-registered-flows-override-for-test`) so the suite
+    ;; can assert against a deterministic flow set without booting the
+    ;; flows artefact.
+    ;;
+    ;; Shape of `:rf.causa/flows-data`:
+    ;;
+    ;;     {:rows             [<row> ...]
+    ;;      :status-counts    {status count}
+    ;;      :total            <int>
+    ;;      :selected-flow-id <flow-id-or-nil>}
+
+    ;; Read the registered-flow map. Reads `(rf/handlers :flow)` —
+    ;; per Spec 001 §The public registrar query API the registrar is
+    ;; process-global so this surfaces every registered flow across
+    ;; every frame. CLJS-only — `rf/handlers` exists under both
+    ;; targets, but the v1 wiring threads it through the override
+    ;; slot so the JVM test target can drive the projection without
+    ;; booting the flows artefact.
+    (rf/reg-sub :rf.causa/registered-flows
+      (fn [db _query]
+        (let [ov (get db :registered-flows-override)]
+          (or ov (rf/handlers :flow)))))
+
+    ;; Test-only override hook for the registered-flows surface.
+    ;; Production code paths never dispatch this — the slot exists
+    ;; only so JVM + node-test suites can drive the projection
+    ;; without booting the flows artefact's registrar.
+    (rf/reg-event-db :rf.causa/set-registered-flows-override-for-test
+      (fn [db [_ ov]]
+        (if (nil? ov)
+          (dissoc db :registered-flows-override)
+          (assoc db :registered-flows-override ov))))
+
+    ;; The Causa trace-buffer's `:op-type :flow` slice. Pure-data
+    ;; filter — the helper's predicate is JVM-runnable so tests can
+    ;; drive it without a CLJS runtime.
+    ;;
+    ;; Note the single-signal `:<-` arity: re-frame2's `reg-sub`
+    ;; passes the upstream value DIRECTLY (not vector-wrapped) when
+    ;; there's exactly one `:<-` chain entry — per Spec 002 §The
+    ;; reg-sub forms + subs.cljc parse-reg-sub-args. Multi-signal
+    ;; `:<-` chains pass `[a b c]`; single-signal passes `a`.
+    (rf/reg-sub :rf.causa/flow-trace-events
+      :<- [:rf.causa/trace-buffer]
+      (fn [buffer _query]
+        (flows-helpers/filter-flow-events buffer)))
+
+    ;; The user's per-panel flow selection. Drives a follow-on
+    ;; cross-panel affordance (click flow → event-detail filtered to
+    ;; that flow's recent recomputations); v1 wiring carries the
+    ;; selection only — the cross-panel jump lands when the
+    ;; cross-panel filter API stabilises.
+    (rf/reg-sub :rf.causa/selected-flow-id
+      (fn [db _query]
+        (get db :selected-flow-id)))
+
+    ;; The composite the panel consumes. One read produces every slot
+    ;; the view needs (matches the per-panel composite pattern every
+    ;; other Causa panel uses).
+    (rf/reg-sub :rf.causa/flows-data
+      :<- [:rf.causa/registered-flows]
+      :<- [:rf.causa/flow-trace-events]
+      :<- [:rf.causa/selected-flow-id]
+      (fn [[flows-map flow-events selected-flow-id] _query]
+        (let [rows   (flows-helpers/project-rows flows-map flow-events)
+              counts (flows-helpers/status-counts rows)]
+          {:rows             rows
+           :status-counts    counts
+           :total            (count rows)
+           :selected-flow-id selected-flow-id})))
+
+    ;; ---- Phase 5 (rf2-83irn) — Flows panel events --------------------
+
+    (rf/reg-event-db :rf.causa/select-flow-id
+      (fn [db [_ flow-id]]
+        (assoc db :selected-flow-id flow-id)))
+
+    (rf/reg-event-db :rf.causa/clear-flow-selection
+      (fn [db _event]
+        (dissoc db :selected-flow-id)))
+
+    ;; ---- Phase 5 (rf2-75121) — Performance panel -----------------------
+    ;;
+    ;; Per `tools/causa/spec/000-Vision.md` L92 the Performance panel
+    ;; surfaces per-cascade duration capture, perf-tier colour mapping,
+    ;; and budget-warning markers. The runtime substrate is
+    ;; `spec/009-Instrumentation.md §Performance instrumentation` (the
+    ;; default-off User Timing channel); v1 reads the dev-build trace
+    ;; stream's `:time` deltas instead so the panel works against the
+    ;; same buffer every other Causa panel consumes.
+    ;;
+    ;; Shape of `:rf.causa/performance-data`:
+    ;;
+    ;;     {:rows               [<row> ...]    ;; newest first
+    ;;      :total              <int>
+    ;;      :tier-counts        {tier count}
+    ;;      :over-budget-count  <int>
+    ;;      :budget-ms          <number>
+    ;;      :empty?             <bool>}
+    ;;
+    ;; No new events are required — the panel reuses
+    ;; `:rf.causa/select-dispatch-id` + `:rf.causa/select-panel` for the
+    ;; pivot-into-event-detail affordance (parity with the Issues
+    ;; ribbon's row-click). The over-budget threshold is sub-readable
+    ;; via `:rf.causa/performance-budget-ms` so a follow-on bead can
+    ;; surface a slider in the panel header without rewiring consumers.
+    (rf/reg-sub :rf.causa/performance-budget-ms
+      (fn [db _query]
+        (get db :performance-budget-ms perf-helpers/default-budget-ms)))
+
+    (rf/reg-sub :rf.causa/performance-data
+      :<- [:rf.causa/trace-buffer]
+      :<- [:rf.causa/performance-budget-ms]
+      (fn [[buffer budget-ms] _query]
+        (let [cascades (projection/group-cascades buffer)]
+          (perf-helpers/project-feed cascades budget-ms))))
+
+    ;; Set the over-budget threshold. Pass nil to reset to default.
+    (rf/reg-event-db :rf.causa/set-performance-budget-ms
+      (fn [db [_ budget-ms]]
+        (if (and (number? budget-ms) (pos? budget-ms))
+          (assoc db :performance-budget-ms budget-ms)
+          (dissoc db :performance-budget-ms))))
+
     ;; ---- Phase 5 (rf2-argrj) — Trace panel ------------------------------
     ;;
     ;; The Trace panel is the UI consumer of the canonical 9-axis filter
@@ -1182,49 +1321,6 @@
     (rf/reg-event-db :rf.causa/clear-trace-filters
       (fn [db _event]
         (dissoc db :trace-filters)))
-
-    ;; ---- Phase 5 (rf2-75121) — Performance panel -----------------------
-    ;;
-    ;; Per `tools/causa/spec/000-Vision.md` L92 the Performance panel
-    ;; surfaces per-cascade duration capture, perf-tier colour mapping,
-    ;; and budget-warning markers. The runtime substrate is
-    ;; `spec/009-Instrumentation.md §Performance instrumentation` (the
-    ;; default-off User Timing channel); v1 reads the dev-build trace
-    ;; stream's `:time` deltas instead so the panel works against the
-    ;; same buffer every other Causa panel consumes.
-    ;;
-    ;; Shape of `:rf.causa/performance-data`:
-    ;;
-    ;;     {:rows               [<row> ...]    ;; newest first
-    ;;      :total              <int>
-    ;;      :tier-counts        {tier count}
-    ;;      :over-budget-count  <int>
-    ;;      :budget-ms          <number>
-    ;;      :empty?             <bool>}
-    ;;
-    ;; No new events are required — the panel reuses
-    ;; `:rf.causa/select-dispatch-id` + `:rf.causa/select-panel` for the
-    ;; pivot-into-event-detail affordance (parity with the Issues
-    ;; ribbon's row-click). The over-budget threshold is sub-readable
-    ;; via `:rf.causa/performance-budget-ms` so a follow-on bead can
-    ;; surface a slider in the panel header without rewiring consumers.
-    (rf/reg-sub :rf.causa/performance-budget-ms
-      (fn [db _query]
-        (get db :performance-budget-ms perf-helpers/default-budget-ms)))
-
-    (rf/reg-sub :rf.causa/performance-data
-      :<- [:rf.causa/trace-buffer]
-      :<- [:rf.causa/performance-budget-ms]
-      (fn [[buffer budget-ms] _query]
-        (let [cascades (projection/group-cascades buffer)]
-          (perf-helpers/project-feed cascades budget-ms))))
-
-    ;; Set the over-budget threshold. Pass nil to reset to default.
-    (rf/reg-event-db :rf.causa/set-performance-budget-ms
-      (fn [db [_ budget-ms]]
-        (if (and (number? budget-ms) (pos? budget-ms))
-          (assoc db :performance-budget-ms budget-ms)
-          (dissoc db :performance-budget-ms))))
 
     ;; ---- Phase 5 (rf2-rccf3) — AI Co-Pilot panel -----------------------
     ;;
