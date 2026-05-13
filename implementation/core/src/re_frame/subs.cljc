@@ -529,21 +529,32 @@
 (defn- dispose-entry-now!
   "Synchronous disposal: remove the cache slot for k iff its ref-count
   is still <= 0 (no resubscribe arrived) and dispose the reaction.
-  Idempotent — a second call is a no-op because the slot is gone."
+  Idempotent — a second call is a no-op because the slot is gone.
+
+  Per rf2-3mww7: the swap-fn body is pure — it returns the new cache
+  map and nothing else. The reaction to dispose is read from the
+  PRE-swap snapshot returned by `swap-vals!` and acted on AFTER the
+  CAS commits. `swap!` is allowed to retry on contention on the JVM,
+  so any side-effect (interop/dispose!) inside the swap-fn could fire
+  2+ times under concurrent invalidate + grace-fire."
   [cache k]
-  (let [reaction-to-dispose (atom nil)]
-    (swap! cache
-           (fn [m]
-             (if-let [entry (get m k)]
-               (if (<= (or (:ref-count entry) 0) 0)
-                 (do (reset! reaction-to-dispose (:reaction entry))
-                     (dissoc m k))
-                 ;; Resubscribe arrived between schedule and fire — keep entry.
-                 m)
-               m)))
-    (when-let [r @reaction-to-dispose]
-      (try (interop/dispose! r)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))
+  (let [[old new] (swap-vals! cache
+                              (fn [m]
+                                (if-let [entry (get m k)]
+                                  (if (<= (or (:ref-count entry) 0) 0)
+                                    (dissoc m k)
+                                    ;; Resubscribe arrived between schedule
+                                    ;; and fire — keep entry.
+                                    m)
+                                  m)))]
+    ;; The slot was evicted by THIS call iff it was present in `old` and
+    ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
+    ;; replace! or clear-subscription-cache!) that won the CAS race would
+    ;; have left the slot absent in `old` too, so we don't double-dispose.
+    (when (and (contains? old k) (not (contains? new k)))
+      (when-let [r (get-in old [k :reaction])]
+        (try (interop/dispose! r)
+             (catch #?(:clj Throwable :cljs :default) _ nil))))
     nil))
 
 (defn unsubscribe
@@ -564,25 +575,43 @@
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (let [k     (cache-key query-v)
            grace (grace-period-ms)
-           dropped-to-zero? (atom false)]
-       (swap! cache
-              (fn [m]
-                (if-let [entry (get m k)]
-                  (let [old-n (or (:ref-count entry) 1)
-                        n     (max 0 (dec old-n))]
-                    ;; Only trigger drop-to-zero on the 1→0 transition AND only
-                    ;; when no grace-period timer is already in flight. Calling
-                    ;; `unsubscribe` past zero (idempotent misuse — e.g. cleanup
-                    ;; in both a teardown hook and a `finally`) must not stack
-                    ;; new `pending-dispose` timers on top of the prior handle.
-                    (if (and (= 1 old-n)
-                             (zero? n)
-                             (nil? (:pending-dispose entry)))
-                      (do (reset! dropped-to-zero? true)
-                          (assoc m k (assoc entry :ref-count 0)))
-                      (assoc-in m [k :ref-count] n)))
-                  m)))
-       (when @dropped-to-zero?
+           ;; Per rf2-3mww7: the swap-fn body is pure — it returns only
+           ;; the new cache map. The drop-to-zero signal is read from
+           ;; the diff between `old` and `new` AFTER the CAS commits.
+           ;; `swap!` is allowed to retry on contention on the JVM, so
+           ;; a side-effecting `(reset! dropped-to-zero? true)` inside
+           ;; the swap-fn body could fire on a discarded retry whose
+           ;; CAS lost — leading to a spurious dispose schedule for
+           ;; a slot that was never actually transitioned by this call.
+           [old new] (swap-vals! cache
+                                 (fn [m]
+                                   (if-let [entry (get m k)]
+                                     (let [old-n (or (:ref-count entry) 1)
+                                           n     (max 0 (dec old-n))]
+                                       ;; Only trigger drop-to-zero on the 1→0
+                                       ;; transition AND only when no grace-period
+                                       ;; timer is already in flight. Calling
+                                       ;; `unsubscribe` past zero (idempotent
+                                       ;; misuse — e.g. cleanup in both a
+                                       ;; teardown hook and a `finally`) must not
+                                       ;; stack new `pending-dispose` timers on
+                                       ;; top of the prior handle.
+                                       (if (and (= 1 old-n)
+                                                (zero? n)
+                                                (nil? (:pending-dispose entry)))
+                                         (assoc m k (assoc entry :ref-count 0))
+                                         (assoc-in m [k :ref-count] n)))
+                                     m)))
+           ;; This swap drove the 1→0 transition (under no pending-dispose)
+           ;; iff the entry was present in both old and new AND old's
+           ;; ref-count was 1 AND new's ref-count is 0 AND old had no
+           ;; pending-dispose timer. Reading from the snapshots avoids
+           ;; the side-effect-in-swap-fn race.
+           dropped-to-zero? (and (contains? new k)
+                                 (= 1 (or (get-in old [k :ref-count]) 1))
+                                 (zero? (or (get-in new [k :ref-count]) 0))
+                                 (nil? (get-in old [k :pending-dispose])))]
+       (when dropped-to-zero?
          (if (zero? grace)
            ;; Grace = 0: dispose synchronously (the test/explicit-tear-down path).
            (dispose-entry-now! cache k)
@@ -591,21 +620,27 @@
            (let [handle (interop/set-timeout!
                           (fn []
                             (dispose-entry-now! cache k))
-                          grace)]
-             (swap! cache
-                    (fn [m]
-                      (if-let [entry (get m k)]
-                        ;; Only stash the handle if ref-count is still 0 —
-                        ;; a subscriber may have arrived between our swap!
-                        ;; above and set-timeout! returning.
-                        (if (<= (or (:ref-count entry) 0) 0)
-                          (assoc m k (assoc entry :pending-dispose handle))
-                          (do (try (interop/clear-timeout! handle)
-                                   (catch #?(:clj Throwable :cljs :default) _ nil))
-                              m))
-                        (do (try (interop/clear-timeout! handle)
-                                 (catch #?(:clj Throwable :cljs :default) _ nil))
-                            m)))))))
+                          grace)
+                 ;; Pure swap-fn: return the new map and a flag indicating
+                 ;; whether the handle was actually stashed. The clear-
+                 ;; timeout! side-effect runs AFTER the CAS commits so
+                 ;; a discarded retry can't double-clear a live timer.
+                 [_ new2] (swap-vals! cache
+                                      (fn [m]
+                                        (if-let [entry (get m k)]
+                                          (if (<= (or (:ref-count entry) 0) 0)
+                                            (assoc m k (assoc entry :pending-dispose handle))
+                                            ;; Subscriber arrived between our swap!
+                                            ;; above and set-timeout! returning —
+                                            ;; do NOT stash; we'll cancel post-swap.
+                                            m)
+                                          m)))]
+             ;; If the handle did NOT land on the entry, cancel it once,
+             ;; outside the swap. Reading from the post-swap snapshot
+             ;; (`new2`) means we make this decision exactly once.
+             (when-not (identical? handle (get-in new2 [k :pending-dispose]))
+               (try (interop/clear-timeout! handle)
+                    (catch #?(:clj Throwable :cljs :default) _ nil))))))
        nil))))
 
 ;; ---- hot-reload invalidation ---------------------------------------------
@@ -621,27 +656,36 @@
   (when (= kind :sub)
     (doseq [frame-id (frame/frame-ids)]
       (when-let [cache (:sub-cache (frame/frame frame-id))]
-        (let [evictions (atom [])
-              pending   (atom [])]
-          (swap! cache
-                 (fn [m]
-                   (let [hit-keys (->> (keys m)
-                                       (filter #(= id (first %))))]
-                     (doseq [k hit-keys]
-                       (when-let [r (get-in m [k :reaction])]
-                         (swap! evictions conj r))
-                       (when-let [h (get-in m [k :pending-dispose])]
-                         (swap! pending conj h)))
-                     (apply dissoc m hit-keys))))
+        ;; Per rf2-3mww7: the swap-fn body is pure — it returns only the
+        ;; new cache map. Reactions to dispose and timers to cancel are
+        ;; read from the diff between `old` and `new` AFTER the CAS
+        ;; commits. `swap!` is allowed to retry on contention on the
+        ;; JVM, so any side-effecting collector (`(swap! evictions
+        ;; conj ...)`) inside the swap-fn could double-conj — and then
+        ;; the post-swap `dispose!` loop would call dispose on the same
+        ;; reaction twice.
+        (let [[old new] (swap-vals! cache
+                                    (fn [m]
+                                      (let [hit-keys (->> (keys m)
+                                                          (filter #(= id (first %))))]
+                                        (apply dissoc m hit-keys))))
+              ;; The keys actually evicted by THIS swap are those present
+              ;; in `old` but absent in `new`. A concurrent evictor that
+              ;; won the CAS race would have removed its keys before our
+              ;; swap saw them, so the diff names ONLY the keys we own.
+              evicted-keys (filterv #(not (contains? new %))
+                                    (keys old))]
           ;; Cancel any pending grace-period timers for the evicted slots —
           ;; the reaction is being disposed now, so the deferred path
           ;; would fire against a stale closure.
-          (doseq [h @pending]
-            (try (interop/clear-timeout! h)
-                 (catch #?(:clj Throwable :cljs :default) _ nil)))
-          (doseq [r @evictions]
-            (try (interop/dispose! r)
-                 (catch #?(:clj Throwable :cljs :default) _ nil))))))))
+          (doseq [k evicted-keys]
+            (when-let [h (get-in old [k :pending-dispose])]
+              (try (interop/clear-timeout! h)
+                   (catch #?(:clj Throwable :cljs :default) _ nil))))
+          (doseq [k evicted-keys]
+            (when-let [r (get-in old [k :reaction])]
+              (try (interop/dispose! r)
+                   (catch #?(:clj Throwable :cljs :default) _ nil)))))))))
 
 (defonce ^:private _hot-reload-hook
   (do (registrar/add-replacement-hook! invalidate-sub-on-replace!)
