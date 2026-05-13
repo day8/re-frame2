@@ -37,6 +37,7 @@
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
@@ -91,7 +92,7 @@
    ;; marker; once a mismatch fires the entry lights up and the entry
    ;; behaves like every other live panel.
    {:id :hydration    :label "Hydration"     :bead "rf2-pzxsr" :live? true :dormant? true}
-   {:id :copilot      :label "Co-pilot"      :bead "rf2-xxx"}])
+   {:id :copilot      :label "Co-pilot"      :bead "rf2-rccf3" :live? true}])
 
 ;; ---- regions -------------------------------------------------------------
 
@@ -126,6 +127,12 @@
                   :color    (:text-secondary tokens)
                   :font-size "12px"
                   :font-weight 400}}
+    ;; Collapsed-cue affordance per spec/007-UX-IA.md §The AI co-pilot
+    ;; collapsed cue — the magenta `◇` glyph pulses every 8 seconds
+    ;; until the user has used the co-pilot once. Renders only when the
+    ;; rail is closed; clicking it toggles the rail open.
+    (when-not @(rf/subscribe [:rf.causa/copilot-open?])
+      [ai-co-pilot/ai-co-pilot-cue])
     [:span "Ctrl+Shift+C to toggle"]]])
 
 (defn- sidebar-item
@@ -259,6 +266,10 @@
       :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
       :hydration    [hydration-debugger/hydration-debugger-view]
+      ;; Sidebar Co-pilot row renders the panel-style view in the
+      ;; canvas; the rail still lives in the shell's right margin per
+      ;; spec/007-UX-IA.md §The five regions item 4.
+      :copilot      [ai-co-pilot/ai-co-pilot-view]
       [stub-panel (or item {:label "Unknown panel"
                             :bead  "rf2-xxx"})])))
 
@@ -314,5 +325,11 @@
                    :flex-direction "row"
                    :overflow      "hidden"}}
      [sidebar]
-     [canvas]]
+     [canvas]
+     ;; Right-edge rail per spec/007-UX-IA.md §The five regions item 4.
+     ;; Collapsed by default (Lock 8); renders only when
+     ;; `:rf.causa/copilot-open?` is true. The cue glyph in the top
+     ;; strip is the affordance for opening it when collapsed.
+     (when @(rf/subscribe [:rf.causa/copilot-open?])
+       [ai-co-pilot/ai-co-pilot-rail])]
     [bottom-rail]]])
