@@ -83,6 +83,15 @@ wired into the build, and consumers can use it today.
   timeline, hydration debugger, issues ribbon, AI co-pilot rail. See
   [`tools/causa/spec/000-Vision.md`](./causa/spec/000-Vision.md).
 
+- **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
+  for the MCP triplet (`pair2-mcp`, `story-mcp`, `causa-mcp`):
+  wire-vocabulary constants (`:rf.mcp/*`, `:rf.size/*`, JSON-RPC error
+  codes), the spec/009 §Privacy default-suppress filter, MCP argument
+  coercion helpers, the path-keyed structural diff-encode (rf2-1wdzp),
+  and the overflow-marker shape (rf2-rvyzy). Pure `.cljc` with zero
+  runtime deps beyond `org.clojure/clojure`. Per rf2-vw4sq. See
+  [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
+
 - **`tools/pair2-mcp/`** — `@day8/re-frame-pair2-mcp`. A Node-based
   stdio JSON-RPC **MCP server** (compiled from ClojureScript via
   shadow-cljs) that pair-programs with a live re-frame2 app over a

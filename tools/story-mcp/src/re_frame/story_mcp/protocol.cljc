@@ -26,17 +26,30 @@
 
   Tool-execution errors (a known tool returning a failure) use the
   `tools/call` result shape with `isError: true` per the MCP spec §Error
-  Handling guidance — they are NOT protocol-level errors."
+  Handling guidance — they are NOT protocol-level errors.
+
+  ## Cross-MCP factoring (rf2-vw4sq)
+
+  The JSON-RPC error-code constants are re-exported from
+  `re-frame.mcp-base.vocab` — the cross-MCP shared vocabulary
+  artefact. The local names are retained as aliases so existing
+  callers don't need to touch their `:require` lists; the canonical
+  source of truth lives in the base."
   (:require [cheshire.core :as json]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame.mcp-base.vocab :as vocab]))
 
 ;; ---- error codes ----------------------------------------------------------
+;;
+;; Re-exported from `re-frame.mcp-base.vocab` per rf2-vw4sq. The
+;; numeric values are pinned by JSON-RPC 2.0 §5.1; the alias layer
+;; ensures the triplet shares one definition.
 
-(def ^:const code-parse-error      -32700)
-(def ^:const code-invalid-request  -32600)
-(def ^:const code-method-not-found -32601)
-(def ^:const code-invalid-params   -32602)
-(def ^:const code-internal-error   -32603)
+(def ^:const code-parse-error      vocab/code-parse-error)
+(def ^:const code-invalid-request  vocab/code-invalid-request)
+(def ^:const code-method-not-found vocab/code-method-not-found)
+(def ^:const code-invalid-params   vocab/code-invalid-params)
+(def ^:const code-internal-error   vocab/code-internal-error)
 
 ;; ---- envelope construction -----------------------------------------------
 

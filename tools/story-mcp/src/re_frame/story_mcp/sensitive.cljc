@@ -2,57 +2,45 @@
   "Spec/009 §Privacy default-suppress filter for `:sensitive?` trace
   events (rf2-zq0n1, follows rf2-a32kd).
 
-  ## Why this ns exists in story-mcp
+  ## Cross-MCP factoring (rf2-vw4sq)
 
-  Spec 009 mandates that framework-published forwarders — Sentry /
-  Honeybadger, pair2 server, Story-MCP, Causa-MCP — MUST default-drop
-  trace events whose registration declared `:sensitive? true`. The
-  runtime stamps the flag at the top level of every emitted trace
-  event inside such a registration's handler scope; the forwarder's
-  job is to gate egress on it before any data crosses the trust
-  boundary into the agent surface.
+  Most of the behaviour now lives in `re-frame.mcp-base.sensitive`,
+  the shared CLJC primitive consumed by every MCP server in the
+  re-frame2 triplet. This namespace keeps a local alias so:
+
+  - `sensitive-event?` binds to `re-frame.trace/sensitive?` (the
+    framework primitive, per rf2-sqxjn — every consumer of
+    `:sensitive?` composes against ONE check rather than
+    reimplementing the five-token shape). The base's predicate is
+    the same boolean check; the JVM-side alias preserves code-review
+    locality with the framework dep.
+  - The MCP-side helpers (`strip-sensitive`, `include-sensitive?`)
+    surface the canonical shape and the arg name an agent learns
+    once.
+
+  ## What spec/009 mandates
+
+  Framework-published forwarders — Sentry / Honeybadger, pair2 server,
+  Story-MCP, Causa-MCP — MUST default-drop trace events whose
+  registration declared `:sensitive? true`. The runtime stamps the
+  flag at the top level of every emitted trace event inside such a
+  registration's handler scope; the forwarder's job is to gate
+  egress on it before any data crosses the trust boundary into the
+  agent surface.
+
+  ## Why this ns exists in story-mcp
 
   Story-MCP's current tool surface (`run-variant`, `preview-variant`,
   `read-failures`, ...) returns *assertion records* and the *post-run
   app-db*, not raw `:rf/trace-event` items. The literal default-drop
   filter has nothing to filter in v1: the trace stream is not part of
-  any return shape. Still, this ns ships now so:
-
-  - When a future story-mcp tool surfaces raw traces (the natural
-    extension is a `play-traces` op that returns the trace events
-    emitted during the play phase, mirroring pair2-mcp's `subscribe
-    :trace`), the filter is already in place and the wiring is one
-    `update` call.
-  - The opt-in arg name (`:include-sensitive?`) is fixed
-    cross-server. An agent that knows the slot on pair2-mcp gets the
-    same slot on story-mcp the moment story-mcp grows a trace surface.
-  - The spec/009 MUST is honoured at the artefact level — a
-    code-review of story-mcp can see the filter machinery rather
-    than relying on a forward reference to pair2-mcp.
-
-  ## API
-
-  - `sensitive-event?` — predicate. True iff the map carries
-    `:sensitive? true` at the top level.
-  - `strip-sensitive` — `[events include?] -> [kept dropped-count]`.
-    The default-suppress filter; pass `include? true` to disable.
-  - `include-sensitive?` — read the per-call opt-in arg off a tool
-    arg map. Default false.
-
-  ## Worked example (future trace surface)
-
-  ```clojure
-  (defn- tool-play-traces [args]
-    (let [[vid err] (required-arg args :variant-id)
-          incl?     (sensitive/include-sensitive? args)]
-      (if err err
-        (let [raw          (run-and-collect-traces vid)
-              [kept dropped] (sensitive/strip-sensitive raw incl?)
-              payload      (cond-> {:variant-id vid :traces kept}
-                             (pos? dropped) (assoc :dropped-sensitive dropped))]
-          (text-result (pr-edn payload) payload)))))
-  ```"
+  any return shape. Still, this ns ships now so a future trace
+  surface (the natural extension is a `play-traces` op that returns
+  the trace events emitted during the play phase, mirroring
+  pair2-mcp's `subscribe :trace`) inherits the filter and the arg-name
+  contract automatically."
   (:require [clojure.string :as str]
+            [re-frame.mcp-base.sensitive :as base]
             [re-frame.trace :as trace]))
 
 (defn sensitive-event?
@@ -61,30 +49,20 @@
   predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn,
   every consumer of `:sensitive?` (Causa, Story, story-mcp, pair2-mcp,
   causa-mcp) composes against ONE framework primitive rather than
-  reimplementing the five-token check. The filter is conservative —
-  only the literal `true` value drops; any other value (including a
-  possible string-coercion via an ill-behaved transport) passes through.
-  The `:rf/trace-event` schema types `:sensitive?` as a boolean (per
-  spec/009 + spec/Spec-Schemas)."
+  reimplementing the five-token check."
   [ev]
   (trace/sensitive? ev))
 
 (defn strip-sensitive
   "Remove `:sensitive? true` events from `events` unless the caller has
-  opted in. Returns `[kept dropped-count]`. Cheap on the common path
-  (no sensitive events ⇒ identical-vector return + zero drop count).
+  opted in. Returns `[kept dropped-count]`.
 
-  This is the load-bearing default-suppress filter per spec/009
-  §Privacy. Apply it to any vector of trace-event-shaped maps before
-  the result crosses the MCP boundary into the agent surface."
+  Delegates to `re-frame.mcp-base.sensitive/strip-sensitive` (the
+  cross-MCP shared primitive per rf2-vw4sq). Local definition retained
+  for backwards compatibility — story-mcp consumers that already
+  binding-named this fn get the same shape."
   [events include?]
-  (cond
-    include?         [events 0]
-    (empty? events)  [events 0]
-    :else
-    (let [kept (filterv (complement sensitive-event?) events)
-          n    (- (count events) (count kept))]
-      [kept n])))
+  (base/strip-sensitive events include?))
 
 (defn- truthy-arg?
   "Coerce an MCP arg value into a boolean. JSON booleans arrive as

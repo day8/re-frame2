@@ -38,6 +38,12 @@
          ;; `snapshot-identity`, …) — see IMPL-SPEC §7.4.
          day8/re-frame2-story {:local/root "../story"}
 
+         ;; Shared MCP primitives across the triplet (pair2-mcp,
+         ;; story-mcp, causa-mcp): wire vocabulary, the spec/009
+         ;; default-suppress filter, the path-keyed diff-encode, and
+         ;; the overflow-marker shape. Per rf2-vw4sq.
+         day8/re-frame2-mcp-base {:local/root "../mcp-base"}
+
          ;; JSON wire format. Cheshire is the project's existing JSON
          ;; library (implementation/http uses it via requiring-resolve);
          ;; we declare it as a direct runtime dep here because every
