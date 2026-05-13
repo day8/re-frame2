@@ -12,6 +12,8 @@
   `(rf/init! plain-atom/adapter)` explicitly. The `adapter` var below
   is the public surface.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- make-state-container [initial-value]
   (atom initial-value))
 

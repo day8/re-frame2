@@ -74,6 +74,8 @@
                                     with-frame bound-fn with-fx-overrides
                                     with-managed-request-stubs]])))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- CLJS fn-aliases for registration ------------------------------------
 ;;
 ;; Source-coord capture on CLJS rides the JVM-emitted macros above. The

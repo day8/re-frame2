@@ -11,6 +11,8 @@
   The chain runs :before in order, then the handler, then :after in
   reverse order.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn ->interceptor
   "Build an interceptor map from kwargs. The primitive entry point for
   custom interceptors.

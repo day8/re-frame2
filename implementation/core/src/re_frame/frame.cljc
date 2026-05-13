@@ -19,6 +19,8 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- the frame record -----------------------------------------------------
 ;;
 ;; Per Spec 002 §What lives in a frame, a frame is a map with:

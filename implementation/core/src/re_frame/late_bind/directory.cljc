@@ -34,6 +34,8 @@
   and a free-floating prose comment; the drift check is the only
   source of truth.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def hooks
   "Vector of hook-directory entries — see the ns docstring for shape.
 

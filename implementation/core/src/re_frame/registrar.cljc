@@ -31,6 +31,8 @@
   (:require [re-frame.interop   :as interop]
             [re-frame.late-bind :as late-bind]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- the kind set ---------------------------------------------------------
 
 (def kinds

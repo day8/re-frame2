@@ -18,6 +18,8 @@
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^{:doc "Sentinel for `inject-cofx`'s 3-arity 'no-value' branch.
   Used by `re-frame.core/inject-cofx`'s macro form (rf2-ts1a) to thread
   a call-site through the no-value path without inventing a private

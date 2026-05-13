@@ -22,6 +22,8 @@
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- dispatch-id allocation -----------------------------------------------
 ;;
 ;; Per Spec 009 §Dispatch correlation: every dispatch is stamped with a
@@ -292,7 +294,7 @@
   :time/:exception/:elapsed-ms` record to corpus-wide listeners."
   [error event-id event frame ctx start-ms]
   (let [e          (:exception error)
-        msg        #?(:clj (.getMessage e) :cljs (.-message e))
+        msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
         emit-event (or (:rf/redacted-event ctx) event)
         end-ms     (interop/now-ms)
         ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.

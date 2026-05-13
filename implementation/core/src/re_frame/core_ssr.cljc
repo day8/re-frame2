@@ -21,6 +21,8 @@
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:private ssr-artefact
   {:error-keyword :rf.error/ssr-artefact-missing
    :maven         "day8/re-frame2-ssr"

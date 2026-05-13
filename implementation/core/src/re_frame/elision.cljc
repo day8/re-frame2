@@ -35,6 +35,8 @@
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- configuration --------------------------------------------------------
 
 (def default-threshold-bytes

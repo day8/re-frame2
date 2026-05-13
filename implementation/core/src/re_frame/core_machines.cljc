@@ -25,6 +25,8 @@
             [re-frame.router :as router]
             [re-frame.subs :as subs]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:private machines-artefact
   {:error-keyword :rf.error/machines-artefact-missing
    :maven         "day8/re-frame2-machines"

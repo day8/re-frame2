@@ -16,6 +16,8 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- metadata-map mis-use detection (rf2-bbea) ----------------------------
 ;;
 ;; `reg-event-*`'s middle slot may be a metadata-map (open shape — `:doc`,

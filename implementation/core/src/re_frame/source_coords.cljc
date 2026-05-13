@@ -26,6 +26,8 @@
   separately. Source-coord capture itself stays unconditional — the
   runtime cost is one map merge at registration time.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:dynamic *pending-coords*
   "Per-thread (per-call) source coords captured by a reg-* macro and
   consumed by the underlying registration fn. nil outside a macro

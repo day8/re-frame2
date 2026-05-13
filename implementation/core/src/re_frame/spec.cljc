@@ -60,6 +60,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- warn-once cache (Spec 010 L147) -------------------------------------
 ;;
 ;; `:rf.warning/boundary-without-spec` fires at most once per handler-id —

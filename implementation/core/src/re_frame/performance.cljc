@@ -44,6 +44,8 @@
   true or false depending on whether timing instrumentation is wanted."
   #?(:cljs (:require-macros [re-frame.performance])))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- the compile-time flag -------------------------------------------------
 
 #?(:cljs

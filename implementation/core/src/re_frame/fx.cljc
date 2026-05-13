@@ -29,6 +29,8 @@
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- registration ---------------------------------------------------------
 
 (defn reg-fx
