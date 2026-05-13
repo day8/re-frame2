@@ -81,15 +81,17 @@
 
 (defn- pr-args-map
   "Pretty-print an args map as a multi-line EDN form. Each top-level
-  key/value pair renders on its own line indented two columns under the
-  enclosing brace. Empty maps render as `{}`."
+  key/value pair renders on its own line, aligned directly under the
+  opening `{` of `:args {`. Empty maps render as `{}`. Uses the shared
+  `review-dialog/indent-after` helper so the continuation indent stays
+  in lockstep with the recorder's `gen-play-snippet`."
   [m]
   (if (empty? m)
     "{}"
     (str "{"
          (->> (sort-by (fn [[k _]] (str k)) m)
               (map (fn [[k v]] (str (pr-str k) " " (pr-str v))))
-              (str/join "\n            "))
+              (str/join (review-dialog/indent-after "   :args {")))
          "}")))
 
 (defn gen-variant-snippet
