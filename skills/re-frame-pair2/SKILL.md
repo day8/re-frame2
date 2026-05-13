@@ -112,7 +112,7 @@ re-frame2 supports multiple, named frames (Spec 002). Most apps run with one fra
 
 - `frames/list` — `(rf/frame-ids)` — set of registered, non-destroyed frame ids.
 - `frames/select` — set the session's default operating frame (the runtime caches it).
-- `frames/meta` — `(rf/frame-meta id)` — config + lifecycle for one frame.
+- `frames/meta` — `(rf/frame-meta id)` — flat metadata map for one frame: `:id`, `:created-at`, the preset-expansion keys (`:preset`, `:fx-overrides`, `:drain-depth`, …), and lifecycle fields (`:destroyed?`, `:listeners`) all at the top level. See `:rf/frame-meta` in Spec-Schemas.
 
 When the operating frame is ambiguous (more than one is registered and the session hasn't selected one), **mutating ops refuse with `:ambiguous-frame`** and read ops proceed against `:rf/default` after warning. This mirrors the Spec 002 §Frame presets / lifecycle convention.
 
