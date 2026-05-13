@@ -92,6 +92,50 @@
     (is (str/includes? snippet "[:counter/inc]"))
     (is (str/includes? snippet "[:counter/dec]"))))
 
+;; ---- mid-recording assertion insertion (rf2-39u9e) ----------------------
+
+(deftest assertion-vocabulary-covers-canonical-seven
+  (let [ids (set (map :id recorder/assertion-vocabulary))]
+    (is (= #{:rf.assert/path-equals
+             :rf.assert/path-matches
+             :rf.assert/sub-equals
+             :rf.assert/dispatched?
+             :rf.assert/state-is
+             :rf.assert/no-warnings
+             :rf.assert/effect-emitted}
+           ids))))
+
+(deftest make-assertion-builds-well-formed-events
+  (is (= [:rf.assert/path-equals [:auth :status] :ok]
+         (recorder/make-assertion :rf.assert/path-equals
+                                  {:path [:auth :status] :expected :ok})))
+  (is (= [:rf.assert/sub-equals [:counter] 3]
+         (recorder/make-assertion :rf.assert/sub-equals
+                                  {:sub [:counter] :expected 3})))
+  (is (= [:rf.assert/no-warnings]
+         (recorder/make-assertion :rf.assert/no-warnings {})))
+  (is (nil? (recorder/make-assertion :rf.assert/not-a-real-one {}))))
+
+(deftest insert-assertion!-interleaves-with-recorded-events
+  (recorder/start-recording! :story.x/y 0)
+  (recorder/record-event! [:counter/inc])
+  (recorder/insert-assertion! :rf.assert/sub-equals
+                              {:sub [:counter] :expected 1})
+  (recorder/record-event! [:counter/inc])
+  (recorder/insert-assertion! [:rf.assert/no-warnings])
+  (recorder/stop-recording!)
+  (is (= [[:counter/inc]
+          [:rf.assert/sub-equals [:counter] 1]
+          [:counter/inc]
+          [:rf.assert/no-warnings]]
+         (recorder/recorded-events))))
+
+(deftest insert-assertion!-rejects-non-assertion
+  (recorder/start-recording! :story.x/y 0)
+  (recorder/insert-assertion! [:counter/inc])
+  (recorder/insert-assertion! [:rf.story/lifecycle-tick])
+  (is (= [] (recorder/recorded-events))))
+
 (deftest gen-play-snippet-roundtrips
   (let [events [[:counter/inc] [:auth/login {:id 1}]]
         snip   (recorder/gen-play-snippet events {:variant-id :story.x/y})

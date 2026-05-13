@@ -395,8 +395,11 @@
         ;; rf2-5fc15: Test Codegen recording overlay (top-right banner
         ;; while a recording is in flight) + save-as-variant dialog
         ;; (opens after stop). Both are fixed-position so they float
-        ;; above the three-pane layout.
+        ;; above the three-pane layout. rf2-39u9e adds the mid-recording
+        ;; assertion picker — a modal that opens off the overlay's
+        ;; `+ assert` button.
         [recorder-ui/recording-overlay]
+        [recorder-ui/assertion-picker]
         [recorder-ui/save-dialog]
         ;; rf2-one3t: save-current-canvas-state-as-variant dialog. Lives
         ;; alongside the recorder's save dialog — both float above the

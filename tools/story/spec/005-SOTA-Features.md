@@ -157,6 +157,40 @@ Three filter layers:
    assertions are deliberate; recorded `:play` bodies capture user
    intent, and assertions get added by hand.
 
+#### Mid-recording assertion insertion (rf2-39u9e)
+
+The recorder filters `:rf.assert/*` events off the trace bus
+(assertions are authored, not observed). To make assertion authoring
+as fast as the recording itself, the recording overlay carries an
+`+ assert` button next to `stop`. Click opens a small modal picker
+that enumerates the canonical seven `:rf.assert/*` ids from
+`re-frame.story.recorder/assertion-vocabulary` (one-click pick) and
+prompts for the assertion's EDN-typed payload fields. A live preview
+renders the event vector that will land in the captured `:play`
+body; clicking 'insert' appends it inline alongside the dispatched
+events.
+
+The picker doesn't pause recording — the user can keep clicking the
+canvas after inserting. The captured `:play` body comes out with
+assertions interleaved exactly where the user wanted them:
+
+```clojure
+(story/reg-variant :story.counter/recorded
+  {:extends :story.counter/happy-path
+   :play [[:counter/inc]
+          [:counter/inc]
+          [:rf.assert/sub-equals [:counter] 2]      ; inserted via picker
+          [:counter/by 7]
+          [:rf.assert/path-equals [:n] 9]]})        ; inserted via picker
+```
+
+The picker's vocabulary list is data — `assertion-vocabulary` — so
+the canonical seven (and any future additions to spec/004) can be
+extended in one place. The pure helpers (`make-assertion`,
+`append-assertion`, `insert-assertion!`) live in
+`re-frame.story.recorder` so JVM tests cover the event-vector
+construction without going through the modal.
+
 #### Public API
 
 ```clojure
@@ -167,6 +201,11 @@ Three filter layers:
 (recorder-state)                      ; current state — read-only view
 (clear-recording!)                    ; drop captured trace, return to idle
 (gen-play-snippet events opts)        ; render `(reg-variant ... :play [...])`
+
+;; Mid-recording assertion insertion (rf2-39u9e)
+recorder/assertion-vocabulary        ; data — the 7 canonical entries
+(recorder/make-assertion id payload)  ; pure — build the event vec
+(recorder/insert-assertion! id pl)    ; impure — append to :events
 ```
 
 `opts` for `gen-play-snippet`:
