@@ -30,6 +30,25 @@
   #js {:isError true
        :content #js [#js {:type "text" :text (pr-str v)}]})
 
+(defn with-indicators
+  "Splice the cross-MCP indicator-field slots (`:dropped-sensitive`,
+  `:elided-large`) onto a tool's envelope map.
+
+  Centralises the MUST-level \"omit when zero\" rule from
+  [Conventions §Cross-MCP indicator-field vocabulary][1] and
+  [Spec 009 §Indicator field on tool responses][2]. Every tool that
+  walks a tree-typed payload (`snapshot`, `get-path`, `trace-window`,
+  `watch-epochs`, `subscribe`) routes its envelope-tail through here so
+  the rule lives in one place — drift across emit sites can no longer
+  silently violate the MUST.
+
+  [1]: spec/Conventions.md#cross-mcp-indicator-field-vocabulary-suppression-counters
+  [2]: spec/009-Instrumentation.md#size-elision-in-traces"
+  [envelope {:keys [dropped elided]}]
+  (cond-> envelope
+    (pos? (or dropped 0)) (assoc :dropped-sensitive dropped)
+    (pos? (or elided  0)) (assoc :elided-large      elided)))
+
 (defn arg
   "Extract an MCP tool argument by name. Returns nil if absent."
   [args k]
