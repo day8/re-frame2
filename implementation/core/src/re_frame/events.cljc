@@ -90,108 +90,151 @@
     offending))
 
 ;; ---- handler-as-interceptor wrappers --------------------------------------
-;; Each reg-event-* form wraps the user's handler fn into an interceptor
-;; whose :before slot runs the handler and stores its result on the context.
+;;
+;; The three reg-event-* forms share a single :before shape:
+;;   1. honour :rf/skip-handler? (Spec 010 §Validation order, rf2-7leq/jwm4),
+;;   2. invoke the user handler with the kind-appropriate inputs,
+;;   3. project the return into the context.
+;;
+;; The differences are purely data: which inputs to read, which interceptor
+;; :id to stamp, and how the return commits back. The shared shape lives in
+;; `wrap-event-handler` below; per-kind specs live in `kind-spec` as a small
+;; dispatch table. This collapses the historical db/fx/ctx triple into one
+;; well-named primitive — adding a new event kind becomes a one-row edit.
 
-(defn- db-handler->interceptor
-  "Wrap a (fn [db event]) → new-db handler.
+(defn- commit-fx-effects
+  "fx-kind commit: enforce the closed effect-map (M-8) and assoc :db / :fx
+  into the context. Bad-return / nil-return policy lives here too — `nil`
+  is the documented legal no-op (rf2-k3bj); any non-map return emits
+  :rf.error/effect-handler-bad-return with :no-recovery and the dispatch
+  becomes a no-op."
+  [ctx event effects]
+  (cond
+    (nil? effects) ctx                       ;; documented legal no-op
+    (not (map? effects))
+    (do (trace/emit-error! :rf.error/effect-handler-bad-return
+                           {:event-id      (when (vector? event) (first event))
+                            :event         event
+                            :returned      effects
+                            :returned-type (type effects)
+                            :reason        "reg-event-fx handler returned a non-map; expected {:db ... :fx [...]}."
+                            :recovery      :no-recovery})
+        ctx)
+    :else
+    (do
+      (police-effect-map-shape! effects event)
+      (cond-> ctx
+        (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
+        (contains? effects :fx) (interceptor/assoc-effect :fx (:fx effects))))))
 
-  Per Spec 010 §Validation order steps 1-2 (rf2-7leq, rf2-jwm4) — if
-  any pre-handler validation set :rf/skip-handler? on the context,
-  short-circuit and run no body. The schema-validation-failure trace
-  has already fired."
-  [handler-fn]
-  (interceptor/->interceptor
-    :id :rf/db-handler
-    :before
-    (fn [ctx]
-      (if (:rf/skip-handler? ctx)
-        ctx
-        (let [db    (interceptor/get-coeffect ctx :db)
-              event (interceptor/get-coeffect ctx :event)
-              new-db (handler-fn db event)]
-          (interceptor/assoc-effect ctx :db new-db))))))
+(def ^:private kind-spec
+  "Per-kind hooks for `wrap-event-handler`. Each entry carries:
+    :interceptor-id  the stamped :rf/* id (observable in traces)
+    :invoke          (fn [handler-fn ctx event]) → handler return value
+    :commit          (fn [ctx event return]) → new ctx
+  The shared `:before` body composes invoke → commit around the
+  :rf/skip-handler? short-circuit (Spec 010 steps 1-2 recovery).
 
-(defn- fx-handler->interceptor
-  "Wrap a (fn [cofx event]) → effects-map handler. See db-handler->interceptor
-  for the :rf/skip-handler? short-circuit (Spec 010 step 1/2 recovery).
+  Notes per kind:
+    :db   — handler is (fn [db event]) → new-db; commits via assoc-effect :db.
+    :fx   — handler is (fn [cofx event]) → effect-map; commits via
+            `commit-fx-effects` which enforces the closed :db/:fx shape
+            (M-8) and polices bad returns (rf2-k3bj).
+    :ctx  — handler is (fn [context]) → context; commits the return value
+            directly, defaulting to the inbound ctx on nil return."
+  {:db  {:interceptor-id :rf/db-handler
+         :invoke         (fn [handler-fn ctx event]
+                           (handler-fn (interceptor/get-coeffect ctx :db) event))
+         :commit         (fn [ctx _event new-db]
+                           (interceptor/assoc-effect ctx :db new-db))}
+   :fx  {:interceptor-id :rf/fx-handler
+         :invoke         (fn [handler-fn ctx event]
+                           (handler-fn (interceptor/get-coeffect ctx) event))
+         :commit         commit-fx-effects}
+   :ctx {:interceptor-id :rf/ctx-handler
+         :invoke         (fn [handler-fn ctx _event]
+                           (handler-fn ctx))
+         :commit         (fn [ctx _event new-ctx]
+                           (or new-ctx ctx))}})
 
-  Per Spec migration M-8 the effect map is closed: only :db and :fx live at
-  the top level. Any other top-level key is policed via
-  police-effect-map-shape! — a :rf.error/effect-map-shape trace is emitted
-  per offending key (Spec 009 §Error contract, :recovery
-  :logged-and-skipped) and the key is dropped.
+(defn- wrap-event-handler
+  "Wrap `handler-fn` into an interceptor whose :before runs the handler.
 
-  Per rf2-k3bj: a reg-event-fx handler is contracted to return a map (or
-  nil — the documented no-op). Any other return type (vector, number,
-  string, ...) emits :rf.error/effect-handler-bad-return; the runtime
-  cannot guess intent and treats the dispatch as a no-op (`:recovery
-  :no-recovery`)."
-  [handler-fn]
-  (interceptor/->interceptor
-    :id :rf/fx-handler
-    :before
-    (fn [ctx]
-      (if (:rf/skip-handler? ctx)
-        ctx
-        (let [cofx    (interceptor/get-coeffect ctx)
-              event   (interceptor/get-coeffect ctx :event)
-              effects (handler-fn cofx event)]
-          (cond
-            (nil? effects) ctx  ;; documented legal no-op
-            (not (map? effects))
-            (do (trace/emit-error! :rf.error/effect-handler-bad-return
-                                   {:event-id      (when (vector? event) (first event))
-                                    :event         event
-                                    :returned      effects
-                                    :returned-type (type effects)
-                                    :reason        "reg-event-fx handler returned a non-map; expected {:db ... :fx [...]}."
-                                    :recovery      :no-recovery})
-                ctx)
-            :else
-            (do
-              (police-effect-map-shape! effects event)
-              (cond-> ctx
-                (contains? effects :db)
-                (interceptor/assoc-effect :db (:db effects))
+  The body is uniform across event kinds:
+    (a) honour :rf/skip-handler? (Spec 010 steps 1-2 recovery — schema
+        validation has already emitted its failure trace);
+    (b) pull the event vector from the coeffects (used by every kind's
+        invoke + commit);
+    (c) invoke the user handler with kind-appropriate inputs;
+    (d) commit the return into the context.
 
-                (contains? effects :fx)
-                (interceptor/assoc-effect :fx (:fx effects))))))))))
-
-(defn- ctx-handler->interceptor
-  "Wrap a (fn [context]) → context handler. Advanced; few apps need it."
-  [handler-fn]
-  (interceptor/->interceptor
-    :id :rf/ctx-handler
-    :before
-    (fn [ctx]
-      (if (:rf/skip-handler? ctx)
-        ctx
-        (or (handler-fn ctx) ctx)))))
+  See `kind-spec` for the per-kind :invoke / :commit pair."
+  [kind handler-fn]
+  (let [{:keys [interceptor-id invoke commit]} (get kind-spec kind)]
+    (interceptor/->interceptor
+      :id interceptor-id
+      :before
+      (fn [ctx]
+        (if (:rf/skip-handler? ctx)
+          ctx
+          (let [event (interceptor/get-coeffect ctx :event)]
+            (commit ctx event (invoke handler-fn ctx event))))))))
 
 ;; ---- registration ---------------------------------------------------------
 
 (defn- normalise-args
-  "Accept either (id handler) or (id metadata-or-interceptors handler).
-  Per Spec 001 §Allowed forms of the middle slot: the middle slot may be
-  metadata (map) or an interceptors vector."
+  "Accept the three documented shapes for the variadic tail of reg-event-*:
+    (handler)                          — bare handler
+    (metadata-or-interceptors handler) — middle slot is one or the other
+    (metadata interceptors handler)    — explicit pair
+  Per Spec 001 §Allowed forms of the middle slot. Returns
+  `[metadata interceptors handler]`."
   [args]
   (case (count args)
     1 [{} [] (first args)]
     2 (let [[middle handler] args]
         (cond
-          (map? middle)        [middle [] handler]
-          (vector? middle)     [{} middle handler]
-          :else                (throw (ex-info
-                                        "reg-event-*: middle slot must be a metadata-map or an interceptor-vector"
-                                        {:args     args
-                                         :got      middle
-                                         :expected "metadata-map (e.g. {:doc \"...\"}) OR interceptor-vector (e.g. [(path :a)])"}))))
+          (map? middle)    [middle [] handler]
+          (vector? middle) [{} middle handler]
+          :else            (throw (ex-info
+                                    "reg-event-*: middle slot must be a metadata-map or an interceptor-vector"
+                                    {:args     args
+                                     :got      middle
+                                     :expected "metadata-map (e.g. {:doc \"...\"}) OR interceptor-vector (e.g. [(path :a)])"}))))
     3 (let [[meta interceptors handler] args]
         [meta (or interceptors []) handler])
     (throw (ex-info
-             "reg-event-* arity error — expected (id handler), (id metadata handler), (id interceptors handler), or (id metadata interceptors handler)"
+             "reg-event-* arity error — expected (id handler), (id metadata handler), or (id metadata interceptors handler)"
              {:args args :count (count args)}))))
+
+(defn- register-event!
+  "Common registration body for the three reg-event-* forms.
+
+  Steps (uniform across :db / :fx / :ctx kinds):
+    1. parse the variadic middle slot into [metadata interceptors handler];
+    2. warn-if-misplaced — `:interceptors` inside the metadata-map silently
+       drops the chain (rf2-bbea, rf2-w3vn);
+    3. wrap the user handler into the kind-appropriate interceptor via
+       `wrap-event-handler` (see `kind-spec`);
+    4. register under `:event` with `:event/kind` recording which form was
+       used and `:handler-fn` retained for tooling introspection;
+    5. emit :rf.warning/sensitive-without-redaction if the registration
+       declared `:sensitive? true` without a redaction interceptor in the
+       chain (rf2-isdwf / Spec 009 §Privacy) — called AFTER register! so
+       listeners see the registration trace first.
+
+  Returns the event id."
+  [kind reg-fn-name id args]
+  (let [[meta interceptors handler-fn] (normalise-args args)
+        wrapped (wrap-event-handler kind handler-fn)]
+    (warn-interceptors-in-meta! reg-fn-name id meta)
+    (registrar/register! :event id
+      (assoc (source-coords/merge-coords meta)
+             :event/kind   kind
+             :handler-fn   handler-fn
+             :interceptors (-> [] (into interceptors) (conj wrapped))))
+    (privacy/warn-sensitive-without-redaction! :event id meta interceptors)
+    id))
 
 (defn reg-event-db
   "Register a `(fn [db event-vec] new-db)` event handler under `id`.
@@ -225,21 +268,7 @@
   See also: `reg-event-fx` (effect-map handlers), `reg-event-ctx`
   (advanced — context manipulation), `dispatch`, `dispatch-sync`."
   [id & args]
-  (let [[meta interceptors handler-fn] (normalise-args args)
-        _           (warn-interceptors-in-meta! "reg-event-db" id meta)
-        wrapped     (db-handler->interceptor handler-fn)
-        all-chain   (concat interceptors [wrapped])]
-    (registrar/register! :event id
-      (assoc (source-coords/merge-coords meta)
-             :event/kind   :db
-             :handler-fn   handler-fn
-             :interceptors (vec all-chain)))
-    ;; Per rf2-isdwf / Spec 009 §Privacy: emit
-    ;; :rf.warning/sensitive-without-redaction once per (kind, id) pair
-    ;; when :sensitive? true but no with-redacted in the chain. Called
-    ;; AFTER register! so listeners see the registration trace first.
-    (privacy/warn-sensitive-without-redaction! :event id meta interceptors)
-    id))
+  (register-event! :db "reg-event-db" id args))
 
 (defn reg-event-fx
   "Register a `(fn [cofx event-vec] effect-map)` event handler under `id`.
@@ -285,17 +314,7 @@
   (advanced — context manipulation), `reg-fx` (register a custom fx),
   `inject-cofx` (consume a registered cofx)."
   [id & args]
-  (let [[meta interceptors handler-fn] (normalise-args args)
-        _           (warn-interceptors-in-meta! "reg-event-fx" id meta)
-        wrapped     (fx-handler->interceptor handler-fn)
-        all-chain   (concat interceptors [wrapped])]
-    (registrar/register! :event id
-      (assoc (source-coords/merge-coords meta)
-             :event/kind   :fx
-             :handler-fn   handler-fn
-             :interceptors (vec all-chain)))
-    (privacy/warn-sensitive-without-redaction! :event id meta interceptors)
-    id))
+  (register-event! :fx "reg-event-fx" id args))
 
 (defn reg-event-ctx
   "Register a `(fn [context] context)` full-context event handler under
@@ -321,17 +340,7 @@
   See also: `reg-event-db`, `reg-event-fx`, `->interceptor`,
   `assoc-coeffect`, `assoc-effect`."
   [id & args]
-  (let [[meta interceptors handler-fn] (normalise-args args)
-        _           (warn-interceptors-in-meta! "reg-event-ctx" id meta)
-        wrapped     (ctx-handler->interceptor handler-fn)
-        all-chain   (concat interceptors [wrapped])]
-    (registrar/register! :event id
-      (assoc (source-coords/merge-coords meta)
-             :event/kind   :ctx
-             :handler-fn   handler-fn
-             :interceptors (vec all-chain)))
-    (privacy/warn-sensitive-without-redaction! :event id meta interceptors)
-    id))
+  (register-event! :ctx "reg-event-ctx" id args))
 
 (defn clear-event
   "Unregister an event handler. Zero-arity clears every registered
