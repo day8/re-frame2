@@ -41,6 +41,30 @@ These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watc
 - machine-snapshot version skew (`:rf/snapshot-version`) silently breaking restore after a hot reload
 - effect overrides (`:fx-overrides`) that lingered or leaked across experiments
 
+## `:on-error` policy lens
+
+Use when the session touched a frame's `:on-error` slot — inspecting it, hot-swapping it, or chasing why an error wasn't recovered the way the user expected. The pair2 skill's [`references/on-error.md`](../../re-frame-pair2/references/on-error.md) is the operational contract; this lens is the retrospective view that feeds policy-contract friction back into pair2 improvements.
+
+The slot's return shape is closed (`{:recovery :replacement :notes}` with a six-value `:recovery` enum). Most policy friction shows up as one of these patterns.
+
+Friction signals specific to `:on-error`:
+
+- a `:rf.error/bad-on-error-return` trace fired but the user (or the agent) did not notice — the runtime fell back to the category default silently and the user kept debugging the wrong symptom
+- a `:rf.error/on-error-policy-exception` trace fired (the policy fn threw) and the cascade halted without a clear next-best-action surfaced in the session
+- the policy returned the legacy `{:recovery :retried :retry-count N}` shape — `:retry-count` is not part of the contract and `:retried` is reserved for `:rf.http/retry-attempt`; the runtime rejects it
+- `:replacement` was set under a `:recovery` value other than `:replaced-with-default` (ignored by the runtime; may emit `:rf.warning/replacement-ignored-on-recovery`)
+- `:replacement` shape did not match the failing operation's normal return (effect-map for `:rf.error/handler-exception`, position-matched value for `:rf.error/schema-validation-failure`, etc.) — runtime rejected it as `:rf.error/bad-on-error-return`
+- `:replacement` was set on a non-substitutable category (registration-time failures, drain-depth-exceeded, `:rf.epoch/restore-*` rejections, `:rf.machine/*` registration-time rejections) — runtime cannot honour it
+- the user expected `:on-error` to fire in a CLJS production build but it didn't — pre-rf2-hqbeh builds gated `:on-error` behind `goog.DEBUG`; surface the dev/prod divergence and route the fix upstream (rf2-hqbeh territory) rather than working around it in the policy
+- the session reached into `re-frame.events` / `re-frame.registrar` to read the registered policy fn instead of using `(:on-error (rf/frame-meta <frame-id>))` — off-contract private-namespace reach-through per Tool-Pair §REPL-eval
+
+Routing the fix:
+
+- **pair2 skill** — the friction is that the agent didn't recognise the bad-return / policy-throw trace categories, or the inspection recipe was unclear → tighten `references/on-error.md`, add a recipe, or surface the trace categories more loudly in `references/errors.md`
+- **upstream re-frame2** — the friction is the runtime's behaviour itself (silent fallback, no warning trace, prod-elision of the slot, missing structured `:tags` on the bad-return trace) → file against `re-frame2`, cross-link to `spec/009-Instrumentation.md §Error-handler policy`
+
+When proposing improvements, prefer turning a silent runtime fallback into a louder warning the agent can route to the user, and prefer a recipe over a doc paragraph when the friction is "I didn't know how to inspect the registered policy at the REPL".
+
 ## Root-cause categories
 
 Map each finding to one primary cause:
