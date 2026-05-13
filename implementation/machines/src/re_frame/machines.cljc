@@ -146,7 +146,15 @@
 (def wants-ctx              transition/wants-ctx)
 
 (defn reset-timers!
-  "Cancel every in-flight `:after` timer the runtime is currently tracking.
+  "Cancel in-flight `:after` timers.
+
+  0-arity: every frame's timers — the fixture-teardown shape used by
+  `re-frame.test-support`'s `reset-runtime` and per-feature artefact test
+  fixtures. Clears the entire frame-scoped table.
+
+  1-arity: just the given frame's timers — the `frame/destroy-frame!`
+  hook shape used to release a destroyed frame's host-clock handles and
+  subscription watchers without touching sibling frames.
 
   Per rf2-gr8q the per-process `spawn-counter` atom is gone — declarative-
   :invoke spawn-id allocation lives inside the parent snapshot's
@@ -154,11 +162,16 @@
   the frame's app-db at `[:rf/spawn-counter <machine-id>]`. Both reset
   automatically: per-test snapshot rollback (via test-support's registrar
   snapshot/restore + frame reset) clears the app-db; per-fixture snapshot
-  input in the conformance harness is hand-built fresh on each call. The
-  only remaining per-process state this fn resets is the wall-clock timer
-  table in `re-frame.machines.timer`."
-  []
-  (timer/cancel-all-timers!))
+  input in the conformance harness is hand-built fresh on each call.
+
+  Per rf2-ysa94 the wall-clock timer table is now frame-scoped — the
+  last remaining per-process mutable state in the machines artefact —
+  so the 0-arity / 1-arity split aligns with the test-fixture and
+  frame-destroy call sites respectively."
+  ([]
+   (timer/cancel-all-timers!))
+  ([frame-id]
+   (timer/cancel-all-timers! frame-id)))
 
 ;; ---- machine-internal effect handlers ------------------------------------
 ;;
@@ -248,6 +261,17 @@
 (late-bind/set-fn! :machines/machine-meta           machine-meta)
 (late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
 (late-bind/set-fn! :machines/reset-timers!          reset-timers!)
+;; Per rf2-ysa94: per-frame timer-table cleanup wired into
+;; `frame/destroy-frame!`. The frame-scoping refactor partitions the
+;; timer table `{<frame-id> {…}}`; without this hook a destroyed
+;; frame's inner table would linger as dead bookkeeping (and worse, any
+;; in-flight host-clock handles would survive teardown). Late-bound
+;; through the hook table mirroring the rf2-fcj33 SSR
+;; `:ssr/on-frame-destroyed` cleanup pattern — core never statically
+;; requires the machines artefact, so the hook resolves to nil when
+;; this namespace is absent and `destroy-frame!` proceeds without it.
+(late-bind/set-fn! :machines/on-frame-destroyed!
+                   (fn [frame-id] (timer/cancel-all-timers! frame-id)))
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 (late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)

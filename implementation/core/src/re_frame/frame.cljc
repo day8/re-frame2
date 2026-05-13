@@ -372,6 +372,17 @@
                                           request under SSR load — a
                                           slow leak that compounds over
                                           a long-running server process.
+    :machines/on-frame-destroyed!       — rf2-ysa94, clear the machines
+                                          artefact's frame-scoped
+                                          `:after` timer table for the
+                                          destroyed frame and release
+                                          any in-flight host-clock
+                                          handles / subscription
+                                          watchers belonging to that
+                                          frame. Without this hook the
+                                          destroyed frame's inner table
+                                          would linger and live timers
+                                          would survive teardown.
 
   Subsequent dispatch / subscribe against a destroyed frame raises
   :rf.error/frame-destroyed."
@@ -401,6 +412,16 @@
     ;; through the hook table; no-op when re-frame.ssr is absent.
     (when-let [ssr-cleanup! (late-bind/get-fn :ssr/on-frame-destroyed)]
       (try (ssr-cleanup! id)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; Per rf2-ysa94 / Spec 005 §Delayed `:after` transitions: clear the
+    ;; machines artefact's frame-scoped `:after` timer table for the
+    ;; destroyed frame. The table is partitioned per frame; without this
+    ;; hook the destroyed frame's inner-table would linger as dead
+    ;; bookkeeping and any in-flight host-clock handles would survive
+    ;; teardown. Late-bound through the hook table — no-op when
+    ;; re-frame.machines is absent (the artefact is optional).
+    (when-let [machines-cleanup! (late-bind/get-fn :machines/on-frame-destroyed!)]
+      (try (machines-cleanup! id)
            (catch #?(:clj Throwable :cljs :default) _ nil)))
     (emit-frame-destroyed-trace! id)
     (dissoc-frame! id)

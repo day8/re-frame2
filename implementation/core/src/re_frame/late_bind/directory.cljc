@@ -191,6 +191,9 @@
    {:key         :machines/reset-timers!
     :producer-ns 're-frame.machines
     :description "Cancel in-flight `:after` wall-clock timers (test isolation)."}
+   {:key         :machines/on-frame-destroyed!
+    :producer-ns 're-frame.machines
+    :description "Per-frame `:after` timer-table cleanup hook called from frame/destroy-frame! (rf2-ysa94)."}
    {:key         :machines/spawn-fx
     :producer-ns 're-frame.machines
     :description "Effect handler for :rf.machine/spawn."}
