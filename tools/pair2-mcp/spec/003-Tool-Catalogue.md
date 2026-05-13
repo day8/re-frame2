@@ -2,6 +2,29 @@
 
 The nine MCP tools.
 
+## Universal: wire-boundary token cap
+
+Every `tools/call` response passes through the wire-boundary cap
+enforced in `tools.cljs` (see
+[`Principles.md` §Tight token budget](Principles.md#tight-token-budget-per-response)).
+Each tool accepts a universal `max-tokens` arg — integer cap in
+tokens, default `5000`, `0` disables. Over-budget payloads are
+replaced with a structured marker:
+
+```clojure
+{:rf.mcp/overflow
+ {:limit       :reached
+  :token-count <integer>
+  :cap-tokens  <integer>
+  :tool        "<tool-name>"
+  :hint        "<tool-specific next-step hint>"}}
+```
+
+The marker is the only over-budget response shape — silent truncation
+is not allowed. Agents pattern-match on `:rf.mcp/overflow` and either
+narrow their args or pass `max-tokens 0` for the rare case where the
+full payload is genuinely needed.
+
 ## discover-app
 
 Verify the shadow-cljs nREPL is reachable, confirm the
