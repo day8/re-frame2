@@ -2,20 +2,25 @@
 
 The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, every Pattern-* doc) was authored against the Reagent adapter, and every JVM `clojure -M:test` run, every shadow-cljs `node-test` build, every `:browser-test` run, and every `npm run test:examples` invocation exercises the Reagent path end-to-end. See [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) for the policy and rationale.
 
-This directory holds the **full set of fifteen worked examples** that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source, a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The 7GUIs cluster has its own internal grouping under [`7Guis/`](7Guis/README.md).
+This directory holds the **full set of twenty worked Reagent examples** (counting each 7GUIs task individually) that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source, a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The 7GUIs cluster has its own internal grouping under [`7Guis/`](7Guis/README.md).
 
 ## Layout
 
 ```
 reagent/
   counter/                     <-- the smallest possible app (CP-1, CP-2, CP-4)
+  counter_slim_and_fast/       <-- same dataflow on day8/reagent-slim (bundle-comparison contract)
+  counter_with_stories/        <-- counter + tools/story wired end-to-end (Stage 8 / Spec 007)
   login/                       <-- single-feature scaffold (CP-5, CP-6)
   todomvc/                     <-- canonical benchmark (TodoMVC spec)
   routing/                     <-- CP-7 worked example (Spec 012)
   ssr/                         <-- CP-9 worked example (Spec 011)
   managed_http_counter/        <-- compact Spec 014 demo
-  state_machine_walkthrough/   <-- runnable companion to docs/guide/05
+  state_machine_walkthrough/   <-- runnable companion to docs/guide/08
   nine_states/                 <-- the nine canonical UI states
+  boot/                        <-- Pattern-Boot worked example (rf2-dsm2)
+  long_running_work/           <-- Pattern-LongRunningWork worked example (rf2-o9fg)
+  websocket/                   <-- Pattern-WebSocket worked example (rf2-yf97)
   7Guis/                       <-- 7GUIs benchmark cluster
     cells/  circle_drawer/  crud/  flight_booker/  temperature/  timer/
   realworld/                   <-- the canonical multi-artefact integration test
