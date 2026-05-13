@@ -103,11 +103,6 @@
   ([] (registrar/clear-kind! :fx))
   ([id] (registrar/unregister! :fx id)))
 
-;; Back-compat alias retained transiently — internal callers may still
-;; reach for `unregister-fx`. Pre-alpha: prefer `clear-fx`; the alias
-;; can be cut once internal references are migrated.
-(def unregister-fx clear-fx)
-
 ;; ---- the platform predicate -----------------------------------------------
 
 (defn- fx-runs-on-platform? [meta active-platform]

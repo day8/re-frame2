@@ -379,7 +379,7 @@
 ;; ---- clear-fx round-trip (rf2-634y) --------------------------------------
 ;;
 ;; Per Spec 002 / API.md §Lifecycle and `core.cljc:869`: `rf/clear-fx` is
-;; an alias of `fx/unregister-fx`. Used by hot-reload tooling and by
+;; an alias of `fx/clear-fx`. Used by hot-reload tooling and by
 ;; `http_managed.cljc:1606` for stub uninstall. Pre-rf2-634y no test
 ;; pinned this behaviour.
 ;;
