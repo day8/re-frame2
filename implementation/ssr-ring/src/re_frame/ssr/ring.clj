@@ -23,18 +23,23 @@
 
     (ssr-handler opts)  → ring-handler-fn
     (ssr-middleware opts) → ((handler) → wrapped-handler)
-    *current-request*   — dynamic var bound for the duration of each
-                          request; the `:rf.server/request` cofx
-                          (rf2-e825b) reads from this binding.
 
   Per-request flow inside `ssr-handler`:
 
-    1. Bind `*current-request*` to the Ring request map.
-    2. Build a per-request server frame via `(rf/make-frame ...)`
-       with `:platform :server`, the caller's :on-create event (with
-       the request map conj'd as an argument), and the caller's
-       optional :fx-overrides / :ssr config.
-    3. The drain runs synchronously inside make-frame's :on-create
+    1. Gensym a per-request frame-id (under `:rf.frame/`), then
+       populate the per-frame request slot via
+       `(ssr/set-request! frame-id request)` BEFORE registering the
+       frame — `reg-frame` drains `:on-create` synchronously, so the
+       slot must be set first or the `:rf.server/request` cofx would
+       resolve nil during the drain (Spec 011 §Request storage
+       substrate). This is the same id-then-register pattern
+       `make-frame` runs internally; the adapter inlines it because
+       it needs the id between gensym and drain.
+    2. Register the frame via `(rf/reg-frame frame-id config)` with
+       `:platform :server`, the caller's `:on-create` event (with the
+       request map conj'd as an argument), and the caller's optional
+       `:fx-overrides` / `:ssr` config.
+    3. The drain runs synchronously inside `reg-frame`'s `:on-create`
        dispatch path (Spec 002 §dispatch).
     4. Read the response accumulator via `ssr/get-response` (flushes
        any pending error projection per Spec 011 §Server error
@@ -53,16 +58,24 @@
        quoting / encoding pitfalls.
     8. Destroy the per-request frame in a `finally` block — pending
        :dispatch-later calls, sub-cache reactions, and trace-buffer
-       state all release on destroy (Spec 002 §Destroy).
+       state all release on destroy (Spec 002 §Destroy); the
+       `:ssr/on-frame-destroyed` hook drops the request slot in the
+       same step.
 
-  Coordination with rf2-e825b (`:rf.server/request` cofx):
+  Coordination with `:rf.server/request` cofx:
 
-    rf2-e825b lands the cofx itself; this adapter is the binding site.
-    The cofx reads from `re-frame.ssr.ring/*current-request*`; this
-    namespace binds the var per request. If rf2-e825b hasn't merged
-    yet, the binding is a harmless no-op — handlers that try to read
-    via `(inject-cofx :rf.server/request)` get nil until the cofx
-    lands.
+    Per Spec 011 §Request storage substrate, the host adapter MUST
+    populate the per-frame request slot before the drain begins and
+    MUST clear it after the response is materialised. A single
+    dynamic `Var` / thread-local binding is explicitly forbidden as
+    a substrate — under concurrent drains (the canonical SSR shape
+    under load) frames sharing a thread would bleed request data
+    across requests. This adapter gensyms the per-request frame-id,
+    calls `ssr/set-request!` with that id, and only then registers
+    the frame via `reg-frame` (which kicks off the synchronous
+    `:on-create` drain — by which time the cofx can resolve the
+    request). The slot is cleared as part of `destroy-frame!` via
+    the `:ssr/on-frame-destroyed` teardown hook (rf2-fcj33).
 
   Head/meta integration (rf2-4dra9):
 
@@ -89,16 +102,6 @@
            [java.nio.charset StandardCharsets]
            [java.time Instant ZoneOffset ZonedDateTime]
            [java.time.format DateTimeFormatter]))
-
-;; ---- *current-request* — rf2-e825b binding site ---------------------------
-
-(def ^:dynamic *current-request*
-  "The active Ring request map, bound for the duration of one HTTP
-  request inside `ssr-handler` / `ssr-middleware`. The
-  `:rf.server/request` cofx (rf2-e825b — `re-frame.ssr` registers the
-  cofx itself; the host adapter is the binding site) reads from this
-  var. nil outside an SSR request."
-  nil)
 
 ;; ---- cookie serialisation (RFC 6265) -------------------------------------
 ;;
@@ -404,13 +407,16 @@
 
   Per-request lifecycle (see ns docstring for full detail):
 
-    bind *current-request*
-      → make-frame                  (drains :on-create synchronously)
+    (ssr/set-request! frame-id request)            ;; before drain
+      → reg-frame                   (drains :on-create synchronously;
+                                     the `:rf.server/request` cofx
+                                     reads from the populated slot)
         → read get-response          (flushes error projections)
         → branch on :redirect
         → render-to-string + payload
         → materialise to Ring map
-      → finally: destroy-frame!
+      → finally: destroy-frame!     (the `:ssr/on-frame-destroyed`
+                                     hook clears the request slot)
 
   Example:
 
@@ -442,72 +448,92 @@
     (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
                     {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"})))
   (fn ring-handler [request]
-    (binding [*current-request* request]
-      (let [frame-id
-            (try
-              (rf/make-frame
-                (cond-> {:doc       "ssr-ring per-request frame"
-                         :platform  :server
-                         :on-create (on-create-with-request on-create request)}
-                  fx-overrides (assoc :fx-overrides fx-overrides)
-                  ssr-config   (assoc :ssr           ssr-config)))
-              (catch Throwable t
-                (on-error request t)))]
-        (cond
-          ;; on-error returned a Ring response (frame creation threw).
-          (map? frame-id) frame-id
-
-          (nil? frame-id)
-          (on-error request (ex-info ":rf.error/ssr-ring-make-frame-returned-nil"
-                                     {:reason "make-frame returned nil"}))
-
-          :else
+    ;; Per Spec 011 §Request storage substrate, the slot MUST be
+    ;; populated before the drain begins — `:on-create` runs
+    ;; synchronously inside `reg-frame`, so we must know the frame-id
+    ;; BEFORE the call that drains. `make-frame` gensyms the id
+    ;; internally and would return only after the drain, so we inline
+    ;; its (gensym + reg-frame) shape here and call `ssr/set-request!`
+    ;; between them. The assembled config is identical to what
+    ;; `make-frame` would have submitted.
+    (let [fid (keyword "rf.frame" (str (gensym "")))
+          _   (ssr/set-request! fid request)
+          frame-id
           (try
-            (let [response (ssr/get-response frame-id)
-                  ;; rf/get-frame-db returns the value (plain map), not
-                  ;; the container. Per
-                  ;; implementation/core/src/re_frame/core.cljc:889 —
-                  ;; value-form accessor; no deref needed.
-                  app-db   (rf/get-frame-db frame-id)]
-              (cond
-                ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-                (some? (:redirect response))
-                (ssr-response->ring-response response nil)
-
-                :else
-                (let [body-html   (render-body frame-id root-view emit-hash?)
-                      hash-str    (render-hash-for frame-id root-view)
-                      payload     (build-payload frame-id app-db hash-str
-                                                 {:version       version
-                                                  :schema-digest schema-digest
-                                                  :payload-keys  payload-keys})
-                      payload-edn (pr-str payload)
-                      ;; rf2-4dra9: resolve the active route's :head
-                      ;; (or default-head fallback) and pass the rendered
-                      ;; fragment as the :head opt. Callers that supplied
-                      ;; an explicit :head opt take precedence — they
-                      ;; chose to bypass route-driven head resolution.
-                      head-html   (or (:head opts) (resolve-head-html frame-id))
-                      shell-opts  (assoc opts :head head-html)
-                      html        (html-shell body-html payload-edn shell-opts)
-                      ;; Ensure Content-Type is set; the SSR runtime
-                      ;; defaults [:rf/response :headers] to include
-                      ;; content-type so this is usually a no-op, but
-                      ;; we let opts override and we trust the runtime's
-                      ;; default in absence.
-                      response*   (update response :headers
-                                          (fn [pairs]
-                                            (let [m (headers->ring-map pairs)]
-                                              (if (or (get m "content-type")
-                                                      (get m "Content-Type"))
-                                                pairs
-                                                (conj (vec pairs)
-                                                      ["Content-Type" content-type])))))]
-                  (ssr-response->ring-response response* html))))
+            (rf/reg-frame fid
+              (cond-> {:doc       "ssr-ring per-request frame"
+                       :platform  :server
+                       :on-create (on-create-with-request on-create request)}
+                fx-overrides (assoc :fx-overrides fx-overrides)
+                ssr-config   (assoc :ssr           ssr-config)))
             (catch Throwable t
-              (on-error request t))
-            (finally
-              (destroy-frame-quietly! frame-id))))))))
+              ;; reg-frame threw mid-drain. The frame may be registered
+              ;; in the `frames` atom (see frame.cljc — `swap! frames`
+              ;; happens before `dispatch-sync`). Clear the request
+              ;; slot ourselves AND best-effort destroy the partially-
+              ;; built frame so neither the slot nor the registry
+              ;; leaks across the failing request.
+              (ssr/clear-request! fid)
+              (destroy-frame-quietly! fid)
+              (on-error request t)))]
+      (cond
+        ;; on-error returned a Ring response (frame creation threw).
+        (map? frame-id) frame-id
+
+        (nil? frame-id)
+        (do (ssr/clear-request! fid)
+            (on-error request (ex-info ":rf.error/ssr-ring-reg-frame-returned-nil"
+                                       {:reason "reg-frame returned nil"})))
+
+        :else
+        (try
+          (let [response (ssr/get-response frame-id)
+                ;; rf/get-frame-db returns the value (plain map), not
+                ;; the container. Per
+                ;; implementation/core/src/re_frame/core.cljc:889 —
+                ;; value-form accessor; no deref needed.
+                app-db   (rf/get-frame-db frame-id)]
+            (cond
+              ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
+              (some? (:redirect response))
+              (ssr-response->ring-response response nil)
+
+              :else
+              (let [body-html   (render-body frame-id root-view emit-hash?)
+                    hash-str    (render-hash-for frame-id root-view)
+                    payload     (build-payload frame-id app-db hash-str
+                                               {:version       version
+                                                :schema-digest schema-digest
+                                                :payload-keys  payload-keys})
+                    payload-edn (pr-str payload)
+                    ;; rf2-4dra9: resolve the active route's :head
+                    ;; (or default-head fallback) and pass the rendered
+                    ;; fragment as the :head opt. Callers that supplied
+                    ;; an explicit :head opt take precedence — they
+                    ;; chose to bypass route-driven head resolution.
+                    head-html   (or (:head opts) (resolve-head-html frame-id))
+                    shell-opts  (assoc opts :head head-html)
+                    html        (html-shell body-html payload-edn shell-opts)
+                    ;; Ensure Content-Type is set; the SSR runtime
+                    ;; defaults [:rf/response :headers] to include
+                    ;; content-type so this is usually a no-op, but
+                    ;; we let opts override and we trust the runtime's
+                    ;; default in absence.
+                    response*   (update response :headers
+                                        (fn [pairs]
+                                          (let [m (headers->ring-map pairs)]
+                                            (if (or (get m "content-type")
+                                                    (get m "Content-Type"))
+                                              pairs
+                                              (conj (vec pairs)
+                                                    ["Content-Type" content-type])))))]
+                (ssr-response->ring-response response* html))))
+          (catch Throwable t
+            (on-error request t))
+          (finally
+            ;; `destroy-frame!` invokes `:ssr/on-frame-destroyed`
+            ;; (rf2-fcj33), which clears the per-frame request slot.
+            (destroy-frame-quietly! frame-id)))))))
 
 ;; ---- middleware ----------------------------------------------------------
 

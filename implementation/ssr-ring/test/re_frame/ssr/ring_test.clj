@@ -285,36 +285,78 @@
       (is (str/includes? (:body response) "caught: boom-2")))))
 
 ;; ===========================================================================
-;; ssr-handler — *current-request* binding (rf2-e825b coordination)
+;; ssr-handler — Ring → :rf.server/request cofx (rf2-afxhv)
+;;
+;; The canonical Ring-adapter ↔ cofx boundary. Per Spec 011 §Request
+;; storage substrate, the host adapter populates the per-frame request
+;; slot before drain; the `:rf.server/request` cofx reads from the slot
+;; via `(inject-cofx :rf.server/request)`. This test pins the wiring
+;; end-to-end — if the adapter forgets to call `set-request!`, the
+;; cofx surfaces `nil` and this assertion fails.
 ;; ===========================================================================
 
-(deftest current-request-is-bound-during-on-create
-  (testing "*current-request* is bound for the duration of the per-request frame"
+(deftest handler-surfaces-request-via-cofx
+  (testing "the Ring request map flows through to handlers via :rf.server/request"
     (let [captured (atom ::not-captured)]
-      (rf/reg-event-fx :init/capture-current-request
+      (rf/reg-event-fx :init/capture-request-cofx
         {:platforms #{:server}}
-        (fn [_ _]
-          ;; Reads the *current-request* binding the host adapter
-          ;; sets. The rf2-e825b cofx will read the SAME var; this
-          ;; test pins the binding contract.
-          (reset! captured ssr-ring/*current-request*)
+        [(rf/inject-cofx :rf.server/request)]
+        (fn [{:keys [rf.server/request]} _]
+          (reset! captured request)
           {}))
 
       (rf/reg-view* :pages/blank (fn [] [:div]))
 
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create [:init/capture-current-request]
+                       {:on-create [:init/capture-request-cofx]
                         :root-view [:pages/blank]})
-            request  {:uri            "/test"
+            request  {:uri            "/articles/42"
                       :request-method :get
-                      :headers        {"user-agent" "ring-adapter-test"}}
+                      :headers        {"user-agent" "ring-adapter-test"
+                                       "cookie"     "session=abc123"}}
             _        (handler request)]
         (is (= request @captured)
-            "*current-request* was bound to the Ring request map during the drain")))))
+            "the cofx surfaced the Ring request — Spec 011 §Request storage substrate")))))
 
-(deftest current-request-clears-after-handler
-  (testing "*current-request* is nil outside an SSR request"
-    (is (nil? ssr-ring/*current-request*))))
+(deftest handler-clears-request-slot-after-response
+  (testing "the per-frame request slot is dropped when the request frame is destroyed"
+    (let [captured-fid (atom nil)]
+      (rf/reg-event-fx :init/capture-frame-id
+        {:platforms #{:server}}
+        (fn [{:keys [frame]} _]
+          (reset! captured-fid frame)
+          {}))
+
+      (rf/reg-view* :pages/blank2 (fn [] [:div]))
+
+      (let [handler (ssr-ring/ssr-handler
+                      {:on-create [:init/capture-frame-id]
+                       :root-view [:pages/blank2]})]
+        (handler {:uri "/x" :request-method :get})
+        (is (some? @captured-fid)
+            "the on-create handler captured the per-request frame-id")
+        (is (nil? (ssr/get-request @captured-fid))
+            "the request slot was cleared on frame teardown — no leak across requests")))))
+
+(deftest handler-isolates-request-slots-across-requests
+  (testing "two sequential requests carry independent request data — no slot bleed"
+    (let [observed (atom [])]
+      (rf/reg-event-fx :init/observe-request
+        {:platforms #{:server}}
+        [(rf/inject-cofx :rf.server/request)]
+        (fn [{:keys [rf.server/request]} _]
+          (swap! observed conj (:uri request))
+          {}))
+
+      (rf/reg-view* :pages/blank3 (fn [] [:div]))
+
+      (let [handler (ssr-ring/ssr-handler
+                      {:on-create [:init/observe-request]
+                       :root-view [:pages/blank3]})]
+        (handler {:uri "/a" :request-method :get})
+        (handler {:uri "/b" :request-method :get})
+        (is (= ["/a" "/b"] @observed)
+            "each request's handler saw its own URI — no slot bleed")))))
 
 ;; ===========================================================================
 ;; ssr-handler — payload-keys slice
