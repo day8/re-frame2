@@ -633,7 +633,18 @@
     ;; frame the trace targeted); `nil` falls under `:global`. Drives
     ;; the bottom-rail `[● REDACTED N]` indicator via the
     ;; `:rf.causa/suppressed-sensitive-count` sub — fully reactive.
+    ;;
+    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` opts the handler out of
+    ;; framework trace emission. Without this, the dispatch fired by
+    ;; `trace-bus/collect-trace!` would itself emit `:event/dispatched`
+    ;; etc. back through the trace-cb fan-out, the collector would see
+    ;; its own self-emit, and the cascade would loop until
+    ;; `drain-depth-default` terminated it. The framework now
+    ;; short-circuits emission at the `emit!` / `emit-error!` /
+    ;; `emit-dispatched-trace!` gates — the predecessor Causa-side
+    ;; `self-emitted?` guard (rf2-nk01x) is obsolete.
     (rf/reg-event-db :rf.causa/note-sensitive-suppressed
+      {:rf.trace/no-emit? true}
       (fn [db [_ frame-id]]
         (update-in db [:suppressed-counters (or frame-id :global)]
                    (fnil inc 0))))
@@ -644,7 +655,11 @@
     ;; trace ring buffer also drops the REDACTED indicator state (the
     ;; "you missed N events" overhang disappears alongside the events
     ;; that produced it).
+    ;;
+    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
+    ;; `:rf.causa/note-sensitive-suppressed` above for the rationale).
     (rf/reg-event-db :rf.causa/reset-suppressed-counters
+      {:rf.trace/no-emit? true}
       (fn [db [_ frame-id]]
         (if frame-id
           (update db :suppressed-counters dissoc (or frame-id :global))
@@ -659,7 +674,11 @@
     ;; atom (process-global, not per-frame). Drives the
     ;; `:rf.causa/trace-buffer` sub via the standard reactive write
     ;; path — panels reading the buffer re-render immediately.
+    ;;
+    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
+    ;; `:rf.causa/note-sensitive-suppressed` above for the rationale).
     (rf/reg-event-db :rf.causa/note-trace-event
+      {:rf.trace/no-emit? true}
       (fn [db [_ event]]
         (let [depth (trace-bus/current-depth)
               buf   (get db :trace-buffer [])
@@ -670,7 +689,11 @@
     ;; Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing
     ;; the atom-side ring buffer must drop the app-db mirror in
     ;; lockstep so panels reading the buffer empty alongside.
+    ;;
+    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
+    ;; `:rf.causa/note-sensitive-suppressed` above for the rationale).
     (rf/reg-event-db :rf.causa/clear-trace-buffer
+      {:rf.trace/no-emit? true}
       (fn [db _event]
         (dissoc db :trace-buffer)))
 
@@ -679,7 +702,11 @@
     ;; depth!` (CLJS) when shrinking the depth would otherwise
     ;; leave the app-db mirror longer than the atom side. The
     ;; payload is the post-shrink vector.
+    ;;
+    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
+    ;; `:rf.causa/note-sensitive-suppressed` above for the rationale).
     (rf/reg-event-db :rf.causa/sync-trace-buffer
+      {:rf.trace/no-emit? true}
       (fn [db [_ buf]]
         (assoc db :trace-buffer (vec buf))))
 

@@ -350,6 +350,28 @@ The shape is synchronous and side-effecting: the emit returns once every listene
 
 `emit!`'s body is wrapped in `(when re-frame.interop/debug-enabled? ...)`. `debug-enabled?` is an alias of `goog.DEBUG` on CLJS (default `true` in dev, `false` in `:advanced` production builds); when the constant is `false` the closure compiler eliminates the gated branch and the call becomes a no-op. See "Production builds" below for the full mechanism.
 
+### Trace-emission opt-out: `:rf.trace/no-emit?` event-meta
+
+Handlers (`reg-event-db` / `reg-event-fx` / `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, view registrations) whose registration metadata carries `:rf.trace/no-emit? true` produce **no trace events**. The runtime short-circuits `emit!` / `emit-error!` / the queue-time `:event/dispatched` emit when the in-scope handler — or, for `:event/dispatched`, the target handler — opts out. The runtime binds `re-frame.trace/*current-no-emit?*` from the handler's meta alongside `*current-trigger-handler*` (per rf2-3nn8 / rf2-lf84g) and `*current-sensitive?*` (per rf2-isdwf); the gate sits inside the outer `interop/debug-enabled?` `when` so production elision is preserved.
+
+```clojure
+(rf/reg-event-db :rf.causa/note-trace-event
+  {:rf.trace/no-emit? true}                     ;; <- opt-out
+  (fn [db [_ event]]
+    (assoc db :trace-buffer (conj (:trace-buffer db []) event))))
+```
+
+The flag is the framework-level escape hatch for **trace-consuming integrations** whose own bookkeeping dispatches — emitted from inside a registered `trace-cb` — would otherwise re-enter the consumer through the trace-cb fan-out and form a cb-dispatch loop. Causa, Story, pair2-mcp, story-mcp, and causa-mcp all have the same risk shape; without the opt-out each consumer would need its own per-dispatch guard predicate (Causa carried one as `trace-bus/self-emitted?` between rf2-nk01x and rf2-qsjda). Promoting the gate to the framework lets any consumer mark a handler internal-only and trust the runtime to suppress the cascade.
+
+Semantics:
+
+- **What's suppressed.** `:event/dispatched` (queue-time, when the *target* handler's meta carries the flag), `:event :run-start` / `:run-end`, `:event/db-changed`, `:rf.fx/handled`, `:rf.machine/transition`, `:sub/run`, `:view/render`, and every `:rf.error/*` emit produced inside the handler's scope. The always-on event-emit substrate (`rf2-rirbq`) ALSO honours the flag and drops the per-event record for `:rf.trace/no-emit?`-flagged handlers — same boundary semantics as the `:sensitive?` short-circuit per rf2-6hklf, on the rationale that framework-internal bookkeeping handlers are not user-domain observable signal.
+- **What's NOT suppressed.** The handler body still runs — the opt-out applies to OBSERVABILITY (trace + event-emit), not handler execution. The dispatch is queued, drained, and committed normally; the handler's db effect is committed; its fx are walked.
+- **Cascade composition.** Innermost in-scope handler wins. A non-opt-out handler dispatched from inside a `:rf.trace/no-emit? true` handler emits normally — the inner binding rebinds to false and the inner cascade is visible. (Same composition rule as `:sensitive?`, per Spec 009 line 1177.)
+- **Production elision.** The trace-surface gate sits inside `interop/debug-enabled?` and DCEs out in `:advanced` production builds (the trace surface is dev-only by construction — production never emits trace events at all). The event-emit short-circuit survives production builds (event-emit is always-on per rf2-rirbq), so production listeners equally drop opt-out handler records.
+
+Per rf2-nk01x / rf2-qsjda and the framework `re-frame.trace/*current-no-emit?*` Var.
+
 ### Where trace emission lives
 
 The framework emits trace events from these call sites:

@@ -193,12 +193,22 @@
   `:sensitive? true`, the record is dropped entirely (listeners are
   NOT invoked). The handler-meta lookup happens BEFORE the elision
   walk so the sensitive-handler short-circuit costs no per-value
-  work."
+  work.
+
+  Per rf2-qsjda: if the event's registered handler-meta carries
+  `:rf.trace/no-emit? true`, the record is also dropped. The flag
+  marks the handler as a framework-internal bookkeeping handler
+  (Spec 009 §Trace-emission opt-out) — its dispatches are not
+  user-domain observable signal. Production observability pipelines
+  should not see Causa/Story/etc. bookkeeping dispatches in their
+  event stream any more than they should see the trace events those
+  handlers suppress."
   [event event-id frame time outcome elapsed-ms]
   (let [reg @listeners]
     (when (seq reg)
       (let [handler-meta (registrar/lookup :event event-id)]
-        (when-not (:sensitive? handler-meta)
+        (when-not (or (:sensitive?        handler-meta)
+                      (:rf.trace/no-emit? handler-meta))
           (let [elided-event (elision/elide-wire-value event {:frame frame})
                 record       {:event      elided-event
                               :event-id   event-id

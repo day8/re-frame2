@@ -1,5 +1,6 @@
 (ns day8.re-frame2-causa.sensitive-trace-loop-cljs-test
-  "Loop-proof tests for the `:sensitive?` trace-callback path (rf2-nk01x).
+  "Loop-proof tests for the `:sensitive?` trace-callback path
+  (rf2-nk01x → rf2-qsjda).
 
   ## Why this file exists
 
@@ -26,11 +27,21 @@
        dispatches again, … until the JavaScript stack overflows or the
        framework's drain-depth limit truncates the cascade.
 
-  The fix is `trace-bus/self-emitted?`: a predicate that recognises
-  the bookkeeping self-emits and short-circuits `collect-trace!` for
-  them. The pure-data predicate is covered by the JVM `trace_bus_test`;
-  this CLJS file drives the END-TO-END loop scenario through real
-  `dispatch-sync` calls against the registered trace callback.
+  The fix evolved:
+
+    - rf2-nk01x landed a Causa-side `self-emitted?` predicate that
+      short-circuited `collect-trace!` for bookkeeping self-emits.
+    - rf2-qsjda promoted the opt-out to the framework: the bookkeeping
+      handlers carry `:rf.trace/no-emit? true` in their registration
+      metadata, and `re-frame.trace/emit!` / `emit-error!` /
+      `emit-dispatched-trace!` short-circuit on the flag (Spec 009
+      §Trace-emission opt-out). The collector never sees self-emits
+      because the framework never emits them.
+
+  This CLJS file drives the END-TO-END loop scenario through real
+  `dispatch-sync` calls against the registered trace callback. The
+  framework-level gate's pure-data tests live in
+  `re-frame.trace-test`.
 
   ## What the tests assert
 
@@ -158,8 +169,9 @@
 (deftest two-hundred-non-sensitive-dispatches-do-not-loop
   (testing "the symmetric loop for `:rf.causa/note-trace-event` (the
             non-sensitive mirror dispatch, rf2-iw5ym) is also closed —
-            self-emitted? recognises the bookkeeping event id and
-            short-circuits collect-trace! before the buffer push.
+            per rf2-qsjda the bookkeeping handlers carry
+            `:rf.trace/no-emit? true` so the framework short-circuits
+            emission for them before the collector ever sees the trace.
             Non-sensitive events land in the buffer cleanly with no
             re-entry inflation."
     (register-non-sensitive-event!)

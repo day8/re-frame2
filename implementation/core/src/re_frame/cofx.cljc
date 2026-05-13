@@ -206,10 +206,13 @@
                ;; this scope; any trace event it emits carries the
                ;; cofx-handler-level sensitivity flag per Spec 009
                ;; "innermost in-scope handler" rule.
+               ;; Per rf2-qsjda: bind `*current-no-emit?*` symmetrically.
                (binding [trace/*current-trigger-handler*
                          (trace/trigger-handler-from-meta :cofx cofx-id meta)
                          trace/*current-sensitive?*
                          (trace/sensitive?-from-meta meta)
+                         trace/*current-no-emit?*
+                         (trace/no-emit?-from-meta meta)
                          trace/*current-call-site*
                          (or captured-cs trace/*current-call-site*)]
                  (-> (if valued?

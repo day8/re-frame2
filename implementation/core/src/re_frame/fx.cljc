@@ -314,10 +314,15 @@
         ;; wins" rule: when an event handler is sensitive but the fx
         ;; handler it dispatches to is not, the `:rf.fx/handled`
         ;; trace event reflects the FX handler's reading.
+        ;; Per rf2-qsjda: bind `*current-no-emit?*` to the fx
+        ;; handler's reading so the "innermost in-scope handler
+        ;; wins" rule applies to trace-emission opt-out too.
         (binding [trace/*current-trigger-handler*
                   (trace/trigger-handler-from-meta :fx fx-id meta)
                   trace/*current-sensitive?*
-                  (trace/sensitive?-from-meta meta)]
+                  (trace/sensitive?-from-meta meta)
+                  trace/*current-no-emit?*
+                  (trace/no-emit?-from-meta meta)]
           (let [ok? (try
                       ((:handler-fn meta) (cond-> {:frame frame-id}
                                             origin-event (assoc :event origin-event))

@@ -26,7 +26,6 @@
             [re-frame.frame        :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [re-frame.trace        :as trace]
             ;; Loading the demo ns fires its registrations against the
             ;; registrar — the tests then exercise the registered
             ;; handlers + the listener install/uninstall surface.
@@ -38,15 +37,13 @@
 
 (defn- before! []
   (reset! registrar-snapshot (test-support/snapshot-registrar))
-  ;; Causa (and any other on-classpath dev tools) register
-  ;; trace-cbs at preload time. Those callbacks dispatch their own
-  ;; events on every sensitive trace event — which would pollute
-  ;; the elision tests' deterministic listener-counts. Clear so
-  ;; each test runs against an empty trace-cb registry. The
-  ;; per-test isolation is fine; the next suite that needs
-  ;; Causa-installed trace-cbs re-installs them via its own
-  ;; fixture.
-  (trace/clear-trace-cbs!)
+  ;; Per rf2-qsjda: Causa's preload-time trace-cb registers its
+  ;; bookkeeping handlers with `:rf.trace/no-emit? true`, so the
+  ;; framework short-circuits emission for them and the collector
+  ;; never re-enters itself. The previous workaround that wiped
+  ;; the trace-cb registry per fixture (rf2-vw0to → rf2-nk01x
+  ;; tactical fix) is obsolete — Causa's cb runs as production
+  ;; preload wires it.
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
   (frame/ensure-default-frame!)

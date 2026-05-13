@@ -220,13 +220,19 @@
         ;; trace event emitted during the view's render carries
         ;; the flag per Spec 009 §Privacy.
         view-sensitive?      (trace/sensitive?-from-meta metadata)
+        ;; Per rf2-qsjda: pre-compute the view's `:rf.trace/no-emit?`
+        ;; reading symmetrically. Every render binds it; when set,
+        ;; the `:view/render` emit and any in-render error emits
+        ;; short-circuit at `trace/emit!` / `trace/emit-error!`.
+        view-no-emit?        (trace/no-emit?-from-meta metadata)
         wrapped (with-meta
                   (fn frame-aware-view [& args]
                     (let [tok        (provider/reagent-component-token)
                           render-key [id tok]]
                       (binding [*render-key* render-key
                                 trace/*current-trigger-handler* view-trigger-handler
-                                trace/*current-sensitive?* view-sensitive?]
+                                trace/*current-sensitive?* view-sensitive?
+                                trace/*current-no-emit?* view-no-emit?]
                         (emit-render-trace! render-key)
                         ;; Per Spec 009 §Performance instrumentation
                         ;; (rf2-du3i): every render of a registered view

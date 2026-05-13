@@ -90,81 +90,31 @@
       (subvec buffer' (- n depth))
       buffer')))
 
-;; ---- self-emit recognition (rf2-nk01x) ----------------------------------
-;;
-;; `collect-trace!` itself dispatches Causa's own bookkeeping events
-;; (`:rf.causa/note-sensitive-suppressed`, `:rf.causa/note-trace-event`)
-;; into `:rf/causa` whenever it processes a trace event. Those
-;; dispatches each produce their own `:event/dispatched` trace event
-;; (plus a short cascade of `:event/handled` / `:event/db-changed` /
-;; ... per Spec 002 §Dispatch lifecycle). The framework delivers EVERY
-;; emitted trace event back through `register-trace-cb!`, so the
-;; collector sees its own self-emit.
-;;
-;; Two loops result without a guard:
-;;
-;;   1. A `:sensitive?` event lands. `note-suppressed!` dispatches
-;;      `:rf.causa/note-sensitive-suppressed`. Because the dispatch
-;;      happens INSIDE the outer sensitive handler's scope, the
-;;      framework's `*current-sensitive?*` Var (re-frame.trace,
-;;      rf2-isdwf) is still bound true at the `emit-dispatched-trace!`
-;;      callsite, so `emit!` hoists `:sensitive? true` onto the
-;;      `:event/dispatched` trace event for `:rf.causa/note-sensitive-
-;;      suppressed` ITSELF. The collector sees that event as
-;;      `suppress-sensitive?`-true, fires `note-suppressed!` again, …
-;;      The framework's drain-depth limit (re-frame.router,
-;;      `drain-depth-default` = 100) terminates the cascade loudly, but
-;;      by then the suppressed-count has been inflated AND the
-;;      cascade-terminator emits `:rf.error/drain-depth-exceeded`.
-;;
-;;   2. Symmetric loop for `:rf.causa/note-trace-event` on non-sensitive
-;;      events — each non-sensitive trace event pushes to the buffer
-;;      AND dispatches the mirror event, whose own `:event/dispatched`
-;;      trace re-enters the collector, pushes to the buffer AGAIN, and
-;;      dispatches another mirror event, …
-;;
-;; Both loops resolve the same way: recognise the self-emitted trace
-;; events at the top of `collect-trace!` and short-circuit before any
-;; buffer push or dispatch. The self-emits are purely internal
-;; bookkeeping — they have no diagnostic value to a user inspecting the
-;; trace buffer or the REDACTED indicator, and counting them inflates
-;; both surfaces.
-
-(def ^:private causa-bookkeeping-event-ids
-  "Event ids dispatched by `collect-trace!` itself (plus the related
-  reset-* / clear-* paths under `trace-bus` and `config`). Trace
-  events scoped under these handlers are Causa's internal plumbing
-  and must NOT re-enter the collector — see the self-emit ns comment
-  above."
-  #{:rf.causa/note-sensitive-suppressed
-    :rf.causa/note-trace-event
-    :rf.causa/clear-trace-buffer
-    :rf.causa/reset-suppressed-counters
-    :rf.causa/sync-trace-buffer})
-
-(defn self-emitted?
-  "True iff `event` is a trace event scoped to one of Causa's own
-  bookkeeping dispatches (rf2-nk01x). Two recognised shapes:
-
-    1. `:event/dispatched` trace event for the bookkeeping event:
-       `:tags :event` is `[<bookkeeping-id> ...]`.
-    2. Any trace event emitted INSIDE the bookkeeping event's handler
-       scope: `:tags :event-id` is the bookkeeping id.
-
-  Pure-data + JVM-runnable so the guard's algebra is testable
-  without a CLJS runtime. Always returns a boolean (never nil)
-  so the predicate composes cleanly under `cond` + `false?`."
-  [event]
-  (if (map? event)
-    (let [tags          (:tags event)
-          event-id      (:event-id tags)
-          dispatched-id (let [ev (:event tags)]
-                          (when (vector? ev) (first ev)))]
-      (boolean (or (contains? causa-bookkeeping-event-ids event-id)
-                   (contains? causa-bookkeeping-event-ids dispatched-id))))
-    false))
-
 ;; ---- collector --------------------------------------------------------
+;;
+;; History (rf2-nk01x → rf2-qsjda):
+;;
+;;   `collect-trace!` dispatches Causa's own bookkeeping events
+;;   (`:rf.causa/note-sensitive-suppressed`, `:rf.causa/note-trace-event`,
+;;   …) into `:rf/causa` whenever it processes a trace event. The
+;;   framework delivers EVERY emitted trace event back through
+;;   `register-trace-cb!`, so the collector would otherwise see its own
+;;   self-emit and recurse — driving the per-frame `:suppressed-counters`
+;;   ever upwards on `:sensitive?` events and exploding the buffer on
+;;   non-sensitive events, until the framework's `drain-depth-default`
+;;   = 100 terminates the cascade with `:rf.error/drain-depth-exceeded`.
+;;
+;;   rf2-nk01x landed a Causa-side guard (a `self-emitted?` predicate
+;;   that short-circuited at the top of `collect-trace!` for trace events
+;;   whose `:tags :event-id` or dispatched id matched a Causa-bookkeeping
+;;   set). rf2-qsjda promoted the opt-out to the framework: the
+;;   bookkeeping handlers below carry `:rf.trace/no-emit? true` in their
+;;   registration metadata (see `registry.cljs`), and Spec 009
+;;   §Trace-emission opt-out gates `emit!` / `emit-error!` /
+;;   `emit-dispatched-trace!` on the flag. The runtime short-circuits
+;;   BEFORE emitting, so the collector never sees self-emits in the
+;;   first place. The per-consumer Causa-side guard becomes redundant
+;;   and `self-emitted?` is gone.
 
 (defn collect-trace!
   "Append a trace event to Causa's ring buffer. Registered with
@@ -195,27 +145,18 @@
   always installs it, but tests / hot-reload windows may emit
   trace events before the frame registers.
 
-  Per rf2-nk01x: trace events emitted by Causa's own bookkeeping
-  dispatches (`:rf.causa/note-sensitive-suppressed`, `:rf.causa/
-  note-trace-event`, …) short-circuit at the top of the body — see
-  `self-emitted?` and the ns comment above. Without this guard, a
-  single `:sensitive?` event would dispatch
-  `:rf.causa/note-sensitive-suppressed` which itself emits a
-  `:sensitive? true` trace event (inherited from
-  `*current-sensitive?*`) re-entering the collector and re-dispatching
-  the bookkeeping event, until the framework's drain-depth limit
-  terminates the cascade. The fix preserves a clean 1-bump-per-event
-  suppressed count and removes the need for tests to
-  `clear-trace-cbs!` per fixture."
+  Per rf2-qsjda (succeeds rf2-nk01x's Causa-side `self-emitted?`
+  guard): the bookkeeping handlers `:rf.causa/note-sensitive-suppressed`,
+  `:rf.causa/note-trace-event`, `:rf.causa/clear-trace-buffer`,
+  `:rf.causa/reset-suppressed-counters`, and `:rf.causa/sync-trace-buffer`
+  are registered with `:rf.trace/no-emit? true`. The framework
+  short-circuits trace emission for those dispatches at `emit!` /
+  `emit-error!` / `emit-dispatched-trace!`, so the collector never
+  sees the self-emits in the first place. No per-consumer guard
+  required."
   [event]
   (when interop/debug-enabled?
     (cond
-      ;; rf2-nk01x: drop Causa's own bookkeeping self-emits before any
-      ;; counter bump or buffer push. They are pure internal plumbing
-      ;; and re-entering the collector for them is the cb-dispatch loop.
-      (self-emitted? event)
-      nil
-
       (config/suppress-sensitive? event)
       (config/note-suppressed! (get-in event [:tags :frame]))
 
