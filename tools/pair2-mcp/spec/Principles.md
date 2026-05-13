@@ -854,6 +854,26 @@ for `:rf.mcp/overflow` (rf2-rvyzy), `:rf.mcp/dedup-table`
 (rf2-obpa9), `:rf.mcp/summary` (rf2-tygdv). The agent learns
 the namespace once and recognises every marker.
 
+## Tool verbs follow the cross-MCP convention
+
+Tool names in pair2-mcp's catalogue pick from the verb table at
+[`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
+(rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
+shared with story-mcp and (planned) causa-mcp. The shared verbs the
+triplet pins are `get-` / `list-` / `read-` / `discover-` /
+`restore-` / `reset-` / `register-` / `unregister-` / `run-` /
+`preview-` / `record-as-` / `tail-` plus the bare universals
+`dispatch`, `eval-cljs`, `subscribe`, `unsubscribe`, plus the
+mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
+reserved for derived projections that span multiple registry kinds.
+
+Pair2-mcp's ten current tools (`discover-app`, `eval-cljs`,
+`dispatch`, `tail-build`, `snapshot`, `trace-window`, `watch-epochs`,
+`get-path`, `subscribe`, `unsubscribe`) are all conformant; new tools
+land against an existing verb, or via a Lock entry in
+[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) plus an extension
+to the canonical table.
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):

@@ -223,6 +223,35 @@ agent-host workflow: keep the per-op cost predictable, push
 the agent to ask for what it actually needs, and never let a
 single op blow the session.
 
+## Tool verbs follow the cross-MCP convention
+
+Tool names in story-mcp's catalogue pick from the verb table at
+[`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
+(rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
+shared with pair2-mcp and (planned) causa-mcp. The shared verbs the
+triplet pins are `get-` / `list-` / `read-` / `discover-` /
+`restore-` / `reset-` / `register-` / `unregister-` / `run-` /
+`preview-` / `record-as-` / `tail-` plus the bare universals
+`dispatch`, `eval-cljs`, `subscribe`, `unsubscribe`. Story-mcp does
+NOT ship `dispatch`, `eval-cljs`, or the streaming pair — its
+mutation surface is `register-variant` / `unregister-variant` and
+its runtime is JVM-side without a browser eval substrate.
+
+Story-mcp's seventeen current tools are conformant. Two grandfathered
+deviations carry explicit catalogue exceptions in
+[`NAMING.md`](../../mcp-conformance/NAMING.md):
+
+- **`variant->edn`** — Clojure-idiomatic projection arrow; the
+  cross-MCP table accepts `<thing>->edn` as a canonical-form
+  serialiser shape distinct from `get-<thing>-edn`.
+- **`snapshot-identity`** — bare-noun read of a content hash; the
+  cross-MCP table accepts bare-noun reads when the return is a
+  single primitive.
+
+New tools land against an existing verb, or via a Lock entry in
+[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) plus an extension
+to the canonical table.
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md)

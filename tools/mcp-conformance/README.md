@@ -4,7 +4,7 @@ End-to-end **MCP-client** conformance harness for the re-frame2 MCP
 servers — `pair2-mcp`, `story-mcp`, and (when its implementation lands)
 `causa-mcp`. Source: rf2-cum40.
 
-This artefact has two surfaces:
+This artefact has three surfaces:
 
 1. **`test/end-to-end-*.js`** — Node-side end-to-end conformance.
    Drives each server through the official `@modelcontextprotocol/sdk`
@@ -16,6 +16,13 @@ This artefact has two surfaces:
    marker and asserts that fixtures + source text from every
    emitting server conform. Source: rf2-j2z7o. See
    [`wire-vocab/README.md`](wire-vocab/README.md).
+3. **[`NAMING.md`](NAMING.md)** — the cross-MCP tool-naming
+   convention: which verbs the catalogues pick from
+   (`get-` / `list-` / `read-` / `discover-` / `restore-` / `reset-`
+   / `register-` / `unregister-` / `run-` / `preview-` / `record-as-`
+   / `tail-` / `dispatch` / `eval-cljs` / `subscribe` / `unsubscribe`
+   / mega-op bare verbs), with one-line semantics and the per-server
+   audit table. Source: rf2-mzf1r.
 
 ## What this is
 
