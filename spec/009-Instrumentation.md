@@ -357,7 +357,7 @@ The framework emits trace events from these call sites:
 - `events.cljc` — `:warning :rf.warning/interceptors-in-metadata-map`; `:rf.error/effect-map-shape`; `:rf.error/effect-handler-bad-return` (per rf2-k3bj).
 - `subs.cljc` — `:sub/create`, `:sub/run`; `:rf.error/no-such-sub` and `:rf.error/sub-exception` for failure paths.
 - `fx.cljc` — `:event/do-fx` per drain step, `:rf.fx/handled` per dispatched fx, `:fx/override-applied`, `:warning :rf.fx/skipped-on-platform`, `:rf.error/fx-handler-exception`, `:rf.error/no-such-fx`, plus `:rf.machine/spawned` and `:rf.machine/destroyed`.
-- `cofx.cljc` — `:rf.error/no-such-cofx` (emitted by `inject-cofx` when the cofx-id has no registered handler).
+- `cofx.cljc` — `:rf.error/no-such-cofx` (emitted by `inject-cofx` when the cofx-id has no registered handler), `:warning :rf.cofx/skipped-on-platform` (emitted when a registered cofx's `:platforms` excludes the active platform; mirrors `:rf.fx/skipped-on-platform` per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)).
 - `router.cljc` — `:event :event` (`:run-start` and `:run-end` phases), `:event :event/dispatched`, `:event :event/db-changed`, `:rf.error/handler-exception`, `:rf.error/drain-depth-exceeded`, `:rf.error/no-such-handler`, `:warning :rf.warning/dispatch-from-async-callback-fell-through-to-default` (emitted alongside `:rf.error/no-such-handler` when a dispatch landed on `:rf/default` purely because the resolution chain fell through and the handler is missing; per rf2-o8m0), `:rf.error/dispatch-sync-in-handler`, `:rf.error/frame-destroyed`, `:rf.error/flow-eval-exception`, `:rf.frame/drain-interrupted` (lifecycle event emitted when the drain loop detects a destroyed frame mid-cycle; per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning)).
 - `frame.cljc` — `:frame/created`, `:frame/re-registered`, `:frame/destroyed`, `:rf.machine.lifecycle/destroyed`.
 - `registrar.cljc` — `:rf.registry/handler-registered`, `:rf.registry/handler-replaced`, `:rf.registry/handler-cleared`.
@@ -816,6 +816,7 @@ Error categories use **five distinct namespace prefixes**:
 |---|---|---|
 | `:rf.error/<category>` | A genuine runtime error: a contract was violated. | `:rf.error/handler-exception`, `:rf.error/no-such-sub` |
 | `:rf.fx/<category>` | An fx-substrate event that rides the error envelope but is not necessarily a failure. | `:rf.fx/skipped-on-platform` |
+| `:rf.cofx/<category>` | A cofx-substrate event that rides the error envelope but is not necessarily a failure. | `:rf.cofx/skipped-on-platform` |
 | `:rf.ssr/<category>` | An SSR-substrate event with its own diagnostic shape (server-vs-client divergence, hash mismatches). | `:rf.ssr/hydration-mismatch` |
 | `:rf.warning/<category>` | A misuse the runtime can recover from but wants surfaced. | `:rf.warning/plain-fn-under-non-default-frame` |
 | `:rf.epoch/<category>` | Time-axis tooling (epoch buffer, time-travel) diagnostics. | `:rf.epoch/replay-conflict` |
@@ -844,6 +845,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.error/override-fallthrough` | An override was specified but no matching id existed | `:overrides-map`, `:looked-up-id` |
 | `:rf.fx/handled` | An fx was successfully dispatched (the runtime reached the fx and either ran the registered handler without exception or completed the reserved-fx-id action). Emitted by `re-frame.fx/handle-one-fx` on the success path so the `:rf/epoch-record` `:effects` projection captures one entry per dispatched fx (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)) | `:fx-id`, `:fx-args`, `:frame` |
 | `:rf.fx/skipped-on-platform` | An fx was skipped because its `:platforms` excluded the active platform (per [011](011-SSR.md)) | `:fx-id`, `:fx-args`, `:platform`, `:registered-platforms` |
+| `:rf.cofx/skipped-on-platform` | A cofx injection was skipped because its `:platforms` excluded the active platform (per [011](011-SSR.md)). Mirrors `:rf.fx/skipped-on-platform`; the cofx's handler-fn is NOT invoked and no value is injected into `:coeffects`. Emitted by `re-frame.cofx/inject-cofx` after registry lookup succeeds but the platform predicate rejects. `:op-type :warning`, `:recovery :skipped` | `:cofx-id`, `:cofx-value` (only when the 2-arity `inject-cofx` supplied a per-call value), `:frame`, `:platform`, `:registered-platforms` |
 | `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree, OR the client-computed head model differs from the server-supplied head. The `:failing-id` discriminator routes the two cases (`:rf/hydrate` for the body, `:rf.ssr/head-mismatch` for the head). Per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection) and [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) | `:server-hash`, `:client-hash`, `:failing-id`, `:first-diff-path?` (body), `:head-id` (head) |
 | `:rf.warning/plain-fn-under-non-default-frame-once` | A plain (non-`reg-view`) Reagent fn rendered under a non-default frame; routed to `:rf/default`. Emitted at most once per `(component-id, non-default-frame-id)` pair — see [004 §Plain Reagent fns](004-Views.md) | `:fn-name`, `:rendered-under`, `:routed-to` |
 | `:rf.warning/dispatch-from-async-callback-fell-through-to-default` | A `dispatch` resolved to `:rf/default` purely because the resolution chain fell through (no `:frame` opt supplied, dynamic `*current-frame*` unbound, adapter React-context value unresolvable) AND no handler for that event-id exists on `:rf/default`. The canonical trigger is a `dispatch` from an async callback (`setTimeout`, `addEventListener`, `requestAnimationFrame`, `Promise.then`) attached inside a view body — the surrounding frame-context binding does not survive the async escape (per [002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body)). Suppressed in single-frame apps (only `:rf/default` registered) — the footgun requires at least one non-default sibling frame. Emitted alongside the existing `:rf.error/no-such-handler` error; the warning carries the specific diagnostic with the recommended fixes. No suppression cache — the warning fires every time the conditions match. Per rf2-o8m0 | `:event` (the dispatched event vector), `:event-id` (first of the vector), `:routed-to` (`:rf/default`), `:detected-at` (wall-clock ms), `:reason` |
@@ -916,7 +918,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:route.nav-token/stale-suppressed` | An async result arrived carrying a `:nav-token` that no longer matches the active route's token; the result is silently suppressed. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). `:op-type :error` (the suppression is the failure mode the consumer needs to see) | `:carried-token`, `:current-token`, `:event-id` |
 | `:rf.frame/drain-interrupted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning). Lifecycle event, not error-shaped: `:op-type :frame` (per the `:frame/*` lifecycle family), no `:recovery` | `:frame`, `:dropped-count` |
 
-`:rf.fx/skipped-on-platform` is technically a *warning* not an error, but it rides the same envelope and routes through the same listener path; consumers can branch on `:op-type` (`:warning` vs `:error`) if they want to distinguish.
+`:rf.fx/skipped-on-platform` and `:rf.cofx/skipped-on-platform` are technically *warnings* not errors, but they ride the same envelope and route through the same listener path; consumers can branch on `:op-type` (`:warning` vs `:error`) if they want to distinguish.
 
 ### Schemas
 
@@ -967,7 +969,7 @@ The `:recovery` field on the trace event tells consumers (dev panels, error-moni
 - `:no-recovery` — the error propagated; the event was not handled.
 - `:replaced-with-default` — the runtime used a default value (e.g., `:no-such-handler` falling through to a no-op).
 - `:retried` — the runtime retried (with an upper bound) and surfaces the result.
-- `:skipped` — the runtime declined to act (`:rf.fx/skipped-on-platform`).
+- `:skipped` — the runtime declined to act (`:rf.fx/skipped-on-platform`, `:rf.cofx/skipped-on-platform`).
 - `:warned-and-replaced` — the runtime emitted the warning and did its default action anyway (e.g., `:rf.ssr/hydration-mismatch` warn-and-replace mode).
 - `:logged-and-skipped` — the runtime emitted the trace and dropped the offending input; sibling inputs still apply (e.g., `:rf.error/effect-map-shape` drops the offending top-level effect-map key while `:db` / `:fx` still apply).
 
@@ -1026,6 +1028,7 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.error/effect-map-shape` | `:logged-and-skipped` | The offending top-level key is dropped; `:db` and `:fx` still apply. One trace per offending key. Per [MIGRATION §M-8](MIGRATION.md#m-8-effect-map-keys-consolidated--only-db-and-fx-at-the-top-level). |
 | `:rf.error/override-fallthrough` | `:replaced-with-default` | Use the registered fx as if no override existed. |
 | `:rf.fx/skipped-on-platform` | `:skipped` | Documented; not really an error. |
+| `:rf.cofx/skipped-on-platform` | `:skipped` | Documented; not really an error. Mirrors `:rf.fx/skipped-on-platform` (the cofx's injection is skipped — the event handler still runs). |
 | `:rf.ssr/hydration-mismatch` (body, `:failing-id :rf/hydrate`) | `:warned-and-replaced` | Re-render client-side; the server's HTML is replaced. |
 | `:rf.ssr/hydration-mismatch` (head, `:failing-id :rf.ssr/head-mismatch`) | `:warned-and-replaced` | Client renders its head; server's is replaced. |
 | `:rf.warning/multiple-status-set` | `:warned-and-replaced` | Last-write wins; advisory only. |

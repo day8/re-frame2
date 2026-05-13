@@ -13,6 +13,7 @@
             [re-frame.interceptor :as interceptor]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.frame :as frame]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -22,6 +23,29 @@
   sentinel at the macro layer. Equality-tested via `identical?` so
   user values never collide."} no-value
   ::no-value)
+
+;; ---- the platform predicate -----------------------------------------------
+;;
+;; Mirror of `re-frame.fx/fx-runs-on-platform?`. Per Spec 011 §634-642 the
+;; `:platforms` metadata applies to BOTH `reg-fx` AND `reg-cofx`; a cofx
+;; tagged `:platforms #{:client}` must no-op when injected on a server-
+;; side frame (the SSR contract — request-cofx like browser locale,
+;; localStorage, navigator-info etc. would otherwise blow up under JVM
+;; render or produce nonsense values).
+
+(defn- cofx-runs-on-platform? [meta active-platform]
+  (let [platforms (:platforms meta #{:client :server})]
+    (contains? platforms active-platform)))
+
+(defn- active-platform-for-frame
+  "Resolve the active platform for a cofx injection. Mirrors the resolution
+  in `router/run-fx-effects!`: the frame's `:config :platform` override (set
+  by the `:ssr-server` preset, or any user-supplied frame config) takes
+  precedence over the host-wide `interop/platform` marker."
+  [frame-id]
+  (or (when frame-id
+        (get-in (frame/frame frame-id) [:config :platform]))
+      interop/platform))
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
@@ -82,8 +106,17 @@
       (reg-cofx :id                                (fn [ctx] ...))
       (reg-cofx :id {:doc \"...\" :spec ...}         (fn [ctx] ...))
 
-  Optional metadata keys: `:doc`, `:spec` (Malli schema for the
-  injected value — validated per Spec 010 §Validation order step 2).
+  Optional metadata keys:
+
+      :doc        one-sentence what-and-why; surfaces via
+                  `(rf/handler-meta :cofx id)`.
+      :spec       Malli schema for the injected value (validated per
+                  Spec 010 §Validation order step 2).
+      :platforms  set of `#{:client :server}`; default
+                  `#{:client :server}`. The cofx is skipped on platforms
+                  not in the set (`:rf.cofx/skipped-on-platform`
+                  warning trace, mirroring `reg-fx`'s contract per
+                  Spec 011 §634-642).
 
   Returns `id`.
 
@@ -158,14 +191,33 @@
        :before
        (fn [ctx]
          (if-let [meta (registrar/lookup :cofx cofx-id)]
-           (binding [trace/*current-trigger-handler*
-                     (trace/trigger-handler-from-meta :cofx cofx-id meta)
-                     trace/*current-call-site*
-                     (or captured-cs trace/*current-call-site*)]
-             (-> (if valued?
-                   ((:handler-fn meta) ctx value)
-                   ((:handler-fn meta) ctx))
-                 (maybe-validate-cofx! cofx-id meta)))
+           ;; Per Spec 011 §634-642 the `:platforms` metadata gates BOTH
+           ;; reg-fx AND reg-cofx. A client-only cofx (e.g. browser
+           ;; locale, localStorage, navigator-info) must no-op when
+           ;; injected under a server-side frame; the runtime emits
+           ;; `:rf.cofx/skipped-on-platform` (warning, :recovery
+           ;; :skipped) mirroring fx.cljc's gate. The handler chain
+           ;; continues — the injection is skipped, not the event.
+           (let [frame-id        (interceptor/get-coeffect ctx :frame)
+                 active-platform (active-platform-for-frame frame-id)]
+             (if (cofx-runs-on-platform? meta active-platform)
+               (binding [trace/*current-trigger-handler*
+                         (trace/trigger-handler-from-meta :cofx cofx-id meta)
+                         trace/*current-call-site*
+                         (or captured-cs trace/*current-call-site*)]
+                 (-> (if valued?
+                       ((:handler-fn meta) ctx value)
+                       ((:handler-fn meta) ctx))
+                     (maybe-validate-cofx! cofx-id meta)))
+               (do
+                 (trace/emit! :warning :rf.cofx/skipped-on-platform
+                              (cond-> {:cofx-id              cofx-id
+                                       :frame                frame-id
+                                       :platform             active-platform
+                                       :registered-platforms (:platforms meta)
+                                       :recovery             :skipped}
+                                valued? (assoc :cofx-value value)))
+                 ctx)))
            (binding [trace/*current-call-site*
                      (or captured-cs trace/*current-call-site*)]
              (let [event (interceptor/get-coeffect ctx :event)]
