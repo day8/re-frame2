@@ -152,12 +152,30 @@ For `:rf.http/managed` failure-category experiments (Spec 014 §Failure categori
 
 ## "Narrate the next N events"
 
-`watch/count N` with no filter. Report each epoch as a short paragraph (event id, `:trigger-event`, key entries from `:effects` and `:sub-runs`, `app-db` diff summary) as it fires.
+Prefer the push-mode MCP path: call `mcp__re-frame-pair2__subscribe` with `{topic: "epoch", max-events: N}`. Each batch arrives as a `notifications/progress` tick; report each epoch as a short paragraph (event id, `:trigger-event`, key entries from `:effects` and `:sub-runs`, `app-db` diff summary) as it fires. The tool resolves with a summary once `max-events` is reached.
+
+Fallback (host doesn't surface progress notifications): `watch/count N` with no filter, narrate on each pull.
+
+See [streaming-subscriptions.md](streaming-subscriptions.md) for topic / filter / termination detail.
 
 ## "Alert me on slow events"
 
-`watch/stream --timing-ms '>100'`. Silent until a match; report with the `:event/run` duration plus per-interceptor timings from the raw trace.
+Prefer `subscribe {topic: "epoch"}` with no server-side filter (the `epoch-matches?` filter vocab doesn't include a timing predicate — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). On each `notifications/progress` tick, caller-side check the epoch's `:event/run` duration against the threshold; report matches with per-interceptor timings from the raw trace. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
+
+Fallback: `watch/stream --timing-ms '>100'` (the bash shim applies the timing predicate caller-side too, but the wrapper hides that detail).
 
 ## "Watch for X while I interact"
 
-`watch/stream --event-id-prefix :checkout/` (or other predicate). Narrate each match; summarise when idle.
+Prefer `subscribe {topic: "epoch", filter: {":event-id-prefix": ":checkout/"}}` (or other predicate from the `epoch-matches?` vocab — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). Narrate each match as it arrives via `notifications/progress`; summarise when the stream goes idle. Close with `unsubscribe` (or `max-events` / `max-ms`) when the user moves on.
+
+Fallback: `watch/stream --event-id-prefix :checkout/`.
+
+### Inspect what's currently subscribed
+
+`re-frame-pair2.runtime/subscription-info` reports every open subscription's `{:id :topic :filter :queue-depth :overflow :created-at}` without draining the queues. To list active streams:
+
+```
+mcp__re-frame-pair2__eval-cljs {form: "(re-frame-pair2.runtime/subscription-info)"}
+```
+
+Use this when a streaming probe seems to have gone quiet — confirm it's still registered (and that its queue-depth isn't piling up against a dead consumer) before assuming the bus is dry.
