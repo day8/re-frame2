@@ -15,28 +15,29 @@
   the boundary-validation interceptor (`re-frame.spec`, rf2-r2uh)
   reaches via the schemas-side late-bind hook.
 
-  Per rf2-zkca8 §Leaf-size discipline this file exceeds the 250-line
-  target ceiling at ~415 LoC; the carve-out applies because the file is
-  catalogue-shaped — five structurally-parallel validate-*! fns sharing
-  the same `(if debug-enabled? (if @validator-fn (if-let [schema ...]
-  (if (run-validator ...) true (let [explanation ...] ...)) true) true)
-  true)` skeleton, differing only in (a) the meta key the schema lives
-  under, (b) the `:where` tag, (c) the `:reason` template, and (d) the
-  sensitivity-source check. The audit's Q5 (rf2-x8x4p findings) proposes
-  collapsing all five into a single parameterised `run-validation`
-  primitive; that landing is sequenced AFTER this split — splitting the
-  five along sibling files first would only multiply file-handle overhead
-  without reducing per-session tokens, since every reader who touches one
-  validate-*! fn typically wants to see all five side-by-side.
+  Per rf2-s7s6j the four meta-bearing validate-*! fns (event / cofx /
+  fx / sub-return) share a single core via the private
+  `run-validation` primitive — each public fn is a thin wrapper that
+  contributes only its registration-meta source, its checked value,
+  its sensitivity-source check, its tag shape (`:where`,
+  `:reason`, etc.), and any fx-specific post-redaction step.
+  `validate-app-db!` stays a sibling of the four; it walks N schemas
+  via doseq (no single :spec lookup, no true/false return contract)
+  and so doesn't share the wrapper's shape.
 
   Per Spec 009 §Production builds every dev-time validate-*! body lives
   inside an `(if interop/debug-enabled? ...)` gate as the OUTERMOST
   form so :advanced+goog.DEBUG=false DCE-elides every reason string,
-  keyword, validator deref, and trace call. Per Spec 010 §Non-Malli
-  validators (rf2-froe) the validator/explainer are pluggable via the
-  registered atoms in `re-frame.schemas.validator`; when none is
-  registered every fn here returns true (pass) without inspecting the
-  schema.
+  keyword, validator deref, and trace call. The private
+  `run-validation` primitive is reachable only from those gated arms
+  — when every call-site is dead, Closure's reachability proof DCEs
+  the primitive itself, along with every literal reason string passed
+  through it.
+
+  Per Spec 010 §Non-Malli validators (rf2-froe) the validator/explainer
+  are pluggable via the registered atoms in `re-frame.schemas.validator`;
+  when none is registered every fn here returns true (pass) without
+  inspecting the schema.
 
   Per Spec 010 §`:sensitive?` — privacy in schema-validation error
   traces (rf2-kj51z). The emit-sites redact the failing value before
@@ -77,6 +78,21 @@
   [m]
   (true? (:sensitive? m)))
 
+(defn- sensitive-by-meta?
+  "Sensitivity check used by validate-event!. Only consults the
+  registration meta (event vectors aren't walked for per-slot
+  `:sensitive?` schema props per Spec 010)."
+  [m _schema]
+  (meta-sensitive? m))
+
+(defn- sensitive-by-meta-or-schema?
+  "Sensitivity check used by validate-cofx! / validate-fx! /
+  validate-sub-return!. Either the registration meta OR a per-slot
+  `:sensitive?` prop anywhere in the schema tree triggers redaction."
+  [m schema]
+  (or (meta-sensitive? m)
+      (walker/schema-has-sensitive? schema)))
+
 (defn- redact-tags
   "Replace value-bearing slots in a tags map with the `:rf/redacted`
   sentinel. Per Spec 010 §`:sensitive?` — privacy in schema-validation
@@ -103,6 +119,50 @@
     (nil? v)     "nil"
     :else        (str (type v))))
 
+(defn- run-validation
+  "Shared core of the four meta-bearing validate-*! fns (event / cofx /
+  fx / sub-return). Performs the registered-validator deref, the
+  `:spec`-on-meta lookup, the validate / explain calls, the
+  sensitivity decision, and the trace emit. Returns true on pass / no
+  schema / no validator; false on a logged failure.
+
+  Parameters:
+    - `meta`         the registration metadata (handler / cofx / sub /
+                     fx) — its `:spec` slot, if any, is the schema.
+    - `value`        the value being checked (event vector, cofx
+                     value, sub return, fx args).
+    - `sensitive?-fn`  `(fn [meta schema] -> boolean)` — combines the
+                     meta-level `:sensitive?` flag with any
+                     schema-level `:sensitive?` props per Spec 010.
+    - `build-base-tags`  `(fn [schema explanation] -> map)` — produces
+                     the per-fn tag map (`:where`, `:reason`, etc.)
+                     EXCLUDING any sensitivity stamping.
+    - `extra-redact` `(fn [tags] -> tags)` or `nil` — additional
+                     redaction step applied AFTER `redact-tags` when
+                     `sensitive?` is true. Used by validate-fx! to
+                     scrub the doubled `:fx-args` slot.
+
+  Reachability: every call-site lives inside the outermost
+  `(if interop/debug-enabled? ...)` gate of its public wrapper.
+  Closure's reachability proof under :advanced + goog.DEBUG=false
+  finds every call-site dead and DCEs this fn — along with every
+  literal reason string and tag keyword passed through it."
+  [meta value sensitive?-fn build-base-tags extra-redact]
+  (if @validator/validator-fn
+    (if-let [schema (:spec meta)]
+      (if (validator/run-validator schema value)
+        true
+        (let [explanation (validator/run-explainer schema value)
+              sensitive?  (sensitive?-fn meta schema)
+              base-tags   (build-base-tags schema explanation)
+              tags        (cond-> base-tags
+                            sensitive?                  redact-tags
+                            (and sensitive? extra-redact) extra-redact)]
+          (trace/emit-error! :rf.error/schema-validation-failure tags)
+          false))
+      true)
+    true))
+
 (defn validate-app-db!
   "After a handler commits :db, walk every registered app-schema for the
   named frame and validate the post-state. Failures trace as
@@ -122,7 +182,13 @@
     (validate-app-db! db event-id frame-id)     ;; explicit frame
 
   event-id (optional) names the handler whose commit prompted the
-  failure — surfaced as :failing-id in the error tags."
+  failure — surfaced as :failing-id in the error tags.
+
+  Structurally distinct from the four meta-bearing validate-*! fns
+  (event / cofx / fx / sub-return): walks N schemas via doseq, has
+  no single `:spec`-on-meta lookup, and emits per failure without
+  returning a true/false pass flag. Does not share the
+  `run-validation` shape."
   ([db] (validate-app-db! db nil (frame/current-frame)))
   ([db event-id] (validate-app-db! db event-id (frame/current-frame)))
   ([db event-id frame-id]
@@ -170,222 +236,134 @@
 (defn validate-event!
   "Per Spec 010 §Validation order step 1 — before an event handler runs,
   validate the event vector against any :spec on the handler's metadata.
-
-  Returns true on pass (or when validation is elided / no schema is
-  attached), false on fail. Failures emit
-  :rf.error/schema-validation-failure with :where :event; the caller
-  is responsible for skipping the handler (recovery: :no-recovery).
-
-  Per Spec 009 §Production builds the entire body lives inside a
-  `(when interop/debug-enabled? ...)` gate so :advanced+goog.DEBUG=false
-  DCE-elides every reason string, every keyword, and every validator
-  call. Per Spec 010 §Non-Malli validators (rf2-froe) the validator
-  is pluggable; when none is registered this fn returns true (pass)
-  without inspecting the schema."
+  Failures emit `:rf.error/schema-validation-failure :where :event`; the
+  caller skips the handler (recovery: `:no-recovery`). Returns
+  true/false per the `run-validation` contract."
   [event-id event handler-meta]
-  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
-  ;; DCE-elides the entire body. The `@validator-fn` deref must live
-  ;; INSIDE the gate (atom deref is not a compile-time constant).
   (if interop/debug-enabled?
-    (if @validator/validator-fn
-      (if-let [schema (:spec handler-meta)]
-        (if (validator/run-validator schema event)
-          true
-          (let [explanation (validator/run-explainer schema event)
-                ;; Per Spec 010 §`:sensitive?` — privacy in
-                ;; schema-validation error traces (rf2-kj51z).
-                ;; Consult the handler's registration meta —
-                ;; `:sensitive? true` on the reg-event-* declares
-                ;; the whole event vector sensitive.
-                sensitive? (meta-sensitive? handler-meta)
-                base-tags  {:where       :event
-                            :event-id    event-id
-                            :failing-id  event-id
-                            :spec-id     event-id
-                            :received    event
-                            :event       event
-                            :malli-error explanation
-                            :explain     explanation
-                            :reason      (str "Event " event-id
-                                              " payload failed schema "
-                                              schema ", got "
-                                              (type-of-value event) ".")
-                            :recovery    :no-recovery}
-                tags       (if sensitive? (redact-tags base-tags) base-tags)]
-            (trace/emit-error! :rf.error/schema-validation-failure tags)
-            false))
-        true)
-      true)
+    (run-validation
+      handler-meta
+      event
+      sensitive-by-meta?
+      (fn [schema explanation]
+        {:where       :event
+         :event-id    event-id
+         :failing-id  event-id
+         :spec-id     event-id
+         :received    event
+         :event       event
+         :malli-error explanation
+         :explain     explanation
+         :reason      (str "Event " event-id
+                           " payload failed schema "
+                           schema ", got "
+                           (type-of-value event) ".")
+         :recovery    :no-recovery})
+      nil)
     true))
 
 (defn validate-sub-return!
   "Per Spec 010 §Validation order step 6 — after a sub recomputes,
   validate its return value against any :spec on the sub's metadata.
-
-  Returns true on pass, false on fail. Failures emit
-  :rf.error/schema-validation-failure with :where :sub-return; the
-  caller is responsible for replacing the value with the
-  default (nil) per the :replaced-with-default recovery.
-
-  Per Spec 009 §Production builds the entire body lives inside a
-  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly.
-  Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
-  pluggable; when none is registered this fn returns true."
+  Failures emit `:rf.error/schema-validation-failure :where
+  :sub-return`; the caller replaces the value with the default (nil)
+  per the `:replaced-with-default` recovery. Returns true/false per
+  the `run-validation` contract."
   [sub-id query-v value sub-meta]
-  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
-  ;; DCE-elides the entire body. The `@validator-fn` deref must live
-  ;; INSIDE the gate (atom deref is not a compile-time constant).
   (if interop/debug-enabled?
-    (if @validator/validator-fn
-      (if-let [schema (:spec sub-meta)]
-        (if (validator/run-validator schema value)
-          true
-          (let [explanation (validator/run-explainer schema value)
-                ;; Per Spec 010 §`:sensitive?` — privacy in
-                ;; schema-validation error traces (rf2-kj51z).
-                ;; Two sources: the sub's registration meta
-                ;; (`:sensitive?` on reg-sub) and the schema's own
-                ;; per-slot `:sensitive?` (a container-level flag
-                ;; on the spec covers every failing return).
-                sensitive? (or (meta-sensitive? sub-meta)
-                               (walker/schema-has-sensitive? schema))
-                base-tags  {:where       :sub-return
-                            :sub-id      sub-id
-                            :failing-id  sub-id
-                            :spec-id     sub-id
-                            :query-v     query-v
-                            :received    value
-                            :value       value
-                            :malli-error explanation
-                            :explain     explanation
-                            :reason      (str "Subscription " sub-id
-                                              " return value failed schema "
-                                              schema ", got "
-                                              (type-of-value value) ".")
-                            :recovery    :replaced-with-default}
-                tags       (if sensitive? (redact-tags base-tags) base-tags)]
-            (trace/emit-error! :rf.error/schema-validation-failure tags)
-            false))
-        true)
-      true)
+    (run-validation
+      sub-meta
+      value
+      sensitive-by-meta-or-schema?
+      (fn [schema explanation]
+        {:where       :sub-return
+         :sub-id      sub-id
+         :failing-id  sub-id
+         :spec-id     sub-id
+         :query-v     query-v
+         :received    value
+         :value       value
+         :malli-error explanation
+         :explain     explanation
+         :reason      (str "Subscription " sub-id
+                           " return value failed schema "
+                           schema ", got "
+                           (type-of-value value) ".")
+         :recovery    :replaced-with-default})
+      nil)
     true))
 
 (defn validate-cofx!
-  "Per Spec 010 §Validation order step 2 — after a cofx injects its value
-  into the merged context, validate that value against any :spec on the
-  cofx's metadata.
-
-  Returns true on pass, false on fail. Failures emit
-  :rf.error/schema-validation-failure with :where :cofx; the caller is
-  responsible for skipping the handler (recovery: :no-recovery).
-
-  Per Spec 009 §Production builds the entire body lives inside a
-  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly.
-  Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
-  pluggable; when none is registered this fn returns true."
+  "Per Spec 010 §Validation order step 2 — after a cofx injects its
+  value into the merged context, validate that value against any
+  :spec on the cofx's metadata. Failures emit
+  `:rf.error/schema-validation-failure :where :cofx`; the caller
+  skips the handler (recovery: `:no-recovery`). Returns true/false
+  per the `run-validation` contract."
   [cofx-id event-id value cofx-meta]
-  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
-  ;; DCE-elides the entire body. The `@validator-fn` deref must live
-  ;; INSIDE the gate (atom deref is not a compile-time constant).
   (if interop/debug-enabled?
-    (if @validator/validator-fn
-      (if-let [schema (:spec cofx-meta)]
-        (if (validator/run-validator schema value)
-          true
-          (let [explanation (validator/run-explainer schema value)
-                ;; Per Spec 010 §`:sensitive?` — privacy in
-                ;; schema-validation error traces (rf2-kj51z).
-                ;; Cofx-meta or container-level schema-prop both
-                ;; trigger redaction.
-                sensitive? (or (meta-sensitive? cofx-meta)
-                               (walker/schema-has-sensitive? schema))
-                base-tags  {:where       :cofx
-                            :cofx-id     cofx-id
-                            :event-id    event-id
-                            :failing-id  event-id
-                            :spec-id     cofx-id
-                            :received    value
-                            :value       value
-                            :malli-error explanation
-                            :explain     explanation
-                            :reason      (str "Coeffect " cofx-id
-                                              " injected value failed schema "
-                                              schema ", got "
-                                              (type-of-value value) ".")
-                            :recovery    :no-recovery}
-                tags       (if sensitive? (redact-tags base-tags) base-tags)]
-            (trace/emit-error! :rf.error/schema-validation-failure tags)
-            false))
-        true)
-      true)
+    (run-validation
+      cofx-meta
+      value
+      sensitive-by-meta-or-schema?
+      (fn [schema explanation]
+        {:where       :cofx
+         :cofx-id     cofx-id
+         :event-id    event-id
+         :failing-id  event-id
+         :spec-id     cofx-id
+         :received    value
+         :value       value
+         :malli-error explanation
+         :explain     explanation
+         :reason      (str "Coeffect " cofx-id
+                           " injected value failed schema "
+                           schema ", got "
+                           (type-of-value value) ".")
+         :recovery    :no-recovery})
+      nil)
     true))
 
 (defn validate-fx!
   "Per Spec 010 §Validation order step 5 — before an fx handler runs,
-  validate its args against any :spec on the fx's metadata.
+  validate its args against any :spec on the fx's metadata. Failures
+  emit `:rf.error/schema-validation-failure :where :fx-args`; per
+  Spec 010 §Per-step recovery row 5 the caller skips the offending fx
+  only (recovery: `:skipped`) — sibling fx in the same `:fx` vector
+  continue to run, and downstream queued events still drain. Returns
+  true/false per the `run-validation` contract.
 
-  Returns true on pass, false on fail. Failures emit
-  :rf.error/schema-validation-failure with :where :fx-args; per Spec 010
-  §Per-step recovery row 5 the caller is responsible for skipping the
-  offending fx only (recovery: :skipped) — sibling fx in the same `:fx`
-  vector continue to run, and downstream queued events still drain.
-
-  Per Spec 010 §`:sensitive?` privacy: redaction triggers when either
-  the fx's registration meta carries `:sensitive? true` or the schema
-  itself declares a `:sensitive?` slot anywhere in its tree. The
-  failing args value, the schema explanation, and the doubled `:value`
-  / `:received` slots are all redacted in the emitted tags.
-
-  Per Spec 009 §Production builds the entire body lives inside a
-  `(when interop/debug-enabled? ...)` gate so :advanced+goog.DEBUG=false
-  DCE-elides every reason string, every keyword, and every validator
-  call. Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
-  pluggable; when none is registered this fn returns true."
+  The doubled `:fx-args` slot in the emitted tags is scrubbed via
+  `run-validation`'s extra-redact step so the redaction is symmetric
+  with the cofx/event surfaces (which don't carry a doubled-id slot)."
   [fx-id event-id args fx-meta]
-  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
-  ;; DCE-elides the entire body. The `@validator-fn` deref must live
-  ;; INSIDE the gate (atom deref is not a compile-time constant).
   (if interop/debug-enabled?
-    (if @validator/validator-fn
-      (if-let [schema (:spec fx-meta)]
-        (if (validator/run-validator schema args)
-          true
-          (let [explanation (validator/run-explainer schema args)
-                ;; Per Spec 010 §`:sensitive?` — privacy in
-                ;; schema-validation error traces (rf2-kj51z).
-                ;; Fx-meta or container-level schema-prop both
-                ;; trigger redaction.
-                sensitive? (or (meta-sensitive? fx-meta)
-                               (walker/schema-has-sensitive? schema))
-                base-tags  (cond-> {:where       :fx-args
-                                    :fx-id       fx-id
-                                    :fx-args     args
-                                    :failing-id  fx-id
-                                    :spec-id     fx-id
-                                    :received    args
-                                    :value       args
-                                    :malli-error explanation
-                                    :explain     explanation
-                                    :reason      (str "Effect " fx-id
-                                                      " args failed schema "
-                                                      schema ", got "
-                                                      (type-of-value args) ".")
-                                    :recovery    :skipped}
-                             event-id (assoc :event-id event-id))
-                ;; When the fx args themselves are redacted, the
-                ;; doubled `:fx-args` slot must also be scrubbed —
-                ;; redact-tags handles `:value`/`:received`/`:explain`/
-                ;; `:malli-error`; explicitly clear `:fx-args` here so
-                ;; the redaction is symmetric with the cofx/event
-                ;; surfaces.
-                tags       (if sensitive?
-                             (assoc (redact-tags base-tags)
-                                    :fx-args redacted-sentinel)
-                             base-tags)]
-            (trace/emit-error! :rf.error/schema-validation-failure tags)
-            false))
-        true)
-      true)
+    (run-validation
+      fx-meta
+      args
+      sensitive-by-meta-or-schema?
+      (fn [schema explanation]
+        (cond-> {:where       :fx-args
+                 :fx-id       fx-id
+                 :fx-args     args
+                 :failing-id  fx-id
+                 :spec-id     fx-id
+                 :received    args
+                 :value       args
+                 :malli-error explanation
+                 :explain     explanation
+                 :reason      (str "Effect " fx-id
+                                   " args failed schema "
+                                   schema ", got "
+                                   (type-of-value args) ".")
+                 :recovery    :skipped}
+          event-id (assoc :event-id event-id)))
+      ;; Extra-redact: the doubled `:fx-args` slot isn't covered by
+      ;; the generic `redact-tags` (which only knows :value /
+      ;; :received / :explain / :malli-error / :event). Scrub it
+      ;; here so the redaction is symmetric across all four
+      ;; meta-bearing validate-*! surfaces.
+      (fn [tags] (assoc tags :fx-args redacted-sentinel)))
     true))
 
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
