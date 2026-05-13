@@ -143,12 +143,15 @@ The `cljs` and `cljs-browser` jobs require no changes — they pick up the new `
 
 ### §1.7 CI: `.github/workflows/release.yml`
 
-Add a `deploy-reagent-slim` job mirroring `deploy-reagent` (release.yml lines 294-357). The job:
+Per the matrix-strategy refactor (rf2-i77u), the release workflow's `deploy-leaf` job carries `reagent-slim` as one of its matrix entries (`{leaf: reagent-slim, artefact: day8/reagent-slim, directory: implementation/adapters/reagent-slim, local-root: ../../core}`). The matrix already:
+
 1. `needs: deploy-core` (parallel with the other adapter-deploy leaves).
 2. Rewrites `:local/root "../../core"` → `:mvn/version "${VERSION}"` in `implementation/adapters/reagent-slim/deps.edn`.
 3. Runs `clojure -M:clein deploy` from `implementation/adapters/reagent-slim/`.
 
-The terminal `github-release` job's `needs:` array (release.yml line 899-901) gains `deploy-reagent-slim`.
+The terminal `github-release` job's `needs:` references the matrix job (single edge — `needs: deploy-leaf` waits for every matrix value), so no per-leaf list maintenance is required.
+
+Per rf2-zvjme the matrix has one slim-specific step inserted between the `:local/root → :mvn/version` rewrite and the deploy invocation: a publication-time ns rename gated `if: matrix.leaf == 'reagent-slim'`. It moves `src/re_frame/adapter/reagent_slim.cljs` → `src/re_frame/adapter/reagent.cljs` and rewrites the `(ns re-frame.adapter.reagent-slim …)` declaration to `(ns re-frame.adapter.reagent …)` on the throwaway runner checkout. The in-tree source is never modified — the clash with `adapters/reagent/src` (§1.8) only exists in the monorepo classpath; downstream apps depend on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}` so the canonical adapter ns is single-source per app. Both grep-side assertions (`reagent_slim.cljs` exists, `reagent.cljs` does NOT pre-exist, `(ns re-frame.adapter.reagent-slim` matches once) fail the release loudly rather than ship an artefact with a stale ns.
 
 ### §1.8 Bundle-isolation contract
 
