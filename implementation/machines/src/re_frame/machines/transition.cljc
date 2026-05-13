@@ -19,6 +19,7 @@
   can be loaded and exercised on the JVM by the conformance fixtures
   (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
+            [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.result :as result]
             [re-frame.trace :as trace]))
 
@@ -319,9 +320,10 @@
 (defn- pick-after-transition
   "Per Spec 005 §Delayed :after transitions. The synthetic event
   [:rf.machine.timer/after-elapsed delay-key carried-epoch] arrives.
-  Walk path leaf→root for an :after table containing delay-key. If the
-  carried epoch matches the snapshot's current :rf/after-epoch, evaluate
-  the transition's :guard (if any).
+  Walk path leaf→root for an :after table containing delay-key (the
+  deepest-wins rule named in `path-walk/walk-path-leaf-to-root`). If
+  the carried epoch matches the snapshot's current `:rf/after-epoch`,
+  evaluate the transition's :guard (if any).
 
   Returns one of:
     nil — no matching :after entry; benign (timer carried from a state
@@ -342,79 +344,76 @@
   (return nil); non-matching is surfaced as stale."
   [machine path event snapshot]
   (let [[_ delay-key carried-epoch] event
-        current-epoch (get-in snapshot (after-epoch-path machine))]
-    (loop [i (dec (count path))]
-      (if (neg? i)
-        (when (not= carried-epoch current-epoch)
-          {:stale?          true
-           :state           (last path)
-           :delay           delay-key
-           :scheduled-epoch carried-epoch
-           :current-epoch   current-epoch})
-        (let [prefix (vec (take (inc i) path))
-              n      (node-at machine prefix)
-              t      (get-in n [:after delay-key])]
-          (cond
-            (nil? t)
-            (recur (dec i))
-
-            (not= carried-epoch current-epoch)
-            {:stale?         true
-             :state          (last prefix)
-             :delay          delay-key
-             :scheduled-epoch carried-epoch
-             :current-epoch   current-epoch}
-
-            :else
-            (let [tspec (if (keyword? t) {:target t} t)
-                  guard-ref (:guard tspec)
-                  pass?
-                  (if guard-ref
-                    (let [g (resolve-guard machine guard-ref)]
-                      (boolean (call-guard g snapshot event)))
-                    true)]
-              (if pass?
-                {:transition tspec
-                 :decl-path  prefix
-                 :delay      delay-key
-                 :epoch      carried-epoch}
-                ;; Guard returned false. Per Spec 005 §Multi-stage
-                ;; interaction with :guard: the timer is "fired and
-                ;; discarded" — no transition, no epoch advance; sibling
-                ;; :after timers continue.
-                {:guard-suppressed? true
-                 :state             (last prefix)
-                 :delay             delay-key
-                 :epoch             carried-epoch}))))))))
+        current-epoch (get-in snapshot (after-epoch-path machine))
+        stale?        (not= carried-epoch current-epoch)
+        hit
+        (path-walk/walk-path-leaf-to-root
+          machine path
+          (fn [prefix n]
+            (when-let [t (get-in n [:after delay-key])]
+              (if stale?
+                {:stale?          true
+                 :state           (last prefix)
+                 :delay           delay-key
+                 :scheduled-epoch carried-epoch
+                 :current-epoch   current-epoch}
+                (let [tspec     (if (keyword? t) {:target t} t)
+                      guard-ref (:guard tspec)
+                      pass?     (if guard-ref
+                                  (let [g (resolve-guard machine guard-ref)]
+                                    (boolean (call-guard g snapshot event)))
+                                  true)]
+                  (if pass?
+                    {:transition tspec
+                     :decl-path  prefix
+                     :delay      delay-key
+                     :epoch      carried-epoch}
+                    ;; Guard returned false. Per Spec 005 §Multi-stage
+                    ;; interaction with :guard: the timer is "fired and
+                    ;; discarded" — no transition, no epoch advance;
+                    ;; sibling :after timers continue.
+                    {:guard-suppressed? true
+                     :state             (last prefix)
+                     :delay             delay-key
+                     :epoch             carried-epoch}))))))]
+    (cond
+      hit    hit
+      ;; No `:after` table matched along any level of the path. If the
+      ;; epoch is stale the timer carried in from a state we've since
+      ;; exited — surface it so the lifecycle can emit
+      ;; `:rf.machine.timer/stale-after`. (Matching epoch + no table is
+      ;; a benign no-op — return nil.)
+      stale? {:stale?          true
+              :state           (last path)
+              :delay           delay-key
+              :scheduled-epoch carried-epoch
+              :current-epoch   current-epoch}
+      :else  nil)))
 
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
-  with parent fallthrough.
+  with parent fallthrough (the rule named in `path-walk/walk-path-leaf-
+  to-root`).
 
   Special-cases the synthetic :rf.machine.timer/after-elapsed event by
   delegating to pick-after-transition."
   [machine path event snapshot]
   (let [event-id (first event)]
-    (cond
-      (= :rf.machine.timer/after-elapsed event-id)
+    (if (= :rf.machine.timer/after-elapsed event-id)
       (pick-after-transition machine path event snapshot)
-
-      :else
-      (loop [i (dec (count path))]
-        (when (>= i 0)
-          (let [prefix (vec (take (inc i) path))
-                n      (node-at machine prefix)
-                cands  (normalise-on-clause
-                         (or (get-in n [:on event-id])
-                             (get-in n [:on :*])))
-                hit    (some (fn [t]
-                               (let [g (resolve-guard machine (:guard t))]
-                                 (when (call-guard g snapshot event) t)))
-                             cands)]
-            (if hit
-              {:transition hit :decl-path prefix}
-              (recur (dec i)))))))))
+      (path-walk/walk-path-leaf-to-root
+        machine path
+        (fn [prefix n]
+          (let [cands (normalise-on-clause
+                        (or (get-in n [:on event-id])
+                            (get-in n [:on :*])))
+                hit   (some (fn [t]
+                              (let [g (resolve-guard machine (:guard t))]
+                                (when (call-guard g snapshot event) t)))
+                            cands)]
+            (when hit
+              {:transition hit :decl-path prefix})))))))
 
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:
@@ -930,26 +929,25 @@
             (result/ok snap-after-spawns all-fx)))))))
 
 (defn- pick-always-transition
-  "Per Spec 005 §Eventless :always transitions: walk path leaf→root
-  for an :always whose guard passes. Returns {:transition t :decl-path p}
-  or nil."
+  "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
+  an `:always` whose guard passes (the deepest-wins rule named in
+  `path-walk/walk-path-leaf-to-root`). Returns
+  `{:transition t :decl-path p}` or nil."
   [machine path snapshot]
-  (loop [i (dec (count path))]
-    (when (>= i 0)
-      (let [prefix (vec (take (inc i) path))
-            n      (node-at machine prefix)
-            always (:always n)
+  (path-walk/walk-path-leaf-to-root
+    machine path
+    (fn [prefix n]
+      (let [always (:always n)
             always (cond
-                     (nil? always)     []
-                     (vector? always)  always
-                     :else             [always])
+                     (nil? always)    []
+                     (vector? always) always
+                     :else            [always])
             hit    (some (fn [t]
                            (let [g (resolve-guard machine (:guard t))]
                              (when (call-guard g snapshot nil) t)))
                          always)]
-        (if hit
-          {:transition (assoc hit :decl-path prefix) :decl-path prefix}
-          (recur (dec i)))))))
+        (when hit
+          {:transition (assoc hit :decl-path prefix) :decl-path prefix})))))
 
 (def ^:private always-depth-limit-default 16)
 (def ^:private raise-depth-limit-default  16)
