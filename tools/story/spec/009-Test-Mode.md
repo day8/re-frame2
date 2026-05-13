@@ -39,12 +39,17 @@ Three companion namespaces (split per rf2-8n2fz — see `pure.cljc`,
 ```clojure
 (re-frame.story.ui.test-mode.view/test-view variant-id)   ; CLJS Reagent component
 
-;; pure data → data (JVM-testable) — under re-frame.story.ui.test-mode.pure:
-(variant-has-tests? variant-id)
-  ; → boolean — true iff the variant body declares a non-empty :play
+;; pure data → data (JVM-testable) — under re-frame.story.ui.state:
 (aggregate-summary assertions)
   ; → {:total <n> :passed <n> :failed <n>
   ;    :skipped <n> :all-passed? <bool>}
+  ; Lives in shell-state (not test-mode.pure) per rf2-khmon so the
+  ; sidebar / chrome-level test widget can share one canonical fold
+  ; without a require cycle.
+
+;; pure data → data (JVM-testable) — under re-frame.story.ui.test-mode.pure:
+(variant-has-tests? variant-id)
+  ; → boolean — true iff the variant body declares a non-empty :play
 (assertion-row assertion)
   ; → {:assertion :rf.assert/path-equals
   ;    :status   :pass|:fail|:skip

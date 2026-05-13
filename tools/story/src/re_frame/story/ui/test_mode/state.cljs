@@ -84,7 +84,7 @@
             :play-events   (vec play-events)
             :epoch-ids     epoch-ids
             :selected-step nil})
-    (let [summary (-> (pure/aggregate-summary (:assertions result))
+    (let [summary (-> (state/aggregate-summary (:assertions result))
                       (assoc :ran-at-ms  now
                              :elapsed-ms (:elapsed-ms result)))]
       (state/swap-state! state/record-test-run variant-id summary))))

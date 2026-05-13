@@ -430,10 +430,44 @@
   [state variant-id]
   (assoc-in state [:test-runs variant-id] {:status :running}))
 
+(defn aggregate-summary
+  "Walk `assertions` (the vector pulled off a `run-variant` result map)
+  and produce the aggregated pass/fail/skip counts:
+
+      {:total       <n>
+       :passed      <n>
+       :failed      <n>
+       :skipped     <n>
+       :all-passed? <bool>}
+
+  `:skipped` counts records carrying `:assertion :rf.assert/skipped` —
+  re-frame2's v1 runtime doesn't emit this id, but the slot stays open
+  so spec/004 additions flow through without a pane refactor.
+  `:all-passed?` is true iff `:total > 0 AND :failed = 0 AND :skipped = 0`.
+
+  Lives in `state.cljc` (not `test-mode.pure`) so both the test-mode
+  pane AND the sidebar / chrome-level test widget can call one
+  canonical fold without a require cycle (sidebar can't require
+  test-mode, which would loop back through shell-state). Pure data →
+  data; JVM-testable."
+  [assertions]
+  (let [items     (or assertions [])
+        skipped?  (fn [r] (= :rf.assert/skipped (:assertion r)))
+        skipped   (count (filter skipped? items))
+        active    (remove skipped? items)
+        passed    (count (filter :passed? active))
+        failed    (- (count active) passed)
+        total     (count items)]
+    {:total       total
+     :passed      passed
+     :failed      failed
+     :skipped     skipped
+     :all-passed? (and (pos? total) (zero? failed) (zero? skipped))}))
+
 (defn record-test-run
   "Write the aggregate of a `run-variant` result into `:test-runs`.
 
-  `summary` is the map returned by `test-mode.pure/aggregate-summary` —
+  `summary` is the map returned by `aggregate-summary` —
   `{:total :passed :failed :skipped :all-passed?}` — extended with
   optional `:ran-at-ms` and `:elapsed-ms`. A run that recorded zero
   assertions lands as `:pending` (rather than `:pass`/`:fail`) so the

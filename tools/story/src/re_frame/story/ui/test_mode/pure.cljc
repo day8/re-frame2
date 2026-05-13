@@ -52,34 +52,11 @@
     (boolean (seq (:play vb)))))
 
 ;; ---- pure: aggregate-summary --------------------------------------------
-
-(defn aggregate-summary
-  "Walk `assertions` (the vector pulled off a `run-variant` result map)
-  and produce the aggregated pass/fail/skip counts:
-
-      {:total       <n>
-       :passed      <n>
-       :failed      <n>
-       :skipped     <n>
-       :all-passed? <bool>}
-
-  `:skipped` counts records carrying `:assertion :rf.assert/skipped` —
-  re-frame2's v1 runtime doesn't emit this id, but the slot stays open
-  so spec/004 additions flow through without a pane refactor.
-  `:all-passed?` is true iff `:total > 0 AND :failed = 0 AND :skipped = 0`."
-  [assertions]
-  (let [items     (or assertions [])
-        skipped?  (fn [r] (= :rf.assert/skipped (:assertion r)))
-        skipped   (count (filter skipped? items))
-        active    (remove skipped? items)
-        passed    (count (filter :passed? active))
-        failed    (- (count active) passed)
-        total     (count items)]
-    {:total       total
-     :passed      passed
-     :failed      failed
-     :skipped     skipped
-     :all-passed? (and (pos? total) (zero? failed) (zero? skipped))}))
+;;
+;; `aggregate-summary` lives in `re-frame.story.ui.state` (rf2-khmon) so
+;; the sidebar / chrome-level test widget can call one canonical fold
+;; without a require cycle. test-mode consumers call `state/aggregate-
+;; summary` directly.
 
 ;; ---- pure: assertion-row ------------------------------------------------
 

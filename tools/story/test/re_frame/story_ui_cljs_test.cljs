@@ -381,7 +381,7 @@
 
 (deftest test-view-pure-helpers
   (testing "the pure section helpers run end-to-end in CLJS too"
-    (let [summary (test-mode-pure/aggregate-summary
+    (let [summary (state/aggregate-summary
                     [{:assertion :rf.assert/path-equals :passed? true}
                      {:assertion :rf.assert/sub-equals  :passed? false}])]
       (is (= 2 (:total summary)))
