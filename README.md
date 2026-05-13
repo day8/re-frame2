@@ -16,13 +16,15 @@ Four things:
 
 **1. The spec is the artefact. The code is downstream.** 
 
+This one is a little nerdy. 
+
 Historically, here's how every other framework works: somebody writes the implementation, the implementation is the thing, and the documentation heroically tries — usually incompletely — to describe what the implementation does.
 
-re-frame2 inverts that. The pattern is defined by its specification, which currently runs to about 22K lines across 35+ documents in [spec/](spec/). What's in [implementation/](implementation/) is a consequence of the spec, not the source of truth. And the spec is complete enough — this is the part I find genuinely strange to type — that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
+re-frame2 inverts that. The pattern is defined by its specification, which currently runs to about 22K lines across 35+ documents in [spec/](spec/). What's in the [reference implementation](implementation/) is a consequence of the spec, not the source of truth. And the spec is complete enough — this is the part I find genuinely strange to type — that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
 
 The implication, which I'd like you to sit with for a moment, is this: if you don't like this specification, change it, and one-shot your own framework. **Roll your own** with whatever fork of the spec pleases you. Value has moved up the chain. Code is trending toward $0 and disposable. The spec is the valuable, durable thing.
 
-Yes, I know how that sounds. I'm aware. Let's keep going.
+Yes, I know how that sounds. Don't shoot the messenger. Let's keep going.
 
 **2. Views are derivative, not central.** 
 
@@ -54,7 +56,11 @@ Every tool attaches to that trace bus and gets the whole picture for free. Sourc
 
 **4. Lisp's quiet advantage.**
 
-re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like being on the top of a mountain, meditating. Having said that, you can roll your own version in JS, TS, Reason, etc.
+Also nerdy.
+
+re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like being on the top of a mountain, meditating. 
+
+Having said that, you can roll your own version in JS, TS, Reason, etc.
 
 
 ### Novelty, bah humbug!
@@ -75,27 +81,25 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[Nine States of UI](https://day8.github.io/re-frame2/guide/08-state-machines/#parallel-regions)** — pair perfect HTTP hygiene with perfect UI-state hygiene. Nine canonical states — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done` — every loading/error/empty/cardinality UI passes through. Modelled as one parallel state machine with three regions, so Forms + Managed HTTP + Machines compose to render each state explicitly. And then combine this with **Story**: every state becomes its own variant — render it, review it, lock it in with visual regression, hand it to your AI for design feedback. No more "what should this look like while it's loading and there's stale data and a soft-failure?" — the matrix is locked, and every cell is on a wall.
 
 
-## Reference implementation
+## Status
 
-The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end.
+**Beta adjacent** 
 
-It provides three popular CLJS-flavoured substrates:
+The specification has been audited end-to-end endless times — precision passes, corectness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
+
+The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. And this implementation has view substrait adaptors for three popular CLJS-flavoured libraries:
 
 - **Reagent** — canonical.
 - **UIx** — modern hooks-based React layer.
 - **Helix** — minimal React wrapper.
 
-You can build production apps on the reference today (Clojars publish lands with `v0.0.1.alpha`).
-
-## Status
-
-**Alpha.** The first tagged release will be `v0.0.1.alpha` — Clojars publishing is wired up; no public artefact has been cut yet.
-
-The specification has been audited end-to-end multiple times — precision passes, readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability. Stable enough to build on. Indeed, a working reference implementation has been generated.
+To smoke test, we are building production apps on the reference implementation today however out of an abundance of caution we have not yet published artifacts to Clojars and NPM. Soon.
 
 ## AI first
 
-re-frame2 is AI-first, and that decision permeates every other decision in the project. If the artisanal craftsman in you finds this offensive — and look, the artisanal craftsman in me finds it offensive, I have spent forty years agonising over the human ergonomics of code and UIs and I do not part with that disposition lightly — I get it. But the world has changed, and AI ergonomics is now as important as human ergonomics. The good news, which I think is genuinely good news, is that AI ergonomics and good architecture tend to converge. They both reward predictability, explicit data flow, observable runtimes, and small computational models. The things that make a codebase pleasant for an AI to reason about are, very largely, the things that made it pleasant for humans to reason about in the first place. We were just bad at insisting on them.
+re-frame2 is AI-first, and that decision permeates every other decision in the project. 
+
+If the artisanal craftsman in you finds this offensive — and look, the artisanal craftsman in me finds it offensive, I have spent forty years agonising over the human ergonomics of code and UIs and I do not part with that disposition lightly — I get it. But the world has changed, and AI ergonomics is now as important as human ergonomics. The good news, which I think is genuinely good news, is that AI ergonomics and good architecture tend to converge. They both reward predictability, explicit data flow, observable runtimes, and small computational models. The things that make a codebase pleasant for an AI to reason about are, very largely, the things that made it pleasant for humans to reason about in the first place. We were just bad at insisting on them.
 
 Here's how AI-first shows up in practice:
 
