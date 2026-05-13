@@ -63,36 +63,40 @@
             (:inputs b-flow)))))
 
 (defn- topo-sort
-  "Kahn's algorithm. Returns flows in evaluation order. Throws on cycles."
+  "Kahn's algorithm — pure `loop`/`recur` over immutable state. Returns
+  flows in evaluation order; throws `:rf.error/flow-cycle` if the graph
+  is cyclic. `ready` is a vector used as a LIFO stack
+  (`peek`/`pop`/`conj`); `remaining` is the live id→dep-set map; `order`
+  is the accumulating result."
   [flow-map]
   (let [ids   (vec (keys flow-map))
         graph (into {}
                     (map (fn [id]
-                           (let [flow (flow-map id)
-                                 deps (->> ids
-                                           (filter (fn [other]
-                                                     (and (not= id other)
-                                                          (depends-on? flow (flow-map other)))))
-                                           set)]
-                             [id deps])))
-                    ids)
-        order (atom [])
-        ready (atom (into [] (filter #(empty? (graph %))) ids))
-        remaining (atom graph)]
-    (while (seq @ready)
-      (let [n (peek @ready)]
-        (swap! ready pop)
-        (swap! order conj n)
-        (doseq [m (keys @remaining)]
-          (when (contains? (@remaining m) n)
-            (swap! remaining update m disj n)
-            (when (empty? (@remaining m))
-              (swap! ready conj m))))
-        (swap! remaining dissoc n)))
-    (when (seq @remaining)
-      (throw (ex-info ":rf.error/flow-cycle"
-                      {:cycle (vec (keys @remaining))})))
-    @order))
+                           (let [flow (flow-map id)]
+                             [id (into #{}
+                                       (filter #(and (not= id %)
+                                                     (depends-on? flow (flow-map %))))
+                                       ids)])))
+                    ids)]
+    (loop [ready     (filterv #(empty? (graph %)) ids)
+           remaining graph
+           order     []]
+      (if-let [n (peek ready)]
+        (let [rem0 (dissoc remaining n)
+              [remaining' ready']
+              (reduce-kv (fn [[rem rdy] m m-deps]
+                           (if-not (contains? m-deps n)
+                             [rem rdy]
+                             (let [m-deps' (disj m-deps n)]
+                               [(assoc rem m m-deps')
+                                (cond-> rdy (empty? m-deps') (conj m))])))
+                         [rem0 (pop ready)]
+                         rem0)]
+          (recur ready' remaining' (conj order n)))
+        (if (seq remaining)
+          (throw (ex-info ":rf.error/flow-cycle"
+                          {:cycle (vec (keys remaining))}))
+          order)))))
 
 ;; Note: `topo-sort` runs on every drain via `run-flows!`. A memo was
 ;; trialled here and removed (rf2-cd00): the per-frame flow map is tiny
