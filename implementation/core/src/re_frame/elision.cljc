@@ -256,17 +256,43 @@
 ;; entries; declared entries (`:source :declared`) take precedence and
 ;; are not overwritten.
 
+(def ^:private descend-wrapper-ops
+  "Single-child Malli wrapper ops whose own properties don't introduce a
+   new app-db path segment, so an inner `:large?` / `:hint` claim on
+   the wrapped schema applies to the wrapper's path. Conservative v1:
+   only `:maybe`. `:and` / `:or` / `:enum` may carry MULTIPLE children
+   with different props (merge / priority semantics TBD per rf2-b20zm
+   follow-on); a future iteration may extend this set."
+  #{:maybe})
+
 (defn- schema-properties
   "Return the top-level Malli properties map of a schema form, or nil.
-   Recognises the literal vector form `[:map {props} & children]` and
+   Recognises the literal vector form `[:op {props} & children]` and
    the metadata-map fallback (some Malli setups carry props as
-   Clojure metadata on the schema value)."
+   Clojure metadata on the schema value).
+
+   When the top-level op is a single-child wrapper (`:maybe`) and
+   carries NO props of its own, descend into the wrapped schema so the
+   idiomatic Malli shape `[:maybe [:string {:large? true :hint ...}]]`
+   exposes the inner `:large?` to callers. The descent preserves an
+   explicit outer props map — if the wrapper itself carries props
+   (`[:maybe {:large? true} :string]`), those win and no descent
+   happens. Per rf2-b20zm."
   [schema]
   (cond
     (and (vector? schema)
          (> (count schema) 1)
          (map? (nth schema 1)))
     (nth schema 1)
+
+    ;; Wrapper descent: `[:maybe inner]` (no props) — peek at the inner
+    ;; schema's top-level props so an inner `:large?` propagates. Only
+    ;; for single-child wrappers per `descend-wrapper-ops`.
+    (and (vector? schema)
+         (> (count schema) 1)
+         (contains? descend-wrapper-ops (nth schema 0))
+         (not (map? (nth schema 1))))
+    (recur (nth schema 1))
 
     ;; Fallback: metadata-form attachment. Try (meta schema) — returns
     ;; nil for values that don't carry metadata; safe on both runtimes.
