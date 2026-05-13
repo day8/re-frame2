@@ -51,6 +51,10 @@ The server auto-discovers the nREPL port from (in order):
 | `scripts/watch-epochs.sh --event-id-prefix :cart` | `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}}` (pull-mode — call repeatedly with `since-id`) |
 | `scripts/tail-build.sh --probe '<form>'` | `tail-build` | `{probe: "..."}` |
 | _(none — MCP-only)_                | `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"]}` |
+| _(none — MCP-only, push-mode)_     | `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error", filter: {...}, max-events: 0, max-ms: 0}` — emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
+| _(none — MCP-only)_                | `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
+
+The `subscribe` / `unsubscribe` pair is the **push-mode** replacement for `watch-epochs`. Each batch of matching events arrives as a `notifications/progress` notification correlated by the call's `progressToken`; the tool's final result is a summary. Use `subscribe` whenever you want a live narration; fall back to `watch-epochs` (pull-mode) when the agent host doesn't surface progress notifications to the model.
 
 (`inject-runtime` is gone — the runtime ships into the app via
 shadow-cljs `:devtools :preloads`. See `SKILL.md` §Setup.)

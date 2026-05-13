@@ -22,6 +22,8 @@ allowed-tools:
   - mcp__re-frame-pair2__watch-epochs
   - mcp__re-frame-pair2__tail-build
   - mcp__re-frame-pair2__snapshot
+  - mcp__re-frame-pair2__subscribe
+  - mcp__re-frame-pair2__unsubscribe
   - Read
   - Edit
   - Write
@@ -124,6 +126,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 |---|---|
 | Pick a structured op (read, write, trace, DOM bridge, watch, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |
+| Open a push-mode subscription on the trace or epoch bus (topics, filters, termination) | [references/streaming-subscriptions.md](references/streaming-subscriptions.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
 | Inspect, propose, or hot-swap a frame's `:on-error` policy — the closed return-map contract | [references/on-error.md](references/on-error.md) |
 | Edit source, then wait for the browser to pick up the new code | [references/hot-reload-protocol.md](references/hot-reload-protocol.md) |

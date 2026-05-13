@@ -80,6 +80,17 @@ Read-only from the trace stream + epoch history.
 
 ## Live watch (push-mode)
 
+Two transports, same underlying assembled-epoch / trace stream.
+
+**MCP streaming subscriptions (preferred for push-mode).** True server-pushed events delivered via `notifications/progress`, correlated by the call's `progressToken`. See [streaming-subscriptions.md](streaming-subscriptions.md) for topics, filters, termination, and the recipes that prefer this path.
+
+| Op | MCP tool | Behaviour |
+|---|---|---|
+| `trace/subscribe` | `mcp__re-frame-pair2__subscribe` | Open a streaming subscription on the `:trace`, `:epoch`, `:fx`, or `:error` bus. Returns a `sub-id`; each batch arrives as a `notifications/progress` tick until termination. |
+| `trace/unsubscribe` | `mcp__re-frame-pair2__unsubscribe` | Close a subscription by `sub-id`. Idempotent — unknown ids return `:existed? false`. |
+
+**Pull-mode poll (legacy / fallback).** The `watch-epochs` MCP tool and the bash-shim `scripts/watch-epochs.sh` are pull-mode wrappers: call repeatedly with `since-id` to drain new matches. Use these when the agent host doesn't surface `notifications/progress` to the model, or when you want a finite window summary rather than a live stream.
+
 | Op | Invocation | Behaviour |
 |---|---|---|
 | `watch/window` | `scripts/watch-epochs.sh --window-ms 30000 --event-id-prefix :checkout/` | Runs for N ms, reports every matching epoch, summarises at end |
