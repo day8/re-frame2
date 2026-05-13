@@ -17,6 +17,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.head :as head]
             [re-frame.ssr.test-fixture :as tf]))

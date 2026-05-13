@@ -22,6 +22,7 @@
   that drive the drain without a host adapter)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
 

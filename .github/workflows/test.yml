@@ -477,6 +477,17 @@ jobs:
             ${{ runner.os }}-clj-ssr-
             ${{ runner.os }}-clj-
 
+      # The ssr artefact ships JVM-runnable test namespaces under
+      # implementation/ssr/test/ — render-to-string + hydrate + the
+      # full request lifecycle (ssr_end_to_end_test, ssr_head_test,
+      # ssr_request_cofx_test, ssr_compatibility_checks_test,
+      # ssr_source_coord_test, ssr_teardown_load_test, ssr_hash_test,
+      # source_coord_parity_test, late_bind_missing_test) PLUS the
+      # ssr-*.edn conformance corpus runner (ssr_conformance_test)
+      # added per rf2-i3qc0. The cognitect test-runner returns
+      # non-zero on any failure; this gate surfaces an ssr regression
+      # at the ssr artefact's CI step rather than only downstream at
+      # core's full-corpus runner.
       - name: Run JVM tests (ssr artefact)
         run: clojure -M:test
 
