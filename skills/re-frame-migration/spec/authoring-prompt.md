@@ -24,14 +24,18 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > ├── package.json                   (npm metadata; mirror re-frame2-setup pattern)
 > ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 > └── reference/
->     ├── kickoff-prompt.md          (~60 lines; paste-ready user prompt)
->     ├── setup.md                   (~130 lines; M-0 operational detail)
->     ├── breaking-changes.md        (~180 lines; rule index keyed to v1 triggers)
->     ├── sequencing.md              (~100 lines; recommended rule order)
->     ├── automated-transforms.md    (~210 lines; Type A patterns)
->     ├── guided-checklist.md        (~240 lines; Type B walkthroughs)
->     └── output-format.md           (~110 lines; migration-summary shape)
+>     ├── kickoff-prompt.md           (~60 lines; paste-ready user prompt)
+>     ├── setup.md                    (~130 lines; M-0 operational detail)
+>     ├── breaking-changes.md         (~180 lines; rule index keyed to v1 triggers)
+>     ├── sequencing.md               (~100 lines; recommended rule order)
+>     ├── auto-call-site-rewrites.md  (~180 lines; Type A — ns / effect-map / dispatch shapes)
+>     ├── auto-cross-cutting.md       (~175 lines; Type A — keyword renames / interceptors / views / init / artefacts)
+>     ├── guided-handlers-state.md    (~145 lines; Type B — handler / view / db-seeding / error-handler)
+>     ├── guided-interceptors-subs.md (~150 lines; Type B — interceptor / sub / payload / observer)
+>     └── output-format.md            (~110 lines; migration-summary shape)
 > ```
+>
+> *The Type A catalogue is split in two so neither leaf exceeds the 250-line soft ceiling: per-call-site mechanical rewrites (M-0/1/4/8/9/16/23/25/38) in `auto-call-site-rewrites.md`; cross-cutting renames + view / init / artefact infrastructure (M-20/21-mechanical/22/24/26-mechanical/27-33/35/40) in `auto-cross-cutting.md`. Type B is split the same way: handler-state-shaped rules (M-3/5/10/11/12/13/14/15) in `guided-handlers-state.md`; interceptor- / sub- / payload- / observer-shaped rules (M-17/18/19/21/23/26) in `guided-interceptors-subs.md`. All four leaves stay one level deep from SKILL.md.*
 >
 > *Each leaf has a single job; the leaves don't duplicate each other; SKILL.md routes between them. Every leaf is one level deep from SKILL.md (no SKILL → A → B chains).*
 >

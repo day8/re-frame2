@@ -55,8 +55,10 @@ Six phases. Each links to a leaf for the detail; the SKILL.md carries only the w
 
 **Phase 3 — Sweep for breakage.** If Phase 2's compile/test surfaced failures, walk the rules in order.
 - [`reference/sequencing.md`](reference/sequencing.md) — recommended order, restated so an interrupted migration can resume.
-- [`reference/automated-transforms.md`](reference/automated-transforms.md) — Type A patterns (mechanical rewrites applied without asking).
-- [`reference/guided-checklist.md`](reference/guided-checklist.md) — Type B walkthroughs (M-3, M-5 dynamic half, M-11, M-17, M-22, etc.).
+- [`reference/auto-call-site-rewrites.md`](reference/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites (ns requires, effect-map, dispatch shapes).
+- [`reference/auto-cross-cutting.md`](reference/auto-cross-cutting.md) — Type A: cross-cutting renames, interceptor cleanup, view / hiccup rewrites, init wiring, per-feature artefact adds.
+- [`reference/guided-handlers-state.md`](reference/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15).
+- [`reference/guided-interceptors-subs.md`](reference/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs (M-17, M-18, M-19, M-21, M-23, M-26).
 - [`reference/breaking-changes.md`](reference/breaking-changes.md) — one-page index of every M-/O-rule by trigger surface; grep here to find the rule id.
 
 **Phase 4 — Verify.** Recompile, re-run unit tests, smoke-test boot / dispatch / sub / hot-reload. If a step fails, find the rule, apply it, re-verify. The skill does not run tests for the author.
@@ -86,8 +88,10 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - [`reference/setup.md`](reference/setup.md) — M-0 operational detail: dep-file shapes, substrate-adapter picker, VERSION discovery, artefact-split implications.
 - [`reference/breaking-changes.md`](reference/breaking-changes.md) — compressed index of every M-/O-rule by trigger surface.
 - [`reference/sequencing.md`](reference/sequencing.md) — recommended walk order.
-- [`reference/automated-transforms.md`](reference/automated-transforms.md) — Type A patterns (mechanical, unambiguous).
-- [`reference/guided-checklist.md`](reference/guided-checklist.md) — Type B walkthroughs (judgment-call rewrites).
+- [`reference/auto-call-site-rewrites.md`](reference/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites.
+- [`reference/auto-cross-cutting.md`](reference/auto-cross-cutting.md) — Type A: cross-cutting renames, view / hiccup, init, per-feature artefacts.
+- [`reference/guided-handlers-state.md`](reference/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs.
+- [`reference/guided-interceptors-subs.md`](reference/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs.
 - [`reference/output-format.md`](reference/output-format.md) — migration-report shape with worked examples.
 
 ## Anti-patterns
