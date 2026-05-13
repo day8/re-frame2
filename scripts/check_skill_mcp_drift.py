@@ -90,7 +90,11 @@ class Mapping:
 MAPPINGS: list[Mapping] = [
     Mapping(
         name="pair2-mcp <-> re-frame-pair2",
-        server_src=REPO_ROOT / "tools" / "pair2-mcp" / "src" / "re_frame_pair2_mcp" / "tools.cljs",
+        # Post rf2-vrbwx the eleven-tool catalogue lives in a dedicated
+        # `descriptors.cljs` leaf — the parent `tools.cljs` is now just a
+        # façade carrying the `case` dispatch (string match arms, no
+        # `{:name "..."}` literals). Point the gate at the catalogue.
+        server_src=REPO_ROOT / "tools" / "pair2-mcp" / "src" / "re_frame_pair2_mcp" / "tools" / "descriptors.cljs",
         host_prefix="re-frame-pair2",
         skill_md=REPO_ROOT / "skills" / "re-frame-pair2" / "SKILL.md",
     ),
