@@ -185,14 +185,15 @@ internals.
 - **Pluggable strategy**: the wrapper dispatches on a
   `:strategy` keyword. Today only `:truncate-with-marker` is
   implemented (replace the payload with the overflow marker).
-  Future strategies — diff encoding (rf2-1wdzp), structural
-  dedup — slot in here without touching per-tool functions.
-  Path-slicing and lazy-summary already landed (rf2-tygdv) but
-  as per-tool input-shape concerns: the `snapshot` and
-  `get-path` tools accept a `:path` arg and default to a
-  `{:rf.mcp/summary ...}` response for the unbounded `:app-db`
-  slice, so the cap stays a backstop rather than the primary
-  mechanism for the common case.
+  Future strategies — structural dedup — slot in here without
+  touching per-tool functions. Path-slicing and lazy-summary
+  already landed (rf2-tygdv) but as per-tool input-shape
+  concerns: the `snapshot` and `get-path` tools accept a
+  `:path` arg and default to a `{:rf.mcp/summary ...}` response
+  for the unbounded `:app-db` slice, so the cap stays a backstop
+  rather than the primary mechanism for the common case.
+  Diff-encoded `:db-after` (rf2-1wdzp) also lives at the tool
+  surface — see the dedicated mechanism below.
 - **Silent truncation is not allowed**: a payload that exceeds
   the cap MUST NOT be shipped in any partial form that would
   let the agent host parse it as a valid response. The marker
@@ -238,6 +239,94 @@ This is the load-bearing budget posture for pair2-mcp's
 agent-host workflow: keep the per-op cost predictable, push
 the agent to ask for what it actually needs, and never let a
 single op blow the session.
+
+### Diff-encoded `:db-after` on epoch slices (rf2-1wdzp)
+
+Every `:rf/epoch-record` carries `:db-before` and `:db-after`
+— two near-identical full app-db snapshots
+([`spec/Spec-Schemas.md` §`:rf/epoch-record`](../../../spec/Spec-Schemas.md)).
+`pr-str` doesn't preserve structural sharing across records, so
+on the wire the pair serialises as 2× app-db per epoch. The
+default epoch-history depth (50) times the default app-db
+snapshot rate means the `:epochs` slice of `snapshot` can hit
+up to 100× app-db in raw wire bytes — the single biggest
+wire-byte cost flagged in the rf2-jlq5j findings doc.
+
+**The transform**. At the MCP wire boundary, every epoch
+record passing through `trace-window`, `watch-epochs`, or the
+`:epochs` slice of `snapshot` has its `:db-after` replaced
+with a path-keyed structural diff against its own `:db-before`:
+
+```clojure
+;; Wire shape
+{:db-before <full-app-db>
+ :db-after  {:rf.mcp/diff-from :db-before
+             :patches [[<path> :assoc <new-value>]
+                       [<path> :dissoc]
+                       ...]}}
+```
+
+A patch is a 2- or 3-element vector. `[path :assoc v]` records
+a new or changed leaf; `[path :dissoc]` records a key that
+disappeared. The decoder applies patches in order via
+`assoc-in` / `update-in`. Vectors and scalars are treated as
+leaves (replaced wholesale via `:assoc`); element-wise vector
+diff doesn't help for the typical app-db where vector values
+are short. Round-trip is exact: `decode(encode(record)) =
+record` for every record the runtime can produce.
+
+**Why path-keyed patches, not `clojure.data/diff`**. The
+parallel-vector sparse form `clojure.data/diff` produces for
+vector diffs (with `nil` placeholders meaning \"common at this
+position\") is lossy once you only carry one half plus the
+original — you can't tell `nil` (the leaf value `nil`) apart
+from `nil` (the no-change sentinel). Path-keyed patches are
+unambiguous for any value the runtime can produce.
+
+**Why intra-record, not inter-record**. Each epoch's
+`:db-after` is encoded against the SAME record's `:db-before`
+— not against the previous epoch's `:db-after`. Records remain
+self-contained and decodable without reference to siblings.
+The slice can be reordered, paginated, filtered, or dropped
+without breaking decode.
+
+**`epochs-mode` arg**. Every tool that ships epoch records
+accepts an `epochs-mode` arg:
+
+- `\"diff\"` (default) — the path-keyed structural diff shape
+  above. Smaller wire payload by 1-2 orders of magnitude in
+  the typical case (large app-db, small per-event change).
+- `\"full\"` (opt-in) — legacy full-pair shape, both
+  `:db-before` and `:db-after` carried verbatim. Required
+  for agent workflows that drive time-travel restore directly
+  off the wire response rather than via the runtime's
+  `rf/restore-epoch` path; the framework's restore path stays
+  the canonical surface, so this is the rare case.
+
+The selected mode surfaces on the tool's result as
+`:epochs-mode :diff | :full` so the agent host can
+pattern-match without re-reading the request.
+
+**Wire-byte impact**. For a 1MB app-db with a typical
+single-key change per epoch, the diff-encoded `:db-after`
+shrinks to dozens of bytes (the patch alone). The `:db-before`
+reference stays per-record (~1MB each); a 10-epoch slice goes
+from ~20MB to ~10MB. Combined with the `:app-db` slice's
+`:summary` default (rf2-tygdv), the agent's typical
+`investigate-X` workflow stays well inside the 5,000-token
+cap without further drill-down. The `:db-before` reference is
+deliberately NOT deduplicated across records — that would
+introduce cross-record dependencies and break the
+self-containment property. Cross-record dedup is in scope for
+the future `:strategy :dedup` mechanism (rf2-lwgg8 mechanism
+5), not for this one.
+
+**Cross-MCP vocabulary**. The `:rf.mcp/diff-from` marker key
+follows the `:rf.mcp/*` namespace convention shared with
+`:rf.mcp/overflow` (rf2-rvyzy), `:rf.mcp/summary` (rf2-tygdv),
+and causa-mcp's `:rf.mcp/dedup-table` (rf2-lwgg8 mechanism 5).
+Agents recognise the family once and pattern-match on the
+prefix.
 
 ## Backed by the framework's principles
 

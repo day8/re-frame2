@@ -78,9 +78,36 @@ Return `:rf/epoch-record`s that landed in the last N ms for the
 operating frame.
 
 **Args**: `ms` (integer, default 1000), `frame` (string),
-`build` (string).
+`epochs-mode` (string — `"diff"` (default) or `"full"`, see §Diff-encoded
+`:db-after` below), `build` (string).
 
-**Returns**: `{:ok? true :window-ms N :count K :epochs [...]}`.
+**Returns**: `{:ok? true :window-ms N :count K :epochs-mode :diff|:full :epochs [...]}`.
+
+### Diff-encoded `:db-after` (rf2-1wdzp)
+
+By default (`epochs-mode "diff"`), each epoch's `:db-after` is replaced
+with a path-keyed structural diff against its own `:db-before`:
+
+```clojure
+{:db-before <full-app-db>
+ :db-after  {:rf.mcp/diff-from :db-before
+             :patches [[<path> :assoc <new-value>]
+                       [<path> :dissoc]
+                       ...]}}
+```
+
+The diff is intra-record (each record encodes against its own
+`:db-before`); records are self-contained and decodable without
+reference to siblings. Round-trip is exact. Pass `epochs-mode "full"`
+for the legacy full-pair shape — only needed if your workflow drives
+time-travel restore off the wire response rather than via the runtime
+(the framework's `rf/restore-epoch` path is the canonical restore
+surface).
+
+See [`Principles.md` §Diff-encoded `:db-after`](Principles.md#diff-encoded-db-after-on-epoch-slices-rf2-1wdzp)
+for the full wire shape, decoder algorithm, and design rationale. The
+same `epochs-mode` arg and wire shape apply to `watch-epochs` and to
+the `:epochs` slice of `snapshot`.
 
 ## watch-epochs
 
@@ -92,9 +119,16 @@ loop should call us repeatedly with the same `since-id`.
 **Args**: `since-id` (string, optional — omit to start fresh),
 `pred` (object, optional predicate filter, keys from:
 `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`,
-`:sub-ran`, `:render`, `:origin`, `:frame`), `frame`, `build`.
+`:sub-ran`, `:render`, `:origin`, `:frame`), `frame`,
+`epochs-mode` (string — `"diff"` (default) or `"full"`, see
+`trace-window` §Diff-encoded `:db-after`), `build`.
 
-**Returns**: `{:ok? true :matches [...] :head-id "..." :id-aged-out? bool}`.
+**Returns**: `{:ok? true :matches [...] :head-id "..." :id-aged-out? bool :epochs-mode :diff|:full}`.
+
+Each match has its `:db-after` diff-encoded against its own
+`:db-before` by default (rf2-1wdzp); pass `epochs-mode "full"` for
+the legacy full-pair shape. See `trace-window` above for the wire
+shape and rationale.
 
 ## tail-build
 
@@ -121,8 +155,10 @@ implementation.
 `":rf/default"`, default `"all"`), `include` (array of slice names —
 subset of `["app-db" "sub-cache" "machines" "epochs" "traces"]`,
 default all five), `path` (EDN-encoded vector or JSON array of segment
-strings — path-slicing for the `:app-db` slice, rf2-tygdv), `build`
-(string).
+strings — path-slicing for the `:app-db` slice, rf2-tygdv),
+`epochs-mode` (string — `"diff"` (default) or `"full"`, see `trace-window`
+§Diff-encoded `:db-after`; controls the `:epochs` slice's wire shape,
+rf2-1wdzp), `build` (string).
 
 **Returns**:
 
@@ -131,6 +167,7 @@ strings — path-slicing for the `:app-db` slice, rf2-tygdv), `build`
  :frames :all|[<frame-id>...]
  :include [:app-db :sub-cache :machines :epochs :traces]
  :mode :summary | :path-sliced
+ :epochs-mode :diff | :full
  :path  [<segment>...]              ; only when `path` arg was supplied
  :snapshot {<frame-id> {:app-db    <slice>
                         :sub-cache {<query-v> {:value v :ref-count n}}
@@ -148,6 +185,16 @@ The `:machines` slice combines the global registrar's machine-id list
 the frame's `app-db` (per Spec 005). The `:traces` slice filters the
 retain-N trace ring buffer by `:frame`. Other slices delegate
 verbatim to the public per-slice surface.
+
+### `:epochs` slice modes (rf2-1wdzp)
+
+Each epoch in the `:epochs` slice has its `:db-after` diff-encoded
+against its own `:db-before` by default — `pr-str` doesn't preserve
+structural sharing across records, so the legacy full-pair shape
+otherwise carries ~2× app-db per record. Pass `epochs-mode "full"` for
+the legacy shape (rare — only needed if you drive time-travel restore
+off the wire response rather than via `rf/restore-epoch`). See
+`trace-window` above for the wire shape and rationale.
 
 ### `:app-db` slice modes (rf2-tygdv)
 
