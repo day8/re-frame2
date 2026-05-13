@@ -174,7 +174,44 @@
         (is (not (contains? r :origin)))
         (is (not (contains? r :rf.trace/trigger-handler)))))))
 
-;; ---- 6. No registered listeners → no-op (hot-path floor) -----------------
+;; ---- 6. Handler-meta :sensitive? drops the record (rf2-6hklf) -----------
+
+(deftest sensitive-handler-meta-drops-record
+  (testing "Per rf2-6hklf: when an event's registered handler-meta
+            carries `:sensitive? true`, `dispatch-on-event!` drops
+            the record entirely — listeners are NOT invoked, even
+            when the payload contains no `:rf/elision`-registered
+            sensitive paths. This is the chapter-22 promise: flagging
+            a handler `:sensitive?` is sufficient to keep its records
+            out of production observability."
+    (let [seen (atom [])]
+      (rf/register-event-emit-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :evt/sensitive
+                       {:sensitive? true}
+                       (fn [db _] (assoc db :touched true)))
+      (rf/dispatch-sync [:evt/sensitive "secret-payload"])
+      (is (= 0 (count @seen))
+          "no listener invocation for a :sensitive? handler — record dropped at the boundary"))))
+
+(deftest non-sensitive-handler-meta-fires-normally
+  (testing "Handlers WITHOUT `:sensitive?` (or `:sensitive? false`)
+            continue to fan out as before — the rf2-6hklf short-
+            circuit fires only for explicit `:sensitive? true`."
+    (let [seen (atom [])]
+      (rf/register-event-emit-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :evt/normal
+                       (fn [db _] (assoc db :touched true)))
+      (rf/dispatch-sync [:evt/normal "payload"])
+      (is (= 1 (count @seen))
+          "non-sensitive handler still fans out normally")
+      (is (= [:evt/normal "payload"] (:event (first @seen)))
+          "the elided event payload reaches the listener as before"))))
+
+;; ---- 7. No registered listeners → no-op (hot-path floor) -----------------
 
 (deftest no-listeners-is-cheap-noop
   (testing "When no listeners are registered, the dispatch path

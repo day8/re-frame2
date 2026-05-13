@@ -166,11 +166,15 @@
 
 (deftest event-emit-listener-fires-on-every-dispatch
   (testing "The always-on event-emit substrate fires one record per
-            processed event. Asserted alongside the elision tests so
-            the demo's listener install path is exercised end-to-end
-            without relying on the prod-mode runner (the production
-            elision pinning lives in
-            `re-frame.event-emit-elision-prod-test`)."
+            processed event — EXCEPT for events whose handler-meta
+            carries `:sensitive? true`, which are dropped at the
+            boundary per rf2-6hklf. `:auth/sign-in` is `:sensitive?
+            true` so it is dropped; the two `:user.avatar-pdf/*`
+            handlers are not sensitive so they deliver records.
+            Asserted alongside the elision tests so the demo's
+            listener install path is exercised end-to-end without
+            relying on the prod-mode runner (the production elision
+            pinning lives in `re-frame.event-emit-elision-prod-test`)."
     (let [seen (atom [])]
       (rf/register-event-emit-listener!
         ::test-recorder
@@ -179,9 +183,11 @@
                          {:email "u@example.com" :password "secret"}])
       (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 1024}])
       (rf/dispatch-sync [:user.avatar-pdf/clear])
-      (is (= 3 (count @seen)) "three dispatches → three records")
-      (is (= [:auth/sign-in :user.avatar-pdf/set :user.avatar-pdf/clear]
+      (is (= 2 (count @seen))
+          "three dispatches → two records (:auth/sign-in dropped at the
+           boundary per handler-meta :sensitive? true; rf2-6hklf)")
+      (is (= [:user.avatar-pdf/set :user.avatar-pdf/clear]
              (mapv :event-id @seen))
-          "records arrive in dispatch order with the right :event-id slots")
+          "records arrive in dispatch order, sans the :sensitive? dispatch")
       (is (every? #(= :ok (:outcome %)) @seen)
-          "every dispatch settled cleanly"))))
+          "every delivered record settled cleanly"))))

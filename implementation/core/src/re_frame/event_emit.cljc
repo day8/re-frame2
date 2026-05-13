@@ -111,9 +111,22 @@
   pipelines). For production *error* monitoring (Sentry, Rollbar,
   Honeybadger, ...) prefer the parallel always-on substrate behind
   the per-frame `:on-error` slot (per rf2-hqbeh /
-  `re-frame.error-emit`)."
-  (:require [re-frame.elision :as elision]
-            [re-frame.late-bind :as late-bind]))
+  `re-frame.error-emit`).
+
+  ## Handler-meta `:sensitive?` (rf2-6hklf)
+
+  Honoured at this boundary. If the event's registered handler-meta
+  carries `:sensitive? true`, `dispatch-on-event!` drops the record
+  entirely — listeners are NOT invoked. This matches the chapter-22
+  promise that flagging a handler `:sensitive?` is sufficient to keep
+  *every* one of its records out of production observability,
+  regardless of whether the payload happens to touch a sensitive
+  `:rf/elision`-registered app-db path. The narrower per-value
+  redaction (walker against `:rf/elision`) still applies to records
+  from non-sensitive handlers."
+  (:require [re-frame.elision  :as elision]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.registrar :as registrar]))
 
 ;; ---- listener registry ----------------------------------------------------
 
@@ -174,21 +187,29 @@
   cascade body settles (`:db` committed, flows run, `:fx`
   walked). Published under the late-bind key
   `:event-emit/dispatch-on-event` so the router does NOT
-  statically `:require` this namespace."
+  statically `:require` this namespace.
+
+  Per rf2-6hklf: if the event's registered handler-meta carries
+  `:sensitive? true`, the record is dropped entirely (listeners are
+  NOT invoked). The handler-meta lookup happens BEFORE the elision
+  walk so the sensitive-handler short-circuit costs no per-value
+  work."
   [event event-id frame time outcome elapsed-ms]
   (let [reg @listeners]
     (when (seq reg)
-      (let [elided-event (elision/elide-wire-value event {:frame frame})
-            record       {:event      elided-event
-                          :event-id   event-id
-                          :frame      frame
-                          :time       time
-                          :outcome    outcome
-                          :elapsed-ms elapsed-ms}]
-        (doseq [[_id f] reg]
-          (try
-            (f record)
-            (catch #?(:clj Throwable :cljs :default) _ nil))))))
+      (let [handler-meta (registrar/lookup :event event-id)]
+        (when-not (:sensitive? handler-meta)
+          (let [elided-event (elision/elide-wire-value event {:frame frame})
+                record       {:event      elided-event
+                              :event-id   event-id
+                              :frame      frame
+                              :time       time
+                              :outcome    outcome
+                              :elapsed-ms elapsed-ms}]
+            (doseq [[_id f] reg]
+              (try
+                (f record)
+                (catch #?(:clj Throwable :cljs :default) _ nil))))))))
   nil)
 
 ;; ---- late-bind hook registration ------------------------------------------
