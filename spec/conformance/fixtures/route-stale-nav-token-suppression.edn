@@ -3,7 +3,7 @@
 ;; Canonical "older load clobbers newer state" race. A route is loading; the
 ;; user navigates away (allocating a fresh nav-token); the older load eventually
 ;; completes; the runtime detects the mismatch via the carried token and
-;; suppresses the stale result, emitting :route.nav-token/stale-suppressed.
+;; suppresses the stale result, emitting :rf.route.nav-token/stale-suppressed.
 ;;
 ;; This is the routing analogue of :rf.machine.timer/stale-after — same epoch
 ;; idiom; see [Pattern-StaleDetection.md](../../Pattern-StaleDetection.md) for
@@ -15,7 +15,7 @@
 {:fixture/id           :routing/stale-nav-token-suppression
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/nav-token}
- :fixture/doc          "Load route :route/article id=A; before A's :on-match dispatches a continuation, navigate to id=B (fresh token). A's continuation arrives carrying the stale token; the framework cofx checks it against the current token and suppresses; trace event :route.nav-token/stale-suppressed emits; no commit, no transition. The :rf/route slice reflects only the B navigation."
+ :fixture/doc          "Load route :route/article id=A; before A's :on-match dispatches a continuation, navigate to id=B (fresh token). A's continuation arrives carrying the stale token; the framework cofx checks it against the current token and suppresses; trace event :rf.route.nav-token/stale-suppressed emits; no commit, no transition. The :rf/route slice reflects only the B navigation."
 
  :fixture/registry
  {:route
@@ -76,15 +76,15 @@
 
   :trace-emissions
   [;; Token allocated for A
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/article :nav-token "nav-1"}}
 
    ;; Token allocated for B (advances)
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/article :nav-token "nav-2"}}
 
    ;; A's continuation is stale; suppressed.
-   {:operation :route.nav-token/stale-suppressed
+   {:operation :rf.route.nav-token/stale-suppressed
     :tags      {:carried-token "nav-1"
                 :current-token "nav-2"
                 :event-id      :article/loaded}}]}}

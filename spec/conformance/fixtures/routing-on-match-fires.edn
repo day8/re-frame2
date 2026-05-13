@@ -47,7 +47,7 @@
 
   :trace-emissions
   [;; Token allocated when the route becomes active.
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/cart}}
 
    ;; The two on-match events fire in declaration order.

@@ -334,7 +334,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `routing-match-url.edn` | `:routing/match-url` | Bidirectional URL ↔ params; round-trip property |
 | `routing-navigate.edn` | `:routing/navigate` | `:rf.route/navigate` updates `app-db` + emits `:rf.nav/push-url` fx |
 | `route-ranking-precedence.edn` | `:routing/ranking-precedence` | Deterministic 6-rule ranking cascade resolves overlapping routes; equal-score warning |
-| `route-stale-nav-token-suppression.edn` | `:routing/stale-nav-token-suppression` | Older route load arrives after a fresh navigation; the carried nav-token is stale; runtime suppresses the result and emits `:route.nav-token/stale-suppressed` |
+| `route-stale-nav-token-suppression.edn` | `:routing/stale-nav-token-suppression` | Older route load arrives after a fresh navigation; the carried nav-token is stale; runtime suppresses the result and emits `:rf.route.nav-token/stale-suppressed` |
 | `route-fragment-change.edn` | `:routing/fragment-change` | `:fragment` is part of the route slice; fragment-only changes do NOT re-fire `:on-match`; path changes do |
 | `route-navigation-blocked.edn` | `:routing/navigation-blocked` | `:can-leave` guard rejects a navigation; `:rf/pending-navigation` is set; URL unchanged; `:rf.route/continue` resumes; `:rf.route/cancel` abandons |
 | `ssr-render-to-string.edn` | `:ssr/render-to-string` | Pure hiccup → HTML emission with text/attr escaping; void elements; doctype option |

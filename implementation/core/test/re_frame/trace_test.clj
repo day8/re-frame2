@@ -202,7 +202,7 @@
       (rf/reg-route :route/a {:path "/foo"})
       (rf/reg-route :route/b {:path "/foo"})
 
-      ;; ---- Routing: :route.nav-token/allocated + :rf.route/url-changed ----
+      ;; ---- Routing: :rf.route.nav-token/allocated + :rf.route/url-changed ----
       ;; A reg-route + dispatch [:rf/url-changed url] threads through the
       ;; allocate-token + match-url emit path.
       (rf/reg-route :user/show {:path "/users/:id"})
@@ -219,7 +219,7 @@
       (rf/dispatch-sync [:rf/url-changed "/blockable"] {:frame :test/main})
       (rf/dispatch-sync [:rf/url-requested {:url "/users/42"}] {:frame :test/main})
 
-      ;; ---- Routing: :route.nav-token/stale-suppressed ---------------------
+      ;; ---- Routing: :rf.route.nav-token/stale-suppressed ---------------------
       ;; Allocate a token by navigating, then dispatch the framework's
       ;; nav-token-checking event with a deliberately mismatched token.
       (rf/dispatch-sync [:rf/url-changed "/users/7"] {:frame :test/main})
@@ -365,10 +365,10 @@
             (is (number?  (:delay t)))))
 
         ;; ---- routing :event ops --------------------------------------------
-        (testing ":event :route.nav-token/allocated fires on :rf/url-changed full nav"
-          (is (has-op? events :event :route.nav-token/allocated)
-              "expected :event :route.nav-token/allocated")
-          (let [t (:tags (find-op events :event :route.nav-token/allocated))]
+        (testing ":event :rf.route.nav-token/allocated fires on :rf/url-changed full nav"
+          (is (has-op? events :event :rf.route.nav-token/allocated)
+              "expected :event :rf.route.nav-token/allocated")
+          (let [t (:tags (find-op events :event :rf.route.nav-token/allocated))]
             (is (keyword? (:route-id t)))
             (is (some?    (:nav-token t)))))
 
@@ -446,9 +446,9 @@
             (is (number? (:depth t)))
             (is (some?   (:last-event t)))))
 
-        (testing ":error :route.nav-token/stale-suppressed"
-          (is (has-op? events :error :route.nav-token/stale-suppressed)
-              "expected :error :route.nav-token/stale-suppressed"))
+        (testing ":error :rf.route.nav-token/stale-suppressed"
+          (is (has-op? events :error :rf.route.nav-token/stale-suppressed)
+              "expected :error :rf.route.nav-token/stale-suppressed"))
 
         ;; ---- Spec 009 ops never emitted by the implementation --------------
         ;; These op-types appear in Spec 009 §:op-type vocabulary but the

@@ -53,7 +53,7 @@
 
   :trace-emissions
   [;; Step 1: full navigation; nav-token allocated; :on-match fires.
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/docs}}
 
    ;; Step 2: fragment-only; :rf.route/url-changed fires; no nav-token allocation.
@@ -63,5 +63,5 @@
                 :next-fragment "caching"}}
 
    ;; Step 3: full navigation (path differs); fresh nav-token; :on-match re-fires.
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/instrumentation}}]}}

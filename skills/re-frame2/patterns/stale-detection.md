@@ -84,7 +84,7 @@ Every stale-detection trace event uses the family shape:
 | Trace event | Feature | Reason |
 |---|---|---|
 | `:rf.machine.timer/stale-after` | State-machine `:after` timer | Epoch mismatch on timer expiry (state was exited then re-entered) |
-| `:route.nav-token/stale-suppressed` | Routing async result | Carried nav-token does not match current route's nav-token |
+| `:rf.route.nav-token/stale-suppressed` | Routing async result | Carried nav-token does not match current route's nav-token |
 | `:search/stale-result` (your feature) | Per-feature | Application-owned epoch mismatch on reply |
 
 Tools subscribe to `:.*/stale-.*` to surface "a thing should have happened but didn't because state moved on" symptoms across substrates.

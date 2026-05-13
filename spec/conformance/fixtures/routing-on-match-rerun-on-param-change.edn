@@ -49,11 +49,11 @@
 
   :trace-emissions
   [;; First navigation: nav-token allocated, loader fires.
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/article}}
    {:operation :event :tags {:event-id :article/load}}
 
    ;; Second navigation: fresh nav-token, loader re-fires.
-   {:operation :route.nav-token/allocated
+   {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/article}}
    {:operation :event :tags {:event-id :article/load}}]}}

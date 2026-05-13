@@ -31,8 +31,8 @@
        Causa buffer (newest first). Per Spec 012 §Trace events the
        runtime emits:
 
-         :route.nav-token/allocated       — fresh navigation begins
-         :route.nav-token/stale-suppressed — stale async result dropped
+         :rf.route.nav-token/allocated       — fresh navigation begins
+         :rf.route.nav-token/stale-suppressed — stale async result dropped
          :rf.route/url-changed             — fragment-only URL update
 
        Each row shows the timestamp + operation + (when available) the
@@ -79,8 +79,8 @@
   "Trace operations the history feed surfaces. Per Spec 012 §Trace
   events. The order here is informational only — actual feed ordering
   is newest-first via :time / :id."
-  #{:route.nav-token/allocated
-    :route.nav-token/stale-suppressed
+  #{:rf.route.nav-token/allocated
+    :rf.route.nav-token/stale-suppressed
     :rf.route/url-changed})
 
 ;; ---- predicates ---------------------------------------------------------
@@ -338,7 +338,7 @@
   legible in the mono column without losing the operation's identity."
   [op]
   (case op
-    :route.nav-token/allocated        "nav · allocated"
-    :route.nav-token/stale-suppressed "nav · stale"
+    :rf.route.nav-token/allocated        "nav · allocated"
+    :rf.route.nav-token/stale-suppressed "nav · stale"
     :rf.route/url-changed             "url-changed (fragment)"
     (str op)))

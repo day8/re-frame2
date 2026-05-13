@@ -32,7 +32,7 @@ Plus two narrower families surfaced by the per-feature artefacts:
 | Prefix | Meaning |
 |---|---|
 | `:rf.http/*` / `:rf.http.interceptor/*` | Managed-HTTP request lifecycle (retry, abort, interceptor failure). |
-| `:route.nav-token/*` | Navigation-token suppression on stale async results. |
+| `:rf.route.nav-token/*` | Navigation-token suppression on stale async results. |
 | `:rf.frame/*` | Frame lifecycle (drain interruption). |
 
 The closed catalogue at [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) enumerates every category. **The prefix list is stable**; new categories adopt an existing prefix. New ad-hoc prefixes are not part of the contract.

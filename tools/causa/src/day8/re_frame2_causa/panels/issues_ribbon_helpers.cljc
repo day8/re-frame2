@@ -36,7 +36,7 @@
       :rf.epoch/<category>   — epoch / time-travel diagnostics
 
   Plus the :rf.cofx/, :rf.frame/, :rf.http/, :rf.http.interceptor/
-  and :route.nav-token/ subgroups that appear in the catalogue.
+  and :rf.route.nav-token/ subgroups that appear in the catalogue.
 
   ## Severity
 
@@ -143,8 +143,8 @@
   the keyword namespace (e.g. `\"rf.error\"`, `\"rf.warning\"`,
   `\"rf.ssr\"`). Per Spec 009 §Error namespace convention the prefix
   carries domain provenance. Returns nil for events whose `:operation`
-  has no namespace (the catalogue's `:route.nav-token/*` etc. still
-  match — the namespace is `route.nav-token`).
+  has no namespace (the catalogue's `:rf.route.nav-token/*` etc. still
+  match — the namespace is `rf.route.nav-token`).
 
   Pure data → string-or-nil; JVM-testable."
   [{:keys [operation] :as _ev}]

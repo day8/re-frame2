@@ -304,7 +304,7 @@ The frame picker is a dropdown of `(rf/frame-ids)` (per [Spec 002 §Public regis
 | **Issues ribbon** | A unified feed of errors + warnings + schema violations + hydration mismatches. | All `:op-type :error` / `:warning` / `:rf.ssr/hydration-mismatch` traces. | "Mark resolved"; "snooze for this session"; click → causality-graph rewind to that moment. |
 | **Hydration debugger** | (§4.7). | `:rf.ssr/hydration-mismatch` traces + payload + first client render-tree hash. | Side-by-side; click-to-source on divergent node. |
 | **AI co-pilot** | (§4.3). Chat over the runtime; reads epochs / app-db / handlers; cites source coords. | The registrar + epoch history + trace buffer + user's question + LLM provider (default Claude). | Chat; saved prompts; provider switching; open-by-default rail. |
-| **Routing inspector** | The `:rf/route` slice as a breadcrumb + nav-token timeline. | `(rf/sub :rf/route)` + `:route.nav-token/*` traces. | "Why did this nav fail?"; pending-navigation surfacing. |
+| **Routing inspector** | The `:rf/route` slice as a breadcrumb + nav-token timeline. | `(rf/sub :rf/route)` + `:rf.route.nav-token/*` traces. | "Why did this nav fail?"; pending-navigation surfacing. |
 | **Settings / filters** | A panel for configuring depths, default frame, theme, AI provider key, etc. | localStorage with schema'd shape (per §2 lessons). | "Reset to defaults" — never gets stuck. |
 | **Time-travel scrubber** | Pinned at the bottom of the window; (§4.2). Session-local (no export/import). | `(rf/epoch-history frame-id)` + `restore-epoch` + `reset-frame-db!`. | Drag-to-rewind; pin a labelled snapshot; schema-mismatch overlay. |
 

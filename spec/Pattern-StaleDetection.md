@@ -112,7 +112,7 @@ All stale-detection trace events follow the same shape, so tools see the family 
 | Trace event | Feature | Reason |
 |---|---|---|
 | `:rf.machine.timer/stale-after` | State-machine `:after` timer | Epoch mismatch on timer expiry (state was exited then re-entered, or never re-entered) |
-| `:route.nav-token/stale-suppressed` | Routing async result | Carried nav-token does not match current route's nav-token |
+| `:rf.route.nav-token/stale-suppressed` | Routing async result | Carried nav-token does not match current route's nav-token |
 
 Tags carry the carried epoch, the current epoch, and any per-feature context (`:state`, `:route-id`, `:event-id`).
 
