@@ -1255,9 +1255,11 @@ When `destroy-frame` runs, every cached reactive needs its `dispose!`-equivalent
 
 ### Transducer-shaped event processing (substrate-agnostic router)
 
+> **Status: post-v1 deferred.** v1 ships the existing drain loop; the Spec-level design pass on a transducer-shaped router is deferred to v1.1 to keep v1 scope tight and avoid coupling the router redesign to other v1-critical work. Tracked in rf2-cl8me.
+
 pure-frame implements event processing as a transducer parameterised by the frame: `(frame-transducer-factory frame) → transducer`, with the reducing function determining how state flows (sync, queued, batch). The transducer captures the per-event step (resolve handler → run interceptor pipeline → produce new state); the reducing function decides how successive states are accumulated and committed.
 
-Worth considering for v1. A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API. Flagged for a Spec-level design pass alongside the router work.
+Originally flagged as worth considering for v1. A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API — but the design pass is non-trivial and overlaps with the router work in [012-Routing.md](012-Routing.md), so the call for v1 is to keep the drain loop and revisit the transducer formulation post-v1.
 
 ### Frame presets — initial list and expansion (RESOLVED)
 
