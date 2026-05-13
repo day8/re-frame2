@@ -47,6 +47,12 @@
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
             [re-frame.trace.projection :as trace-projection]
+            ;; Always-on event-emit substrate (rf2-rirbq). Required
+            ;; eagerly so the `:event-emit/dispatch-on-event` late-
+            ;; bind hook is populated before any dispatch can fire.
+            ;; Survives `:advanced` + `goog.DEBUG=false` — see
+            ;; `re-frame.event-emit` docstring.
+            [re-frame.event-emit :as event-emit]
             [re-frame.elision :as elision]
             [re-frame.substrate.adapter :as adapter]
             ;; Optional-artefact wrappers (rf2-hoiu). Each ns wraps a
@@ -997,6 +1003,21 @@
 (def emit-trace!         trace/emit!)
 (def trace-buffer        trace/trace-buffer)
 (def clear-trace-buffer! trace/clear-trace-buffer!)
+
+;; ---- always-on event-emit (Spec 009 §Event-emit listener; rf2-rirbq) -----
+;;
+;; Production-survivable listener registry: one record per processed
+;; event, fired from `router.cljc` after the cascade settles. Survives
+;; `:advanced` + `goog.DEBUG=false` — the canonical wire-up point for
+;; Datadog / Honeycomb / custom-pipeline forwarders. Parallel to (not
+;; a fallback for) the dev-only trace surface above. Listener bodies
+;; receive a tight record whose `:event` vector has already been
+;; passed through `elide-wire-value` with off-box defaults; see
+;; `re-frame.event-emit` for the full record shape and registration-
+;; site `goog.DEBUG` belt-and-braces pattern.
+
+(def register-event-emit-listener!   event-emit/register-event-emit-listener!)
+(def unregister-event-emit-listener! event-emit/unregister-event-emit-listener!)
 
 ;; ---- size-elision wire-boundary walker (rf2-v9tw2; Spec 009) -------------
 ;;

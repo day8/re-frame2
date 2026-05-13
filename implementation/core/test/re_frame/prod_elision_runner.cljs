@@ -24,7 +24,8 @@
             [re-frame.source-coord-dom-elision-prod-test]
             [re-frame.adapter.uix-source-coord-dom-elision-prod-test]
             [re-frame.adapter.helix-source-coord-dom-elision-prod-test]
-            [re-frame.on-error-elision-prod-test]))
+            [re-frame.on-error-elision-prod-test]
+            [re-frame.event-emit-elision-prod-test]))
 
 (defn ^:export init []
   (-> (env/get-test-data)

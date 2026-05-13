@@ -437,7 +437,16 @@
                     (trace/trigger-handler-from-meta :event event-id handler-meta)
                     trace/*current-sensitive?*
                     (trace/sensitive?-from-meta handler-meta)]
-            (let [_            (trace/emit! :event :event
+            (let [;; Per rf2-rirbq: capture the wall-clock at the very
+                  ;; start of cascade execution so the always-on
+                  ;; event-emit substrate can report `:elapsed-ms` in
+                  ;; its per-event record. The capture is unconditional
+                  ;; — the event-emit substrate is NOT gated on
+                  ;; `interop/debug-enabled?` and the cost is one
+                  ;; `now-ms` call per event (cheap, no allocation
+                  ;; growth at scale).
+                  start-ms     (interop/now-ms)
+                  _            (trace/emit! :event :event
                                             {:event-id event-id
                                              :event    event
                                              :frame    frame
@@ -473,7 +482,23 @@
                            {:event-id event-id
                             :event    event
                             :frame    frame
-                            :phase    :run-end}))))))))
+                            :phase    :run-end})
+              ;; Per rf2-rirbq: ALWAYS-ON event-emit fan-out. Survives
+              ;; `:advanced` + `goog.DEBUG=false` (the trace surface
+              ;; above DCEs; this hook does not). Looked up through
+              ;; the late-bind hook table so the router carries no
+              ;; static dependency on `re-frame.event-emit`; when the
+              ;; event-emit namespace has not been loaded the hook is
+              ;; nil and the fan-out is a single nil-check. Per Spec
+              ;; 009 §Event-emit listener.
+              (when-let [emit-event! (late-bind/get-fn :event-emit/dispatch-on-event)]
+                (let [end-ms (interop/now-ms)]
+                  (emit-event! event
+                               event-id
+                               frame
+                               end-ms
+                               (if error :error :ok)
+                               (max 0 (- end-ms start-ms))))))))))))
 
 (defn- process-event!
   "Wrap process-event* in two dynamic bindings:

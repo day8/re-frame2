@@ -362,6 +362,15 @@ See [010 §Schemas](010-Schemas.md) for `:spec` metadata, validation timing, and
 
 ---
 
+## Event-emit (always-on, production-survivable)
+
+Per [009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production) (#2). A minimal always-on listener surface that survives `:advanced` + `goog.DEBUG=false` and delivers one tight record per processed event. The intended consumers are hosted observability back-ends (Datadog, Honeycomb, Sentry, …). Parallel to (not a fallback for) the dev-only trace surface; per-event only — no per-sub, per-fx, or per-`:event/db-changed` records. Record shape `{:event :event-id :frame :time :outcome :elapsed-ms}`; the `:event` slot is passed through [`rf/elide-wire-value`](#size-elision-wire-boundary-walker) once before fan-out, so `:sensitive?` paths land as `:rf/redacted` and `:large?` paths land as `:rf.size/large-elided`.
+
+| API | M/Fn | Signature | Status | Spec |
+|---|---|---|---|---|
+| `register-event-emit-listener!` | Fn | `(register-event-emit-listener! id listener-fn)` — `listener-fn` receives one event-record per processed event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
+| `unregister-event-emit-listener!` | Fn | `(unregister-event-emit-listener! id)` → nil | v1 | 009 |
+
 ## Tracing
 
 All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Instrumentation.md) for emit semantics and synchronous listener delivery.
