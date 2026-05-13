@@ -2,9 +2,11 @@
 
 > ↑ [`skills/`](../) — index of all six re-frame2 skills.
 
+> **Two delivery paths.** This README documents the original delivery path: a Claude `Skill` (markdown + babashka shell shims) cloned/symlinked from `skills/re-frame-pair2/`. The **structural successor** is the MCP server at [`tools/pair2-mcp/`](../../tools/pair2-mcp/) — same seven ops, but exposed over the Model Context Protocol with a persistent nREPL socket (per-op latency ~5–50 ms vs ~700 ms for the bash-shim path), distributed as an npm package (`@day8/re-frame-pair2-mcp`). New sessions should prefer the MCP server; the shell-shim path here remains for back-compat.
+
 A `Skill` which makes `Claude Code` a better pair programmer by allowing it to **interact with your running [re-frame2](https://github.com/day8/re-frame2) application**.
 
-This is the **re-frame2 sibling** of [`re-frame-pair`](https://github.com/day8/re-frame-pair) (the v1 skill, which targeted re-frame + re-frame-10x). re-frame-pair2 is **decoupled from re-frame-10x entirely** — it consumes only re-frame2's own runtime contract (the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md)).
+This is the **re-frame2 sibling** of [`re-frame-pair`](https://github.com/day8/re-frame-pair) (the v1 skill, which targeted re-frame + re-frame-10x). re-frame-pair2 is **decoupled from re-frame-10x entirely** — it consumes only re-frame2's own runtime contract (the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)).
 
 A coding agent working with just the **static code** is working with a limited perspective. This Skill makes Claude Code more capable by giving it read/write access to:
   - the **internal state** of the application
@@ -28,7 +30,7 @@ Read [`STATUS.md`](STATUS.md) for the per-phase implementation state; [`docs/ini
 
 ## Why a separate skill (vs. extending re-frame-pair)?
 
-re-frame-pair (v1) reaches into re-frame-10x internals to read the epoch buffer, drive undo, and time-travel. re-frame2 supersedes both that pattern and that dependency: epoch recording, querying, and restore are first-class surfaces in re-frame2 itself (per the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md) §Time-travel and §How AI tools attach). Trying to reuse the v1 skill against re-frame2 would mean carrying a re-frame-10x dep that doesn't need to exist.
+re-frame-pair (v1) reaches into re-frame-10x internals to read the epoch buffer, drive undo, and time-travel. re-frame2 supersedes both that pattern and that dependency: epoch recording, querying, and restore are first-class surfaces in re-frame2 itself (per the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) §Time-travel and §How AI tools attach). Trying to reuse the v1 skill against re-frame2 would mean carrying a re-frame-10x dep that doesn't need to exist.
 
 re-frame-pair2 is a clean port: same vocabulary (read / write / trace / watch / hot-reload / time-travel), same recipes, but every surface translated to re-frame2's own primitives. The two skills can coexist — pick the one that matches your app's framework version. A future merge is possible if/when re-frame and re-frame2 converge, but isn't a goal.
 
@@ -36,14 +38,14 @@ re-frame-pair2 is a clean port: same vocabulary (read / write / trace / watch / 
 
 - [re-frame-pair](https://github.com/day8/re-frame-pair) — the v1 skill (re-frame + re-frame-10x; this is its source).
 - [re-frame-pair-improver2](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-improver2) — the post-session retrospective skill that reviews pair sessions and proposes improvements to re-frame-pair2 itself. Sibling to v1's [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver).
-- [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md) — the canonical surface contract this skill consumes.
+- [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the canonical surface contract this skill consumes.
 
 ## Which technical stack?
 
 Designed for web apps built from the following stack — in pre-alpha, it has not yet been exercised end-to-end against a running app of any shape:
 
 - A [re-frame2](https://github.com/day8/re-frame2) application (reference implementation: CLJS + Reagent v2)
-- `re-frame.interop/debug-enabled?` true (the `goog.DEBUG` mirror — set automatically in dev builds; production elides the trace and epoch surfaces per [Spec 009 §Production builds](https://github.com/day8/re-frame2/blob/master/docs/specification/009-Instrumentation.md))
+- `re-frame.interop/debug-enabled?` true (the `goog.DEBUG` mirror — set automatically in dev builds; production elides the trace and epoch surfaces per [Spec 009 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md))
 - Optional: re-frame2's source-coord annotation enabled (`(rf/configure :source-coords {:annotate-dom? true})`) — and/or [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites. Without one of these, the `dom/*` ops degrade gracefully.
 - [shadow-cljs](https://shadow-cljs.github.io/) as the build tool, with nREPL enabled on the dev build
 
@@ -51,7 +53,7 @@ You don't need to make any changes to your code/project to use it, but you will 
 
 ## No re-frame-10x dependency
 
-re-frame-pair2 does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame-pair2` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/master/docs/specification/009-Instrumentation.md)).
+re-frame-pair2 does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame-pair2` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)).
 
 If your app uses both re-frame2 *and* a re-frame-10x v2 (when one ships), this skill and that tool will coexist as parallel listeners. Neither depends on the other.
 
@@ -148,9 +150,12 @@ Here's the kinds of conversations you can have with Claude.
 
 ## Install
 
-`re-frame-pair2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry — clone re-frame2 and reference the skill from `skills/re-frame-pair2/`.
+Two paths — pick one:
 
-`re-frame-pair2` needs one shadow-cljs `:devtools :preloads` entry in your dev build (`[re-frame-pair2.runtime]`) and a `:source-paths` line pointing at the bundled `preload/` directory. No extra deps, no closure-defines. The preload only loads in dev — production builds are untouched. See `SKILL.md` §Setup for the two-line snippet.
+- **MCP server** (recommended for new sessions) — `npm install -g @day8/re-frame-pair2-mcp` and add an `mcpServers` entry to your Claude Code settings. See [`tools/pair2-mcp/README.md`](../../tools/pair2-mcp/README.md) for the full configuration and tool surface. **The rest of this section only applies to the skill (shell-shim) path.**
+- **Skill** (back-compat / the path documented below) — clone the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo and reference the skill from `skills/re-frame-pair2/`. No separate npm package or plugin registry entry exists for the skill itself.
+
+Either path needs one shadow-cljs `:devtools :preloads` entry in your dev build (`[re-frame-pair2.runtime]`) and a `:source-paths` line pointing at the bundled `preload/` directory — that part is shared. No extra deps, no closure-defines. The preload only loads in dev — production builds are untouched. See `SKILL.md` §Setup for the two-line snippet.
 
 ### Install the skill in Claude Code
 
