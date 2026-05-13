@@ -11,8 +11,11 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 | [`reagent/`](reagent/) | Reagent adapter | `day8/re-frame2-reagent` | Reagent 2.x — the canonical CLJS reference adapter |
 | [`uix/`](uix/) | UIx adapter | `day8/re-frame2-uix` | UIx 2.x — modern hooks-based React layer |
 | [`helix/`](helix/) | Helix adapter | `day8/re-frame2-helix` | Helix 0.2.x — minimal React wrapper |
+| [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/re-frame2-reagent-slim` (NB: artefact coord is `day8/reagent-slim` per IMPL-SPEC DECISION-1) | Reagent rewrite for React 19 — Stage 4-A landed |
 
 A consumer picks one (or more) by adding the matching artefact to their `deps.edn` alongside `day8/re-frame2`. Bundle isolation is **structural** — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
+
+The `reagent-slim` adapter is in active development (Stage 4-A landed — reactive primitives only) and does not yet participate in the cross-substrate test matrix.
 
 ## What an adapter implements
 
@@ -38,13 +41,18 @@ adapters/
 │   ├── deps.edn
 │   ├── src/re_frame/adapter/uix.cljs
 │   └── test/...
-└── helix/
-    ├── deps.edn
-    ├── src/re_frame/adapter/helix.cljs
+├── helix/
+│   ├── deps.edn
+│   ├── src/re_frame/adapter/helix.cljs
+│   └── test/...
+└── reagent-slim/
+    ├── deps.edn              ; declares day8/reagent-slim (no re-frame2- prefix per DECISION-1)
+    ├── src/reagent2/...      ; the slim Reagent rewrite (Stage 4-A: reactive primitives)
+    ├── src/re_frame/adapter/reagent_slim.cljs
     └── test/...
 ```
 
-All three depend on `day8/re-frame2 {:local/root "../../core"}`. None depend on each other.
+All four depend on `day8/re-frame2 {:local/root "../../core"}`. None depend on each other.
 
 ## Per-feature artefacts vs adapters
 
