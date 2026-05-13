@@ -133,22 +133,27 @@
   ([flow] (reg-flow flow {}))
   ([flow {:keys [frame] :as _opts}]
    (validate-flow flow)
-   (let [frame-id (or frame (frame/current-frame))
-         flow-id  (:id flow)]
-     ;; The :flow registrar slot keys on flow-id only — but stamp :frame
-     ;; into the metadata so introspection / hot-reload hooks can read
-     ;; the owning frame.
+   (let [frame-id     (or frame (frame/current-frame))
+         flow-id      (:id flow)
+         prior-frame  (get @flows frame-id)
+         ;; Per rf2-7csri: detect cycles on a PROSPECTIVE flow-map
+         ;; BEFORE mutating the atom or the registrar. The earlier
+         ;; write-then-rollback path silently deleted the prior
+         ;; registration along with the rejected one when a REPLACEMENT
+         ;; introduced a cycle — the rollback dissoc'd by flow-id,
+         ;; vacating the slot the prior entry was sharing. Now we run
+         ;; topo-sort on (prior-frame `assoc` new-entry) up-front; if it
+         ;; throws, nothing has been written and the prior registration
+         ;; stays intact.
+         prospective  (assoc prior-frame flow-id flow)]
+     (topo-sort prospective)
+     ;; Cycle check passed — commit. The :flow registrar slot keys on
+     ;; flow-id only; stamp :frame into the metadata so introspection
+     ;; / hot-reload hooks can read the owning frame.
      (registrar/register! :flow flow-id
                           (source-coords/merge-coords
                             (assoc flow :frame frame-id)))
      (swap! flows assoc-in [frame-id flow-id] flow)
-     ;; Cycle detection on this frame's flows only.
-     (try
-       (topo-sort (get @flows frame-id))
-       (catch #?(:clj Throwable :cljs :default) e
-         (swap! flows update frame-id dissoc flow-id)
-         (registrar/unregister! :flow flow-id)
-         (throw e)))
      ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires after
      ;; reg-flow successfully completes (including post-cycle-detection).
      ;; Tools observe this to track the flow population over hot reloads /
