@@ -340,3 +340,73 @@
               "adapter B's :replace-container! was invoked by dispatch-sync (proves event commit routes through B, not the disposed A)"))
         (is (= 99 (rf/subscribe-value :rf/default [:n]))
             "registered :seed event + :n sub still work end-to-end under adapter B")))))
+
+;; ---- substrate delegation: uniform no-adapter-installed throw (rf2-zdfi1) -
+;;
+;; Per rf2-zdfi1 every substrate-delegation fn in
+;; `re-frame.substrate.adapter` throws ONE shape when no adapter is
+;; installed:
+;;
+;;   :rf.error/no-adapter-installed
+;;   {:where    'rf/<fn>            ;; the offending public-surface symbol
+;;    :recovery :no-recovery
+;;    :reason   "<where> was called before (rf/init! ...); ..."}
+;;
+;; Before rf2-zdfi1 only `make-state-container` threw structured ex-info;
+;; the other five required delegation fns (`read-container`,
+;; `replace-container!`, `make-derived-value`, `render`, `render-to-string`)
+;; plus the two optional fns (`subscribe-container`,
+;; `register-context-provider`) silently NPE'd on a nil adapter — strictly
+;; worse than a structured throw because background-thread NPEs are hard
+;; to diagnose and the ex-info shape did not match the documented
+;; missing-fn contract used elsewhere in core (rf2-h824v + rf2-uchhp).
+
+(defn- catch-no-adapter
+  "Invoke `thunk` with no adapter installed; return the caught
+  ExceptionInfo (or nil if nothing threw)."
+  [thunk]
+  (try (thunk) nil
+       (catch clojure.lang.ExceptionInfo e e)))
+
+(deftest substrate-delegation-uniform-no-adapter-throw
+  (testing "every substrate-delegation fn throws :rf.error/no-adapter-installed before (rf/init! ...)"
+    (is (nil? (adapter/current-adapter))
+        "precondition: cold start — no adapter installed")
+    (let [cases [['rf/make-state-container        #(adapter/make-state-container         {:k :v})]
+                 ['rf/read-container              #(adapter/read-container               ::dummy-container)]
+                 ['rf/replace-container!          #(adapter/replace-container!           ::dummy-container {:new :value})]
+                 ['rf/make-derived-value          #(adapter/make-derived-value           [::source]        (constantly 42))]
+                 ['rf/render                      #(adapter/render                       [:div]            ::mount-point {})]
+                 ['rf/render-to-string            #(adapter/render-to-string             [:div]            {})]
+                 ['rf/subscribe-container         #(adapter/subscribe-container          ::dummy-container (fn [_]))]
+                 ['rf/register-context-provider   #(adapter/register-context-provider    :rf/default)]]]
+      (doseq [[where-sym thunk] cases]
+        (let [thrown (catch-no-adapter thunk)]
+          (is (some? thrown)
+              (str where-sym " throws when called before (rf/init! ...)"))
+          (is (= ":rf.error/no-adapter-installed"
+                 (some-> thrown ex-message))
+              (str where-sym " ex-message carries the :rf.error/no-adapter-installed tag"))
+          (let [data (ex-data thrown)]
+            (is (= where-sym (:where data))
+                (str where-sym " ex-data :where echoes the offending public surface symbol"))
+            (is (= :no-recovery (:recovery data))
+                (str where-sym " ex-data :recovery is :no-recovery"))
+            (is (string? (:reason data))
+                (str where-sym " ex-data :reason is a string pointing at (rf/init! ...)"))
+            (is (re-find #"rf/init!" (str (:reason data)))
+                (str where-sym " ex-data :reason names rf/init! as the recovery action"))))))))
+
+(deftest replace-container-nil-container-skips-adapter-check
+  (testing "replace-container! with a nil container short-circuits via the rf2-ft2b warning trace and does NOT consult the adapter slot"
+    ;; Defense-in-depth nil-container guard is checked BEFORE the
+    ;; adapter lookup so a scheduled drain hitting a destroyed frame
+    ;; does not produce a misleading 'no-adapter-installed' throw — it
+    ;; correctly emits :rf.warning/write-after-destroy regardless of
+    ;; whether an adapter is installed.
+    (is (nil? (adapter/current-adapter))
+        "precondition: no adapter installed")
+    (is (nil? (adapter/replace-container! nil {:any :value}))
+        "replace-container! on nil container returns nil silently (no throw)")
+    (is (nil? (adapter/current-adapter))
+        "the nil-container path did not consult or modify the adapter slot")))

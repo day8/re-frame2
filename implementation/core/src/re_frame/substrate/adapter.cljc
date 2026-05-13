@@ -88,14 +88,52 @@
 ;; ---- delegation helpers ---------------------------------------------------
 ;; These let other namespaces call adapter functions without knowing which
 ;; adapter is installed.
+;;
+;; Every delegation fn routes through `require-adapter!` so an app that
+;; calls into the runtime before `(rf/init! ...)` sees one uniform
+;; `:rf.error/no-adapter-installed` ex-info regardless of which surface
+;; it hit first (rf2-zdfi1). The earlier shape was a mix of
+;; `(ex-info "no adapter installed" {})` on `make-state-container` and
+;; silent NPEs on the other delegation fns — strictly worse than a
+;; structured throw because background-thread NPEs are hard to diagnose
+;; and the ex-info shape did not match the documented missing-artefact
+;; contract used elsewhere in core (see rf2-h824v + rf2-uchhp).
+
+(defn- require-adapter!
+  "Return the installed adapter spec map or throw a uniform
+  `:rf.error/no-adapter-installed` ex-info naming the offending
+  delegation surface via `where-sym` (rf2-zdfi1).
+
+  Shape matches the broader missing-fn throw contract (the
+  `re-frame.late-bind/require-fn!` helper, rf2-h824v, rf2-uchhp):
+
+    Message: \":rf.error/no-adapter-installed\"
+    ex-data: {:where    <where-sym>
+              :recovery :no-recovery
+              :reason   \"<where-sym> was called before (rf/init! ...);
+                         require an adapter ns and pass its `adapter`
+                         Var, e.g. (rf/init! reagent/adapter).\"}
+
+  `where-sym` is stamped on the throw so grep-for-symbol finds the
+  delegation site in user code. Private — callers in this ns thread
+  the symbol of the public surface they implement (e.g.
+  `'rf/make-state-container`)."
+  [where-sym]
+  (or @installed-adapter
+      (throw (ex-info ":rf.error/no-adapter-installed"
+                      {:where    where-sym
+                       :recovery :no-recovery
+                       :reason   (str where-sym " was called before (rf/init! ...);"
+                                      " require an adapter ns and pass its `adapter` Var,"
+                                      " e.g. (rf/init! reagent/adapter).")}))))
 
 (defn make-state-container [initial-value]
-  (let [a (or @installed-adapter
-              (throw (ex-info "no adapter installed" {})))]
+  (let [a (require-adapter! 'rf/make-state-container)]
     ((:make-state-container a) initial-value)))
 
 (defn read-container [container]
-  (let [a @installed-adapter] ((:read-container a) container)))
+  (let [a (require-adapter! 'rf/read-container)]
+    ((:read-container a) container)))
 
 (defn replace-container!
   "Write `new-value` into `container` via the installed adapter.
@@ -115,32 +153,45 @@
     (trace/emit! :warning :rf.warning/write-after-destroy
                  {:reason   "replace-container! called with nil container; the frame was likely destroyed mid-drain or before a scheduled write fired"
                   :recovery :no-recovery})
-    (let [a @installed-adapter] ((:replace-container! a) container new-value))))
+    (let [a (require-adapter! 'rf/replace-container!)]
+      ((:replace-container! a) container new-value))))
 
 (defn make-derived-value [source-containers compute-fn]
-  (let [a @installed-adapter]
+  (let [a (require-adapter! 'rf/make-derived-value)]
     ((:make-derived-value a) source-containers compute-fn)))
 
 (defn render [render-tree mount-point opts]
-  (let [a @installed-adapter] ((:render a) render-tree mount-point opts)))
+  (let [a (require-adapter! 'rf/render)]
+    ((:render a) render-tree mount-point opts)))
 
 (defn render-to-string [render-tree opts]
-  (let [a @installed-adapter] ((:render-to-string a) render-tree opts)))
+  (let [a (require-adapter! 'rf/render-to-string)]
+    ((:render-to-string a) render-tree opts)))
 
 (defn subscribe-container
-  "Optional — adapters may omit. Returns nil if the adapter doesn't
-  implement it; callers fall back to running invalidation inline within
-  replace-container! (per Spec 006)."
+  "Optional — adapters may omit. Returns nil if the installed adapter
+  doesn't implement it; callers fall back to running invalidation inline
+  within replace-container! (per Spec 006).
+
+  Calling this before `(rf/init! ...)` raises
+  `:rf.error/no-adapter-installed` (rf2-zdfi1) — the optional-fn nil
+  return is reserved for `adapter installed, fn absent`, not for `no
+  adapter installed at all`."
   [container on-change]
-  (let [a @installed-adapter
+  (let [a (require-adapter! 'rf/subscribe-container)
         f (:subscribe-container a)]
     (when f (f container on-change))))
 
 (defn register-context-provider
   "Optional. Returns the substrate's context-provider component for this
-  frame keyword, or nil if the substrate has no context concept."
+  frame keyword, or nil if the substrate has no context concept.
+
+  Calling this before `(rf/init! ...)` raises
+  `:rf.error/no-adapter-installed` (rf2-zdfi1) — the optional-fn nil
+  return is reserved for `adapter installed, fn absent`, not for `no
+  adapter installed at all`."
   [frame-keyword]
-  (let [a @installed-adapter
+  (let [a (require-adapter! 'rf/register-context-provider)
         f (:register-context-provider a)]
     (when f (f frame-keyword))))
 
