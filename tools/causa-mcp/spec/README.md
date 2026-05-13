@@ -9,8 +9,8 @@ before this folder existed.
 ## Files
 
 - **[000-Vision.md](000-Vision.md)** — Causa-MCP is the agent face of Causa; eighteen MCP tools across five bands; same shadow-cljs / Node / persistent-nREPL architecture as pair2-mcp; relationship to Causa, pair2-mcp, and Chrome DevTools MCP.
-- **[Principles.md](Principles.md)** — Load-bearing principles: origin tagging is the convention (not a suggestion), EDN canonical, closed-set catalogue with `eval-cljs` as the deliberate escape valve, single persistent nREPL socket, stage-marker-independent.
-- **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — Eight direction-setting decisions: question, options, pick, why, date locked. Inheritance from pair2-mcp's locks is cited rather than duplicated.
+- **[Principles.md](Principles.md)** — Load-bearing principles: origin tagging is the convention (not a suggestion), EDN canonical, closed-set catalogue with `eval-cljs` as the deliberate escape valve, single persistent nREPL socket, stage-marker-independent, and the **five-mechanism wire-protocol budget posture** (token cap + path slicing + cursor pagination + lazy summary + structural dedup) — baked into the spec before implementation begins so the impl is born compliant.
+- **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — Nine direction-setting decisions: question, options, pick, why, date locked. Inheritance from pair2-mcp's locks is cited rather than duplicated.
 
 ## Files that will land at implementation time
 

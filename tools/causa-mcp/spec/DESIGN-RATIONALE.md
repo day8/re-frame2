@@ -527,6 +527,109 @@ pin doesn't silently drift on a future `npm audit` pass.
 
 ---
 
+## Lock #9 — Wire-protocol budget posture (five mechanisms)
+
+**Locked 2026-05-13 (Mike).** **Five normative mechanisms bake
+the token cap into the spec before implementation begins:**
+(1) 5K-token budget cap with `:max-tokens` override and a
+`{:rf.mcp/overflow {...}}` overflow marker; (2) `:path`
+slicing on rich-value tools, with tree-summary as the default;
+(3) opaque-cursor pagination with `:limit` defaults that fit
+the cap; (4) lazy `:summary` as the default mode for rich
+values, with `:sample` and `:full` opt-ins; (5) optional
+structural dedup via [`day8/de-dupe`](https://github.com/day8/de-dupe)
+for trace-shaped bursts.
+
+### Question
+
+Causa-MCP is spec-only today (no `src/`). pair2-mcp shipped its
+5K cap (Principles §"Tight token budget per response") *after*
+its impl already existed; retrofitting the cap into running
+code is expensive (rf2-rvyzy + 10 sibling beads in flight as of
+2026-05-13). Should Causa-MCP bake the entire wire-protocol
+posture into its spec **before** implementation begins, so the
+impl is born compliant — or wait until implementation surfaces
+the same drift?
+
+### Pick
+
+**Bake all five mechanisms into the spec now.** The
+[`Principles.md`](./Principles.md) §"Tight token budget per
+response" section enumerates each mechanism with normative MUST
+wording, a reserved `:rf.mcp/overflow` / `:rf.mcp/summary` /
+`:rf.mcp/dedup-table` payload shape, and a catalogue-entry
+contract binding `003-Tool-Catalogue.md` when it lands. No tool
+ships without declaring which mechanisms apply, its
+typical-token hint, its cap-reached behaviour, and its default
+`:mode` / `:limit` / `:dedup?` values.
+
+### Why
+
+- **Greenfield is the rare cheap window.** pair2-mcp's drift
+  cost (rf2-rvyzy + siblings) is the comparator. Locking the
+  five mechanisms into the spec before any code exists means
+  the impl is born compliant — no retrofit pass, no parallel
+  code paths during transition.
+- **The five mechanisms compose.** Cap (1) is the gate; slicing
+  (2), pagination (3), and lazy-summary (4) are the trim
+  strategies; dedup (5) is the on-wire compression that buys
+  margin on top. Each mechanism alone is insufficient
+  (pagination doesn't help a single 50KB map; slicing doesn't
+  help an unbounded trace buffer; summary doesn't help a 10K
+  sample of small events that share structure). All five
+  together cover the failure modes Causa-MCP's catalogue can
+  produce.
+- **Cross-server alignment.** pair2-mcp's
+  [`Principles.md`](../../pair2-mcp/spec/Principles.md) §"Tight
+  token budget per response" already declares the cap and the
+  three-axis discipline (pagination / summary / streaming);
+  Causa-MCP's wording aligns deliberately so an agent learning
+  the slot on one server gets the same slot on the others. The
+  reserved `:rf.mcp/overflow` / `:rf.mcp/summary` keys are
+  cross-server reservations, not Causa-MCP-private vocabulary.
+  Where pair2-mcp's wording is silent (path slicing, structural
+  dedup, `:max-tokens` override, the overflow marker shape),
+  Causa-MCP's spec is the forward-locking site — a follow-up
+  alignment bead may lift the wording back into pair2-mcp.
+- **Structural dedup is the new mechanism.** Mechanisms 1–4 are
+  refinements of pair2-mcp's three-axis discipline. Mechanism 5
+  (`day8/de-dupe` substitution-table for trace bursts) is novel
+  to Causa-MCP because Causa's catalogue is trace-bus-heavy and
+  trace events share structural prefixes 3–5× under typical
+  load. Dedup is opt-out, not opt-in, so the default agent
+  experience is the compressed wire.
+- **The catalogue-entry contract is the enforcement.** A
+  principle without a per-tool slot is aspirational. Binding
+  every catalogue entry to declare its mechanism set turns the
+  cap into a compile-time-equivalent constraint: a tool entry
+  missing the slots fails review, not runtime.
+
+### Date locked
+
+2026-05-13 (Mike). Locked in this revision (rf2-lwgg8) to
+forestall the same drift pair2-mcp is paying down. Pre-dates
+`tools/causa-mcp/src/` by design.
+
+### Trail-of-thought citations
+
+- pair2-mcp
+  [`Principles.md`](../../pair2-mcp/spec/Principles.md)
+  §"Tight token budget per response" — the precedent at three
+  axes.
+- pair2-mcp `tools.cljs` retrofit beads (rf2-rvyzy and 10
+  siblings, in flight 2026-05-13) — the cost of not locking
+  before impl.
+- `ai/findings/wire-protocol-bigapp-20260513-1541.md`
+  (recommendation #10, local-only) — the source-of-truth
+  investigation that motivated baking before impl.
+- [`day8/de-dupe`](https://github.com/day8/de-dupe) — the
+  substitution-table substrate for mechanism 5; proven on
+  re-frame-10x's epoch payloads.
+- [Spec 009](../../../spec/009-Instrumentation.md) — the trace
+  bus whose burst-shape mechanism 5 compresses.
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -539,8 +642,9 @@ pin doesn't silently drift on a future `npm audit` pass.
 | 6 | npm package coord | **`@day8/re-frame2-causa-mcp`** | 2026-05-12 |
 | 7 | Chrome DevTools MCP posture | **Co-install, stay in lane** | 2026-05-12 |
 | 8 | bencode pinning | **`bencode@~2.0.3`** (inherited from pair2-mcp Lock #5) | 2026-05-12 |
+| 9 | Wire-protocol budget posture | **Five mechanisms baked into spec before impl** (cap + slicing + pagination + lazy-summary + dedup) | 2026-05-13 |
 
-These eight locks define Causa-MCP's pre-implementation surface.
+These nine locks define Causa-MCP's pre-implementation surface.
 They were extracted from
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 and [Causa's own DESIGN-RATIONALE](../../causa/spec/DESIGN-RATIONALE.md)
