@@ -94,20 +94,51 @@ MAPPINGS: list[Mapping] = [
         host_prefix="re-frame-pair2",
         skill_md=REPO_ROOT / "skills" / "re-frame-pair2" / "SKILL.md",
     ),
-    # story-mcp has no canonical consumer skill yet (rf2-1v7tu pending the
-    # Mike-decision). Once a skill ships, add a Mapping for it. Until then
-    # we still validate that the server descriptor file PARSES -- drift in
-    # the catalogue would otherwise be invisible. The skill_md=None path
-    # below treats the missing skill side as a no-op.
-    #
-    # NB: keep this entry commented-in once the decision lands; the empty
-    # skill side prevents false-positives until then.
-    # Mapping(
-    #     name="story-mcp <-> <tbd>",
-    #     server_src=REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools.cljc",
-    #     host_prefix="story-mcp",
-    #     skill_md=REPO_ROOT / "skills" / "<tbd>" / "SKILL.md",
-    # ),
+    # story-mcp consumers (rf2-1v7tu HYBRID): both skills consume the
+    # 17-tool surface, split along the authoring vs live-runtime axis.
+    # - re-frame2 (authoring) owns: get-story-instructions, list-*, get-*,
+    #   variant->edn, preview-variant, register-variant, unregister-variant.
+    # - re-frame-pair2 (live-session) owns: run-variant, read-failures,
+    #   snapshot-identity, run-a11y, record-as-variant.
+    # Each mapping marks the OTHER skill's tools as `intentional_server_only`
+    # so the gate only fires when the canonical owner forgets a tool.
+    # The host prefix is `re-frame2-story-mcp` per both skills' allowed-tools
+    # entries (the MCP server's advertised name).
+    Mapping(
+        name="story-mcp <-> re-frame2",
+        server_src=REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools.cljc",
+        host_prefix="re-frame2-story-mcp",
+        skill_md=REPO_ROOT / "skills" / "re-frame2" / "SKILL.md",
+        intentional_server_only=frozenset({
+            # Live-session tools — owned by re-frame-pair2.
+            "run-variant",
+            "read-failures",
+            "snapshot-identity",
+            "run-a11y",
+            "record-as-variant",
+        }),
+    ),
+    Mapping(
+        name="story-mcp <-> re-frame-pair2",
+        server_src=REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools.cljc",
+        host_prefix="re-frame2-story-mcp",
+        skill_md=REPO_ROOT / "skills" / "re-frame-pair2" / "SKILL.md",
+        intentional_server_only=frozenset({
+            # Authoring tools — owned by re-frame2.
+            "get-story-instructions",
+            "list-stories",
+            "get-story",
+            "get-variant",
+            "variant->edn",
+            "list-tags",
+            "list-modes",
+            "list-assertions",
+            "list-substrates",
+            "preview-variant",
+            "register-variant",
+            "unregister-variant",
+        }),
+    ),
     Mapping(
         name="causa-mcp <-> <tbd>",
         server_src=REPO_ROOT / "tools" / "causa-mcp" / "src" / "re_frame" / "causa_mcp" / "tools.cljc",
