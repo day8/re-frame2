@@ -24,7 +24,7 @@ Two transports cover the same buses; pick by interaction shape.
 | Want | Reach for |
 |---|---|
 | Live narration while the user interacts; report events the moment they fire | `subscribe` (push-mode) |
-| Finite window summary at the end (e.g. "show me everything in the next 30s") | `watch-epochs` (pull-mode) with `since-id` polling, or the `scripts/watch-epochs.sh --window-ms` shim |
+| Finite window summary at the end (e.g. "show me everything in the next 30s") | `watch-epochs` (pull-mode) with `since-id` polling. Legacy fallback: the `scripts/watch-epochs.sh --window-ms` shim. |
 | Stream until a fixed number of matches, then summarise | `subscribe` with `max-events` |
 | Agent host doesn't surface `notifications/progress` to the model | `watch-epochs` (pull-mode) |
 
