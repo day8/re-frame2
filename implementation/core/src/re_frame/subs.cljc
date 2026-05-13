@@ -474,12 +474,26 @@
   so the read is part of the cofx contract rather than a side-effect
   inside the handler body.
 
-  See also: `subscribe`, `compute-sub`, `inject-cofx`."
+  Per rf2-zmufj: the teardown unsubscribe runs with `{:grace 0}` so
+  the one-shot read's whole lifetime — subscribe, deref, dispose —
+  completes in the calling tick. Without this, a fresh-sub call
+  would build, deref, then schedule a grace-period timer that fires
+  after the caller has moved on, leaking dispose side-effects
+  (`set-timeout!` + `clear-timeout!` + the post-grace `dispose!`
+  trace burst) past the call's observable lifetime.
+
+  See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`."
   ([query-v] (subscribe-value (resolve-current-frame) query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
          v        (when reaction @reaction)]
-     (unsubscribe frame-id query-v)
+     ;; Per rf2-zmufj: force synchronous dispose for our own teardown so
+     ;; the one-shot read surface pays no deferred-dispose tax. The
+     ;; `{:grace 0}` opt overrides the configured grace-period for this
+     ;; call only — concurrent subscribers (if any) keep the slot alive
+     ;; via ref-count and are unaffected; this call's decrement only
+     ;; triggers disposal when it drove the 1→0 transition.
+     (unsubscribe frame-id query-v {:grace 0})
      v)))
 
 (defn compute-sub
@@ -558,15 +572,35 @@
 
   When grace-period is 0, disposal is synchronous — useful for tests.
 
+  The 3-arity form accepts an opts map. Per rf2-zmufj:
+
+      {:grace N}   — override the configured grace-period for THIS
+                     call only. `{:grace 0}` forces synchronous
+                     disposal on the 1→0 transition; useful for
+                     callers that want their unsubscribe observable
+                     in the same tick (e.g. `subscribe-value`'s
+                     internal teardown). When `:grace` is absent,
+                     the configured per-runtime grace-period is used.
+
   Reagent views auto-dispose via the reaction lifecycle and don't
   need to call this explicitly. Tests, REPL sessions, and tools that
   subscribe imperatively should call unsubscribe when they're done
   to release the cache slot."
-  ([query-v] (unsubscribe (resolve-current-frame) query-v))
+  ([query-v]
+   (unsubscribe (resolve-current-frame) query-v nil))
   ([frame-id query-v]
+   (unsubscribe frame-id query-v nil))
+  ([frame-id query-v opts]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (let [k     (cache-key query-v)
-           grace (grace-period-ms)
+           ;; Per rf2-zmufj: an explicit `:grace` in opts overrides the
+           ;; per-runtime configured grace-period for this call only.
+           ;; `contains?` rather than `(:grace opts)` so `{:grace 0}`
+           ;; is honoured (0 is truthy in Clojure but reads better
+           ;; intent-wise to gate on presence).
+           grace (if (and (map? opts) (contains? opts :grace))
+                   (:grace opts)
+                   (grace-period-ms))
            ;; Per rf2-3mww7: the swap-fn body is pure — it returns only
            ;; the new cache map. The drop-to-zero signal is read from
            ;; the diff between `old` and `new` AFTER the CAS commits.

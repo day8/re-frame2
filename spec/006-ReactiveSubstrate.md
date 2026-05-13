@@ -503,13 +503,13 @@ The **one-shot, non-reactive read** of a subscription's current value. `subscrib
 (subscribe-value frame-id query-v)                     ;; → value (explicit-frame form)
 ```
 
-Semantically, `subscribe-value` is `subscribe` + deref + immediate `unsubscribe`:
+Semantically, `subscribe-value` is `subscribe` + deref + immediate **synchronous** `unsubscribe`:
 
 ```
 subscribe-value(frame-id, query-v):
   r ← subscribe(frame-id, query-v)                     ;; cache hit OR miss; ref-count += 1
   v ← deref r                                          ;; current cached value
-  unsubscribe(frame-id, query-v)                       ;; ref-count -= 1; 1→0 schedules grace-period disposal
+  unsubscribe(frame-id, query-v, {:grace 0})           ;; ref-count -= 1; on 1→0, dispose synchronously
   return v
 ```
 
@@ -517,7 +517,7 @@ subscribe-value(frame-id, query-v):
 
 - **One-shot.** Each call subscribes, derefs once, and unsubscribes. The caller does **not** receive a deref-able reaction; the returned value is a plain immutable value of whatever the sub computes.
 - **Non-reactive.** The caller is not registered for re-render or change notification. A subsequent `app-db` mutation that would have invalidated the slot has no observable effect on the caller of `subscribe-value` — they got their value, they're done.
-- **No retention.** Each call's ref-count increment is paired with the immediate decrement. If the call was the *only* reader, the slot enters its grace-period on return; repeated `subscribe-value` calls in close succession over the same query benefit from the grace-period reuse (each call hits the still-live cached value rather than recomputing).
+- **Synchronous teardown** (per rf2-zmufj). The internal `unsubscribe` runs with `{:grace 0}` so the one-shot read's whole lifetime — subscribe, deref, and (if this call drove the 1→0 transition) dispose — completes in the calling tick. The caller never observes a deferred-dispose timer firing after `subscribe-value` has already returned. A concurrent reactive subscriber (a view holding `subscribe` on the same `query-v`) keeps the slot alive via ref-count; `subscribe-value`'s decrement only triggers synchronous disposal when it owned the last reference.
 - **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg form is explicit and bypasses the chain.
 - **Missing frame is not an error.** `subscribe-value` against a destroyed or never-created frame returns `nil` (and emits the same `:rf.warning/unknown-frame` trace `subscribe` does); it does NOT throw.
 - **Missing sub is not an error.** Per [§What happens when a sub references an unknown sub](#what-happens-when-a-sub-references-an-unknown-sub), an unregistered `query-v` emits `:rf.error/no-such-sub` (recovery `:replaced-with-default`) and yields `nil`; `subscribe-value` propagates the `nil`.
@@ -532,7 +532,14 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 ```clojure
 (unsubscribe query-v)                                  ;; → nil (uses the resolved current frame)
 (unsubscribe frame-id query-v)                         ;; → nil (explicit-frame form)
+(unsubscribe frame-id query-v {:grace 0})              ;; → nil (explicit-frame + opts; per rf2-zmufj)
 ```
+
+**Opts map** (3-arity only). The optional opts map accepts:
+
+| Key      | Type    | Effect                                                                                                                                                                                                          |
+|----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `:grace` | non-neg int | Override the configured `grace-period-ms` for **this call only**. `{:grace 0}` forces synchronous disposal on the 1→0 transition — used by `subscribe-value`'s internal teardown (per rf2-zmufj). Absent → use the per-runtime configured grace. |
 
 **Contract MUSTs.**
 
@@ -541,10 +548,10 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 - **Idempotent past zero.** Calling `unsubscribe` after ref-count has already reached 0 is a no-op — the count floors at 0, and an already-scheduled grace-period timer is **not** restarted. A second `unsubscribe` from the same path (cleanup hook + `finally` block both running) does not stack disposal timers or accidentally disposed-twice the slot.
 - **No-op past disposal.** Calling `unsubscribe` after the slot has already been disposed (the grace-period elapsed and the slot was removed from `F.sub-cache`) is a no-op — `unsubscribe` returns `nil` without trace emission. There is no "double-free" failure mode.
 - **Missing frame is not an error.** `unsubscribe` against a destroyed or never-created frame returns `nil` (and emits the same `:rf.warning/unknown-frame` trace `subscribe` does); it does NOT throw.
-- **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg form is explicit.
-- **Composes with grace-period reuse.** When `unsubscribe` triggers the 1 → 0 transition, the slot enters its grace-period rather than disposing immediately. A `subscribe` (or another `subscribe-value`) arriving within the window cancels the timer and reuses the cached value; this is exactly the mechanism that makes back-to-back `subscribe-value` calls cheap.
+- **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg and 3-arg forms are explicit.
+- **Composes with grace-period reuse.** When `unsubscribe` (the no-opts form) triggers the 1 → 0 transition, the slot enters its grace-period rather than disposing immediately. A `subscribe` arriving within the window cancels the timer and reuses the cached value. The `{:grace 0}` opts form opts out of this — the slot disposes synchronously on the 1→0 transition; it is the path `subscribe-value` uses internally (per rf2-zmufj).
 
-**Composability with `subscribe-value`.** `subscribe-value` internally invokes `subscribe` then `unsubscribe`; the user does NOT call `unsubscribe` for a `subscribe-value` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
+**Composability with `subscribe-value`.** `subscribe-value` internally invokes `subscribe` then `unsubscribe` with `{:grace 0}` — the teardown is synchronous, not deferred (per rf2-zmufj). The user does NOT call `unsubscribe` for a `subscribe-value` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
 
 **Why explicit teardown exists alongside the grace-period.** The grace-period handles the *automatic* case: a view unmounts, the reaction disposes, the underlying `unsubscribe` fires from the reaction's on-dispose hook, the slot drains. Explicit `unsubscribe` is the imperative-callers' equivalent: tools, REPL sessions, machine actions, and tests that took out a subscription without an enclosing reaction lifecycle to manage it. The two paths funnel into the same ref-count decrement and the same grace-period scheduling — there is one disposal algorithm, two arrival surfaces.
 
