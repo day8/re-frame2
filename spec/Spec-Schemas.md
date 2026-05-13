@@ -135,11 +135,196 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
    ])
 ```
 
-Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps that conform to RegistrationMetadata's open shape.
+Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps that conform to RegistrationMetadata's open shape. Each kind has its own narrowed schema enumerated below — `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata` further below — and tools that need the per-kind shape look up the schema by registered id (e.g. via `(app-schema-at [:rf/event-handler-meta])`).
 
 `:doc` is `{:optional true}` in the schema but normatively SHOULD appear on every registration. The dev runtime surfaces missing-`:doc` registrations through `:rf.warning/missing-doc` (emitted at most once per `(kind, id)` pair; production-elided) — see [001 §`:doc` is dev-warned when absent](001-Registration.md#doc-is-dev-warned-when-absent) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) for the emission contract. The schema stays `{:optional true}` so programmatic re-registration paths and tooling that compose metadata maps without `:doc` still validate; the warning is the nudge, not a structural gate.
 
 The `reg-event-*` interceptor chain is **not** a metadata-map key — it is the positional vector slot between the metadata-map and the handler. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-), `:interceptors` inside this map is silently ignored and the runtime emits `:rf.warning/interceptors-in-metadata-map`. (`reg-frame`'s metadata-map *does* carry an `:interceptors` key — that's a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
+
+### Per-kind refinements
+
+Each per-kind schema below `:merge`s `:rf/registration-metadata` and adds the keys the kind cares about. Open-map convention applies — hosts and tools may attach further keys additively without breaking conformance. `(rf/handler-meta kind id)` returns a value conforming to the corresponding per-kind schema; AI scaffolders ([Construction-Prompts](Construction-Prompts.md)) and conformance harnesses validate against these shapes at registration time.
+
+#### `:rf/event-handler-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-event-db` / `reg-event-fx` / `reg-event-ctx`. The `:event/kind` discriminator names which arity-flavour fed the entry (per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)); machine-handler registrations stamp `:rf/machine?` and `:rf/machine` per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler).
+
+```clojure
+(def EventHandlerMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:event/kind   {:optional true} [:enum :db :fx :ctx]]                    ;; runtime stamps this; user code MUST NOT set it
+    [:rf/machine?  {:optional true} :boolean]                                ;; true iff this :event entry is a machine handler (reg-machine path)
+    [:rf/machine   {:optional true} [:ref :rf/machine-spec]]                 ;; the captured machine spec (when :rf/machine? true); see [005](005-StateMachines.md)
+    ]])
+```
+
+The interceptor chain is positional (not a metadata-map key) — see the §Registration-metadata section above and [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-). `:event/kind` is **runtime-stamped** by the dispatch macro; explicit user assignment is silently overwritten. `:rf/machine?` / `:rf/machine` are stamped by `reg-machine` / `reg-machine*` only.
+
+#### `:rf/sub-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-sub`. The `:<-` chain is **not** a metadata-map key — it is the alternating-keyword/query-vector positional arg between the metadata-map and the body fn (per [006 §Layer-1, layer-2, layer-3 sub semantics](006-ReactiveSubstrate.md#layer-1-layer-2-layer-3-sub-semantics)). Tools recover the input topology from the runtime-stamped `:rf/inputs` slot below.
+
+```clojure
+(def SubMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:rf/inputs    {:optional true} [:vector [:vector :any]]]                ;; runtime-stamped: the resolved :<- chain as a vector of query-vectors
+    [:rf/layer     {:optional true} [:enum :layer-1 :layer-2+]]              ;; runtime-stamped: derived from :rf/inputs at registration time
+    ]])
+```
+
+`:rf/inputs` and `:rf/layer` are stamped by the runtime at registration time from the `:<-` positional args — user code MUST NOT set them. Static topology queries (`sub-topology`, per [006](006-ReactiveSubstrate.md)) read `:rf/inputs` back to project the `:<-` graph.
+
+#### `:rf/fx-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-fx`. Carries `:platforms` per [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx).
+
+```clojure
+(def FxMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:platforms    {:optional true} [:set [:enum :server :client]]]          ;; default if absent: #{:server :client} (universal); per [011](011-SSR.md)
+    ]])
+```
+
+`:platforms` absence defaults to universal (`#{:server :client}`). The fx resolver consults the active platform per [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx).
+
+#### `:rf/cofx-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-cofx`. Carries `:platforms` mirroring `reg-fx` per [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx). The handler fn's arity (1-arity `(fn [cofx])` vs 2-arity `(fn [cofx arg])`) is **fn-shape, not metadata** — the cofx resolver detects arity at injection time and routes the optional `inject-cofx` second-arg accordingly (per [API.md §`inject-cofx`](API.md)). Tools that need the arity discriminator inspect the fn's arity directly.
+
+```clojure
+(def CofxMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:platforms    {:optional true} [:set [:enum :server :client]]]          ;; default if absent: #{:server :client}; mirrors :rf/fx-meta
+    ]])
+```
+
+#### `:rf/view-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbol-meta override on the `reg-view` symbol surfaces in the stamped registry slot as `:rf/id` per [004 §Shape](004-Views.md#shape).
+
+```clojure
+(def ViewMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:rf/id        {:optional true} :keyword]                                ;; explicit id override (auto-derived from *ns* + symbol when absent)
+    [:rf/args      {:optional true} [:vector :symbol]]                       ;; the macro-captured args-vector symbols (defn-shape introspection)
+    [:rf/form      {:optional true} [:enum :form-1 :form-2 :form-3]]         ;; the view body's Reagent form discriminator
+    [:rf/props     {:optional true} :any]                                    ;; Malli schema for the view's props (when supplied); composes with the base :spec key per [010](010-Schemas.md)
+    ]])
+```
+
+`:rf/args` / `:rf/form` are stamped by the `reg-view` macro at expansion time; `reg-view*` (the plain-fn surface) carries neither — programmatic registrations have no args-vector to capture (per [004 §`reg-view*` — the plain-fn escape hatch](004-Views.md#reg-view--the-plain-fn-escape-hatch)). `:rf/props` is an optional user-supplied props schema; in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
+
+#### `:rf/machine-meta`
+
+> **Layer:** Public
+
+The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machine*` (per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler)). Note this is the **registry-slot metadata** — `:rf/machine?` discriminates a machine handler from an ordinary event handler in `(handlers :event)` queries.
+
+```clojure
+(def MachineMeta
+  [:merge
+   EventHandlerMeta
+   [:map
+    [:rf/machine?  [:= true]]                                                ;; required true on machine-handler registrations
+    [:rf/machine   :any]                                                     ;; the captured spec map (transition table, :guards, :actions, :on-spawn, ...). Schema is :rf/machine-spec; see [005](005-StateMachines.md).
+    ]])
+```
+
+The spec value at `:rf/machine` carries — when the macro path stamped it — the `:rf.machine/source-coords` per-element coord index (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3)).
+
+#### `:rf/flow-meta`
+
+> **Layer:** Public
+
+The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow` takes the flow **as a single map** (no separate metadata-map / handler slot) — the map carries both the wiring (`:id`, `:inputs`, `:output`, `:path`) and the registration metadata (`:doc`, `:spec`, source coords) per [013 §The registration shape](013-Flows.md#the-registration-shape).
+
+```clojure
+(def FlowMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:id           :keyword]                                                 ;; required: the flow id
+    [:inputs       [:vector [:vector :any]]]                                 ;; required: vector of app-db paths; positional args to :output
+    [:output       fn?]                                                      ;; required: pure fn (in-1, ..., in-n) → output
+    [:path         [:vector :any]]                                           ;; required: app-db path to write output to
+    ]])
+```
+
+`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:spec`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `reg-flow` rejects map shapes missing any required key with `:rf.error/flow-shape-invalid` (per [013 §The registration shape](013-Flows.md)).
+
+#### `:rf/app-schema-meta`
+
+> **Layer:** Public
+
+The metadata stamped on the `:app-schema` registry slot by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md)). The `:path` and `:schema` fields are runtime-stamped from the positional args — user code passes `(rf/reg-app-schema path schema)` rather than `(rf/reg-app-schema id {:path ... :schema ...})`.
+
+```clojure
+(def AppSchemaMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:path         [:vector :any]]                                           ;; runtime-stamped from positional arg; the app-db path the schema validates
+    [:schema       :any]                                                     ;; runtime-stamped; the Malli (or equivalent) schema value
+    [:frame        {:optional true} :keyword]                                ;; the frame the schema registers against (default: (current-frame))
+    ]])
+```
+
+`reg-app-schema` is **per-frame** (per [010 §Per-frame app-db schemas](010-Schemas.md)); the `:frame` slot records which frame this slot belongs to so tools enumerating across frames don't conflate registrations.
+
+#### `:rf/head-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-head` (per [011 §Mechanism — registered head function + route metadata](011-SSR.md#mechanism--registered-head-function--route-metadata)). The head fn itself is `(fn [db route] head-model)` — pure, JVM-runnable, value-shaped.
+
+```clojure
+(def HeadMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    ;; No required per-kind extras beyond the base shape — head registrations are
+    ;; reflection-metadata-only at the slot level. The head model returned by the fn
+    ;; conforms to :rf/head-model (defined below); a :spec key here may name that schema.
+    ]])
+```
+
+#### `:rf/error-projector-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-error-projector` (per [011 §Server error projection](011-SSR.md#server-error-projection)). The projector fn itself is `(fn [trace-event] public-error-map)` — pure, value-shaped. The projector named in `(rf/configure :ssr {:public-error-id ...})` is the active projector.
+
+```clojure
+(def ErrorProjectorMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    ;; No required per-kind extras beyond the base shape. The projector input conforms to
+    ;; :rf/trace-event (an :op-type :error refinement); the output conforms to :rf/public-error.
+    ]])
+```
+
+The route-shape — `:rf/route-metadata` — is defined separately further below in this catalogue (it predates this per-kind grouping). It composes with `:rf/registration-metadata` the same way the kinds above do; per [§`:rf/route-metadata`](#rfroute-metadata).
 
 ### `:rf/source-coord-meta`
 
@@ -2038,6 +2223,12 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
 `:rf/fixture-handler-body` is a synonym for `:rf/handler-body-dsl` (defined above) — the fixture format reuses the canonical DSL grammar rather than redefining it. Reserved built-ins are enumerated in [conformance/README.md §Handler-body DSL builtins](conformance/README.md#handler-body-dsl-builtins).
 
 The schema is open by convention — fixture files may add `:fixture/<key>`-namespaced metadata keys.
+
+## Resolved decisions
+
+### Per-kind registration-metadata schemas (RESOLVED rf2-kxs6j)
+
+The open-shape `:rf/registration-metadata` describes the common keys every `reg-*` accepts; each registration kind additionally has its own narrowed shape. Per [§Per-kind refinements](#per-kind-refinements), the catalogue ships `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata` (defined separately above). The closure resolves the open-question carried in [001 §Per-kind metadata schemas (RESOLVED rf2-kxs6j)](001-Registration.md#per-kind-metadata-schemas-resolved-rf2-kxs6j) and satisfies the SA-3/SA-4 commitment that every shape on the wire has a Spec-Schemas entry. AI scaffolders (Construction-Prompts) and conformance harnesses validate per-kind metadata at registration time against the corresponding refinement.
 
 ## Conformance
 
