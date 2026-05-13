@@ -486,6 +486,26 @@ The single-import contract is preserved: users continue to write `rf/reg-flow` a
 
 Per [rf2-hoiu](#) the wrappers live in sibling namespaces rather than in `core.cljc` itself so `core.cljc` stays free of optional-artefact glue. Per [rf2-2vbm](#) the file naming uses `core_<feature>` rather than `core/<feature>` because CLJS goog.provide for `re-frame.core` overwrites its parent object.
 
+### Late-bind hook key grammar
+
+Every key published through the `re-frame.late-bind` hook registry follows a closed grammar so the namespace prefix is predictable and the table stays browsable. The full inventory lives at [`implementation/core/src/re_frame/late_bind/directory.cljc`](../implementation/core/src/re_frame/late_bind/directory.cljc) (the drift-test source of truth per rf2-asmj1 H8 / [rf2-l8fi6](#)); the grammar is:
+
+| Prefix shape | Producer | When to use | Example |
+|---|---|---|---|
+| `:<feature>/<surface>` | A single per-feature artefact ns | The default case: an optional artefact publishes its public-API impl behind a late-bind seam. `<feature>` matches the feature-id (the artefact name without the `re-frame2-` prefix). `<surface>` names the function — `<verb-noun>` shape, kebab-case, bang-suffixed only when the producer mutates process-level state per [§Naming: when does a surface carry `!`?](#naming-when-does-a-surface-carry-). | `:flows/reg-flow`, `:schemas/validate-app-db!`, `:machines/spawn-fx`, `:ssr/render-to-string`, `:epoch/settle!`, `:http/clear-all-in-flight!` |
+| `:adapter/<surface>` | Chained across every shipped CLJS adapter | Substrate-routed seams — each adapter ns registers a fn keyed by `:adapter/<surface>`; the runtime dispatches through `current-adapter` to pick the right one. The drift directory marks these `:chained? true` with `:producer-ns` as a vector of every adapter ns. | `:adapter/current-frame`, `:adapter/ratom`, `:adapter/wrap-view` |
+| `:rf2/<runtime-stamp>` | Core (or an artefact publishing a globally-visible runtime fact) | Runtime-static, framework-owned stamps that any artefact can read — version numbers, build flags, schema digests, etc. The `:rf2/` prefix marks the key as "framework-global, not feature-scoped." Used sparingly — most cross-feature plumbing should pick a feature prefix instead. | `:rf2/runtime-version` |
+
+**Rules.**
+
+1. The `<feature>` segment names a single artefact (`flows`, `schemas`, `machines`, `routing`, `http`, `ssr`, `epoch`, `reagent`, `views`, `subs`, `router`, `trace`, `event-emit`, `error-emit`, `privacy`). New artefacts pick a single-segment kebab-case feature-id that matches the producing namespace's last segment.
+2. Multi-word `<surface>` is kebab-case (`reg-flow`, `clear-all-in-flight!`, `render-to-string`, `app-schemas-digest`). The `:` between prefix and surface is the only separator; no dots inside the surface segment.
+3. **The drift test enforces directory ↔ producer-ns parity** (`implementation/core/test/re_frame/late_bind_drift_test.clj`). A `set-fn!` call site whose key isn't in the directory — or a directory entry whose key isn't reached by any `set-fn!` — fails CI. Add a hook = update both the producer ns AND the directory entry in a single change.
+4. The hook key is **stable across the artefact's lifecycle** — adapters / consumers reference it by string-spelled keyword, so renaming a hook key is a breaking change of the same magnitude as renaming a public fn.
+5. Hooks that fan out chronologically (callback-style listeners called in registration order rather than overwriting) are documented with `:chained? true` in the directory; this is an additive property of the same naming grammar.
+
+The grammar holds across every per-feature artefact split landed under the [rf2-5vjj](#) Strategy B rollout; new per-feature splits MUST mint hook keys under their own `<feature>` segment so the naming stays grep-friendly across the codebase.
+
 ### Naming convention
 
 The artefact-naming convention is `re-frame2-<thing>`, where `<thing>` is the feature-id (per Spec topic) or adapter name. The Maven group is `day8` for the CLJS reference's published artefacts.
