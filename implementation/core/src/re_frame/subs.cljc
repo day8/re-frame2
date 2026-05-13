@@ -211,8 +211,10 @@
 (defn- validate-and-trace
   "Run the user's sub body fn once and project the result through the
   trace + performance + validate + error-recovery layer. Called by the
-  memo wrapper (`make-memoised-body`) on a true recompute — the memo
-  path skips this entire function when input is `=` to last-seen.
+  memo wrapper (`make-layer-1-memoised-body` for layer-1 subs,
+  `make-layer-n-memoised-body` for layer-2+) on a true recompute —
+  the memo path skips this entire function when input is `=` to
+  last-seen.
 
   Concerns folded in here, in order:
 
@@ -276,25 +278,63 @@
              :recovery          :replaced-with-default}))
         nil))))
 
-(defn- make-memoised-body
-  "Build the compute fn passed to `adapter/make-derived-value` — a
-  closure over a `volatile!` sentinel pair that enforces the Spec 006
-  §No-op via value equality (rf2-719e) discipline.
+;; ---- memoisation wrappers ------------------------------------------------
+;;
+;; Per Spec 006 §No-op via value equality (rf2-719e). Reagent's auto-run
+;; reaction unconditionally invokes the compute fn on any source-watch
+;; fire, then dedups *downstream notification* by `=`. That's one level
+;; too late for the spec — the body fn itself must NOT re-run when the
+;; resolved input value is `=` to the last-seen. The memo wrappers
+;; compare the inputs against the previous invocation and short-circuit
+;; to the memoised return value when equal. Reagent's dependency
+;; tracking still observes every `deref` because the wrapper *is* the
+;; compute fn — only the user's body (and the trace+validate+perf+
+;; recovery layer that brackets it) is suppressed.
+;;
+;; Per rf2-sxacg: the layer-1 path is specialised to a fixed-arity-1
+;; wrapper that compares the db value directly. This skips the
+;; varargs-seq allocation that `(fn [& in-vals])` would force on every
+;; recompute, and replaces the seq-vs-seq `=` walk with a direct value
+;; compare. Every layer-1 sub × every dispatch that touches it pays
+;; this — it's the hottest allocation in the artefact (per the
+;; rf2-spr6q audit, SU1/PE1).
 
-  Reagent's auto-run reaction unconditionally invokes the compute fn
-  on any source-watch fire, then dedups *downstream notification* by
-  `=`. That's one level too late for the spec — the body fn itself
-  must NOT re-run when the resolved input value is `=` to the
-  last-seen. This wrapper compares `in-vals` against the previous
-  invocation and short-circuits to the memoised return value when
-  equal. Reagent's dependency tracking still observes every `deref`
-  because the wrapper *is* the compute fn — only the user's body
-  (and the trace+validate+perf+recovery layer that brackets it) is
-  suppressed.
+(defn- make-layer-1-memoised-body
+  "Specialised memo wrapper for layer-1 subs (which read app-db
+  directly). Fixed-arity-1 — avoids the varargs-seq allocation that a
+  `(fn [& in-vals])` form would force on every reaction recompute, and
+  compares the db value to the last-seen scalar (no seq-vs-seq walk).
 
-  Returns a `(fn [& in-vals])`. When `body-fn` is nil (the unknown-sub
-  path — see `compute-and-cache!`) the wrapper yields nil on every
-  call without touching the memo cells."
+  Returns a `(fn [db])`. When `body-fn` is nil (the unknown-sub path
+  — see `compute-and-cache!`) the wrapper yields nil on every call
+  without touching the memo cells.
+
+  The `::unset` sentinel guarantees the first invocation always
+  recomputes (the sentinel is never `=` to any db value)."
+  [body-fn query-id query-v frame-id sub-meta]
+  (let [last-db     (volatile! ::unset)
+        last-result (volatile! nil)]
+    (fn [db]
+      (when body-fn
+        (if (= @last-db db)
+          @last-result
+          (let [computed (validate-and-trace
+                           body-fn (list db) query-id query-v
+                           frame-id [] sub-meta)]
+            (vreset! last-db db)
+            (vreset! last-result computed)
+            computed))))))
+
+(defn- make-layer-n-memoised-body
+  "Memo wrapper for layer-2+ subs (which chain off one or more upstream
+  subs). Varargs — the input arity matches the count of `:<-` entries
+  on the registration, and the wrapper compares the seq of input
+  values against the last-seen seq.
+
+  Returns a `(fn [& in-vals])`. When `body-fn` is nil the wrapper
+  yields nil on every call without touching the memo cells.
+
+  See `make-layer-1-memoised-body` for the layer-1 specialisation."
   [body-fn query-id query-v frame-id input-signals sub-meta]
   (let [last-in-vals (volatile! ::unset)
         last-result  (volatile! nil)]
@@ -317,8 +357,12 @@
   The compute fn handed to the substrate adapter is built in two
   layers, each named:
 
-    - `make-memoised-body` — Spec 006 §No-op via value equality
-      (rf2-719e). Wraps the user's body in a `=`-skipping memo.
+    - `make-layer-1-memoised-body` / `make-layer-n-memoised-body` —
+      Spec 006 §No-op via value equality (rf2-719e). Wraps the user's
+      body in a `=`-skipping memo. The layer-1 form is fixed-arity-1
+      and compares the db scalar directly (per rf2-sxacg — avoids
+      per-recompute varargs-seq allocation); layer-2+ keeps the
+      vec-of-inputs shape.
     - `validate-and-trace`  — Spec 009 :sub/run trace emit, Spec 009
       perf bracket (rf2-du3i), Spec 010 step 6 validation (rf2-wcam),
       and Spec 009 error contract (`:replaced-with-default` on throw).
@@ -338,12 +382,16 @@
                                            {:query-v query-v :frame frame-id}))
         body-fn       (:handler-fn sub-meta)
         input-signals (:input-signals sub-meta)
+        layer-1?      (empty? input-signals)
         ;; Resolve inputs: layer-1 → frame's app-db; layer-2+ → recursive subs.
-        inputs        (if (empty? input-signals)
+        inputs        (if layer-1?
                         [(frame/get-frame-db frame-id)]
                         (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
-        memoised-body (make-memoised-body
-                        body-fn query-id query-v frame-id input-signals sub-meta)
+        memoised-body (if layer-1?
+                        (make-layer-1-memoised-body
+                          body-fn query-id query-v frame-id sub-meta)
+                        (make-layer-n-memoised-body
+                          body-fn query-id query-v frame-id input-signals sub-meta))
         reaction      (adapter/make-derived-value inputs memoised-body)
         cache         (:sub-cache (frame/frame frame-id))
         k             (cache-key query-v)]
