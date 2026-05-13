@@ -64,6 +64,24 @@ A key in a `[:map ...]` is **required** by default. To make one optional, add `{
 
 A `[:map ...]` is **open by default** — extra keys not named in the schema are tolerated. This is deliberate (Spec 010 explains why) and matches re-frame2's "consumers tolerate unknown keys" convention. To reject extra keys, opt into `{:closed true}` in the properties map — typically only at system boundaries, where you want strict validation of incoming payloads.
 
+## Framework-reserved per-slot metadata: `:large?` and `:sensitive?`
+
+The slot properties map is also where you declare two framework-aware runtime flags that have nothing to do with validation and everything to do with the wire-boundary trace stream:
+
+```clojure
+(rf/reg-app-schema
+  [:user]
+  [:map
+   [:profile      [:map [:name :string] [:email :string]]]
+   [:auth-token   {:sensitive? true}                          :string]   ;; redacted in traces
+   [:uploaded-pdf {:large? true :hint "Upload preview blob"}  :string]]) ;; elided in traces
+```
+
+- `:large? true` declares the slot's value is large enough that the framework should **elide** it from the wire — every trace event that would otherwise carry the value substitutes a `:rf.size/large-elided` marker (`{:path :bytes :type :hint :handle}`). The runtime walks every registered schema at boot, populates `[:rf/elision :declarations]`, and `rf/elide-wire-value` consults it on every emit.
+- `:sensitive? true` declares the slot's value is **sensitive** — the schema-validation error path redacts the value before it rides the trace stream (the sentinel `:rf/redacted` appears in place of the value), and consumers route on a top-level `:sensitive?` flag. The two compose; sensitive wins on both-flagged slots.
+
+Both flags accept the same two structural positions as `{:optional true}`: per-slot inside a `:map` (path is the slot's path), or container-level when the schema is registered at the path directly (e.g. `[:string {:sensitive? true}]`). The optional `:hint` string on the same props map rides through to the wire marker, orienting AI consumers without forcing a drill-down. The full picture from the app-writer's side — runtime registration metadata, the `with-redacted` interceptor, `rf/declare-large-path!`, HTTP redaction, and the consumer-side composition rules — is the subject of the upcoming **chapter 23, Privacy + Size Elision**; this section is just the discoverability hook from the schemas side. The normative surface is [Spec 010 §Per-slot metadata vocabulary](../../spec/010-Schemas.md#per-slot-metadata-vocabulary) and [Spec-Schemas §`:rf/app-schema-meta`](../../spec/Spec-Schemas.md#rfapp-schema-meta).
+
 ## `reg-app-schema` — binding a schema to a path
 
 The everyday API. You point it at an `app-db` path and hand it a schema:
@@ -197,7 +215,7 @@ A schema-aware feature matches the convention when:
 
 ## Cross-references
 
-- [Spec 010 — Schemas](../../spec/010-Schemas.md) — the full normative surface: every validation point, the per-step recovery table, the validator-fn extension point, the boundary-validation interceptor in detail.
+- [Spec 010 — Schemas](../../spec/010-Schemas.md) — the full normative surface: every validation point, the per-step recovery table, the validator-fn extension point, the boundary-validation interceptor in detail, and the [per-slot metadata vocabulary](../../spec/010-Schemas.md#per-slot-metadata-vocabulary) (`:large?`, `:sensitive?`, `:hint`).
 - [Spec 009 — Instrumentation §Error contract](../../spec/009-Instrumentation.md#error-contract) — the structured-error shape every schema failure flows through.
 - [chapter 09 — Forms](09-forms.md) — the first heavy schema user: `FormSlice` for the slice shape, `LoginForm` for the value shape, both bound with `reg-app-schema`.
 - [chapter 10 — Doing HTTP requests](10-doing-http-requests.md) — schemas as the canonical `:decode` for response bodies.
