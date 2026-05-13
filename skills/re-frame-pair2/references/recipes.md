@@ -25,6 +25,7 @@ Named procedures the user may ask for. When the user asks a matching question, r
 ## "What's in `app-db`?" / "What did the last event do?"
 
 - Snapshot or get: `app-db/snapshot`, `app-db/get`, or for a diff between an epoch's `:db-before` and `:db-after`: `trace/last-epoch` and compute the diff with `clojure.data/diff`. The runtime helper `(re-frame-pair2.runtime/epoch-diff <epoch>)` returns a pre-computed `{:only-before :only-after :common}` map.
+- From the MCP transport, `snapshot`'s `:app-db` slice now defaults to **`:summary` mode** (top-level keys + count + size marker, not the full value — rf2-tygdv); drill in with `mcp__re-frame-pair2__get-path {path: "[:that :key]"}` or with a follow-up `snapshot {path: "[:that :key]"}`. Root path `path: "[]"` opts back into the full `:app-db` slice when you really want it. See [`mcp-transport.md` §:app-db slice modes](mcp-transport.md#when-to-use-snapshot-vs-the-per-op-reads).
 
 ## "Why didn't my view update?"
 

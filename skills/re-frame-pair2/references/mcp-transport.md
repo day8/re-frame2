@@ -50,7 +50,8 @@ The server auto-discovers the nREPL port from (in order):
 | `scripts/trace-window.sh 1000`    | `trace-window` | `{ms: 1000}` |
 | `scripts/watch-epochs.sh --event-id-prefix :cart` | `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}}` (pull-mode — call repeatedly with `since-id`) |
 | `scripts/tail-build.sh --probe '<form>'` | `tail-build` | `{probe: "..."}` |
-| _(none — MCP-only)_                | `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"]}` |
+| _(none — MCP-only)_                | `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"], path: "[:cart :items]"}` — default `:app-db` mode is **`:summary`** (tree-summary marker, not the full value); pass `path` to slice. Root `path: "[]"` opts back into the full slice. See [`ops.md` §Read](ops.md#read). |
+| _(none — MCP-only)_                | `get-path`     | `{path: "[:cart :items 0 :sku]", frame: ":rf/default"}` — targeted-read primitive (rf2-tygdv). Returns `{ok? true :exists? true :value <subtree>}` or `{ok? false :reason :path-not-found :deepest-valid-prefix [...]}`. `:exists?` distinguishes a path that legitimately points at `nil` from a missing path. |
 | _(none — MCP-only, push-mode)_     | `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error", filter: {...}, max-events: 0, max-ms: 0}` — emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
 | _(none — MCP-only)_                | `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
 
@@ -88,6 +89,16 @@ Use the per-op reads when:
 `snapshot` accepts `include` to subset the slices —
 `{include: ["app-db","epochs"]}` returns just those two — and
 `frames` to pick a subset of frame-ids — `{frames: [":stories"]}`.
+
+**`:app-db` slice modes (rf2-tygdv).** The `:app-db` slice no longer defaults to the full value. Two modes:
+
+- **`:summary` (default, no `path`)** — the `:app-db` slot is a `{:rf.mcp/summary {:type :map :keys [...] :count ... :bytes ...}}` marker carrying the top-level shape without committing the token budget. Map-key lists over 64 entries get truncated and flagged `:keys-truncated? true` so the marker itself can never blow the wire cap.
+- **`:path-sliced` (with `path`)** — the slot is `(get-in db path)`. Out-of-range paths surface per-frame in a top-level `:path-not-found` map with `:deepest-valid-prefix` so the agent can re-aim without a binary search.
+- **Root path `path: "[]"`** — explicit request for the full `:app-db`, equivalent to the legacy default. The wire cap (rf2-rvyzy) is then the backstop.
+
+The other slices (`:sub-cache`, `:machines`, `:epochs`, `:traces`) pass through unchanged.
+
+Use `get-path` (next section) when you already know the addressed subtree — it's a single-slice round-trip rather than the multi-slice composition `snapshot` does.
 
 ## Preload probe (no inject step)
 

@@ -1214,6 +1214,20 @@
 ;;
 ;; Each slice delegates to the existing per-slice reader — no parallel
 ;; reimplementation. The composer just routes by `:include` keys.
+;;
+;; Wire-boundary wrapping (rf2-tygdv). `snapshot-state` here returns the
+;; full slice values; the MCP server's `snapshot` tool then wraps the
+;; `:app-db` slice with path-slicing + lazy-summary before crossing the
+;; wire. The default mode at the wire is `:summary` — the slice value
+;; is replaced with a `{:rf.mcp/summary {:type :map :keys [...] :count
+;; ... :bytes ~...}}` marker carrying the top-level shape only. Callers
+;; pass `:path [...]` to receive `(get-in db path)` (`:mode
+;; :path-sliced`); root `:path []` opts back into the full slice
+;; (equivalent to the legacy default). Out-of-range paths surface
+;; per-frame in a `:path-not-found` map with `:deepest-valid-prefix`
+;; so the agent can re-aim. The `get-path` tool exposes the same
+;; targeted-read primitive directly — `:exists?` distinguishes a path
+;; that legitimately points at `nil` from one that doesn't resolve.
 
 (def ^:private all-snapshot-slices
   [:app-db :sub-cache :machines :epochs :traces])
@@ -1267,7 +1281,13 @@
 
    Routes through existing per-slice readers — no parallel implementation.
    Side effects: installs the trace + epoch listeners (idempotent via
-   `health`)."
+   `health`).
+
+   Note: this runtime-side form returns the *full* `:app-db` slice for
+   every frame. The MCP `snapshot` tool wraps this output with
+   path-slicing + lazy-summary at the wire boundary (rf2-tygdv) — see
+   the section header above for the modes. The wrapping is wire-side
+   only; direct callers of this CLJS form see slices verbatim."
   ([] (snapshot-state {}))
   ([{:keys [frames include]
      :or   {frames  :all
