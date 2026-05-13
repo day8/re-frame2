@@ -24,6 +24,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
             [re-frame.frame           :as frame]
+            [re-frame.late-bind       :as late-bind]
             [re-frame.machines        :as machines]
             [re-frame.registrar       :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -274,6 +275,78 @@
           hu (-> (story/snapshot-identity :story.id-sub/v {:substrate :uix})
                  :content-hash)]
       (is (not= hr hu)))))
+
+(deftest snapshot-identity-changes-with-variant-decorators
+  (testing "Per spec/007 §Variant snapshot identity (lines 424-429) — a
+            variant-level :decorators change MUST perturb the content-hash.
+            Closes rf2-9g48l: watch-mode auto-rerun keys off this identity,
+            so a decorator-only edit was silently dropped before this fix."
+    (story/reg-decorator :centered
+      {:kind :hiccup
+       :wrap (fn [body _args] [:div.centered body])})
+    (story/reg-decorator :boxed
+      {:kind :hiccup
+       :wrap (fn [body _args] [:div.boxed body])})
+    (story/reg-story :story.id-dec
+      {:component :app/v})
+    (story/reg-variant :story.id-dec/v
+      {:events     []
+       :decorators [[:centered]]})
+    (let [h1 (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
+      (story/reg-variant :story.id-dec/v
+        {:events     []
+         :decorators [[:boxed]]})
+      (let [h2 (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
+        (is (not= h1 h2)
+            "swapping the variant's decorator must produce a fresh hash"))
+      (testing "adding a decorator to a previously-decoratorless variant also perturbs the hash"
+        (story/reg-variant :story.id-dec/v
+          {:events     []
+           :decorators []})
+        (let [h-empty (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
+          (story/reg-variant :story.id-dec/v
+            {:events     []
+             :decorators [[:centered]]})
+          (let [h-with (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
+            (is (not= h-empty h-with)
+                "appending a decorator must produce a fresh hash")))))))
+
+(deftest snapshot-identity-changes-with-view-schema-digest
+  (testing "Per spec/007 §Variant snapshot identity (line 429) — the
+            *registered* schema digest of the view (per spec/011
+            §:rf/schema-digest) participates in the hash. A schema change
+            on the view MUST invalidate the snapshot identity (and the
+            visual-regression baseline keyed off it). Closes rf2-9g48l:
+            the digest is sourced via the `:schemas/app-schemas-digest`
+            late-bind hook so identity.cljc does NOT statically :require
+            the schemas artefact."
+    (story/reg-story :story.id-sd
+      {:component :app/v})
+    (story/reg-variant :story.id-sd/v {:events []})
+    (let [prior (late-bind/get-fn :schemas/app-schemas-digest)]
+      (try
+        ;; Simulate a registered schema by installing a hook with a
+        ;; fixed digest value.
+        (late-bind/set-fn! :schemas/app-schemas-digest
+                           (fn [] "sha256:0000000000000001"))
+        (let [h1 (-> (story/snapshot-identity :story.id-sd/v) :content-hash)]
+          ;; Now simulate a schema change by mutating the hook's
+          ;; return value. The framework actually re-installs the hook
+          ;; each time schemas mutate; we model that here.
+          (late-bind/set-fn! :schemas/app-schemas-digest
+                             (fn [] "sha256:0000000000000002"))
+          (let [h2 (-> (story/snapshot-identity :story.id-sd/v) :content-hash)]
+            (is (not= h1 h2)
+                "a view schema-digest change must produce a fresh hash")))
+        (testing "when the schemas artefact is absent (no hook registered),
+                  the digest slot is nil and the hash is still stable"
+          (late-bind/set-fn! :schemas/app-schemas-digest nil)
+          (let [a (-> (story/snapshot-identity :story.id-sd/v) :content-hash)
+                b (-> (story/snapshot-identity :story.id-sd/v) :content-hash)]
+            (is (= a b)
+                "absent-hook path must be deterministic across calls")))
+        (finally
+          (late-bind/set-fn! :schemas/app-schemas-digest prior))))))
 
 (deftest snapshot-identity-canonical-key-stable
   (testing "the canonical-form key :rf/snapshot-canonical-v1 is included"
