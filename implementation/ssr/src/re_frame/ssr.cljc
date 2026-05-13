@@ -114,7 +114,12 @@
 ;; framework-private at the public surface — Spec 011 §Per-request
 ;; frame teardown. Tests reach the var via `(resolve ...)`.
 (def ^:private pending-error-traces  error-listener/pending-error-traces)
-(def request-slots                   request/request-slots)
+;; rf2-i3qc0 — private at the façade so the public surface stays symmetric
+;; with `response-slots` and `pending-error-traces`. Tests reach via
+;; `re-frame.ssr.test-fixture/reset-runtime` (the canonical reset surface)
+;; or by `:require`-ing `re-frame.ssr.request` directly. Production
+;; consumers go through `set-request!` / `get-request` / `clear-request!`.
+(def ^:private request-slots         request/request-slots)
 (def set-request!                    request/set-request!)
 (def get-request                     request/get-request)
 (def clear-request!                  request/clear-request!)

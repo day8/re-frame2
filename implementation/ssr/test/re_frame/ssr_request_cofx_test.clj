@@ -22,32 +22,11 @@
   that drive the drain without a host adapter)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.ssr :as ssr]))
+            [re-frame.ssr :as ssr]
+            [re-frame.ssr.test-fixture :as tf]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  (reset! ssr/request-slots {})
-  (when-let [v (resolve 're-frame.ssr/response-slots)]
-    (reset! @v {}))
-  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
-    (reset! @v {}))
-  (rf/init! ssr/adapter)
-  ;; Namespace-load-time registrations get wiped by clear-all!; reload
-  ;; so :rf/hydrate, :rf.server/* fxs, AND the :rf.server/request cofx
-  ;; resurrect between tests.
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
+(use-fixtures :each tf/reset-runtime)
 
 (defn- collect-traces!
   "Register a trace listener under `id`, returning the atom that

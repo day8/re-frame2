@@ -51,34 +51,17 @@
                                    10_000 finishes in ~5s on a recent
                                    laptop."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core      :as rf]
-            [re-frame.flows     :as flows]
-            [re-frame.frame     :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas   :as schemas]
-            [re-frame.ssr       :as ssr]))
+            [re-frame.core             :as rf]
+            [re-frame.ssr              :as ssr]
+            [re-frame.ssr.test-fixture :as tf]))
 
 ;; ---- runtime reset --------------------------------------------------------
+;;
+;; The canonical reset-runtime fixture lives in `re-frame.ssr.test-fixture`
+;; (rf2-i3qc0). One source of truth for the registrar/side-channel/ns-reload
+;; cycle every ssr-artefact JVM test runs between :each.
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  (reset! ssr/request-slots {})
-  ;; Framework-private SSR side-channel atoms — reach via resolve so
-  ;; process-wide stale entries can't bleed across fixtures.
-  (when-let [v (resolve 're-frame.ssr/response-slots)]
-    (reset! @v {}))
-  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
-    (reset! @v {}))
-  (rf/init! ssr/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each tf/reset-runtime)
 
 ;; ---- side-channel probes --------------------------------------------------
 
@@ -97,11 +80,20 @@
   []
   @(pending-error-traces-atom))
 
-(defn- request-slots-snapshot
-  "Read `re-frame.ssr/request-slots` — a public defonce; held for parity
-  with the private-deref above."
+(defn- request-slots-atom
+  "Return the `re-frame.ssr/request-slots` atom. Per rf2-i3qc0 this is
+  `^:private` at the façade (symmetric with `pending-error-traces` and
+  `response-slots`); resolve via the producing sub-namespace so the
+  load-test still observes the teardown contract."
   []
-  @ssr/request-slots)
+  (deref (or (resolve 're-frame.ssr.request/request-slots)
+             (throw (ex-info "Cannot resolve re-frame.ssr.request/request-slots — ns layout changed?"
+                             {})))))
+
+(defn- request-slots-snapshot
+  "Snapshot the current value of the per-frame request-slot atom."
+  []
+  @(request-slots-atom))
 
 (defn- response-slots-atom
   "Return the `re-frame.ssr/response-slots` atom. It's `^:private` at the

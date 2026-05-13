@@ -17,39 +17,12 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.head :as head]))
+            [re-frame.ssr.head :as head]
+            [re-frame.ssr.test-fixture :as tf]))
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  (reset! head/head-snapshots {})
-  (reset! ssr/request-slots {})
-  ;; The defonce-backed `pending-error-traces` and `response-slots` atoms
-  ;; in re-frame.ssr are framework-private; reach them reflectively.
-  ;; Resetting between tests prevents the load-test downstream from
-  ;; inheriting stale entries left by earlier suites — the ssr-head
-  ;; tests themselves don't drive any error-projection or response-fx
-  ;; path, but the defonce atoms are process-wide.
-  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
-    (reset! @v {}))
-  (when-let [v (resolve 're-frame.ssr/response-slots)]
-    (reset! @v {}))
-  (rf/init! ssr/adapter)
-  ;; Resurrect ns-load-time registrations after clear-all!.
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  (require 're-frame.ssr.head :reload)
-  (require 're-frame.machines :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
+(use-fixtures :each tf/reset-runtime)
 
 ;; ===========================================================================
 ;; reg-head — registry kind :head with handler-fn

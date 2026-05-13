@@ -12,30 +12,12 @@
       mismatch trace fires with :expected + :actual + :recovery shape."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.ssr :as ssr]))
+            [re-frame.ssr :as ssr]
+            [re-frame.ssr.test-fixture :as tf]))
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  (reset! ssr/request-slots {})
-  (when-let [v (resolve 're-frame.ssr/response-slots)]
-    (reset! @v {}))
-  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
-    (reset! @v {}))
-  (rf/init! ssr/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr    :reload)
-  (require 're-frame.machines :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
+(use-fixtures :each tf/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
 
