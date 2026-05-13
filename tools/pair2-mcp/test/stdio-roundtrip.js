@@ -3,7 +3,8 @@
 //
 // This test does NOT need a live shadow-cljs nREPL — it exercises:
 //   - initialize handshake
-//   - tools/list (expects all seven tools, including the snapshot mega-op)
+//   - tools/list (expects all nine tools, including the snapshot mega-op
+//     and the subscribe/unsubscribe streaming pair)
 //   - tools/call eval-cljs against an absent nREPL (expects graceful
 //     :nrepl-port-not-found degraded mode)
 //   - tools/call snapshot against an absent nREPL (same degraded mode —
