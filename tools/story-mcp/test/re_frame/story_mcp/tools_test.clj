@@ -874,3 +874,163 @@
           (str "tool " (:name t) " missing :max-tokens slot"))
       (is (= "integer" (-> t :inputSchema :properties :max-tokens :type))
           (str "tool " (:name t) " :max-tokens slot is not integer-typed")))))
+
+;; ---------------------------------------------------------------------------
+;; Wire-egress privacy posture (rf2-73wuj)
+;;
+;; Per spec/Tool-Pair.md §Direct-read privacy posture (lines 544-566) every
+;; pair-shaped tool that surfaces a live `:app-db` slice MUST route the
+;; value through `re-frame.core/elide-wire-value` before egress, with
+;; off-box defaults (`:rf.size/include-sensitive?` and
+;; `:rf.size/include-large?` both default false). The cross-MCP
+;; `:include-sensitive?` arg (rf2-vw4sq) is the documented escape hatch.
+;;
+;; These tests pin the contract at the story-mcp surface: a sensitive
+;; slot declared via the `[:rf/elision :declarations]` registry on the
+;; variant's frame must surface as `:rf/redacted` in the tool's response
+;; `:app-db` slot by default, and as the raw value when the caller opts
+;; in via `:include-sensitive? true`. Assertion records carrying the
+;; top-level `:sensitive? true` stamp must be dropped by default and
+;; included when opted in.
+;;
+;; Pattern mirrors `implementation/core/test/re_frame/elision_test.clj`
+;; — the registry slot is populated via direct container mutation
+;; (`re-frame.substrate.adapter/replace-container!`) so the test does
+;; not depend on the rf2-isdwf cofx-side stamping work, which is
+;; orthogonal to the wire-egress contract under test here.
+;; ---------------------------------------------------------------------------
+
+(defn- frame-container [variant-id]
+  ;; `re-frame.frame/get-frame-db` returns the substrate container (an
+  ;; atom under plain-atom); the user-facing `rf/get-frame-db` returns
+  ;; the dereferenced VALUE. Tests need the container so they can write
+  ;; the elision-registry slot back.
+  ((requiring-resolve 're-frame.frame/get-frame-db) variant-id))
+
+(defn- read-frame-db [variant-id]
+  ((requiring-resolve 're-frame.substrate.adapter/read-container)
+   (frame-container variant-id)))
+
+(defn- replace-frame-db! [variant-id new-db]
+  ((requiring-resolve 're-frame.substrate.adapter/replace-container!)
+   (frame-container variant-id)
+   new-db))
+
+(defn- declare-sensitive!
+  "Write a `{:sensitive? true}` entry into `[:rf/elision :declarations
+  <path>]` on the named variant's frame. The walker reads this on the
+  next call to `elide-wire-value` and emits `:rf/redacted` at the slot."
+  [variant-id path]
+  (let [db (or (read-frame-db variant-id) {})]
+    (replace-frame-db! variant-id
+                       (assoc-in db
+                                 [:rf/elision :declarations path]
+                                 {:sensitive? true :source :declared}))))
+
+(defn- seed-app-db!
+  "Write `db` into `variant-id`'s frame app-db. Helper for the privacy
+  tests so we can populate slots without invoking a full `run-variant`."
+  [variant-id db]
+  (replace-frame-db! variant-id db))
+
+(deftest preview-variant-app-db-redacts-sensitive-by-default
+  (testing "sensitive path in variant frame's app-db lands :rf/redacted in the response"
+    (let [vid :story.button/primary]
+      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
+      (declare-sensitive! vid [:secret])
+      (let [r (invoke "preview-variant" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= :rf/redacted (get-in s [:app-db :secret]))
+            "the :secret slot is redacted by the wire-egress walker")
+        (is (= "ok" (get-in s [:app-db :public]))
+            "non-sensitive slots survive the walk")))))
+
+(deftest preview-variant-app-db-includes-sensitive-when-opted-in
+  (testing ":include-sensitive? true forwards the raw value through the walker"
+    (let [vid :story.button/primary]
+      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
+      (declare-sensitive! vid [:secret])
+      (let [r (invoke "preview-variant" {:variant-id "story.button/primary"
+                                         :include-sensitive? true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= "TOPSECRET" (get-in s [:app-db :secret]))
+            "opt-in surfaces the raw sensitive value")))))
+
+(deftest run-variant-app-db-redacts-sensitive-by-default
+  (testing "run-variant's :app-db slot routes through the wire-egress walker"
+    (let [vid :story.button/primary]
+      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
+      (declare-sensitive! vid [:secret])
+      (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r))
+        ;; The registry slot at `[:rf/elision :declarations]` survives
+        ;; the run (Story doesn't clear it). The redaction must show
+        ;; in the response.
+        (is (= :rf/redacted (get-in s [:app-db :secret]))
+            "the :secret slot is redacted at egress")))))
+
+(deftest run-variant-app-db-includes-sensitive-when-opted-in
+  (testing "run-variant's :include-sensitive? true forwards the raw value"
+    (let [vid :story.button/primary]
+      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
+      (declare-sensitive! vid [:secret])
+      (let [r (invoke "run-variant" {:variant-id "story.button/primary"
+                                     :include-sensitive? true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= "TOPSECRET" (get-in s [:app-db :secret])))))))
+
+(deftest read-failures-strips-sensitive-assertion-records-by-default
+  (testing "an assertion record stamped :sensitive? true is dropped at egress"
+    (let [vid :story.button/primary]
+      ;; Seed assertion accumulator with one sensitive failure + one
+      ;; benign passing record. The default-drop filter (strip-sensitive
+      ;; from mcp-base.sensitive) must remove only the sensitive one.
+      (seed-app-db! vid
+                    {:rf.story/assertions
+                     [{:assertion :rf.assert/path-equals
+                       :passed?   true
+                       :tags      [:public]}
+                      {:assertion  :rf.assert/path-equals
+                       :passed?    false
+                       :sensitive? true
+                       :reason     "expected TOPSECRET got something-else"}]})
+      (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= 1 (:total s)) "only the non-sensitive record survives")
+        (is (empty? (:failures s)) "the sensitive failure is filtered out")
+        (is (true? (:passing? s))
+            ":passing? runs against the scrubbed vec — agent's view is consistent")))))
+
+(deftest read-failures-includes-sensitive-when-opted-in
+  (testing ":include-sensitive? true preserves sensitive records"
+    (let [vid :story.button/primary]
+      (seed-app-db! vid
+                    {:rf.story/assertions
+                     [{:assertion :rf.assert/path-equals
+                       :passed?   true}
+                      {:assertion  :rf.assert/path-equals
+                       :passed?    false
+                       :sensitive? true
+                       :reason     "expected TOPSECRET got something-else"}]})
+      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
+                                       :include-sensitive? true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= 2 (:total s)) "both records survive the egress")
+        (is (= 1 (count (:failures s))) "the failed sensitive record is visible")
+        (is (false? (:passing? s)) "the visible failure flips :passing?")))))
+
+(deftest egress-tools-input-schema-carries-include-sensitive
+  (testing "every tool surfacing :app-db or assertions accepts :include-sensitive?"
+    (doseq [tname ["preview-variant" "run-variant" "read-failures"]]
+      (let [t     (some #(when (= tname (:name %)) %) tools/tool-registry)
+            props (-> t :inputSchema :properties)]
+        (is (contains? props :include-sensitive?)
+            (str tname " missing :include-sensitive? slot"))
+        (is (= "boolean" (-> props :include-sensitive? :type))
+            (str tname " :include-sensitive? slot is not boolean-typed"))))))
