@@ -432,6 +432,15 @@ Errors are emitted as structured trace events with `:op-type :error` (or `:warni
 
 Per-Spec emit-sites: [002-Frames](002-Frames.md), [005-StateMachines](005-StateMachines.md), [006-ReactiveSubstrate](006-ReactiveSubstrate.md), [010-Schemas](010-Schemas.md), [011-SSR](011-SSR.md), [012-Routing](012-Routing.md), [013-Flows](013-Flows.md), [014-HTTPRequests](014-HTTPRequests.md), [Tool-Pair](Tool-Pair.md). Each catalogue row's "Per [N]" cross-link names the owning Spec section.
 
+### Privacy (Spec 009 §Privacy / sensitive data in traces)
+
+Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a registration declared `:sensitive? true`. Framework-published trace consumers (Sentry/Honeybadger forwarders, pair2 server, Causa, Story, story-mcp, pair2-mcp, causa-mcp) MUST default-drop the stamped events at their egress boundary. `with-redacted` is the in-place payload scrub composed alongside the stamp.
+
+| API | M/Fn | Signature | Status | Spec |
+|---|---|---|---|---|
+| `sensitive?` | Fn | `(sensitive? trace-event)` → `boolean`. True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check (rf2-sqxjn). | v1 | 009 |
+| `with-redacted` | Fn | `(with-redacted paths)` → interceptor. Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map. | v1 | 009 |
+
 ---
 
 ## Spec-internal schemas
