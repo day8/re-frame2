@@ -300,11 +300,9 @@ The dev nudge is deliberate: documented handlers are the difference between a re
 
 ## Open questions
 
-### Per-kind metadata schemas
+### Per-kind metadata schemas (RESOLVED rf2-kxs6j)
 
-The metadata map is open, but each kind has a documented set of keys it cares about. Should each kind ship a Malli schema for its metadata (e.g., `:rf/event-metadata` describing what `reg-event-fx`'s metadata can contain)?
-
-Lean: yes. Add per-kind metadata schemas to [Spec-Schemas.md](Spec-Schemas.md).
+The metadata map is open, but each kind has a documented set of keys it cares about. Per [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements), the catalogue ships per-kind narrowed schemas — `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata` — each `:merge`-composed with the base `:rf/registration-metadata` open shape. AI scaffolders and conformance harnesses validate per-kind metadata at registration time against the corresponding refinement.
 
 ## Resolved decisions
 
