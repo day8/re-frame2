@@ -21,254 +21,58 @@
   loading this namespace publishes the hooks. Apps that don't register
   any flows don't drag the per-frame flow registry, the topological-
   sort engine, the dirty-check `last-inputs` map, or the post-drain
-  `run-flows!` walker onto the classpath."
-  (:require [re-frame.registrar :as registrar]
+  `run-flows!` walker onto the classpath.
+
+  ## Internal layout (rf2-mnu8z)
+
+  Per the rf2-zkca8 leaf-size ceiling the original 431-LoC monolith
+  was split along its three natural seams; this namespace is now the
+  public FAÇADE — it owns the post-drain evaluation walker, the fx-
+  call indirections, and the late-bind hook publications, and re-
+  exports the registry's public-surface symbols. The split is:
+
+    - `re-frame.flows.topo`     — pure Kahn's topological sort +
+      cycle-path extraction. Unit-testable in isolation, no atoms,
+      no traces.
+    - `re-frame.flows.registry` — per-frame `flows` + `last-inputs`
+      atoms, validation, `reg-flow` / `clear-flow`, the registrar
+      replacement-hook for hot-reload invalidation, and the
+      test-only `reset-flows!` / `reset-last-inputs!` resets.
+    - `re-frame.flows` (this)   — `evaluate-flow!` / `run-flows!`,
+      fx-call indirections, late-bind hook publication, and the
+      public re-export surface.
+
+  External consumers continue to reach every documented symbol at
+  `re-frame.flows/<name>` — production code via the late-bind hooks,
+  the per-artefact test fixtures via `re-frame.flows/flows` and
+  `(resolve 're-frame.flows/last-inputs)`."
+  (:require [re-frame.flows.registry :as registry]
+            [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as adapter]
-            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
-;; ---- registry -------------------------------------------------------------
+;; ---- public-surface re-exports -------------------------------------------
 ;;
-;; Per Spec 013, flows are frame-scoped — same flow-id can register
-;; against two frames with different :inputs / :output / :path, and
-;; undo / time-travel semantics belong to a specific frame's history.
-;; The registry shape is {frame-id {flow-id flow-map}}.
+;; Atoms re-exported as Vars so test fixtures across artefacts
+;; (`flows_test.clj`, `flows_trace_test.clj`, `smoke_test.clj`,
+;; `epoch_test.clj`, `core_api_additions_test.clj`, `reg_view_test.clj`,
+;; `source_coords_test.clj`, `ssr/test_fixture.clj`) keep working
+;; against the SAME atom value at `re-frame.flows/flows` and
+;; `re-frame.flows/last-inputs`. Several tests reach `last-inputs`
+;; via `(resolve 're-frame.flows/last-inputs)`; that resolve must
+;; continue to land on a var deref-equal to the registry's atom.
 
-(defonce
-  ^{:doc "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
-          / clear semantics are unambiguous."}
-  flows
-  (atom {}))
+(def flows       registry/flows)
+(def last-inputs registry/last-inputs)
 
-;; Per-frame last-inputs, keyed by [frame-id flow-id] → last seen input vec.
-(defonce ^:private last-inputs (atom {}))
+(def reg-flow           registry/reg-flow)
+(def clear-flow         registry/clear-flow)
+(def reset-flows!       registry/reset-flows!)
+(def reset-last-inputs! registry/reset-last-inputs!)
 
-;; ---- topological sort -----------------------------------------------------
-
-(defn- prefix? [a b]
-  (and (>= (count b) (count a))
-       (= a (vec (take (count a) b)))))
-
-(defn- depends-on?
-  "Per Spec 013 §Topological sort: B depends on A iff A's :path and any
-  of B's :inputs share a path prefix in either direction."
-  [b-flow a-flow]
-  (let [a-path (:path a-flow)]
-    (boolean
-      (some (fn [b-input]
-              (or (prefix? a-path b-input)
-                  (prefix? b-input a-path)))
-            (:inputs b-flow)))))
-
-(defn- extract-cycle-path
-  "Given the dependency graph `id → #{deps...}` and the set of stuck
-  ids `remaining` (those Kahn's couldn't peel), return an ordered cycle
-  path with a CLOSING REPEAT — e.g. `[:a :b :a]` for the cycle
-  `:a → :b → :a`. Tools render this directly.
-
-  DFS from an arbitrary stuck node, following dependency edges within
-  `remaining`. When a node is revisited along the current path stack,
-  the slice `[stack-from-revisit ... current]` plus the revisited node
-  closes the cycle.
-
-  `remaining` is a set of stuck ids (NOT the live `remaining` map from
-  Kahn's loop — its values have been mutated as deps were peeled away,
-  so we read fresh dep edges from `graph`)."
-  [graph remaining]
-  ;; Deterministic pick: sort by hash so cycle reports are stable across
-  ;; runs without requiring flow-ids be mutually comparable (sort fails
-  ;; on mixed types). Hash collisions don't matter — we only need ONE
-  ;; cycle path, any pick produces a valid one.
-  (let [stuck-sorted (vec (sort-by hash remaining))
-        start        (first stuck-sorted)]
-    (loop [stack [start]
-           seen  #{start}]
-      (let [node (peek stack)
-            ;; Only follow edges into other stuck nodes — edges to
-            ;; already-peeled nodes can't be part of a remaining cycle.
-            next-dep (first (sort-by hash (filter remaining (graph node))))]
-        (cond
-          (nil? next-dep)
-          ;; Dead end within `remaining` — shouldn't happen because
-          ;; every stuck node has at least one stuck dep (that's why
-          ;; it's stuck), but defensively return the stack closed
-          ;; against itself.
-          (conj stack start)
-
-          (contains? seen next-dep)
-          ;; Cycle found. Slice the stack from the revisited node
-          ;; forward, then append the revisited node again to close.
-          ;; Pure-Clojure index search keeps this .cljc-portable.
-          (let [idx (loop [i 0]
-                      (cond
-                        (= i (count stack))      0
-                        (= (nth stack i) next-dep) i
-                        :else                    (recur (inc i))))]
-            (conj (subvec stack idx) next-dep))
-
-          :else
-          (recur (conj stack next-dep) (conj seen next-dep)))))))
-
-(defn- topo-sort
-  "Kahn's algorithm — pure `loop`/`recur` over immutable state. Returns
-  flows in evaluation order; throws `:rf.error/flow-cycle` if the graph
-  is cyclic. `ready` is a vector used as a LIFO stack
-  (`peek`/`pop`/`conj`); `remaining` is the live id→dep-set map; `order`
-  is the accumulating result.
-
-  On cycle: ex-data carries `:cycle` — an ordered cycle path with a
-  closing repeat (e.g. `[:a :b :a]`) extracted via DFS through the
-  stuck nodes. Per Spec 013 §Cycle detection / Spec 009 §Error contract.
-  Tools (e.g. Causa) render this directly as the offending chain."
-  [flow-map]
-  (let [ids   (vec (keys flow-map))
-        graph (into {}
-                    (map (fn [id]
-                           (let [flow (flow-map id)]
-                             [id (into #{}
-                                       (filter #(and (not= id %)
-                                                     (depends-on? flow (flow-map %))))
-                                       ids)])))
-                    ids)]
-    (loop [ready     (filterv #(empty? (graph %)) ids)
-           remaining graph
-           order     []]
-      (if-let [n (peek ready)]
-        (let [rem0 (dissoc remaining n)
-              [remaining' ready']
-              (reduce-kv (fn [[rem rdy] m m-deps]
-                           (if-not (contains? m-deps n)
-                             [rem rdy]
-                             (let [m-deps' (disj m-deps n)]
-                               [(assoc rem m m-deps')
-                                (cond-> rdy (empty? m-deps') (conj m))])))
-                         [rem0 (pop ready)]
-                         rem0)]
-          (recur ready' remaining' (conj order n)))
-        (if (seq remaining)
-          (throw (ex-info ":rf.error/flow-cycle"
-                          {:cycle (extract-cycle-path graph
-                                                      (set (keys remaining)))}))
-          order)))))
-
-;; Note: `topo-sort` runs on every drain via `run-flows!`. A memo was
-;; trialled here and removed (rf2-cd00): the per-frame flow map is tiny
-;; (Kahn over a handful of nodes), and a memo whose key is the flow map
-;; needs explicit invalidation on every reg-flow / clear-flow anyway.
-;; The unmemoised call is the cheapest correct option.
-
-;; ---- registration ---------------------------------------------------------
-
-(defn- validate-flow [flow]
-  (cond
-    (nil? (:id flow))
-    (throw (ex-info ":rf.error/flow-missing-id" {:flow flow}))
-
-    (not (vector? (:inputs flow)))
-    (throw (ex-info ":rf.error/flow-bad-inputs"
-                    {:flow flow :reason ":inputs must be a vector of paths"}))
-
-    (not (fn? (:output flow)))
-    (throw (ex-info ":rf.error/flow-bad-output"
-                    {:flow flow :reason ":output must be a fn"}))
-
-    (not (vector? (:path flow)))
-    (throw (ex-info ":rf.error/flow-bad-path"
-                    {:flow flow :reason ":path must be a vector"}))))
-
-(defn reg-flow
-  "Register a flow against a frame. Per Spec 013 — flows are frame-
-  scoped: their lifecycle, evaluation, undo / time-travel semantics
-  all belong to one frame.
-
-  Required keys on the flow map: :id :inputs :output :path.
-  Optional: :doc :spec.
-
-  The frame to register against comes from the optional :frame opt;
-  default is (frame/current-frame) — usually :rf/default unless
-  called inside a (with-frame ...) wrapper or under a frame-provider."
-  ([flow] (reg-flow flow {}))
-  ([flow {:keys [frame] :as _opts}]
-   (validate-flow flow)
-   (let [frame-id     (or frame (frame/current-frame))
-         flow-id      (:id flow)
-         prior-frame  (get @flows frame-id)
-         ;; Per rf2-7csri: detect cycles on a PROSPECTIVE flow-map
-         ;; BEFORE mutating the atom or the registrar. The earlier
-         ;; write-then-rollback path silently deleted the prior
-         ;; registration along with the rejected one when a REPLACEMENT
-         ;; introduced a cycle — the rollback dissoc'd by flow-id,
-         ;; vacating the slot the prior entry was sharing. Now we run
-         ;; topo-sort on (prior-frame `assoc` new-entry) up-front; if it
-         ;; throws, nothing has been written and the prior registration
-         ;; stays intact.
-         prospective  (assoc prior-frame flow-id flow)]
-     (topo-sort prospective)
-     ;; Cycle check passed — commit. The :flow registrar slot keys on
-     ;; flow-id only; stamp :frame into the metadata so introspection
-     ;; / hot-reload hooks can read the owning frame.
-     (registrar/register! :flow flow-id
-                          (source-coords/merge-coords
-                            (assoc flow :frame frame-id)))
-     (swap! flows assoc-in [frame-id flow-id] flow)
-     ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires after
-     ;; reg-flow successfully completes (including post-cycle-detection).
-     ;; Tools observe this to track the flow population over hot reloads /
-     ;; toggles. Op-type :flow is the discriminator for the whole flow
-     ;; trace stream (per Spec 009 §:op-type vocabulary, §Flow tracing).
-     (trace/emit! :flow :rf.flow/registered
-                  {:flow-id flow-id
-                   :inputs  (:inputs flow)
-                   :path    (:path flow)
-                   :frame   frame-id})
-     flow-id)))
-
-(defn clear-flow
-  "Deregister a flow from a frame; dissoc its output path from that
-  frame's app-db (only that frame). Frame defaults to (current-frame)."
-  ([id] (clear-flow id {}))
-  ([id {:keys [frame] :as _opts}]
-   (let [frame-id (or frame (frame/current-frame))]
-     (when-let [flow (get-in @flows [frame-id id])]
-       (let [path (:path flow)]
-         (when-let [container (frame/get-frame-db frame-id)]
-           (let [cur    (adapter/read-container container)
-                 ;; rf2-aqt7: when :path is a single-element vector [:k],
-                 ;; (butlast [:k]) is () and (update-in cur [] dissoc :k)
-                 ;; does NOT dissoc — Clojure's update-in on the empty
-                 ;; path falls into (assoc {} nil (apply f val args)),
-                 ;; producing {... nil nil}. Special-case length 1 so
-                 ;; the leaf is dissoc'd directly.
-                 new-db (cond
-                          (not (vector? path))         (dissoc cur path)
-                          (empty? path)                cur
-                          (= 1 (count path))           (dissoc cur (first path))
-                          :else                        (update-in cur
-                                                                  (vec (butlast path))
-                                                                  dissoc
-                                                                  (last path)))]
-             (adapter/replace-container! container new-db)))
-         (swap! flows update frame-id dissoc id)
-         (swap! last-inputs dissoc [frame-id id])
-         ;; Only unregister from the registrar if this was the LAST
-         ;; frame holding the flow id — otherwise other frames still
-         ;; need the registry slot for hot-reload tracking.
-         (when (every? (fn [[_ frame-flows]] (not (contains? frame-flows id)))
-                       @flows)
-           (registrar/unregister! :flow id))
-         ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
-         ;; clear-flow has removed the flow from the per-frame registry
-         ;; and dissoc-in'd its output path. Tools observe this to drop
-         ;; their per-flow display state.
-         (trace/emit! :flow :rf.flow/cleared
-                      {:flow-id id
-                       :path    path
-                       :frame   frame-id})))
-     nil)))
-
-;; ---- fx hooks (called from re-frame.fx) --------------------------------
+;; ---- fx hooks (called from re-frame.fx) ---------------------------------
 ;;
 ;; The :rf.fx/reg-flow / :rf.fx/clear-flow runtime fx receive a {:frame ...}
 ;; cofx via fx.cljc. Thread the frame through.
@@ -281,26 +85,7 @@
   ([id]      (clear-flow id))
   ([id opts] (clear-flow id opts)))
 
-;; ---- hot-reload invalidation ---------------------------------------------
-;;
-;; Per Spec 001 §Hot-reload semantics: when a flow re-registers, the
-;; per-frame :last-inputs entry MUST clear so the new flow re-evaluates
-;; on the next drain regardless of whether inputs changed. Without this,
-;; a hot-reloaded flow with a different :output fn but identical recent
-;; inputs would silently keep serving the previous result.
-
-(defn- invalidate-flow-on-replace!
-  [{:keys [kind id]}]
-  (when (= kind :flow)
-    (swap! last-inputs
-           (fn [m]
-             (into {} (remove (fn [[[_ flow-id] _]] (= flow-id id))) m)))))
-
-(defonce ^:private _hot-reload-hook
-  (do (registrar/add-replacement-hook! invalidate-flow-on-replace!)
-      :installed))
-
-;; ---- evaluation -----------------------------------------------------------
+;; ---- evaluation ---------------------------------------------------------
 ;;
 ;; Called from the per-event drain after :db commits and before :fx runs.
 
@@ -378,7 +163,7 @@
   (let [container (frame/get-frame-db frame-id)
         flow-map  (get @flows frame-id)]
     (when (seq flow-map)
-      (let [ordered (topo-sort flow-map)]
+      (let [ordered (topo/topo-sort flow-map)]
         (loop [remaining ordered
                db       (adapter/read-container container)
                any-dirty? false]
@@ -389,31 +174,7 @@
                   [new-db dirty?] (evaluate-flow! frame-id db flow)]
               (recur (rest remaining) new-db (or any-dirty? dirty?)))))))))
 
-;; ---- last-inputs reset (test-fixture support) ----------------------------
-
-(defn reset-last-inputs!
-  "Test-only: clear the dirty-check `last-inputs` map. The flows
-  reset-runtime fixture uses this to drop stale per-flow state between
-  tests so re-registration does not silently no-op when new-inputs
-  =-equal a stale entry from a sibling test. Per rf2-tfw3 (the fourth
-  per-feature split): this is published through the late-bind hook
-  table so `re-frame.test-support`'s reset-runtime fixture can call it
-  without statically requiring `re-frame.flows`."
-  []
-  (reset! last-inputs {})
-  nil)
-
-(defn reset-flows!
-  "Test-only: clear the per-frame flow registry. Pairs with
-  `reset-last-inputs!` for the test-fixture reset bracket. Per
-  rf2-tfw3 — exposed via the late-bind hook table so
-  `re-frame.test-support` can reset state without a static require on
-  this namespace."
-  []
-  (reset! flows {})
-  nil)
-
-;; ---- late-bind hook registration ------------------------------------------
+;; ---- late-bind hook registration ----------------------------------------
 ;;
 ;; re-frame.core, re-frame.fx, re-frame.router and re-frame.test-support
 ;; need to call into flows but per rf2-tfw3 ship in the core artefact
@@ -421,11 +182,17 @@
 ;; is optional (apps that don't register flows don't carry it). Publish
 ;; entry points through the late-bind hook registry; consumers look the
 ;; fns up at call time. See re-frame.late-bind.
+;;
+;; Calls are written as literal `set-fn!` invocations with a literal
+;; keyword (one per line) — the late-bind drift gate
+;; (`re-frame.late-bind-drift-test`) detects each publication via regex
+;; over `implementation/**/src/**`, matching every other artefact's
+;; publication block (schemas / machines / routing / http / ssr).
 
-(late-bind/set-fn! :flows/reg-flow         reg-flow)
-(late-bind/set-fn! :flows/clear-flow       clear-flow)
-(late-bind/set-fn! :flows/reg-flow-fx!     reg-flow-fx!)
-(late-bind/set-fn! :flows/clear-flow-fx!   clear-flow-fx!)
-(late-bind/set-fn! :flows/run-flows!       run-flows!)
+(late-bind/set-fn! :flows/reg-flow           reg-flow)
+(late-bind/set-fn! :flows/clear-flow         clear-flow)
+(late-bind/set-fn! :flows/reg-flow-fx!       reg-flow-fx!)
+(late-bind/set-fn! :flows/clear-flow-fx!     clear-flow-fx!)
+(late-bind/set-fn! :flows/run-flows!         run-flows!)
 (late-bind/set-fn! :flows/reset-last-inputs! reset-last-inputs!)
-(late-bind/set-fn! :flows/reset-flows!     reset-flows!)
+(late-bind/set-fn! :flows/reset-flows!       reset-flows!)
