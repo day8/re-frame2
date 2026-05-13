@@ -2,14 +2,14 @@
 
 Causa's **trace bus** is the data plane every panel reads from. It is a
 ring buffer of `:rf/trace-event` records that Causa maintains alongside
-the framework's own [retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer),
+the framework's own [retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only),
 fed by a collector registered against the framework's
-[`register-trace-cb!`](../../../spec/009-Instrumentation.md#listener-registration)
+[`register-trace-cb!`](../../../spec/009-Instrumentation.md#user-side-listener-registration)
 listener API.
 
 This doc defines the bus's substrate normatively: what it collects,
 how it filters, what consumers are guaranteed to see, and how the
-privacy gate from [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy)
+privacy gate from [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
 folds into the collector path. The bus is the foundation under
 [`001-Causality-Graph.md`](./001-Causality-Graph.md),
 [`004-App-DB-Diff.md`](./004-App-DB-Diff.md),
@@ -21,7 +21,7 @@ that reads trace data; those panels project from this buffer.
 
 The framework already maintains a retain-N ring at
 `re-frame.trace/trace-buffer` (default depth 200; see
-[Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer)).
+[Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only)).
 Causa MUST NOT reuse that buffer as its primary store. Two reasons:
 
 1. **Depth independence.** The framework's depth is tuned for the
@@ -44,7 +44,7 @@ collector registered as the trace-bus key `:rf.causa/trace-collector`.
 
 The collector subscribes to **every** `:rf/trace-event` the framework
 emits via `register-trace-cb!` (per
-[Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#listener-registration)).
+[Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#user-side-listener-registration)).
 No filter is applied at the listener boundary; filtering is consumer-side
 (see [§Consumer contract](#consumer-contract) below).
 
@@ -52,7 +52,7 @@ Event shape is the canonical `:rf/trace-event` schema per
 [Spec-Schemas §`:rf/trace-event`](../../../spec/Spec-Schemas.md#rftrace-event)
 — `:id`, `:operation`, `:op-type`, `:tags`, `:time`, and the optional
 top-level `:sensitive?` boolean (per
-[Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy)).
+[Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)).
 Causa does **not** mutate the event shape; what the framework emits is
 what panels read.
 
@@ -83,7 +83,7 @@ order:
 - Eviction is **lossy-on-overflow** — a dropped event is gone. Causa
   MUST NOT raise backpressure on the framework's emit path; the
   framework's trace emission is fire-and-forget per
-  [Spec 009 §Delivery semantics](../../../spec/009-Instrumentation.md#delivery-semantics).
+  [Spec 009 §Delivery semantics](../../../spec/009-Instrumentation.md#listener-invocation-rules).
 
 The same `push`-then-evict algebra applies on both CLJS and JVM (the
 collector body is CLJC-pure-data; see
@@ -93,7 +93,7 @@ collector body is CLJC-pure-data; see
 
 Events in the buffer MUST be ordered by their `:id` field — the
 framework's monotonic event counter (per
-[Spec 009 §Trace event ordering](../../../spec/009-Instrumentation.md#listener-registration)).
+[Spec 009 §Trace event ordering](../../../spec/009-Instrumentation.md#user-side-listener-registration)).
 Consumers MAY rely on:
 
 - Oldest entries at the head of the vector (index 0).
@@ -122,7 +122,7 @@ retention.
 
 ## Privacy gate
 
-Per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy)
+Per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
 (resolved by `rf2-a32kd`) and bead `rf2-azls9`: framework-published
 trace-consuming integrations MUST default-suppress `:sensitive? true`
 events. Causa is a framework-published consumer.
@@ -176,7 +176,7 @@ recomputation per push) and consistent across CLJS and JVM.
   derefs required to read fields.
 - **Idempotent reads** — calling the accessor twice in the same drain
   cycle returns the same vector (the framework emits within drains;
-  see [Spec 009 §Delivery semantics](../../../spec/009-Instrumentation.md#delivery-semantics)).
+  see [Spec 009 §Delivery semantics](../../../spec/009-Instrumentation.md#listener-invocation-rules)).
 
 ### What consumers MUST NOT rely on
 
@@ -364,13 +364,13 @@ blocks any leak.
 
 ## Cross-references
 
-- [Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#listener-registration)
+- [Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#user-side-listener-registration)
   — the upstream `register-trace-cb!` API the collector consumes.
-- [Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer)
+- [Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only)
   — the framework's own ring buffer the Causa bus runs alongside.
 - [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary)
   — the filter axes the consumer-side filter algebra MUST honour.
-- [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy) —
+- [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces) —
   the `:sensitive?` semantics the collector gates on.
 - [Spec-Schemas §`:rf/trace-event`](../../../spec/Spec-Schemas.md#rftrace-event)
   — the event shape consumers project from.
