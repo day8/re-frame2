@@ -19,6 +19,13 @@ description: >
   ("retro", "what went wrong", "how could this be better") do not
   justify activation — a real `re-frame-pair2` session must have
   occurred in this conversation or be summarised by the user.
+allowed-tools:
+  - Bash(bd *)
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 ---
 
 # re-frame-pair-improver2
