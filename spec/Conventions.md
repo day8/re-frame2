@@ -142,6 +142,42 @@ The reserved set of framework-shipped sub-ids:
 
 For the user-facing API surface (signatures, status, cross-references) see [API.md](API.md). For machine read mechanics see [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 
+## Cross-MCP indicator-field vocabulary (suppression counters)
+
+The MCP triplet (pair2-mcp / story-mcp / causa-mcp) consults the framework's wire-elision walker (`rf/elide-wire-value`, per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) when assembling tool-response payloads. The walker drops `:sensitive? true` leaves and elides over-threshold `:large? true` leaves at the wire boundary; the **count of suppressed items** must surface back to the calling agent on the response map so the LLM can pattern-match "the payload was filtered" without re-inferring it from absence. Without a pinned vocabulary, each server invents its own slot shape (`:dropped-sensitive` vs `:redacted-count` vs `:n-sensitive-dropped`) and the agent host has to special-case per server. The cross-server value proposition collapses if every server invents its own dialect — same anti-pattern the `:rf.mcp/*` wire-marker pin (above) and the `tools/mcp-conformance/NAMING.md` verb pin defend against.
+
+### Reserved indicator slots (MCP-shaped returns)
+
+| Indicator slot | Meaning | When present | Owner |
+|---|---|---|---|
+| `:dropped-sensitive` | Integer count of leaves the walker dropped because they matched `:sensitive? true` (Malli `:sensitive?` property or `(rf/sensitive-path? ...)` registration). | On every tool response that walked a tree-typed payload, when the count is non-zero. Omit when zero. | MCP servers (cross-server reserved) |
+| `:elided-large` | Integer count of leaves the walker replaced with the `:rf.size/large-elided` marker because they exceeded `:rf.size/threshold-bytes` (or were declared-large via `:rf.size/declare-large` / a `:large? true` schema slot). | On every tool response that walked a tree-typed payload, when the count is non-zero. Omit when zero. | MCP servers (cross-server reserved) |
+
+**Unqualified, not namespaced.** These two slots are reserved as **unqualified keys** (`:dropped-sensitive`, `:elided-large`) — not under `:rf.size/*` or `:rf.mcp/*`. The rationale: they ride alongside tool-shaped payloads (`{:trace [...] :dropped-sensitive 3}`, `{:db {...} :elided-large 2}`) where the tool's own slot vocabulary is unqualified by convention; introducing a namespaced key here would split the response shape across two key conventions and burn agent-host pattern-match budget for no information gain. The wire **markers** at the leaf-substitution site stay namespaced (`:rf.size/large-elided`, `:rf/redacted`) — those are addressable values the agent re-fetches; these counts are scalar summaries on the envelope.
+
+**Streaming payloads.** Subscribe-style notifications (per pair2-mcp's `subscribe` per [`tools/pair2-mcp/spec/003-Tool-Catalogue.md`](../tools/pair2-mcp/spec/003-Tool-Catalogue.md) and causa-mcp's planned streaming surface) carry the same two slots on **each progress payload** and on the final summary — see [`skills/re-frame-pair2/references/streaming-subscriptions.md`](../skills/re-frame-pair2/references/streaming-subscriptions.md#privacy-posture) for the live shape.
+
+**Conformance gate.** Per Spec 009 §"Size elision in traces" — "Indicator field on tool responses" (MUST-level: tools that return structured response maps MUST carry an `:elided-large` count alongside the existing `:dropped-sensitive` count, one MUST-level row per consumer-facing tool that walks a tree-typed payload). The shape-conformance test lives in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/) (cross-server vocabulary gate); the per-server catalogue entries (pair2-mcp's [`003-Tool-Catalogue.md`](../tools/pair2-mcp/spec/003-Tool-Catalogue.md), story-mcp's [`002-Tool-Registry.md`](../tools/story-mcp/spec/002-Tool-Registry.md), causa-mcp's [`Principles.md` §"Size elision"](../tools/causa-mcp/spec/Principles.md)) document each tool's indicator-field row.
+
+### Reserved panel-chrome surface (on-box consumers)
+
+Dev-tools panels that render trace data inherited from `re-frame2-causa` and the post-v1 stories library (per [Tool-Pair.md](Tool-Pair.md)) surface the same two counters as **panel chrome**, not as JSON fields. The chrome shape is:
+
+| Chrome string | Meaning | Where rendered |
+|---|---|---|
+| `[● REDACTED N]` | N leaves dropped because they matched `:sensitive?`. Mirror of `:dropped-sensitive` on MCP returns. | Causa panel bottom-rail indicator; story trace-panel inline marker; analogous slots in any future on-box panel. |
+| `[● ELIDED N]` | N leaves replaced with a `:rf.size/large-elided` marker. Mirror of `:elided-large` on MCP returns. | Same surfaces as `[● REDACTED N]`; the two indicators may render side-by-side when both are non-zero. |
+
+The bullet glyph (`●`) and the square-bracket delimiters are the canonical shape — the user clicks the indicator to opt in for a single fetch (per Spec 009 §"Consumer-side defaults", on-box listener integrations). The pair is bullet-identical across panels so an agent watching a panel screenshot recognises the indicator on either consumer.
+
+### Cross-references
+
+- [`tools/mcp-conformance/NAMING.md`](../tools/mcp-conformance/NAMING.md) — canonical verb-vocabulary home for the MCP triplet; the **indicator-field vocabulary** above is its scalar-counter peer.
+- [`tools/mcp-conformance/TOKEN-BUDGETS.md`](../tools/mcp-conformance/TOKEN-BUDGETS.md) — cross-MCP token-budget posture; indicator counters ride the same response envelope the `max-tokens` / `:rf.mcp/overflow` contract governs.
+- [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/) — Malli + grep conformance gate over the `:rf.mcp/*` / `:rf.size/*` wire-marker namespaces (the **values** these counters describe).
+- [Spec 009 §"Size elision in traces" — Indicator field on tool responses](009-Instrumentation.md#size-elision-in-traces) — the MUST-level requirement this convention pins.
+- [Spec 009 §"Privacy / sensitive data in traces"](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the `:sensitive?` mechanism whose drops the `:dropped-sensitive` counter sums.
+
 ## Feature-modularity prefix convention
 
 A *feature* is identified by its **id prefix**, not by a registry kind. By convention a feature with prefix `:cart`:
