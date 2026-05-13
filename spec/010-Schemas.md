@@ -202,6 +202,71 @@ Tools and agents read these to:
 - Generate JSON Schema or OpenAPI from registered schemas — useful for cross-platform contracts.
 - Diff schemas across versions to detect breaking shape changes in app-db structure.
 
+## Per-slot metadata vocabulary
+
+Inside the schema value passed to `reg-app-schema`, individual slots may carry per-slot metadata maps — the `{...}` properties map Malli accepts on every slot. The reserved per-slot key vocabulary is catalogued normatively in [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta); the reserved set is fixed-and-additive. Today's reserved keys are `:large?`, `:hint`, and (reserved-for-future) `:sensitive?`.
+
+### `:large?` — schema-driven size-elision nomination (rf2-nwv63)
+
+Slots marked `:large? true` are the **canonical AI-discoverable entry point** for the size-elision nomination contract catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The runtime walks every registered app-schema at boot (and on `reg-app-schema` re-registration), and writes a `{:large? true :hint <str-or-nil> :source :schema}` entry into the frame's `app-db [:rf/elision :declarations <path>]` slot for every flagged path. The framework's `rf/elide-wire-value` walker (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) consults the merged registry on every wire-boundary emit and substitutes the `:rf.size/large-elided` marker (per [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker)) in place of the elided value.
+
+```clojure
+(rf/reg-app-schema
+  [:user]
+  [:map
+   [:profile     [:map [:name :string] [:email :string]]]
+   [:uploaded-pdf {:large? true :hint "Upload preview blob"} :string]])
+
+;; At boot, the framework populates:
+;;   {:rf/elision
+;;     {:declarations
+;;       {[:user :uploaded-pdf] {:large? true
+;;                               :source :schema
+;;                               :hint   "Upload preview blob"}}}}
+;;
+;; Every wire-boundary emit thereafter substitutes the path with:
+;;   {:rf.size/large-elided {:path   [:user :uploaded-pdf]
+;;                            :bytes  5242880
+;;                            :type   :string
+;;                            :reason :schema
+;;                            :hint   "Upload preview blob"
+;;                            :handle [:rf.elision/at [:user :uploaded-pdf]]}}
+```
+
+The `:large?` flag may live in two structural positions inside the schema:
+
+1. **Slot-level props** — the per-slot properties map of a `:map` child entry:
+   ```clojure
+   [:map [:uploaded-pdf {:large? true} :string]]
+   ```
+   Path is `(conj base-path :uploaded-pdf)`.
+
+2. **Container-level props** — the schema's own properties map when the schema is registered at the path directly:
+   ```clojure
+   (rf/reg-app-schema [:user :uploaded-pdf] [:string {:large? true}])
+   ```
+   Path is the `reg-app-schema` path itself.
+
+Both yield the same registry entry; the walker handles both forms. The `:hint` string, when present on the same props map, is propagated verbatim into the registry entry and from there into the wire marker's `:hint` slot — orienting AI consumers without forcing a drill-down.
+
+Nesting works as expected — `:large?` on a deeply-nested slot resolves to the full path:
+
+```clojure
+(rf/reg-app-schema
+  [:root]
+  [:map
+   [:a [:map [:b [:map [:c {:large? true :hint "deep"} :string]]]]]])
+;; ⇒ {[:root :a :b :c] {:large? true :source :schema :hint "deep"}}
+```
+
+Combinators (`:or`, `:and`, `:maybe`, `:tuple`, `:multi`, `:vector`, `:set`) descend at the parent path — these ops don't introduce a new app-db path segment. `:multi` branch slot-level props apply to the dispatched-value's path (the `:multi`'s own path); the inner branch schema's name slots add further sub-paths.
+
+**Conflict resolution.** Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) the precedence is **declared > schema > runtime-flagged**. App knowledge (the `:rf.size/declare-large` fx, per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) beats schema declaration beats the runtime auto-detect heuristic. The schema-driven registry population preserves existing `:source :declared` entries; it overwrites existing `:source :schema` entries on hot-reload (so updating a schema's `:hint` refreshes); it overwrites `:source :runtime-flagged` entries that have been promoted into `:declarations` (the heuristic loses).
+
+**Idempotency.** The walker is pure data and the population is idempotent — re-running it against the same `(db, schema-set)` pair produces the same result. Schemas registered, then re-registered, then walked again yield the same declarations.
+
+**Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same registry shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`, `populate-elision-declarations`) and is published through the late-bind hook table — `re-frame.core` calls it without statically requiring the schemas artefact (per the rf2-p7va per-feature artefact split).
+
 ## Per-frame schemas
 
 `reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id` and default to the active frame (or `:rf/default`).

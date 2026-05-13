@@ -359,6 +359,290 @@
   [frame-id]
   (get @schemas-by-frame frame-id {}))
 
+;; ---- elision-declaration walker (rf2-nwv63) ------------------------------
+;;
+;; Per Spec 009 §Size elision in traces, the schema-driven nomination
+;; path: any Malli slot carrying `:large? true` in its per-slot
+;; properties (per Spec-Schemas §`:rf/app-schema-meta` — the per-slot
+;; metadata vocabulary) is registered into the frame's
+;; `[:rf/elision :declarations]` slot with `:source :schema`. The
+;; framework's `rf/elide-wire-value` walker (rf2-v9tw2, downstream)
+;; consults this registry at every wire-boundary emit.
+;;
+;; This file owns the **walker** that maps a registered schema's EDN
+;; form to a `{path declaration}` map; the actual app-db write lives
+;; in `re-frame.elision` (rf2-v9tw2) so that file owns the unified
+;; registry surface across the schema / declared / runtime-flagged
+;; sources. The seam between the two is the late-bind hook
+;; `:schemas/frame-elision-declarations` (registered at the bottom
+;; of this file).
+;;
+;; The walker is **pure data** — it doesn't import malli.core. Malli
+;; EDN forms are vectors of the shape `[op props? children...]`; we
+;; pattern-match on shape. Per Spec 010 §The `:spec` value is opaque
+;; to re-frame, the framework MUST NOT call into the registered
+;; validator to introspect schema structure — we walk the EDN
+;; ourselves. This means the walker handles the **vector form**
+;; (`[:map [:k :string]]`) — the form `(rf/reg-app-schema ...)` users
+;; write. Non-vector Malli forms (schema objects, registry refs) are
+;; treated as opaque leaves; their internal `:large?` declarations
+;; are invisible to the walker (the same caveat applies to Malli's
+;; own schema-walking when introspection goes through `m/schema` ↔
+;; raw EDN — round-tripping a registry ref loses the slot metadata).
+
+(defn- schema-vector?
+  "True when `x` is a Malli vector form `[op props? children...]`."
+  [x]
+  (and (vector? x) (pos? (count x))))
+
+(defn- extract-props
+  "Pluck the per-slot properties map out of a Malli vector form. The
+  Malli convention: `[op {props} children...]` carries the map at
+  position 1; `[op children...]` (no props) has a child at position 1.
+  Return `nil` when no props are present."
+  [v]
+  (let [p (when (>= (count v) 2) (nth v 1))]
+    (when (map? p) p)))
+
+(defn- drop-op+props
+  "Return the children portion of a Malli vector form — drop the op
+  keyword and the optional props map."
+  [v]
+  (let [tail (subvec v 1)]
+    (if (and (seq tail) (map? (first tail)))
+      (subvec tail 1)
+      tail)))
+
+(defn- declaration-from-props
+  "Build a `:rf/elision-declaration` map from a slot's per-slot props,
+  or nil if `:large? true` is not set. Per Spec 009 §Size elision in
+  traces — the declaration shape is `{:large? bool :hint <str-or-nil>
+  :source :schema}`. The `:hint` is OPTIONAL (omitted from the map
+  when absent so the marker shape is minimal)."
+  [props]
+  (when (true? (:large? props))
+    (cond-> {:large? true
+             :source :schema}
+      (some? (:hint props)) (assoc :hint (:hint props)))))
+
+;; -- per-op recursion helpers --------------------------------------
+
+(declare walk-schema)
+
+(defn- walk-map-children
+  "For a `:map` form, walk every name-bearing child entry. A child
+  entry is `[k child-schema]` or `[k {props} child-schema]`. The
+  `:large?` flag may live in two places:
+
+    1. The slot's own props (one level above the child schema):
+         [:map [:user {:large? true} :string]]
+       — path is `(conj base k)`; the slot says \"this slot is large\".
+
+    2. The child schema's own props (one level inside):
+         [:map [:user [:string {:large? true}]]]
+       — path is `(conj base k)`; the schema says \"this value is
+       large by type\". Equivalent under the walker since the path
+       is the same.
+
+  We capture both; conflicts (slot props AND child props both
+  carry `:large?`) merge with slot-level winning per a left-to-
+  right semantics (slot props are more local to the path)."
+  [children base-path acc]
+  (reduce
+    (fn [acc child]
+      (if-not (and (vector? child) (>= (count child) 2))
+        acc
+        (let [k          (nth child 0)
+              maybe-prop (nth child 1)
+              has-prop?  (map? maybe-prop)
+              slot-props (when has-prop? maybe-prop)
+              child-tail (if has-prop?
+                           (when (>= (count child) 3) (nth child 2))
+                           maybe-prop)
+              slot-path  (conj base-path k)
+              slot-decl  (declaration-from-props slot-props)
+              acc'       (if slot-decl
+                           (assoc acc slot-path slot-decl)
+                           acc)]
+          (if (some? child-tail)
+            (walk-schema child-tail slot-path acc')
+            acc'))))
+    acc
+    children))
+
+(defn- walk-multi-children
+  "`:multi` and `:orn` carry name-bearing branches similarly to
+  `:map`. The branch's name is the dispatch value, NOT an app-db path
+  segment — so `:large?` on a `:multi` branch's slot props claims the
+  parent path (the `:multi` op's own `base-path`), not a child path.
+  We recurse into the branch schema at `base-path`."
+  [children base-path acc]
+  (reduce
+    (fn [acc child]
+      (cond
+        ;; [v schema] or [v props schema] branch — descend into schema
+        ;; at the SAME base-path (dispatch values aren't path segments).
+        (vector? child)
+        (let [maybe-prop (when (>= (count child) 2) (nth child 1))
+              has-prop?  (map? maybe-prop)
+              tail-idx   (if has-prop? 2 1)
+              tail       (when (> (count child) tail-idx) (nth child tail-idx))
+              branch-decl (when has-prop? (declaration-from-props maybe-prop))
+              acc'        (if branch-decl
+                            (assoc acc base-path branch-decl)
+                            acc)]
+          (if (some? tail) (walk-schema tail base-path acc') acc'))
+        :else acc))
+    acc
+    children))
+
+(defn- walk-positional-children
+  "For positional / nameless container ops (`:vector`, `:set`,
+  `:sequential`, `:maybe`, `:and`, `:or`, `:not`, `:tuple`, `:cat`,
+  `:catn`, etc.), descend into each child at the SAME `base-path` —
+  these ops don't introduce a new app-db path segment (a vector's
+  inner schema doesn't add a path key). `:large?` on the inner
+  schema's own props applies to the container's path."
+  [children base-path acc]
+  (reduce (fn [acc c] (walk-schema c base-path acc)) acc children))
+
+(def ^:private name-bearing-ops
+  "Schema ops whose children carry name slots (the first element of a
+  child entry is the slot's app-db key)."
+  #{:map})
+
+(def ^:private dispatch-bearing-ops
+  "Schema ops whose children carry dispatch-value branches (the first
+  element of a child entry is a dispatch value, not an app-db path
+  segment)."
+  #{:multi :orn :catn :altn})
+
+(defn walk-schema
+  "Walk a Malli EDN schema form at `base-path`, populating `acc` with
+  `{path declaration}` entries for every `:large? true` slot found.
+  Pure; same input always produces the same output. Public so tools
+  and the rf2-v9tw2 elision-walker can re-use it.
+
+  Returns the accumulator map. Use `extract-large-paths-from-schema`
+  for the seeded-empty-accumulator entry point."
+  ([schema base-path]
+   (walk-schema schema base-path {}))
+  ([schema base-path acc]
+   (cond
+     ;; Keyword schema (`:string`, `:int`, `:any`, registry-name kw,
+     ;; …) — no slot props on a bare keyword; nothing to nominate.
+     (keyword? schema) acc
+
+     ;; Vector form `[op props? children...]` — the structural case.
+     (schema-vector? schema)
+     (let [op    (nth schema 0)
+           props (extract-props schema)
+           ;; Container-level `:large?` (the schema's OWN props,
+           ;; not a parent slot's props) claims the base-path. This
+           ;; covers `(rf/reg-app-schema [:user :pdf] [:string {:large? true}])`
+           ;; — the reg-app-schema path IS where the marker fires.
+           acc'  (if-let [decl (declaration-from-props props)]
+                   (assoc acc base-path decl)
+                   acc)]
+       (cond
+         (contains? name-bearing-ops op)
+         (walk-map-children (drop-op+props schema) base-path acc')
+
+         (contains? dispatch-bearing-ops op)
+         (walk-multi-children (drop-op+props schema) base-path acc')
+
+         :else
+         (walk-positional-children (drop-op+props schema) base-path acc')))
+
+     ;; Anything else (schema object, fn schema, opaque leaf) —
+     ;; not introspectable as data; skip.
+     :else acc)))
+
+(defn extract-large-paths-from-schema
+  "Walk a registered Malli schema form at `base-path` and return a
+  `{path declaration}` map for every `:large? true` slot found.
+  Convenience wrapper over `walk-schema` that seeds the empty
+  accumulator. Per Spec 009 §Size elision in traces — the
+  schema-driven nomination path.
+
+  The returned declarations carry `:source :schema` per Spec 009 —
+  introspection (`(get-in db [:rf/elision :declarations <path>])`)
+  reports provenance so consumers know whether the elision claim
+  came from the schema layer, an app fx, or the runtime auto-detect
+  heuristic."
+  [schema base-path]
+  (walk-schema schema base-path {}))
+
+(defn frame-elision-declarations
+  "Return the merged `{path declaration}` map for every `:large? true`
+  slot in every app-schema registered against `frame-id`. Composes
+  `extract-large-paths-from-schema` across the frame's schema set.
+
+  This is the seam the framework's elision-registry hydration (per
+  rf2-v9tw2 in re-frame.core) reaches for at boot / on hot reload —
+  the schemas artefact owns the walker; the unified registry write
+  into `app-db [:rf/elision :declarations]` lives downstream so the
+  same write surface unifies schema / declared / runtime-flagged
+  sources.
+
+  Per Spec 009 §Conflict resolution rule, declared beats schema beats
+  runtime-flagged on the same path. This fn returns ONLY the schema
+  layer; the downstream merger applies the conflict rule.
+
+  Arities:
+    (frame-elision-declarations)              ;; current frame
+    (frame-elision-declarations frame-id)     ;; explicit frame"
+  ([] (frame-elision-declarations (frame/current-frame)))
+  ([frame-id]
+   (reduce-kv
+     (fn [acc path m]
+       (merge acc (extract-large-paths-from-schema (:schema m) path)))
+     {}
+     (frame-schema-entries frame-id))))
+
+(defn populate-elision-declarations
+  "Idempotent — given `db` (a frame's app-db) and a frame-id, return
+  `db` with `[:rf/elision :declarations]` augmented by every
+  schema-derived large-path declaration for that frame. Idempotent
+  in two senses:
+
+    1. Calling it twice in a row produces the same result the second
+       time (every schema-derived entry is the same map shape).
+    2. Existing entries with `:source :declared` (or any other
+       non-`:schema` source) are NEVER overwritten — the conflict
+       rule (declared beats schema) is preserved.
+
+  Existing entries with `:source :schema` from a prior call ARE
+  overwritten (so hot-reload of a schema picks up the new `:hint`
+  / `:large?` flip). Entries no longer claimed by ANY registered
+  schema are NOT removed (a stale `:source :schema` slot for a path
+  whose schema dropped its `:large?` flag persists until the
+  next explicit `:rf.size/clear` — symmetric with `:rf.machines`
+  retention semantics; future work may add a sweep).
+
+  Per rf2-v9tw2 the actual call site lives in re-frame.core's
+  boot-time / reg-app-schema hook chain. This fn is published via
+  the `:schemas/populate-elision-declarations` late-bind hook so
+  re-frame.core can call it without statically requiring the
+  schemas artefact."
+  [db frame-id]
+  (let [schema-decls (frame-elision-declarations frame-id)]
+    (if (empty? schema-decls)
+      db
+      (update-in db [:rf/elision :declarations]
+                 (fn [existing]
+                   (reduce-kv
+                     (fn [acc path decl]
+                       (let [existing-source (some-> (get acc path) :source)]
+                         (if (= existing-source :declared)
+                           ;; Preserve declared provenance — conflict
+                           ;; rule per Spec 009: declared beats schema.
+                           ;; Schema beats runtime-flagged (overwrite).
+                           acc
+                           (assoc acc path decl))))
+                     (or existing {})
+                     schema-decls))))))
+
 ;; ---- schema digest --------------------------------------------------------
 ;;
 ;; Per Spec 010 §Digest algorithm — a stable, cross-runtime hash over a
@@ -793,6 +1077,17 @@
 (late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
 (late-bind/set-fn! :schemas/set-schema-validator! set-schema-validator!)
 (late-bind/set-fn! :schemas/set-schema-explainer! set-schema-explainer!)
+
+;; Elision-walker hooks (rf2-nwv63) — published so re-frame.core's
+;; downstream registry-population code (rf2-v9tw2) can hydrate
+;; `[:rf/elision :declarations]` at boot / on reg-app-schema without
+;; statically depending on the schemas artefact.
+(late-bind/set-fn! :schemas/extract-large-paths-from-schema
+                   extract-large-paths-from-schema)
+(late-bind/set-fn! :schemas/frame-elision-declarations
+                   frame-elision-declarations)
+(late-bind/set-fn! :schemas/populate-elision-declarations
+                   populate-elision-declarations)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; reset-runtime-fixture). The fixture wants to capture and restore
