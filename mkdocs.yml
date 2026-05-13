@@ -65,6 +65,7 @@ nav:
     - "02 — app-db": guide/02-app-db.md
     - "03 — Your first app": guide/03-your-first-app.md
     - "04 — Events, state, the cycle": guide/04-events-state-cycle.md
+    - "04a — Schemas": guide/04a-schemas.md
     - "05 — Coeffects": guide/05-coeffects.md
     - "06 — Views and frames": guide/06-views-and-frames.md
     - "07 — Interceptors": guide/07-interceptors.md

@@ -26,6 +26,7 @@ Read these in order. Each chapter assumes the previous one.
 | 02 | [app-db](02-app-db.md) | The single immutable map every re-frame2 app pivots around — what it is, why immutable, why per-frame. |
 | 03 | [Your first app](03-your-first-app.md) | The counter, walked through in narrative. |
 | 04 | [Events, state, and the cycle](04-events-state-cycle.md) | The core loop, with side-effects-as-data. |
+| 04a | [Schemas](04a-schemas.md) | The Malli warmup — `reg-app-schema`, event `:spec`, dev-vs-production timing. Read before forms or HTTP, where schemas show up in volume. |
 | 05 | [Coeffects](05-coeffects.md) | The matching *inputs* half — `reg-cofx`, `inject-cofx`, the side-causes (current time, GUIDs, localStorage). Optional side-track. |
 | 06 | [Views and frames](06-views-and-frames.md) | What you put on the screen, and how you isolate state. |
 | 07 | [Interceptors](07-interceptors.md) | The sandwich, the context map, custom `:before` / `:after`. Optional deep-dive. |
