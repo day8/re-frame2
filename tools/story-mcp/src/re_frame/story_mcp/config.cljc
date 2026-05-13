@@ -26,7 +26,7 @@
   the server / tools namespaces. Per IMPL-SPEC §13.2 #6 the
   protocol-version target is a documented decision the implementation
   bead (rf2-tgci) lands."
-  (:require [clojure.string :as str]))
+  (:require [re-frame.mcp-base.args :as args]))
 
 ;; ---- MCP protocol version --------------------------------------------------
 
@@ -80,9 +80,13 @@
   (atom false))
 
 (defn set-allow-writes!
-  "Set the write-surface gate. Idempotent. Returns the new value."
+  "Set the write-surface gate. Idempotent. Returns the new value.
+  Accepts booleans, nil, or string-form booleans (`\"true\"`/`\"1\"`/
+  `\"yes\"`/`\"on\"`, case-insensitive) via the cross-MCP
+  `args/parse-boolean` parser — so the CLI flag, sysprop, and env-var
+  surfaces share one coercion."
   [v]
-  (let [coerced (boolean v)]
+  (let [coerced (args/parse-boolean v false)]
     (reset! allow-writes? coerced)
     coerced))
 
@@ -101,18 +105,18 @@
   - JVM sysprop `rf.story-mcp.allow-writes` — `\"true\"` / `\"1\"` enables.
   - Env var `RF_STORY_MCP_ALLOW_WRITES` — same.
 
+  Both sources are parsed via the cross-MCP `args/parse-boolean`
+  primitive (rf2-vw4sq) so the truthy-string vocabulary
+  (`true`/`1`/`yes`/`y`/`on`, case-insensitive) is the same one an
+  agent learns once.
+
   Returns a map `{:allow-writes? boolean}`. The caller (`-main`) merges
   in CLI overrides before calling `apply-config!`."
   []
-  (let [sysprop (some-> (System/getProperty "rf.story-mcp.allow-writes")
-                        str/trim
-                        str/lower-case)
-        envv    (some-> (System/getenv "RF_STORY_MCP_ALLOW_WRITES")
-                        str/trim
-                        str/lower-case)
-        truthy? #(contains? #{"true" "1" "yes" "y" "on"} %)]
-    {:allow-writes? (boolean (or (truthy? sysprop)
-                                 (truthy? envv)))}))
+  (let [sysprop (System/getProperty "rf.story-mcp.allow-writes")
+        envv    (System/getenv "RF_STORY_MCP_ALLOW_WRITES")]
+    {:allow-writes? (or (args/parse-boolean sysprop false)
+                        (args/parse-boolean envv false))}))
 
 (defn apply-config!
   "Apply a boot-config map to the runtime atoms. Returns the applied map."
