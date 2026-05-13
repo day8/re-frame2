@@ -9,7 +9,7 @@
 
 {:fixture/id           :error/schema-failure
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/error :schemas/runtime}
+ :fixture/capabilities #{:core/error :schemas/runtime :core/trace}
  :fixture/doc          "An event handler returns an app-db that fails the registered :rf/app-schema at the affected path. The runtime emits a :rf.error/schema-validation-failure trace event with the explanation."
  :fixture/dynamic-host-only? true
 

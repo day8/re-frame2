@@ -4,7 +4,7 @@
 
 {:fixture/id           :frame/lifecycle
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler}
+ :fixture/capabilities #{:core/event-handler :core/frame :core/trace}
  :fixture/doc          "Per [002]: a frame's :on-create event fires once at creation; :on-destroy fires once at destruction. Both are dispatched synchronously, before the frame becomes available to user code."
 
  :fixture/registry

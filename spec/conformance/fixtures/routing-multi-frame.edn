@@ -8,7 +8,7 @@
 
 {:fixture/id           :routing/multi-frame
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:routing/match-url :core/event-handler}
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/frame}
  :fixture/doc          "Two frames navigate the same registered routes independently. Each frame's :route slice carries its own id/params; the registry is shared but the slice is per-frame."
 
  :fixture/registry

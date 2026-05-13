@@ -6,7 +6,7 @@
 
 {:fixture/id           :error/override-fallthrough
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/fx :core/error}
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
  :fixture/doc          "An :fx-overrides map points :http at :nonexistent-stub which has not been registered. The runtime emits :rf.error/override-fallthrough and falls through to the registered :http handler."
 
  :fixture/registry

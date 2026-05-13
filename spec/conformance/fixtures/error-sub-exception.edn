@@ -5,7 +5,7 @@
 
 {:fixture/id           :error/sub-exception
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/sub :core/error}
+ :fixture/capabilities #{:core/sub :core/error :core/trace}
  :fixture/doc          "A sub's computation-fn throws. The runtime emits :rf.error/sub-exception and the sub resolves to nil (default :replaced-with-default recovery)."
 
  :fixture/registry

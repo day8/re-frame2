@@ -14,7 +14,7 @@
 
 {:fixture/id           :rf.http.managed/frame-isolation
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/fx
+ :fixture/capabilities #{:core/event-handler :core/fx :core/frame
                          :rf.http/managed}
  :fixture/doc          "Two frames issue managed requests against the same registered :article/load handler; the canned-success replies land in the same frame each request was issued from. The handler registry is shared; the app-db slices are per-frame. Per Spec 014 §Frame awareness + Spec 002 §Routing."
 

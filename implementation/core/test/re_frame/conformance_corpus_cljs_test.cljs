@@ -82,6 +82,9 @@
     :core/sub
     :core/fx
     :core/error
+    ;; :core/trace + :core/frame — rf2-3pnob. See JVM runner for rationale.
+    :core/trace
+    :core/frame
     :fsm/flat
     :fsm/eventless-always
     :fsm/hierarchical

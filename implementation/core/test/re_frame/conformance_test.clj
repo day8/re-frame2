@@ -41,6 +41,15 @@
     :core/sub
     :core/fx
     :core/error
+    ;; :core/trace + :core/frame — rf2-3pnob. Pattern-required surfaces
+    ;; per the README's §Capability tagging list and worked-example table.
+    ;; :core/trace is exercised by the structured error-trace fixtures
+    ;; and by drain-depth-limit; :core/frame is exercised by
+    ;; frame-lifecycle, frame-multi-instance, dispatch-envelope (the
+    ;; :frame envelope key surfacing in cofx), routing-multi-frame, and
+    ;; http-managed-frame-isolation.
+    :core/trace
+    :core/frame
     :fsm/flat
     :fsm/eventless-always
     :fsm/hierarchical
