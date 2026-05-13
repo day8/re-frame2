@@ -435,7 +435,7 @@
                              :root-view [:app/root]
                              :html-shell ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
-  [{:keys [on-create root-view fx-overrides ssr-config emit-hash?
+  [{:keys [on-create root-view fx-overrides ssr emit-hash?
            version schema-digest payload-keys html-shell content-type
            on-error]
     :or   {emit-hash?    true
@@ -470,7 +470,7 @@
                        :platform  :server
                        :on-create (on-create-with-request on-create request)}
                 fx-overrides (assoc :fx-overrides fx-overrides)
-                ssr-config   (assoc :ssr           ssr-config)))
+                ssr          (assoc :ssr           ssr)))
             (catch Throwable t
               ;; reg-frame threw mid-drain. The frame may be registered
               ;; in the `frames` atom (see frame.cljc — `swap! frames`
