@@ -108,17 +108,24 @@ function run() {
       console.log('OK   tools/list ->', names.join(', '));
 
       // 2c. Verify the subscribe descriptor carries the documented
-      // input schema (topic + filter + max-buffered + poll-ms +
-      // max-ms + max-events + build) and the enum of recognised
-      // topics. Pinning the exact set so accidental renames break
-      // the test instead of silently shipping a broken contract.
+      // input schema (topic + filter + max-buffered-events +
+      // max-buffered-bytes + poll-ms + max-ms + max-events + build)
+      // and the enum of recognised topics. Pinning the exact set so
+      // accidental renames break the test instead of silently
+      // shipping a broken contract. rf2-ho4ve replaced the
+      // pre-byte-budget `max-buffered` event-count slot with the
+      // `max-buffered-events` / `max-buffered-bytes` pair.
       const subDesc = (list.result?.tools || []).find((t) => t.name === 'subscribe');
       if (!subDesc) throw new Error('subscribe descriptor missing from tools/list');
       const subProps = subDesc.inputSchema?.properties || {};
-      for (const k of ['topic', 'filter', 'max-buffered', 'poll-ms', 'max-ms', 'max-events', 'build']) {
+      for (const k of ['topic', 'filter', 'max-buffered-events', 'max-buffered-bytes', 'poll-ms', 'max-ms', 'max-events', 'build']) {
         if (!(k in subProps)) {
           throw new Error('subscribe inputSchema missing property: ' + k);
         }
+      }
+      // Pre-byte-budget slot MUST be gone — catch accidental revert.
+      if ('max-buffered' in subProps) {
+        throw new Error('subscribe inputSchema still carries removed `max-buffered` property — should be replaced by max-buffered-events / max-buffered-bytes (rf2-ho4ve)');
       }
       const topicEnum = subProps.topic?.enum || [];
       const expectedTopics = ['trace', 'epoch', 'fx', 'error'];
@@ -127,7 +134,7 @@ function run() {
           throw new Error('subscribe.topic.enum missing: ' + t);
         }
       }
-      console.log('OK   subscribe descriptor -> topic/filter/max-buffered/poll-ms/max-ms/max-events/build');
+      console.log('OK   subscribe descriptor -> topic/filter/max-buffered-events/max-buffered-bytes/poll-ms/max-ms/max-events/build');
 
       const unsubDesc = (list.result?.tools || []).find((t) => t.name === 'unsubscribe');
       if (!unsubDesc) throw new Error('unsubscribe descriptor missing from tools/list');

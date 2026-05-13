@@ -499,9 +499,29 @@
 ;;    :topic    :trace | :epoch | :fx | :error
 ;;    :filter   <filter-map>         ;; vocab depends on topic
 ;;    :queue    <vector of events>   ;; appended-to by the cb, drained by the server
-;;    :overflow <integer>            ;; events dropped because queue exceeded :max-buffered
+;;    :queue-bytes <integer>         ;; running sum of (count (pr-str ev)) for queued events
+;;    :dropped-events <integer>      ;; events evicted because EITHER budget tripped
+;;    :dropped-bytes  <integer>      ;; bytes evicted alongside :dropped-events
+;;    :overflow-reason :max-buffered-events | :max-buffered-bytes | nil
+;;                                   ;; budget that tripped LAST — surfaced verbatim
+;;                                   ;; so the AI client knows WHICH limit it should
+;;                                   ;; tune. Reset at every drain alongside the
+;;                                   ;; counters.
 ;;    :created-at <ms>
-;;    :max-buffered <integer>}       ;; queue cap; default 500
+;;    :max-buffered-events <integer> ;; queue cap in events; default 500
+;;    :max-buffered-bytes  <integer>} ;; queue cap in bytes; default 5_000_000 (~5 MB)
+;;
+;; Overflow policy (drop-oldest, byte+event budget — rf2-ho4ve):
+;;   On enqueue, we first append the new event, then evict from the
+;;   FRONT until BOTH budgets hold. Event-count overflow trips
+;;   `:overflow-reason :max-buffered-events`; byte overflow trips
+;;   `:overflow-reason :max-buffered-bytes`. When both trip on the
+;;   same enqueue, the more-recently-tripped budget wins (typically
+;;   bytes — a single fat event can put us over bytes while still
+;;   inside events). Drop-oldest is the only sensible policy for a
+;;   byte budget: a single fat newcomer can require evicting many
+;;   small predecessors to fit, and there's no way to know that on
+;;   entry without already having admitted it.
 ;;
 ;; Topic semantics:
 ;;   :trace  — every event in the raw trace stream matching `:filter`
@@ -524,7 +544,17 @@
   ;; sub-id -> subscription map (see above)
   (atom {}))
 
-(def ^:private default-max-buffered 500)
+(def ^:private default-max-buffered-events 500)
+(def ^:private default-max-buffered-bytes
+  ;; ~5 MB — sized to match the 5,000-token wire-cap posture of the
+  ;; MCP egress boundary scaled up by the per-tick batching ratio.
+  ;; The streaming progress payload is metered per-tick, but the
+  ;; underlying runtime queue is the upstream bound: it must be big
+  ;; enough that a normal drain cadence (~100 ms server poll) drains
+  ;; bursts before they back up, while small enough that an idle
+  ;; subscription forgotten for hours doesn't accumulate hundreds of
+  ;; megabytes of stale events.
+  5000000)
 
 ;; ---------------------------------------------------------------------------
 ;; Privacy posture for the streaming surface (rf2-3cted)
@@ -640,21 +670,74 @@
            (or (nil? t0)         (and (number? (:time ev))
                                       (<= t0 (:time ev) t1)))))))
 
+(defn- event-byte-size
+  "Cheap, monotonic estimate of an event's on-wire byte cost. Uses the
+   same `pr-str`-char-count discipline as the wire-cap helper in
+   `tools.cljs` (`token-estimate`) — keeps the runtime queue's budget
+   in the same units as the egress cap, so the two budgets stay
+   coherent. `pr-str` failure (a reader-unfriendly value somehow on
+   the bus) falls back to `0` rather than blowing up enqueue."
+  [event]
+  (try (count (pr-str event))
+       (catch :default _ 0)))
+
+(defn- evict-oldest
+  "Drop events from the FRONT of `sub`'s queue until BOTH budgets
+   hold (or the queue is empty). Returns the updated sub with the
+   queue/byte-running-total trimmed and `:dropped-events` /
+   `:dropped-bytes` / `:overflow-reason` updated. Drop-oldest is the
+   only sensible policy for a byte budget — see the namespace docs
+   above."
+  [sub max-events max-bytes]
+  (loop [q       (:queue sub)
+         bytes   (:queue-bytes sub 0)
+         dropped-n 0
+         dropped-b 0
+         reason    nil]
+    (let [n (count q)
+          over-events? (> n max-events)
+          over-bytes?  (> bytes max-bytes)]
+      (if (and (or over-events? over-bytes?)
+               (pos? n))
+        (let [head     (nth q 0)
+              head-bs  (event-byte-size head)]
+          (recur (subvec q 1)
+                 (max 0 (- bytes head-bs))
+                 (inc dropped-n)
+                 (+ dropped-b head-bs)
+                 ;; bytes wins ties — if both budgets trip on the
+                 ;; same enqueue, the byte budget is the one the
+                 ;; agent likely needs to know about. (Event-count
+                 ;; alone tripping is the easy case; bytes tripping
+                 ;; signals a large-payload storm.)
+                 (cond over-bytes?  :max-buffered-bytes
+                       over-events? :max-buffered-events
+                       :else        reason)))
+        (cond-> (assoc sub :queue q :queue-bytes bytes)
+          (pos? dropped-n)
+          (-> (update :dropped-events (fnil + 0) dropped-n)
+              (update :dropped-bytes  (fnil + 0) dropped-b)
+              (assoc :overflow-reason reason)))))))
+
 (defn- enqueue!
-  "Append an event to a subscription's queue, honouring max-buffered.
-   When the queue is full we drop the new event and increment overflow —
-   keeping the oldest events lets the agent reconstruct the start of a
-   storm rather than seeing only the tail."
+  "Append an event to a subscription's queue, honouring the byte+event
+   buffer budget (rf2-ho4ve). Drop-oldest semantics: we always admit
+   the new event first, then evict from the FRONT until both budgets
+   hold. A single fat newcomer can therefore evict an arbitrary
+   number of small predecessors — that's correct: the byte budget is
+   a hard upstream bound, and the agent draining the sub gets the
+   most recent state of the world."
   [sub-state sub-id event]
   (update sub-state sub-id
           (fn [sub]
             (when sub
-              (let [q  (:queue sub)
-                    n  (count q)
-                    cap (:max-buffered sub default-max-buffered)]
-                (if (>= n cap)
-                  (update sub :overflow (fnil inc 0))
-                  (update sub :queue conj event)))))))
+              (let [max-events (:max-buffered-events sub default-max-buffered-events)
+                    max-bytes  (:max-buffered-bytes  sub default-max-buffered-bytes)
+                    ev-bytes   (event-byte-size event)
+                    sub'       (-> sub
+                                   (update :queue       conj event)
+                                   (update :queue-bytes (fnil + 0) ev-bytes))]
+                (evict-oldest sub' max-events max-bytes))))))
 
 (defn- dispatch-trace-to-subs!
   "Called from the raw-trace listener — iterates active subscriptions of
@@ -722,13 +805,23 @@
    Opts:
      :topic   :trace | :epoch | :fx | :error  (required)
      :filter  filter map — vocab depends on topic. See namespace docs.
-     :max-buffered  cap on the in-runtime queue. Default 500. Once
-                    the cap is reached, new events are dropped and
-                    counted in `:overflow`.
+     :max-buffered-events  cap on the in-runtime queue in events.
+                           Default 500. When either budget trips, the
+                           OLDEST events are evicted (drop-oldest FIFO).
+     :max-buffered-bytes   cap on the in-runtime queue in pr-str bytes.
+                           Default 5_000_000 (~5 MB). Same drop-oldest
+                           policy. The two budgets are OR-combined:
+                           whichever trips first evicts.
+
+   Drop counts surface on `drain-subscription!` as `:dropped-events`
+   and `:dropped-bytes`, with `:overflow-reason` carrying the budget
+   keyword (`:max-buffered-events` or `:max-buffered-bytes`) that
+   tripped LAST. The bookkeeping reset happens on drain — each tick
+   reports the deltas since the previous tick.
 
    Idempotency: each call returns a fresh sub-id — repeated `subscribe!`
    calls do not share state. Use `unsubscribe!` to release."
-  [{:keys [topic filter max-buffered] :as opts}]
+  [{:keys [topic filter max-buffered-events max-buffered-bytes] :as opts}]
   (cond
     (not (contains? #{:trace :epoch :fx :error} topic))
     {:ok? false :reason :unknown-topic
@@ -739,14 +832,20 @@
     (let [sub-id (str (random-uuid))
           compiled (when (#{:trace :fx :error} topic)
                      (compose-trace-filter topic filter))
-          sub {:id            sub-id
-               :topic         topic
-               :filter        (or filter {})
+          sub {:id              sub-id
+               :topic           topic
+               :filter          (or filter {})
                :compiled-filter compiled
-               :queue         []
-               :overflow      0
-               :created-at    (js/Date.now)
-               :max-buffered  (or max-buffered default-max-buffered)}]
+               :queue           []
+               :queue-bytes     0
+               :dropped-events  0
+               :dropped-bytes   0
+               :overflow-reason nil
+               :created-at      (js/Date.now)
+               :max-buffered-events (or max-buffered-events
+                                        default-max-buffered-events)
+               :max-buffered-bytes  (or max-buffered-bytes
+                                        default-max-buffered-bytes)}]
       ;; Make sure the upgraded listeners are wired (idempotent — same
       ;; id, replaces the basic listeners installed by `health`).
       (rf/register-trace-cb! :re-frame-pair2 on-trace-streaming)
@@ -765,37 +864,62 @@
 
 (defn drain-subscription!
   "Pop every queued event for `sub-id` and return them in order.
-   Returns `{:ok? true :sub-id ... :events [...] :overflow <n> :gone? bool}`.
+   Returns `{:ok? true :sub-id ... :events [...] :dropped-events <n>
+   :dropped-bytes <m> :overflow-reason <kw|nil> :gone? bool}`.
    If the subscription doesn't exist (already unsubscribed or runtime
-   was reloaded), `:gone? true`."
+   was reloaded), `:gone? true`.
+
+   The `:dropped-events`, `:dropped-bytes`, and `:overflow-reason`
+   counters report what got EVICTED from the queue between drains —
+   they reset on every drain so the next tick reports the delta. AI
+   clients pattern-match on `:overflow-reason` to know which budget
+   tripped (`:max-buffered-events` or `:max-buffered-bytes`); the
+   `:dropped-bytes` figure tells them how much state they missed."
   [sub-id]
   (let [snap (atom nil)]
     (swap! subscriptions
            (fn [m]
              (if-let [sub (get m sub-id)]
-               (do (reset! snap {:events (:queue sub)
-                                 :overflow (:overflow sub)})
+               (do (reset! snap {:events          (:queue sub)
+                                 :dropped-events  (:dropped-events sub 0)
+                                 :dropped-bytes   (:dropped-bytes  sub 0)
+                                 :overflow-reason (:overflow-reason sub)})
                    (assoc m sub-id (-> sub
                                        (assoc :queue [])
-                                       (assoc :overflow 0))))
+                                       (assoc :queue-bytes 0)
+                                       (assoc :dropped-events 0)
+                                       (assoc :dropped-bytes 0)
+                                       (assoc :overflow-reason nil))))
                (do (reset! snap nil) m))))
-    (if-let [{:keys [events overflow]} @snap]
-      {:ok? true :sub-id sub-id :events events :overflow (or overflow 0) :gone? false}
-      {:ok? true :sub-id sub-id :events [] :overflow 0 :gone? true})))
+    (if-let [{:keys [events dropped-events dropped-bytes overflow-reason]} @snap]
+      {:ok? true :sub-id sub-id :events events
+       :dropped-events (or dropped-events 0)
+       :dropped-bytes  (or dropped-bytes  0)
+       :overflow-reason overflow-reason
+       :gone? false}
+      {:ok? true :sub-id sub-id :events []
+       :dropped-events 0
+       :dropped-bytes  0
+       :overflow-reason nil
+       :gone? true})))
 
 (defn subscription-info
   "Return active subscription metadata — handy for diagnostics. Returns
-   `{:ok? true :subs [{:id :topic :filter :queue-depth :overflow :created-at}]}`.
-   Does not drain."
+   `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes
+                       :dropped-events :dropped-bytes :overflow-reason
+                       :created-at}]}`. Does not drain."
   []
   {:ok? true
    :subs (mapv (fn [[sub-id sub]]
-                 {:id        sub-id
-                  :topic     (:topic sub)
-                  :filter    (:filter sub)
-                  :queue-depth (count (:queue sub))
-                  :overflow  (:overflow sub)
-                  :created-at (:created-at sub)})
+                 {:id              sub-id
+                  :topic           (:topic sub)
+                  :filter          (:filter sub)
+                  :queue-depth     (count (:queue sub))
+                  :queue-bytes     (:queue-bytes sub 0)
+                  :dropped-events  (:dropped-events sub 0)
+                  :dropped-bytes   (:dropped-bytes  sub 0)
+                  :overflow-reason (:overflow-reason sub)
+                  :created-at      (:created-at sub)})
                @subscriptions)})
 
 ;; ---------------------------------------------------------------------------

@@ -90,11 +90,15 @@ The MCP client passes a `progressToken` on the `tools/call` for `subscribe`; eac
   "progressToken": "<client-supplied>",
   "progress": <tick-number>,
   "message": "<EDN-printed batch of events>",
-  "data": { "overflow": <count> }
+  "data": {
+    "dropped-events":  <count>,
+    "dropped-bytes":   <count>,
+    "overflow-reason": ":max-buffered-events" | ":max-buffered-bytes" | null
+  }
 }
 ```
 
-The `message` slot is an EDN-printed string of the batch (a vector of events for `:trace` topics, a vector of `:rf/epoch-record` maps for `:epoch`). The agent reads `message` directly; capable hosts can additionally inspect `data` for structured counts.
+The `message` slot is an EDN-printed string of the batch (a vector of events for `:trace` topics, a vector of `:rf/epoch-record` maps for `:epoch`). The agent reads `message` directly; capable hosts can additionally inspect `data` for structured counts. `overflow-reason` carries the stringified EDN keyword of the budget that tripped on this tick (`null` when no eviction happened).
 
 When sensitive events are dropped, the payload carries an extra `:dropped-sensitive` count; see [Privacy posture](#privacy-posture) below.
 
@@ -117,13 +121,18 @@ The final summary the call resolves with:
 {:ok? true
  :sub-id   "<uuid>"
  :topic    :epoch
- :delivered <count>
- :overflow  <count>
- :ticks     <count>
- :reason    :max-events-reached  ;; or one of the four above
+ :delivered      <count>
+ :dropped-events <count>   ;; events evicted from the runtime queue
+ :dropped-bytes  <count>   ;; bytes evicted alongside (pr-str char count)
+ :ticks          <count>
+ :reason         :max-events-reached  ;; or one of the four above
+ ;; optional, only when overflow eviction occurred:
+ :overflow-reason :max-buffered-events  ;; or :max-buffered-bytes
  ;; optional, only when sensitive drops occurred:
  :dropped-sensitive <count>}
 ```
+
+The byte+event buffer budget (rf2-ho4ve): the runtime queue is bounded by an OR-combined pair — `max-buffered-events` (default 500) and `max-buffered-bytes` (default 5_000_000, ~5 MB pr-str char count). On overflow the OLDEST queued events are evicted (drop-oldest FIFO) and the count/bytes/reason surface on the next `notifications/progress` tick and the final summary. The byte budget is the load-bearing bound; the event budget is a coarse backstop for chatty-filter overruns. Tune `max-buffered-bytes` when `:overflow-reason :max-buffered-bytes` keeps tripping — that's a large-payload storm.
 
 ## Privacy posture
 
@@ -161,4 +170,4 @@ mcp__re-frame-pair2__unsubscribe {sub-id: "<the uuid from the subscribe response
 mcp__re-frame-pair2__eval-cljs {form: "(re-frame-pair2.runtime/subscription-info)"}
 ```
 
-Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :overflow :created-at}]}`. Useful when a probe seems to have gone quiet — confirm the sub is still registered (and that `queue-depth` isn't piling up against a dead consumer) before assuming the bus is dry.
+Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}]}`. Useful when a probe seems to have gone quiet — confirm the sub is still registered (and that `queue-depth` / `queue-bytes` isn't piling up against a dead consumer) before assuming the bus is dry. A non-nil `:overflow-reason` indicates the queue has been evicting older events to stay inside its budget.

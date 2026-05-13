@@ -532,6 +532,84 @@ siblings. Combined with path-slicing (`:summary` default on
 snapshot), the typical `investigate-X` workflow stays well
 inside the 5,000-token cap without further drill-down.
 
+### Streaming subscribe byte+event budget (rf2-ho4ve)
+
+The sixth wire-protocol mechanism, applied at the *upstream*
+edge — the runtime-side queue feeding the `subscribe` tool —
+rather than at the wire boundary itself. The motivation is
+memory pressure: an event-count-only buffer (`:max-buffered
+500`) is misleading when event size varies by orders of
+magnitude. Five small trace events fit in ~500 bytes; five
+overflowed epoch records with diff-encoded 1MB app-db
+references can hit 5MB. The bound the operator cares about
+is bytes, not events.
+
+**The budget**. Every active subscription carries an
+OR-combined pair on the runtime side:
+
+- `:max-buffered-events` — integer event-count cap, default
+  500. The coarse backstop.
+- `:max-buffered-bytes` — integer pr-str byte cap, default
+  5_000_000 (~5 MB). The load-bearing bound. The unit
+  matches the wire-cap's `pr-str` character count discipline
+  (`token-estimate = (quot bytes 4)`), so the budgets across
+  the upstream-queue and the egress-wire stay coherent.
+
+The runtime's `enqueue!` admits the new event first, then
+evicts from the FRONT of the queue until BOTH budgets hold.
+Drop-OLDEST FIFO is the only sensible policy for a byte
+budget — a single fat newcomer can require evicting an
+arbitrary number of small predecessors, and there's no way to
+know that on admission without already having admitted it.
+
+**Eviction reporting**. On every `drain-subscription!` the
+runtime returns:
+
+```clojure
+{:events          [...]                       ; queued events
+ :dropped-events  <integer>                   ; evicted events since last drain
+ :dropped-bytes   <integer>                   ; evicted bytes since last drain
+ :overflow-reason :max-buffered-events
+                 | :max-buffered-bytes
+                 | nil                        ; which budget tripped LAST
+ :gone?           <boolean>}
+```
+
+The counters reset on drain — each tick reports the delta
+since the previous tick. `:overflow-reason` is the LAST budget
+that tripped (bytes wins on a same-enqueue tie because the
+byte budget tripping signals a large-payload storm — the
+event-budget tripping in isolation is the easy case).
+
+The MCP server forwards these on every `notifications/progress`
+frame's `:data` slot (with the keyword stringified per JSON-RPC
+constraints) and accumulates them onto the final tools/call
+summary. The agent host pattern-matches on `:overflow-reason`
+to decide which budget to raise — bytes-bound storms call for
+`max-buffered-bytes` (or a tighter `filter`); event-bound
+storms call for `max-buffered-events`.
+
+**Why two budgets, not just one**. The byte budget alone
+suffices in principle (bytes is what hurts), but the event
+budget is cheap to maintain and a useful coarse cap against
+runaway subscriptions with a pathologically chatty filter —
+"please don't keep more than 500 events even if they're
+small". The event budget rarely trips in practice for normal
+filters but is the backstop for the chatty-filter case the
+byte budget can't catch (lots of tiny events, none over
+budget individually but together swamp drain throughput).
+
+**Cross-MCP vocabulary**. The `:overflow-reason` keywords
+(`:max-buffered-events`, `:max-buffered-bytes`) sit in the
+runtime's own namespace because they're a property of the
+upstream queue, not a wire marker. The MCP wire payload's
+`:data` slot stringifies them for JSON-RPC. The
+`:dropped-events` / `:dropped-bytes` field names mirror the
+existing `:dropped-sensitive` slot already used for the
+privacy filter (Spec 009 §Privacy / rf2-3cted) — the agent
+host learns one shape: "dropped count + the reason it was
+dropped".
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
