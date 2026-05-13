@@ -87,7 +87,12 @@
 ;; the pattern other view tests use (trace-bus is the source the
 ;; composite sub reads through `:rf.causa/trace-buffer`).
 (defn- push-event! [ev]
-  (trace-bus/collect-trace! ev))
+  ;; Per rf2-iw5ym: `:rf.causa/trace-buffer` is reactive off Causa's
+  ;; app-db, not the trace-bus atom. Tests drive the reactive write
+  ;; path directly via `dispatch-sync` so the composite sub re-fires
+  ;; synchronously on the next subscribe.
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/note-trace-event ev])))
 
 (defn- mcp-event
   "Build a :origin :causa-mcp trace event in the shape the buffer

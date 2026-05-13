@@ -68,13 +68,18 @@
                       extra-tags)}))
 
 (defn- seed-buffer!
-  "Wire the trace collector (preload-style) and push events through it
-  so the Causa buffer matches the production delivery path."
+  "Register Causa's handlers, allocate the :rf/causa frame, then push
+  the supplied events through Causa's reactive trace-buffer slot
+  (per rf2-iw5ym `:rf.causa/trace-buffer` is reactive off Causa's
+  app-db; `dispatch-sync` of `:rf.causa/note-trace-event` is the
+  test-side write path that mirrors `trace-bus/collect-trace!`'s
+  production async dispatch)."
   [evs]
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {})
-  (doseq [ev evs]
-    (trace-bus/collect-trace! ev)))
+  (rf/with-frame :rf/causa
+    (doseq [ev evs]
+      (rf/dispatch-sync [:rf.causa/note-trace-event ev]))))
 
 ;; ---- hiccup walker (lifted from causality_graph_view_cljs_test) ---------
 
