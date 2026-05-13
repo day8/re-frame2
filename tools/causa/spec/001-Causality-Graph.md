@@ -17,7 +17,7 @@ instrumentation is added; Causa reads what Spec 009 already emits.
 |---|---|---|
 | **Dispatch** | `:op-type :event` with `:operation :event/dispatched` | Event vector, source coords, `:origin`, duration. |
 | **Effect** | `:op-type :fx` | fx-id, args summary, outcome (`:ok` / `:error` / `:skipped-on-platform`). |
-| **Machine transition** | `:op-type :rf.machine/transition` | Machine-id, from-state → to-state. |
+| **Machine transition** | `:op-type :machine` with `:operation :rf.machine/transition` | Machine-id, from-state → to-state. |
 | **Schema violation** | `:op-type :error` with `:operation :rf.error/schema-validation-failure` | Path, recovery mode, one-line cause. |
 | **Hydration mismatch** | `:op-type :error` with `:operation :rf.ssr/hydration-mismatch` | Server vs client render-tree hash diff entry. |
 

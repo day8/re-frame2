@@ -22,21 +22,19 @@
       {:id        <int>           ;; stable per-process
        :time      <ms>
        :op-type   <:error :warning :info :fx :frame :event ...>
-       :operation <keyword namespaced under one of the five prefixes>
+       :operation <keyword namespaced under one of the catalogue prefixes>
        :recovery  <keyword or :no-recovery>
        :tags      {...category-specific...}}
 
-  The five normative error-event prefixes from Spec 009 §Error
-  namespace convention are:
-
-      :rf.error/<category>   — runtime errors (default-recovery rules)
-      :rf.fx/<category>      — fx-substrate diagnostics
-      :rf.ssr/<category>     — SSR-substrate diagnostics (hydration etc.)
-      :rf.warning/<category> — recoverable misuse advisories
-      :rf.epoch/<category>   — epoch / time-travel diagnostics
-
-  Plus the :rf.cofx/, :rf.frame/, :rf.http/, :rf.http.interceptor/
-  and :rf.route.nav-token/ subgroups that appear in the catalogue.
+  The normative error-event prefixes are enumerated in Spec 009
+  §Error event catalogue (the single source of truth). At time of
+  writing the catalogue spans `:rf.error/`, `:rf.warning/`, `:rf.fx/`,
+  `:rf.cofx/`, `:rf.ssr/`, `:rf.epoch/`, `:rf.http/`,
+  `:rf.http.interceptor/`, `:rf.frame/`, and `:rf.route.nav-token/`,
+  with more added as the catalogue grows. The ribbon's projection
+  reads the keyword namespace directly (see `category-prefix` below),
+  so new prefixes flow through without code change — consult the
+  catalogue for the authoritative list rather than this comment.
 
   ## Severity
 

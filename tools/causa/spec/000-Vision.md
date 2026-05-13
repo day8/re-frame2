@@ -91,7 +91,7 @@ Each row is "new in re-frame2 → new tooling story Causa must tell."
 | **Flow graph** | DAG of registered flows; per-flow recompute heatmap; "marked dormant" indicator. | `(rf/handlers :flow)` + `:rf.flow/*` traces. |
 | **Performance ribbon** | INP, long tasks, layout shifts, re-render counts per epoch. | `PerformanceObserver` watching `rf:*` + browser entries. |
 | **Schema violation timeline** | Per-schema row; coloured dot per failure with recovery mode (skip / rollback / replaced-with-default / re-raised). | `(rf/trace-buffer {:operation :rf.error/schema-validation-failure})`. |
-| **Issues ribbon** | Unified feed: errors, warnings, schema violations, hydration mismatches. Permanent ribbon, not a console line. | All `:op-type :error` / `:warning` / `:rf.ssr/hydration-mismatch` traces. |
+| **Issues ribbon** | Unified feed: errors, warnings, schema violations, hydration mismatches. Permanent ribbon, not a console line. | All `:op-type :error` / `:warning` traces (including `:operation :rf.ssr/hydration-mismatch`, which carries `:op-type :error`). |
 | **Hydration debugger** | Server vs client render-tree side-by-side; divergent-node pulse; render-tree hash bisector. Only visible when SSR hydration ran. | `:rf.ssr/hydration-mismatch` + payload + first client render-tree hash. |
 | **AI co-pilot** | Pull-only Q&A and slash commands; collapsed by default; ephemeral conversation. | Registrar + epoch history + trace buffer + user's LLM. |
 | **Routing inspector** | `:rf/route` as breadcrumb; nav-token timeline with stale-result suppression. | `(rf/sub :rf/route)` + `:rf.route.nav-token/*` traces. |
