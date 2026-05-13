@@ -48,6 +48,7 @@
             [day8.re-frame2-causa.panels.flows :as flows]
             [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
+            [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
             ;; ── mcp-server panel begin ──
             [day8.re-frame2-causa.panels.mcp-server :as mcp-server]
             ;; ── mcp-server panel end ──
@@ -94,7 +95,7 @@
    {:id :fx           :label "Effects"       :bead "rf2-ts41u" :live? true}
    ;; ── effects panel end ──
    {:id :trace        :label "Trace"         :bead "rf2-argrj" :live? true}
-   {:id :machines     :label "Machines"      :bead "rf2-xxx"}
+   {:id :machines     :label "Machines"      :bead "rf2-r9f9u" :live? true}
    {:id :flows        :label "Flows"         :bead "rf2-83irn" :live? true}
    {:id :routes       :label "Routes"        :bead "rf2-6blai" :live? true}
    {:id :performance  :label "Performance"   :bead "rf2-75121" :live? true}
@@ -291,6 +292,7 @@
       :routes       [routes/routes-view]
       :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
+      :machines     [machine-inspector/machine-inspector-view]
       :hydration    [hydration-debugger/hydration-debugger-view]
       :issues       [issues-ribbon/issues-ribbon-view]
       :trace        [trace/trace-view]
