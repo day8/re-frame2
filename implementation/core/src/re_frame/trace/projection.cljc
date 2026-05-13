@@ -51,6 +51,8 @@
     projection so 'show me every fx in this cascade' becomes one slice
     of the returned record.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- bucketing ------------------------------------------------------------
 
 (def ^:private effect-op-types

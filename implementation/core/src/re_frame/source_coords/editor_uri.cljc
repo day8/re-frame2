@@ -80,6 +80,8 @@
   file. Missing `:file` → `nil` URI; the UI layer hides the button."
   (:require [clojure.string :as str]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- known schemes -------------------------------------------------------
 
 (def ^:const known-editors

@@ -18,6 +18,8 @@
   File naming uses the flat dash-form (per rf2-2vbm)."
   (:require [re-frame.source-coords :as source-coords]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- reg-view expansion helpers ------------------------------------------
 
 #?(:clj
@@ -50,7 +52,7 @@
        (nil? x)
        "nothing"
        :else
-       (str "a " (some-> x type .getSimpleName) " — " (pr-str x)))))
+       (str "a " (.getSimpleName ^Class (type x)) " — " (pr-str x)))))
 
 #?(:clj
    (defn- reagent-slim-form-tag

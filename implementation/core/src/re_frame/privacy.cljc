@@ -58,6 +58,8 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- redaction sentinel ---------------------------------------------------
 
 (def redacted-sentinel

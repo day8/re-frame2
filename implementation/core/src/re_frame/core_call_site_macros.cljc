@@ -29,6 +29,8 @@
   File naming uses the flat dash-form (per rf2-2vbm)."
   (:require [re-frame.source-coords :as source-coords]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 #?(:clj
    (defn call-site-form
      "Build the literal call-site cond-> map for a callable's macro

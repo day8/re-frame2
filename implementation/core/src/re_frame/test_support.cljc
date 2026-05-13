@@ -95,6 +95,8 @@
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- registrar snapshot/restore -------------------------------------------
 
 (defn snapshot-registrar

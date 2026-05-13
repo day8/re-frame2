@@ -46,6 +46,8 @@
   `implementation/core/test/re_frame/late_bind_drift_test.clj`
   asserts the directory and the `set-fn!` call sites stay in sync.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defonce
   ^{:doc "Map of hook-key → fn. Populated by the producing namespace at
    load time. The authoritative key inventory is

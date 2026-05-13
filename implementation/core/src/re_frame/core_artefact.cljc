@@ -79,6 +79,8 @@
   every `defwrapper` spec."
   (:require [re-frame.late-bind]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 #?(:clj
    (defn- in-scope-ex-data
      "Filter `ex-data` to entries whose value-symbol appears in the

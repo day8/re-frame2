@@ -13,6 +13,8 @@
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- path -----------------------------------------------------------------
 ;;
 ;; Focus a handler on an app-db sub-slice. The handler sees and returns

@@ -12,6 +12,8 @@
             [re-frame.late-bind :as late-bind])
   #?(:cljs (:require-macros [re-frame.trace])))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- listener registry ----------------------------------------------------
 
 (defonce ^:private listeners (atom {}))    ;; id → fn (or nil for cleared)

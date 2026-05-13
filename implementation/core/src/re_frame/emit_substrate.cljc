@@ -17,6 +17,8 @@
 
   See Spec 009 §Production debugging for normative framing.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn make-listener-registry
   "Construct an isolated always-on listener registry. Returns a map:
 

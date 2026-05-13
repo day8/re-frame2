@@ -27,6 +27,8 @@
   object, which would wipe a previously-loaded `re-frame.core.X`."
   (:require [re-frame.source-coords :as source-coords]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- with-coords-form ----------------------------------------------------
 
 #?(:clj

@@ -20,6 +20,8 @@
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:private http-artefact
   {:error-keyword :rf.error/http-artefact-missing
    :maven         "day8/re-frame2-http"

@@ -33,6 +33,8 @@
   Builtins: :inc :dec :+ :- :* :/ :identity :conj :assoc :dissoc
             :item-amount :count")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- builtins -------------------------------------------------------------
 
 (defn- builtin [k]

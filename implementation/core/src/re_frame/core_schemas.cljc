@@ -18,6 +18,8 @@
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:private schemas-artefact
   {:error-keyword :rf.error/schemas-artefact-missing
    :maven         "day8/re-frame2-schemas"

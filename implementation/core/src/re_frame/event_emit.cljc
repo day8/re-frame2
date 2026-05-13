@@ -30,6 +30,8 @@
             [re-frame.privacy       :as privacy]
             [re-frame.registrar     :as registrar]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- listener registry ----------------------------------------------------
 
 (defonce ^:private listeners

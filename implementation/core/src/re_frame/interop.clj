@@ -7,6 +7,8 @@
   test suites."
   (:import [java.util.concurrent Executor Executors ScheduledExecutorService TimeUnit ScheduledFuture]))
 
+(set! *warn-on-reflection* true)
+
 ;; ---- next-tick scheduling -------------------------------------------------
 
 (defonce ^:private executor (Executors/newSingleThreadExecutor))

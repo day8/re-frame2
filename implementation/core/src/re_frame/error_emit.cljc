@@ -41,6 +41,8 @@
             [re-frame.frame         :as frame]
             [re-frame.late-bind     :as late-bind]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- listener registry ----------------------------------------------------
 
 (defonce ^:private listeners
