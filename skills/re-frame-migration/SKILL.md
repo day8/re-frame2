@@ -14,6 +14,14 @@ description: >
   application code (use `re-frame2`), live v2-app inspection
   (use `re-frame-pair2`), or porting re-frame2 itself
   (use `re-frame2-implementor`).
+allowed-tools:
+  - Bash(rg *)
+  - Bash(rg -l *)
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 ---
 
 # re-frame-migration

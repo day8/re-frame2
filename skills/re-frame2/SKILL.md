@@ -1,6 +1,12 @@
 ---
 name: re-frame2
 description: Writes re-frame2 ClojureScript application code — events, subscriptions, effects, frames, state machines (reg-machine, parallel regions, tags, invoke), schemas, stories, routing, tests, and the canonical patterns (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection). Use whenever the user mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx, reg-cofx, reg-view, reg-machine, reg-route, reg-story, reg-app-schema, dispatch, subscribe, app-db, frames, regions, tags, the nine UI states, managed HTTP, RemoteData lifecycles, writing tests for a re-frame2 app, or state-machine-for-HTTP shapes — even when re-frame2 is not named explicitly. Authoring only (writing new code). Do not use for: live-app inspection (use re-frame-pair2), greenfield project bootstrap (use re-frame2-setup), v1→v2 migration (use re-frame-migration), or porting re-frame2 itself (use re-frame2-implementor).
+allowed-tools:
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 ---
 
 # re-frame2
