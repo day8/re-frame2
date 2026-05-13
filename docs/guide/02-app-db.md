@@ -100,7 +100,7 @@ A **frame** is an isolated runtime boundary — its own app-db, its own event qu
 
 The reason for the change is composition. Multi-instance scenarios — devcards on a documentation page, a story-tool playground with twenty variants on screen, server-side rendering where each request gets its own frame, isolated widgets embedded in a host page — all need *independent* app-dbs. v1 papered over this with explicit reset patterns; v2 names the boundary.
 
-For everyday code, this changes very little: there's still one app-db you read from and write to. You just don't have to invent the isolation when you finally need it. Chapter [06 — Views and frames](06-views-and-frames.md) walks the multi-frame story end to end. Until then, mentally substitute "app-db" with "the default frame's app-db" and you'll be right every time.
+For everyday code, this changes very little: there's still one app-db you read from and write to. You just don't have to invent the isolation when you finally need it. Chapter [06 — Views and frames](06-views-and-frames.md) introduces the multi-frame story in the context of views; chapter [06a — Frames](06a-frames.md) is the dedicated deep-dive — motivation, lifecycle, `:rf/default`, the per-test / per-story / per-request shapes. Until then, mentally substitute "app-db" with "the default frame's app-db" and you'll be right every time.
 
 The minimal API for reading the value of a frame's app-db at the REPL or in a test:
 

@@ -29,7 +29,7 @@ The artefact is dev-only and cleanly separated from the runtime — the testing 
 
 ## Fixtures: getting a fresh frame for each test
 
-The hardest part of testing imperative code is **isolation** — making sure test 1 doesn't leak state into test 2. re-frame v1 papered over this with global `app-db`-resetting helpers; re-frame2 makes it explicit through frames.
+The hardest part of testing imperative code is **isolation** — making sure test 1 doesn't leak state into test 2. re-frame v1 papered over this with global `app-db`-resetting helpers; re-frame2 makes it explicit through frames. If the per-test-frame mental model is new — what a frame is, why each test wants its own — read [chapter 06a — Frames](06a-frames.md) first; this chapter assumes the vocabulary.
 
 Three patterns, ranked roughly by frequency:
 

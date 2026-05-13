@@ -68,6 +68,7 @@ nav:
     - "04a — Schemas": guide/04a-schemas.md
     - "05 — Coeffects": guide/05-coeffects.md
     - "06 — Views and frames": guide/06-views-and-frames.md
+    - "06a — Frames": guide/06a-frames.md
     - "07 — Interceptors": guide/07-interceptors.md
     - "08 — State machines": guide/08-state-machines.md
     - "09 — Forms": guide/09-forms.md
