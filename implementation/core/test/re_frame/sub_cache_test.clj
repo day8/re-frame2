@@ -161,6 +161,84 @@
     (is (not (contains? (cache-keys) [:n]))
         "slot disposed synchronously")))
 
+;; ---- rf2-zmufj: subscribe-value teardown is synchronous -------------------
+;;
+;; subscribe-value's internal unsubscribe runs with `{:grace 0}` so the
+;; one-shot read's whole lifetime — subscribe, deref, dispose — completes
+;; in the calling tick. Pre-fix, even with the per-runtime grace-period
+;; set to 50ms, subscribe-value would schedule a deferred dispose timer
+;; whose callback fired AFTER the caller had moved on, leaking dispose
+;; side-effects past the call's observable lifetime.
+
+(deftest subscribe-value-disposes-synchronously
+  (testing "subscribe-value's teardown is synchronous regardless of the configured grace-period (rf2-zmufj)"
+    (subs/configure! {:grace-period-ms 60000})  ;; long grace; pre-fix this leaked
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    ;; Pre-condition: no cache slot exists for [:n] yet.
+    (is (not (contains? (cache-keys) [:n]))
+        "no cache slot before subscribe-value")
+
+    ;; subscribe-value: builds the sub, derefs, and tears down. Per
+    ;; rf2-zmufj the teardown is synchronous — when this returns, the
+    ;; slot MUST already be evicted, with no pending-dispose handle.
+    (is (= 7 (rf/subscribe-value [:n])))
+    (is (not (contains? (cache-keys) [:n]))
+        "slot is disposed synchronously inside subscribe-value — no deferred timer")))
+
+(deftest subscribe-value-respects-concurrent-subscriber
+  (testing "subscribe-value's :grace 0 teardown only disposes when it drove 1→0 (rf2-zmufj)"
+    (subs/configure! {:grace-period-ms 60000})
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    ;; Pin the slot with a reactive subscribe — ref-count = 1.
+    (let [pin (rf/subscribe [:n])]
+      (is (= 1 (entry-ref-count [:n])))
+
+      ;; subscribe-value runs: subscribe (ref-count → 2), deref,
+      ;; unsubscribe {:grace 0} (ref-count → 1). The decrement does NOT
+      ;; drive 1→0 — the pinning subscribe is still live — so the slot
+      ;; MUST survive untouched.
+      (is (= 7 (rf/subscribe-value [:n])))
+      (is (contains? (cache-keys) [:n])
+          "slot survives — the pinning subscriber kept ref-count > 0")
+      (is (= 1 (entry-ref-count [:n]))
+          "ref-count back to 1 after subscribe-value's paired inc/dec")
+      (is (not (pending-dispose? [:n]))
+          "no dispose was scheduled — the {:grace 0} teardown only fires on 1→0")
+
+      ;; Cleanup: release the pin so the fixture's grace-period reset
+      ;; doesn't leave a live slot behind. (Re-frame.core does not
+      ;; expose `dispose!` directly — the `unsubscribe` call below
+      ;; releases the imperative subscribe's ref-count.)
+      (rf/unsubscribe [:n])
+      ;; `pin` is no longer used after this point; binding kept above
+      ;; only to materialise the pinning subscribe — its reactive
+      ;; lifetime ends with the line above.
+      pin)))
+
+(deftest unsubscribe-with-grace-opt-overrides-configured-grace
+  (testing "(unsubscribe frame-id query-v {:grace 0}) disposes synchronously even when configured grace > 0"
+    (subs/configure! {:grace-period-ms 60000})
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    (rf/subscribe [:n])
+    (is (= 1 (entry-ref-count [:n])))
+
+    ;; The {:grace 0} opt forces synchronous disposal for THIS call only
+    ;; — the per-runtime configured grace-period is unchanged.
+    (rf/unsubscribe :rf/default [:n] {:grace 0})
+    (is (not (contains? (cache-keys) [:n]))
+        "slot disposed synchronously despite configured grace=60000ms")
+    (is (= 60000 (:grace-period-ms (subs/current-config)))
+        "per-runtime grace-period-ms is unchanged — only THIS call was overridden")))
+
 ;; ---- clear-subscription-cache! cancels pending timers ---------------------
 
 (deftest clear-subscription-cache-cancels-pending
