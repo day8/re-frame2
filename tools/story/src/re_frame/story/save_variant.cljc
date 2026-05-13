@@ -38,10 +38,11 @@
   The dialog ratom + button component live in
   `re-frame.story.ui.save-variant` (CLJS-only)."
   (:require [clojure.string :as str]
-            [re-frame.core            :as rf]
-            [re-frame.story.args      :as args]
-            [re-frame.story.config    :as config]
-            [re-frame.story.ui.state  :as state]))
+            [re-frame.core                  :as rf]
+            [re-frame.story.args            :as args]
+            [re-frame.story.config          :as config]
+            [re-frame.story.review-dialog   :as review-dialog]
+            [re-frame.story.ui.state        :as state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: args-snapshot helper
@@ -130,63 +131,60 @@
          "\n  {" body-str "})")))
 
 ;; ---------------------------------------------------------------------------
-;; Pure: default-id derivation
+;; Default-id derivation + dialog state shape
 ;;
-;; The save-as flow seeds the dialog's id input with a sensible default —
-;; the source variant's namespace + a wall-clock-derived suffix so two
-;; saves against the same source don't collide before the user edits.
-;; Mirrors `re-frame.story.ui.recorder/default-variant-id`'s shape but
-;; uses a `saved-` prefix to distinguish from `recorded-` traces.
+;; The dialog state machine + the default-id derivation live in the
+;; shared `re-frame.story.review-dialog` ns (rf2-7jpky); the save-
+;; variant flow's only flavour is the `\"saved-\"` prefix on the auto-
+;; derived id and the `{:args <snapshot>}` shape stashed in the
+;; dialog's `:context` slot. Thin re-exports below for ergonomics +
+;; the legacy `:args` key in the opened state (preserved for callers
+;; that read it via the open-dialog callback).
 ;; ---------------------------------------------------------------------------
+
+(def ^:const default-id-prefix
+  "Per-flow prefix for the auto-derived default new-variant id."
+  "saved")
 
 (defn default-variant-id
-  "Derive a sensible default id for the new variant given the source
-  variant id + a wall-clock millis stamp. Pure data → keyword.
-
-  Returns nil if `source-variant-id` is not a qualified keyword."
+  "Derive the save-variant default new-variant id from a source variant
+  id + a wall-clock millis stamp. Pure data → keyword | nil. Delegates
+  to `review-dialog/default-variant-id-with-prefix`; nil for non-
+  qualified-keyword sources."
   [source-variant-id now-ms]
-  (when (qualified-keyword? source-variant-id)
-    (let [suffix (mod (long now-ms) 1000000)]
-      (keyword (namespace source-variant-id)
-               (str "saved-" suffix)))))
-
-;; ---------------------------------------------------------------------------
-;; Pure: dialog-state shape + transitions
-;;
-;; The save-as-variant dialog carries its own state — open?, the draft
-;; id the user types, the source variant id, and the snapshot args. The
-;; pure transitions are JVM-testable; the impure ratom + UI live in
-;; `re-frame.story.ui.save-variant`.
-;; ---------------------------------------------------------------------------
+  (review-dialog/default-variant-id-with-prefix
+    source-variant-id now-ms default-id-prefix))
 
 (def initial-dialog-state
-  "The save-variant dialog's idle state shape."
-  {:open?       false
-   :draft-id    nil
-   :source-id   nil
-   :args        nil})
+  "Alias for `review-dialog/initial-state` — kept for call-site
+  ergonomics so the dialog ratom seeding form reads as
+  `save-variant/initial-dialog-state`."
+  review-dialog/initial-state)
 
 (defn open
-  "Pure: return the dialog state for opening against `source-variant-id`
-  with the captured `args-snapshot`. `now-ms` seeds the default id."
+  "Open the save-variant dialog against `source-variant-id` with the
+  captured `args-snapshot`. `now-ms` seeds the default id. The args
+  ride in the dialog state's `:context` slot (per the review-dialog
+  contract); a top-level `:args` key is preserved so callers reading
+  the legacy slot keep working."
   [_state source-variant-id args-snapshot now-ms]
-  {:open?     true
-   :source-id source-variant-id
-   :args      args-snapshot
-   :draft-id  (default-variant-id source-variant-id now-ms)})
+  (let [base (review-dialog/open review-dialog/initial-state
+                                 source-variant-id
+                                 {:args args-snapshot}
+                                 now-ms
+                                 default-id-prefix)]
+    (assoc base :args args-snapshot)))
 
 (defn close
-  "Pure: return the dialog state for closing — open? flips false; the
-  args/source slots clear so the next open starts fresh."
+  "Close the dialog — returns the idle state."
   [_state]
-  initial-dialog-state)
+  review-dialog/initial-state)
 
 (defn set-draft-id
-  "Pure: replace the draft id in the dialog state. `id` may be a keyword
-  or a string (the UI layer parses string input into keywords on best-
-  effort; the pure transition just stores whatever the caller passes)."
+  "Replace the draft id in the dialog state. `id` may be a keyword or a
+  raw string the user is typing."
   [state id]
-  (assoc state :draft-id id))
+  (review-dialog/set-draft-id state id))
 
 ;; ---------------------------------------------------------------------------
 ;; Impure: capture + open
