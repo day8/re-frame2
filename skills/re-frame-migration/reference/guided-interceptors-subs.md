@@ -142,7 +142,7 @@ Read the body and propose; author confirms.
 
 **Decision shape**:
 
-1. **Observer-shaped callback**: convert to `(rf/register-trace-cb! key cb)`. Trace listeners see every dispatched event; filter on `:operation` for the equivalent.
+1. **Observer-shaped callback**: convert to `(rf/register-trace-cb! key cb)`. Trace listeners see every dispatched event; filter on `:operation` / `:op-type` for the equivalent. The closed catalogue of `:operation` keywords and `:op-type` values lives in [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) — see [`error-events.md`](error-events.md) for the pointer.
 2. **Behaviour-modifying callback**: convert to a frame-level interceptor declared in `reg-frame` metadata.
 
 Read the callback body; categorise; propose; author confirms.

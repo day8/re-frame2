@@ -119,6 +119,8 @@ A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for log
 
 Present the categorisation; confirm with the author; apply.
 
+**Writing the new `:on-error` / trace listener**: the closed set of `:operation` keywords the policy receives — and the `:op-type` / `:tags` shape for filtering trace listeners — lives in [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). See [`error-events.md`](error-events.md) for the pointer and the prefix-family reference. Do not infer category names from the v1 code or comments — the catalogue at Spec 009 is authoritative.
+
 ---
 
 ## M-14 — `:rf.route/not-found` requirement
