@@ -45,6 +45,9 @@
             [day8.re-frame2-causa.panels.flows :as flows]
             [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
+            ;; ── mcp-server panel begin ──
+            [day8.re-frame2-causa.panels.mcp-server :as mcp-server]
+            ;; ── mcp-server panel end ──
             [day8.re-frame2-causa.panels.performance :as performance]
             [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
@@ -96,6 +99,13 @@
    ;; marker; once a mismatch fires the entry lights up and the entry
    ;; behaves like every other live panel.
    {:id :hydration    :label "Hydration"     :bead "rf2-pzxsr" :live? true :dormant? true}
+   ;; ── mcp-server panel begin ──
+   ;; rf2-81qjj — DECISION (a): a dedicated MCP entry in the sidebar
+   ;; surfaces 'what is the agent doing' in one place. Placed adjacent
+   ;; to Co-pilot since both are AI / agent surfaces, per spec/007-UX-
+   ;; IA.md §Sidebar groups (third group is the AI surfaces).
+   {:id :mcp-server   :label "MCP"           :bead "rf2-81qjj" :live? true}
+   ;; ── mcp-server panel end ──
    {:id :copilot      :label "Co-pilot"      :bead "rf2-rccf3" :live? true}])
 
 ;; ---- regions -------------------------------------------------------------
@@ -274,6 +284,9 @@
       :issues       [issues-ribbon/issues-ribbon-view]
       :trace        [trace/trace-view]
       :performance  [performance/performance-view]
+      ;; ── mcp-server panel begin ──
+      :mcp-server   [mcp-server/mcp-server-view]
+      ;; ── mcp-server panel end ──
       ;; Sidebar Co-pilot row renders the panel-style view in the
       ;; canvas; the rail still lives in the shell's right margin per
       ;; spec/007-UX-IA.md §The five regions item 4.
