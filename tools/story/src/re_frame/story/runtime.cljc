@@ -226,6 +226,14 @@
   (or (:rf.story/assertions (rf/get-frame-db variant-id)) []))
 
 ;; ---- run-variant ---------------------------------------------------------
+;;
+;; `run-variant` is the engine's hot path. Per IMPL-SPEC §5.4 it drives the
+;; four-phase lifecycle (phase-0 setup → phase-1 loaders → phase-2 events →
+;; phase-4 play); phase-3 render is Stage 4's UI-shell concern. To keep the
+;; orchestrator readable each phase lives in its own named fn — the audit
+;; (rf2-dd5ze, RT1) flagged the inline 70-line let/try wall the orchestrator
+;; used to be. The named-phase decomposition also gives tests a finer entry
+;; surface: a primed ctx can be fed into a single phase fn in isolation.
 
 (defn- record-result-map
   "Build the result map returned by `run-variant`. Pure data; gathers
@@ -241,6 +249,97 @@
      :decorators      decorator-stack
      :effective-args  effective-args
      :lifecycle       (loaders/current-state variant-id)}))
+
+(defn- prepare-context
+  "Resolve the per-run inputs that every phase needs: the decorator
+  stack, the effective args, the identity snapshot, and the variant
+  body's `:play` vector. Returns a map; pure aside from the registrar
+  reads."
+  [variant-id variant-body opts]
+  (let [{:keys [active-modes]} opts]
+    {:variant-id      variant-id
+     :variant-body    variant-body
+     :decorator-stack (decorators/resolve-decorators variant-id
+                                                     {:active-modes active-modes})
+     :effective-args  (args/resolve-args variant-id opts)
+     :snapshot        (ident/snapshot-identity variant-id opts)
+     :play-events     (or (:play variant-body) [])}))
+
+(defn- run-phase-0!
+  "Phase 0: allocate the variant frame with its decorator stack, then
+  install the play-runner's trace listener.
+
+  The listener install order matters (rf2-v2g9): it must be in place
+  BEFORE phase-1 loaders fire so the assertions module's dispatched-
+  events accumulator captures loader-phase events. `:loaders-complete-
+  when`'s vector form consults that accumulator to gate the loaders-
+  complete transition; an empty accumulator during loaders would never
+  match. We seed the accumulators here so the listener has a clean
+  slot; `execute-play!` resets them again at play start so play-time
+  assertion semantics (\"during play\") are preserved."
+  [{:keys [variant-id decorator-stack] :as ctx}]
+  (frames/allocate! variant-id decorator-stack)
+  (assertions/reset-trace-accumulators! variant-id)
+  (play/install-trace-listener! variant-id)
+  ctx)
+
+(defn- run-phase-1!
+  "Phase 1: drive loaders to completion. Thin wrapper that returns
+  `ctx` so the orchestrator stays a clean threaded pipeline."
+  [{:keys [variant-id] :as ctx}]
+  (run-loaders! variant-id)
+  ctx)
+
+(defn- run-phase-2!
+  "Phase 2: dispatch every `:events` entry, then mark events complete
+  on the lifecycle machine."
+  [{:keys [variant-id] :as ctx}]
+  (run-events! variant-id)
+  (loaders/finish-events! variant-id)
+  ctx)
+
+(defn- run-phase-4!
+  "Phase 4: run the play sequence. Returns the play-promise — the
+  orchestrator chains `then` on it to know when to build the result.
+
+  Phase 3 (render) is Stage 4's UI-shell concern and is not driven
+  from this orchestrator."
+  [{:keys [variant-id play-events]}]
+  (play/execute-play! variant-id play-events))
+
+(defn- finalise-run!
+  "Build and deliver the result map once phase 4's promise settles.
+  Stage 5 (rf2-h8et) makes this chain load-bearing: `execute-play!`
+  resolves the promise to the assertions vector, and we want the
+  result map to read the post-play app-db."
+  [resolve play-promise {:keys [variant-id decorator-stack effective-args snapshot]} start-ms]
+  (-> play-promise
+      (async/then
+        (fn [_]
+          (resolve (record-result-map variant-id decorator-stack
+                                      effective-args snapshot start-ms))
+          nil))))
+
+(defn- handle-run-error!
+  "Catch-branch for the orchestrator: record the exception as a
+  phase-0-setup assertion (covers any sync throw from the phase chain),
+  transition the lifecycle machine to `:error`, then resolve with the
+  best result map we can build from whatever the run accumulated."
+  [resolve variant-id e start-ms]
+  (record-error! variant-id :phase-0-setup nil e)
+  (loaders/error! variant-id (ex-data e))
+  (resolve (record-result-map variant-id nil nil nil start-ms)))
+
+(defn- unknown-variant-result
+  "The error result returned when `frames/variant-body` finds no
+  registration for `variant-id`. Kept separate so the missing-variant
+  branch of `run-variant` reads as a single expression."
+  [variant-id]
+  (assoc (empty-result variant-id)
+         :lifecycle :error
+         :assertions [{:assertion  :rf.error/unknown-variant
+                       :variant-id variant-id
+                       :passed?    false}]))
 
 (defn run-variant
   "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
@@ -265,72 +364,22 @@
   ([variant-id opts]
    (if-not config/enabled?
      (async/resolved (empty-result variant-id))
-     (let [start-ms        (interop/now-ms)
-           {:keys [active-modes cell-overrides substrate]} opts
-           variant-body    (frames/variant-body variant-id)]
-       (cond
-         (nil? variant-body)
-         (async/resolved (assoc (empty-result variant-id)
-                                :lifecycle :error
-                                :assertions [{:assertion :rf.error/unknown-variant
-                                              :variant-id variant-id
-                                              :passed? false}]))
-
-         :else
-         (async/promise
-           (fn [resolve]
-             (try
-               (install-helpers!)
-               (let [decorator-stack (decorators/resolve-decorators variant-id
-                                                                    {:active-modes active-modes})
-                     effective-args  (args/resolve-args variant-id opts)
-                     snapshot        (ident/snapshot-identity variant-id opts)
-                     play-events     (or (:play variant-body) [])]
-                 ;; Phase 0: allocate frame, run :frame-setup decorators,
-                 ;; drive lifecycle to :mounting.
-                 (frames/allocate! variant-id decorator-stack)
-                 ;; Install the play-runner's per-frame trace listener
-                 ;; BEFORE the loader phase begins (rf2-v2g9). The
-                 ;; listener feeds the assertions module's dispatched-
-                 ;; events accumulator, which `:loaders-complete-when`'s
-                 ;; vector form consults to gate the loaders-complete
-                 ;; transition. Installing it post-loaders (the original
-                 ;; Stage 5 placement) means the vector form sees an
-                 ;; empty accumulator during the loader phase and never
-                 ;; matches. We seed the accumulators here so the
-                 ;; listener has a clean slot to write into; `execute-
-                 ;; play!` resets them again at play start so play-time
-                 ;; assertion semantics ("during play") are preserved.
-                 (assertions/reset-trace-accumulators! variant-id)
-                 (play/install-trace-listener! variant-id)
-                 ;; Phase 1: loaders.
-                 (run-loaders! variant-id)
-                 ;; Phase 2: events.
-                 (run-events! variant-id)
-                 (loaders/finish-events! variant-id)
-                 ;; Phase 3 (render): Stage 4's UI shell does the actual
-                 ;; render. Stage 3 leaves :rendered-hiccup nil.
-                 ;; Phase 4 (play + assertions): Stage 5 (rf2-h8et).
-                 ;; `execute-play!` runs the play sequence synchronously
-                 ;; on the JVM and via dispatch-sync on CLJS (re-frame's
-                 ;; drain settles before each call returns); the returned
-                 ;; promise resolves immediately to the assertions vector.
-                 (let [play-promise (play/execute-play! variant-id play-events)]
-                   ;; The execute-play! contract guarantees the promise
-                   ;; resolves to the assertions vector once play
-                   ;; completes. We chain `then` so the final result-map
-                   ;; build sees the post-play app-db.
-                   (-> play-promise
-                       (async/then
-                         (fn [_]
-                           (resolve (record-result-map variant-id decorator-stack
-                                                       effective-args snapshot
-                                                       start-ms))
-                           nil)))))
-               (catch #?(:clj Throwable :cljs :default) e
-                 (record-error! variant-id :phase-0-setup nil e)
-                 (loaders/error! variant-id (ex-data e))
-                 (resolve (record-result-map variant-id nil nil nil start-ms)))))))))))
+     (let [variant-body (frames/variant-body variant-id)]
+       (if (nil? variant-body)
+         (async/resolved (unknown-variant-result variant-id))
+         (let [start-ms (interop/now-ms)]
+           (async/promise
+             (fn [resolve]
+               (try
+                 (install-helpers!)
+                 (let [ctx          (-> (prepare-context variant-id variant-body opts)
+                                        run-phase-0!
+                                        run-phase-1!
+                                        run-phase-2!)
+                       play-promise (run-phase-4! ctx)]
+                   (finalise-run! resolve play-promise ctx start-ms))
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (handle-run-error! resolve variant-id e start-ms)))))))))))
 
 ;; ---- reset-variant -------------------------------------------------------
 
