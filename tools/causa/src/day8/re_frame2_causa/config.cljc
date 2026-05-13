@@ -30,7 +30,8 @@
 (defonce
   ^{:doc "Atom holding Causa's 'Open in editor' preference. Default
          `:vscode`. Accepts the keywords `:vscode` / `:cursor` /
-         `:idea` plus the `{:custom \"<uri-template>\"}` form (see
+         `:windsurf` / `:zed` / `:idea` plus the
+         `{:custom \"<uri-template>\"}` form (see
          `re-frame.source-coords.editor-uri/editor-uri`)."}
   editor
   (atom :vscode))
@@ -43,6 +44,8 @@
   Accepts:
     - `:vscode` (default) — `vscode://file/<path>:<line>:<column>`
     - `:cursor`           — `cursor://file/<path>:<line>:<column>`
+    - `:windsurf`         — `windsurf://file/<path>:<line>:<column>`
+    - `:zed`              — `zed://file/<path>:<line>:<column>`
     - `:idea`             — `idea://open?file=<path>&line=<line>&column=<column>`
     - `{:custom <uri-template>}` — user template with `{path}` / `{file}` /
                                    `{line}` / `{column}` placeholders.
