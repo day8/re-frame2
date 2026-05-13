@@ -291,6 +291,18 @@ The metadata stamped on the `:app-schema` registry slot by `reg-app-schema` (per
 
 `reg-app-schema` is **per-frame** (per [010 §Per-frame app-db schemas](010-Schemas.md)); the `:frame` slot records which frame this slot belongs to so tools enumerating across frames don't conflate registrations.
 
+##### Per-slot metadata vocabulary
+
+Inside the Malli schema value passed to `reg-app-schema`, individual slots may carry per-slot metadata maps (the `{:optional ... :hint ...}` shape Malli accepts on a property slot). The framework's reserved per-slot keys are catalogued below; user-defined keys live alongside them under the open-map invariant.
+
+| Per-slot key | Type | Used for | Spec |
+|---|---|---|---|
+| `:large?` | boolean | **Size-elision nomination** — when `true`, the path the slot occupies is registered into `[:rf/elision :declarations]` with `:source :schema` at boot, so the `rf/elide-wire-value` walker (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) substitutes the `:rf.size/large-elided` marker at the wire boundary. The schema-driven nomination path catalogued in [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | 009 |
+| `:hint` | string | A free-form short description of the slot. When `:large? true` rides alongside, the value is copied verbatim into the `:rf.size/large-elided` marker's `:hint` slot. | 009 |
+| `:sensitive?` | boolean | Reserved as a path-level privacy declaration sibling to `:large?` (the parallel `:sensitive?` design lives at the registration-metadata level per [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces); the per-slot variant is reserved here for future path-level use). | 009 |
+
+The reserved set is **fixed-and-additive**: new per-slot keys ship by spec change. Per-slot metadata not in the reserved set is tolerated under the open-shape invariant; the framework ignores it.
+
 #### `:rf/head-meta`
 
 > **Layer:** Public
@@ -1601,6 +1613,74 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 Allocated lazily — absent until the first declarative-`:invoke` (or `:invoke-all`) spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:rf.machine/spawn ...]` calls (where the user owns the destroy via hand-emitted `[:rf.machine/destroy actor-id]`) leave the slot untouched.
 
 Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spawned` map; same parent-id + invoke-id in different frames do not collide. Frame revertibility is inherited (the slot walks back atomically with `app-db` on a frame revert).
+
+<a id="rfelision-registry"></a>
+
+### `:rf/elision-registry` (reserved app-db key)
+
+> **Layer:** Runtime
+
+`[:rf/elision]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces), the slot carries the wire-elision declaration registry consulted by `rf/elide-wire-value` (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) at every wire-boundary emit.
+
+```clojure
+(def ElisionDeclaration
+  ;; The per-path declaration map. Source provenance is required so introspection
+  ;; reports where the entry came from (an app fx, a schema slot, the heuristic).
+  [:map
+   [:large?  :boolean]                                                       ;; the size-elision predicate
+   [:hint    {:optional true} [:maybe :string]]                              ;; free-form short description; copied into the wire marker's :hint slot
+   [:source  [:enum :declared :schema :runtime-flagged]]])                   ;; provenance
+
+(def ElisionRuntimeFlag
+  ;; The auto-detector's cached decision for paths the runtime walker has measured.
+  [:map
+   [:bytes             :int]                                                 ;; pr-str byte count at first sight
+   [:first-seen-epoch  {:optional true} :int]])                              ;; the epoch-id of the first sighting; absent on pre-epoch ports
+
+(def ElisionRegistry
+  [:map
+   [:declarations    {:optional true} [:map-of [:vector :any] ElisionDeclaration]]
+   [:runtime-flagged {:optional true} [:map-of [:vector :any] ElisionRuntimeFlag]]])
+
+;; registered by the runtime at boot:
+(rf/reg-app-schema [:rf/elision] ElisionRegistry)
+```
+
+The `:declarations` sub-map is **app-managed** (via the `:rf.size/declare-large` / `:rf.size/clear` fx per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids), plus schema-driven boot population for every `:large? true` slot in `(rf/app-schema)` per [§`:rf/app-schema-meta`](#rfapp-schema-meta) above). The `:runtime-flagged` sub-map is **runtime-managed** by the auto-detect walker. Conflict-resolution rule (specified normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)): declared wins, schema wins, runtime-flagged loses; the walker consults `:declarations` first.
+
+Allocated lazily — absent until the first declaration. Per-frame isolation is automatic; declarations survive `restore-epoch` because they ride app-db (this is the named mechanism by which the elision contract inherits [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility)).
+
+Cross-reference: `:rf/elision-marker` (below) is the wire shape emitted by the walker when a slot's declaration says elide.
+
+### `:rf/elision-marker`
+
+> **Layer:** Public
+
+The wire shape `rf/elide-wire-value` substitutes for an elided large value. Catalogued normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and threaded through every tool that walks tree-typed payloads (per [Tool-Pair.md](Tool-Pair.md)).
+
+```clojure
+(def ElisionMarkerBody
+  [:map
+   [:path    [:vector :any]]                                                ;; absolute path inside the slice's root value
+   [:bytes   :int]                                                          ;; pr-str byte count
+   [:type    [:enum :map :vector :set :scalar :string]]                     ;; top-level shape of the elided value
+   [:reason  [:enum :declared :schema :runtime-flagged]]                    ;; provenance
+   [:hint    [:maybe :string]]                                              ;; verbatim from the declaration's :hint slot; nil for runtime-flagged
+   [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]                   ;; fetch-handle: [:rf.elision/at <path>]
+   [:digest  {:optional true} :string]])                                    ;; sha256:<hex>; only when :rf.size/include-digests? true
+
+(def ElisionMarker
+  ;; The marker is a single-key map keyed by :rf.size/large-elided.
+  [:map [:rf.size/large-elided ElisionMarkerBody]])
+```
+
+Per-field MUST-level requirements (catalogued at [009 §Wire marker — `:rf.size/large-elided`](009-Instrumentation.md#wire-marker--rfsizelarge-elided)):
+
+- `:path` is **absolute** inside the snapshot slice — not relative to the elision site. An agent that asked for `:path [:user]` and got the marker back at `:uploaded-pdf` sees `:path [:user :uploaded-pdf]`.
+- `:handle` is an EDN vector (not a tagged literal). The default shape is `[:rf.elision/at <path>]`; markers riding inside a past-epoch payload (e.g. an `:rf.mcp/diff-from` patch's `:assoc` slot) carry the variant `[:rf.elision/at <path> :as-of-epoch <epoch-id>]` so `get-path` resolves against that epoch's `:db-after` snapshot rather than now's.
+- `:digest` is OPTIONAL and only present when the caller passed `:rf.size/include-digests? true` (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)). Default off because the digest forces a full walk of the elided value, which negates the cost-saving.
+
+The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) marks the handle as fetchable. Agents pattern-match on the leading `:rf.elision/at` keyword — no decoder needed.
 
 ### `:rf/route-pattern`
 

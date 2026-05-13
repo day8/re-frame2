@@ -408,6 +408,20 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/reset-frame-db-schema-mismatch` | `:frame`, `:failing-paths` |
 | `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
 
+<a id="elide-wire-value-the-wire-boundary-walker"></a>
+
+### Size-elision wire-boundary walker
+
+The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Consumed by every tool that emits wire data (the off-box error-monitor forwarders, the Causa-MCP / pair2-mcp / story-mcp servers per [Tool-Pair.md](Tool-Pair.md), the on-box dev panels). The walker is the **single normative emission site** for the `:rf/redacted` sensitive sentinel and the `:rf.size/large-elided` marker; per-tool reimplementation is prohibited.
+
+| API | M/Fn | Signature | Status | Spec |
+|---|---|---|---|---|
+| `elide-wire-value` | Fn | `(elide-wire-value v opts)` → `v` or an elision-marker substitution. `opts` is a map: `{:rf.size/include-large? <bool> :rf.size/include-sensitive? <bool> :rf.size/include-digests? <bool> :rf.size/threshold-bytes <int> :path [...] :frame <frame-id>}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`. Walks `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :runtime-flagged]` of the named frame's `app-db`; substitutes `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. Composition rule (normative): when both predicates match the **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker). | v1 | 009 |
+| `declare-large-path!` | Fn | `(declare-large-path! path)` / `(declare-large-path! path hint)` → nil. REPL / boot-time convenience wrapper that dispatches `[:rf.size/declare-large {:path path :hint hint}]` against the current frame. Writes `{:large? true :hint <hint-or-nil> :source :declared}` into `[:rf/elision :declarations <path>]`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
+| `clear-large-path!` | Fn | `(clear-large-path! path)` → nil. REPL / boot-time convenience wrapper that dispatches `[:rf.size/clear {:path path}]`. Clears both the `:declarations` and `:runtime-flagged` slots for the path. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
+
+The fx-form ids `:rf.size/declare-large` and `:rf.size/clear` are the canonical app-time path (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)); the schema-driven path (per [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta) — `:large? true` on a Malli slot) is the AI-discoverable boot-time path. The `!`-suffix on the convenience wrappers per [Conventions §Naming](Conventions.md#naming-when-does-a-surface-carry-) bucket 3 (process-level mutation outside the registrar — they synthesise a dispatch against the current frame's elision registry).
+
 ### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 
 Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) and [Tool-Pair §Source-mapping](Tool-Pair.md), every adapter whose host has a DOM-attribute concept MUST inject `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in Spec 006 §Source-coord annotation. Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the same contract per [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
@@ -457,6 +471,8 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.http/reply` | Reply-payload envelope `{:kind :success :value v}` / `{:kind :failure :failure {:kind <:rf.http/*> ...}}` lands under `:rf/reply` | 014 |
 | `:rf/route-rank` | Structural-rank tuple for route-precedence sorting | 012 |
 | `:rf/pending-navigation` | Pending-navigation slot when `:can-leave` guard rejects | 012 |
+| `:rf/elision-registry` | Per-frame size-elision declaration registry under reserved app-db key `:rf/elision` | 009 |
+| `:rf/elision-marker` | Wire shape `rf/elide-wire-value` substitutes for an elided large value (`:rf.size/large-elided`) | 009 |
 
 Schemas are **open** by default (consumers tolerate unknown keys; producers grow shapes additively); `:closed true` is opt-in at boundary-validation sites and on the effect-map.
 
@@ -543,6 +559,7 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 | `:epoch-history` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 50}` | v1 (dev-only) | Tool-Pair |
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
 | `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
+| `:elision` | `{:rf.size/threshold-bytes N}` — non-negative integer; 0 disables runtime auto-detect (only declared / schema entries elide) | `{:rf.size/threshold-bytes 16384}` | v1 | 009 |
 
 SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure` key — it is per-frame metadata on the frame's `:ssr` map (see [Conventions §Configuration surfaces](Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucket 3 and [011 §Server error projection](011-SSR.md#server-error-projection)). Different frames in the same process can carry different projector / dev-detail settings, so the natural lifetime is per-frame, not process-global.
 
