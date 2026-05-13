@@ -55,7 +55,7 @@
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.test-mode :as test-mode]
+            [re-frame.story.ui.test-mode.view :as test-mode-view]
             [re-frame.story.ui.toolbar :as toolbar]
             [re-frame.story.ui.trace :as trace]
             [re-frame.story.ui.workspace :as workspace]))
@@ -375,7 +375,7 @@
   persists across reloads in localStorage. Per rf2-rodx the `:docs`
   pane renders `docs/docs-view` — the read-only AutoDocs surface
   composed of header / prose / args / decorators / parameters / tags
-  sections. Per rf2-qmjo the `:test` pane renders `test-mode/test-view`
+  sections. Per rf2-qmjo the `:test` pane renders `test-mode-view/test-view`
   — the in-canvas aggregated pass/fail summary of the variant's
   `:play` sequence + assertions. `:dev` preserves the existing canvas
   / workspace behaviour."
@@ -398,7 +398,7 @@
        ws-id    [workspace/workspace-view ws-id]
        variant-id (case mode-tab
                     :docs [docs/docs-view variant-id]
-                    :test [test-mode/test-view variant-id]
+                    :test [test-mode-view/test-view variant-id]
                     [canvas/canvas])
        :else
        [:div {:style {:padding "32px"

@@ -408,7 +408,8 @@
 ;; entries as a status dot. Both surfaces are pure derivations of this
 ;; one slot.
 ;;
-;; The test-mode pane's local `results-atom` keeps the full result-map
+;; The test-mode pane's local `results-atom` (in
+;; `re-frame.story.ui.test-mode.state`) keeps the full result-map
 ;; (assertion records + expanded-row UI state); this shell-state slot
 ;; carries only the aggregate counts the chrome widget + sidebar dots
 ;; need. Two stores, two read paths, no contention — the pane's local
@@ -432,7 +433,7 @@
 (defn record-test-run
   "Write the aggregate of a `run-variant` result into `:test-runs`.
 
-  `summary` is the map returned by `test-mode/aggregate-summary` —
+  `summary` is the map returned by `test-mode.pure/aggregate-summary` —
   `{:total :passed :failed :skipped :all-passed?}` — extended with
   optional `:ran-at-ms` and `:elapsed-ms`. A run that recorded zero
   assertions lands as `:pending` (rather than `:pass`/`:fail`) so the
