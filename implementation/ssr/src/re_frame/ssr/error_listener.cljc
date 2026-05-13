@@ -62,52 +62,43 @@
       (swap! pending-error-traces dissoc frame-id))
     traces))
 
-(defn apply-pending-error-projection!
-  "Drain frame-id's error-trace buffer, project each trace via the
-  active projector, and stamp the LAST projection's :status onto the
-  response accumulator (last-write-wins, mirroring the multi-status
-  policy). Returns the last public-error projected, or nil when the
-  buffer was empty / frame is not :server.
-
-  Hosts that drive their own SSR loop call this after drain settles
-  so the response carries the projector's status. The runtime also
-  calls it automatically from get-response so a host reading the
-  resolved response always sees up-to-date projection."
-  [frame-id]
-  (when (and frame-id (error-projector/server-frame? frame-id))
-    (let [traces (consume-pending-traces! frame-id)]
-      (when (seq traces)
-        (let [;; Don't overwrite a redirect's :status — Spec 011
-              ;; §Redirect precedence locks the redirect's status
-              ;; through to the response.
-              existing  (response/response-of frame-id)
-              redirect? (:redirect existing)
-              last-trace (last traces)
-              public     (error-projector/project-error frame-id last-trace)]
-          (when-not redirect?
-            (response/swap-response! frame-id
-                                     (fn [r] (assoc r :status (:status public)))))
-          public)))))
-
 (defn apply-error-projection!
-  "Project trace-event via the active projector for frame-id and stamp
-  the public-error's :status onto the response accumulator. Returns
-  the public-error map on success, nil on no-op (frame missing / not
-  server / redirect set).
+  "Project an error trace event via the active projector for frame-id
+  and stamp the public-error's :status onto the response accumulator.
+  Returns the public-error map on success, nil on no-op (frame missing
+  / not server / no pending trace / redirect set on the response).
 
-  Public so host adapters that catch errors outside the trace stream
-  can drive projection explicitly. Most callers want
-  apply-pending-error-projection! instead — that one drains the
-  trace-listener-buffered events and applies them in one shot."
-  [frame-id trace-event]
-  (when (and frame-id (error-projector/server-frame? frame-id))
-    (let [public    (error-projector/project-error frame-id trace-event)
-          existing  (response/response-of frame-id)
-          redirect? (:redirect existing)]
-      (when-not redirect?
-        (response/swap-response! frame-id
-                                 (fn [r] (assoc r :status (:status public)))))
-      public)))
+  Two arities:
+
+    (apply-error-projection! frame-id)
+      Drain frame-id's error-trace buffer and project the LAST trace
+      (last-write-wins, mirroring the multi-status policy). Hosts that
+      drive their own SSR loop call this after drain settles so the
+      response carries the projector's status. The runtime also calls
+      it automatically from get-response so a host reading the resolved
+      response always sees up-to-date projection.
+
+    (apply-error-projection! frame-id trace-event)
+      Project the given trace-event directly. Host adapters that catch
+      errors outside the trace stream call this to drive projection
+      explicitly.
+
+  Per Spec 011 §Redirect precedence — when the response carries a
+  `:redirect`, the redirect's :status is locked through and this fn
+  does not overwrite it."
+  ([frame-id]
+   (when-let [last-trace (when (and frame-id (error-projector/server-frame? frame-id))
+                           (last (consume-pending-traces! frame-id)))]
+     (apply-error-projection! frame-id last-trace)))
+  ([frame-id trace-event]
+   (when (and frame-id trace-event (error-projector/server-frame? frame-id))
+     (let [public    (error-projector/project-error frame-id trace-event)
+           existing  (response/response-of frame-id)
+           redirect? (:redirect existing)]
+       (when-not redirect?
+         (response/swap-response! frame-id
+                                  (fn [r] (assoc r :status (:status public)))))
+       public))))
 
 (defn error-projection-listener
   "Trace-event listener — captures error trace events bound to a server
@@ -134,7 +125,7 @@
   Spec 011 §Server error projection — \"runtime sets `:rf.server/set-
   status` to the public-error's :status\"."
   [frame-id]
-  (apply-pending-error-projection! frame-id)
+  (apply-error-projection! frame-id)
   (-> (response/response-of frame-id)
       (dissoc response/status-writes-key response/redirect-writes-key)))
 
