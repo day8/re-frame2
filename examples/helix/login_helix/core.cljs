@@ -8,6 +8,12 @@
    Spec 010 schemas, and Spec 014 managed-HTTP surfaces are
    substrate-agnostic — only the view layer differs across substrates.
 
+   Cross-substrate parity is exercised end-to-end: machine states carry
+   Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`) and views read
+   them via the `:rf/machine-has-tag?` framework sub — same tag taxonomy
+   as the Reagent reference example, only the substrate's hook idiom
+   differs.
+
    `reg-view` stays Reagent-only; Helix components are plain `defnc`.
    There is no auto-injection."
   (:require ["react-dom/client" :as react-dom-client]
@@ -142,7 +148,12 @@
                                 :action :clear-error}}}
 
       :submitting
-      {:entry :issue-request
+      ;; :auth/busy tag — views query
+      ;; [:rf/machine-has-tag? :auth.login/flow :auth/busy] to disable
+      ;; inputs and re-label the submit button while the request is in
+      ;; flight.
+      {:tags  #{:auth/busy}
+       :entry :issue-request
        :on    {:auth.login/success {:target :authed
                                     :action :store-session}
                :auth.login/failure [{:target :error-shown
@@ -156,7 +167,10 @@
             :auth.login/submit  {:target :submitting}}}
 
       :authed
-      {:meta {:terminal? true}}
+      ;; :auth/authenticated tag — the banner swaps to "Welcome!" once
+      ;; the flow reaches this terminal state.
+      {:tags #{:auth/authenticated}
+       :meta {:terminal? true}}
 
       :locked-out
       {:meta {:terminal? true}}}}))
@@ -164,6 +178,12 @@
 ;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
+;;
+;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
+;; Spec 005). These named subs project out the convenient pieces. The
+;; "in :submitting?" / "in :authed?" predicates moved to the
+;; `:rf/machine-has-tag?` framework sub in views below (per Spec 005
+;; §State tags).
 
 (rf/reg-sub :auth.login/state
   (fn [db _]
@@ -173,22 +193,15 @@
   (fn [db _]
     (get-in db [:rf/machines :auth.login/flow :data :error])))
 
-(rf/reg-sub :auth.login/submitting?
-  :<- [:auth.login/state]
-  (fn [state _] (= :submitting state)))
-
-(rf/reg-sub :auth.login/authenticated?
-  :<- [:auth.login/state]
-  (fn [state _] (= :authed state)))
-
 ;; ============================================================================
 ;; VIEWS  (Helix — defnc + use-subscribe)
 ;; ============================================================================
 
 (defnc login-form []
-  (let [submitting? (helix-adapter/use-subscribe [:auth.login/submitting?])
-        err         (helix-adapter/use-subscribe [:auth.login/error])
-        dispatch    (rf/dispatcher)
+  (let [busy?    (helix-adapter/use-subscribe [:rf/machine-has-tag?
+                                               :auth.login/flow :auth/busy])
+        err      (helix-adapter/use-subscribe [:auth.login/error])
+        dispatch (rf/dispatcher)
         [email    set-email!]    (helix-hooks/use-state "")
         [password set-password!] (helix-hooks/use-state "")]
     (d/form
@@ -201,21 +214,22 @@
                                                      :password password}]]))}
        (d/input  {:type        "email"
                   :placeholder "Email"
-                  :disabled    submitting?
+                  :disabled    busy?
                   :data-testid "login-email"
                   :on-change   #(set-email! (.. % -target -value))})
        (d/input  {:type        "password"
                   :placeholder "Password"
-                  :disabled    submitting?
+                  :disabled    busy?
                   :data-testid "login-password"
                   :on-change   #(set-password! (.. % -target -value))})
-       (d/button {:type "submit" :disabled submitting?
+       (d/button {:type "submit" :disabled busy?
                   :data-testid "login-submit"}
-          (if submitting? "Signing in…" "Sign in"))
+          (if busy? "Signing in…" "Sign in"))
        (when err (d/p {:class "error" :data-testid "login-error"} err)))))
 
 (defnc login-banner []
-  (let [authed? (helix-adapter/use-subscribe [:auth.login/authenticated?])]
+  (let [authed? (helix-adapter/use-subscribe [:rf/machine-has-tag?
+                                              :auth.login/flow :auth/authenticated])]
     (d/div
        {:class "banner"
         :data-testid "login-banner"}
