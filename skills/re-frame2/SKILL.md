@@ -7,6 +7,22 @@ allowed-tools:
   - Write
   - Grep
   - Glob
+  # story-mcp authoring-side tools (rf2-1v7tu HYBRID): re-frame2 owns the
+  # authoring loop (write/refine variant); re-frame-pair2 owns the run side
+  # (run-variant / read-failures / record-as-variant). Per
+  # tools/story-mcp/spec/002-Tool-Registry.md.
+  - mcp__re-frame2-story-mcp__get-story-instructions
+  - mcp__re-frame2-story-mcp__list-stories
+  - mcp__re-frame2-story-mcp__get-story
+  - mcp__re-frame2-story-mcp__get-variant
+  - mcp__re-frame2-story-mcp__variant->edn
+  - mcp__re-frame2-story-mcp__list-tags
+  - mcp__re-frame2-story-mcp__list-modes
+  - mcp__re-frame2-story-mcp__list-assertions
+  - mcp__re-frame2-story-mcp__list-substrates
+  - mcp__re-frame2-story-mcp__preview-variant
+  - mcp__re-frame2-story-mcp__register-variant
+  - mcp__re-frame2-story-mcp__unregister-variant
 ---
 
 # re-frame2
