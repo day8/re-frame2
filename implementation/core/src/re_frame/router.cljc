@@ -11,6 +11,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.error-emit :as error-emit]
             [re-frame.fx :as fx]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
@@ -260,9 +261,11 @@
 
 (defn- emit-handler-exception!
   "Surface an interceptor-chain exception as :rf.error/handler-exception
-  trace. The chain captures the exception into `:rf/interceptor-error`
-  rather than re-throwing (the drain must not abort); this helper
-  translates that into the trace surface.
+  trace AND invoke the frame's `:on-error` policy fn through the
+  always-on error-emit substrate (per rf2-hqbeh). The chain captures the
+  exception into `:rf/interceptor-error` rather than re-throwing (the
+  drain must not abort); this helper translates that into both delivery
+  channels.
 
   Per Spec 009 §The `with-redacted` interceptor (line 1226): the
   `:tags :event` slot of `:rf.error/handler-exception` MUST honour
@@ -270,22 +273,48 @@
   the trace event carries the scrubbed event vector, not the
   unredacted one. `ctx` (the final interceptor context) carries the
   scrubbed form under `:rf/redacted-event` when `with-redacted`
-  ran; we surface that here."
+  ran; we surface that here.
+
+  Per rf2-hqbeh: the per-frame `:on-error` slot is a runtime error-
+  recovery surface and MUST fire even when the trace surface is
+  compile-time elided in CLJS production builds. We build the structured
+  error-event map up-front, hand it to `error-emit/dispatch-on-error!`
+  (always-on; survives `goog.DEBUG=false`), then forward to the dev-only
+  `trace/emit-error!` for trace listeners and the retain-N buffer. The
+  trace path enriches the emitted event with the cascade's
+  `:dispatch-id` and the in-scope handler's source-coord; the always-on
+  path delivers the same `:operation`/`:tags` body the policy fn
+  expects."
   [error event-id event frame ctx]
-  (let [e (:exception error)
-        msg #?(:clj (.getMessage e) :cljs (.-message e))
-        emit-event (or (:rf/redacted-event ctx) event)]
-    (trace/emit-error! :rf.error/handler-exception
-                       {:event-id          event-id
-                        :event             emit-event
-                        :frame             frame
-                        :failing-id        event-id
-                        :handler-id        event-id
-                        :phase             (:phase error)
-                        :exception         e
-                        :exception-message msg
-                        :reason            "Event handler threw."
-                        :recovery          :no-recovery})))
+  (let [e          (:exception error)
+        msg        #?(:clj (.getMessage e) :cljs (.-message e))
+        emit-event (or (:rf/redacted-event ctx) event)
+        tags       {:event-id          event-id
+                    :event             emit-event
+                    :frame             frame
+                    :failing-id        event-id
+                    :handler-id        event-id
+                    :phase             (:phase error)
+                    :exception         e
+                    :exception-message msg
+                    :reason            "Event handler threw."
+                    :recovery          :no-recovery}]
+    ;; Always-on per rf2-hqbeh: the `:on-error` policy fn fires through
+    ;; the always-on substrate so production builds with the trace
+    ;; surface elided still observe the error. The synthesised event
+    ;; matches the dev-side `:rf/trace-event` shape closely enough for
+    ;; policy fns to discriminate on `:operation` / `:tags`. Trigger-
+    ;; handler / dispatch-id enrichment is dev-only and not present
+    ;; here — those ride the trace path below.
+    (error-emit/dispatch-on-error!
+      frame
+      {:operation :rf.error/handler-exception
+       :op-type   :error
+       :tags      tags
+       :recovery  :no-recovery})
+    ;; Dev-side trace emission. Gated by `interop/debug-enabled?` inside
+    ;; `trace/emit-error!`; DCEs to a no-op in CLJS prod builds.
+    (trace/emit-error! :rf.error/handler-exception tags)))
 
 (defn- run-post-commit-validation!
   "Per Spec 010: validate app-db against registered schemas after each
