@@ -5,6 +5,8 @@
 > **Why this Spec exists:** state machines and actors are in the pattern because **constrained execution models are easier to reason about than Turing-complete control flow.** A finite state machine has an enumerable state space and a discrete transition relation; an actor system bounds concurrency to message-passing across well-defined boundaries with run-to-completion semantics. This is disproportionately valuable for AI use — an AI can fully simulate a finite machine; it cannot fully simulate a free-form imperative program. The cost is some expressiveness; the benefit is an execution model that survives mechanical reasoning.
 >
 > For where Levels 1–4 sit in relation to the rest of the runtime (registrar, frame container, sub-cache, substrate adapter, trace bus), see [Runtime-Architecture](Runtime-Architecture.md).
+>
+> `:invoke` and `:invoke-all` (state-machine actors) are **managed external effects** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties (effect-as-data, framework-owned actor lifecycle, structured failure taxonomy under `:rf.machine/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown via `:after` / `:always` / state-exit, in-flight actor registry, per-frame interceptor scoping).
 
 ## Abstract
 
