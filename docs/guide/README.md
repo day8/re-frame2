@@ -54,6 +54,7 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 18 | [From re-frame v1](18-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. The chapter is appendix-shaped — deps to bump, the migration skill to run, and the broad categories of breakage to expect. |
 | 19 | [Adapters](19-adapters.md) | You're choosing or wiring a view-layer substrate — Reagent, UIx, or Helix. Covers the substrate-agnostic story, the `init!` call shape, the three adapter packages, and the slim-Reagent option for ship-size builds. |
 | 21 | [Stories](21-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/). |
+| 22 | [Trace forwarding to Datadog](22-trace-to-datadog.md) | You need observability on a running app — forward trace events to Datadog (or Honeycomb, Sentry, Mezmo, your in-house pipeline) via the trace bus, honouring `:sensitive?` and `:large?` elision through `rf/elide-wire-value`. Datadog-shaped; the recipe is generic. |
 
 ### Close-out
 
