@@ -80,11 +80,29 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class Mapping:
     name: str
-    server_src: Path
+    # Tuple of source paths to lex for `{:name "..."}` descriptor
+    # literals. Multiple paths are concatenated set-wise — this lets a
+    # mapping target an MCP server whose tool catalogue is split across
+    # per-category leaves (e.g. story-mcp post rf2-3ukix). All paths
+    # must exist (unless `optional=True`).
+    server_src: tuple[Path, ...]
     host_prefix: str
     skill_md: Path
     intentional_server_only: frozenset[str] = field(default_factory=frozenset)
     optional: bool = False  # True ⇒ missing server_src is a skip, not an error.
+
+
+# Story-mcp tool catalogue lives across five per-category leaves post
+# rf2-3ukix — dev/docs/testing/write each carry a `descriptors` vector,
+# recorder carries a singleton `descriptor` map (split out for
+# leaf-size reasons, rf2-zkca8). The parent `tools.cljc` was removed in
+# the same refactor; assembly happens in `tools/registry.cljc` which
+# only re-exports symbols (no literals to lex). Enumerate the leaves
+# directly.
+_STORY_MCP_LEAVES = tuple(
+    REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools" / f"{leaf}.cljc"
+    for leaf in ("dev", "docs", "testing", "write", "recorder")
+)
 
 
 MAPPINGS: list[Mapping] = [
@@ -94,7 +112,7 @@ MAPPINGS: list[Mapping] = [
         # `descriptors_data.cljs` leaf — the sibling `descriptors.cljs` is
         # now a slim splicer/façade with no `{:name "..."}` literals. Point
         # the gate at the data file.
-        server_src=REPO_ROOT / "tools" / "pair2-mcp" / "src" / "re_frame_pair2_mcp" / "tools" / "descriptors_data.cljs",
+        server_src=(REPO_ROOT / "tools" / "pair2-mcp" / "src" / "re_frame_pair2_mcp" / "tools" / "descriptors_data.cljs",),
         host_prefix="re-frame-pair2",
         skill_md=REPO_ROOT / "skills" / "re-frame-pair2" / "SKILL.md",
     ),
@@ -110,7 +128,7 @@ MAPPINGS: list[Mapping] = [
     # entries (the MCP server's advertised name).
     Mapping(
         name="story-mcp <-> re-frame2",
-        server_src=REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools.cljc",
+        server_src=_STORY_MCP_LEAVES,
         host_prefix="re-frame2-story-mcp",
         skill_md=REPO_ROOT / "skills" / "re-frame2" / "SKILL.md",
         intentional_server_only=frozenset({
@@ -124,7 +142,7 @@ MAPPINGS: list[Mapping] = [
     ),
     Mapping(
         name="story-mcp <-> re-frame-pair2",
-        server_src=REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools.cljc",
+        server_src=_STORY_MCP_LEAVES,
         host_prefix="re-frame2-story-mcp",
         skill_md=REPO_ROOT / "skills" / "re-frame-pair2" / "SKILL.md",
         intentional_server_only=frozenset({
@@ -145,7 +163,7 @@ MAPPINGS: list[Mapping] = [
     ),
     Mapping(
         name="causa-mcp <-> <tbd>",
-        server_src=REPO_ROOT / "tools" / "causa-mcp" / "src" / "re_frame" / "causa_mcp" / "tools.cljc",
+        server_src=(REPO_ROOT / "tools" / "causa-mcp" / "src" / "re_frame" / "causa_mcp" / "tools.cljc",),
         host_prefix="causa",
         skill_md=REPO_ROOT / "skills" / "causa" / "SKILL.md",
         optional=True,  # spec-only artefact; src/ doesn't exist yet.
@@ -199,30 +217,38 @@ _TOOL_NAME_CHARS = r"a-zA-Z0-9_./>!?*-"
 STRICT_NAME_RE = re.compile(rf"\{{[^}}]*?:name\s+\"([{_TOOL_NAME_CHARS}]+)\"")
 
 
-def extract_server_tools(path: Path) -> set[str]:
-    """Lex the MCP server source for tool names.
+def extract_server_tools(paths: tuple[Path, ...]) -> set[str]:
+    """Lex one-or-more MCP server source files for tool names.
 
-    Returns the set of names declared inside `{:name "..." ...}` map literals.
-    Raises FileNotFoundError if the source doesn't exist (caller handles
-    `optional=True` skip).
+    Returns the set of names declared inside `{:name "..." ...}` map
+    literals across every path. Raises FileNotFoundError if any source
+    is missing (caller handles `optional=True` skip).
+
+    Multi-path support exists for servers whose tool catalogue is
+    split across per-category leaves (e.g. story-mcp post rf2-3ukix —
+    dev/docs/testing/write each own a `descriptors` def, with the
+    recorder bridge living in a fifth leaf for leaf-size reasons).
     """
-    text = path.read_text(encoding="utf-8")
-    # Drop comment regions inside descriptor strings (Clojure ;; line
-    # comments) so we don't pick up `;; :name "..."` examples in docstrings.
-    # Pragmatic strip — full reader-aware parsing is overkill for this gate.
-    stripped_lines: list[str] = []
-    for line in text.splitlines():
-        # Strip everything from the first ;; to EOL. Inside-string ;;'s are
-        # extremely rare in this codebase and would only cause a false
-        # positive (extra name spotted), which the cross-check would
-        # surface as a missing-in-skill — caller debugs it.
-        comment = line.find(";;")
-        if comment >= 0:
-            stripped_lines.append(line[:comment])
-        else:
-            stripped_lines.append(line)
-    clean = "\n".join(stripped_lines)
-    return set(STRICT_NAME_RE.findall(clean))
+    tools: set[str] = set()
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        # Drop comment regions inside descriptor strings (Clojure ;; line
+        # comments) so we don't pick up `;; :name "..."` examples in docstrings.
+        # Pragmatic strip — full reader-aware parsing is overkill for this gate.
+        stripped_lines: list[str] = []
+        for line in text.splitlines():
+            # Strip everything from the first ;; to EOL. Inside-string ;;'s are
+            # extremely rare in this codebase and would only cause a false
+            # positive (extra name spotted), which the cross-check would
+            # surface as a missing-in-skill — caller debugs it.
+            comment = line.find(";;")
+            if comment >= 0:
+                stripped_lines.append(line[:comment])
+            else:
+                stripped_lines.append(line)
+        clean = "\n".join(stripped_lines)
+        tools.update(STRICT_NAME_RE.findall(clean))
+    return tools
 
 
 # ---------------------------------------------------------------------------
@@ -338,16 +364,19 @@ def check_mapping(mapping: Mapping) -> tuple[list[Drift], list[str]]:
     info: list[str] = []
     drift: list[Drift] = []
 
-    if not mapping.server_src.exists():
+    missing_srcs = [p for p in mapping.server_src if not p.exists()]
+    if missing_srcs:
         if mapping.optional:
+            rels = ", ".join(str(p.relative_to(REPO_ROOT)) for p in missing_srcs)
             info.append(
-                f"{mapping.name}: server src '{mapping.server_src.relative_to(REPO_ROOT)}' "
+                f"{mapping.name}: server src '{rels}' "
                 "missing -- skipping (optional)."
             )
             return drift, info
         # Hard error -- the mapping declares a server that should be there.
+        rels = ", ".join(str(p) for p in missing_srcs)
         raise FileNotFoundError(
-            f"{mapping.name}: server src not found at {mapping.server_src}"
+            f"{mapping.name}: server src not found at {rels}"
         )
 
     if not mapping.skill_md.exists():
