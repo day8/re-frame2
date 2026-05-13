@@ -61,6 +61,7 @@ Six phases. Each links to a leaf for the detail; the SKILL.md carries only the w
 - [`reference/auto-cross-cutting.md`](reference/auto-cross-cutting.md) — Type A: cross-cutting renames, interceptor cleanup, view / hiccup rewrites, init wiring, per-feature artefact adds.
 - [`reference/guided-handlers-state.md`](reference/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15).
 - [`reference/guided-interceptors-subs.md`](reference/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs (M-17, M-18, M-19, M-21, M-23, M-26).
+- [`reference/error-events.md`](reference/error-events.md) — pointer to [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) as the single source of truth for `:rf.error/*` / `:rf.warning/*` / `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` / `:rf.http/*` categories. Load when writing `:on-error` / `register-trace-cb!` (M-13, M-17, M-26).
 - [`reference/breaking-changes.md`](reference/breaking-changes.md) — one-page index of every M-/O-rule by trigger surface; grep here to find the rule id.
 
 **Phase 4 — Verify.** Recompile, re-run unit tests, smoke-test boot / dispatch / sub / hot-reload. If a step fails, find the rule, apply it, re-verify. The skill does not run tests for the author.
@@ -94,6 +95,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - [`reference/auto-cross-cutting.md`](reference/auto-cross-cutting.md) — Type A: cross-cutting renames, view / hiccup, init, per-feature artefacts.
 - [`reference/guided-handlers-state.md`](reference/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs.
 - [`reference/guided-interceptors-subs.md`](reference/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs.
+- [`reference/error-events.md`](reference/error-events.md) — pointer to Spec 009's error-event catalogue (single source); load when writing `:on-error` policies or `register-trace-cb!` listeners.
 - [`reference/output-format.md`](reference/output-format.md) — migration-report shape with worked examples.
 
 ## Anti-patterns
