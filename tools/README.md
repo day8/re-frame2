@@ -66,6 +66,44 @@ there's more than one tool to coordinate. Not needed yet.
 
 ## Shipped
 
+The tools below have substantial implementations on disk and are
+actively developed against. Maturity varies (the alpha framework is
+itself pre-1.0); the common factor is that the artefact exists, is
+wired into the build, and consumers can use it today.
+
+- **`tools/causa/`** — `day8/re-frame2-causa`. **Causa**, the in-app
+  devtools panel for re-frame2 — structural successor to
+  re-frame-10x (renamed per `tools/causa/spec/DESIGN-RATIONALE.md`
+  Lock #1; the standalone 10x port is now redirected into Causa per
+  rf2-jt6t / #556). Preloaded into dev builds via `:preloads`;
+  production builds elide it through the universal
+  `interop/debug-enabled?` gate (zero bytes shipped to consumers).
+  Panel inventory: event-detail, causality graph, time-travel
+  scrubber, slice-centric app-db, machine inspector, schema-violation
+  timeline, hydration debugger, issues ribbon, AI co-pilot rail. See
+  [`tools/causa/spec/000-Vision.md`](./causa/spec/000-Vision.md).
+
+- **`tools/pair2-mcp/`** — `@day8/re-frame-pair2-mcp`. A Node-based
+  stdio JSON-RPC **MCP server** (compiled from ClojureScript via
+  shadow-cljs) that pair-programs with a live re-frame2 app over a
+  persistent nREPL socket. Structural successor to the bash-shim →
+  babashka → nREPL chain under `skills/re-frame-pair2/scripts/`. Seven
+  tools (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
+  `watch-epochs`, `tail-build`, `snapshot`); per-op latency drops
+  from ~700ms to ~5–50ms. Published to npm as
+  `@day8/re-frame-pair2-mcp`. See
+  [`tools/pair2-mcp/README.md`](./pair2-mcp/README.md).
+
+- **`tools/story/`** — `day8/re-frame2-story`. A Storybook-class
+  component playground for re-frame2, implementing
+  [`spec/007-Stories.md`](../spec/007-Stories.md). Each variant runs
+  in its own frame (`spec/002`), is EDN-shaped data (not a function),
+  ships with schema-derived controls (`spec/010`),
+  assertion-vocabulary play sequences, and a content-hashed snapshot
+  identity for visual-regression keying. Embeds Causa's epoch panel
+  as a registered story panel. See
+  [`tools/story/README.md`](./story/README.md).
+
 - **`tools/template/`** — `day8/clj-template.re-frame2`. The front-door
   scaffolding tool for new re-frame2 apps (rf2-lrtc). A
   [clj-new](https://github.com/seancorfield/clj-new) template; users
@@ -125,35 +163,37 @@ That folder is the framework's normative contract. The tool-level
 `spec/` is the tool's normative contract — bounded scope, downstream
 of the framework's spec.
 
-## Future homes
+## In design / planned
 
-Each entry below is **in design** — none implemented yet. They land here as
-implementation work begins; empty scaffolding is not created up-front.
+Entries below are **in design** — the spec is being shaped, but no
+runtime implementation has landed on disk yet. They will graduate to
+"Shipped" once their `src/` tree gains substance; empty scaffolding is
+not created up-front.
 
-- **`tools/story/`** — `day8/re-frame2-story`. Storybook-flavoured component
-  playground with frame-aware controls, machine-state visualisation, and
-  time-travel scrubbing. Spec surface: [`spec/007-Stories.md`](../spec/007-Stories.md).
+- **`tools/causa-mcp/`** — `day8/re-frame2-causa-mcp`. The MCP agent
+  surface for Causa — same architecture as `tools/pair2-mcp/`,
+  different tool catalogue (exposes Causa's panel surfaces — causality
+  graph queries, time-travel slice reads, machine-state snapshots,
+  schema-violation feeds — as MCP tools for AI agents). Separation
+  rationale per rf2-m6tu §6.1: the human-facing devtools panel and
+  agent-facing surface ship as distinct jars so the MCP server can be
+  loaded without dragging the entire DOM-heavy panel into the
+  classpath.
 
-- **`tools/story-mcp/`** — `day8/re-frame2-story-mcp`. A separate MCP agent
-  surface for story (per the rf2-m6tu §6.1 separation: human-facing tool and
-  agent-facing surface ship as distinct jars so the MCP server can be loaded
-  without dragging the entire story UI into the classpath).
+- **`tools/story-mcp/`** — `day8/re-frame2-story-mcp`. The MCP agent
+  surface for `tools/story/` (early skeleton on disk; not yet
+  graduated). Lands as Stage 7 of the Story epic (`rf2-tgci`); same
+  human-tool / agent-surface separation as causa-mcp.
 
 - **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. XState-style
   state-chart visualisation for machines registered via `reg-machine`.
-  Consumes the trace bus and per-frame machine snapshots.
+  Consumes the trace bus and per-frame machine snapshots. Causa embeds
+  this surface; whether it also ships as a standalone jar is pending
+  the first cut.
 
-- **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`. Likely
-  a separate MCP surface for machine viz, mirroring the story / story-mcp
-  split. Confirmed separation pending the first cut.
-
-- **`tools/causa/`** — `day8/re-frame2-causa`. Causa — the interactive
-  devtools panel for the runtime; the structural successor to
-  re-frame-10x (renamed per `tools/causa/spec/DESIGN-RATIONALE.md`
-  Lock #1). This entry partially answers
-  [`rf2-tijr`](../.beads/) (the repo-placement question): Causa lives here.
-  The vendoring-replaced-by-multi-frame-isolation work tracked by that bead
-  remains open.
+- **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`.
+  A likely separate MCP surface for machine viz, mirroring the
+  causa / causa-mcp split. Confirmed separation pending the first cut.
 
 ## Distinction from `skills/`
 
