@@ -251,6 +251,24 @@ clojure -M -m re-frame.story-mcp.server
 
 The write surface (`register-variant`, `unregister-variant`) is gated behind `--allow-writes`. The full tool list and protocol shape are in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md).
 
+## Privacy — `:sensitive?` events are default-suppressed
+
+Story is a framework-published trace consumer (the trace panel, the actions panel, the play-assertion recorder all subscribe to the raw trace stream), so it honours the Spec 009 §Privacy contract: trace events stamped `:sensitive? true` are **filtered out by default**. The trace and actions panels skip rendering them; the play-assertion recorder ignores them; the time-travel scrubber walks past them.
+
+To signal that filtering happened, each variant renders a small inline counter — "n redacted" — alongside the trace and actions panel headers. It's advisory: it lets you see that the runtime emitted events the panel chose not to show.
+
+Opt in when you're debugging redaction policy itself (you want to confirm the `^{:sensitive? true}` metadata on your event handler is being honoured end-to-end):
+
+```clojure
+(re-frame.story.config/set-show-sensitive! true)
+;; or, via the configure! surface:
+(story/configure! {:trace/show-sensitive? true})
+```
+
+The flag is read at the head of every listener body, so toggling it takes effect on the next trace event without re-registering anything. Reset to the default (`false`) by passing `false` or `nil`.
+
+For the wider picture — how events are stamped `:sensitive?`, the HTTP redaction surface, the per-path `:large?` size-elision pathway, and how consumer-side flags interact — see chapter 23 (Privacy + Size Elision).
+
 ## Bundle isolation — what happens under `:advanced`
 
 The two ends of the contract:
