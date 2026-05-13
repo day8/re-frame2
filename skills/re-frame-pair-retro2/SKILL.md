@@ -63,6 +63,8 @@ Deliver:
 
 **Activation precondition**: a `re-frame-pair2` session must be available as evidence — either occurring in this conversation, or supplied by the user as a recap / summary. If no pair-tool surface was exercised and the user has not described one, decline — there is nothing to retrospect on.
 
+**Story recorder-session retros are out of scope.** Retrospectives on a Story Test Codegen recording (rf2-5fc15 — clicks/fills captured as a `:play` body) are NOT this skill's concern. Those retros belong in `re-frame-pair2`'s variant-refinement workflow (the recorder output is a `:play` snippet to refine against a frame, not a pair-session friction trace). If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame-pair2`.
+
 Routing decisions (mid-session pair work, app-authoring without a live runtime, framework / spec feedback, app-bug help, vocabulary-only matches) follow the matrix at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source) and §Disqualifiers.
 
 When in doubt, ask: *"Was there a `re-frame-pair2` session you want me to retrospect on? If you can paste a short recap I can work from that."* Decline rather than fabricate evidence.
@@ -86,7 +88,7 @@ Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-
 5. **Generate improvements at the right layer** — skill wording, structured op, runtime surface, cross-platform behavior, validation/fixture, instrumentation, or an upstream `re-frame2` bead. Prefer proposals that remove repeated effort, not just this session's exact symptom. Offer options: no action / docs / tool change / pair2 bead / upstream re-frame2 bead.
 6. **Prioritize.** Favor high-impact, specific, evidence-supported, trust-improving ideas. Return 2-5; default mix is 1-3 grounded + 0-2 bolder.
 
-Load [`references/analysis-lenses.md`](references/analysis-lenses.md) when the session has multiple plausible causes or you want a sharper taxonomy. Load [`references/known-frictions.md`](references/known-frictions.md) when the session resembles a recurring class of pain and you want to sanity-check one-off vs pattern.
+Load [`references/analysis-lenses.md`](references/analysis-lenses.md) when the session has multiple plausible causes or you want a sharper taxonomy — including the `:on-error` policy lens when the session touched a frame's `:on-error` slot (inspecting it, hot-swapping it, or chasing why an error wasn't recovered the expected way). Load [`references/known-frictions.md`](references/known-frictions.md) when the session resembles a recurring class of pain and you want to sanity-check one-off vs pattern.
 
 ## Output format
 
