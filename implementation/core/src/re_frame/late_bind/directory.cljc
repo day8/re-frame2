@@ -278,7 +278,33 @@
    {:key         :ssr/on-frame-destroyed
     :producer-ns 're-frame.ssr
     :design-bead "rf2-fcj33"
-    :description "Clear the SSR side-channel atoms (pending-error-traces + request-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract."}
+    :description "Clear the SSR side-channel atoms (pending-error-traces + request-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. Also invokes `:ssr/head-on-frame-destroyed` (if registered) so the head ns can release per-frame snapshot bookkeeping (rf2-4dra9)."}
+
+   ;; ---- re-frame.ssr.head (rf2-4dra9 — head/meta contract) ------------------
+   {:key         :ssr/reg-head
+    :producer-ns 're-frame.ssr.head
+    :design-bead "rf2-4dra9"
+    :description "Register a head-fragment producer fn `(fn [db route] head-model)` under id, per Spec 011 §Head/meta contract."}
+   {:key         :ssr/render-head
+    :producer-ns 're-frame.ssr.head
+    :design-bead "rf2-4dra9"
+    :description "Apply the head fn registered under `head-id` against a frame's app-db and active route, returning the produced `:rf/head-model`."}
+   {:key         :ssr/active-head
+    :producer-ns 're-frame.ssr.head
+    :design-bead "rf2-4dra9"
+    :description "Look up the active route's `:head` metadata; if set, call `render-head` and return the model. Otherwise return the default head per Spec 011 §Default head."}
+   {:key         :ssr/head-snapshot
+    :producer-ns 're-frame.ssr.head
+    :design-bead "rf2-4dra9"
+    :description "Read the per-frame `{head-id → last-produced head-model}` snapshot. Cleared on frame destroy via the `:ssr.head/on-frame-destroyed` hook chained from re-frame.ssr's teardown."}
+   {:key         :ssr/head-model-html
+    :producer-ns 're-frame.ssr.head
+    :design-bead "rf2-4dra9"
+    :description "Render a `:rf/head-model` map to its inner-head HTML fragment in canonical order: title → meta → link → script → JSON-LD."}
+   {:key         :ssr/head-on-frame-destroyed
+    :producer-ns 're-frame.ssr.head
+    :design-bead "rf2-4dra9"
+    :description "Clear the per-frame head-snapshot entry on destroy. `re-frame.ssr/on-frame-destroyed!` invokes this hook by key after clearing its own side-channel atoms."}
 
    ;; ---- re-frame.adapter.reagent (rf2-0hxm) ---------------------------------
    {:key         :reagent/set-hiccup-emitter!

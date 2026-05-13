@@ -77,10 +77,24 @@ sessions.
 
 ## Reserved-keys group
 
-The runtime's reserved app-db keys (`:rf/machines`, `:rf/route`,
-`:rf/system-ids`, `:rf/pending-navigation`, `:rf/spawned`, per
-[Conventions §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys))
-render in a separate `[runtime]` group at the bottom of the panel:
+The runtime owns a fixed set of top-level `app-db` keys, catalogued
+in [Conventions §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys).
+Causa's `[runtime]` group segregates these five:
+
+| Reserved key | Owner | One-line role |
+|---|---|---|
+| `:rf/machines` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
+| `:rf/system-ids` | machine runtime | Reverse index `<system-id> → <gensym'd-machine-id>` for `:system-id` named-machine addressing. |
+| `:rf/spawned` | machine runtime | Declarative-`:invoke` / `:invoke-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
+| `:rf/route` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
+| `:rf/pending-navigation` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
+
+Conventions is the canonical home; this table is the panel-facing
+projection. The five above are the keys Causa's `partition-reserved`
+treats as runtime-owned in the diff panel — diff triples rooted in
+one of them render here rather than as slice mini-panels. If a new
+reserved key lands in Conventions, the `[runtime]` group's coverage
+and this table are updated in lockstep.
 
 ```
 ┌─ [runtime] ───────────────────────────────────────┐

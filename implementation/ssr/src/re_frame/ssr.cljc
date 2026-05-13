@@ -53,6 +53,14 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]
+            ;; rf2-4dra9 — head/meta contract surface (Spec 011 §Head/meta).
+            ;; The head ns publishes its late-bind hooks at ns-load time;
+            ;; static `:require` here ensures the hooks are available
+            ;; before any user code calls `rf/reg-head` / `rf/render-head`
+            ;; / `rf/active-head`. The dependency is acyclic — head.cljc
+            ;; only pulls re-frame.frame / re-frame.registrar (already in
+            ;; this ns's requires).
+            re-frame.ssr.head
             #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
 
 (defn- escape-html [s]
@@ -1153,10 +1161,18 @@ response with no body."
   for `frame-id`. Called from `frame/destroy-frame!` via the
   `:ssr/on-frame-destroyed` late-bind hook. Idempotent — a second call
   against the same frame-id sees both atoms already cleared and does
-  nothing."
+  nothing.
+
+  Per rf2-4dra9 (Spec 011 §Head/meta contract), also invokes any
+  registered `:ssr/head-on-frame-destroyed` hook so `re-frame.ssr.head`
+  can release its per-frame head-snapshot bookkeeping. Hook lookup is
+  late-bound so the call is a no-op when the head ns is absent."
   [frame-id]
   (swap! pending-error-traces dissoc frame-id)
   (swap! request-slots        dissoc frame-id)
+  (when-let [head-cleanup! (late-bind/get-fn :ssr/head-on-frame-destroyed)]
+    (try (head-cleanup! frame-id)
+         (catch #?(:clj Throwable :cljs :default) _ nil)))
   nil)
 
 (cofx/reg-cofx :rf.server/request
@@ -1206,3 +1222,12 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 ;; defonce-atoms accumulate one entry per request under SSR load — a slow
 ;; leak that compounds over a long-running server process.
 (late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
+
+;; rf2-4dra9 — `re-frame.ssr.head` is required from the top-of-file ns
+;; form so its late-bind hooks (`:ssr/reg-head`, `:ssr/render-head`,
+;; `:ssr/active-head`, `:ssr/head-snapshot`, `:ssr/head-model-html`)
+;; AND the per-frame head-snapshot cleanup hook
+;; (`:ssr.head/on-frame-destroyed`) land at ssr-ns load time on both
+;; JVM and CLJS. `on-frame-destroyed!` above invokes the head cleanup
+;; hook by key — load order between this ns and head.cljc is
+;; irrelevant to the call shape. Per Spec 011 §Head/meta contract.

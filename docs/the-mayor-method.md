@@ -128,6 +128,16 @@ The mayor files beads, dispatches background agents, watches them complete, surf
 
 Background agents will often find new things that need work — ambiguities, contradictions, missing cases. They file new beads when this happens. Sometimes the right thing is to fix it inline; sometimes the right thing is to bounce it back to you. Both happen often. The system is working as intended.
 
+## Worktree hygiene
+
+Background agents work on git worktrees under `.claude/worktrees/agent-*`. They accumulate. Once a bead's PR merges to `main`, the worktree is dead weight — its branch has no unique commits and the directory just sits there. Leave them alone and within a week you have 40 stale worktrees on disk.
+
+I run a hygiene-sweep loop on a cron (`/loop 1h <prompt>`). The prompt:
+
+> *"For each worktree under `.claude/worktrees/agent-*`, check whether its branch has any commits unique to it via `git log <branch> --not origin/main`. If the unique-commit list is empty AND the worktree's filesystem path is not held open by a running process, the work has landed and the worktree is safe to remove — run `git worktree remove -f -f <path>`. Skip any worktree whose branch carries unique commits (mid-flight or unpushed work) AND skip any worktree whose path appears to be in use by a running agent — detected by either (a) a probe write to a sentinel file inside the worktree returning permission-denied, or (b) the worktree containing a `.claude-agent.lock` file, or (c) an OS-level process listing showing a process with cwd inside the worktree. Log every skip with path + reason. Never proceed with `git worktree remove` against a path that any of the three checks flagged — removing the git pointer out from under a live agent leaves it stranded and forces a recovery cycle."*
+
+The skip-on-permission-denied rule exists because on Windows, file locks held by a running agent's process make `git worktree remove -f -f` partially succeed: the git pointer is deleted but the directory and its contents stay on disk, and the agent — which had no idea its tracking was about to evaporate — keeps running against an orphan tree. That's a recovery cycle nobody wants. Probing first costs nothing and avoids the failure mode.
+
 ## The map
 
 Ask the mayor:

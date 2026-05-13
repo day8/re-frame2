@@ -395,6 +395,9 @@
 (def render-to-string rf-ssr/render-to-string)
 (def render-tree-hash rf-ssr/render-tree-hash)
 (def project-error    rf-ssr/project-error)
+(def render-head      rf-ssr/render-head)
+(def active-head      rf-ssr/active-head)
+(def head-model->html rf-ssr/head-model->html)
 
 ;; ---- frame management ----------------------------------------------------
 
@@ -549,6 +552,26 @@
 
 #?(:cljs
    (def reg-error-projector -reg-error-projector))
+
+;; reg-head — Spec 011 §Head/meta contract (rf2-4dra9). Same macro/CLJS-
+;; alias pattern as reg-error-projector — re-frame.ssr.head ships the
+;; producing fn behind the :ssr/reg-head late-bind hook; the macro form
+;; captures source-coords (Spec 001) at the user's call site.
+
+(def ^:private -reg-head rf-ssr/-reg-head)
+
+#?(:clj
+   (defmacro reg-head
+     "Register a head-fragment producer — `(fn [db route] head-model)`.
+     `id` is a namespaced keyword (e.g. `:my.app/article`); routes name
+     a head via `:head` route metadata. Captures source-coords (Spec 001)
+     at this call site. Per Spec 011 §Head/meta contract."
+     [& args]
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(rf-ssr/-reg-head ~@args))))
+
+#?(:cljs
+   (def reg-head -reg-head))
 
 ;; ---- flows / schemas — plain-fn re-exports -------------------------------
 
