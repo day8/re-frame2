@@ -608,159 +608,173 @@
             :else nil))
         exited-pairs))))
 
-(defn- handle-invoke-spawn
-  "Handle the `:invoke` branch of the spawn reducer in apply-transition-once.
-  Allocates the spawned actor id deterministically via `allocate-spawned-id`
-  (the counter lives in-snapshot at `[:rf/spawn-counter <machine-id>]` per
-  rf2-gr8q), materialises the `:data` fn-form (Spec 005 §Spec-spec keys /
-  rf2-h131), runs the user's `:on-spawn` advisory callback against `:data`,
-  and emits one `[:rf.machine/spawn args]` fx carrying `:rf/parent-id` /
-  `:rf/invoke-id` / `:rf/spawned-id` so the spawn-fx handler can bind the
-  runtime-owned spawn-registry slot (rf2-t07u Option A revised).
+;; ---- spawn primitive: shared by :invoke and :invoke-all per-child ----------
+;;
+;; Per Spec 005 §Spawn-and-join via :invoke-all, `:invoke-all` is "spawn-
+;; and-join sugar over N parallel :invoke's plus a join condition". The
+;; impl mirrors the concept: both handlers compose `allocate-one` (id
+;; allocation), `spawn-one` (`:data` materialisation + spawn-fx build),
+;; and `apply-on-spawn` (advisory callback). The mode-specific spawn-args
+;; wiring is the only delta — a small `args-builder` closure per mode.
 
-  Returns `[snap-after acc-fx']` for the reducer; a `reduced` wrapper
-  around a `result/fail` Result (stamped with `:action-ref :rf.invoke/data-fn`
-  and `:invoke-id`) if the `:data` fn throws."
-  [machine parent-id s acc-fx prefix n event]
-  (let [inv         (:invoke n)
-        machine-id  (:machine-id inv)
-        invoke-id   (vec prefix)
-        ;; Allocate the spawned id from the snapshot's counter (rf2-gr8q).
-        ;; When `:invoke-id` is an explicit literal the runtime uses it
-        ;; directly and the counter is NOT bumped.
-        [s-after-alloc spawned-id]
-        (if (:invoke-id inv)
-          [s (:invoke-id inv)]
-          (allocate-spawned-id s machine-id))
-        mat-result
-        (if (contains? inv :data)
-          (materialise-data (:data inv) s-after-alloc event)
-          [::ok-data nil])]
+(defn- allocate-one
+  "Allocate one spawned-id from `inv-spec`'s `:machine-id` against `snap`'s
+  in-snapshot counter (rf2-gr8q). When `inv-spec` carries an explicit
+  `:invoke-id` literal (per-state singleton) the counter is NOT bumped.
+  Returns `[snap' spawned-id]`."
+  [snap inv-spec]
+  (if-let [explicit (:invoke-id inv-spec)]
+    [snap explicit]
+    (allocate-spawned-id snap (:machine-id inv-spec))))
+
+(defn- apply-on-spawn
+  "Run `inv-spec`'s `:on-spawn` advisory callback against `snap`'s `:data`.
+  Per Spec 005 §Declarative `:invoke`, the signature is
+  `(fn [data id] new-data)` — operates on `:data`, uniform with regular
+  actions. Per rf2-t07u (Option A revised) `:on-spawn` is purely advisory;
+  the runtime tracks the spawn-id at `[:rf/spawned parent-id invoke-id]`."
+  [machine snap inv-spec spawned-id]
+  (if-let [f (let [aref (:on-spawn inv-spec)]
+               (when aref
+                 (or (chase-ref (:on-spawn-actions machine) aref)
+                     (chase-ref (:actions machine) aref))))]
+    (let [new-data (f (:data snap) spawned-id)]
+      (if new-data (assoc snap :data new-data) snap))
+    snap))
+
+(defn- spawn-one
+  "Single-spawn primitive shared by `:invoke` and `:invoke-all` per-child.
+  Materialises any `:data` fn-form against `mat-snap` + `event` (Spec 005
+  §Spec-spec keys / rf2-h131); on failure returns a `result/fail` Result
+  stamped with `failure-extra`. On success builds the spawn-args via
+  `args-builder` (mode-specific wiring of `:rf/parent-id` /
+  `:rf/invoke-id` / `:rf/invoke-all-id` keys) and returns a `result/ok`
+  Result carrying the single-element `[[:rf.machine/spawn args]]` fx vec.
+
+  `:on-spawn` is intentionally NOT invoked here — the caller threads it
+  separately because `:invoke-all`'s on-spawn callbacks thread `:data`
+  writes across siblings."
+  [inv-spec mat-snap event spawned-id args-builder failure-extra]
+  (let [mat-result (if (contains? inv-spec :data)
+                     (materialise-data (:data inv-spec) mat-snap event)
+                     [::ok-data nil])]
     (if (result/fail? mat-result)
-      (reduced
-        (result/fail-with mat-result {:action-ref :rf.invoke/data-fn
-                                      :invoke-id  invoke-id}))
-      (let [mat-data    (second mat-result)
-            inv'        (if (contains? inv :data)
-                          (assoc inv :data mat-data)
-                          inv)
-            spawn-args  (-> inv'
-                            (assoc :id-prefix    machine-id)
-                            (assoc :rf/spawned-id spawned-id)
-                            (assoc :rf/parent-id  parent-id)
-                            (assoc :rf/invoke-id  invoke-id))
-            on-spawn-fn (let [aref (:on-spawn inv)]
-                          (when aref
-                            (or (chase-ref (:on-spawn-actions machine) aref)
-                                (chase-ref (:actions machine) aref))))
-            ;; Per Spec 005 §Declarative `:invoke`: the `:on-spawn` callback
-            ;; signature is (fn [data id] new-data) — operates on `:data`,
-            ;; uniform with regular actions. Per rf2-t07u (Option A revised):
-            ;; `:on-spawn` is purely advisory user-side bookkeeping — the
-            ;; runtime tracks the spawn-id itself in [:rf/spawned parent-id
-            ;; invoke-id].
-            s'          (if on-spawn-fn
-                          (let [data     (:data s-after-alloc)
-                                new-data (on-spawn-fn data spawned-id)]
-                            (if new-data
-                              (assoc s-after-alloc :data new-data)
-                              s-after-alloc))
-                          s-after-alloc)]
-        [s' (vec (concat acc-fx [[:rf.machine/spawn spawn-args]]))]))))
+      (result/fail-with mat-result failure-extra)
+      (let [mat-data   (second mat-result)
+            inv-spec'  (if (contains? inv-spec :data)
+                         (assoc inv-spec :data mat-data)
+                         inv-spec)
+            spawn-args (args-builder inv-spec' spawned-id)]
+        (result/ok spawn-args [[:rf.machine/spawn spawn-args]])))))
+
+;; ---- :invoke / :invoke-all spawn reducers ----------------------------------
+
+(defn- handle-invoke-spawn
+  "Handle the `:invoke` branch of the spawn reducer in
+  `apply-transition-once`. Allocates one spawned-id, delegates the
+  `:data` materialisation and spawn-args assembly to `spawn-one`, then
+  runs the `:on-spawn` advisory callback.
+
+  Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
+  around a `result/fail` Result (stamped with
+  `:action-ref :rf.invoke/data-fn` and `:invoke-id`) on `:data` failure."
+  [machine parent-id s acc-fx prefix n event]
+  (let [inv          (:invoke n)
+        invoke-id    (vec prefix)
+        [s-alloc id] (allocate-one s inv)
+        args-builder (fn [inv' spawned-id]
+                       (-> inv'
+                           (assoc :id-prefix     (:machine-id inv'))
+                           (assoc :rf/spawned-id spawned-id)
+                           (assoc :rf/parent-id  parent-id)
+                           (assoc :rf/invoke-id  invoke-id)))
+        spawn-r      (spawn-one inv s-alloc event id args-builder
+                                {:action-ref :rf.invoke/data-fn
+                                 :invoke-id  invoke-id})]
+    (if (result/fail? spawn-r)
+      (reduced spawn-r)
+      (let [spawn-fx (::result/fx spawn-r)
+            s'       (apply-on-spawn machine s-alloc inv id)]
+        [s' (into acc-fx spawn-fx)]))))
 
 (defn- handle-invoke-all-spawn
   "Handle the `:invoke-all` branch of the spawn reducer in
-  apply-transition-once. Per Spec 005 §Spawn-and-join via `:invoke-all`
-  (rf2-6vmw): allocate one spawned-id per child up front, build the
-  join-state seed map, emit a single `:rf.machine/invoke-all-init` fx
-  (which seeds `[:rf/spawned <parent> <invoke-id>]` in app-db) followed by
-  N per-child `:rf.machine/spawn` fxs.
+  `apply-transition-once`. Per Spec 005 §Spawn-and-join via `:invoke-all`
+  (rf2-6vmw), `:invoke-all` is spawn-and-join sugar over N parallel
+  `:invoke`'s plus a join condition. The implementation mirrors the
+  concept:
 
-  Per Spec 005 §Spec-spec keys (rf2-h131): each child invoke-spec admits
-  the same `:data` fn-form as a single `:invoke`. Materialisation may
-  throw; surface via a `result/fail` Result.
+   1. Allocate one spawned-id per child up-front (thread the snapshot's
+      counter through children in declaration order).
+   2. Build the join-state seed map and the `:rf.machine/invoke-all-init`
+      fx that seeds `[:rf/spawned <parent> <invoke-id>]` in app-db.
+   3. For each child, delegate to `spawn-one` to materialise `:data` and
+      build its `:rf.machine/spawn` fx (short-circuits on the first
+      child's `:data` failure).
+   4. Run each child's `:on-spawn` advisory callback in declaration order,
+      threading `:data` writes across siblings.
 
-  Returns `[snap-after acc-fx']` for the reducer; a `reduced` wrapper
-  around a `result/fail` Result if any child's `:data` fn throws."
+  Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
+  around a `result/fail` Result (stamped with
+  `:action-ref :rf.invoke-all/data-fn`, `:invoke-id`, and the failing
+  `:child-id`) on `:data` failure."
   [machine parent-id s acc-fx prefix n event]
-  (let [inv-all     (:invoke-all n)
-        children    (:children inv-all)
-        invoke-id   (vec prefix)
-        ;; Allocate per-child ids deterministically via the in-snapshot
-        ;; counter (rf2-gr8q). Thread the snapshot through the children
-        ;; in declaration order so each child bumps the counter for its
-        ;; machine-id and the resulting snapshot carries the final value.
-        [s-after-alloc children']
+  (let [inv-all   (:invoke-all n)
+        children  (:children inv-all)
+        invoke-id (vec prefix)
+        ;; (1) Allocate per-child ids deterministically; thread the snapshot.
+        [s-alloc children-with-ids]
         (reduce
           (fn [[snap acc] child]
-            (let [machine-id (:machine-id child)
-                  [snap' spawned-id]
-                  (if (:invoke-id child)
-                    [snap (:invoke-id child)]
-                    (allocate-spawned-id snap machine-id))]
-              [snap' (conj acc (assoc child :rf/spawned-id spawned-id))]))
+            (let [[snap' id] (allocate-one snap child)]
+              [snap' (conj acc (assoc child :rf/spawned-id id))]))
           [s []]
           children)
-        s           s-after-alloc
-        children-map (into {} (map (fn [c] [(:id c) (:rf/spawned-id c)])) children')
-        join-state  {:children  children-map
-                     :done      #{}
-                     :failed    #{}
-                     :resolved? false
-                     :spec      inv-all
-                     :invoke-id invoke-id}
-        init-fx     [:rf.machine/invoke-all-init
-                     {:rf/parent-id parent-id
-                      :rf/invoke-id invoke-id
-                      :join-state   join-state}]
-        ;; Build per-child spawn-args, materialising any `:data` fn-form
-        ;; (rf2-h131). Materialisation may throw — short-circuit with a
-        ;; `result/fail` Result (stamped with `:child-id`).
-        child-spawn-build
+        ;; (2) Seed the join state with the allocated ids.
+        children-map (into {} (map (juxt :id :rf/spawned-id)) children-with-ids)
+        join-state   {:children  children-map
+                      :done      #{}
+                      :failed    #{}
+                      :resolved? false
+                      :spec      inv-all
+                      :invoke-id invoke-id}
+        init-fx      [:rf.machine/invoke-all-init
+                      {:rf/parent-id parent-id
+                       :rf/invoke-id invoke-id
+                       :join-state   join-state}]
+        ;; (3) Materialise + build spawn fxs per child via `spawn-one`.
+        spawn-fxs-r
         (reduce
           (fn [acc child]
-            (let [mat-result (if (contains? child :data)
-                               (materialise-data (:data child) s event)
-                               [::ok-data nil])]
-              (if (result/fail? mat-result)
-                (reduced
-                  (result/fail-with mat-result
-                                    {:action-ref :rf.invoke-all/data-fn
-                                     :invoke-id  invoke-id
-                                     :child-id   (:id child)}))
-                (let [mat-data   (second mat-result)
-                      machine-id (:machine-id child)
-                      spawned-id (:rf/spawned-id child)
-                      child'     (if (contains? child :data)
-                                   (assoc child :data mat-data)
-                                   child)
-                      spawn-args (-> child'
-                                     (dissoc :id)
-                                     (assoc :id-prefix    machine-id)
-                                     (assoc :rf/spawned-id spawned-id)
-                                     (assoc :rf/parent-id  parent-id)
-                                     (assoc :rf/invoke-all-id invoke-id)
-                                     (assoc :rf/invoke-all-child-id (:id child)))]
-                  (conj acc [:rf.machine/spawn spawn-args])))))
+            (let [args-builder
+                  (fn [child' spawned-id]
+                    (-> child'
+                        (dissoc :id)
+                        (assoc :id-prefix              (:machine-id child'))
+                        (assoc :rf/spawned-id           spawned-id)
+                        (assoc :rf/parent-id            parent-id)
+                        (assoc :rf/invoke-all-id        invoke-id)
+                        (assoc :rf/invoke-all-child-id  (:id child))))
+                  r (spawn-one child s-alloc event
+                               (:rf/spawned-id child)
+                               args-builder
+                               {:action-ref :rf.invoke-all/data-fn
+                                :invoke-id  invoke-id
+                                :child-id   (:id child)})]
+              (if (result/fail? r)
+                (reduced r)
+                (into acc (::result/fx r)))))
           []
-          children')]
-    (if (result/fail? child-spawn-build)
-      (reduced child-spawn-build)
-      (let [child-spawn-fxs child-spawn-build
-            s' (reduce
+          children-with-ids)]
+    (if (result/fail? spawn-fxs-r)
+      (reduced spawn-fxs-r)
+      ;; (4) Thread :on-spawn advisory callbacks across siblings.
+      (let [s' (reduce
                  (fn [snap child]
-                   (let [aref (:on-spawn child)
-                         f    (when aref
-                                (or (chase-ref (:on-spawn-actions machine) aref)
-                                    (chase-ref (:actions machine) aref)))]
-                     (if f
-                       (let [data     (:data snap)
-                             new-data (f data (:rf/spawned-id child))]
-                         (if new-data (assoc snap :data new-data) snap))
-                       snap)))
-                 s
-                 children')]
-        [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))]))))
+                   (apply-on-spawn machine snap child (:rf/spawned-id child)))
+                 s-alloc
+                 children-with-ids)]
+        [s' (-> acc-fx (conj init-fx) (into spawn-fxs-r))]))))
 
 (defn final-state-node?
   "Per Spec 005 §Final states (rf2-gn80): true iff the state-node declares
