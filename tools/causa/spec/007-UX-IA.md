@@ -556,16 +556,84 @@ build from that coord.
 
 The `:windsurf` and `:zed` rows mirror the VS Code colon-suffix shape — Windsurf as a VS Code fork inherits the file/line/column grammar; Zed's `zed://` handler (registered via the editor's "Register Zed Scheme" action) accepts the same URI shape per its open-listener pipeline. Editors that ship without a stable URI handler still route through `{:custom <template>}` until they standardise.
 
+### URI construction (normative)
+
+The chip's URI is built from the source-coord's `:file` / `:line` /
+`:column` slots against the configured editor keyword. The rules below
+are the contract every Causa surface that renders a click-to-source
+chip MUST satisfy — equivalently, the contract the shared builder
+`re-frame.source-coords.editor-uri/editor-uri` enforces on every
+consumer's behalf.
+
+- **Default editor.** When `:rf.causa/editor` is unset or `nil`, the
+  builder MUST treat the editor as `:vscode`. Hosts that boot Causa
+  without calling `(causa-config/configure! {:editor …})` get a
+  clickable VS Code URI on first render — no opt-in required.
+
+- **`:file` is mandatory.** When the source-coord's `:file` slot is
+  absent, blank, or non-string, the builder MUST return `nil` and the
+  consumer MUST hide the chip entirely. A chip that points nowhere is
+  worse than no chip — the user can't tell the difference between
+  "missing source data" and "your editor is broken" otherwise.
+
+- **`:line` and `:column` defaults.** When `:line` is absent the
+  builder MUST default to `1`; when `:column` is absent it MUST
+  default to `1`. Editors at line 1 / column 1 land on the file's
+  first byte — strictly worse than the captured location, strictly
+  better than failing to navigate at all.
+
+- **Unknown keyword posture.** Any editor keyword not in
+  `#{:vscode :cursor :windsurf :zed :idea}` (and not a `{:custom …}`
+  map) MUST fall through to the `:vscode` URI shape. The user typed
+  `:vsocde` once — they shouldn't lose click-to-source forever for it.
+
+- **Custom-template substitution.** The `{:custom "<template>"}` form
+  MUST substitute `{path}`, `{file}` (alias for `{path}`), `{line}`,
+  and `{column}` placeholders verbatim from the source-coord. Missing
+  placeholders MUST pass through unchanged so a template that omits
+  `{column}` simply doesn't include the column. The `:custom` value
+  MUST be a string; any other shape (a keyword, a number) reverts to
+  the default editor.
+
+- **No URL-encoding of the path.** The path MUST be passed verbatim
+  into the URI — slashes stay slashes, colons stay colons. Every
+  editor handler tested in 2026 (`vscode://`, `cursor://`,
+  `windsurf://`, `zed://`, `idea://`) fails to resolve a path with
+  `/` encoded as `%2F`. Path components containing spaces are a known
+  edge case; they remain unencoded and rely on the OS URI parser's
+  whitespace handling. (Hosts with spaces in workspace roots SHOULD
+  use the `{:custom …}` form with their own encoding.)
+
+- **No handler-installed fallback.** When the URI's scheme has no
+  registered OS handler (the user has `:cursor` configured but
+  hasn't installed Cursor), the click MUST be a clean no-op — the
+  browser's URI dispatcher returns without navigation, the page does
+  not change. Causa MUST NOT detect installation status (the
+  browser deliberately conceals it), MUST NOT fall back to a
+  different editor scheme, and MUST NOT show an error toast. The
+  one signal the chip emits is the URI it built; the OS handler
+  chain is the only thing that knows whether an editor is reachable.
+
+- **Click vector.** The chip MUST invoke navigation by setting
+  `window.location.href` (or rendering an `<a href>` and letting the
+  browser follow it). Causa MUST NOT use `window.open`, fetch the
+  URI, or spawn a worker — the editor URI is a one-shot OS event,
+  not a page load.
+
+These rules apply identically to every Causa surface that surfaces a
+source-coord chip — the event-detail hero, causality nodes, machine
+inspector chips, hydration debugger rows, trace panel rows. The
+single canonical implementation in
+`re-frame.source-coords.editor-uri` MUST be the only URI builder; no
+panel may inline its own URI assembly.
+
 ### Configuration
 
 - The user picks the editor via the **Settings** modal (`,`) → Editor.
   Stored under the `:rf.causa/editor` config key.
+- The boot-time entry is `(causa-config/configure! {:editor …})` per
+  [`015-Configuration.md`](./015-Configuration.md) §`:editor`.
 - Default: `:vscode` — the most-installed editor in 2026.
-- Unknown / typoed keywords fall back to `:vscode` so a click still
-  yields a usable URI rather than a silent no-op.
-- Source-coords without a `:file` slot hide the chip entirely (the
-  handler never registered with usable location data — there is
-  nothing to open).
 - The preference is **session-scoped**, persisted via the same Causa
   config substrate as theme / density. No cloud-sync (Lock 4 privacy
   posture: Causa state stays on the user's machine).
