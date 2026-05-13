@@ -80,7 +80,7 @@
 
 (deftest cell-overrides-roundtrip
   (testing "cell overrides write + clear cleanly"
-    (state/swap-state! state/set-cell-override :story.x/y :label "hi")
+    (state/swap-state! state/set-cell-override-scalar :story.x/y :label "hi")
     (is (= "hi" (get-in (state/get-state)
                         [:cell-overrides :story.x/y :label])))
     (state/swap-state! state/clear-cell-overrides :story.x/y)

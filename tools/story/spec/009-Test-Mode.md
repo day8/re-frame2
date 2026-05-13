@@ -248,11 +248,17 @@ aggregation surface is the **test widget** that sits at the foot of
 the sidebar plus the **status dots** that render next to each
 testable variant row.
 
-Both surfaces read from one slot in the shell state — `:test-runs`,
-a `{variant-id → {:status :pass|:fail|:running|:pending, :passed,
-:failed, :skipped, :total, :ran-at-ms, :elapsed-ms}}` map. The
-`:test` mode pane and the chrome widget both write into it; the
-sidebar's per-variant row reads its dot's colour from it.
+Both surfaces read from one slot in the shell state —
+`[:tests :runs]`, a `{variant-id → {:status :pass|:fail|:running|
+:pending, :passed, :failed, :skipped, :total, :ran-at-ms, :elapsed-
+ms}}` map. The `:test` mode pane and the chrome widget both write
+into it; the sidebar's per-variant row reads its dot's colour from
+it.
+
+The full chrome-test-widget surface lives under one `:tests` sub-map
+of the shell state (rf2-uefbk): `[:tests :runs]` (above),
+`[:tests :watch-mode?]` (the eye-icon toggle), and `[:tests :content-
+hashes]` (the watch-mode detector's drift baseline).
 
 ### Surface
 
@@ -305,8 +311,8 @@ The widget's **Run all** button drives `run-variant` over every
 testable variant. Runs dispatch in parallel — each variant runs in
 its own frame per Spec 002 §Programmatic API, so concurrent runs
 don't cross-contaminate `app-db`. Per-variant runs from the
-`:test` pane's Re-run button fold into the same `:test-runs` slot,
-so the chrome widget and the pane stay in sync.
+`:test` pane's Re-run button fold into the same `[:tests :runs]`
+slot, so the chrome widget and the pane stay in sync.
 
 ### Test selectors
 
@@ -325,10 +331,11 @@ so the chrome widget and the pane stay in sync.
 Storybook 9's Vitest addon ships a watch-mode toggle (eye icon) that
 re-runs the changed stories on file save. Story's parity surface is
 the **watch chip** beneath the count chips. It toggles a boolean
-(`:test-watch-mode?`) in the shell state. When on, the shell's poll
-detector computes a snapshot-identity content-hash per testable
-variant and compares it against the recorded `:test-content-hashes`
-slot; any drift dispatches `sidebar/watch-rerun!` for the affected
+(`[:tests :watch-mode?]`) in the shell state. When on, the shell's
+poll detector computes a snapshot-identity content-hash per testable
+variant and compares it against the recorded
+`[:tests :content-hashes]` slot; any drift dispatches
+`sidebar/watch-rerun!` for the affected
 variants — the sidebar dots transit through `:running` to the new
 `:pass` / `:fail` exactly as if the user had clicked Re-run.
 
@@ -339,7 +346,7 @@ hash (per `re-frame.story.identity/snapshot-identity` + IMPL-SPEC
 produces a fresh hash. Cosmetic edits (docstring, `:source` coords)
 do not contribute.
 
-Toggle-off clears `:test-content-hashes` so the next toggle-on
+Toggle-off clears `[:tests :content-hashes]` so the next toggle-on
 seeds a fresh baseline from the current registry (no spurious
 re-run on toggle-on). Toggle-on without subsequent changes is a
 no-op once the baseline lands.
@@ -369,7 +376,8 @@ Per the rf2-9hc8 / rf2-rodx / rf2-qmjo / rf2-q0irb tetrad: the
 the foundation (the four-phase runtime, the seven canonical
 `:rf.assert/*` events, the `:assertions` record schema) and surface
 it. They do not register new artefact kinds; the only new shell-
-state slot is `:test-runs`, which is a pure derivation of
-`run-variant` results keyed by variant id. Removing them restores
+state surface is the `:tests` sub-map (`[:tests :runs]` /
+`[:tests :watch-mode?]` / `[:tests :content-hashes]`), which is a
+pure derivation of `run-variant` results keyed by variant id. Removing them restores
 the placeholder-equivalent empty pane and the dot-free sidebar
 without breaking any other surface.

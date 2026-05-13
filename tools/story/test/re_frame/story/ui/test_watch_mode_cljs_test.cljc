@@ -41,15 +41,15 @@
       (is (true? (state/test-watch-mode? s))))))
 
 (deftest set-test-watch-mode-toggle-off-clears-hashes
-  (testing "toggle-off resets :test-content-hashes so the next toggle-
-            on seeds fresh from the current registry"
+  (testing "toggle-off resets [:tests :content-hashes] so the next
+            toggle-on seeds fresh from the current registry"
     (let [seeded (-> state/default-shell-state
                      (state/set-test-watch-mode true)
                      (state/record-test-content-hashes
                        {:story.x/a "deadbeef"}))
           off    (state/set-test-watch-mode seeded false)]
       (is (false? (state/test-watch-mode? off)))
-      (is (= {} (:test-content-hashes off))))))
+      (is (= {} (get-in off [:tests :content-hashes]))))))
 
 ;; ---- pure: drift detection ----------------------------------------------
 
@@ -97,17 +97,17 @@
 ;; ---- pure: record-test-content-hashes ----------------------------------
 
 (deftest record-test-content-hashes-stamps-slot
-  (testing "record-test-content-hashes writes into :test-content-hashes"
+  (testing "record-test-content-hashes writes into [:tests :content-hashes]"
     (let [s (state/record-test-content-hashes state/default-shell-state
                                               {:story.x/a "aaaa"})]
-      (is (= {:story.x/a "aaaa"} (:test-content-hashes s))))))
+      (is (= {:story.x/a "aaaa"} (get-in s [:tests :content-hashes]))))))
 
 (deftest record-test-content-hashes-nil-clears
   (testing "nil input clears the slot — used by toggle-off"
     (let [s (-> state/default-shell-state
                 (state/record-test-content-hashes {:story.x/a "aaaa"})
                 (state/record-test-content-hashes nil))]
-      (is (= {} (:test-content-hashes s))))))
+      (is (= {} (get-in s [:tests :content-hashes]))))))
 
 ;; ---- CLJS-only: widget renders the watch toggle ------------------------
 
@@ -150,7 +150,7 @@
 
 #?(:cljs
    (deftest widget-renders-watch-toggle-on-when-flag-on
-     (testing "with :test-watch-mode? true the chip reads aria-pressed=
+     (testing "with [:tests :watch-mode?] true the chip reads aria-pressed=
                true and the data-state attribute reads 'on'"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
                                       :play [[:rf.assert/path-equals [:c] 0]]})
@@ -196,8 +196,8 @@
        ;; Both variants stamp :running synchronously before the async
        ;; resolution lands.
        (let [s (state/get-state)]
-         (is (= :running (get-in s [:test-runs :story.x/a :status])))
-         (is (= :running (get-in s [:test-runs :story.x/b :status])))))))
+         (is (= :running (get-in s [:tests :runs :story.x/a :status])))
+         (is (= :running (get-in s [:tests :runs :story.x/b :status])))))))
 
 #?(:cljs
    (deftest watch-rerun-empty-seq-noop
@@ -208,4 +208,4 @@
                                       :play [[:rf.assert/path-equals [:c] 0]]})
        (sidebar/watch-rerun! [])
        (let [s (state/get-state)]
-         (is (nil? (get-in s [:test-runs :story.x/a])))))))
+         (is (nil? (get-in s [:tests :runs :story.x/a])))))))

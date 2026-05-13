@@ -36,9 +36,9 @@
 ;; ---- pure: state transitions --------------------------------------------
 
 (deftest mark-test-running-stamps-status
-  (testing "mark-test-running writes :running into :test-runs"
+  (testing "mark-test-running writes :running into [:tests :runs]"
     (let [s  (state/mark-test-running state/default-shell-state :story.x/a)]
-      (is (= :running (get-in s [:test-runs :story.x/a :status]))))))
+      (is (= :running (get-in s [:tests :runs :story.x/a :status]))))))
 
 (deftest record-test-run-pass
   (testing "a run with passed assertions records :pass + counts"
@@ -46,18 +46,18 @@
                                    {:total 3 :passed 3 :failed 0 :skipped 0
                                     :all-passed? true
                                     :ran-at-ms 100 :elapsed-ms 12})]
-      (is (= :pass (get-in s [:test-runs :story.x/a :status])))
-      (is (= 3     (get-in s [:test-runs :story.x/a :passed])))
-      (is (= 0     (get-in s [:test-runs :story.x/a :failed])))
-      (is (= 12    (get-in s [:test-runs :story.x/a :elapsed-ms]))))))
+      (is (= :pass (get-in s [:tests :runs :story.x/a :status])))
+      (is (= 3     (get-in s [:tests :runs :story.x/a :passed])))
+      (is (= 0     (get-in s [:tests :runs :story.x/a :failed])))
+      (is (= 12    (get-in s [:tests :runs :story.x/a :elapsed-ms]))))))
 
 (deftest record-test-run-fail
   (testing "a run with any failure records :fail"
     (let [s (state/record-test-run state/default-shell-state :story.x/a
                                    {:total 3 :passed 1 :failed 2 :skipped 0
                                     :all-passed? false})]
-      (is (= :fail (get-in s [:test-runs :story.x/a :status])))
-      (is (= 2     (get-in s [:test-runs :story.x/a :failed]))))))
+      (is (= :fail (get-in s [:tests :runs :story.x/a :status])))
+      (is (= 2     (get-in s [:tests :runs :story.x/a :failed]))))))
 
 (deftest record-test-run-empty-is-pending
   (testing "a run that recorded zero assertions reads :pending — the
@@ -66,14 +66,14 @@
     (let [s (state/record-test-run state/default-shell-state :story.x/a
                                    {:total 0 :passed 0 :failed 0 :skipped 0
                                     :all-passed? false})]
-      (is (= :pending (get-in s [:test-runs :story.x/a :status]))))))
+      (is (= :pending (get-in s [:tests :runs :story.x/a :status]))))))
 
 (deftest clear-test-run-drops-record
   (testing "clear-test-run removes the slot — the dot re-reads :pending"
     (let [s (-> state/default-shell-state
                 (state/mark-test-running :story.x/a)
                 (state/clear-test-run :story.x/a))]
-      (is (nil? (get-in s [:test-runs :story.x/a])))
+      (is (nil? (get-in s [:tests :runs :story.x/a])))
       (is (= :pending (state/variant-test-status s :story.x/a))))))
 
 (deftest variant-test-status-defaults-pending
@@ -283,8 +283,8 @@
        (let [shell (-> state/default-shell-state
                        (assoc :active-modes #{:dark}
                               :substrate :reagent)
-                       (state/set-cell-override :story.x/a :n 5)
-                       (state/set-cell-override :story.x/b :label "B"))
+                       (state/set-cell-override-scalar :story.x/a :n 5)
+                       (state/set-cell-override-scalar :story.x/b :label "B"))
              opts-a (sidebar/run-opts-for-variant shell :story.x/a)
              opts-b (sidebar/run-opts-for-variant shell :story.x/b)
              opts-c (sidebar/run-opts-for-variant shell :story.x/c)]

@@ -49,7 +49,7 @@
 
 (defn- begin-run!
   "Mark the variant's slot as running. Returns nothing. Stamps the
-  shell-state `:test-runs` slot too so the chrome-level test widget
+  shell-state `[:tests :runs]` slot too so the chrome-level test widget
   and the sidebar's per-variant dot read `:running` while the run
   is in flight (rf2-q0irb)."
   [variant-id]
@@ -67,7 +67,7 @@
   has a stable read-surface that doesn't drift on a later
   unrelated dispatch.
 
-  Folds the run's aggregate into the shell-state `:test-runs` slot
+  Folds the run's aggregate into the shell-state `[:tests :runs]` slot
   too — the chrome-level test widget + sidebar dots read off that
   slot (rf2-q0irb)."
   [variant-id result]

@@ -146,26 +146,30 @@
 ;; ---- pure: group-modes-by-axis ------------------------------------------
 
 (deftest group-modes-by-axis-orders
-  (testing "axis groups sort by axis-name; un-axis bucket lands last"
-    (let [groups (state/group-modes-by-axis
-                   {:Mode.vp/mobile {:axis :viewport}
-                    :Mode.t/dark    {:axis :theme}
-                    :Mode.t/light   {:axis :theme}
-                    :Mode.misc/x    {}
-                    :Mode.misc/a    {}})
-          axes   (mapv first groups)]
-      ;; :theme < :viewport alphabetically; un-axed bucket trails.
-      (is (= [:theme :viewport :re-frame.story.ui.state/unaxed] axes))
-      (is (= [:Mode.t/dark :Mode.t/light] (second (nth groups 0))))
-      (is (= [:Mode.vp/mobile]            (second (nth groups 1))))
-      (is (= [:Mode.misc/a :Mode.misc/x]  (second (nth groups 2)))))))
+  (testing "axis groups sort by axis-name; un-axed bucket sits in its
+            own explicit `:unaxed` slot (no sentinel keyword)"
+    (let [{:keys [axes unaxed]}
+          (state/group-modes-by-axis
+            {:Mode.vp/mobile {:axis :viewport}
+             :Mode.t/dark    {:axis :theme}
+             :Mode.t/light   {:axis :theme}
+             :Mode.misc/x    {}
+             :Mode.misc/a    {}})]
+      ;; :theme < :viewport alphabetically.
+      (is (= [:theme :viewport] (mapv first axes)))
+      (is (= [:Mode.t/dark :Mode.t/light] (second (nth axes 0))))
+      (is (= [:Mode.vp/mobile]            (second (nth axes 1))))
+      ;; Un-axed modes land in their own slot, alphabetically sorted.
+      (is (= [:Mode.misc/a :Mode.misc/x] unaxed)))))
 
-(deftest group-modes-by-axis-no-unaxed-bucket-when-all-tagged
-  (testing "every mode tagged → no trailing unaxed bucket"
-    (let [groups (state/group-modes-by-axis
-                   {:Mode.t/dark  {:axis :theme}
-                    :Mode.t/light {:axis :theme}})]
-      (is (= [:theme] (mapv first groups))))))
+(deftest group-modes-by-axis-empty-unaxed-when-all-tagged
+  (testing "every mode tagged → :unaxed slot is empty (still present)"
+    (let [{:keys [axes unaxed]}
+          (state/group-modes-by-axis
+            {:Mode.t/dark  {:axis :theme}
+             :Mode.t/light {:axis :theme}})]
+      (is (= [:theme] (mapv first axes)))
+      (is (= [] unaxed)))))
 
 ;; ---- pure: URL parsing --------------------------------------------------
 

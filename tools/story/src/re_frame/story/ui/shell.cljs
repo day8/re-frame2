@@ -134,11 +134,11 @@
 
 ;; ---- watch-mode detector (rf2-z1h0f) -------------------------------------
 ;;
-;; The chrome-level test widget's eye-icon toggles `:test-watch-mode?`
-;; in the shell state. When on, this poll computes a snapshot-identity
-;; content-hash per testable variant, compares it against the recorded
-;; `:test-content-hashes` slot, and dispatches `sidebar/watch-rerun!`
-;; for the variants whose hash drifted.
+;; The chrome-level test widget's eye-icon toggles `[:tests :watch-
+;; mode?]` in the shell state. When on, this poll computes a snapshot-
+;; identity content-hash per testable variant, compares it against the
+;; recorded `[:tests :content-hashes]` slot, and dispatches
+;; `sidebar/watch-rerun!` for the variants whose hash drifted.
 ;;
 ;; Detection runs on the same 500ms cadence as the existing hot-reload
 ;; poll — both polls share `setInterval` for v1; v2 will wire to the
@@ -175,7 +175,7 @@
   (when (and config/enabled? (state/test-watch-mode? (state/get-state)))
     (let [current (compute-testable-content-hashes)
           shell   (state/get-state)
-          prev    (:test-content-hashes shell)
+          prev    (get-in shell [:tests :content-hashes])
           drifted (state/watch-mode-drift prev current)]
       ;; Always stamp the fresh hashes so the next poll diffs against
       ;; the post-drift baseline (rather than re-firing forever).
