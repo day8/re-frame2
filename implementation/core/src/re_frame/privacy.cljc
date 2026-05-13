@@ -9,9 +9,9 @@
      registrar copies it onto the registry slot's stored meta; the
      runtime hoists `:sensitive? true` to the top level of every trace
      event emitted within the handler's execution scope. The plumbing
-     for the runtime stamp lives in `re-frame.trace` (the
-     `*current-sensitive?*` dynamic Var bound at every handler-scope
-     binding site).
+     for the runtime stamp lives in `re-frame.trace` (the `:sensitive?`
+     slot of the `*handler-scope*` record, bound at every handler-scope
+     binding site per rf2-ryri7).
 
   2. **`with-redacted` interceptor.** A positional interceptor that
      overwrites named keys in the event payload with the sentinel
@@ -142,7 +142,7 @@
           ;;
           ;; Per rf2-isdwf: also force `:sensitive? true` for the
           ;; rest of this handler's scope. The interceptor itself
-          ;; runs INSIDE the event-handler's `*current-sensitive?*`
+          ;; runs INSIDE the event-handler's `*handler-scope*`
           ;; binding (router.cljc binds before the chain runs), so
           ;; we can't `binding`-shadow it here. Instead we stash a
           ;; `:rf/redacted-paths` slot on the context for the

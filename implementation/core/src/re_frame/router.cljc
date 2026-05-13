@@ -531,8 +531,8 @@
 
    1. `trace/*handler-scope*` — set with the cascade's `:dispatch-id`
       and the envelope's `:call-site`, inheriting the rest from parent.
-      Per rf2-ryri7 (consolidation of `*current-dispatch-id*` per
-      rf2-g6ih4 and `*current-call-site*` per rf2-ts1a) — child
+      Per rf2-ryri7 (consolidation of the `:dispatch-id` slot per
+      rf2-g6ih4 and the `:call-site` slot per rf2-ts1a) — child
       dispatches issued from within an fx handler inherit this event's
       `:dispatch-id` as their `:parent-dispatch-id`, every trace event
       emitted inside the cascade (sub runs, fx-handled, machine
@@ -769,7 +769,7 @@
   when interop/debug-enabled? is false at compile time.
 
   Per rf2-isdwf: `:event/dispatched` fires at queue/enqueue time —
-  BEFORE the handler-scope binding for `*current-sensitive?*` is
+  BEFORE the `*handler-scope*` binding's `:sensitive?` slot is
   established (the binding wraps `process-event*`, which runs later
   in the drain). Look up the target handler's registration metadata
   directly and pass `:sensitive?` in the tags so `emit!` hoists it
@@ -777,9 +777,9 @@
   (consumers treat absent as false).
 
   Per rf2-qsjda: same queue-time consideration applies for
-  `:rf.trace/no-emit?`. The handler-scope binding for
-  `*current-no-emit?*` doesn't exist yet at enqueue time, so we read
-  the flag directly off the target handler's registration meta and
+  `:rf.trace/no-emit?`. The `*handler-scope*` binding's `:no-emit?`
+  slot doesn't exist yet at enqueue time, so we read the flag
+  directly off the target handler's registration meta and
   short-circuit the `:event/dispatched` emit when set. Without this,
   a Causa-style bookkeeping handler would have its enqueue trace
   delivered to listeners (re-entering the consumer's trace-cb)
