@@ -82,6 +82,30 @@
                  :font-family "monospace"
                  :font-size "11px"
                  :width "100%"}
+   :textarea    {:background "#1e1e1e"
+                 :color "#cccccc"
+                 :border "1px solid #444"
+                 :padding "4px 6px"
+                 :font-family "monospace"
+                 :font-size "11px"
+                 :width "100%"
+                 :min-height "48px"
+                 :resize "vertical"}
+   :color-input {:background "#1e1e1e"
+                 :border "1px solid #444"
+                 :padding "0"
+                 :width "36px"
+                 :height "20px"
+                 :cursor "pointer"}
+   :radio-row   {:display "flex"
+                 :flex-wrap "wrap"
+                 :gap "8px"
+                 :align-items "center"}
+   :radio-label {:display "inline-flex"
+                 :gap "4px"
+                 :align-items "center"
+                 :cursor "pointer"
+                 :color "#cccccc"}
    :chip-row    {:display "flex"
                  :flex-wrap "wrap"
                  :gap "4px"}
@@ -325,9 +349,17 @@
 
 (declare arg-widget)
 
-(defn- scalar-widget
+(defn scalar-widget
   "Render a scalar widget for `widget-spec` whose value lives at `path`
-  inside `variant-id`'s args. Path is `[arg-key & sub-path]`."
+  inside `variant-id`'s args. Path is `[arg-key & sub-path]`.
+
+  Closed control vocabulary per spec/007-Stories.md §argtypes:
+  `:text` / `:textarea` / `:number` / `:boolean` / `:select` / `:radio`
+  / `:date` / `:color`. Unknown widget tags degrade to a visible
+  fallback span (the author can refine via `:argtypes`).
+
+  Public (rather than private) so tests can invoke it directly and
+  inspect the rendered hiccup without going through Reagent."
   [variant-id path value {:keys [widget options]}]
   (case widget
     :text     [:input {:type      "text"
@@ -337,6 +369,12 @@
                                     (on-change-at-path
                                       variant-id path
                                       (read-event-value e)))}]
+    :textarea [:textarea {:style     (:textarea styles)
+                          :value     (if (nil? value) "" (str value))
+                          :on-change (fn [e]
+                                       (on-change-at-path
+                                         variant-id path
+                                         (read-event-value e)))}]
     :number   [:input {:type      "number"
                        :style     (:input styles)
                        :value     (if (nil? value) "" value)
@@ -360,6 +398,37 @@
                (for [opt options]
                  ^{:key (str opt)}
                  [:option {:value (str opt)} (str opt)])]
+    :radio    (into [:div {:style (:radio-row styles)
+                           :data-controls-radio-group (str (last path))}]
+                    (for [opt options]
+                      ^{:key (str opt)}
+                      [:label {:style (:radio-label styles)}
+                       [:input {:type      "radio"
+                                :name      (str variant-id "/" (pr-str path))
+                                :value     (str opt)
+                                :checked   (= (str value) (str opt))
+                                :on-change (fn [_]
+                                             (on-change-at-path
+                                               variant-id path opt))}]
+                       (str opt)]))
+    :date     [:input {:type      "date"
+                       :style     (:input styles)
+                       :value     (if (nil? value) "" (str value))
+                       :on-change (fn [e]
+                                    (let [s (read-event-value e)]
+                                      (on-change-at-path
+                                        variant-id path
+                                        (when (seq s) s))))}]
+    :color    [:input {:type      "color"
+                       :style     (:color-input styles)
+                       :value     (if (and (string? value)
+                                           (seq value))
+                                    value
+                                    "#000000")
+                       :on-change (fn [e]
+                                    (on-change-at-path
+                                      variant-id path
+                                      (read-event-value e)))}]
     [:span {:style (:empty styles)}
      (str "unsupported widget " widget)]))
 
@@ -398,11 +467,15 @@
   fail validation."
   [widget-spec]
   (case (:widget widget-spec)
-    :text    ""
-    :number  0
-    :boolean false
-    :select  (first (:options widget-spec))
-    :group   {}
+    :text     ""
+    :textarea ""
+    :number   0
+    :boolean  false
+    :select   (first (:options widget-spec))
+    :radio    (first (:options widget-spec))
+    :date     nil
+    :color    "#000000"
+    :group    {}
     :repeater (case (:kind widget-spec) :set #{} [])
     :tuple    (mapv default-element-value (:positions widget-spec))
     nil))
