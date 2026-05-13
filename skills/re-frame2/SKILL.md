@@ -1,176 +1,104 @@
 ---
 name: re-frame2
-description: Writes re-frame2 ClojureScript application code — events, subscriptions, effects, frames, state machines (reg-machine, parallel regions, tags, invoke), schemas, stories, routing, tests, and the canonical patterns (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection). Use this skill whenever the user mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx, reg-cofx, reg-view, reg-machine, reg-route, reg-story, reg-app-schema, dispatch, subscribe, app-db, frames, regions, tags, the nine UI states, managed HTTP, RemoteData lifecycles, writing tests for a re-frame2 app, or state-machine-for-HTTP shapes — even when re-frame2 is not named explicitly. Authoring only (writing new code). For live-app inspection use re-frame-pair2; for greenfield project bootstrap use re-frame2-setup.
+description: Writes re-frame2 ClojureScript application code — events, subscriptions, effects, frames, state machines (reg-machine, parallel regions, tags, invoke), schemas, stories, routing, tests, and the canonical patterns (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection). Use whenever the user mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx, reg-cofx, reg-view, reg-machine, reg-route, reg-story, reg-app-schema, dispatch, subscribe, app-db, frames, regions, tags, the nine UI states, managed HTTP, RemoteData lifecycles, writing tests for a re-frame2 app, or state-machine-for-HTTP shapes — even when re-frame2 is not named explicitly. Authoring only (writing new code). Do not use for: live-app inspection (use re-frame-pair2), greenfield project bootstrap (use re-frame2-setup), v1→v2 migration (use re-frame-migration), or porting re-frame2 itself (use re-frame2-implementor).
 ---
 
 # re-frame2
 
-Authors re-frame2 ClojureScript application code: events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns. This is a router skill — it carries the cardinal rules and decision shortcuts, and points at one-level-deep reference and pattern leaves for depth.
+Authors re-frame2 ClojureScript application code. Router skill: this file carries decision shortcuts; depth lives one level deep in `reference/`, `patterns/`, and `decision-trees/`.
 
-## When to load this skill
+## When to load
 
-Load when the task is **writing or editing re-frame2 application source** (`.cljs` / `.cljc`): a new event handler, a subscription graph, a state machine, a view, a schema, a route, a story, or any of the canonical patterns. The user does not have to name re-frame2 — references to `reg-event-*`, `reg-sub`, `reg-fx`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, or pattern names are sufficient triggers.
+`.cljs` / `.cljc` authoring of: event handlers, subscriptions, state machines, views, schemas, routes, stories, or the canonical patterns. References to `reg-event-*`, `reg-sub`, `reg-fx`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, or pattern names are sufficient triggers — re-frame2 need not be named.
 
-## When NOT to use this skill
+## When NOT to use
 
 | Prompt shape | Route to |
 |---|---|
 | Inspect, debug, or modify a running re-frame2 app | `skills/re-frame-pair2/` |
-| Set up a new re-frame2 project from scratch (deps.edn, shadow-cljs, boot scaffolding) | `skills/re-frame2-setup/` |
+| Set up a new re-frame2 project from scratch | `skills/re-frame2-setup/` |
 | Migrate an existing re-frame v1 app to v2 | `skills/re-frame-migration/` |
 | Build a NEW re-frame2 implementation in a different host language or substrate | `skills/re-frame2-implementor/` |
-| Understand how the registrar / machine compiler / reactive substrate is implemented | `SKILL-REDIRECT.md` → EP design entries |
-| Read the full API reference, EP rationale, or pattern spec | `SKILL-REDIRECT.md` |
-
-Migration and deep-dive content are deliberately outside this skill — they live behind one redirect file (`SKILL-REDIRECT.md` at repo root), so leaves stay focused on the canonical authoring recipes.
+| Read the full API reference, EP rationale, or spec | `SKILL-REDIRECT.md` |
 
 ## Cardinal rules
 
-These hold across every leaf in this skill.
+1. **Implementation is ground truth.** When spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/reagent/**`.
+2. **Recipes over explanations.** Use the canonical shape; do not re-derive from first principles.
+3. **Distinguish orchestration from state.** State machines for *modes* (legal-transitions-depend-on-current-state); slices for *fields*. See [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md).
+4. **Schemas at boundaries.** `reg-app-schema` for paths that cross trust boundaries (HTTP payloads, persisted state, snapshot restores). Do not schema-fence every internal key.
+5. **`examples/reagent/<x>/` is canonical.** When a pattern has a worked example, match its shape.
+6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
+7. **`:rf/*` is reserved.** Application keywords pick their own feature prefix (`:cart/...`, `:auth/...`).
+8. **`reg-*` macros over `register-*` functions.** Macros capture source coordinates that tools rely on; functional registrations are for advanced cases only.
+9. **Pillar 4 — assume training knowledge.** Teach the re-frame2-specific binding, not FSM theory / HTTP retry / React rendering.
 
-1. **Implementation is ground truth.** When the spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/reagent/**`, not against [`spec/`](../../spec/). Spec is *why*; impl is *what*.
-2. **Recipes over explanations.** Reach for a canonical shape; do not derive from first principles. If a pattern leaf exists, use the shape it gives; do not invent a parallel one.
-3. **Distinguish orchestration from state.** Use **state machines** (`reg-machine`) when the answer to "what can the system do next" depends on the current mode (connecting / connected / disconnected; idle / submitting / submitted; loading / loaded / error). Use **slices** (a key in `app-db` driven by `reg-event-db`) when state is a field, not a mode. See `decision-trees/slice-or-machine.md`.
-4. **Schemas at boundaries, not everywhere.** Register `reg-app-schema` for the paths that cross trust boundaries (incoming HTTP payloads, persisted state on restore, machine snapshot restores). Do not schema-fence every internal key.
-5. **Examples in `examples/reagent/<x>/` are canonical.** When a pattern has a worked example, prefer the example's shape over a synthesised one. The example reflects the implementation as currently shipped.
-6. **Frames before globals.** Code talks to a frame (`(rf/dispatch [:foo])` against the default frame; or `(rf/dispatch {:frame :stories} [:foo])` to target one). Do not import frame internals; do not bypass `dispatch` / `subscribe` to mutate state.
-7. **Reserved namespaces are reserved.** The `:rf/*` keyword namespace (including `:rf.machine/*`, `:rf.epoch/*`, `:rf.http/*`, `:rf.error/*`) belongs to the framework. Application keywords pick their own feature prefix.
-8. **`reg-*` macros over `register-*` functions.** The macros capture source coordinates that tools (and `re-frame-pair2`) rely on. The functional registrations exist for advanced cases (programmatic registration, generated registrations) — reach for them only when the macro shape cannot express what you need.
-9. **Pillar 4 — assume training knowledge.** This skill teaches the *re-frame2-specific binding*: which feature implements which idea, the shape of the canonical declaration, the gotcha unique to this framework. It does not re-teach FSM theory, HTTP retry, optimistic updates, or React rendering — that knowledge is assumed.
+## Decision shortcuts
 
-## Decision: state machine, slice, or region?
+**Slice vs machine vs region** — `decision-trees/slice-or-machine.md`. Tell: if the prompt names *transitions* or *modes*, machine. If it names *fields*, *flags*, or *counters*, slice. A sub-concern of a larger feature's lifecycle is a *region* inside that feature's machine, not its own top-level machine.
 
-Quick rule (see `decision-trees/slice-or-machine.md` for the worked rules):
+**Which pattern fits** — `decision-trees/pick-a-pattern.md`. Quick map:
 
-- **Slice** — a single key in `app-db` updated by `reg-event-db`. Use for fields, lists, flags whose value evolves but whose *legal transitions* do not need enforcement.
-- **State machine** (`reg-machine`) — a top-level orchestrator. Use when the legal next transitions depend on the current state; when a feature has more than two interesting modes; when concurrent independent sub-modes exist (use `:fsm/parallel-regions`); when a step needs cancellation semantics (use `:fsm/tags` + cascade).
-- **Region** (a region inside an existing machine, not a top-level `reg-machine`) — Use when the sub-concern is *part of* a larger feature's lifecycle (e.g. a form's submission status inside a screen's load-then-edit lifecycle). The form is a region of the screen; not its own top-level machine.
-
-If unsure between slice and machine, the dominant tell is: *does the prompt mention transitions or modes?* If yes, machine. If it mentions field values or filters or a counter, slice.
-
-## Decision: which pattern fits?
-
-(See `decision-trees/pick-a-pattern.md` for the matrix.)
-
-- **HTTP request with a request/response lifecycle** → Pattern-RemoteData (`patterns/remote-data.md`).
-- **HTTP request that needs status-aware retries, error projection, or batching** → Pattern-ManagedHTTP (`patterns/managed-http.md`) — choose the fx form by default; choose the invokable-machine form when the HTTP call participates in a larger machine's `:invoke` contract.
-- **Form input with validation and submit lifecycle** → Pattern-Forms (`patterns/forms.md`).
-- **Long-running browser-side work (file processing, large reduction)** → Pattern-LongRunningWork (`patterns/long-running-work.md`).
-- **Background-fire-and-forget side effect, no response** → Pattern-AsyncEffect (`patterns/async-effect.md`).
-- **App boot sequence (configure, hydrate, navigate)** → Pattern-Boot (`patterns/boot.md`).
-- **Real-time bidirectional connection lifecycle** → Pattern-WebSocket (`patterns/websocket.md`).
-- **A view that needs to render every legal lifecycle state distinctly** → Pattern-NineStates (`patterns/nine-states.md`).
-- **Long-cached resource whose freshness may need to be checked** → Pattern-StaleDetection (`patterns/stale-detection.md`).
-
-If two patterns apply, prefer the one whose worked example most closely matches the prompt. Patterns compose: a screen can drive Pattern-Forms on submit, fire a Pattern-RemoteData request, and consume a Pattern-WebSocket push, all at once.
-
-## Where the depth lives — loading map
-
-Read the leaf that matches the task. Each leaf is ≤250 lines, target ~150. Read no more than two leaves to start a task; if a task seems to need three or more leaves, the request probably spans patterns and should be broken up.
-
-### Fundamentals — `reference/fundamentals/`
-
-| Task shape | Leaf |
+| Need | Pattern leaf |
 |---|---|
-| Author an event handler (`reg-event-db` / `reg-event-fx` / `reg-event-ctx`) | `reference/fundamentals/events.md` |
-| Author a custom effect (`reg-fx`), shape the `:fx` vector | `reference/fundamentals/fx.md` |
-| Author a coeffect (`reg-cofx`), attach via `inject-cofx` | `reference/fundamentals/cofx.md` |
-| Author a subscription, layered subs, dynamic args, machine subs | `reference/fundamentals/subs.md` |
-| Register an app-db schema; validate at the boundary | `reference/fundamentals/schemas.md` |
-| Understand frames, frame ids, default frame, per-frame config | `reference/fundamentals/frames.md` |
-| Walk the event-state cycle end to end (mental model anchor) | `reference/fundamentals/event-state-cycle.md` |
-| Lay out the source tree — where each kind of file goes | `reference/fundamentals/project-structure.md` |
+| HTTP request with request/response lifecycle | `patterns/remote-data.md` |
+| HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
+| Form input with validation and submit | `patterns/forms.md` |
+| Long-running browser-side work | `patterns/long-running-work.md` |
+| Fire-and-forget side effect, no response | `patterns/async-effect.md` |
+| App boot (configure, hydrate, navigate) | `patterns/boot.md` |
+| Real-time bidirectional connection | `patterns/websocket.md` |
+| View rendering every legal lifecycle state | `patterns/nine-states.md` |
+| Cached resource with freshness checks | `patterns/stale-detection.md` |
 
-### State machines — `reference/state-machines/`
+Patterns compose; a screen can use Forms on submit, RemoteData for the request, and WebSocket for a push.
 
-| Task shape | Leaf |
-|---|---|
-| Author a `reg-machine` with `:states`, `:initial`, `:guards`, `:actions` | `reference/state-machines/reg-machine.md` |
-| Compose parallel regions (single-region + `:type :parallel`) | `reference/state-machines/regions.md` |
-| Declare `:tags` on states, query with `has-tag?` | `reference/state-machines/tags.md` |
-| Use `:invoke` to spawn a child machine; consume its result; `:invoke-all` | `reference/state-machines/invoke.md` |
-| Understand the cancellation cascade — what fires on actor destroy | `reference/state-machines/cancellation.md` |
+## Where the depth lives
 
-For the slice / region / top-level-machine decision, see `decision-trees/slice-or-machine.md`.
+Load at most two leaves per task. If a task seems to need three, it likely spans patterns and should be broken up.
 
-### Tooling — `reference/tooling/`
+**Fundamentals — `reference/fundamentals/`**: `events.md`, `fx.md`, `cofx.md`, `subs.md`, `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
 
-| Task shape | Leaf |
-|---|---|
-| Author a story (`reg-story` / variants); use stories as a unit-test substrate | `reference/tooling/stories.md` |
-| Register a route, navigate, gate with `:can-leave?` | `reference/tooling/routing.md` |
+**State machines — `reference/state-machines/`**: `reg-machine.md`, `regions.md` (parallel), `tags.md`, `invoke.md` (child machines), `cancellation.md`.
 
-### Cross-cutting — `reference/cross-cutting/`
+**Tooling — `reference/tooling/`**: `stories.md`, `routing.md`.
 
-| Task shape | Leaf |
-|---|---|
-| Write a test (`with-frame`, `dispatch-sync`, `compute-sub`, schema-aware fixtures) | `reference/cross-cutting/testing.md` |
-| Look up a `reg-*` family signature without loading a fundamentals leaf | `reference/cross-cutting/api-cheatsheet.md` |
+**Cross-cutting — `reference/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`.
 
-### Patterns — `patterns/`
+**Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each leaf opens with load triggers, the canonical mini-declaration, the re-frame2 features it uses, trade-offs, and the worked-example link. Cross-reference of pattern → example app: `examples-map.md`.
 
-One leaf per canonical pattern. Each leaf opens with load triggers, gives the canonical mini-declaration (verified against `implementation/**` + `examples/reagent/**`), names the re-frame2 features the pattern uses, lists trade-offs, and links to the worked example.
-
-| Pattern | Leaf | Worked example |
-|---|---|---|
-| RemoteData | `patterns/remote-data.md` | (mini-example inline; example app pending) |
-| Forms | `patterns/forms.md` | `examples/reagent/login/` |
-| Boot | `patterns/boot.md` | `examples/reagent/boot/` |
-| WebSocket | `patterns/websocket.md` | `examples/reagent/websocket/` (pending) |
-| NineStates | `patterns/nine-states.md` | `examples/reagent/nine_states/` |
-| ManagedHTTP | `patterns/managed-http.md` | `examples/reagent/managed_http_counter/` |
-| AsyncEffect | `patterns/async-effect.md` | (mini-example inline) |
-| LongRunningWork | `patterns/long-running-work.md` | `examples/reagent/long_running_work/` (pending) |
-| StaleDetection | `patterns/stale-detection.md` | (mini-example inline) |
-
-For the cross-reference of pattern → example app, see `examples-map.md`.
-
-### Decision trees — `decision-trees/`
-
-| Question | File |
-|---|---|
-| "I want to build X — which pattern?" | `decision-trees/pick-a-pattern.md` |
-| "Should this be a slice, a region, or a top-level machine?" | `decision-trees/slice-or-machine.md` |
+**Decision trees — `decision-trees/`**: `pick-a-pattern.md`, `slice-or-machine.md`.
 
 ## Authoring workflow (every task)
 
-A short checklist that applies regardless of which leaf you load.
-
-1. **Identify the surface.** What is being registered: event? sub? fx? cofx? view? machine? route? story? schema? More than one?
-2. **Load at most two leaves.** The relevant fundamentals or pattern leaf, plus a second leaf only if the task spans two surfaces (e.g. a sub plus its machine).
-3. **Read the canonical declaration in the leaf.** Match its shape — do not re-derive.
-4. **Pick the feature prefix.** Application keywords use the app's own namespace (e.g. `:cart/...`, `:auth/...`). Never start an application keyword with `:rf/` or any `:rf.*` namespace — those are reserved.
-5. **Cross-check `examples/reagent/<x>/`.** If the pattern has a worked example, scan it for the shape this leaf describes. The example reflects the implementation as shipped.
-6. **Add a schema only when crossing a boundary.** Incoming HTTP payloads, persisted state on restore, machine snapshot restores — schema these. Do not schema-fence every internal key.
-7. **Write the code.** Use the `reg-*` macros (not `register-*` functions) unless the macro shape cannot express what you need.
-8. **Apply the cut-test (Pillar 4).** Every comment line: would I write this same comment in a React, Vue, or Elm app? If yes, cut it. Comments earn their tokens by saying something specific to re-frame2.
-
-## How re-frame2 differs from re-frame v1
-
-A one-line redirect for v1-trained context: the migration workflow + breaking-change rule index lives in `skills/re-frame-migration/`; the authoritative rule corpus is [`MIGRATION.md`](../../spec/MIGRATION.md) (linked from `SKILL-REDIRECT.md` → *Migration from re-frame v1*). Do not re-derive v1 mappings from training memory — the v1→v2 surface drift is large enough that confident recall is unreliable.
-
-## Background reading (optional)
-
-These do not need to be loaded for routine authoring tasks. Reach for them when the user asks "why does it work this way?" or when designing a feature whose shape isn't obvious from a single leaf.
-
-- `SKILL-REDIRECT.md` → *Principles* — the AI-first principles the framework was designed around.
-- `SKILL-REDIRECT.md` → *Conventions* — naming, keyword namespaces, source-coord conventions.
-- `SKILL-REDIRECT.md` → *Construction prompts* — the AI-shaped templates used during framework authoring.
-- `SKILL-REDIRECT.md` → *EP design rationale* — the per-feature design documents.
+1. Identify the surface — event? sub? fx? cofx? view? machine? route? story? schema?
+2. Load at most two leaves (the relevant fundamentals or pattern; a second only if the task spans two surfaces).
+3. Match the canonical declaration in the leaf; do not re-derive.
+4. Pick the feature prefix (`:cart/...`, `:auth/...`) — never `:rf/*`.
+5. Cross-check the worked example in `examples/reagent/<x>/` when one exists.
+6. Schema only at boundaries.
+7. Use `reg-*` macros unless the macro shape can't express the need.
+8. Cut-test comments: would I write this same comment in a React / Vue / Elm app? If yes, cut it.
 
 ## Done checklist
 
-Before considering an authoring task complete:
+- [ ] Ids do not collide (`grep` the codebase for the chosen id).
+- [ ] Schema registered for any new boundary.
+- [ ] No `:rf.*` application keywords.
+- [ ] Cut-test passed on comments.
+- [ ] Shape matches the canonical declaration in the leaf.
+- [ ] If a worked example exists, the new code's shape matches it.
 
-- [ ] The registered ids do not collide with existing ones (`grep` the codebase for the chosen id).
-- [ ] Schema is registered for any boundary the new code crosses.
-- [ ] No `:rf.*` application keywords leaked in.
-- [ ] The cut-test passed on comments (no React/Vue-shaped explanations).
-- [ ] The shape matches the canonical declaration in the leaf (no re-derived shape).
-- [ ] If a worked example exists for this pattern, the new code's shape matches it.
+The user runs tests / compiler / app; this skill does not.
 
-The user runs the test suite, the compiler, and the app. This skill does not run them; that is outside its scope.
+## How re-frame2 differs from re-frame v1
+
+For v1-trained context: migration workflow + breaking-change rule index lives in `skills/re-frame-migration/`; the authoritative rule corpus is [`MIGRATION.md`](../../spec/MIGRATION.md). Do not re-derive v1 mappings from training memory.
+
+## Background reading (optional)
+
+Reach for these when the user asks "why does it work this way?" or designs a feature whose shape isn't obvious. All route via `SKILL-REDIRECT.md` at the repo root: *Principles*, *Conventions*, *Construction prompts*, *EP design rationale*.
 
 ---
 
-*This skill targets re-frame2 (the v2 line). For the v1 line, see [re-frame](https://github.com/day8/re-frame). For live-app inspection, see `skills/re-frame-pair2/`. For greenfield bootstrap, see `skills/re-frame2-setup/`. For migrating a v1 codebase to v2, see `skills/re-frame-migration/`. For building a new re-frame2 implementation in a different host language or substrate, see `skills/re-frame2-implementor/`. All deep-dive links route through `SKILL-REDIRECT.md` at the repo root.*
+*re-frame2 (v2 line). v1: [re-frame](https://github.com/day8/re-frame). Live-app inspection: `skills/re-frame-pair2/`. Greenfield bootstrap: `skills/re-frame2-setup/`. v1→v2 migration: `skills/re-frame-migration/`. New re-frame2 implementation in another host/substrate: `skills/re-frame2-implementor/`. Deep-dive links route through `SKILL-REDIRECT.md`.*
