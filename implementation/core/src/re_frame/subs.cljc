@@ -34,7 +34,8 @@
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace
+             #?@(:cljs [:include-macros true])]))
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -231,30 +232,21 @@
      exception emit :rf.error/sub-exception and yield nil (recovery
      :replaced-with-default)."
   [body-fn in-vals query-id query-v frame-id input-signals sub-meta]
-  ;; Per rf2-3nn8 / rf2-lf84g (success-path widening) / rf2-npm2p
-  ;; (sub-recompute scope coverage): bind `*current-trigger-handler*` to
-  ;; the sub's own source-coord for the `:sub/run` success-trace emit,
-  ;; the body-fn invocation, and the validation step so every trace
-  ;; fired during the recompute (success path: `:sub/run`; error path:
-  ;; `:rf.error/sub-exception`, schema-validation failures, transitive
-  ;; sub misses) carries the in-flight sub's coord.
-  ;;
-  ;; Per Spec 009 §:rf.trace/trigger-handler table row "Inside a sub
-  ;; recompute (body fn)": carries the sub's coord. The emit MUST sit
-  ;; inside the binding for the sub's coord to ride the success trace.
-  ;; Per rf2-isdwf: bind `*current-sensitive?*` to the sub's reading
-  ;; per Spec 009 §Privacy line 1160 "the conventional use sites
-  ;; are reg-event-* and reg-sub" — sub return values flow user
-  ;; input into views and must be filterable.
-  ;; Per rf2-qsjda: bind `*current-no-emit?*` symmetrically — a sub
-  ;; whose registration carries `:rf.trace/no-emit? true` produces
-  ;; no `:sub/run` trace event (and no error trace if it throws).
-  (binding [trace/*current-trigger-handler*
-            (trace/trigger-handler-from-meta :sub query-id sub-meta)
-            trace/*current-sensitive?*
-            (trace/sensitive?-from-meta sub-meta)
-            trace/*current-no-emit?*
-            (trace/no-emit?-from-meta sub-meta)]
+  ;; Per rf2-ryri7: publish the sub's HandlerScope for the duration
+  ;; of `:sub/run` emit + body-fn invocation + validation step. Spec
+  ;; 009 §:rf.trace/trigger-handler table row "Inside a sub recompute
+  ;; (body fn)" — the sub's source-coord rides every emit (success
+  ;; path: `:sub/run`; error path: `:rf.error/sub-exception`,
+  ;; schema-validation failures, transitive sub misses). The emit MUST
+  ;; sit inside the scope for the sub's coord to ride the success
+  ;; trace. `:sensitive?` (rf2-isdwf) per Spec 009 §Privacy — sub
+  ;; return values flow user input into views and must be filterable.
+  ;; `:no-emit?` (rf2-qsjda) — a sub whose registration carries
+  ;; `:rf.trace/no-emit? true` produces no `:sub/run` trace event
+  ;; (and no error trace if it throws). `:call-site` / `:dispatch-id`
+  ;; are inherited from the outer scope per `inherit-scope`.
+  (trace/with-handler-scope
+    (trace/handler-scope-from-meta :sub query-id sub-meta)
     (trace/emit! :sub/run :sub/run
                  {:sub-id  query-id
                   :query-v query-v
@@ -423,10 +415,10 @@
 
   Per rf2-ts1a: this is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and delegates here
-  through `re-frame.core/subscribe*`, binding `trace/*current-call-site*`
-  for the duration so any error emitted inside the synchronous miss
-  path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries
-  the invocation coord."
+  through `re-frame.core/subscribe*`, wrapping the call in
+  `trace/with-call-site` for the duration so any error emitted inside
+  the synchronous miss path (`:rf.error/no-such-sub`,
+  `:rf.error/frame-destroyed`) carries the invocation coord."
   ([query-v]
    #?(:cljs
       (let [frame-id (resolve-current-frame)]

@@ -45,7 +45,8 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.source-coords :as source-coords]
             [re-frame.interop :as interop]
-            [re-frame.trace :as trace]
+            [re-frame.trace :as trace
+             #?@(:cljs [:include-macros true])]
             [re-frame.trace.projection :as trace-projection]
             ;; Always-on event-emit substrate (rf2-rirbq). Required
             ;; eagerly so the `:event-emit/dispatch-on-event` late-
@@ -628,9 +629,9 @@
 ;; false` (Q3=B dev-only elision) — the macro expansion is
 ;; `(if interop/debug-enabled? <stamping-call> <plain-call>)` so the
 ;; entire stamping branch (including the literal map) DCE's. emit-error!
-;; reads `trace/*current-call-site*` and attaches the value as
-;; `:rf.trace/call-site` (Q2=A flat sibling of `:rf.trace/trigger-handler`)
-;; on the emitted event.
+;; reads `trace/*handler-scope*`'s `:call-site` slot and attaches the
+;; value as `:rf.trace/call-site` (Q2=A flat sibling of
+;; `:rf.trace/trigger-handler`) on the emitted event.
 
 (def dispatch*       router/dispatch!)
 (def dispatch-sync*  router/dispatch-sync!)
@@ -726,13 +727,13 @@
      ([query-v]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
-           (binding [re-frame.trace/*current-call-site* ~cs-form]
+           (re-frame.trace/with-call-site ~cs-form
              (re-frame.core/subscribe* ~query-v))
            (re-frame.core/subscribe* ~query-v))))
      ([frame-id query-v]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
-           (binding [re-frame.trace/*current-call-site* ~cs-form]
+           (re-frame.trace/with-call-site ~cs-form
              (re-frame.core/subscribe* ~frame-id ~query-v))
            (re-frame.core/subscribe* ~frame-id ~query-v))))))
 

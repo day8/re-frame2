@@ -568,8 +568,8 @@
 ;; the framework-level escape hatch for trace-consuming integrations
 ;; whose own bookkeeping dispatches — emitted from inside a trace-cb —
 ;; would otherwise re-enter the consumer through the trace-cb fan-out
-;; and form a cb-dispatch loop. (See `re-frame.trace/*current-no-emit?*`
-;; for the runtime mechanism.)
+;; and form a cb-dispatch loop. (See `re-frame.trace/*handler-scope*`'s
+;; `:no-emit?` slot for the runtime mechanism, per rf2-ryri7.)
 ;;
 ;; Covers:
 ;;   - A handler WITH `:rf.trace/no-emit? true` produces no `:event/

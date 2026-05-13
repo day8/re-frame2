@@ -15,7 +15,8 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.frame :as frame]
             [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace
+             #?@(:cljs [:include-macros true])]))
 
 (def ^{:doc "Sentinel for `inject-cofx`'s 3-arity 'no-value' branch.
   Used by `re-frame.core/inject-cofx`'s macro form (rf2-ts1a) to thread
@@ -201,20 +202,20 @@
            (let [frame-id        (interceptor/get-coeffect ctx :frame)
                  active-platform (active-platform-for-frame frame-id)]
              (if (cofx-runs-on-platform? meta active-platform)
-               ;; Per rf2-isdwf: bind `*current-sensitive?*` to the
-               ;; cofx handler's reading. The cofx body runs inside
-               ;; this scope; any trace event it emits carries the
-               ;; cofx-handler-level sensitivity flag per Spec 009
-               ;; "innermost in-scope handler" rule.
-               ;; Per rf2-qsjda: bind `*current-no-emit?*` symmetrically.
-               (binding [trace/*current-trigger-handler*
-                         (trace/trigger-handler-from-meta :cofx cofx-id meta)
-                         trace/*current-sensitive?*
-                         (trace/sensitive?-from-meta meta)
-                         trace/*current-no-emit?*
-                         (trace/no-emit?-from-meta meta)
-                         trace/*current-call-site*
-                         (or captured-cs trace/*current-call-site*)]
+               ;; Per rf2-ryri7: publish the cofx handler's HandlerScope.
+               ;; `:trigger-handler` / `:sensitive?` / `:no-emit?` come
+               ;; from the cofx's registration meta per Spec 009's
+               ;; "innermost in-scope handler" rule. `:call-site` is
+               ;; either the macro-captured site (when reached via the
+               ;; `inject-cofx` macro) or inherited from the parent
+               ;; scope's call-site — `handler-scope-from-meta` returns
+               ;; nil for `:call-site` and `inherit-scope` (run by
+               ;; `with-handler-scope`) carries the parent's value
+               ;; through; when `captured-cs` is non-nil, override
+               ;; explicitly via `assoc`.
+               (trace/with-handler-scope
+                 (cond-> (trace/handler-scope-from-meta :cofx cofx-id meta)
+                   captured-cs (assoc :call-site captured-cs))
                  (-> (if valued?
                        ((:handler-fn meta) ctx value)
                        ((:handler-fn meta) ctx))
@@ -228,8 +229,14 @@
                                        :recovery             :skipped}
                                 valued? (assoc :cofx-value value)))
                  ctx)))
-           (binding [trace/*current-call-site*
-                     (or captured-cs trace/*current-call-site*)]
+           ;; No registered cofx — emit the `:rf.error/no-such-cofx`
+           ;; trace. When the cofx was reached via its macro form
+           ;; (`captured-cs` non-nil), override the parent scope's
+           ;; call-site; when reached via the fn form, `captured-cs`
+           ;; is nil and the parent's call-site rides through. Per
+           ;; rf2-ryri7.
+           (trace/with-call-site (or captured-cs
+                                     (some-> trace/*handler-scope* :call-site))
              (let [event (interceptor/get-coeffect ctx :event)]
                (trace/emit-error! :rf.error/no-such-cofx
                                   (cond-> {:cofx-id  cofx-id

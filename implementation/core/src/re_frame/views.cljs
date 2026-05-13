@@ -48,7 +48,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance :include-macros true]
             [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace]
+            [re-frame.trace :as trace :include-macros true]
             [re-frame.views.provider :as provider]
             [re-frame.views.source-coord-annotation :as source-coord]
             [re-frame.views.warn-once :as warn-once]))
@@ -206,48 +206,41 @@
         render-fn          (if wrap-applied? wrapped-by-adapter render-fn)
         coord-attr (when (and interop/debug-enabled? (not wrap-applied?))
                      (source-coord/format-source-coord id metadata))
-        ;; Per rf2-3nn8: capture the view's `:rf.trace/trigger-handler`
-        ;; value once at registration time (the registrar `metadata` map
-        ;; carries the source-coord stamp) so each render binds it via
-        ;; the dynamic Var around the user render-fn invocation. Errors
-        ;; emitted during render (subscribe-miss against this frame,
-        ;; sub exception during a render-time deref, etc.) inherit the
-        ;; view's coord as the in-scope trigger handler.
-        view-trigger-handler (trace/trigger-handler-from-meta :view id metadata)
-        ;; Per rf2-isdwf: pre-compute the view's `:sensitive?`
-        ;; reading once at registration time (same idiom as
-        ;; `view-trigger-handler`). Every render binds it; any
-        ;; trace event emitted during the view's render carries
-        ;; the flag per Spec 009 §Privacy.
-        view-sensitive?      (trace/sensitive?-from-meta metadata)
-        ;; Per rf2-qsjda: pre-compute the view's `:rf.trace/no-emit?`
-        ;; reading symmetrically. Every render binds it; when set,
-        ;; the `:view/render` emit and any in-render error emits
-        ;; short-circuit at `trace/emit!` / `trace/emit-error!`.
-        view-no-emit?        (trace/no-emit?-from-meta metadata)
+        ;; Per rf2-ryri7: pre-compute the view's HandlerScope once at
+        ;; registration time. The registrar `metadata` map carries the
+        ;; source-coord stamp, `:sensitive?`, and `:rf.trace/no-emit?`
+        ;; readings — all three derive from meta and are fixed for the
+        ;; life of the registered view. Each render binds the scope
+        ;; (via `with-handler-scope`, which inherits parent's
+        ;; `:call-site` / `:dispatch-id`) around the user render-fn
+        ;; invocation. Errors emitted during render (subscribe-miss
+        ;; against this frame, sub exception during a render-time
+        ;; deref, etc.) ride the view's `:trigger-handler` coord;
+        ;; `:view/render` emits ride `:sensitive?` per Spec 009
+        ;; §Privacy and short-circuit when `:no-emit?` is true.
+        view-scope (trace/handler-scope-from-meta :view id metadata)
         wrapped (with-meta
                   (fn frame-aware-view [& args]
                     (let [tok        (provider/reagent-component-token)
                           render-key [id tok]]
-                      (binding [*render-key* render-key
-                                trace/*current-trigger-handler* view-trigger-handler
-                                trace/*current-sensitive?* view-sensitive?
-                                trace/*current-no-emit?* view-no-emit?]
-                        (emit-render-trace! render-key)
-                        ;; Per Spec 009 §Performance instrumentation
-                        ;; (rf2-du3i): every render of a registered view
-                        ;; brackets the user render-fn in performance
-                        ;; marks so prod builds with the perf flag
-                        ;; enabled produce a `rf:render:<view-id>`
-                        ;; measure entry. Default-off; under :advanced +
-                        ;; `re-frame.performance/enabled?=false` the
-                        ;; bracket DCEs and the form collapses to the
-                        ;; bare `(apply render-fn args)` call.
-                        (let [out (performance/mark-and-measure :render id
-                                    (apply render-fn args))]
-                          (if (and interop/debug-enabled? (not wrap-applied?))
-                            (source-coord/inject-source-coord-attr id coord-attr out)
-                            out)))))
+                      (binding [*render-key* render-key]
+                        (trace/with-handler-scope view-scope
+                          (emit-render-trace! render-key)
+                          ;; Per Spec 009 §Performance instrumentation
+                          ;; (rf2-du3i): every render of a registered
+                          ;; view brackets the user render-fn in
+                          ;; performance marks so prod builds with the
+                          ;; perf flag enabled produce a
+                          ;; `rf:render:<view-id>` measure entry.
+                          ;; Default-off; under :advanced +
+                          ;; `re-frame.performance/enabled?=false` the
+                          ;; bracket DCEs and the form collapses to the
+                          ;; bare `(apply render-fn args)` call.
+                          (let [out (performance/mark-and-measure :render id
+                                      (apply render-fn args))]
+                            (if (and interop/debug-enabled? (not wrap-applied?))
+                              (source-coord/inject-source-coord-attr id coord-attr out)
+                              out))))))
                   {:contextType frame-context})]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))

@@ -18,7 +18,8 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace
+             #?@(:cljs [:include-macros true])]))
 
 ;; ---- dispatch-id allocation -----------------------------------------------
 ;;
@@ -28,10 +29,11 @@
 ;; an fx handler running in do-fx), the new dispatch's :parent-dispatch-id
 ;; is the in-flight event's :dispatch-id.
 ;;
-;; The in-flight dispatch is tracked by `re-frame.trace/*current-dispatch-id*`
-;; (per rf2-g6ih4 — moved from this ns so `trace/emit!` can read it and
+;; The in-flight dispatch's id is tracked through
+;; `re-frame.trace/*handler-scope*`'s `:dispatch-id` slot (per rf2-g6ih4 —
+;; the scope-bundle Var lives in `trace` so `trace/emit!` can read it and
 ;; stamp every trace event emitted inside the cascade with the cascade-
-;; wide id). `process-event!` binds the Var around the inner
+;; wide id). `process-event!` binds the scope around the inner
 ;; `process-event*`; child dispatches read it both to populate
 ;; `:parent-dispatch-id` here AND to ride on every emit inside the
 ;; cascade.
@@ -84,7 +86,8 @@
                         under `goog.DEBUG=false` advanced builds."
   [event opts]
   (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
-        parent-dispatch-id (when interop/debug-enabled? trace/*current-dispatch-id*)
+        parent-dispatch-id (when interop/debug-enabled?
+                             (some-> trace/*handler-scope* :dispatch-id))
         ;; Per rf2-ts1a: read the macro-stamped `:rf.trace/call-site`
         ;; only when interop/debug-enabled?. Wrap the read itself in
         ;; the gate so the closure compiler can DCE the keyword
@@ -176,7 +179,7 @@
   surface (rf2-3nn8): when a handler is in scope, `emit-error!` /
   `emit!` hoists the triggering handler's source-coord automatically.
   When no handler is in scope (the async-callback case the warning is
-  primarily aimed at) `*current-trigger-handler*` is unbound and the
+  primarily aimed at) `*handler-scope*`'s `:trigger-handler` is nil and the
   field is omitted — `dispatch` is a fn, not a macro, so the call site
   cannot be stamped without changing the public API. Documented
   limitation; tools that need call-site attribution capture it
@@ -395,12 +398,13 @@
   the interceptor chain, then commit :db, run flows, and walk :fx in
   source order. Per Spec 002 §Drain-loop pseudocode.
 
-  This is the inner of `process-event!`; the outer wraps it in a binding
-  of `trace/*current-dispatch-id*` so (a) child dispatches issued from
-  within fx handlers inherit the in-flight dispatch's id as their
-  `:parent-dispatch-id`, and (b) every trace event emitted inside the
-  cascade carries the cascade's `:dispatch-id` under `:tags` (per
-  Spec 009 §Dispatch correlation and rf2-g6ih4)."
+  This is the inner of `process-event!`; the outer wraps it in a
+  `trace/*handler-scope*` binding (via `trace/with-dispatch-id+call-site`)
+  so (a) child dispatches issued from within fx handlers inherit the
+  in-flight dispatch's id as their `:parent-dispatch-id`, and (b) every
+  trace event emitted inside the cascade carries the cascade's
+  `:dispatch-id` under `:tags` (per Spec 009 §Dispatch correlation and
+  rf2-g6ih4)."
   [envelope]
   (let [{:keys [event frame]} envelope
         event-id              (first event)
@@ -435,40 +439,22 @@
                                 :recovery :replaced-with-default}))
 
           :else
-          ;; Per rf2-3nn8: bind `*current-trigger-handler*` for the
-          ;; duration of this event's interceptor chain + post-chain
-          ;; phases (db commit, flows, fx walk) so every error trace
-          ;; emitted within the scope carries the triggering handler's
-          ;; source-coord. The trace/trigger-handler-from-meta helper
-          ;; returns nil when no source-coord was stamped (programmatic
-          ;; registration / REPL eval); the binding is then nil and
-          ;; the field is omitted from any emitted error event.
-          ;;
-          ;; Per rf2-isdwf: also bind `*current-sensitive?*` from the
-          ;; handler's registration meta. `emit!`/`emit-error!` hoist
-          ;; `:sensitive? true` onto every trace event produced inside
-          ;; this scope (Spec 009 §Privacy). The interceptor chain,
-          ;; db commit, flows, fx walk all ride this binding —
-          ;; covering :event/db-changed, :event/do-fx, :rf.fx/handled
-          ;; (the inner fx scope re-binds), :sub/run (sub recompute
-          ;; re-binds to the sub's reading), :rf.error/* (every error
+          ;; Per rf2-ryri7: publish the event handler's HandlerScope —
+          ;; `:trigger-handler` (rf2-3nn8 error path / rf2-lf84g success
+          ;; path) so every trace emitted inside the cascade carries the
+          ;; triggering handler's source-coord; `:sensitive?` (rf2-isdwf)
+          ;; so emits inside the scope get a top-level `:sensitive? true`
+          ;; stamp per Spec 009 §Privacy; `:no-emit?` (rf2-qsjda) so
+          ;; trace emission short-circuits when the handler opts out.
+          ;; `:call-site` and `:dispatch-id` are inherited from the parent
+          ;; scope (bound by `process-event!` outer wrapper) per
+          ;; `inherit-scope`. Scope covers the interceptor chain, db
+          ;; commit, flows, and fx walk — covering :event/db-changed,
+          ;; :event/do-fx, :rf.fx/handled (the inner fx scope re-binds),
+          ;; :sub/run (sub recompute re-binds), :rf.error/* (every error
           ;; emit inside the chain).
-          ;;
-          ;; Per rf2-qsjda: also bind `*current-no-emit?*` from the
-          ;; handler's registration meta. When the handler carries
-          ;; `:rf.trace/no-emit? true`, every trace event produced
-          ;; inside the handler's scope short-circuits at `emit!` /
-          ;; `emit-error!` (no envelope allocation, no listener
-          ;; fan-out). The framework-level trace-emission opt-out
-          ;; (Spec 009 §Trace-emission opt-out) — covers the cascade
-          ;; from this binding through the interceptor chain, db
-          ;; commit, flows, and fx walk.
-          (binding [trace/*current-trigger-handler*
-                    (trace/trigger-handler-from-meta :event event-id handler-meta)
-                    trace/*current-sensitive?*
-                    (trace/sensitive?-from-meta handler-meta)
-                    trace/*current-no-emit?*
-                    (trace/no-emit?-from-meta handler-meta)]
+          (trace/with-handler-scope
+            (trace/handler-scope-from-meta :event event-id handler-meta)
             (let [;; Per rf2-rirbq: capture the wall-clock at the very
                   ;; start of cascade execution so the always-on
                   ;; event-emit substrate can report `:elapsed-ms` in
@@ -543,12 +529,17 @@
 (defn- process-event!
   "Wrap process-event* in two dynamic bindings:
 
-   1. `trace/*current-dispatch-id*` — so child dispatches issued from
-      within an fx handler inherit this event's `:dispatch-id` as their
-      `:parent-dispatch-id`, AND so every trace event emitted inside
-      the cascade (sub runs, fx-handled, machine transitions, errors)
-      rides the cascade's `:dispatch-id` under `:tags`. Per Spec 009
-      §Dispatch correlation and rf2-g6ih4.
+   1. `trace/*handler-scope*` — set with the cascade's `:dispatch-id`
+      and the envelope's `:call-site`, inheriting the rest from parent.
+      Per rf2-ryri7 (consolidation of `*current-dispatch-id*` per
+      rf2-g6ih4 and `*current-call-site*` per rf2-ts1a) — child
+      dispatches issued from within an fx handler inherit this event's
+      `:dispatch-id` as their `:parent-dispatch-id`, every trace event
+      emitted inside the cascade (sub runs, fx-handled, machine
+      transitions, errors) rides the cascade's `:dispatch-id` under
+      `:tags`, and any error emitted inside the chain attaches the
+      call-site to the event as `:rf.trace/call-site` (nil for fn-form
+      dispatch). Per Spec 009 §Dispatch correlation.
 
    2. `frame/*current-frame*` — bound to the envelope's `:frame` for
       the duration of the handler chain. Per Spec 002 §Dispatch
@@ -566,19 +557,11 @@
       a fresh stack with no dynamic binding. Use `(rf/dispatcher)`
       (capture-at-call-time), `:fx [[:dispatch ...]]` (fx-walker
       threads the frame), or `:dispatch-later` (frame captured in
-      closure) for those paths. Per rf2-l5q3.
-
-   3. `trace/*current-call-site*` — bound to the envelope's `:call-site`
-      (when supplied by the `dispatch` / `dispatch-sync` macro per
-      rf2-ts1a). Errors emitted while the handler chain runs (handler
-      exception, no-such-cofx, no-such-fx, schema validation failure,
-      ...) read the Var and attach the call-site to the event as
-      `:rf.trace/call-site`. nil for fn-form dispatch (`dispatch*`)."
+      closure) for those paths. Per rf2-l5q3."
   [envelope]
-  (binding [trace/*current-dispatch-id*  (:dispatch-id envelope)
-            frame/*current-frame*        (:frame envelope)
-            trace/*current-call-site*    (:call-site envelope)]
-    (process-event* envelope)))
+  (trace/with-dispatch-id+call-site (:dispatch-id envelope) (:call-site envelope)
+    (binding [frame/*current-frame* (:frame envelope)]
+      (process-event* envelope))))
 
 (def ^:private drain-depth-default 100)
 
@@ -841,7 +824,7 @@
        ;; envelope's call-site so the error event carries it. Reading
        ;; the call-site through the envelope (already gated) avoids a
        ;; second `(:rf.trace/call-site opts)` keyword reference here.
-       (binding [trace/*current-call-site* (:call-site envelope)]
+       (trace/with-call-site (:call-site envelope)
          (trace/emit-error! :rf.error/frame-destroyed
                             {:frame (:frame envelope) :event event}))
 
@@ -947,7 +930,7 @@
          call-site    (:call-site envelope)]
      (cond
        (nil? frame-record)
-       (binding [trace/*current-call-site* call-site]
+       (trace/with-call-site call-site
          (trace/emit-error! :rf.error/frame-destroyed
                             {:frame (:frame envelope) :event event
                              :recovery :no-recovery}))
@@ -968,7 +951,7 @@
        ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside the
        ;; SAME frame's running drain (sync or async) is an error — the
        ;; event would interleave with the outer handler's run-to-completion.
-       (binding [trace/*current-call-site* call-site]
+       (trace/with-call-site call-site
          (trace/emit-error! :rf.error/dispatch-sync-in-handler
                             {:frame    (:frame envelope)
                              :event    event
