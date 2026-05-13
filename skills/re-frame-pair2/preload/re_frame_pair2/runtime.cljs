@@ -116,7 +116,10 @@
    :operating        (current-frame)})
 
 (defn frames-meta
-  "Frame metadata (config, lifecycle) for `id` — `(rf/frame-meta id)`."
+  "Flat metadata map for frame `id` — `(rf/frame-meta id)`. Returns `:id`,
+   `:created-at`, the preset-expansion keys (`:preset`, `:fx-overrides`,
+   `:drain-depth`, …) and lifecycle fields (`:destroyed?`, `:listeners`)
+   all at the top level. See `:rf/frame-meta` in Spec-Schemas."
   [id]
   (or (rf/frame-meta id)
       {:ok? false :reason :no-such-frame :frame-id id}))
