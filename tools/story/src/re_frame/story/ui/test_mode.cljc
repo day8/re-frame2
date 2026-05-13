@@ -47,11 +47,26 @@
   never invoke it — closure DCEs the lot."
   (:require [re-frame.story.registrar :as registrar]
             #?@(:cljs [[reagent.core             :as r]
+                       [re-frame.epoch           :as epoch]
                        [re-frame.story.runtime   :as runtime]
                        [re-frame.story.async     :as async]
                        [re-frame.interop         :as interop]
                        [re-frame.story.ui.open-in-editor :as open-in-editor]
                        [re-frame.story.ui.state  :as state]])))
+
+;; ---- assertion-event? (mirrored from re-frame.story.assertions) ---------
+;;
+;; Mirrored here as a pure helper so the step-through scrubber's pure-data
+;; layer doesn't have to pull `re-frame.story.assertions` (CLJS-leaning
+;; coupling — it `:require`s `re-frame.core`). The shape is the canonical
+;; one: `:rf.assert/*` events.
+
+(defn- assertion-event?
+  "True iff `event` is a `:rf.assert/*` form."
+  [event]
+  (let [id (when (sequential? event) (first event))]
+    (and (keyword? id)
+         (= "rf.assert" (namespace id)))))
 
 ;; ---- pure: parent-story-id ----------------------------------------------
 
@@ -196,6 +211,125 @@
               (pad (.getMinutes d)) ":"
               (pad (.getSeconds d)))))))
 
+;; ---- pure: play-step scrubber data (rf2-lc36w) --------------------------
+;;
+;; Each entry in the variant body's `:play` vector is dispatched as a
+;; single event — each dispatch produces exactly one epoch in the variant
+;; frame's `epoch-history`. So the play sequence maps 1-to-1 onto a slice
+;; of epochs. The scrubber row renders one tick per play event; clicking
+;; a tick restores the variant frame's app-db to the epoch settled at
+;; that step.
+;;
+;; The pure-data layer here computes:
+;;
+;;   - per-step `:status`  (:pass | :fail | :event | :skip) — the colour
+;;     of the tick. Plain events get :event (a neutral tick — the step
+;;     mutated state but recorded no assertion); :rf.assert/* events
+;;     get :pass or :fail from the matching assertion record; the
+;;     special :rf.assert/skipped id gets :skip.
+;;
+;;   - per-step `:label` — `(pr-str (first event))` for a compact tick
+;;     title; tooltip text the CLJS renderer wires onto each tick.
+;;
+;;   - the trailing epoch-id slice — the last `count(:play)` epoch-ids
+;;     pulled from the variant frame's history. The CLJS side captures
+;;     this on `run-variant` resolve so a later epoch (e.g. a Re-run on
+;;     a different tab) can't drift the scrubber's mapping.
+;;
+;; All four helpers are pure data → data and JVM-testable.
+
+(defn play-step-label
+  "Render a compact label for one play step. `event` is the play-event
+  vector (e.g. `[:auth/email-changed \"alice@example.com\"]`). Returns
+  the stringified event-id (`:auth/email-changed`) — the renderer uses
+  this for the tick's tooltip + the step's row label. Returns the empty
+  string for nil / malformed events."
+  [event]
+  (cond
+    (not (sequential? event)) ""
+    (empty? event)            ""
+    :else                     (pr-str (first event))))
+
+(defn- assertion-records-by-index
+  "Walk `assertions` and project a vector of `[assertion-event-index
+  record]` pairs — useful for correlating the Nth `:rf.assert/*` event
+  in `:play` with the Nth assertion record on the result map. The
+  `:assertion-event-index` slot stamps the position of the matching
+  play-event among `:rf.assert/*` events only.
+  Internal pure-data helper."
+  [assertions]
+  (vec assertions))
+
+(defn play-step-statuses
+  "Pure: given a `:play` events vector and an `:assertions` records vector,
+  return a vector of step-status maps — one per play event.
+
+  Each entry:
+
+      {:index   <0-based play-event index>
+       :event   <the play-event vector>
+       :label   <stringified event-id>
+       :status  :pass | :fail | :skip | :event}
+
+  Rules:
+
+    - non-assertion events (`assertion-event?` false) get `:event` —
+      a neutral tick: the step mutated state but recorded nothing.
+    - `:rf.assert/*` events consume one record off the `:assertions`
+      vector in declared order. `:passed?` true ⇒ :pass; false ⇒
+      :fail; `:rf.assert/skipped` ⇒ :skip.
+    - if `:assertions` runs short (e.g. a phase-0 setup error bailed
+      before play even started) the trailing assertion steps render
+      as `:fail` so the user sees the gap.
+
+  Pure data → data; JVM-testable."
+  [play-events assertions]
+  (let [records (vec (or assertions []))]
+    (loop [out      []
+           remain   play-events
+           rec-idx  0
+           step-idx 0]
+      (if (empty? remain)
+        out
+        (let [ev         (first remain)
+              assert?    (assertion-event? ev)
+              record     (when assert? (nth records rec-idx nil))
+              aid        (when record (:assertion record))
+              passed?    (when record (:passed? record))
+              status     (cond
+                           (not assert?)                :event
+                           (= :rf.assert/skipped aid)   :skip
+                           passed?                      :pass
+                           record                       :fail
+                           ;; assertion event but no matching record —
+                           ;; play bailed early; render as fail so the
+                           ;; gap is visible.
+                           :else                        :fail)
+              row        {:index   step-idx
+                          :event   ev
+                          :label   (play-step-label ev)
+                          :status  status}]
+          (recur (conj out row)
+                 (rest remain)
+                 (if assert? (inc rec-idx) rec-idx)
+                 (inc step-idx)))))))
+
+(defn epoch-id-slice
+  "Pure: given the variant frame's full `history` vector (oldest-first)
+  + the count `n` of `:play` events, return the trailing `n` `:epoch-id`s
+  (in play-step order, oldest-first). Returns `[]` when the history
+  has fewer than `n` records (production / ring-buffer-trimmed contexts
+  — the scrubber gracefully degrades to no ticks rather than mis-mapping
+  steps to wrong epochs).
+
+  Pure data → data; JVM-testable."
+  [history n]
+  (let [hv (vec (or history []))]
+    (cond
+      (not (pos-int? n))    []
+      (< (count hv) n)      []
+      :else                 (mapv :epoch-id (subvec hv (- (count hv) n))))))
+
 ;; ---- CLJS-side rendering -------------------------------------------------
 
 #?(:cljs
@@ -323,7 +457,66 @@
       :empty-link    {:color            "#9cdcfe"
                       :font-family      "monospace"
                       :margin-top       "8px"
-                      :display          "block"}}))
+                      :display          "block"}
+
+      ;; ---- step-through scrubber (rf2-lc36w) -------------------------
+      :scrub-wrap    {:margin           "8px 0 0 0"
+                      :padding          "8px 10px"
+                      :background       "#252526"
+                      :border           "1px solid #3a3a3a"
+                      :border-radius    "4px"}
+      :scrub-h       {:font-weight      "bold"
+                      :color            "#b0b0b0"
+                      :text-transform   "uppercase"
+                      :font-size        "10px"
+                      :letter-spacing   "0.5px"
+                      :margin-bottom    "6px"
+                      :display          "flex"
+                      :justify-content  "space-between"
+                      :align-items      "center"}
+      :scrub-ticks   {:display          "flex"
+                      :gap              "3px"
+                      :align-items      "center"
+                      :flex-wrap        "wrap"
+                      :margin-bottom    "6px"}
+      :scrub-tick    {:display          "inline-block"
+                      :min-width        "14px"
+                      :height           "14px"
+                      :line-height      "14px"
+                      :text-align       "center"
+                      :border-radius    "3px"
+                      :cursor           "pointer"
+                      :font-family      "monospace"
+                      :font-size        "10px"
+                      :padding          "0 4px"
+                      :user-select      "none"}
+      :tick-pass     {:background       "#1f4d3f"
+                      :color            "#4ec9b0"}
+      :tick-fail     {:background       "#4d1f1f"
+                      :color            "#f48771"}
+      :tick-event    {:background       "#37373d"
+                      :color            "#b0b0b0"}
+      :tick-skip     {:background       "#2d2d30"
+                      :color            "#9a9a9a"}
+      :tick-selected {:outline          "2px solid #9cdcfe"
+                      :outline-offset   "1px"}
+      :scrub-slider  {:width            "100%"
+                      :margin           "4px 0"}
+      :scrub-detail  {:color            "#9a9a9a"
+                      :font-family      "monospace"
+                      :font-size        "10px"
+                      :margin-top       "4px"
+                      :display          "flex"
+                      :gap              "10px"
+                      :flex-wrap        "wrap"}
+      :scrub-release {:padding          "2px 8px"
+                      :background       "#5a5a5a"
+                      :color            "white"
+                      :border           "none"
+                      :border-radius    "3px"
+                      :cursor           "pointer"
+                      :font-size        "10px"
+                      :font-family      "monospace"}}))
 
 ;; ---- CLJS local state ----------------------------------------------------
 ;;
@@ -331,8 +524,19 @@
 ;; entry carries `{:result <run-variant-result-map>
 ;;                 :ran-at-ms <epoch-ms>
 ;;                 :running? <bool>
-;;                 :expanded #{<row-index>}}`. Re-run flips :running?
+;;                 :expanded #{<row-index>}
+;;                 :play-events <vector>     ; the :play body from the variant
+;;                 :epoch-ids   <vector>     ; trailing epoch-id slice
+;;                 :selected-step <int|nil>}`. Re-run flips :running?
 ;; on, calls `runtime/reset-variant`, swaps the result in on resolve.
+;;
+;; `:play-events`, `:epoch-ids` + `:selected-step` are the step-through
+;; scrubber slots (rf2-lc36w). `:selected-step` is the slider position
+;; (a slot index into `:epoch-ids`); nil means 'no scrub in flight'
+;; — the canvas shows the post-play app-db, the same value the user
+;; sees on a fresh run. A non-nil selection has called restore-epoch
+;; against the variant frame, so the canvas re-renders against the
+;; app-db value at that step.
 
 #?(:cljs
    (defonce ^:private results-atom (r/atom {})))
@@ -354,20 +558,60 @@
      and reset the per-row expanded set so a fresh failure detail
      starts collapsed.
 
+     Captures the play-events vector + the trailing epoch-id slice
+     against the same atom so the step-through scrubber (rf2-lc36w)
+     has a stable read-surface that doesn't drift on a later
+     unrelated dispatch.
+
      Folds the run's aggregate into the shell-state `:test-runs` slot
      too — the chrome-level test widget + sidebar dots read off that
      slot (rf2-q0irb)."
      [variant-id result]
-     (let [now (interop/now-ms)]
+     (let [now          (interop/now-ms)
+           play-events  (or (:play (registrar/handler-meta :variant variant-id))
+                            [])
+           history      (epoch/epoch-history variant-id)
+           epoch-ids    (epoch-id-slice history (count play-events))]
        (swap! results-atom assoc variant-id
-              {:result    result
-               :ran-at-ms now
-               :running?  false
-               :expanded  #{}})
+              {:result        result
+               :ran-at-ms     now
+               :running?      false
+               :expanded      #{}
+               :play-events   (vec play-events)
+               :epoch-ids     epoch-ids
+               :selected-step nil})
        (let [summary (-> (aggregate-summary (:assertions result))
                          (assoc :ran-at-ms  now
                                 :elapsed-ms (:elapsed-ms result)))]
          (state/swap-state! state/record-test-run variant-id summary)))))
+
+#?(:cljs
+   (defn- select-step!
+     "Set the step-through scrubber's `:selected-step` for `variant-id`
+     and call `restore-epoch` against the variant frame so the canvas
+     re-renders against the app-db at that step.
+
+     `idx` is a 0-based index into the variant's `:epoch-ids` vector.
+     Pass nil to release — the canvas reverts to the post-play app-db
+     (we restore against the last epoch-id in the slice, which is the
+     play-sequence's terminal state)."
+     [variant-id idx]
+     (let [slot       (get @results-atom variant-id)
+           epoch-ids  (or (:epoch-ids slot) [])
+           target-id  (cond
+                        (and (integer? idx)
+                             (<= 0 idx)
+                             (< idx (count epoch-ids)))
+                        (nth epoch-ids idx)
+
+                        ;; release → restore terminal state
+                        (and (nil? idx) (seq epoch-ids))
+                        (peek epoch-ids)
+
+                        :else nil)]
+       (swap! results-atom assoc-in [variant-id :selected-step] idx)
+       (when target-id
+         (epoch/restore-epoch variant-id target-id)))))
 
 #?(:cljs
    (defn- toggle-expanded!
@@ -473,6 +717,103 @@
               [:span {:style (:count-fail styles)} (str "✗ " failed " failed")]
               "  "
               [:span {:style (:count-skip styles)} (str "⊘ " skipped " skipped")]]]])))))
+
+#?(:cljs
+   (defn- tick-style-for
+     "Pick the style map for a single tick based on `status`."
+     [status]
+     (case status
+       :pass  (:tick-pass styles)
+       :fail  (:tick-fail styles)
+       :skip  (:tick-skip styles)
+       :event (:tick-event styles)
+       (:tick-event styles))))
+
+#?(:cljs
+   (defn- step-glyph
+     "Compact glyph for a tick: ✓ / ✗ / ⊘ for assertion outcomes, · for
+     plain events. Pure-data; doesn't reach into ratoms."
+     [status]
+     (case status
+       :pass  "✓"
+       :fail  "✗"
+       :skip  "⊘"
+       :event "·"
+       "·")))
+
+#?(:cljs
+   (defn- scrubber-section
+     "Step-through scrubber (rf2-lc36w). One tick per `:play` event with
+     pass/fail/event/skip status colouring. Click a tick (or drag the
+     slider below) to restore the variant's app-db to that step's
+     epoch — the canvas re-renders against it.
+
+     Renders nothing until a run has captured an epoch slice. When
+     `:play` ran but no epochs were captured (production elision, or
+     the ring buffer was disabled), the section short-circuits to a
+     muted hint rather than a broken scrubber."
+     [variant-id]
+     (let [slot          (get @results-atom variant-id)
+           result        (:result slot)
+           play-events   (or (:play-events slot) [])
+           epoch-ids     (or (:epoch-ids slot) [])
+           selected-step (:selected-step slot)
+           n             (count play-events)]
+       (when (and result (pos? n))
+         (let [statuses (play-step-statuses play-events (:assertions result))
+               has-epochs? (= n (count epoch-ids))]
+           [:div {:style     (merge (:section styles) (:scrub-wrap styles))
+                  :data-test "story-test-scrubber-section"}
+            [:div {:style (:scrub-h styles)}
+             [:span "Step-through"]
+             [:span {:style {:color "#9a9a9a" :font-weight "normal"}}
+              (cond
+                (not has-epochs?)        (str n " steps · no epoch buffer")
+                (some? selected-step)    (str "step " (inc selected-step) "/" n)
+                :else                    (str n " steps"))]]
+            (if-not has-epochs?
+              [:div {:style     {:color       "#9a9a9a"
+                                 :font-style  "italic"
+                                 :font-size   "11px"
+                                 :font-family "monospace"}
+                     :data-test "story-test-scrubber-no-epochs"}
+               "epoch buffer empty — scrubber unavailable (run is non-elided?)"]
+              [:div
+               [:div {:style     (:scrub-ticks styles)
+                      :data-test "story-test-scrubber-ticks"}
+                (for [{:keys [index status label]} statuses]
+                  ^{:key index}
+                  [:span {:style       (merge (:scrub-tick styles)
+                                              (tick-style-for status)
+                                              (when (= index selected-step)
+                                                (:tick-selected styles)))
+                          :data-test   "story-test-scrubber-tick"
+                          :data-index  (str index)
+                          :data-status (name status)
+                          :title       (str "step " (inc index) " · " label)
+                          :on-click    (fn [_] (select-step! variant-id index))}
+                   (step-glyph status)])]
+               [:input {:type        "range"
+                        :min         0
+                        :max         (max 0 (dec n))
+                        :value       (or selected-step (dec n))
+                        :style       (:scrub-slider styles)
+                        :data-test   "story-test-scrubber-slider"
+                        :aria-label  "Step through play sequence"
+                        :on-change   (fn [e]
+                                       (let [idx (js/parseInt
+                                                   (.. e -target -value))]
+                                         (select-step! variant-id idx)))}]
+               [:div {:style (:scrub-detail styles)}
+                (when (some? selected-step)
+                  (let [step (nth statuses selected-step nil)]
+                    [:span {:data-test "story-test-scrubber-selected-label"}
+                     (str "→ " (:label step))]))
+                (when (some? selected-step)
+                  [:button {:style     (:scrub-release styles)
+                            :data-test "story-test-scrubber-release"
+                            :on-click  (fn [_] (select-step! variant-id nil))}
+                   "release"])]])])))))
 
 #?(:cljs
    (defn- row-detail
@@ -629,4 +970,5 @@
                          :aria-label "Variant tests"}
                [header variant-id]
                [summary-section variant-id]
+               [scrubber-section variant-id]
                [rows-section variant-id]]))}))))
