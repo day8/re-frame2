@@ -1,5 +1,7 @@
 # re-frame-pair-retro2 — Authoring Prompt
 
+> **Skill-internal meta-doc.** Design rationale + author notes for the `re-frame-pair-retro2` skill itself — not part of the user-facing or AI-facing skill contract. Not loaded during normal skill operation; exists to re-author the skill from inputs. For the skill contract, see [`SKILL.md`](../SKILL.md).
+
 A self-contained prompt that re-authors the `re-frame-pair-retro2` skill from this `spec/` folder alone. Drop into a fresh Claude Code session in the re-frame2 repo root.
 
 ## The prompt
