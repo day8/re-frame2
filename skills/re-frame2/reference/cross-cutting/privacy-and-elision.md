@@ -21,7 +21,7 @@ Boolean flag on `reg-event-*` metadata-map. Causes the **entire trace + event-em
     {:fx [[:http {:method :post :url "/api/login" :body {:username username :password password}}]]}))
 ```
 
-Verified: `re-frame.event-emit/dispatch-on-event!` short-circuits when `(:sensitive? (handler-meta ...))` is true (`event_emit.cljc:116-126`). The framework also hoists `:sensitive? true` to the top level of every trace event emitted within the handler's scope (`re-frame.trace/*current-sensitive?*` dynamic, `trace.cljc:245-267`).
+Verified: `re-frame.event-emit/dispatch-on-event!` short-circuits when `(:sensitive? (handler-meta ...))` is true (`event_emit.cljc:116-126`). The framework also hoists `:sensitive? true` to the top level of every trace event emitted within the handler's scope (via the `:sensitive?` slot of the `re-frame.trace/*handler-scope*` record, per rf2-ryri7).
 
 **Registration-time warning**: declaring `:sensitive? true` without `(rf/with-redacted ...)` in the interceptor chain emits `:rf.warning/sensitive-without-redaction` (once per `(kind, id)`). Opt out with `{:no-redaction-needed? true}` in the metadata-map when the event vector carries no payload to scrub.
 

@@ -2,34 +2,12 @@
   "Per-process trace event stream. Per Spec 009.
 
   Every dispatch, drain step, render, fx invocation, error, and machine
-  transition emits a structured trace event. Listeners (10x, re-frame-pair,
-  AI tools) subscribe and consume the stream.
-
-  Production builds elide trace emission entirely via the
-  `re-frame.interop/debug-enabled?` flag — see emit! below.
-
-  Trace event shape (per Spec 009 §Core fields):
-    {:operation   :event/run               ;; required — what's being traced
-     :op-type     :event                   ;; required — discriminator
-                                           ;;   (:event :sub/run :sub/create
-                                           ;;    :fx :event/do-fx :machine
-                                           ;;    :registry :view/render
-                                           ;;    :warning :error :info ...)
-     :id          <int>                    ;; required — auto-incrementing
-                                           ;;   per-process counter, unique per emit
-     :time        <millis>                 ;; required — emit timestamp (host clock)
-     :tags        {...}                    ;; required — op-type-specific bag
-     :source      <kw>                     ;; (when present) hoisted from tags;
-                                           ;;   :ui :timer :http :machine :repl ...
-     :recovery    <kw>}                    ;; (when present) hoisted from tags;
-                                           ;;   error-event recovery disposition.
-
-  The shape is event-at-a-time, not span-shaped: there is no :start/:end/
-  :duration pair and no :child-of parent-id. Cascade correlation rides on
-  :dispatch-id under :tags of EVERY event emitted inside a cascade;
-  :parent-dispatch-id rides under :tags of :event/dispatched events only
-  (it documents inter-cascade lineage). Per Spec 009 §Dispatch correlation
-  and rf2-g6ih4."
+  transition emits a structured trace event. Listeners (10x,
+  re-frame-pair, AI tools) subscribe and consume the stream. The shape
+  is event-at-a-time (not span-shaped); cascade correlation rides on
+  `:dispatch-id`. Production builds elide trace emission entirely via
+  `re-frame.interop/debug-enabled?` — see `emit!` below. See Spec 009
+  §Core fields, §Dispatch correlation, and §Handler-scope."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind])
   #?(:cljs (:require-macros [re-frame.trace])))
@@ -62,100 +40,28 @@
 (defn- next-event-id []
   (swap! event-counter inc))
 
-;; ---- handler-scope: the consolidated bundle (rf2-ryri7) -------------------
+;; ---- handler-scope: the five-slot in-scope reading -----------------------
 ;;
-;; Every handler-execution boundary (the router's `process-event!`, the
-;; sub recompute path, the fx dispatcher, the cofx injector, the view
-;; render wrapper) needs to publish the same five-slot "reading" to the
-;; trace stream so `emit!` / `emit-error!` can hoist the relevant pieces
-;; onto each emitted event. The five slots are:
-;;
-;;   :trigger-handler  — registration coord of the in-scope handler
-;;                       (rf2-3nn8 error path / rf2-lf84g success path).
-;;                       Shape `{:kind :id :source-coord {:ns :file :line
-;;                       :column}}` or nil when no source-coord is stamped.
-;;
-;;   :call-site        — compile-time invocation site of the surface that
-;;                       reached the runtime through its macro form
-;;                       (`dispatch`, `dispatch-sync`, `subscribe`,
-;;                       `inject-cofx`). Shape `{:ns :file :line :column}`
-;;                       or nil for fn-form callers. Per rf2-ts1a.
-;;
-;;   :dispatch-id      — cascade-wide correlation id. Set once on entry
-;;                       to the drain (router process-event!) and rides
-;;                       every event emitted inside the run-to-completion
-;;                       drain. Per Spec 009 §Dispatch correlation and
-;;                       rf2-g6ih4.
-;;
-;;   :sensitive?       — boolean. True when the in-scope handler's
-;;                       registration meta carries `:sensitive? true`.
-;;                       Emitted events get a top-level `:sensitive? true`
-;;                       stamp; absent reads as false (Spec 009 line 1176).
-;;                       Per rf2-isdwf.
-;;
-;;   :no-emit?         — boolean. True when the in-scope handler's
-;;                       registration meta carries `:rf.trace/no-emit?
-;;                       true`. `emit!` / `emit-error!` short-circuit
-;;                       (no envelope allocation, no listener fan-out)
-;;                       when bound true. Per Spec 009 §Trace-emission
-;;                       opt-out and rf2-qsjda.
-;;
-;; The five slots were originally five sibling dynamic Vars
-;; (`*current-trigger-handler*`, `*current-call-site*`,
-;; `*current-dispatch-id*`, `*current-sensitive?*`, `*current-no-emit?*`)
-;; bound side-by-side at every handler-scope site. Per rf2-ryri7 they are
-;; consolidated into one record `HandlerScope` bound to one Var
-;; `*handler-scope*`: one binding-frame allocation per scope (instead of
-;; five), one Var to mock in tests, one record-field edit when a sixth
-;; concern lands.
-;;
-;; Composition rule: the innermost handler-scope binding wins for the
-;; meta-derived slots (`:trigger-handler` / `:sensitive?` / `:no-emit?`)
-;; per Spec 009. The `:call-site` and `:dispatch-id` slots are inherited
-;; from the parent scope unless the new scope explicitly overrides them
-;; — call-site originates at macro expansion time and rides through
-;; nested scopes; dispatch-id is allocated once per cascade and survives
-;; the handler-chain → sub recompute → fx → cofx descent. The
-;; constructor and binding macros handle inheritance automatically.
-;;
-;; Production elision: the whole trace surface compiles out via the outer
-;; `(when interop/debug-enabled? ...)` gate in `emit!` / `emit-error!`, so
-;; all `*handler-scope*` reads are dead code under :advanced + goog.DEBUG=
-;; false. The `:trigger-handler` slot is NOT elided in error traces (which
-;; survive into production via `error-emit/dispatch-on-error!`).
+;; Per Spec 009 §Handler-scope. Every handler-execution boundary (router,
+;; subs, fx, cofx, views) publishes a HandlerScope record on
+;; `*handler-scope*` so `emit!` / `emit-error!` can hoist the relevant
+;; slots onto each emitted event. See Spec 009 for the slot semantics,
+;; composition rule (innermost wins for meta-derived slots; call-site /
+;; dispatch-id inherit), and elision contract.
 
 (defrecord HandlerScope [trigger-handler call-site dispatch-id sensitive? no-emit?])
 
 (def ^:dynamic *handler-scope*
-  "The HandlerScope record currently in scope for trace emission.
-  Bound by `with-handler-scope` (and its variants) at every handler-
-  execution boundary (router, subs, fx, cofx, views) and at every
-  partial-binding site (dispatch error emits, subscribe/inject-cofx
-  macros). nil at top of stack — registration-time emits, outermost-
-  dispatch lookup failures, async-callback emits all see nil and emit
-  events without the hoisted handler-scope slots.
-
-  Per rf2-ryri7. Replaces five sibling dynamic Vars: *current-trigger-
-  handler* (rf2-3nn8 / rf2-lf84g), *current-call-site* (rf2-ts1a),
-  *current-dispatch-id* (rf2-g6ih4), *current-sensitive?* (rf2-isdwf),
-  *current-no-emit?* (rf2-qsjda)."
+  "HandlerScope record currently in scope for trace emission, or nil at
+  top of stack. Bound by `with-handler-scope` (and its variants) at
+  every handler-execution boundary. See Spec 009 §Handler-scope."
   nil)
 
 (defn trigger-handler-from-meta
-  "Build a `:rf.trace/trigger-handler` value from a registrar meta map.
-  `kind` is the registry kind (`:event`, `:sub`, `:fx`, `:cofx`, `:view`);
-  `id` is the registered id; `meta` is the registrar slot's metadata (as
-  returned by `registrar/lookup`). Picks `:ns` / `:file` / `:line` /
-  `:column` off the meta map (the source-coord stamp lives flat on the
-  meta map per `re-frame.source-coords/merge-coords`).
-
-  Returns nil when no source-coord keys are present on `meta` — the
-  slot stays unbound and the error event omits the field. That covers
-  the programmatic-registration path (the underlying registration fns
-  called directly without the macro wrapping) where coords would be
-  meaningless framework-internal positions.
-
-  Per rf2-3nn8."
+  "Build a `:rf.trace/trigger-handler` value `{:kind :id :source-coord
+  {:ns :file :line :column}}` from a registrar slot's `meta` map.
+  Returns nil when no source-coord keys are present (programmatic
+  registration). Per Spec 009 §Handler-scope."
   [kind id meta]
   (let [coord (cond-> nil
                 (:ns     meta) (assoc :ns     (:ns     meta))
@@ -168,56 +74,33 @@
        :source-coord coord})))
 
 (defn sensitive?-from-meta
-  "Read `:sensitive?` from a registrar slot's meta map. Returns
-  `true` iff the meta carries `:sensitive? true`; `false` for every
-  other shape (nil meta, absent key, falsy value).
-
-  Per rf2-isdwf. Used by `handler-scope-from-meta` and by
-  `emit-dispatched-trace!` (queue-time `:event/dispatched` emit, before
-  the handler-scope binding exists)."
+  "True iff `meta` carries `:sensitive? true`. Used at queue-time
+  `:event/dispatched` emit, before the handler-scope binding exists.
+  Per Spec 009 §Privacy / sensitive data in traces."
   [meta]
   (true? (:sensitive? meta)))
 
 (defn no-emit?-from-meta
-  "Read `:rf.trace/no-emit?` from a registrar slot's meta map. Returns
-  `true` iff the meta carries `:rf.trace/no-emit? true`; `false` for
-  every other shape (nil meta, absent key, falsy value).
-
-  Per rf2-qsjda. Used by `handler-scope-from-meta` and by
-  `emit-dispatched-trace!` to gate the queue-time `:event/dispatched`
-  emit (mirrors `sensitive?-from-meta`, same rationale: handler-scope
-  binding doesn't exist yet at enqueue time)."
+  "True iff `meta` carries `:rf.trace/no-emit? true`. Used at queue-time
+  `:event/dispatched` emit, before the handler-scope binding exists.
+  Per Spec 009 §Trace-emission opt-out."
   [meta]
   (true? (:rf.trace/no-emit? meta)))
 
 (defn sensitive?
   "Predicate: is `trace-event`'s top-level `:sensitive?` field truthy?
-
-  The framework-published predicate every consumer (Causa, Story,
-  pair2-preload, pair2-mcp, story-mcp, causa-mcp) gates on. Replaces
-  the per-consumer `(and (map? ev) (true? (:sensitive? ev)))` private
-  helper.
-
-  Per Spec 009 §Privacy / sensitive data in traces and rf2-isdwf
-  (audit G5)."
+  The framework-published predicate every trace consumer gates on.
+  Per Spec 009 §Privacy / sensitive data in traces."
   [trace-event]
   (and (map? trace-event)
        (true? (:sensitive? trace-event))))
 
 (defn handler-scope-from-meta
-  "Build a HandlerScope from a registrar slot's meta map for a handler
-  about to execute. The three meta-derived slots (`:trigger-handler` /
-  `:sensitive?` / `:no-emit?`) are computed; `:call-site` and
-  `:dispatch-id` are nil — `with-handler-scope` fills them from the
-  parent scope on bind.
-
-  `kind` is the registry kind (`:event`, `:sub`, `:fx`, `:cofx`, `:view`);
-  `id` is the registered handler's id; `meta` is the registrar slot's
-  metadata.
-
-  Pre-compute this at registration time (views) when meta is fixed, or
-  inline at boundary time (router/fx/cofx/subs) when meta resolves per
-  dispatch. Per rf2-ryri7."
+  "Build a HandlerScope from a registrar slot's `meta` for a handler
+  about to execute. Computes the three meta-derived slots
+  (`:trigger-handler` / `:sensitive?` / `:no-emit?`); leaves
+  `:call-site` and `:dispatch-id` nil — `with-handler-scope` fills
+  them from the parent scope on bind. Per Spec 009 §Handler-scope."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil
@@ -226,11 +109,9 @@
                   (true? (:rf.trace/no-emit? meta))))
 
 (defn inherit-scope
-  "Merge `parent`'s `:call-site` and `:dispatch-id` into `new-scope` for
-  any slot where `new-scope`'s value is nil. The meta-derived slots
-  (`:trigger-handler` / `:sensitive?` / `:no-emit?`) on `new-scope` are
-  preserved as-is — Spec 009's innermost-handler-wins rule. Returns a
-  HandlerScope. Per rf2-ryri7."
+  "Merge `parent`'s `:call-site` and `:dispatch-id` into `new-scope`
+  where `new-scope`'s value is nil. Meta-derived slots are preserved
+  as-is (innermost-wins). Per Spec 009 §Handler-scope §Composition."
   [new-scope parent]
   (if (nil? parent)
     new-scope
@@ -241,14 +122,14 @@
 #?(:clj
    (defmacro with-handler-scope
      "Bind `*handler-scope*` to `scope` (a HandlerScope record) for the
-     duration of `body`. Inherits `:call-site` and `:dispatch-id` from
-     the parent scope where `scope`'s slots are nil. Per rf2-ryri7.
-
-     Usage at every handler-execution boundary (router, fx, cofx, subs,
-     views):
+     duration of `body`, inheriting `:call-site` and `:dispatch-id`
+     from the parent scope where `scope`'s slots are nil. Use at every
+     handler-execution boundary (router, fx, cofx, subs, views):
 
          (trace/with-handler-scope (trace/handler-scope-from-meta :event id meta)
-           (run-chain ...))"
+           (run-chain ...))
+
+     Per Spec 009 §Handler-scope."
      [scope & body]
      `(binding [*handler-scope* (inherit-scope ~scope *handler-scope*)]
         ~@body)))
@@ -256,12 +137,9 @@
 #?(:clj
    (defmacro with-call-site
      "Bind `*handler-scope*` with `:call-site` set to `cs`, inheriting
-     the rest from the parent scope. For surface macros (`subscribe`,
-     `inject-cofx`) and for synchronous error emits in `dispatch!` /
-     `dispatch-sync!` that stamp the envelope's call-site before
-     emitting `:rf.error/frame-destroyed` etc.
-
-     Per rf2-ryri7 (replaces `(binding [*current-call-site* cs] ...)`)."
+     the rest. For surface macros (`subscribe`, `inject-cofx`) and
+     synchronous error emits in `dispatch!` / `dispatch-sync!`. Per
+     Spec 009 §Handler-scope and §`:rf.trace/call-site`."
      [cs & body]
      `(let [cs# ~cs
             parent# *handler-scope*]
@@ -273,12 +151,10 @@
 #?(:clj
    (defmacro with-dispatch-id+call-site
      "Bind `*handler-scope*` with `:dispatch-id` and `:call-site` set,
-     inheriting the rest from the parent. Used by `router/process-event!`
-     to publish the cascade's `:dispatch-id` and the envelope's
-     `:call-site` once on entry to the drain.
-
-     Per rf2-ryri7 (replaces the dispatch-id + call-site pair of bindings
-     that wrapped `process-event*` pre-consolidation)."
+     inheriting the rest. Used by `router/process-event!` to publish
+     the cascade's `:dispatch-id` and the envelope's `:call-site` once
+     on entry to the drain. Per Spec 009 §Handler-scope and §Dispatch
+     correlation."
      [dispatch-id call-site & body]
      `(let [did# ~dispatch-id
             cs# ~call-site
@@ -473,29 +349,26 @@
       (capture event)
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
-;; ---- shared emit substrate (rf2-xwp6o, rf2-ryri7) -------------------------
+;; ---- shared emit substrate ------------------------------------------------
 ;;
-;; `emit!` (success path) and `emit-error!` (error path) share an identical
-;; envelope-construction core and an identical delivery path. The shared
-;; pieces live in `build-event` (pure construction; reads the handler-scope
-;; bundle internally via `*handler-scope*`) and `deliver!` (side-effect
-;; dispatch: ring buffer push + epoch capture + listener fan-out). The
-;; two public emit fns reduce to ~8-line wrappers carrying the prod-DCE
-;; outer gate.
+;; `emit!` (success) and `emit-error!` (error) share an envelope-
+;; construction core (`build-event`, pure; reads `*handler-scope*`) and
+;; a delivery path (`deliver!`, side-effect: ring buffer + epoch capture
+;; + listener fan-out). The two public emit fns are thin wrappers
+;; carrying the prod-DCE outer gate.
 ;;
 ;; The outer `(when interop/debug-enabled? ...)` and inner `(when-not
 ;; (:no-emit? *handler-scope*) ...)` guards stay in the wrappers — NOT
 ;; in `build-event` — because Spec 009 §Production builds mandates the
 ;; outermost form of an emit call be `(when interop/debug-enabled? ...)`
-;; alone for Closure DCE to elide the whole expression in `:advanced`
-;; builds with `goog.DEBUG=false`.
+;; alone for Closure DCE to elide the expression under `:advanced` +
+;; `goog.DEBUG=false`.
 
 (defn- compute-sensitive?
-  "Per rf2-isdwf: hoist `:sensitive?` to the top level of the trace
-  event when the in-scope handler's registration meta carries
-  `:sensitive? true`. Caller-supplied `:sensitive?` in tags wins (e.g.
-  `emit-dispatched-trace!` computes its own reading at queue time,
-  before the handler-scope binding exists)."
+  "Hoist `:sensitive?` from the in-scope handler's registration meta,
+  with caller-supplied `:sensitive?` in `tags` winning (queue-time
+  `:event/dispatched` computes its own reading). Per Spec 009
+  §Privacy / sensitive data in traces."
   [tags scope]
   (let [tag-sensitive? (:sensitive? tags)]
     (cond
@@ -503,68 +376,39 @@
       :else                  (true? (some-> scope :sensitive?)))))
 
 (defn- stamp-cascade-id
-  "Per rf2-g6ih4: stamp the cascade's :dispatch-id on every event
-  emitted inside the drain so consumers can group raw trace events by
-  cascade without inferring from sequence. Caller-supplied
-  :dispatch-id wins (`:event/dispatched` and any future emit that
-  needs to override)."
+  "Merge the cascade's `:dispatch-id` into `base-tags` so consumers
+  can group raw trace events by cascade without inferring from
+  sequence. Caller-supplied `:dispatch-id` wins. Per Spec 009
+  §Dispatch correlation."
   [base-tags cascade-id]
   (if (and cascade-id (not (contains? base-tags :dispatch-id)))
     (assoc base-tags :dispatch-id cascade-id)
     base-tags))
 
 (defn- build-event
-  "Assemble the trace envelope. Pure construction — reads
-  `*handler-scope*` once and pulls the four hoist-relevant slots
-  (`:trigger-handler` / `:call-site` / `:dispatch-id` / `:sensitive?`)
-  from the record. No side-effects. Op-type discriminates the divergent
-  top-level hoists between success and error paths:
-
-    - success (op-type ≠ :error): hoists `:source` and `:recovery` from
-      tags when present; `:rf.trace/call-site` is NOT read (success
-      traces don't carry it).
-    - error (op-type = :error): always stamps `:recovery` (defaulting
-      to `:no-recovery`); hoists `:rf.trace/call-site` from
-      `*handler-scope*`'s `:call-site` slot when set; merges
-      `{:category operation}` into tags.
-
-  The shared core — id, time, tags+, trigger-handler, sensitive? — is
-  identical across both paths. Per rf2-xwp6o (factor) and rf2-ryri7
-  (single-Var read)."
+  "Assemble the trace envelope (pure construction; reads
+  `*handler-scope*`). `op-type` discriminates the success vs error
+  paths — see Spec 009 §Core fields and §Error event shape for the
+  hoist contract (`:source` / `:recovery` / `:rf.trace/trigger-handler`
+  / `:rf.trace/call-site` / `:sensitive?`)."
   [op-type operation tags]
   (let [scope       *handler-scope*
         trigger     (some-> scope :trigger-handler)
         cascade-id  (some-> scope :dispatch-id)
         sensitive?  (compute-sensitive? tags scope)
         error?      (= op-type :error)
-        ;; `:source` and `:recovery` are caller-supplied through
-        ;; `tags`. On the error path `:recovery` defaults to
-        ;; `:no-recovery` per Spec 009 §Error contract; `:source` is
-        ;; hoisted to top-level on both paths when present so
-        ;; consumers can filter on the top-level slot uniformly per
-        ;; Spec 009 L792 (`:source` ... top-level on every error
-        ;; event when present).
         source      (:source tags)
         recovery    (if error?
                       (:recovery tags :no-recovery)
                       (:recovery tags))
         call-site   (when error? (some-> scope :call-site))
-        ;; Per Spec 009 §Required top-level fields: `:source` and
-        ;; `:recovery` (when present) live at the top level. On the
-        ;; success path we strip both from `:tags` so the hoisted
-        ;; copies don't double-up. On the error path we KEEP
-        ;; `:source` in `:tags` as well — the boundary interceptor
-        ;; (Spec 010 §Production builds, rf2-r2uh) and other
-        ;; error-emit sites use `:source` as an emission-site
-        ;; discriminator (e.g. `:boundary` distinguishes the
-        ;; production-side boundary trace from a dev-mode step-1
-        ;; trace) that callers and tests read off `(:tags :source)`,
-        ;; and Causa-style consumers already fall back from
-        ;; top-level to `:tags :source` (tools/causa
-        ;; `filter_vocab_consumer_cljs_test`). `:sensitive?` is
-        ;; hoisted regardless (rf2-isdwf). The error path
-        ;; additionally merges its `:category` slot from
-        ;; `operation`.
+        ;; Strip hoisted slots from `:tags` so they don't double-up at
+        ;; the top level. Exception: the error path KEEPS `:source`
+        ;; under `:tags` because boundary-interceptor / error-emit
+        ;; sites use it as an emission-site discriminator (e.g.
+        ;; `:source :boundary` per Spec 010 §Production builds), and
+        ;; consumers already fall back top-level → `:tags :source`.
+        ;; Error path additionally merges `{:category operation}`.
         base-tags   (cond-> (dissoc tags :recovery :sensitive?)
                       (not error?) (dissoc :source)
                       error?       (->> (merge {:category operation})))
@@ -574,33 +418,22 @@
              :id        (next-event-id)
              :time      (interop/now-ms)
              :tags      tags+}
-      source     (assoc :source source)
-      ;; Success path: hoist :recovery only when caller supplied
-      ;; one. Error path: always stamp (default :no-recovery).
+      source               (assoc :source source)
+      ;; Success path hoists :recovery only when caller supplied one;
+      ;; error path always stamps (defaulting to :no-recovery above).
       (or error? recovery) (assoc :recovery recovery)
-      ;; Per rf2-lf84g: hoist the in-scope handler's registration
-      ;; coord onto every trace event emitted inside a handler's
-      ;; scope. Symmetric across success and error paths per
-      ;; rf2-3nn8.
-      trigger    (assoc :rf.trace/trigger-handler trigger)
-      ;; Per rf2-ts1a: error path only — hoist the compile-time
-      ;; call-site of the surface that was reached through its
-      ;; macro form. Absent on the success path (call-site rides
-      ;; only error traces).
-      call-site  (assoc :rf.trace/call-site call-site)
-      ;; Per rf2-isdwf: top-level `:sensitive? true` stamp. Absent
-      ;; (NOT `:sensitive? false`) when the in-scope handler is not
-      ;; sensitive — per Spec 009 line 1176 "Consumers treat absent
-      ;; as false."
-      sensitive? (assoc :sensitive? true))))
+      trigger              (assoc :rf.trace/trigger-handler trigger)
+      ;; `:rf.trace/call-site` rides error traces only.
+      call-site            (assoc :rf.trace/call-site call-site)
+      ;; Top-level `:sensitive? true` stamp. Absent (not `false`)
+      ;; when not sensitive — consumers treat absent as false.
+      sensitive?           (assoc :sensitive? true))))
 
 (defn- deliver!
   "Side-effect dispatch for an assembled trace envelope: ring-buffer
-  push (Spec 009 §Retain-N), epoch-capture fan-out (Tool-Pair
-  §Time-travel), and listener fan-out (Spec 009 §Listener invocation
-  rules). Delivery is synchronous — listeners SHOULD be fast.
-  Listeners that throw don't break the runtime; the stream continues.
-  Per rf2-xwp6o."
+  push, epoch-capture fan-out, and listener fan-out. Synchronous;
+  throwing listeners are isolated. Per Spec 009 §Listener invocation
+  rules."
   [event]
   (push-to-buffer! event)
   (deliver-to-epoch-capture! event)
@@ -610,98 +443,40 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn emit!
-  "Emit a trace event. In production builds (when interop/debug-enabled?
-  is false at compile time), Closure DCE removes the body and the call
-  becomes a no-op.
+  "Emit a trace event. Production builds elide the body entirely
+  (Closure DCE on the `interop/debug-enabled?` gate); in dev / JVM
+  the envelope is built and delivered to the ring buffer, epoch
+  capture, and all registered listeners synchronously.
 
-  In dev / JVM: builds the envelope (via `build-event`) and delivers
-  it (via `deliver!`) to the ring buffer, epoch-capture, and all
-  registered listeners. Delivery is synchronous — listeners SHOULD be
-  fast; per Spec 009 §Listener invocation rules, batching is the
-  listener's choice.
+  Reads `*handler-scope*` to hoist the in-scope slots onto the
+  envelope: `:trigger-handler` on every emit, `:dispatch-id` merged
+  into `:tags`, `:sensitive?` stamped at top level. Short-circuits
+  before allocation when the scope's `:no-emit?` slot is true.
 
-  Per Spec 009 §Core fields: :source is hoisted to the top level of
-  the envelope (origin of the trigger — :ui :timer :http :repl
-  :machine). Tags retain everything else.
-
-  Per rf2-g6ih4: when `*handler-scope*` is bound with a non-nil
-  `:dispatch-id` (the runtime is inside a drain processing a dispatch),
-  the in-flight cascade's id is merged into `:tags :dispatch-id`.
-  Callers that supply their own `:dispatch-id` in tags win (the only
-  such caller in the framework is `:event/dispatched`, which stamps
-  its own freshly-allocated id).
-
-  Per rf2-lf84g: when `*handler-scope*` is bound with a non-nil
-  `:trigger-handler` (the emit fires inside a handler's execution
-  scope — event / sub / fx / cofx / view), the handler's registration
-  coord rides on the emitted event under the top-level
-  `:rf.trace/trigger-handler` slot. Mirrors the error path
-  (`emit-error!`) — same field, same shape, same elision behaviour.
-  Success-path traces emitted inside a handler's scope
-  (`:rf.fx/handled`, `:rf.machine/transition`, `:event/db-changed`,
-  `:event/do-fx`, ...) carry the registration coord so tools can
-  jump-to-source from any trace event in a cascade, not just errors.
-
-  Per rf2-qsjda: when the in-scope `*handler-scope*` carries
-  `:no-emit? true` (the handler's registration meta carries
-  `:rf.trace/no-emit? true`), the body short-circuits before envelope
-  allocation — no buffer push, no epoch-capture, no listener fan-out,
-  no id-counter bump. This is the framework-level opt-out for trace-
-  consuming integrations whose own bookkeeping handlers must not
-  re-enter the trace stream and form a cb-dispatch loop. Per Spec 009
-  §Trace-emission opt-out."
+  Per Spec 009 §Emitting trace events and §Handler-scope."
   [op operation tags]
   (when interop/debug-enabled?
-    ;; Per rf2-qsjda: short-circuit when the in-scope handler opted
-    ;; out of trace emission. Guard sits *inside* the outer
-    ;; `interop/debug-enabled?` gate (Spec 009 §Production builds
-    ;; mandates the outermost form be that gate alone — `(when
-    ;; (and X interop/debug-enabled?) ...)` defeats Closure DCE).
+    ;; `:no-emit?` short-circuit sits *inside* the outer
+    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
+    ;; (the outer gate must stand alone for Closure DCE — see
+    ;; §Production-elision verification).
     (when-not (true? (some-> *handler-scope* :no-emit?))
       (deliver! (build-event op operation tags)))))
 
 (defn emit-error!
-  "Emit a structured error trace event. Per Spec 009 §Error contract:
-  `:operation` is the error category (e.g. `:rf.error/handler-exception`),
-  `:op-type` is :error, and `:tags` includes `:category`, `:exception`,
+  "Emit a structured error trace event. `:operation` is the error
+  category (e.g. `:rf.error/handler-exception`), `:op-type` is
+  `:error`, and `:tags` includes `:category`, `:exception`,
   `:where`, etc.
 
-  Per rf2-3nn8: when `*handler-scope*` is bound with a non-nil
-  `:trigger-handler` (a handler is currently in scope — event handler
-  running, sub recomputing, fx handler dispatching, cofx injecting,
-  view rendering), the value is hoisted to the top-level
-  `:rf.trace/trigger-handler` slot on the emitted event. Absent when
-  no handler is in scope (e.g. outermost-dispatch
-  `:rf.error/no-such-handler`).
-
-  Per rf2-ts1a: when `*handler-scope*` is bound with a non-nil
-  `:call-site` (the error fires inside the body of a surface that was
-  reached through its macro form — `dispatch`, `dispatch-sync`,
-  `subscribe`, `inject-cofx`), the compile-time-captured call site is
-  hoisted to the top-level `:rf.trace/call-site` slot on the emitted
-  event. Absent when the surface was reached through its fn form
-  (`dispatch*` etc.) or when no surface is in scope.
-
-  Per rf2-g6ih4: when `*handler-scope*` is bound with a non-nil
-  `:dispatch-id` (the error fires inside a drain), the in-flight
-  cascade's id is merged into `:tags :dispatch-id` so consumers can
-  correlate the error with the rest of the cascade. Caller-supplied
-  `:dispatch-id` wins.
-
-  Per rf2-qsjda: when the in-scope `*handler-scope*` carries
-  `:no-emit? true` (the handler's registration meta carries
-  `:rf.trace/no-emit? true`), the body short-circuits before envelope
-  allocation — symmetric with the success path in `emit!`. The
-  framework-level trace-emission opt-out applies to error traces too
-  (a Causa-style bookkeeping handler must not re-enter the consumer
-  through error emits any more than through success emits). Per
-  Spec 009 §Trace-emission opt-out."
+  Reads `*handler-scope*` to hoist `:trigger-handler`, `:call-site`,
+  and `:dispatch-id` onto the envelope, and to honour the `:no-emit?`
+  short-circuit (symmetric with `emit!`). Per Spec 009 §Error contract
+  and §Handler-scope."
   [error-operation tags]
   (when interop/debug-enabled?
-    ;; Per rf2-qsjda: short-circuit when the in-scope handler opted
-    ;; out of trace emission. Guard sits *inside* the outer
-    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
-    ;; (the outer gate must stand alone for Closure DCE).
+    ;; `:no-emit?` short-circuit sits *inside* the outer
+    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds.
     (when-not (true? (some-> *handler-scope* :no-emit?))
       (deliver! (build-event :error error-operation tags)))))
 
