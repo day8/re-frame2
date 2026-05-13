@@ -427,22 +427,6 @@
                            m))))))
     reaction))
 
-(defn- resolve-current-frame
-  "Resolve the active frame at a no-explicit-frame call site. On CLJS
-  consults the `:adapter/current-frame` late-bind hook (rf2-d4sf) so
-  the React-context tier of the 3-tier resolution chain (dynamic var
-  → React context → :rf/default) is LIVE — adapters publish their
-  React-context-aware impl through the hook at ns-load time. When the
-  hook is unbound (no adapter loaded yet, or JVM build) the fallback
-  is `re-frame.frame/current-frame` which honours the dynamic-var
-  tier and the `:rf/default` tier; the React-context tier silently
-  no-ops in that case."
-  []
-  #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
-             (f)
-             (frame/current-frame))
-     :clj  (frame/current-frame)))
-
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity form resolves
@@ -469,14 +453,14 @@
   `:rf.error/frame-destroyed`) carries the invocation coord."
   ([query-v]
    #?(:cljs
-      (let [frame-id (resolve-current-frame)]
+      (let [frame-id (frame/resolve-current-frame)]
         (when interop/debug-enabled?
           (when-let [warn! (late-bind/get-fn
                             :views/maybe-warn-plain-fn-under-non-default-frame!)]
             (warn! frame-id query-v)))
         (subscribe frame-id query-v))
       :clj
-      (subscribe (resolve-current-frame) query-v)))
+      (subscribe (frame/resolve-current-frame) query-v)))
   ([frame-id query-v]
    (let [frame-record (frame/frame frame-id)]
      (cond
@@ -531,7 +515,7 @@
   trace burst) past the call's observable lifetime.
 
   See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`."
-  ([query-v] (subscribe-value (resolve-current-frame) query-v))
+  ([query-v] (subscribe-value (frame/resolve-current-frame) query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
          v        (when reaction @reaction)]
@@ -635,7 +619,7 @@
   subscribe imperatively should call unsubscribe when they're done
   to release the cache slot."
   ([query-v]
-   (unsubscribe (resolve-current-frame) query-v nil))
+   (unsubscribe (frame/resolve-current-frame) query-v nil))
   ([frame-id query-v]
    (unsubscribe frame-id query-v nil))
   ([frame-id query-v opts]

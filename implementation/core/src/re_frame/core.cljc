@@ -394,11 +394,11 @@
 
 ;; ---- frame-aware closures (runtime side) ---------------------------------
 ;;
-;; Per rf2-d4sf the public `current-frame` consults the `:adapter/
-;; current-frame` late-bind hook on CLJS so the React-context tier of
-;; the resolution chain is live at every user-facing surface that flows
-;; through `(dispatcher)` / `(subscriber)` / `bound-fn`. JVM falls
-;; through to `frame/current-frame` (dynamic-var → `:rf/default`).
+;; Per rf2-d4sf the public `current-frame` exposes the 3-tier resolution
+;; chain (dynamic var → React context → `:rf/default`) at every user-
+;; facing surface that flows through `(dispatcher)` / `(subscriber)` /
+;; `bound-fn`. The chain is single-sourced through
+;; `frame/resolve-current-frame` (rf2-jj8xf).
 
 (defn current-frame
   "Return the active frame at the call site. Resolution chain: dynamic
@@ -406,10 +406,7 @@
   bind hook) -> `:rf/default`. Per Spec 002 §Reading the frame from
   React context."
   []
-  #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
-             (f)
-             (frame/current-frame))
-     :clj  (frame/current-frame)))
+  (frame/resolve-current-frame))
 
 (defn dispatcher
   "Return a fn that dispatches under the current frame, captured at call

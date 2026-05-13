@@ -98,16 +98,13 @@
         ;; referenced syntactically.
         call-site          (when interop/debug-enabled?
                              (:rf.trace/call-site opts))
-        ;; Per rf2-d4sf consult the `:adapter/current-frame` late-bind
-        ;; hook on CLJS so dispatch picks up the React-context tier of
-        ;; the resolution chain. Adapters publish the hook at ns-load
-        ;; time; when unbound (JVM build, or no adapter ns loaded yet)
-        ;; we fall back to `frame/current-frame` which honours the
-        ;; dynamic var and `:rf/default` only.
-        default-frame      #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
-                                      (f)
-                                      (frame/current-frame))
-                              :clj  (frame/current-frame))
+        ;; Per rf2-d4sf the 3-tier resolution chain (dynamic var →
+        ;; React context → `:rf/default`) is single-sourced through
+        ;; `frame/resolve-current-frame` (rf2-jj8xf) — the React-context
+        ;; tier consults the `:adapter/current-frame` late-bind hook on
+        ;; CLJS so dispatch picks it up; JVM and the no-adapter-loaded
+        ;; case fall through to the dynamic-var → `:rf/default` chain.
+        default-frame      (frame/resolve-current-frame)
         explicit-frame?    (some? (:frame opts))
         ;; Per rf2-o8m0: capture whether resolution fell through the entire
         ;; chain (dynamic var unbound, adapter context unresolvable, no
