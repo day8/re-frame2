@@ -77,19 +77,34 @@
                            plus pass/fail/skip/total counts and timing.
                            Powers both the chrome widget's aggregate
                            summary and the sidebar's per-variant dots
-                           (rf2-q0irb)."
-  {:selected-variant   nil
-   :selected-workspace nil
-   :tag-filter         #{}
-   :active-modes       []
-   :cell-overrides     {}
-   :substrate          :reagent
-   :hot-reload-tick    0
-   :fingerprints       {}
-   :pinned-snapshots   {}
-   :panel-visibility   {:trace true :scrubber true :controls true :actions true}
-   :active-mode-tab    {}
-   :test-runs          {}})
+                           (rf2-q0irb).
+  - `:test-watch-mode?` — boolean. When true the chrome test widget's
+                           eye-icon toggle is on and the shell auto-
+                           re-runs testable variants whose snapshot
+                           identity drifted since the last observation
+                           (rf2-z1h0f). Default false — explicit re-run
+                           is the v1 contract; watch-mode is opt-in.
+  - `:test-content-hashes` — {variant-id → hex-hash} the last-observed
+                           snapshot-identity content hash per testable
+                           variant. The watch-mode detector compares the
+                           current registry's hashes against this slot;
+                           a delta triggers an auto-rerun for the
+                           affected variants. Empty when watch mode is
+                           off (the detector seeds it on toggle-on)."
+  {:selected-variant    nil
+   :selected-workspace  nil
+   :tag-filter          #{}
+   :active-modes        []
+   :cell-overrides      {}
+   :substrate           :reagent
+   :hot-reload-tick     0
+   :fingerprints        {}
+   :pinned-snapshots    {}
+   :panel-visibility    {:trace true :scrubber true :controls true :actions true}
+   :active-mode-tab     {}
+   :test-runs           {}
+   :test-watch-mode?    false
+   :test-content-hashes {}})
 
 ;; ---- pure transition fns (JVM-testable) ----------------------------------
 
@@ -506,3 +521,60 @@
        (map first)
        sort
        vec))
+
+;; ---- watch mode (rf2-z1h0f) ---------------------------------------------
+;;
+;; Storybook 9 ships a Vitest-addon watch-mode toggle (eye icon) that
+;; re-runs the changed stories on file save. Story's parity surface is
+;; this: an opt-in toggle on the chrome-level test widget that
+;; subscribes to per-variant snapshot-identity drift and re-fires
+;; `run-variant` for the variants whose identity changed. The detection
+;; signal is the variant's snapshot-identity content-hash
+;; (re-frame.story.identity/snapshot-identity); a delta against the
+;; recorded :test-content-hashes slot triggers the re-run.
+
+(defn set-test-watch-mode
+  "Toggle/set the chrome-level watch-mode flag. When `on?` is true the
+  shell auto-re-runs testable variants whose snapshot identity drifts;
+  when false the toggle is off and the recorded hashes are cleared (the
+  next toggle-on seeds them fresh from the current registry). Pure data
+  → data; JVM-testable."
+  [state on?]
+  (if on?
+    (assoc state :test-watch-mode? true)
+    (-> state
+        (assoc :test-watch-mode? false)
+        (assoc :test-content-hashes {}))))
+
+(defn test-watch-mode?
+  "Return `true` iff watch mode is currently on. Pure."
+  [state]
+  (boolean (:test-watch-mode? state)))
+
+(defn record-test-content-hashes
+  "Stamp the current snapshot-identity content hashes for every testable
+  variant. `id->hash` is `{variant-id → hex-string}`. The detector
+  reads this slot on the next tick to decide which variants drifted."
+  [state id->hash]
+  (assoc state :test-content-hashes (or id->hash {})))
+
+(defn watch-mode-drift
+  "Pure data → data: given the previous `:test-content-hashes` map and a
+  freshly-computed `current` `{variant-id → hex}` map, return the
+  ordered vector of variant-ids whose hash differs from `prev` (i.e.
+  the variants the watch-mode detector should re-run on this tick).
+
+  Variants present in `current` but absent from `prev` are treated as
+  drifted — the seed call to `record-test-content-hashes` happens on
+  toggle-on so a missing prev entry signals a fresh registration that
+  the user wants exercised. Variants present in `prev` but absent from
+  `current` (deregistered) are silently dropped — there's nothing to
+  re-run. JVM-testable."
+  [prev current]
+  (let [prev    (or prev {})
+        current (or current {})]
+    (->> current
+         (filter (fn [[vid hex]] (not= hex (get prev vid))))
+         (map first)
+         sort
+         vec)))
