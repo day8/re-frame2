@@ -313,6 +313,73 @@
        :tags   #{:dev :auth/regression-set}})
     (is (story/registered? :variant :story.auth.login/regression-empty))))
 
+;; ---- :axis + :default-filter slots (rf2-frtec / SB9 parity) ------------
+
+(deftest reg-tag-stores-axis
+  (testing ":axis is stored on the registered tag body"
+    (story/reg-tag :auth/regression-set
+      {:doc  "Auth regression-suite variants."
+       :axis :team})
+    (is (= :team (:axis (story/handler-meta :tag :auth/regression-set))))))
+
+(deftest reg-tag-stores-default-filter
+  (testing ":default-filter is stored on the registered tag body"
+    (story/reg-tag :status/alpha
+      {:doc            "Pre-release status."
+       :axis           :status
+       :default-filter :exclude})
+    (let [body (story/handler-meta :tag :status/alpha)]
+      (is (= :status (:axis body)))
+      (is (= :exclude (:default-filter body))))))
+
+(deftest reg-tag-without-axis-defaults-sanely
+  (testing "tags without :axis / :default-filter remain valid and queryable"
+    ;; Canonical tags carry neither slot — they're pre-installed by the
+    ;; fixture's `install-canonical-vocabulary!`. Confirm they're absent
+    ;; from every axis-keyed lookup and the default-excluded set.
+    (is (= #{} (story/tags-by-axis :status)))
+    (is (= #{} (story/tags-by-axis :role)))
+    (is (= #{} (story/tags-default-excluded)))
+    ;; And the canonical seven all live in the un-axis-grouped bucket.
+    (is (= schemas/canonical-tags (story/tags-without-axis)))))
+
+(deftest tags-by-axis-filters-correctly
+  (testing "tags-by-axis returns only tags registered on the requested axis"
+    (story/reg-tag :status/alpha       {:axis :status :default-filter :exclude})
+    (story/reg-tag :status/beta        {:axis :status})
+    (story/reg-tag :role/dev           {:axis :role})
+    (story/reg-tag :auth/regression    {:axis :team})
+    (story/reg-tag :no-axis/freeform   {:doc "no axis here"})
+    (is (= #{:status/alpha :status/beta} (story/tags-by-axis :status)))
+    (is (= #{:role/dev}                  (story/tags-by-axis :role)))
+    (is (= #{:auth/regression}           (story/tags-by-axis :team)))
+    (is (= #{} (story/tags-by-axis :nonexistent)))
+    ;; un-axis-grouped tag sits in tags-without-axis alongside the canonical seven
+    (is (contains? (story/tags-without-axis) :no-axis/freeform))
+    (is (not (contains? (story/tags-by-axis :status) :no-axis/freeform)))))
+
+(deftest tags-default-excluded-filters-correctly
+  (testing "tags-default-excluded returns only tags with :default-filter :exclude"
+    (story/reg-tag :status/alpha    {:axis :status :default-filter :exclude})
+    (story/reg-tag :status/beta     {:axis :status :default-filter :include})
+    (story/reg-tag :status/stable   {:axis :status})                ; no slot — defaults to include
+    (story/reg-tag :hidden/internal {:default-filter :exclude})
+    (is (= #{:status/alpha :hidden/internal} (story/tags-default-excluded)))))
+
+(deftest reg-tag-rejects-bad-default-filter
+  (testing ":default-filter must be :include or :exclude"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"does not match tag schema"
+                          (story/reg-tag :bad/df
+                            {:default-filter :sometimes})))))
+
+(deftest reg-tag-rejects-non-keyword-axis
+  (testing ":axis must be a keyword"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"does not match tag schema"
+                          (story/reg-tag :bad/axis
+                            {:axis "status"})))))
+
 ;; ---- !-prefix removal syntax -------------------------------------------
 
 (deftest tags-with-bang-prefix-validate

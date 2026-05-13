@@ -368,3 +368,34 @@
                      (some #(contains? tset %) qs))))
          (map first)
          set)))
+
+(defn tags-by-axis
+  "Return the set of registered tag ids whose body's `:axis` equals
+  `axis-kw`. Per spec/001 §reg-tag the optional `:axis` slot groups
+  tags into facet rows in the sidebar tag-filter UI (rf2-v05qb SB9
+  parity). Tags registered without `:axis` are excluded from every
+  axis-keyed result."
+  [axis-kw]
+  (->> (handlers :tag)
+       (filter (fn [[_ body]] (= axis-kw (:axis body))))
+       (map first)
+       set))
+
+(defn tags-without-axis
+  "Return the set of registered tag ids whose body carries no `:axis`.
+  The sidebar renders these in a trailing un-grouped facet row."
+  []
+  (->> (handlers :tag)
+       (filter (fn [[_ body]] (nil? (:axis body))))
+       (map first)
+       set))
+
+(defn tags-default-excluded
+  "Return the set of registered tag ids whose body's `:default-filter`
+  is `:exclude`. The sidebar tag-filter pre-excludes variants carrying
+  any of these at boot (e.g. `:internal` / `:experimental`)."
+  []
+  (->> (handlers :tag)
+       (filter (fn [[_ body]] (= :exclude (:default-filter body))))
+       (map first)
+       set))

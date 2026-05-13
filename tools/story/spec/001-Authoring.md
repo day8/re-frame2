@@ -173,16 +173,60 @@ The five-rule embed contract is defined in
 (reg-tag id metadata)
 ```
 
-Body:
+Body (all slots optional):
 
 ```clojure
-{:doc "..."}
+{:doc            "..."
+ :axis           :status                       ; optional — facet grouping hint
+ :default-filter :exclude}                      ; optional — :include (default) | :exclude
 ```
 
 The seven canonical tags (`:dev`, `:docs`, `:test`, `:screenshot`,
 `:experimental`, `:internal`, `:agent`) register at Story load.
 Project tags must be registered before use. An unregistered tag on a
 variant's `:tags` set raises `:rf.error/unknown-tag` at registration.
+
+#### `:axis` — facet grouping (SB9 parity)
+
+The optional `:axis` slot is a keyword classifier (e.g. `:status`,
+`:role`, `:team`, `:feature`) that groups registered tags into
+collapsible facet rows in the sidebar tag-filter UI. Tags registered
+without `:axis` render in a trailing un-grouped row. Mirrors
+Storybook 9's status / role / team / feature axes (rf2-v05qb SB9
+parity).
+
+Query the axis grouping via:
+
+- `(story/tags-by-axis :status)` — set of tag ids on a given axis.
+- `(story/tags-without-axis)` — set of tag ids with no axis.
+
+The `:axis` slot is purely a UI grouping hint — it does not affect
+variant `:tags` set semantics or `variants-with-tags` filtering.
+
+#### `:default-filter` — sidebar boot state (SB9 parity)
+
+The optional `:default-filter` slot is `:include` (default) or
+`:exclude`. When `:exclude`, the sidebar pre-excludes variants
+carrying this tag at boot. Use this to register tags like `:internal`
+or `:experimental` whose variants should be hidden from the default
+dev shell until manually toggled on.
+
+Query the default-excluded set via:
+
+- `(story/tags-default-excluded)` — set of tag ids with `:default-filter :exclude`.
+
+```clojure
+(rf/reg-tag :auth/regression-set
+  {:doc  "Auth regression-suite variants."
+   :axis :team})
+
+(rf/reg-tag :alpha
+  {:doc            "Pre-release status."
+   :axis           :status
+   :default-filter :exclude})
+```
+
+#### `!`-prefix removal syntax
 
 `!`-prefix removal syntax: `:!dev` removes `:dev` from the inherited
 tag set when included in a child variant's `:tags`. Per Phase 1 §2.1
