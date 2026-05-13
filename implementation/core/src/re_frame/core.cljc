@@ -46,6 +46,7 @@
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
             [re-frame.trace.projection :as trace-projection]
+            [re-frame.elision :as elision]
             [re-frame.substrate.adapter :as adapter]
             ;; Optional-artefact wrappers (rf2-hoiu). Each ns wraps a
             ;; per-feature Maven artefact and looks the producing fns
@@ -959,6 +960,29 @@
 (def trace-buffer        trace/trace-buffer)
 (def clear-trace-buffer! trace/clear-trace-buffer!)
 
+;; ---- size-elision wire-boundary walker (rf2-v9tw2; Spec 009) -------------
+;;
+;; Per [API.md §Size-elision wire-boundary walker]. The walker is the
+;; single normative emission site for the `:rf/redacted` privacy
+;; sentinel and the `:rf.size/large-elided` marker; per-tool
+;; reimplementation is prohibited. The registry of declared paths
+;; lives at `[:rf/elision]` in every frame's app-db (per
+;; [Conventions §Reserved app-db keys]) so declarations survive
+;; restore-epoch and persist across hot reload. Surface:
+;;
+;;   rf/elide-wire-value            — the walker
+;;   rf/declare-large-path!         — REPL/boot wrapper around :rf.size/declare-large
+;;   rf/clear-large-path!           — REPL/boot wrapper around :rf.size/clear
+;;   rf/populate-elision-from-schemas!
+;;                                  — schema-driven boot population
+
+(def elide-wire-value             elision/elide-wire-value)
+(def declare-large-path!          elision/declare-large-path!)
+(def clear-large-path!            elision/clear-large-path!)
+(def populate-elision-from-schemas! elision/populate-elision-from-schemas!)
+(def elision-declarations         elision/declarations)
+(def elision-runtime-flagged      elision/runtime-flagged)
+
 ;; Per rf2-wvzgd: cascade projection. Pure-data fn lifted from Story's
 ;; trace panel; consumed by Story (`tools/story/src/re_frame/story/ui/
 ;; trace.cljs`), and (when impl lands) Causa (rf2-5aw5v) and pair2's
@@ -992,9 +1016,10 @@
 
 (defn configure
   "Configure a process-level runtime knob. v1 keys:
-    :epoch-history {:depth N}            ring depth (default 50; 0 disables)
-    :trace-buffer  {:depth N}            ring depth (default 200; 0 disables)
-    :sub-cache     {:grace-period-ms N}  dispose grace (default 50ms)
+    :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
+    :trace-buffer  {:depth N}                       ring depth (default 200; 0 disables)
+    :sub-cache     {:grace-period-ms N}             dispose grace (default 50ms)
+    :elision       {:rf.size/threshold-bytes N}     runtime auto-detect threshold (default 16384; 0 disables)
   Unknown keys silently no-op. Per-frame settings live on frame metadata.
   Per Tool-Pair §How AI tools attach."
   [knob opts]
@@ -1008,6 +1033,7 @@
                      (f opts))
     :trace-buffer  (trace/configure-trace-buffer! opts)
     :sub-cache     (subs/configure! opts)
+    :elision       (elision/configure-elision! opts)
     nil))
 
 ;; ---- substrate adapter ----------------------------------------------------
