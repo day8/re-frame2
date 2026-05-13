@@ -94,6 +94,175 @@ across the session).
 When opened, the rail slides in from the right of the canvas at
 250ms ease-out; the rest of Causa's columns reflow.
 
+## Redaction indicator
+
+When Causa's trace collector drops a `:sensitive? true` event under
+the default privacy posture (per
+[`013-Trace-Bus.md`](./013-Trace-Bus.md) §Privacy gate and
+[`015-Configuration.md`](./015-Configuration.md) §`:trace/show-sensitive?`),
+the user must SEE that a drop happened. Sensitive cascades that
+vanish silently are a footgun: the user reads "no events" and
+debugs the wrong layer. The redaction indicator is the visible
+admission that the privacy gate is hiding data.
+
+The mechanism layers across two surfaces — a **chrome-level total**
+on the bottom rail, and **inline per-value markers** in every panel
+that surfaces wire-elided values. Both share the visual grammar
+defined here.
+
+### Visual format
+
+`[● REDACTED N]` — square brackets, U+25CF BLACK CIRCLE bullet, single
+ASCII space, the literal word `REDACTED` in upper case, single ASCII
+space, the integer count `N`. Rendered in co-pilot magenta
+(`#E879F9` per §Colour system; deliberately reused — magenta is the
+"hidden surface" hue across the chrome, see §The AI co-pilot
+collapsed cue), weight 600, in the Micro type token (11px) on the
+bottom rail and Caption token (12px) inline within panels.
+
+The count `N` MUST be rendered explicitly even when `N = 1`. The form
+`[● REDACTED 1]` is the canonical singular shape; a bare
+`[● REDACTED]` is REFUSED. Rationale: a constant grammar is easier
+for the eye to scan across a panel that mixes singular and plural
+redactions, and reading "1" tells the user the count is live (not a
+typo for a label).
+
+### Bottom-rail chrome indicator
+
+The bottom rail (region 5 of §The five regions) renders the
+indicator in its centre group whenever the total
+suppressed-sensitive count across every frame bucket is positive.
+The total is read from the
+`:rf.causa/suppressed-sensitive-count` subscription per
+[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) §Shared
+infrastructure, which sums every value of the
+`[:suppressed-counters]` slot per
+[`015-Configuration.md`](./015-Configuration.md) §App-db slots.
+
+The indicator MUST disappear (not just dim) when the total returns
+to zero — clearing the trace buffer via
+`trace-bus/clear-buffer!` resets every bucket per
+[`013-Trace-Bus.md`](./013-Trace-Bus.md) §Lifecycle operations, and
+the chrome MUST follow.
+
+### Inline panel markers
+
+Any panel that surfaces wire payloads can encounter a redacted slot:
+the privacy walker drops `:sensitive? true` values BEFORE the
+trace bus ever pushes them (per
+[Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)),
+and the framework's tool-pair surfaces (per
+[Tool-Pair.md](../../../spec/Tool-Pair.md)) drop or redact at the
+wire boundary. The panel renders a payload that ALREADY has the
+sensitive descendants removed. Each removal slot MUST surface a
+`[● REDACTED N]` marker so the user can SEE the gap.
+
+Panels that MUST render inline markers when they surface
+wire-elided values:
+
+- **App-db** (`004-App-DB-Diff.md`) — both the slice tree and the
+  diff before/after columns.
+- **Epoch detail / Events** — the dispatch vector, the
+  `:rf/epoch-record` `:db-before` / `:db-after` slots, the
+  per-handler trace stream surfaced in the event detail.
+- **Subscriptions** (`012-Subscriptions.md`) — the sub-cache
+  output column.
+- **Effects** — the `:fx-args` payload column and every `reg-fx`
+  return.
+- **Trace** (`013-Trace-Bus.md` §Filter vocabulary) — any
+  buffer-row value column.
+- **Machines** (`003-Machine-Inspector.md`) — the current-state
+  payload and transition-history side panels.
+
+Inline markers replace the value at the redacted path. The marker's
+`N` counts the redactions **at the marker's scope** — a single
+dropped value renders `[● REDACTED 1]` in that slot; a redacted
+subtree carrying three sensitive descendants renders
+`[● REDACTED 3]` at the subtree root and no descendant markers (the
+parent count subsumes the children). The scope-local count contrasts
+deliberately with the bottom-rail's total: the inline count answers
+"how much is hidden HERE", the rail answers "how much is hidden
+across the session".
+
+### Hover and click affordance
+
+Both surfaces (chrome + inline) MUST expose the same metadata on
+hover (via `title` tooltip) and on click (via a popover).
+
+The hover tooltip MUST disclose:
+
+1. The Spec 009 privacy default (which gate dropped the value).
+2. The opt-in path: `(causa-config/configure! {:trace/show-sensitive? true})`.
+3. The local count `N`.
+
+The click popover MUST additionally disclose, where applicable:
+
+- The **structural key path** the redaction occupied (the path the
+  privacy walker dropped at; for chrome-level redactions where no
+  single path applies, the popover lists the per-frame buckets
+  from the `[:suppressed-counters]` slot).
+- The **reason source** — the `:sensitive?` flag on the relevant
+  trace event (per
+  [Spec 009 §The `:sensitive?` registration metadata key](../../../spec/009-Instrumentation.md#the-sensitive-registration-metadata-key)).
+
+The click affordance MUST be **one-way disclosure of structure**, not
+fetch. The redacted value itself is **gone** — the privacy walker
+drops it before the wire boundary, and the trace bus never buffers
+it. The popover MUST NOT offer a "fetch redacted value" button, a
+"reveal once" link, or any other affordance that suggests the value
+is recoverable. The only path to seeing sensitive payloads is the
+host-level opt-in (`configure!`), which is a deliberate code-level
+act gating future events — drop-and-forget is the contract.
+
+### Contrast with `[● ELIDED N]` for `:large?`
+
+The `:large?` size-elision mechanism per
+[Spec 009 §Wire marker — `:rf.size/large-elided`](../../../spec/009-Instrumentation.md#wire-marker--rfsizelarge-elided)
+shares the visual grammar but DIFFERS in affordance and copy:
+
+| Axis | Redacted (`:sensitive?`) | Elided (`:large?`) |
+|---|---|---|
+| Marker | `[● REDACTED N]` | `[● ELIDED N]` |
+| Hue | Co-pilot magenta `#E879F9` | Yellow `#FBBF24` (warning hue per §Colour system) |
+| Source | Privacy walker (drop) | Size walker (substitute with marker carrying `:digest` + `:bytes` + fetch handle) |
+| Click | Discloses structure; **no fetch** | Discloses structure; **offers fetch** (the marker's handle round-trips via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md)) |
+| Recoverable? | No — value is gone at the source | Yes — value is on-box, addressable by handle |
+| Bottom rail | Per-session total (rolling) | Not summarised in chrome (per-marker count only) |
+
+The two markers MUST NOT share the same hue: magenta for
+"privacy-dropped, gone" and yellow for "size-elided, fetch-on-click"
+keeps the eye distinct and the user's mental model intact (privacy
+is a one-way door; size is a lazy door).
+
+### `prefers-reduced-motion`
+
+The indicator does not animate on first appearance — it renders in
+place at next paint. The hover tooltip and click popover share the
+panel-switch fade (180ms) which clamps to 0 under
+`prefers-reduced-motion` per §Motion + animation.
+
+### Cross-references
+
+- Counter contract:
+  [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Suppressed-sensitive
+  counter.
+- Configuration flag:
+  [`015-Configuration.md`](./015-Configuration.md)
+  §`:trace/show-sensitive?` and §App-db slots.
+- Subscription + event registry:
+  [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md)
+  §Shared infrastructure
+  (`:rf.causa/suppressed-sensitive-count`,
+  `:rf.causa/note-sensitive-suppressed`,
+  `:rf.causa/reset-suppressed-counters`).
+- Privacy spec:
+  [Spec 009 §Privacy + sensitive data in traces](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces).
+- Size-elision marker:
+  [Spec 009 §Wire marker — `:rf.size/large-elided`](../../../spec/009-Instrumentation.md#wire-marker--rfsizelarge-elided).
+- rf2-azls9 — the bottom-rail implementation bead.
+- rf2-0vxdn — reactive sub-graph plumbing (immediate counter
+  updates).
+
 ## Sidebar groups
 
 Three groups, divider-separated:
