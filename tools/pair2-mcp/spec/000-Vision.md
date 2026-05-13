@@ -1,5 +1,11 @@
 # 000-Vision: re-frame-pair2 MCP server
 
+> Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
+> pair2-mcp is the canonical consumer of `get-frame-db`,
+> `epoch-history`, `register-trace-cb!`, `register-epoch-cb!`,
+> `restore-epoch`, `reset-frame-db!`, `dispatch`, `dispatch-sync`,
+> plus the destroyed-frame and operating-frame rules.
+
 ## Why it exists
 
 The bash-shim chain in `skills/re-frame-pair2/scripts/` pays a heavy

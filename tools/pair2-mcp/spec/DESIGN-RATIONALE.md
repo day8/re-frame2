@@ -1,5 +1,10 @@
 # DESIGN-RATIONALE
 
+> Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
+> the locks below operate within that contract; where a decision
+> intersects a Tool-Pair primitive, the spec there is the source of
+> truth.
+
 The direction-setting decisions that shape pair2-mcp. Each entry
 captures:
 

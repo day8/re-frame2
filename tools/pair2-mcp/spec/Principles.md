@@ -1,5 +1,9 @@
 # Principles
 
+> Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
+> these principles tie-break design decisions within the bounds that
+> contract sets for pair-shaped AI tools.
+
 The load-bearing principles. When a design call has two reasonable
 options, these are the tie-breakers. Implementers and contributors
 should be able to read this doc and reach the same answers

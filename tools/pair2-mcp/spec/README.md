@@ -1,5 +1,9 @@
 # re-frame-pair2 MCP server — Spec
 
+> Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
+> the framework-side contract for pair-shaped AI tools. pair2-mcp is
+> the canonical consumer of its primitives.
+
 ## Files
 
 - **[000-Vision.md](000-Vision.md)** — Why an MCP server beats the bash-shim chain: pay cold-connect cost once per session, not per op (~700ms → ~5–50ms).
