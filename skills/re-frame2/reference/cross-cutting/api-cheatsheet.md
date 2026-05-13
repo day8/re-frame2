@@ -78,7 +78,6 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore |
 | `ts/dispatch-sequence` | `(events)` / `(events opts)` — sync-drain each, `:after-each` hook |
 | `ts/assert-state` | `(expected-db)` / `(path expected-val)` / `(... opts)` |
-| `ts/run-test-sync` | `(& body)` — v1 compat shim |
 
 ## SSR — `day8/re-frame2-ssr`
 

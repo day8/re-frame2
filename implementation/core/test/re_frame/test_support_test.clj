@@ -4,7 +4,6 @@
 
     - dispatch-sequence
     - assert-state
-    - run-test-sync
 
   The fixture machinery (snapshot-registrar / with-fresh-registrar /
   reset-runtime-fixture) is exercised transitively by the rest of the
@@ -144,38 +143,3 @@
       (is (= [:pass :pass] outcomes)
           ":rf/default and the named frame each carry their own state"))))
 
-;; ---- run-test-sync --------------------------------------------------------
-
-(deftest run-test-sync-wraps-body
-  (testing "body executes; assertions inside fire normally"
-    (register-counter-handlers!)
-    (rf/dispatch-sync [:counter/init])
-    (ts/run-test-sync
-      (rf/dispatch-sync [:counter/inc])
-      (rf/dispatch-sync [:counter/inc])
-      (is (= 2 (:n (rf/get-frame-db :rf/default)))))))
-
-(deftest run-test-sync-rolls-back-test-local-registrations
-  (testing "registrations made inside the body are rolled back on exit"
-    (let [id-before (registrar/lookup :event :test-support.run-sync/in-body)]
-      (is (nil? id-before)
-          "sanity: the test-local event id is not registered up front")
-      (ts/run-test-sync
-        (rf/reg-event-db :test-support.run-sync/in-body (fn [db _] db))
-        (is (some? (registrar/lookup :event :test-support.run-sync/in-body))
-            "registration is visible inside the body"))
-      (is (nil? (registrar/lookup :event :test-support.run-sync/in-body))
-          "registration was rolled back after the body returned"))))
-
-(deftest run-test-sync-rolls-back-on-exception
-  (testing "rollback fires even when the body throws"
-    (let [thrown? (atom false)]
-      (try
-        (ts/run-test-sync
-          (rf/reg-event-db :test-support.run-sync/throw-id (fn [db _] db))
-          (throw (ex-info "boom" {})))
-        (catch Throwable _
-          (reset! thrown? true)))
-      (is @thrown? "the body's exception propagated")
-      (is (nil? (registrar/lookup :event :test-support.run-sync/throw-id))
-          "registration was rolled back despite the throw"))))

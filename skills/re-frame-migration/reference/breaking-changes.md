@@ -42,7 +42,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `(rf/reg-view :ns/id render-fn)` keyword-shape calls | **M-22** | A | Rewrite to defn-shape: `(rf/reg-view view-name [args] body)`. Drop `(rf/dispatcher)` / `(rf/subscriber)` captures (auto-injected). Use `^{:rf/id ...}` metadata for explicit ids; use `reg-view*` for computed ids / non-fn bodies. |
 | `(:require [re-frame.alpha ...])` — `reg`, `sub`, `reg-sub-lifecycle`, `:re-frame/lifecycle` annotations | **M-23** | A/B | Mechanical: `reg :event-fx` → `reg-event-fx`; query-map `sub` → vector `subscribe`. Drop lifecycle policy annotations (file follow-up bead if a real edge case). |
 | `(rf/h ...)` hiccup walker | **M-24** | A | Var-ref form (`[counter "..."]`) for the common case; `(rf/view :id)` for late-binding; drop the wrapper for HTML-only hiccup. |
-| `(:require [re-frame.test ...])` or `[day8.re-frame.test ...]` | **M-25** | A | Rename to `re-frame.test-support` (helpers `dispatch-sequence` / `assert-state` / `run-test-sync` keep their names). Drop `day8/re-frame-test` Maven coord — ships in core. |
+| `(:require [re-frame.test ...])` or `[day8.re-frame.test ...]` | **M-25** | A | Rename to `re-frame.test-support` (helpers `dispatch-sequence` / `assert-state` keep their names). `run-test-sync` is dropped — hoist body to inline `dispatch-sync` under `reset-runtime-fixture` per **M-52**. Drop `day8/re-frame-test` Maven coord — ships in core. |
 | `with-trace`, `merge-trace!`, `finish-trace`, `trace-api-version`, `add-post-event-callback`, `remove-post-event-callback`, `purge-event-queue`, `dispatch-and-settle`, `spawn-machine`, `destroy-machine` | **M-26** | A/B | Drift-sweep drops. Each maps to a v2 surface; see the full table inline. `add-post-event-callback` is Type B; the rest mostly A. |
 | `reg-app-schema` / `reg-event-schema` / `:spec` metadata | **M-27** | A | Add `day8/re-frame2-schemas` artefact; user code's API surface in `re-frame.core` is unchanged. |
 | `reg-machine` / `create-machine-handler` / `sub-machine` | **M-28** | A | Add `day8/re-frame2-machines` artefact; require `re-frame.machines` in any namespace using machine surfaces. |
@@ -68,6 +68,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `:type :parallel` machines with map-shaped `:state` | M-48 | — | Additive. No user-side action. |
 | Snapshot `:state` reader pattern-matching against the third arm (map) | M-49 | — | Additive; widens to a third arm. Readers that pattern-match exhaustively on `:state` may need to widen the dispatch. |
 | Unary `reg-fx` handler `(fn [args] ...)` | **M-51** | A | Mechanical: `(fn [args] body)` → `(fn [_ args] body)`. The unary back-compat path is cut; the runtime invokes every fx with two args. Async handlers should additionally capture `(rf/dispatcher)` for frame-aware callbacks. |
+| `(ts/run-test-sync ...)` / `(re-frame-test/run-test-sync ...)` | **M-52** | A | Removed. Hoist body to inline `dispatch-sync` calls under the standard `reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bracketing). v2's `dispatch-sync` is already settle-by-default; the macro was pure migration tax. |
 
 The M-numbered slots that are "informational only" / "additive" / "—" still appear so an agent walking the rule list doesn't get confused by gaps. There is no user-side action required for those rules.
 
@@ -97,7 +98,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 
 ## Type A vs Type B — at a glance
 
-**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42, M-50, M-51.
+**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42, M-50, M-51, M-52.
 
 **Type B — ask before applying.** The rewrite depends on intent the agent cannot recover statically. M-3, M-5 (Var-aliasing half), M-10, M-11, M-12, M-13, M-14, M-15, M-17 (multi-frame half), M-18, M-19, M-21 (`on-changes` / `enrich` / `after` half), M-23 (lifecycle policy half), M-26 (`add-post-event-callback` / error-handler half).
 

@@ -247,20 +247,6 @@ A `clojure.test`-aware assertion that doubles as the path-or-full-db check:
 
 Mismatch fires a `clojure.test/is`-style failure via `do-report`. The path form is the common case; the full-db form is for "the whole thing should equal this" assertions in small fixtures.
 
-### `run-test-sync` (compatibility shim)
-
-For mechanical migration of v1 tests written against `day8/re-frame-test`'s `run-test-sync`:
-
-```clojure
-(deftest legacy-flow
-  (ts/run-test-sync
-    (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
-    (rf/dispatch-sync [:counter/inc])
-    (is (= 1 (:n (rf/get-frame-db :rf/default))))))
-```
-
-The macro snapshots the registrar before the body and restores on exit (success or exception). v2's `dispatch-sync` already drains synchronously, so the macro is a body wrapper — its job is registrar isolation, not synchronicity. New tests don't need it; existing v1 test suites get a name-rename and keep working.
-
 ## JVM vs CLJS — what runs where
 
 A defining property of re-frame2's testing surface: **almost everything runs on the JVM**. You don't need a browser, JSDOM, a CLJS test runner, or a headless Chrome to test event handlers, fxs, subs, machine transitions, or whole event cascades.
