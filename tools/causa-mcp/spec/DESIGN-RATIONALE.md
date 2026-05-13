@@ -382,9 +382,38 @@ maven coord shape?
   and the agent surface under the `day8/re-frame2-*` namespace.
   Dropping the `re-frame2-` prefix on npm would suggest Causa
   is framework-agnostic; it isn't.
-- **Pair2-mcp precedent.** pair2-mcp uses
-  `@day8/re-frame-pair2-mcp` (matching the maven
-  `day8/re-frame-pair2-mcp`); Causa-MCP mirrors the shape.
+- **The shape is `re-frame2-<tool>-mcp`, deliberately.** Causa-MCP
+  picks `@day8/re-frame2-causa-mcp` — the `2` rides on the
+  framework name, not the tool name. story-mcp already follows
+  the same shape (`day8/re-frame2-story-mcp`, per
+  [`tools/story-mcp/deps.edn`](../../story-mcp/deps.edn) and
+  [`tools/story-mcp/spec/000-Vision.md`](../../story-mcp/spec/000-Vision.md));
+  future MCP artefacts inherit this shape, not pair2-mcp's. The
+  symmetry posture (per
+  [`Principles.md`](./Principles.md) §"Tight token budget per
+  response" and §"Cross-server alignment", and Spec
+  [`Principles.md`](../../../spec/Principles.md)) is that agents
+  "learn the slot on one server, get the same on the others" —
+  the maven/npm coord is one of those slots.
+- **Pair2-mcp diverges; the divergence is historical, not
+  normative.** pair2-mcp's coord is `@day8/re-frame-pair2-mcp`
+  — bare `re-frame` framework, the `2` carried by the tool name
+  as `pair2`. That shape pre-dates the framework's `re-frame` →
+  `re-frame2` rename and was locked-in by published artefacts
+  (`npm install -g @day8/re-frame-pair2-mcp` in
+  [`tools/pair2-mcp/README.md`](../../pair2-mcp/README.md), the
+  `skills/re-frame-pair2/scripts/*.sh` shims, the maven coord
+  `day8/re-frame-pair2-mcp` in
+  [`tools/pair2-mcp/deps.edn`](../../pair2-mcp/deps.edn))
+  before causa-mcp's coord was picked. Causa-MCP launches
+  post-rename and picks the post-rename shape; the divergence
+  is intentional and one-directional — **new MCP artefacts adopt
+  Causa-MCP's shape (`re-frame2-<tool>-mcp`), not pair2-mcp's
+  (`re-frame-<tool>2-mcp`).** A separate v1.0-major-bump bead
+  may rename pair2-mcp's coord to eliminate the divergence
+  permanently (tracked at rf2-5ky6c); that's a published-artefact
+  migration, not a pre-impl spec concern, and out of scope for
+  this lock.
 - **Search-distinguishable.** `causa-mcp` (no scope) is at risk
   of collision with whatever else "causa" comes to mean in the
   npm ecosystem. The scoped name is unambiguous.
@@ -410,7 +439,28 @@ so the npm coord doesn't drift when implementation lands.
   [`010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
   §Install + configure.
 - pair2-mcp's npm coord
-  ([`tools/pair2-mcp/README.md`](../../pair2-mcp/README.md)).
+  ([`tools/pair2-mcp/README.md`](../../pair2-mcp/README.md))
+  — the diverging precedent (`@day8/re-frame-pair2-mcp`), locked
+  in by published artefacts before the framework's
+  `re-frame` → `re-frame2` rename.
+- story-mcp's coord
+  ([`tools/story-mcp/deps.edn`](../../story-mcp/deps.edn),
+  [`tools/story-mcp/spec/000-Vision.md`](../../story-mcp/spec/000-Vision.md))
+  — `day8/re-frame2-story-mcp`, the shape Causa-MCP shares and
+  future MCP artefacts inherit.
+- rf2-l7skx (this revision, 2026-05-14) — the audit-driven
+  reconcile that pinned the divergence explicitly. Surfaced by
+  rf2-m9yoi (the rf2-22my5 / rf2-c9b90 follow-on audit).
+
+### Date amended
+
+2026-05-14 (Mike). Lock #6 was silent on the coord-shape
+divergence from pair2-mcp at first locking (2026-05-12); the
+rf2-m9yoi audit surfaced the silence as a §Q3 finding and
+rf2-l7skx amended the Why subsection to pin the divergence
+explicitly. The pick is unchanged
+(`@day8/re-frame2-causa-mcp`); the amendment is reasoning-trail
+only.
 
 ---
 
@@ -879,7 +929,7 @@ calculus as Locks #9 and #10.
 | 3 | Connection model | **Single persistent nREPL socket** (inherited from pair2-mcp Lock #3) | 2026-05-12 |
 | 4 | Origin tagging | **Default-on, opt-out per call — `:origin :causa-mcp`** | 2026-05-12 |
 | 5 | Tool catalogue | **Seventeen tools across five bands; closed-set + `eval-cljs` escape valve** | 2026-05-12 |
-| 6 | npm package coord | **`@day8/re-frame2-causa-mcp`** | 2026-05-12 |
+| 6 | npm package coord | **`@day8/re-frame2-causa-mcp`** (shape `re-frame2-<tool>-mcp`; story-mcp matches; pair2-mcp's `re-frame-<tool>2-mcp` shape is a pre-rename divergence pinned 2026-05-14 by rf2-l7skx) | 2026-05-12 (amended 2026-05-14) |
 | 7 | Chrome DevTools MCP posture | **Co-install, stay in lane** | 2026-05-12 |
 | 8 | bencode pinning | **`bencode@~2.0.3`** (inherited from pair2-mcp Lock #5) | 2026-05-12 |
 | 9 | Wire-protocol budget posture | **Six mechanisms baked into spec before impl** (cap + slicing + pagination + lazy-summary + dedup + size-elision; mechanism #6 added by Lock #10) | 2026-05-13 |
