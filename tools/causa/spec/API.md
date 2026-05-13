@@ -178,7 +178,9 @@ dispatches to the configured editor:
 | `:idea`             | `idea://open?file=<path>&line=<line>&column=<column>` |
 | `{:custom <tpl>}`   | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
 
-Host applications set the preference at boot:
+Host applications set the preference at boot via the `configure!`
+entry point (full key surface normatively enumerated in
+[`015-Configuration.md`](./015-Configuration.md)):
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
@@ -220,7 +222,11 @@ MCP spec.
 ## Settings keys
 
 Settings persist in `localStorage` under the key
-`day8.re-frame2-causa/settings/v1`. Shape (validated by Malli):
+`day8.re-frame2-causa/settings/v1`. Distinct from the boot-time
+`configure!` surface enumerated in
+[`015-Configuration.md`](./015-Configuration.md) (which writes
+process-global atoms) and from `(causa/init! opts)` above (which
+wires per-instance panel state). Shape (validated by Malli):
 
 ```clojure
 {:theme         :dark / :light / :high-contrast

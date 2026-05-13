@@ -282,9 +282,9 @@ host pattern:
    :buffer-depths         {:trace 5000}})
 ```
 
-The full config-key surface is the responsibility of bead `rf2-imw8w`
-(spec for `configure!` + privacy-flag keys); this doc enumerates only
-the keys that affect the bus's collector path.
+The full `configure!` key surface is enumerated normatively in
+[`015-Configuration.md`](./015-Configuration.md) (rf2-imw8w); this doc
+enumerates only the keys that affect the bus's collector path.
 
 ## Edge cases
 
