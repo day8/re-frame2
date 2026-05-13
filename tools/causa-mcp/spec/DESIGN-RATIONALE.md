@@ -210,10 +210,11 @@ with what discipline (default-on / default-off / mandatory)?
 point of every mutating tool (`dispatch`, `reset-frame-db`,
 `restore-epoch`) and at the boundary of `eval-cljs` (any
 dispatch the eval'd form triggers inherits the tag via the
-runtime install hook's
-`re-frame2-causa-mcp.runtime/current-origin` dynamic var). An
-agent that genuinely wants to simulate a user click passes
-`:origin :app` explicitly — the override is one keyword.
+**injected-runtime** install hook's
+`day8.re-frame2-causa.runtime/current-origin` dynamic var, per
+Lock #11's two-namespace split). An agent that genuinely wants
+to simulate a user click passes `:origin :app` explicitly — the
+override is one keyword.
 
 ### Why
 
@@ -729,6 +730,146 @@ catalogue contract".
 
 ---
 
+## Lock #11 — MCP-server-ns and injected-runtime-ns are distinct
+
+**Locked 2026-05-14 (Mike).** **The MCP-server-side code lives
+under `day8.re-frame2-causa-mcp.*` (Node-only); the
+injected-runtime-side code lives under
+`day8.re-frame2-causa.runtime` (browser-only, parented by
+Causa-the-panel's existing root and loaded via its `:preloads`
+classpath).** The two namespaces never share a process and never
+share a classpath; they communicate only via eval-form strings
+sent over the bencode-framed nREPL bridge.
+
+### Question
+
+Spec scaffold authoring (rf2-22my5, PR #823) shipped with a
+single namespace `re-frame2-causa-mcp.runtime` covering both the
+MCP-server's code and the browser-side runtime accessors the
+server eval-targets. The pair2-mcp template, on which the
+Causa-MCP architecture is explicitly modelled (Locks #1–#3, #8),
+splits the two cleanly into `re-frame-pair2-mcp.*` (Node-side,
+`tools/pair2-mcp/src/`) and `re-frame-pair2.runtime` (browser-side,
+`skills/re-frame-pair2/preload/`). Should Causa-MCP's spec follow
+the same split, or collapse the two into one (and document the
+dual role)?
+
+### Options considered
+
+- **Option A — split the namespaces.** Mirror pair2-mcp exactly:
+  Node-side server code at `day8.re-frame2-causa-mcp.*`,
+  browser-side injected runtime at `day8.re-frame2-causa.runtime`
+  (riding Causa-the-panel's `day8.re-frame2-causa.*` root because
+  the runtime is loaded by Causa's preload, not by a separate
+  MCP-only preload).
+- **Option B — collapse the namespaces.** Keep the single
+  `re-frame2-causa-mcp.runtime` ns and document the dual role:
+  "the same namespace is loaded server-side in the Node MCP
+  process and runtime-side in the consumer app's browser; the
+  runtime-side functions are gated by environment-detection".
+- **Option C — split differently.** Server-side at
+  `re-frame2-causa-mcp.*`, browser-side at
+  `re-frame2-causa.runtime` (drop the `day8.` Maven-style prefix
+  on both to match Causa-the-panel's pair2-mcp inheritance ns
+  shape).
+
+### Pick
+
+**Option A.** Two namespaces, two locations, two roles, parented
+exactly the way pair2-mcp parents its analogous pair:
+
+| Side | Root ns | Lives in | Loaded by |
+|---|---|---|---|
+| MCP server (Node) | `day8.re-frame2-causa-mcp.*` | `tools/causa-mcp/src/` | `npx @day8/re-frame2-causa-mcp` |
+| Injected runtime (browser) | `day8.re-frame2-causa.runtime` | Causa-the-panel preload | shadow-cljs `:devtools :preloads` |
+
+The `day8.` Maven-style prefix is kept on both because
+Causa-the-panel already uses `day8.re-frame2-causa.*` for its
+own browser-side code (per
+[`tools/causa/src/day8/re_frame2_causa/`](../../causa/src/day8/re_frame2_causa/))
+and the injected runtime rides the same preload as Causa-the-panel.
+The MCP server's own code is parented `day8.re-frame2-causa-mcp.*`
+matching the maven coord `day8/re-frame2-causa-mcp` (Lock #6) and
+the npm coord `@day8/re-frame2-causa-mcp` (Lock #6).
+
+### Why
+
+- **Bundle isolation is the load-bearing rule.** Per
+  [`tools/README.md`](../../README.md), MCP-server code must
+  never reach a consumer app's preload classpath. A single-ns
+  conflation forces the consumer's preload to pull
+  `@modelcontextprotocol/sdk` + the bencode framer + the
+  Node-side stdio plumbing into the browser bundle — wreckage
+  Causa-the-panel already pays lint gates to avoid. The split
+  enforces the isolation at the `:require` line rather than at
+  review time.
+- **Mirroring pair2-mcp is free architectural alignment.**
+  Pair2-mcp's `re-frame-pair2-mcp.*` / `re-frame-pair2.runtime`
+  split is the proven precedent (rf2-7dvg cut the inject step
+  in favour of `:preloads`, locking the two-ns shape). Causa-MCP
+  inheriting Locks #1–#3 + #8 from pair2-mcp implies the same
+  bundle-shape inheritance; collapsing the namespaces would
+  invert that inheritance silently.
+- **Reviewer/implementer ergonomics.** A code-review comment
+  asking "is this op a server-side or runtime-side concern?"
+  becomes mechanical on a two-ns layout: read the namespace,
+  done. On a single-ns layout, the answer requires reading the
+  whole function body and reasoning about which globals exist
+  in which environment.
+- **The runtime parented by Causa, not the MCP server, is the
+  right shape.** The runtime *is* a browser-side artefact; its
+  natural home is alongside the panel's other browser-side
+  preloads. Parenting it `day8.re-frame2-causa-mcp.*` would
+  suggest it ships *with* the MCP server (Node-side), which is
+  wrong: the runtime ships with Causa-the-panel, and the MCP
+  server's eval forms address it by name once it's already
+  loaded.
+- **Option C (drop the `day8.` prefix) was rejected** because
+  Causa-the-panel's own browser-side code uses
+  `day8.re-frame2-causa.*` (e.g. `day8.re-frame2-causa.preload`,
+  `day8.re-frame2-causa.trace-bus`); the injected runtime
+  sharing that root is what makes it a natural Causa-panel
+  preload. Pair2-mcp's choice to drop the day8 prefix
+  (`re-frame-pair2.runtime` instead of
+  `day8.re-frame-pair2.runtime`) was a pre-existing
+  inconsistency the Causa-MCP folder doesn't have to inherit;
+  Causa-the-panel's `day8.` prefix is the local convention.
+- **Option B (collapse and document dual role) was rejected**
+  because environment-detection at function-call time replaces
+  a static layout invariant with a runtime check. Static
+  layout is cheaper, lint-detectable, and impossible to break
+  by accident.
+
+### Date locked
+
+2026-05-14 (Mike). Locked in rf2-c9b90 (this revision),
+following the rf2-m9yoi audit which surfaced the conflation in
+the 2026-05-13 spec scaffold (rf2-22my5, PR #823). Pre-dates
+`tools/causa-mcp/src/` by design — the same "bake-before-impl"
+calculus as Locks #9 and #10.
+
+### Trail-of-thought citations
+
+- pair2-mcp source layout:
+  [`tools/pair2-mcp/src/re_frame_pair2_mcp/`](../../pair2-mcp/src/re_frame_pair2_mcp/)
+  (server-side: `server.cljs`, `tools.cljs`, `cache.cljs`,
+  `nrepl.cljs`) and
+  [`skills/re-frame-pair2/preload/re_frame_pair2/runtime.cljs`](../../../skills/re-frame-pair2/preload/re_frame_pair2/runtime.cljs)
+  (browser-side) — the precedent.
+- pair2-mcp Principles §"Tool consumes the framework" — names
+  `re-frame-pair2.runtime` as the injected-runtime ns, distinct
+  from the MCP-server-side code that consumes it.
+- Causa-the-panel ns layout:
+  [`tools/causa/src/day8/re_frame2_causa/`](../../causa/src/day8/re_frame2_causa/)
+  — the `day8.re-frame2-causa.*` umbrella the injected runtime
+  parents under.
+- [`tools/README.md`](../../README.md) §Bundle isolation — the
+  rule the split enforces.
+- rf2-m9yoi (the audit that surfaced the conflation in
+  rf2-22my5's spec scaffold).
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -743,8 +884,9 @@ catalogue contract".
 | 8 | bencode pinning | **`bencode@~2.0.3`** (inherited from pair2-mcp Lock #5) | 2026-05-12 |
 | 9 | Wire-protocol budget posture | **Six mechanisms baked into spec before impl** (cap + slicing + pagination + lazy-summary + dedup + size-elision; mechanism #6 added by Lock #10) | 2026-05-13 |
 | 10 | Size-elision marker shape | **`:rf.size/large-elided` is the sixth mechanism; shape normative across MCP triplet; sensitive wins on composition** | 2026-05-13 |
+| 11 | Namespace split | **MCP-server-side at `day8.re-frame2-causa-mcp.*` (Node); injected-runtime-side at `day8.re-frame2-causa.runtime` (browser, rides Causa-the-panel's preload). Mirrors pair2-mcp's `re-frame-pair2-mcp.*` / `re-frame-pair2.runtime` split.** | 2026-05-14 |
 
-These ten locks define Causa-MCP's pre-implementation surface.
+These eleven locks define Causa-MCP's pre-implementation surface.
 They were extracted from
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 and [Causa's own DESIGN-RATIONALE](../../causa/spec/DESIGN-RATIONALE.md)
