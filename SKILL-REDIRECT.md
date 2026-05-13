@@ -3,6 +3,28 @@
 Canonical pointer table for AI skills. Skills stay free of hardcoded URLs;
 this file owns them. Update once when a URL changes.
 
+<!--
+ANCHOR COUPLING — read before editing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Leaf skill files cite the bullet labels below as routing anchors, e.g.
+  `SKILL-REDIRECT.md` -> *EP - Frames (002)*
+  `SKILL-REDIRECT.md` -> *Pattern - WebSocket*
+
+If you rename a bullet label here, every leaf citing it goes stale silently.
+Before editing labels, run the drift checker from the repo root:
+
+    python3 scripts/check_skill_redirect_anchors.py
+
+It walks `skills/**/*.md`, extracts every `SKILL-REDIRECT.md -> *Label*`
+reference, and verifies the label matches a bullet below. Non-zero exit on
+drift, with each broken reference printed. Run it again after editing.
+
+When adding a new bullet, keep the format `- **Label** -> URL [tag] [tag]`;
+that's the shape the checker (and human readers) expects.
+-->
+
+
 ## Skill index — what to scan for
 
 Find your skill, scan the audience section for lines tagged with it.
