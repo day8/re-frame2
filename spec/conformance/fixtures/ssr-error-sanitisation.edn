@@ -37,10 +37,12 @@
  :fixture/expect
  {;; The runtime's error-projection listener writes :status 500 to the
   ;; response accumulator (the locked generic-500 from the default
-  ;; projector). This is the projector's output reaching the wire.
-  :final-app-db
-  {:rf/response {:status 500
-                 :redirect nil}}
+  ;; projector). The accumulator is a framework-private side-channel
+  ;; atom keyed on frame-id (rf2-jbcmt) — NOT in app-db — so the
+  ;; projector's output is pinned via :ssr/public-error below; the
+  ;; final app-db is empty (the throw aborted the handler before any
+  ;; user-visible state could land).
+  :final-app-db {}
 
   ;; Internal trace event preserves full detail (for monitoring).
   :trace-emissions

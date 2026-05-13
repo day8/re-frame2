@@ -97,8 +97,13 @@
 (def ^:private fnv-1a-32             hash/fnv-1a-32)
 (def adapter                         adapter-ns/adapter)
 (def verify-hydration!               hydrate/verify-hydration!)
-(def response-path                   response/response-path)
 (def default-response                response/default-response)
+;; framework-private — Spec 011 §Response storage substrate (rf2-jbcmt).
+;; The accumulator lives in a side-channel atom keyed by frame-id, NOT
+;; in app-db, so it cannot ride the hydration payload to the client and
+;; per-fx writes are O(small-map) rather than a full app-db replacement.
+;; Tests reach the var via `(resolve 're-frame.ssr/response-slots)`.
+(def ^:private response-slots        response/response-slots)
 (def public-error-keys               error-projector/public-error-keys)
 (def fallback-public-error           error-projector/fallback-public-error)
 (def default-error-projector-fn      error-projector/default-error-projector-fn)
@@ -232,9 +237,12 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 (late-bind/set-fn! :ssr/render-to-string    render-to-string)
 (late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
 (late-bind/set-fn! :ssr/project-error       project-error)
-;; rf2-fcj33 — per-request frame teardown. `frame/destroy-frame!` looks up
-;; this hook and clears the SSR side-channel atoms (`pending-error-traces`,
-;; `request-slots`) for the destroyed frame.
+;; rf2-fcj33 + rf2-jbcmt — per-request frame teardown. `frame/destroy-frame!`
+;; looks up this hook and clears the SSR side-channel atoms
+;; (`pending-error-traces`, `request-slots`, `response-slots`) for the
+;; destroyed frame. `response-slots` joined the set under rf2-jbcmt when
+;; the `:rf/response` accumulator moved off `app-db` to plug the hydration-
+;; payload leak / per-fx full-app-db swap.
 (late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
 
 ;; rf2-4dra9 — `re-frame.ssr.head` is required from the top-of-file ns

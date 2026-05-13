@@ -42,6 +42,16 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  ;; SSR side-channel atoms keyed on frame-id (per Spec 011 §Per-request
+  ;; frame teardown contract). The response-slots and pending-error-traces
+  ;; vars are framework-private (^:private at the façade); resolve them
+  ;; reflectively so process-wide stale entries from prior tests can't bleed
+  ;; into this one. request-slots is public; reset directly.
+  (reset! ssr/request-slots {})
+  (when-let [v (resolve 're-frame.ssr/response-slots)]
+    (reset! @v {}))
+  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
+    (reset! @v {}))
   (rf/init! ssr/adapter)
   ;; Framework registrations happen at namespace-load time in
   ;; routing.cljc / ssr.cljc / machines.cljc; clear-all! wiped them, so

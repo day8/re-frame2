@@ -2,10 +2,34 @@
   "HTTP response accumulator + handler fns for the six `:rf.server/*`
   server-side fxs. Per Spec 011 §HTTP response contract.
 
-  The runtime owns a per-request response accumulator at `[:rf/response]`
-  in the request frame's app-db. Standard server-only fx populate the
-  slot during the drain; the host adapter consumes the resolved value
-  after drain to build the wire response.
+  The runtime owns a per-request response accumulator in a
+  framework-private side-channel atom keyed by frame-id — `response-slots`
+  below. Standard server-only fx populate the slot during the drain;
+  the host adapter consumes the resolved value after drain to build the
+  wire response.
+
+  Storage substrate (rf2-jbcmt). Per Spec 011 §Response storage substrate
+  the accumulator MUST NOT ride `app-db`. The substrate symmetry with
+  `request-slots` is intentional:
+
+  - **Privacy.** `app-db` is the hydration payload's source (the
+    `:rf/app-db` slice ships to the client on bootstrap). The response
+    accumulator routinely carries server-only data — `Set-Cookie`
+    headers (auth tokens, session ids), internal `X-*` headers, redirect
+    URLs that may encode internal hostnames or secrets. Storing the
+    accumulator in `app-db` would default-leak that surface onto the
+    wire and force every host adapter to remember a defensive
+    `(dissoc :rf/response)` before serialising the payload — a privacy
+    boundary that's a constant caller-vigilance burden is a leak waiting
+    to happen. Side-channel storage makes the boundary self-enforcing.
+  - **Perf.** Pre-rf2-jbcmt every `:rf.server/*` fx swapped the WHOLE
+    app-db container (`read-container → assoc → replace-container!`)
+    just to update the accumulator. For a 7-fx response shape (typical
+    login flow: `set-status` + 2× `set-cookie` + 3× `set-header` +
+    `redirect`), that's seven full-app-db replacements per request —
+    each one allocating a fresh container value with one key changed.
+    The side-channel swap is O(small-map): one atom CAS against a
+    `{frame-id → response-map}` table.
 
   Default shape (Spec 011 §HTTP response contract):
 
@@ -29,16 +53,24 @@
   depends on the projector's drain — `response-of` here is the pure
   read used both internally and by the listener module.
 
+  `clear-response!` is called by `re-frame.ssr.request/on-frame-destroyed!`
+  via the `:ssr/on-frame-destroyed` late-bind hook (rf2-fcj33) so the
+  slot is released on per-request frame teardown.
+
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
-(def response-path
-  "App-db path holding the per-request HTTP response accumulator.
-  Per Spec 011 §HTTP response contract."
-  [:rf/response])
+(defonce
+  ^{:doc "Per-frame storage for the HTTP response accumulator. Keys are
+  frame-ids; values are the accumulator map (`{:status :headers :cookies
+  :redirect ...}` plus internal `:rf.server/_status-writes` /
+  `:rf.server/_redirect-writes` bookkeeping). Framework-private —
+  not stored in `app-db` so the accumulator never rides the hydration
+  payload to the client (Spec 011 §Response storage substrate, rf2-jbcmt).
+  Cleared per-frame by the `:ssr/on-frame-destroyed` hook (rf2-fcj33)."}
+  response-slots
+  (atom {}))
 
 (def status-writes-key   :rf.server/_status-writes)
 (def redirect-writes-key :rf.server/_redirect-writes)
@@ -53,7 +85,7 @@
    :redirect nil})
 
 (defn ensure-response
-  "Return resp with defaults applied. nil-tolerant — a frame whose app-db
+  "Return resp with defaults applied. nil-tolerant — a frame whose slot
   has never been touched by an :rf.server/* fx still resolves to the
   default response shape."
   [resp]
@@ -62,21 +94,28 @@
     (default-response)))
 
 (defn swap-response!
-  "Mutate the response accumulator in the frame's app-db with f. Returns
-  the post-swap response map. No-op when the frame is unknown / destroyed
-  (an explicit trace fires elsewhere; we don't double-trace here)."
+  "Mutate the response accumulator slot for `frame-id` with `f`. Returns
+  the post-swap response map. The substrate is a side-channel atom keyed
+  on frame-id (rf2-jbcmt) — O(small-map) swap, no app-db ping-pong."
   [frame-id f]
-  (when-let [container (frame/get-frame-db frame-id)]
-    (let [before (adapter/read-container container)
-          after  (update before :rf/response #(f (ensure-response %)))]
-      (adapter/replace-container! container after)
-      (:rf/response after))))
+  (let [next-resp (-> (swap! response-slots
+                             update frame-id #(f (ensure-response %)))
+                      (get frame-id))]
+    next-resp))
 
 (defn response-of
   "Read the current response accumulator (with defaults applied)."
   [frame-id]
-  (when-let [container (frame/get-frame-db frame-id)]
-    (ensure-response (:rf/response (adapter/read-container container)))))
+  (ensure-response (get @response-slots frame-id)))
+
+(defn clear-response!
+  "Drop `frame-id`'s response slot. Called from
+  `re-frame.ssr.request/on-frame-destroyed!` via the
+  `:ssr/on-frame-destroyed` late-bind hook (rf2-fcj33). Idempotent —
+  tolerates a frame-id with no slot."
+  [frame-id]
+  (swap! response-slots dissoc frame-id)
+  frame-id)
 
 ;; ---- header helpers ------------------------------------------------------
 

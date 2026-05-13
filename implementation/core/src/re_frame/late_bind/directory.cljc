@@ -282,7 +282,7 @@
    {:key         :ssr/on-frame-destroyed
     :producer-ns 're-frame.ssr
     :design-bead "rf2-fcj33"
-    :description "Clear the SSR side-channel atoms (pending-error-traces + request-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. Also invokes `:ssr/head-on-frame-destroyed` (if registered) so the head ns can release per-frame snapshot bookkeeping (rf2-4dra9)."}
+    :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The response-slots entry joined under rf2-jbcmt when the `:rf/response` accumulator moved off `app-db` to plug a hydration-payload leak + per-fx full-app-db swap. Also invokes `:ssr/head-on-frame-destroyed` (if registered) so the head ns can release per-frame snapshot bookkeeping (rf2-4dra9)."}
 
    ;; ---- re-frame.ssr.head (rf2-4dra9 — head/meta contract) ------------------
    {:key         :ssr/reg-head

@@ -31,12 +31,15 @@
   (reset! schemas/schemas-by-frame {})
   (reset! head/head-snapshots {})
   (reset! ssr/request-slots {})
-  ;; The defonce-backed `pending-error-traces` atom in re-frame.ssr is
-  ;; private; reach it reflectively. Resetting between tests prevents
-  ;; the load-test downstream from inheriting stale entries left by
-  ;; earlier suites — the ssr-head tests themselves don't drive any
-  ;; error-projection path, but the defonce atom is process-wide.
+  ;; The defonce-backed `pending-error-traces` and `response-slots` atoms
+  ;; in re-frame.ssr are framework-private; reach them reflectively.
+  ;; Resetting between tests prevents the load-test downstream from
+  ;; inheriting stale entries left by earlier suites — the ssr-head
+  ;; tests themselves don't drive any error-projection or response-fx
+  ;; path, but the defonce atoms are process-wide.
   (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
+    (reset! @v {}))
+  (when-let [v (resolve 're-frame.ssr/response-slots)]
     (reset! @v {}))
   (rf/init! ssr/adapter)
   ;; Resurrect ns-load-time registrations after clear-all!.

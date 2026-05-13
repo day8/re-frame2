@@ -10,6 +10,17 @@
   response shape; the host adapter wires that shape to a real HTTP
   server.
 
+  Privacy note (rf2-jbcmt): the response accumulator is **side-channel
+  storage** — Spec 011 §Response storage substrate locks it in a
+  framework-private atom keyed by frame-id, NOT in `app-db`. Consequence
+  for this adapter: the hydration payload built from `app-db` cannot
+  carry server-only response data (Set-Cookie auth tokens, internal
+  `X-*` headers, redirect targets) by accident — the boundary is
+  enforced at the storage layer rather than via `:payload-keys`
+  filtering on every host endpoint. `build-payload` below ships the
+  app-db slice exactly because the accumulator is structurally outside
+  app-db.
+
   This namespace ships that adapter for Ring (https://github.com/ring-clojure).
   Ring is the canonical Clojure HTTP-server abstraction; the
   request/response maps documented at the Ring Concepts wiki page

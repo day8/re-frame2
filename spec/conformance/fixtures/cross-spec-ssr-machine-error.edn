@@ -56,8 +56,10 @@
 
  :fixture/expect
  ;; Machine snapshot was NOT committed — no :rf/machines slot in app-db.
- ;; The error projector ran and stamped :status 500 onto :rf/response.
- {:final-app-db {:rf/response {:status 500 :redirect nil}}
+ ;; Per rf2-jbcmt the response accumulator lives in a framework-private
+ ;; side-channel atom, NOT in app-db — the projector's locked 500 status
+ ;; is asserted via :ssr/public-error below.
+ {:final-app-db {}
 
   :trace-emissions
   [{:operation :event :tags {:event-id :rf/server-init}}

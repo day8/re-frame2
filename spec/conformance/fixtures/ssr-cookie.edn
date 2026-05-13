@@ -33,16 +33,11 @@
  :fixture/dispatches []
 
  :fixture/expect
- ;; Submap match — assert the framework-populated :rf/response slot
- ;; carries the cookie. Other keys (status defaults, headers) tolerated.
- {:final-app-db
-  {:rf/response {:cookies [{:name      "session"
-                            :value     "abc123"
-                            :max-age   3600
-                            :secure    true
-                            :http-only true
-                            :same-site :lax
-                            :path      "/"}]}}
+ ;; Submap match. Per rf2-jbcmt the :rf/response accumulator lives in a
+ ;; framework-private side-channel atom (re-frame.ssr/response-slots),
+ ;; NOT in app-db — so the fixture pins the cookie shape via
+ ;; :ssr/request-result rather than :final-app-db.
+ {:final-app-db {}
 
   :ssr/request-result
   {:response {:status  200

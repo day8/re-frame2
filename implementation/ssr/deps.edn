@@ -8,14 +8,16 @@
 ;; `:rf.server/set-header` / `:rf.server/append-header` /
 ;; `:rf.server/set-cookie` / `:rf.server/delete-cookie` /
 ;; `:rf.server/redirect` server-only fx family, the per-request HTTP
-;; response accumulator at `[:rf/response]`, the `reg-error-projector`
-;; surface plus its built-in `:rf.ssr/default-error-projector`, the
-;; runtime's SSR error path, and the `data-rf2-source-coord` annotation
-;; on registered-view roots — ships as a separate Maven artefact so
-;; apps that don't render server-side don't drag the namespace, the
-;; HTML emitter, the FNV-1a hash machinery, the response-accumulator
-;; bookkeeping, the projector registry kind, or any of the
-;; `:rf.ssr/*` / `:rf.server/*` trace strings onto the classpath.
+;; response accumulator (a framework-private side-channel atom keyed on
+;; frame-id per rf2-jbcmt — Spec 011 §Response storage substrate), the
+;; `reg-error-projector` surface plus its built-in
+;; `:rf.ssr/default-error-projector`, the runtime's SSR error path, and
+;; the `data-rf2-source-coord` annotation on registered-view roots —
+;; ships as a separate Maven artefact so apps that don't render server-
+;; side don't drag the namespace, the HTML emitter, the FNV-1a hash
+;; machinery, the response-accumulator bookkeeping, the projector
+;; registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace
+;; strings onto the classpath.
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
@@ -25,10 +27,11 @@
 ;; And require `re-frame.ssr` in any namespace that calls
 ;; `rf/render-to-string`, `rf/render-tree-hash`, `rf/reg-error-projector`,
 ;; `rf/project-error`, dispatches `:rf/hydrate`, or relies on the
-;; `:rf.server/*` fxs / `[:rf/response]` accumulator — loading the
-;; namespace registers the six `:rf.server/*` fxs, the `:rf/hydrate`
-;; handler, and publishes the late-bind hooks (`:ssr/render-tree-hash`)
-;; and the plain-atom adapter's `:render-to-string` slot.
+;; `:rf.server/*` fxs / the per-request response accumulator (read via
+;; `re-frame.ssr/get-response`) — loading the namespace registers the
+;; six `:rf.server/*` fxs, the `:rf/hydrate` handler, and publishes the
+;; late-bind hooks (`:ssr/render-tree-hash`) and the plain-atom adapter's
+;; `:render-to-string` slot.
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on

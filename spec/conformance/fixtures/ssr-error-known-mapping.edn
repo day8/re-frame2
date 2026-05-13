@@ -38,14 +38,12 @@
 
  :fixture/expect
  {;; The runtime's error-projection listener writes :status 404 to the
-  ;; response accumulator. This is what asserting the PROJECTOR's
-  ;; output (rather than a user-stub-rolled fx call) looks like:
-  ;; the :rf/response slot reflects the public-error's :status because
-  ;; the projector ran, not because the fixture body emits
-  ;; :rf.server/set-status.
-  :final-app-db
-  {:rf/response {:status 404
-                 :redirect nil}}
+  ;; response accumulator (a framework-private side-channel atom keyed
+  ;; on frame-id, per rf2-jbcmt — Spec 011 §Response storage substrate).
+  ;; The accumulator is NOT in app-db, so :final-app-db carries no
+  ;; assertion on it; the projector's output is pinned via
+  ;; :ssr/public-error below.
+  :final-app-db {}
 
   ;; The internal trace records :rf.error/no-such-handler.
   :trace-emissions
