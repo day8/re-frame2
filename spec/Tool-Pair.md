@@ -527,6 +527,20 @@ Edge-case behaviour the example does not exercise but consumers should know abou
 
 The framework is **infrastructure-complete** for AI-tool consumption: data shapes, query APIs, retention policies, configuration knobs, production elision. Downstream tools own *presentation and orchestration*; they do not need to ship infrastructure that should live in the framework.
 
+### Wire-protocol mechanisms (MCP-tool layer, not framework)
+
+A pair-shaped tool reaching an AI agent over MCP must shape the payload at the wire boundary — a runtime snapshot, an epoch record, or a trace slice is routinely far larger than the agent's per-call budget can absorb. The mechanisms that solve this (token-budget cap, path slicing, cursor pagination, lazy summary, structural dedup, size-elision wire markers, and — pair2-mcp-specific — diff-encoded `:db-after` and streaming subscribe byte+event budgets) live **at the MCP-server layer**, not in this Spec. Tool-Pair.md commits to the framework surfaces (data shapes, query APIs, listener APIs); how an MCP tool packages those surfaces for an agent is downstream.
+
+The cross-MCP catalogue is normative and shared across the re-frame2 MCP triplet (pair2-mcp, causa-mcp, story-mcp). Canonical homes:
+
+- [`spec/Cross-Cutting-Designs.md §3 Token budgets`](Cross-Cutting-Designs.md) — the cross-cutting design problem statement and the index of canonical homes below.
+- [`tools/mcp-conformance/TOKEN-BUDGETS.md`](../tools/mcp-conformance/TOKEN-BUDGETS.md) — the cross-server contract: default cap (5,000 tokens), per-call `max-tokens` override slot, `{:rf.mcp/overflow ...}` reserved marker, agent-host retry contract, chained-budget rules when an agent attaches multiple servers in one session.
+- [`tools/pair2-mcp/spec/Principles.md §Tight token budget per response`](../tools/pair2-mcp/spec/Principles.md) — pair2-mcp's eight-mechanism expansion (cap → path slicing → per-tool budget → diff encoding → dedup → size elision → cursor pagination → streaming subscribe byte+event budget) in pipeline order.
+- [`tools/causa-mcp/spec/Principles.md §Tight token budget per response`](../tools/causa-mcp/spec/Principles.md) — causa-mcp's six-mechanism sibling lock (mechanisms 1-6 align cross-server so an agent learning a slot on one server gets the same slot on the others).
+- [`spec/Conventions.md §Reserved namespaces (framework-owned)`](Conventions.md#reserved-namespaces-framework-owned) — the framework-side reservation of the `:rf.mcp/*` and `:rf.size/*` keys that appear on the wire (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`, `:rf.size/large-elided`).
+
+The framework owns the *data*; the wire-protocol layer owns the *packaging*. Findings docs and downstream Specs reaching for the mechanism catalogue link to the MCP-server homes above, not back into this Spec.
+
 ## What pair-shaped tools NOT to ship as part of re-frame2
 
 - **The Claude integration** itself (prompts, retrieval, model selection). Lives in the pair tool.
@@ -553,6 +567,8 @@ The pair tool can rely on all of these surviving across re-frame2 minor versions
 - [009-Instrumentation.md](009-Instrumentation.md) — the trace stream and error contract.
 - [011-SSR.md](011-SSR.md) — server-side runtime is the same contract; pair tools work there too.
 - [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) — the recorded shape.
+- [Cross-Cutting-Designs §3 Token budgets](Cross-Cutting-Designs.md) — wire-protocol mechanisms index (canonical homes for cap / slice / paginate / lazy-summary / dedup / elision live at the MCP-server layer).
+- [tools/mcp-conformance/TOKEN-BUDGETS.md](../tools/mcp-conformance/TOKEN-BUDGETS.md), [tools/mcp-conformance/NAMING.md](../tools/mcp-conformance/NAMING.md) — cross-MCP conformance pins (token-budget contract; tool-naming verb table).
 - [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver) — post-v1 companion (Claude skill).
 
 ---
