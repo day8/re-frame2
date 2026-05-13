@@ -116,25 +116,35 @@ const REACT_DOM_SERVER_SENTINELS = [
 // ----- helpers ---------------------------------------------------------------
 
 function readAllJs(dir) {
-  // Concatenate every *.js file under dir into a single blob, mirroring
-  // scripts/check-bundle-isolation.cjs's readAllJs. :advanced may split
-  // the runtime across files (cljs_base, the module's own file); a
-  // global grep is the right shape for the comparison contract.
+  // Concatenate every top-level *.js file in dir into a single blob.
+  // For shadow-cljs :browser :release builds the closure-compiled
+  // output lives in top-level files (main.js, plus any sibling module
+  // files like cljs_base.js); the only subdirectory that appears in
+  // the output dir is `cljs-runtime/`, which is dev-build debug source
+  // left behind by a prior `shadow-cljs compile` and NOT cleaned by a
+  // subsequent `shadow-cljs release` (rf2-z9a06).
+  //
+  // Walking recursively (as the sibling readAllJs in
+  // check-bundle-isolation.cjs does) means a stale `cljs-runtime/`
+  // dir gets grepped alongside the release main.js — producing false
+  // FAILs on sentinels that only appear in the unoptimised dev
+  // sources (e.g. cljsLegacyRender, react-dom/server). CI is unaffected
+  // because every CI run is on a clean dir, but local repros after a
+  // dev `compile` trip the trap; the contract should measure the
+  // release artefact regardless.
+  //
+  // The release artefact IS exactly the top-level *.js — that's what a
+  // consumer ships. Filtering to it makes the contract robust against
+  // dev-build leftovers in the output dir.
   if (!fs.existsSync(dir)) {
     return null;
   }
   const out = [];
-  const walk = (d) => {
-    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      const full = path.join(d, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.js')) {
-        out.push(fs.readFileSync(full, 'utf8'));
-      }
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.js')) {
+      out.push(fs.readFileSync(path.join(dir, entry.name), 'utf8'));
     }
-  };
-  walk(dir);
+  }
   return out.join('\n');
 }
 
