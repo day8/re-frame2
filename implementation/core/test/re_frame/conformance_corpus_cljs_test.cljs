@@ -129,6 +129,31 @@
   "Fixture spec versions this CLJS build claims to conform against."
   #{"1.0"})
 
+;; ---- known-skipped capabilities (rf2-a3q1r) ------------------------------
+;;
+;; A fixture declaring `:fixture/capabilities` that name a capability not in
+;; `claimed-capabilities` AND not in `known-skipped-capabilities` is treated
+;; as a typo / claim-set drift and FAILS the suite. The pre-rf2-a3q1r runner
+;; silently skipped any out-of-claim fixture, which masked at least one bug
+;; (`:flow/trace` missing from the claim-set hid `flow-lifecycle-emits-traces.edn`
+;; from the suite — see the sweep-test-coverage-rigour finding).
+;;
+;; Adding a capability here is an explicit declaration that this build
+;; INTENTIONALLY does not claim it; the corresponding fixtures are reported
+;; as out-of-claim skips and do not block the suite. A capability appearing
+;; in both sets is a configuration error (resolve by removing from one).
+;;
+;; Today this set is empty: every capability referenced by a fixture is
+;; also in `claimed-capabilities`. The allowlist exists so future divergence
+;; between corpus and host requires an explicit decision rather than silent
+;; rot.
+
+(def known-skipped-capabilities
+  "Capabilities this build INTENTIONALLY does not claim. Fixtures whose
+  capabilities fall here are reported as out-of-claim skips but do not
+  block the suite."
+  #{})
+
 ;; ---- fixture loading (compile-time inlined) -------------------------------
 
 (def fixtures
@@ -229,6 +254,29 @@
   [fixture]
   (let [caps (or (:fixture/capabilities fixture) #{})]
     (every? claimed-capabilities caps)))
+
+(defn- classify-capabilities
+  "Per rf2-a3q1r, partition a fixture's :fixture/capabilities into
+  {:claimed   #{...}    ;; in `claimed-capabilities`
+   :allowed   #{...}    ;; in `known-skipped-capabilities` but not claimed
+   :unknown   #{...}}   ;; in neither — typo or claim-set drift
+
+  A fixture is RUNNABLE iff `:unknown` and `:allowed` are both empty.
+  A fixture is SKIPPED (out-of-claim) iff `:unknown` is empty and
+  `:allowed` is non-empty.
+  A fixture is a FAILURE iff `:unknown` is non-empty — the suite must
+  fail rather than silently mask the typo."
+  [fixture]
+  (let [caps (or (:fixture/capabilities fixture) #{})]
+    {:claimed (into #{} (filter claimed-capabilities) caps)
+     :allowed (into #{} (filter (fn [c]
+                                  (and (contains? known-skipped-capabilities c)
+                                       (not (contains? claimed-capabilities c))))
+                                caps))
+     :unknown (into #{} (remove (fn [c]
+                                  (or (contains? claimed-capabilities c)
+                                      (contains? known-skipped-capabilities c)))
+                                caps))}))
 
 (defn- spec-version-claimed?
   "True if the fixture targets a spec version this build claims.
@@ -829,15 +877,38 @@
                              :reason       "spec-version not in claimed set"
                              :spec-version (:fixture/spec-version fixture)})
 
-        (not (runnable? fixture))
-        (swap! results conj {:fixture-id   (:fixture/id fixture)
-                             :skipped?     true
-                             :reason       "capabilities not in claimed set"
-                             :capabilities (:fixture/capabilities fixture)})
-
+        ;; Per rf2-a3q1r: three-way classification of fixture capabilities.
+        ;; A fixture whose caps include any capability that is neither
+        ;; CLAIMED nor explicitly KNOWN-SKIPPED is a typo / claim-set drift
+        ;; — it FAILS the suite rather than being silently skipped.
         :else
-        (swap! results conj (assoc (run-fixture fixture)
-                              :fname fname))))
+        (let [{:keys [allowed unknown]} (classify-capabilities fixture)]
+          (cond
+            (seq unknown)
+            (swap! results conj
+                   {:fixture-id   (:fixture/id fixture)
+                    :passed?      false
+                    :unknown-caps unknown
+                    :error        (str "unknown capabilities: " unknown
+                                       " — capability is neither in "
+                                       "claimed-capabilities nor in "
+                                       "known-skipped-capabilities. "
+                                       "Either claim it (and ensure the host "
+                                       "implements it) or add to the "
+                                       "known-skipped-capabilities allowlist "
+                                       "to document an intentional gap.")})
+
+            (seq allowed)
+            (swap! results conj
+                   {:fixture-id   (:fixture/id fixture)
+                    :skipped?     true
+                    :reason       "capabilities intentionally not claimed (allowlisted)"
+                    :capabilities (:fixture/capabilities fixture)
+                    :allowed      allowed})
+
+            :else
+            (swap! results conj (assoc (run-fixture fixture)
+                                  :fname fname))))))
     (let [all     @results
           run     (filter (complement :skipped?) all)
           passed  (filter :passed? run)
@@ -866,6 +937,8 @@
         (println "Failures:")
         (doseq [f failed]
           (println "  " (:fixture-id f))
+          (when (:unknown-caps f)
+            (println "    unknown capabilities (rf2-a3q1r):" (:unknown-caps f)))
           (when (:error f)
             (println "    error:" (:error f)))
           (when-let [td (:expected-db f)]

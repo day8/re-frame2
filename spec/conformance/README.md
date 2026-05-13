@@ -150,6 +150,13 @@ Capability tag conventions:
 
 A flat-FSM-only port declares `:capabilities #{:core/event-handler ... :fsm/flat :actor/own-state :actor/spawn-destroy ...}` in its harness manifest; the corpus runs every fixture whose capabilities are a subset and skips the rest. The aggregate score is `passed / claimed-applicable` — an accounting of what works for the claimed list.
 
+A port's harness MUST distinguish two flavours of out-of-claim capability so silent rot can't mask coverage gaps (per `rf2-a3q1r`):
+
+- **Intentional out-of-claim** — the port's `claimed-capabilities` deliberately excludes the capability (e.g. a flat-FSM-only port skipping `:fsm/hierarchical`). The harness MAINTAINS an explicit `known-skipped-capabilities` allowlist; capabilities in this set produce "skipped (out-of-claim)" reports without failing the suite.
+- **Typo / claim-set drift** — a fixture's capability appears in neither the claimed set nor the allowlist. The pre-rf2-a3q1r harness silently skipped these; the post-rf2-a3q1r contract is that the suite FAILS with a diagnostic naming the unknown capability. The remedy is either to add the capability to `claimed-capabilities` (with the runtime backing to match) or to add it to `known-skipped-capabilities` (an explicit decision not to claim it).
+
+The reference harness (`implementation/core/test/re_frame/conformance_test.clj` and `implementation/core/test/re_frame/conformance_corpus_cljs_test.cljs`) keeps `known-skipped-capabilities` as an empty set today: every capability referenced by a corpus fixture is also claimed. The allowlist exists so that any future divergence requires an explicit decision rather than silent drift.
+
 See [§Capability tagging worked example](#capability-tagging-worked-example) immediately below for the actual tags carried by representative fixtures in the corpus today.
 
 ### Capability tagging worked example
