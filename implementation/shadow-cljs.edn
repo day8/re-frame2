@@ -1,5 +1,6 @@
 ;; Top-level shadow-cljs build (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit,
+;; rf2-ny6v7).
 ;;
 ;; Pulls in every published artefact's source path (core/, reagent/,
 ;; uix/, helix/, schemas/, machines/, routing/, flows/, http/, ssr/,
@@ -43,6 +44,13 @@
                 "http/test"
                 "ssr/src"
                 "ssr/test"
+                ;; Per rf2-ny6v7 — ssr-ring is the Ring/Pedestal host
+                ;; adapter for SSR. JVM-only (Ring is JVM); shadow-cljs
+                ;; ignores .clj sources at compile time, so listing the
+                ;; path here only widens the classpath. Per-feature
+                ;; placement (flat under implementation/) per rf2-zha9.
+                "ssr-ring/src"
+                "ssr-ring/test"
                 "epoch/src"
                 "epoch/test"
                 ;; tools/story (re-frame2-story Stage 2, rf2-32dk).
