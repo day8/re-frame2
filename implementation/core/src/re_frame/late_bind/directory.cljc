@@ -275,6 +275,10 @@
    {:key         :ssr/project-error
     :producer-ns 're-frame.ssr
     :description "Apply the registered error-projector to an SSR render error."}
+   {:key         :ssr/on-frame-destroyed
+    :producer-ns 're-frame.ssr
+    :design-bead "rf2-fcj33"
+    :description "Clear the SSR side-channel atoms (pending-error-traces + request-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract."}
 
    ;; ---- re-frame.adapter.reagent (rf2-0hxm) ---------------------------------
    {:key         :reagent/set-hiccup-emitter!
