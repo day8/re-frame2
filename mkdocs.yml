@@ -109,6 +109,7 @@ nav:
     - Companion:
       - Principles: spec/Principles.md
       - Conventions: spec/Conventions.md
+      - "Managed external effects": spec/Managed-Effects.md
       - Migration: spec/MIGRATION.md
       - Construction prompts: spec/Construction-Prompts.md
       - "CP-5 — Machine guide": spec/CP-5-MachineGuide.md

@@ -63,6 +63,7 @@ Reference, scaffolding, and audit:
 |---|---|---|
 | [Principles](Principles.md) | Reference | The 9 AI-first discipline principles plus the two foundational essays (the layered constraint, data is code). The yardstick the [AI-Audit](AI-Audit.md) grades Specs against. |
 | [Conventions](Conventions.md) | Convention | Locked runtime conventions: reserved-namespace policy for framework-owned ids, ns-prefix conventions for features, reserved fx-ids and app-db keys. |
+| [Managed external effects](Managed-Effects.md) | Reference | The unifying conceptual frame: eight properties every framework-owned managed-effect surface (`:rf.http/managed`, `:rf.ws/*`, `:invoke` / `:invoke-all`, `:rf.server/*`, `:rf.flow/*`) inherits. New surfaces (managed timers, managed background jobs) are graded against the same checklist. |
 | [Construction Prompts](Construction-Prompts.md) | Construction Prompts | Per-kind AI-scaffolding templates (event, sub, fx, view, machine, feature, route, schema, SSR). Sibling to MIGRATION.md. |
 | [AI Audit](AI-Audit.md) | Audit | Score of every Spec against the AI-first discipline principles; surfaces gaps. |
 | [Runtime-Architecture](Runtime-Architecture.md) | Reference | Bird's-eye view of the runtime — the eight components (registrar, frame container, router, drain loop, `do-fx`, sub-cache, substrate adapter, trace bus) plus the interop layer, with data-flow diagram and per-event lifecycle. Companion to the per-area Specs; redefines nothing. |
