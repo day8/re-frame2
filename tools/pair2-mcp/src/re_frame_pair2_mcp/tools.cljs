@@ -946,6 +946,17 @@
                     (let [[kept dropped] (strip-sensitive raw-epochs incl?)
                           encoded        (diff-encode-epochs kept mode)
                           deduped        (dedup-value encoded dedup?)
+                          ;; :elided-large parity per Conventions §Cross-MCP
+                          ;; indicator-field vocabulary (rf2-2499j). Count
+                          ;; `:rf.size/large-elided` markers riding the
+                          ;; post-pipeline payload — today trace-window does
+                          ;; not run `elide-wire-value` on epoch records
+                          ;; (the walker is wired on `snapshot` / `get-path`)
+                          ;; so the count is always 0 and the slot is
+                          ;; omitted; the parallel-counter scaffolding is
+                          ;; in place so future wiring lights up the slot
+                          ;; automatically.
+                          elided         (base-vocab/count-elided-markers deduped)
                           next-id        (:next-id v)
                           next-cursor    (encode-cursor
                                            (when next-id
@@ -967,7 +978,8 @@
                                         :has-more?   has-more?
                                         :estimated-remaining remaining
                                         :next-cursor next-cursor}
-                                 (pos? dropped) (assoc :dropped-sensitive dropped))))))))
+                                 (pos? dropped) (assoc :dropped-sensitive dropped)
+                                 (pos? elided)  (assoc :elided-large elided))))))))
             (.catch (fn [err] (err->result :trace-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1031,6 +1043,12 @@
                           [kept dropped] (strip-sensitive matches incl?)
                           encoded        (diff-encode-epochs kept mode)
                           deduped        (dedup-value encoded dedup?)
+                          ;; :elided-large parity per Conventions §Cross-MCP
+                          ;; indicator-field vocabulary (rf2-2499j). Same
+                          ;; rationale as trace-window — no elision walk on
+                          ;; epoch records today; the scaffolding emits the
+                          ;; slot the moment a future revision wires it.
+                          elided         (base-vocab/count-elided-markers deduped)
                           next-id        (:next-id v)
                           next-cursor    (encode-cursor
                                            (when next-id
@@ -1053,7 +1071,8 @@
                                               :has-more?           (some? next-cursor)
                                               :estimated-remaining remaining
                                               :next-cursor         next-cursor)
-                                 (pos? dropped) (assoc :dropped-sensitive dropped))))))))
+                                 (pos? dropped) (assoc :dropped-sensitive dropped)
+                                 (pos? elided)  (assoc :elided-large elided))))))))
             (.catch (fn [err] (err->result :watch-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1651,7 +1670,22 @@
                        response-mode  (cond
                                         path                  :path-sliced
                                         (= :full app-db-mode) :full
-                                        :else                 :summary)]
+                                        :else                 :summary)
+                       ;; :elided-large parity per Conventions §Cross-MCP
+                       ;; indicator-field vocabulary (rf2-2499j). The
+                       ;; snapshot eval form runs `re-frame.core/elide-
+                       ;; wire-value` server-side over each frame's
+                       ;; `:app-db` slice, substituting
+                       ;; `:rf.size/large-elided` markers in place of
+                       ;; declared / over-threshold leaves. Counting them
+                       ;; AFTER the dedup pass (where the rich slices
+                       ;; haven't yet been summarised) gives the agent
+                       ;; the real elision footprint of the call; the
+                       ;; later summary pass replaces non-app-db slices
+                       ;; with bounded markers, but its own bytes are
+                       ;; not elision-markers and so don't inflate the
+                       ;; count. Omitted when zero per Conventions.
+                       elided                (base-vocab/count-elided-markers deduped)]
                    (ok-text (cond-> {:ok?            true
                                      :frames         (if (= :all frames) :all (vec frames))
                                      :include        include
@@ -1663,7 +1697,8 @@
                                      :snapshot       summarised}
                               path                  (assoc :path path)
                               (seq path-status)     (assoc :path-not-found path-status)
-                              (pos? dropped)        (assoc :dropped-sensitive dropped))))))
+                              (pos? dropped)        (assoc :dropped-sensitive dropped)
+                              (pos? elided)         (assoc :elided-large elided))))))
         (.catch (fn [err] (err->result :snapshot-failed err))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1740,9 +1775,19 @@
         (-> (ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then (fn [v]
-                     (ok-text (cond-> v
-                                frame     (assoc :frame frame)
-                                (:ok? v)  (assoc :elision elision?)))))
+                     ;; :elided-large indicator-field per Conventions
+                     ;; §Cross-MCP indicator-field vocabulary (rf2-2499j).
+                     ;; The eval form ran `re-frame.core/elide-wire-value`
+                     ;; over the resolved `:value` (when elision was
+                     ;; on), so the response may carry one or more
+                     ;; `:rf.size/large-elided` markers. Count them on
+                     ;; the envelope so the agent sees the elision
+                     ;; footprint without diffing the payload.
+                     (let [elided (base-vocab/count-elided-markers v)]
+                       (ok-text (cond-> v
+                                  frame          (assoc :frame frame)
+                                  (:ok? v)       (assoc :elision elision?)
+                                  (pos? elided)  (assoc :elided-large elided))))))
             (.catch (fn [err] (err->result :get-path-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1894,6 +1939,21 @@
                               ;; tripped most recently.
                               overflow-reason*   (atom nil)
                               dropped-sensitive* (atom 0)
+                              ;; :elided-large parity per Conventions
+                              ;; §Cross-MCP indicator-field vocabulary
+                              ;; (rf2-2499j). Cumulative count of
+                              ;; `:rf.size/large-elided` markers across
+                              ;; every drain in the subscription's
+                              ;; lifetime. Today the subscribe path
+                              ;; doesn't run `elide-wire-value` on the
+                              ;; queued events (the walker is wired on
+                              ;; `snapshot` / `get-path`), so this stays
+                              ;; at zero and the slot is omitted; the
+                              ;; accumulator is in place so future
+                              ;; wiring lights up the slot automatically
+                              ;; on both the per-tick progress and the
+                              ;; final summary.
+                              elided-large*      (atom 0)
                               terminate
                               (fn [reason]
                                 ;; Drop the runtime subscription and
@@ -1920,7 +1980,9 @@
                                               @overflow-reason*
                                               (assoc :overflow-reason @overflow-reason*)
                                               (pos? @dropped-sensitive*)
-                                              (assoc :dropped-sensitive @dropped-sensitive*))))))))
+                                              (assoc :dropped-sensitive @dropped-sensitive*)
+                                              (pos? @elided-large*)
+                                              (assoc :elided-large @elided-large*))))))))
                               poll
                               (fn poll []
                                 (cond
@@ -1951,6 +2013,14 @@
                                                   ov-reason      (:overflow-reason drain-resp)
                                                   [evts dropped] (strip-sensitive
                                                                    (vec raw-evts) incl?)
+                                                  ;; :elided-large parity (rf2-2499j) — count
+                                                  ;; `:rf.size/large-elided` markers in the
+                                                  ;; post-strip event batch. Zero today
+                                                  ;; (subscribe path doesn't run the
+                                                  ;; elision walker); included for forward-
+                                                  ;; safety and to keep the slot riding
+                                                  ;; every tree-walking tool's envelope.
+                                                  tick-elided    (base-vocab/count-elided-markers evts)
                                                   n              (count evts)]
                                               (when (pos? ev-dropped)
                                                 (swap! dropped-events* + ev-dropped))
@@ -1960,6 +2030,8 @@
                                                 (reset! overflow-reason* ov-reason))
                                               (when (pos? dropped)
                                                 (swap! dropped-sensitive* + dropped))
+                                              (when (pos? tick-elided)
+                                                (swap! elided-large* + tick-elided))
                                               (when (or (pos? n) (pos? ev-dropped))
                                                 (swap! tick inc)
                                                 (swap! delivered + n)
@@ -1979,7 +2051,9 @@
                                                                          ov-reason
                                                                          (assoc :overflow-reason ov-reason)
                                                                          (pos? dropped)
-                                                                         (assoc :dropped-sensitive dropped)))
+                                                                         (assoc :dropped-sensitive dropped)
+                                                                         (pos? tick-elided)
+                                                                         (assoc :elided-large tick-elided)))
                                                                      ev-dropped
                                                                      by-dropped
                                                                      ov-reason)})
