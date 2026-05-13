@@ -124,13 +124,7 @@ MAPPINGS: list[Mapping] = [
 #
 # Entries are keyed by mapping-name (not host_prefix) so renames in MAPPINGS
 # above stay self-consistent.
-_BASELINE: set[tuple[str, str, str]] = {
-    # rf2-aks1t fixes both of these on the pair2 skill side; once that PR
-    # lands, remove these two entries and the gate will turn red on any
-    # future drift.
-    ("pair2-mcp <-> re-frame-pair2", "missing-in-skill", "subscribe"),
-    ("pair2-mcp <-> re-frame-pair2", "missing-in-skill", "unsubscribe"),
-}
+_BASELINE: set[tuple[str, str, str]] = set()
 
 
 # ---------------------------------------------------------------------------
