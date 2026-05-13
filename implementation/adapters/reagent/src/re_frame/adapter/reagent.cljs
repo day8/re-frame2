@@ -53,11 +53,27 @@
 ;; ---- render ---------------------------------------------------------------
 
 (defn- render [render-tree mount-point opts]
+  ;; React 18+ uses the root API: `reagent.dom.client/render` takes a Root
+  ;; (from `create-root`) — NOT a raw DOM element. Calling
+  ;; `(rdc/render mount-point …)` directly throws
+  ;; `TypeError: root.render is not a function` at runtime.
+  ;;
+  ;; Per Reagent v2's `reagent.dom.client` API:
+  ;;   - `(rdc/create-root <dom>)`       → Root
+  ;;   - `(rdc/render <root> <tree>)`    → render into the Root
+  ;;   - `(rdc/hydrate-root <dom> <tree>)` → returns its own Root
+  ;;   - `(rdc/unmount <root>)`          → tear the Root down
+  ;;
+  ;; The unmount thunk closes over the Root so the runtime can release
+  ;; it without consulting the DOM element again. Hydrate path mirrors
+  ;; the slim adapter (rf2-6hyy) — `hydrate-root` returns its own Root.
   (let [hydrate? (boolean (:hydrate? opts))]
     (if hydrate?
-      (rdc/hydrate-root mount-point render-tree)
-      (rdc/render        mount-point render-tree))
-    (fn unmount [] (rdc/unmount mount-point))))
+      (let [root (rdc/hydrate-root mount-point render-tree)]
+        (fn unmount [] (rdc/unmount root)))
+      (let [root (rdc/create-root mount-point)]
+        (rdc/render root render-tree)
+        (fn unmount [] (rdc/unmount root))))))
 
 (defonce ^:private hiccup-emitter (atom nil))
 

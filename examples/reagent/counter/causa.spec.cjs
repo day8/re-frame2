@@ -55,20 +55,6 @@ const PANEL_HANDOFFS = [
 module.exports = {
   name: 'causa',
   url: '/counter/',
-  // Awaiting rf2-fn5rk — the spec's first run-through surfaced a real
-  // bug in implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs:
-  // the `render` slot calls `(rdc/render mount-point render-tree)` directly,
-  // but React 18's `reagent.dom.client/render` requires a `Root` (from
-  // `create-root`) as its first arg. Causa's mount/open! therefore throws
-  // `TypeError: root.render is not a function`, the shell never lands in
-  // the DOM, and every shell-visibility assertion below fails.
-  //
-  // The spec is shipped now so the wiring (testid surface, sidebar IDs,
-  // toggle sequence, panel handoffs, REDACTED hint, trace-bus
-  // observation) is reviewed end-to-end and ready to light up the
-  // moment the adapter fix lands. Drop the `skip:` field as part of
-  // rf2-fn5rk's PR.
-  skip: 'awaiting rf2-fn5rk — reagent adapter render() must use rdc/create-root before rdc/render (Causa mount currently throws "root.render is not a function")',
   run: async (page) => {
     // ----------------------------------------------------------------
     // 1. Mount — counter is ready, Causa shell is NOT in the DOM yet.
