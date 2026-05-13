@@ -94,7 +94,7 @@ Distilled from `examples/reagent/counter_with_stories/stories.cljs` — every ke
 The controls panel auto-derives a widget per arg-key by walking the component's Malli schema. `resolve-argtypes` consults, in order:
 
 1. **Explicit `:argtypes`** on the variant body, then the parent story (per-key override).
-2. **Explicit `:schema` slot** on the variant, story, or registered view (forward-compatible — Spec 010 will land `:rf/schema` on variants).
+2. **Explicit `:rf/schema` slot** (Spec 010 canonical key; the legacy `:schema` alias is still read for backward compat) on the variant body, then the parent story, then the registered view's `:spec`. First match wins — no merge. A variant-side `:rf/schema` is the all-or-nothing override when one variant exercises a narrower / stricter / experimental shape than the component-wide schema; the args editor inputs and the schema-validation panel both auto-derive from this one declaration.
 3. **Value-shape fallback** — infer the widget from the live CLJS value when no schema is available.
 
 Walker output for the common Malli forms (rf2-agshe):

@@ -85,6 +85,20 @@ Deep-merge, left-to-right. Variants that don't say anything inherit; variants th
 
 The **controls panel** in the right-side pane auto-derives editors. If the parent story carries `:argtypes {:label {:control :text}}`, the panel renders a text input wired to dispatch a cell-override. If you've gone further and tagged the schema in `re-frame.schemas` (spec/010), the panel reads the schema directly — a `:keyword` schema becomes a select, an `:int` schema with `:max`/`:min` becomes a number-input or slider, an `:enum` becomes a radio group. No `argTypes` plumbing; the schema is the source of truth.
 
+A variant can also **declare its own schema inline** via the `:rf/schema` slot — useful when one variant exercises a narrower (or stricter, or experimental) shape than the component-wide registered schema:
+
+```clojure
+(story/reg-variant :story.counter/labelled
+  {:rf/schema [:map
+               [:label  :string]
+               [:colour [:enum :red :green :blue]]
+               [:count  [:int {:min 0 :max 99}]]]
+   :args      {:label "Count" :colour :green :count 0}
+   :events    [[:counter/initialise 0]]})
+```
+
+Schema resolution walks variant body → parent story → registered view (per `tools/story/spec/001-Authoring.md` §Schema-derivation pipeline); first match wins, no merge. The args editor renders one row per `:map` entry (`:colour` as a select of `[:red :green :blue]`, `:count` as a number-input clamped 0–99), and the schema-validation panel surfaces any boundary failures (resolved args that don't conform, plus `:rf.error/schema-validation-failure` traces scoped to the variant's frame) — both auto-derived from the same one declaration. Authors who want most of a registered view's schema but one tightened slot still reach for `:argtypes` (which overrides key-by-key); `:rf/schema` is the all-or-nothing override.
+
 ## Decorators — three kinds
 
 Decorators are how you **wrap the canvas with re-usable concerns**: layout, theming, mock data, fx mocking. Per IMPL-SPEC §3.1 there are three kinds:
