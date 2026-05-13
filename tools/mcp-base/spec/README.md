@@ -76,5 +76,5 @@ Two rules:
    `deps.edn` carries only `org.clojure/clojure`. If your primitive
    needs cheshire / re-frame.trace / shadow-cljs / js-interop, it
    belongs in its consumer, not here. (story-mcp's `sensitive.cljc`
-   ns keeps a thin local alias over `re-frame.trace/sensitive?` for
+   ns keeps a thin local alias over `re-frame.privacy/sensitive?` for
    code-review locality — the predicate itself lives here.)

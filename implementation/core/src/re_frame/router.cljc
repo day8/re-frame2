@@ -18,6 +18,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
+            [re-frame.privacy :as privacy]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
@@ -914,7 +915,7 @@
   (let [event        (:event envelope)
         event-id     (when (vector? event) (first event))
         handler-meta (when event-id (registrar/lookup :event event-id))
-        sensitive?   (trace/sensitive?-from-meta handler-meta)
+        sensitive?   (privacy/sensitive?-from-meta handler-meta)
         no-emit?     (trace/no-emit?-from-meta handler-meta)]
     (when-not no-emit?
       (trace/emit! :event :event/dispatched

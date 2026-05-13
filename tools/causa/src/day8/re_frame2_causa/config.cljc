@@ -23,8 +23,8 @@
   Causa shell (gated on `interop/debug-enabled?` in preload.cljs); the
   atom survives but is never read. CLJC so the JVM test corpus can
   cover the round-trip without a CLJS runtime."
-  (:require [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.trace :as trace]
+  (:require [re-frame.privacy :as privacy]
+            [re-frame.source-coords.editor-uri :as editor-uri]
             #?@(:cljs [[re-frame.core :as rf]
                        [re-frame.frame :as frame]])))
 
@@ -105,13 +105,14 @@
 
 (defn sensitive-event?
   "True iff the trace event `ev` carries `:sensitive? true` at the top
-  level. Thin alias over the framework-published `re-frame.trace/sensitive?`
-  predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn,
-  every consumer of `:sensitive?` (Causa, Story, story-mcp, pair2-mcp,
-  causa-mcp) composes against ONE framework primitive rather than
-  reimplementing the five-token check. Per Spec 009 §Privacy."
+  level. Thin alias over the framework-published `re-frame.privacy/sensitive?`
+  predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn
+  / rf2-iwqu9, every consumer of `:sensitive?` (Causa, Story,
+  story-mcp, pair2-mcp, causa-mcp) composes against ONE framework
+  primitive rather than reimplementing the five-token check. Per Spec
+  009 §Privacy."
   [ev]
-  (trace/sensitive? ev))
+  (privacy/sensitive? ev))
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by Causa's trace collector
