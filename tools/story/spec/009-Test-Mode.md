@@ -237,12 +237,104 @@ strip sits above it (owned by the mode-tabs primitive).
   watcher is intentionally not wired through the `:test` pane —
   re-run is an explicit action, not a hot-reload side effect.
 
+## Chrome-level test widget + sidebar status dots (rf2-q0irb)
+
+Storybook 9's headline 9.0 feature is the Vitest-driven test widget
+that aggregates per-story status across the whole sidebar. The
+`:test` pane above is the per-variant view; the chrome-level
+aggregation surface is the **test widget** that sits at the foot of
+the sidebar plus the **status dots** that render next to each
+testable variant row.
+
+Both surfaces read from one slot in the shell state — `:test-runs`,
+a `{variant-id → {:status :pass|:fail|:running|:pending, :passed,
+:failed, :skipped, :total, :ran-at-ms, :elapsed-ms}}` map. The
+`:test` mode pane and the chrome widget both write into it; the
+sidebar's per-variant row reads its dot's colour from it.
+
+### Surface
+
+```clojure
+;; pure data → data (JVM-testable, lives in re-frame.story.ui.state):
+(mark-test-running   state variant-id)       ; → state'
+(record-test-run     state variant-id summary) ; summary is the
+                                              ; aggregate-summary shape
+                                              ; from this spec.
+(clear-test-run      state variant-id)       ; → state'
+(variant-test-status state variant-id)       ; → :pass|:fail|:running|:pending
+(test-summary        state variant-ids)      ; → {:total :passed :failed
+                                              ;    :running :pending
+                                              ;    :all-green?}
+(testable-variant-ids id->body)              ; → vector of variant-ids
+                                              ; whose :tags contains :test
+                                              ; AND :play is non-empty.
+```
+
+The `re-frame.story.ui.sidebar` namespace renders the chrome widget
+and the per-variant dots. `(sidebar/status-dot status)` and
+`(sidebar/test-widget shell registry)` are public so the test corpus
+can render them directly.
+
+### Testable variants
+
+The widget aggregates over **testable** variants — variants whose
+`:tags` set contains `:test` AND whose `:play` slot is non-empty. A
+variant tagged `:test` but without any assertions to run is excluded
+so the headline counts don't mislead. Per-variant dots follow the
+same filter: a `:dev`-only variant or an empty-`:play` `:test`
+variant renders no dot.
+
+### Status semantics
+
+- `:pass` — every assertion in the last run passed (and at least one assertion).
+- `:fail` — at least one assertion failed.
+- `:running` — `run-variant` is currently in flight.
+- `:pending` — no run recorded yet, **or** the last run produced zero
+  assertions (the variant ran but produced no signal — the dot stays
+  grey rather than green).
+
+`:all-green?` on the chrome widget's summary is true only when every
+testable variant has a recorded green run — a sea of `:pending`
+counts as "not green yet", not "all green".
+
+### Run all
+
+The widget's **Run all** button drives `run-variant` over every
+testable variant. Runs dispatch in parallel — each variant runs in
+its own frame per Spec 002 §Programmatic API, so concurrent runs
+don't cross-contaminate `app-db`. Per-variant runs from the
+`:test` pane's Re-run button fold into the same `:test-runs` slot,
+so the chrome widget and the pane stay in sync.
+
+### Test selectors
+
+| Selector                                              | What                                  |
+|-------------------------------------------------------|---------------------------------------|
+| `[data-test="story-test-widget"]`                     | The widget root.                      |
+| `[data-test="story-test-widget-headline"]`            | "Tests · N/M" headline strip.         |
+| `[data-test="story-test-widget-counts"]`              | "✓ N · ✗ M · ▸ K · ○ L" count chips.  |
+| `[data-test="story-test-widget-run-all"]`             | The Run all button.                   |
+| `[data-test="story-test-widget-empty"]`               | "no :test variants" empty state.      |
+| `[data-test="story-sidebar-dot"]`                     | One per testable variant row; `data-status="pass\|fail\|running\|pending"`. |
+
+### Out of scope
+
+- **Watch mode** — same v2 deferral as the per-variant pane (no
+  registration-diff signal yet; see rf2-z1h0f).
+- **Failing-row scroll-into-view.** Clicking a red dot does not yet
+  scroll the sidebar to the failing variant or auto-select it. The
+  user clicks the row manually.
+- **Coverage rollups.** The widget shows the latest run only; a
+  "last N runs" rollup is a separate surface.
+
 ## Foundational status
 
-Per the rf2-9hc8 / rf2-rodx / rf2-qmjo trio: the `:test` pane is a
-**leaf** — it consumes the foundation (the four-phase runtime, the
-seven canonical `:rf.assert/*` events, the `:assertions` record
-schema) and surfaces it. It does not register new artefact kinds,
-does not add new shell-state slots, and does not change the mode-
-tabs chip strip. Removing `test-view` restores the placeholder-
-equivalent empty pane without breaking any other surface.
+Per the rf2-9hc8 / rf2-rodx / rf2-qmjo / rf2-q0irb tetrad: the
+`:test` pane and the chrome widget are **leaves** — they consume
+the foundation (the four-phase runtime, the seven canonical
+`:rf.assert/*` events, the `:assertions` record schema) and surface
+it. They do not register new artefact kinds; the only new shell-
+state slot is `:test-runs`, which is a pure derivation of
+`run-variant` results keyed by variant id. Removing them restores
+the placeholder-equivalent empty pane and the dot-free sidebar
+without breaking any other surface.

@@ -214,6 +214,12 @@ The record-don't-throw shape (per IMPL-SPEC §2.3) is the design call. A play se
 
 The worked example's [`stories_cljs_test.cljs`](https://github.com/day8/re-frame2/blob/main/examples/reagent/counter_with_stories/stories_cljs_test.cljs) is the full integration-test pattern.
 
+### The chrome-level test widget + sidebar status dots
+
+The sidebar's foot carries a **test widget** that aggregates `run-variant` outcomes across every `:test`-tagged variant — a `Tests · 3/5` headline with `✓ 3 · ✗ 1 · ○ 1` chips and a `[ Run all ]` button. Each variant row in the sidebar tree picks up a small coloured dot to the left of its name — green when the last run passed, red when any assertion failed, yellow while a run is in flight, grey before the first run. Clicking Run all dispatches `run-variant` over every testable variant in parallel; the dots flip in unison and the headline counts settle as runs resolve. The per-variant `:test` mode pane and the chrome widget share one `:test-runs` slot, so a re-run from inside the pane updates the dot and the widget headline immediately.
+
+This is Story's Vitest-reporter parity per [`tools/story/spec/009-Test-Mode.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/009-Test-Mode.md) §Chrome-level test widget — when a project's CI gates on `assertions-passing?`, the chrome widget is the at-a-glance gauge that says "every variant is green right now". Watch-mode auto-re-run is deferred to v2 (needs a registration-diff signal the runtime doesn't yet expose).
+
 ## Mounting the Story shell
 
 In your app's entry namespace:

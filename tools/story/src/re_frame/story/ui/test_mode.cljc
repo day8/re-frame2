@@ -339,22 +339,35 @@
 
 #?(:cljs
    (defn- begin-run!
-     "Mark the variant's slot as running. Returns nothing."
+     "Mark the variant's slot as running. Returns nothing. Stamps the
+     shell-state `:test-runs` slot too so the chrome-level test widget
+     and the sidebar's per-variant dot read `:running` while the run
+     is in flight (rf2-q0irb)."
      [variant-id]
-     (swap! results-atom assoc-in [variant-id :running?] true)))
+     (swap! results-atom assoc-in [variant-id :running?] true)
+     (state/swap-state! state/mark-test-running variant-id)))
 
 #?(:cljs
    (defn- store-result!
      "Swap a fresh `result` (from `run-variant`) into the variant's
      slot, clear `:running?`, stamp `:ran-at-ms` with the local clock,
      and reset the per-row expanded set so a fresh failure detail
-     starts collapsed."
+     starts collapsed.
+
+     Folds the run's aggregate into the shell-state `:test-runs` slot
+     too — the chrome-level test widget + sidebar dots read off that
+     slot (rf2-q0irb)."
      [variant-id result]
-     (swap! results-atom assoc variant-id
-            {:result    result
-             :ran-at-ms (interop/now-ms)
-             :running?  false
-             :expanded  #{}})))
+     (let [now (interop/now-ms)]
+       (swap! results-atom assoc variant-id
+              {:result    result
+               :ran-at-ms now
+               :running?  false
+               :expanded  #{}})
+       (let [summary (-> (aggregate-summary (:assertions result))
+                         (assoc :ran-at-ms  now
+                                :elapsed-ms (:elapsed-ms result)))]
+         (state/swap-state! state/record-test-run variant-id summary)))))
 
 #?(:cljs
    (defn- toggle-expanded!
@@ -380,9 +393,13 @@
            (async/then  (fn [r] (store-result! variant-id r) nil))
            (async/catch* (fn [_]
                            ;; Even a rejection clears :running? so the
-                           ;; UI button comes back to "Re-run".
+                           ;; UI button comes back to "Re-run". Drop
+                           ;; the shell-state running stamp too — the
+                           ;; widget/dot should not stay yellow on a
+                           ;; rejection (rf2-q0irb).
                            (swap! results-atom assoc-in
                                   [variant-id :running?] false)
+                           (state/swap-state! state/clear-test-run variant-id)
                            nil))))))
 
 ;; ---- CLJS-side: section renderers ---------------------------------------
