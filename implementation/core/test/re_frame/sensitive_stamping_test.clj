@@ -490,7 +490,7 @@
 (deftest sensitive-predicate
   (testing "rf/sensitive? returns true on top-level-stamped events,
    false otherwise — replaces the per-consumer private helper (rf2-isdwf
-   audit G5)"
+   audit G5; consumer-side dedup landed in rf2-sqxjn)"
     (is (true?  (rf/sensitive? {:sensitive? true})))
     (is (false? (rf/sensitive? {:sensitive? false})))
     (is (false? (rf/sensitive? {})))
@@ -498,7 +498,10 @@
     (is (false? (rf/sensitive? "not a map")))
     (is (false? (rf/sensitive? {:tags {:sensitive? true}}))
         "nested :sensitive? inside :tags does NOT count — only the
-         top-level field per Spec 009 line 1175")))
+         top-level field per Spec 009 line 1175"))
+  (testing "rf/sensitive? and re-frame.trace/sensitive? are the same fn
+   — re-frame.core re-exports from re-frame.trace via (def ...) (rf2-sqxjn)"
+    (is (identical? rf/sensitive? trace/sensitive?))))
 
 ;; ---- composition with wire-elision walker --------------------------------
 

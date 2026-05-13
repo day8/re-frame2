@@ -29,6 +29,7 @@
   true (the registration call); to `nil` when false. Production code
   that accidentally requires a stories ns sees the namespace load but
   with no registrations, every Story query returns empty."
+  (:require [re-frame.trace :as trace])
   #?(:cljs (:require-macros [re-frame.story.config])))
 
 ;; ---- the compile-time flag -----------------------------------------------
@@ -213,12 +214,13 @@
 
 (defn sensitive-event?
   "True iff the trace event `ev` carries `:sensitive? true` at the top
-  level. Per Spec 009 §Privacy + §Listener filtering semantics — the
-  framework stamps `:sensitive? true` on every trace event emitted
-  inside a registration that opted in, and consumers branch on this
-  flag. Absent/false means non-sensitive."
+  level. Thin alias over the framework-published `re-frame.trace/sensitive?`
+  predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn,
+  every consumer of `:sensitive?` (Causa, Story, story-mcp, pair2-mcp,
+  causa-mcp) composes against ONE framework primitive rather than
+  reimplementing the five-token check. Per Spec 009 §Privacy."
   [ev]
-  (boolean (and (map? ev) (= true (:sensitive? ev)))))
+  (trace/sensitive? ev))
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by a Story-registered

@@ -52,17 +52,22 @@
                              (pos? dropped) (assoc :dropped-sensitive dropped))]
           (text-result (pr-edn payload) payload)))))
   ```"
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.trace :as trace]))
 
 (defn sensitive-event?
-  "Does this event carry the top-level `:sensitive? true` stamp? The
-  filter is conservative — only the literal `true` value drops; any
-  other value (including a possible string-coercion via an ill-behaved
-  transport) passes through. The `:rf/trace-event` schema types
-  `:sensitive?` as a boolean (per spec/009 + spec/Spec-Schemas)."
+  "Does this event carry the top-level `:sensitive? true` stamp? Thin
+  alias over the framework-published `re-frame.trace/sensitive?`
+  predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn,
+  every consumer of `:sensitive?` (Causa, Story, story-mcp, pair2-mcp,
+  causa-mcp) composes against ONE framework primitive rather than
+  reimplementing the five-token check. The filter is conservative —
+  only the literal `true` value drops; any other value (including a
+  possible string-coercion via an ill-behaved transport) passes through.
+  The `:rf/trace-event` schema types `:sensitive?` as a boolean (per
+  spec/009 + spec/Spec-Schemas)."
   [ev]
-  (and (map? ev)
-       (true? (:sensitive? ev))))
+  (trace/sensitive? ev))
 
 (defn strip-sensitive
   "Remove `:sensitive? true` events from `events` unless the caller has
