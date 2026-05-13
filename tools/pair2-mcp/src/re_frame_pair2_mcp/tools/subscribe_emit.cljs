@@ -1,7 +1,11 @@
 (ns re-frame-pair2-mcp.tools.subscribe-emit
   "Per-tick progress-payload composition + final-summary envelope for
   the `subscribe` tool. Split out of `tools/subscribe.cljs` (rf2-vrbwx)
-  so the streaming-loop body stays under the leaf-size ceiling."
+  so the streaming-loop body stays under the leaf-size ceiling.
+
+  Post-rf2-w5etd: `final-summary` takes a `:state` map (the deref'd
+  rolling accumulators) rather than seven separate atoms, matching the
+  one-atom shape held by the streaming-loop controller."
   (:require [re-frame-pair2-mcp.tools.wire :as wire]))
 
 (defn progress-payload
@@ -33,22 +37,28 @@
 
 (defn final-summary
   "The terminal `ok-text` result emitted when the subscription ends —
-  client cancel, unsubscribe, max-events / max-ms hit, or sub-gone."
-  [{:keys [sub-id topic delivered tick dropped-events* dropped-bytes*
-           overflow-reason* dropped-sensitive* elided-large* reason]}]
-  (wire/ok-text
-    (wire/with-indicators
-      (cond-> {:ok?            true
-               :sub-id         sub-id
-               :topic          topic
-               :delivered      @delivered
-               :dropped-events @dropped-events*
-               :dropped-bytes  @dropped-bytes*
-               :ticks          @tick
-               :reason         reason}
-        @overflow-reason*
-        (assoc :overflow-reason @overflow-reason*))
-      {:dropped @dropped-sensitive* :elided @elided-large*})))
+  client cancel, unsubscribe, max-events / max-ms hit, or sub-gone.
+
+  `state` is the deref'd rolling accumulators map (see
+  `subscribe/initial-state`); `wire/with-indicators` splices the
+  `:dropped-sensitive` / `:elided-large` counters onto the envelope
+  per the cross-MCP indicator-field convention."
+  [{:keys [sub-id topic state reason]}]
+  (let [{:keys [tick delivered dropped-events dropped-bytes
+                overflow-reason dropped-sensitive elided-large]} state]
+    (wire/ok-text
+      (wire/with-indicators
+        (cond-> {:ok?            true
+                 :sub-id         sub-id
+                 :topic          topic
+                 :delivered      delivered
+                 :dropped-events dropped-events
+                 :dropped-bytes  dropped-bytes
+                 :ticks          tick
+                 :reason         reason}
+          overflow-reason
+          (assoc :overflow-reason overflow-reason))
+        {:dropped dropped-sensitive :elided elided-large}))))
 
 (defn emit-progress-tick!
   "Build the per-tick progress payload and ship it via the MCP
