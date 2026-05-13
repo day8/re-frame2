@@ -39,7 +39,7 @@
 | `reg-app-schemas` | M | `(reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})` / `(reg-app-schemas {…} opts)` — bulk plural form for feature-modular apps that register 5–20 paths against the same prefix (per Conventions §Feature-modularity prefix convention). Each entry routes through the singular `reg-app-schema` and is stamped with this call's source-coords. Returns the vector of paths registered (rf2-jzs9) | v1 | 010 | |
 | `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
-| `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 (deferred — see rf2-gr0n) | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. |
+| `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. Captures source-coords; under the optional-artefact wrapper convention the surface routes through the `:ssr/reg-head` late-bind hook. |
 | `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | 011 | New registry kind `:error-projector`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata (per `reg-frame` / `make-frame`). |
 
 ### Clearing registrations
@@ -191,8 +191,9 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 | `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | 011 |
 | `render-tree-hash` | Fn | `(render-tree-hash render-tree)` → 32-bit FNV-1a structural hash (lowercase hex). Identical output on JVM and CLJS for the same canonical-EDN representation. Per [011 §Hydration-mismatch detection](011-SSR.md). | v1 | 011 |
 | `project-error` | Fn | `(project-error frame-id trace-event)` → `:rf/public-error`. Applies the active error-projector (selected by the frame's `:ssr {:public-error-id ...}` metadata) for the named frame. Per [011 §Server error projection](011-SSR.md). | v1 | 011 |
-| `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
-| `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
+| `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 | 011 |
+| `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 | 011 |
+| `head-model->html` | Fn | `(head-model->html head-model)` / `(head-model->html head-model {:wrap? bool})` → inner-head HTML string | v1 | 011 |
 
 Standard SSR-related events:
 

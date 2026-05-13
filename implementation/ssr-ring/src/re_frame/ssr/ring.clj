@@ -64,16 +64,24 @@
     via `(inject-cofx :rf.server/request)` get nil until the cofx
     lands.
 
+  Head/meta integration (rf2-4dra9):
+
+    The adapter resolves the active route's `:head` registration via
+    `rf/active-head` after the drain settles; the produced
+    `:rf/head-model` is rendered to its inner-head HTML fragment via
+    `rf/head-model->html` and threaded into the shell as the `:head`
+    opt. Custom shells (`:html-shell` opt) receive the resolved head
+    fragment in the merged opts map. Routes that don't declare `:head`
+    fall back to the default head model (Spec 011 §Default head); the
+    fragment is empty when there is no useful head data.
+
   Out of scope here (deferred / other beads):
 
     - Streaming SSR (rf2-olb64)            — `render-to-string` is
                                              a single-shot emitter; this
                                              adapter mirrors that.
     - Async Ring handler (3-arity)         — synchronous-only in v1;
-                                             extension is additive.
-    - reg-head / render-head integration   — deferred per rf2-gr0n;
-                                             the v1 html-shell is the
-                                             escape hatch."
+                                             extension is additive."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.ssr :as ssr])
@@ -315,6 +323,20 @@
     (let [hiccup (if (fn? root-view) (root-view) root-view)]
       (ssr/render-tree-hash hiccup))))
 
+(defn- resolve-head-html
+  "Resolve the active route's `:head` against `frame-id` (or the default
+  head when the route doesn't declare one). Returns the inner-head HTML
+  fragment as a string. Exceptions during resolution degrade gracefully
+  to an empty string so a buggy head fn can't take down the request —
+  the trace surface still carries the throw for monitoring.
+
+  Per Spec 011 §Head/meta contract (rf2-4dra9)."
+  [frame-id]
+  (try
+    (let [model (rf/active-head frame-id)]
+      (rf/head-model->html model))
+    (catch Throwable _ "")))
+
 (defn- on-create-with-request
   "Conj the Ring request map onto the caller's :on-create event vector
   so handlers can read it as an event arg. The `:rf.server/request`
@@ -460,7 +482,14 @@
                                                   :schema-digest schema-digest
                                                   :payload-keys  payload-keys})
                       payload-edn (pr-str payload)
-                      html        (html-shell body-html payload-edn opts)
+                      ;; rf2-4dra9: resolve the active route's :head
+                      ;; (or default-head fallback) and pass the rendered
+                      ;; fragment as the :head opt. Callers that supplied
+                      ;; an explicit :head opt take precedence — they
+                      ;; chose to bypass route-driven head resolution.
+                      head-html   (or (:head opts) (resolve-head-html frame-id))
+                      shell-opts  (assoc opts :head head-html)
+                      html        (html-shell body-html payload-edn shell-opts)
                       ;; Ensure Content-Type is set; the SSR runtime
                       ;; defaults [:rf/response :headers] to include
                       ;; content-type so this is usually a no-op, but
