@@ -798,7 +798,7 @@
       ;; Drain any pending error projections so :rf/response carries
       ;; the projector's :status before snapshotting final-app-db.
       (doseq [fid (frame/frame-ids)]
-        (try (ssr/apply-pending-error-projection! fid)
+        (try (ssr/apply-error-projection! fid)
              (catch :default _ nil)))
       (let [expect       (or (:fixture/expect fixture) {})
             expected-db  (:final-app-db expect)

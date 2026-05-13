@@ -110,7 +110,6 @@
 (def reg-error-projector             error-projector/reg-error-projector)
 (def project-error                   error-projector/project-error)
 (def apply-error-projection!         error-listener/apply-error-projection!)
-(def apply-pending-error-projection! error-listener/apply-pending-error-projection!)
 (def get-response                    error-listener/get-response)
 ;; framework-private at the public surface — Spec 011 §Per-request
 ;; frame teardown. Tests reach the var via `(resolve ...)`.

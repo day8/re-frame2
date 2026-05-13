@@ -874,7 +874,7 @@
       ;; :status before we snapshot final-app-db. The runtime's
       ;; trace listener buffers error events; this flushes them
       ;; just before the conformance check reads app-db.
-      (let [apply-fn (requiring-resolve 're-frame.ssr/apply-pending-error-projection!)]
+      (let [apply-fn (requiring-resolve 're-frame.ssr/apply-error-projection!)]
         (when apply-fn
           (doseq [fid (frame/frame-ids)]
             (try (apply-fn fid)
