@@ -59,6 +59,7 @@
             [cljs.reader]
             [clojure.string :as str]
             [de-dupe.core :as dedup]
+            [re-frame-pair2-mcp.cache :as cache]
             [re-frame-pair2-mcp.nrepl :as nrepl]))
 
 ;; ---------------------------------------------------------------------------
@@ -2184,6 +2185,28 @@
                      "permission for the slot (e.g. debugging the "
                      "elided value itself).")})
 
+(def ^:private cache-property
+  "Per-tool descriptor slot for the `:cache` opt-in (rf2-3rt1f).
+  Applied to read-tool descriptors via `with-cache-knob`. Default
+  `false` — opt-in until the agent host has been taught the
+  `:rf.mcp/cache-hit` marker shape."
+  {:type        "boolean"
+   :description (str "Consult the per-session response cache. Default "
+                     "false. When true and the result's hash matches "
+                     "the prior call for this (tool, args), the full "
+                     "payload is replaced with a "
+                     "`{:rf.mcp/cache-hit {:hash <h> "
+                     ":unchanged-since <ms> :tool <t> :hint <s>}}` "
+                     "marker — the agent host already has the byte-"
+                     "identical payload from the prior call. Cache is "
+                     "an 8-slot LRU keyed by (tool, args-fingerprint); "
+                     "lifetime is the MCP server process (= one "
+                     "session per persistent-socket principle). Read "
+                     "tools only (snapshot, get-path, trace-window, "
+                     "watch-epochs, discover-app); action tools "
+                     "(dispatch, eval-cljs, tail-build) and streaming "
+                     "tools (subscribe) bypass.")})
+
 (defn- with-budget-knob
   "Splice `max-tokens` into a tool descriptor's inputSchema.properties.
   No-op if the descriptor already declares it (forward-compat)."
@@ -2193,6 +2216,20 @@
       desc
       (assoc-in desc [:inputSchema :properties :max-tokens]
                 max-tokens-property))))
+
+(defn- with-cache-knob
+  "Splice `cache` into a tool descriptor's inputSchema.properties — but
+  only for the read tools that consult `cache/apply-cache`. Action
+  tools and streaming tools don't list the knob because it has no
+  effect there (bypassed in `cache/cacheable?`)."
+  [desc]
+  (let [name  (:name desc)
+        props (get-in desc [:inputSchema :properties])]
+    (if (or (contains? props :cache)
+            (not (cache/cacheable? name)))
+      desc
+      (assoc-in desc [:inputSchema :properties :cache]
+                cache-property))))
 
 (def tool-descriptors
   [{:name "discover-app"
@@ -2440,7 +2477,7 @@
                   :additionalProperties false}}])
 
 (defn tool-descriptors-js []
-  (clj->js (mapv with-budget-knob tool-descriptors)))
+  (clj->js (mapv (comp with-cache-knob with-budget-knob) tool-descriptors)))
 
 (defn- dispatch-tool*
   "Route a `tools/call` to the per-tool implementation. Unknown tools
@@ -2465,19 +2502,42 @@
   "Dispatch a `tools/call` invocation to the right tool implementation.
   Returns a Promise resolving to the MCP result object.
 
-  Every result passes through `apply-cap` at the wire boundary —
-  responses whose serialised size exceeds the per-call cap (default
-  5,000 tokens, configurable via the `max-tokens` MCP arg) are
-  replaced with an `{:rf.mcp/overflow ...}` marker. The cap is
-  enforced here, not just documented; see the `apply-cap` docstring
-  for the pluggable-strategy design.
+  ## Wire-boundary pipeline
+
+  Each result passes through two egress transforms in order:
+
+  1. `cache/apply-cache` (rf2-3rt1f) — per-session response cache
+     keyed on a hash of the result's text payload. On a hit (same
+     hash for `(tool, args)` as the prior call) the full payload is
+     replaced with a tiny `{:rf.mcp/cache-hit ...}` marker; the
+     agent host already has the byte-identical bytes from the prior
+     `tools/call`. Opt-in via the per-call `cache` arg (default
+     `false`); read-only tools only; `:isError` results bypass
+     entirely. See `cache/apply-cache` for the LRU policy.
+
+  2. `apply-cap` (rf2-rvyzy) — responses whose serialised size
+     exceeds the per-call cap (default 5,000 tokens, configurable
+     via the `max-tokens` MCP arg) are replaced with an
+     `{:rf.mcp/overflow ...}` marker. Silent truncation is not
+     allowed; see the `apply-cap` docstring for the pluggable-
+     strategy design.
+
+  Cache before cap is the right order: a cache hit emits a sub-100-
+  byte marker that's trivially under any reasonable cap, so flipping
+  the order would never change behaviour but would waste the
+  `sum-text-tokens` walk on the hit path.
 
   `extra` carries the MCP `extra` payload (signal + sendNotification +
   _meta.progressToken) for streaming tools. Non-streaming tools
   ignore it."
   [conn name args extra]
-  (let [cap-opts {:tool     name
-                  :cap      (max-tokens-arg args)
-                  :strategy :truncate-with-marker}]
+  (let [cap-opts   {:tool     name
+                    :cap      (max-tokens-arg args)
+                    :strategy :truncate-with-marker}
+        cache-opts {:tool     name
+                    :args     args
+                    :enabled? (cache/parse-cache-arg
+                                (when args (j/get args "cache")))}]
     (-> (dispatch-tool* conn name args extra)
+        (.then (fn [result] (cache/apply-cache result cache-opts)))
         (.then (fn [result] (apply-cap result cap-opts))))))

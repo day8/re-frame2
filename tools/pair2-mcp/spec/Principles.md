@@ -772,6 +772,88 @@ privacy filter (Spec 009 §Privacy / rf2-3cted) — the agent
 host learns one shape: "dropped count + the reason it was
 dropped".
 
+## Per-session response cache (rf2-3rt1f)
+
+**The principle**. The common pair2-mcp workflow rhythm is
+*inspect state → dispatch one event → inspect state again*.
+The second inspect is byte-identical to the first when nothing
+else mutated, yet today the wire pays the full app-db cost
+twice. A small per-session cache keyed on a result-hash
+collapses the second pay to a sub-100-byte marker.
+
+**Mechanism**. Each MCP server process holds an 8-slot LRU,
+keyed by `(tool, args-fingerprint)`. Each entry records the
+hash of the prior response's serialised text plus the
+`:sent-at` timestamp of first emission. On every read-tool
+invocation:
+
+1. Run the tool normally — compute the MCP result.
+2. Hash the result's `:text` slots.
+3. Look up `(tool, args-fingerprint)` in the LRU.
+   - **Miss**: store `{:hash h :sent-at now :tool t}`; return
+     the original result unchanged.
+   - **Hit, matching hash**: emit
+     ```clojure
+     {:rf.mcp/cache-hit
+      {:hash            h
+       :unchanged-since <ms>
+       :tool            <name>
+       :hint            "<agent-host instruction string>"}}
+     ```
+     instead of the full payload. Touch the entry to the tail
+     (LRU bookkeeping).
+   - **Hit, different hash**: state moved on; store the new
+     hash + `:sent-at`, return the fresh result.
+
+**Why hash the result, not app-db directly**. The bead
+proposed `(hash app-db)`. The framing here is one step
+downstream: by the time the result is built, it has been
+path-sliced, summarised, diff-encoded, deduped, scrubbed.
+Two calls with the same args against the same upstream state
+produce the same serialised text — so hashing the text catches
+the same hit and is robust against every transform in the wire
+pipeline. One mechanism covers every read tool uniformly
+instead of per-tool hash strategies.
+
+**Scope**. The cache saves wire bytes, not the nREPL round-
+trip — the tool still runs server-side and the result is
+built locally. The byte saving is the one the bead targets.
+Saving the round-trip too needs a server-side hash precheck
+(precompute `(hash app-db)` in the runtime, ship the hash
+first, only ship the body on miss) — out of scope for
+rf2-3rt1f, filed as a follow-on bead.
+
+**Why opt-in by default**. Agent hosts that haven't been
+taught the `:rf.mcp/cache-hit` marker shape would receive a
+sub-100-byte marker instead of the expected payload on the
+second call and either error out or, worse, silently confuse
+their internal model. Default-`false` matches the `dedup`
+default before its flip (rf2-obpa9 left dedup opt-out until
+host coverage was confirmed). Once the marker shape is in the
+re-frame-pair2 skill catalogue and agents pattern-match on it
+routinely, the default can flip.
+
+**Why 8 slots**. Sized for the typical session's
+"inspect different frames + a couple of get-path calls"
+working set, not for full coverage. An LRU at 8 fits the
+session's hot working set without retaining state long enough
+to mask a slow background mutation. Capacity is a `def`-level
+constant; future ergonomics work may surface it as an env
+var.
+
+**Bypass policy**. Action tools (`dispatch`, `eval-cljs`,
+`tail-build`) bypass — their return value is the result of an
+action, not a read. Streaming tools (`subscribe`,
+`unsubscribe`) bypass — they emit progress notifications, not
+single payloads. `:isError` results bypass — a transient
+failure must not mask a future successful read.
+
+**Cross-MCP vocabulary**. `:rf.mcp/cache-hit` is the wire
+marker name. It joins the `:rf.mcp/*` family already declared
+for `:rf.mcp/overflow` (rf2-rvyzy), `:rf.mcp/dedup-table`
+(rf2-obpa9), `:rf.mcp/summary` (rf2-tygdv). The agent learns
+the namespace once and recognises every marker.
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
