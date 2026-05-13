@@ -949,7 +949,35 @@ Apps extend the denylist for app-specific tokens (e.g. `X-Honeycomb-Team`, `X-St
 
 Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-headers!)`.
 
-### 2. Per-call / per-request / per-handler `:sensitive?`
+### 2. Query-param denylist (always-on) (rf2-2p8wr)
+
+A parallel-axis canonical set of HTTP query-string **parameter names** is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. URLs in `:rf.http/*` trace events that carry a denylisted query-string parameter have the **value** redacted inline: `?api_key=SECRET&page=2` → `?api_key=:rf/redacted&page=2`. The parameter name and position are preserved so the operator can still see which endpoint was called and which parameters were present, but the secret value is replaced with the framework-reserved sentinel text. Parameter-name matching is **case-insensitive**.
+
+The v1 closed denylist:
+
+| Param name | Why |
+|---|---|
+| `api_key` / `apikey` / `api-key` | API key in URL query — common legacy idiom |
+| `access_token` / `accesstoken` | Bearer-token idiom carried on the URL |
+| `auth` / `auth_token` / `authtoken` | Generic auth-token names |
+| `token` | Generic bearer-token name |
+| `key` | Generic key name (covers `?key=...` API-key idioms) |
+| `secret` | Generic secret-name |
+| `password` / `passwd` | Password in URL — rare but seen on legacy POST-as-GET endpoints |
+| `session` / `session_id` / `sessionid` | Session identifier carried on the URL |
+| `signature` / `sig` / `hmac` | Signed-URL HMAC / signature value |
+
+Apps extend the denylist for app-specific tokens (e.g. `shop_token` for Shopify, `signature` variants in webhook receivers) via:
+
+```clojure
+(rf.http/declare-sensitive-query-param! "shop_token")
+```
+
+Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-query-params!)`.
+
+A query-param denylist hit **alone** (no per-handler / per-call `:sensitive?`) **stamps `:sensitive? true`** on the resulting trace event — the presence of a denylisted parameter name is itself a signal that the request carries an auth secret, and downstream privacy-honouring consumers should treat the event accordingly. This is the analogue of the header denylist contract: the name is the signal.
+
+### 3. Per-call / per-request / per-handler `:sensitive?`
 
 Three OR-reduced sources contribute the request-side `:sensitive?` flag for a given `:rf.http/managed` invocation:
 
@@ -985,14 +1013,16 @@ Any source set to `true` makes the request sensitive; all sources defaulting to 
             :sensitive? true}]]}))
 ```
 
-### 3. Trace-event redaction + stamping rules
+### 4. Trace-event redaction + stamping rules
 
 For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/decode-defaulted`), implementations MUST:
 
 1. **Redact denylisted headers** in `:headers` slots regardless of the effective `:sensitive?` flag.
-2. **Redact body / body-text / decoded / detail** slots when the effective `:sensitive?` is true. Specifically: `:body` (request and response), `:body-text` (decode-failure raw text), `:decoded` (the pre-`:accept` decoded value carried by `:rf.http/accept-failure`), and `:detail` (the user-supplied failure map carried by `:rf.http/accept-failure`). All slot values become `:rf/redacted`.
-3. **Redact `:params`** (query-string params) when the effective `:sensitive?` is true. Query parameters frequently carry tokens (`?api_key=…`) and the redaction rule matches the body — when the request is sensitive, anything that rides the wire is.
-4. **Stamp `:sensitive?`** on the trace event per [Spec 009 §Trace-event field](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level). The canonical contract is that the flag rides at the top level of the trace envelope (consumers consult `(:sensitive? ev)` for a one-keyword read). The HTTP layer stamps `:sensitive? true` on the tags map passed to `trace/emit!` / `trace/emit-error!`. If the core trace surface implements the [rf2-isdwf](#) hoist (Spec 009 §Privacy core-stamping), the flag is moved from tags to top-level by the emit walker; if core does not yet hoist, the flag stays under `:tags`. Once core lands the hoist universally, the tags-slot becomes redundant but harmless. Absent (NOT `false`) when not sensitive — per Spec 009 line 1176 "Consumers treat absent as false."
+2. **Redact denylisted query-string parameter values** in `:url` slots regardless of the effective `:sensitive?` flag (rf2-2p8wr). Param-name + position preserved; the value is replaced inline with the `:rf/redacted` text token.
+3. **Redact body / body-text / decoded / detail** slots when the effective `:sensitive?` is true. Specifically: `:body` (request and response), `:body-text` (decode-failure raw text), `:decoded` (the pre-`:accept` decoded value carried by `:rf.http/accept-failure`), and `:detail` (the user-supplied failure map carried by `:rf.http/accept-failure`). All slot values become `:rf/redacted`.
+4. **Redact `:params`** (the structured query-string params map on the request side) when the effective `:sensitive?` is true. The whole `:params` map value becomes `:rf/redacted`.
+5. **Redact ALL `:url` query-string param values** when the effective `:sensitive?` is true (broader rule than the always-on denylist) — when the request is sensitive, anything that rides the wire is. Non-denylisted params (e.g. `user_id=42`) are scrubbed alongside denylisted ones.
+6. **Stamp `:sensitive?`** on the trace event per [Spec 009 §Trace-event field](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level). The canonical contract is that the flag rides at the top level of the trace envelope (consumers consult `(:sensitive? ev)` for a one-keyword read). The HTTP layer stamps `:sensitive? true` on the tags map passed to `trace/emit!` / `trace/emit-error!`. A **query-param denylist hit alone** (no per-handler / per-call `:sensitive?`) also stamps `:sensitive? true` — the denylisted name is itself the signal. If the core trace surface implements the [rf2-isdwf](#) hoist (Spec 009 §Privacy core-stamping), the flag is moved from tags to top-level by the emit walker; if core does not yet hoist, the flag stays under `:tags`. Once core lands the hoist universally, the tags-slot becomes redundant but harmless. Absent (NOT `false`) when not sensitive — per Spec 009 line 1176 "Consumers treat absent as false."
 
 The cascade-wide stamping uses the **innermost in-scope handler** rule from [Spec 009 §Privacy](009-Instrumentation.md#the-sensitive-registration-metadata-key): each handler in a cascade contributes its own `:sensitive?` reading. A sensitive handler dispatching a non-sensitive child event does NOT transitively widen the flag — the HTTP fx fired inside the child handler's scope reflects the child's flag. The OR-reduce-by-cascade rollup is the consumer's responsibility (group by `:dispatch-id`).
 

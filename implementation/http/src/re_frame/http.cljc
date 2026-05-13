@@ -93,6 +93,23 @@
   See `re-frame.http-privacy/clear-sensitive-headers!`."
   privacy/clear-sensitive-headers!)
 
+(def declare-sensitive-query-param!
+  "Spec 014 §Privacy (rf2-2p8wr) — extend the query-string-param denylist
+  with an app-specific sensitive parameter name. Names stored lower-
+  cased; matching is case-insensitive. URLs carrying a denylisted param
+  have the *value* redacted (preserving param name + position) in every
+  `:rf.http/*` trace event regardless of the originating handler's
+  `:sensitive?` flag.
+  See `re-frame.http-privacy/declare-sensitive-query-param!`."
+  privacy/declare-sensitive-query-param!)
+
+(def clear-sensitive-query-params!
+  "Spec 014 §Privacy (rf2-2p8wr) — reset the app-extended query-param
+  denylist (defaults remain). Test-only; production code should not
+  need this.
+  See `re-frame.http-privacy/clear-sensitive-query-params!`."
+  privacy/clear-sensitive-query-params!)
+
 (defn- build
   "Build a `[:rf.http/managed args-map]` fx vector for the given verb,
   URL, and caller args. Internal — the public helpers are thin wrappers."

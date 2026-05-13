@@ -35,6 +35,7 @@
   ((requiring-resolve 're-frame.machines/reset-counters!))
   (http-managed/clear-all-in-flight!)
   (privacy/clear-sensitive-headers!)
+  (privacy/clear-sensitive-query-params!)
   (trace/clear-trace-cbs!)
   (t))
 
@@ -261,5 +262,123 @@
               headers (get-in ev [:tags :headers])]
           (is (= :rf/redacted (find-header headers "X-Honeycomb-Team"))
               "app-declared sensitive header was redacted"))
+        (finally
+          (stop-server! srv))))))
+
+;; ---- 6. URL query-string denylist applies on failure trace events (rf2-2p8wr) -----
+
+(deftest sensitive-query-param-redacted-in-failure-url
+  (testing "a denylisted query-string param (api_key) has its value redacted
+            in the failure trace event's URL even when the handler is not
+            declared sensitive — the param name itself is the signal"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 500 "text/plain" "boom")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-trace-cb! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+
+        (rf/reg-event-fx :api/fetch
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/x?api_key=SECRET&page=2")}
+                    :on-failure nil}]]}))
+
+        (rf/dispatch-sync [:api/fetch])
+
+        (let [_ (wait-for!
+                  (fn []
+                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
+                  3000)
+              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
+              url (get-in ev [:tags :url])]
+          (is (string? url))
+          (is (str/includes? url "api_key=:rf/redacted")
+              "denylisted api_key value redacted in URL")
+          (is (str/includes? url "page=2")
+              "non-denylisted page param preserved")
+          (is (or (true? (:sensitive? ev))
+                  (true? (get-in ev [:tags :sensitive?])))
+              "denylist hit stamps :sensitive? on the trace event"))
+        (finally
+          (stop-server! srv))))))
+
+;; ---- 7. Sensitive handler scrubs ALL URL query params (rf2-2p8wr) ----------------
+
+(deftest sensitive-handler-redacts-all-url-query-params
+  (testing "when the originating handler is :sensitive?, ALL query-string
+            params (denylisted or not) are scrubbed in the failure trace
+            event's URL — the broader rule (rf2-2p8wr)"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 500 "text/plain" "boom")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-trace-cb! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+
+        (rf/reg-event-fx :auth/login
+          {:doc        "Sensitive login op."
+           :sensitive? true}
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/x?user_id=42&page=2")}
+                    :on-failure nil}]]}))
+
+        (rf/dispatch-sync [:auth/login])
+
+        (let [_ (wait-for!
+                  (fn []
+                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
+                  3000)
+              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
+              url (get-in ev [:tags :url])]
+          (is (string? url))
+          (is (str/includes? url "user_id=:rf/redacted")
+              "every param value scrubbed when sensitive — user_id")
+          (is (str/includes? url "page=:rf/redacted")
+              "every param value scrubbed when sensitive — page"))
+        (finally
+          (stop-server! srv))))))
+
+;; ---- 8. App-extended query-param denylist applies on failure URL (rf2-2p8wr) -----
+
+(deftest app-extended-query-param-denylist-redacts-failure-url
+  (testing "declare-sensitive-query-param! extends URL redaction to app-defined params"
+    (privacy/declare-sensitive-query-param! "shop_token")
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 500 "text/plain" "boom")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-trace-cb! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+
+        (rf/reg-event-fx :api/fetch
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/x?shop_token=abc&page=2")}
+                    :on-failure nil}]]}))
+
+        (rf/dispatch-sync [:api/fetch])
+
+        (let [_ (wait-for!
+                  (fn []
+                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
+                  3000)
+              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
+              url (get-in ev [:tags :url])]
+          (is (string? url))
+          (is (str/includes? url "shop_token=:rf/redacted")
+              "app-declared sensitive query-param was redacted")
+          (is (str/includes? url "page=2")
+              "non-denylisted page param preserved"))
         (finally
           (stop-server! srv))))))
