@@ -67,3 +67,49 @@
   pattern is `(when-let [f (late-bind/get-fn ...)] (f args))`)."
   [hook-key]
   (get @hooks hook-key))
+
+(defn require-fn!
+  "Return the fn registered under `hook-key`, or throw a structured
+  `:rf.error/<artefact>-artefact-missing` ex-info when the hook is
+  unregistered.
+
+  The throw shape matches the documented missing-artefact contract used
+  by every `re-frame.core-<artefact>` wrapper (see rf2-5b6x — the
+  late-bind-missing test suite locks this shape across all six per-
+  feature splits):
+
+    Message:  `<error-keyword>` printed as a string (e.g.
+              \":rf.error/flows-artefact-missing\").
+    ex-data:  {:where    <where-sym>            ;; user-facing fn symbol
+               :recovery :no-recovery
+               :reason   \"<where-sym> requires <maven> on the classpath;
+                          add it to deps and require <require-ns> at app boot.\"
+               & extra}                          ;; per-call slots
+
+  Args:
+    hook-key      — the late-bind hook key (e.g. `:flows/reg-flow`).
+    where-sym     — the user-facing fn symbol stamped on the error
+                    (e.g. `'rf/reg-flow`) so greping for the symbol
+                    finds the call site in user code.
+    artefact-info — a map carrying the artefact's Maven coordinates and
+                    the producing ns name:
+                      {:error-keyword :rf.error/flows-artefact-missing
+                       :maven         \"day8/re-frame2-flows\"
+                       :require-ns    \"re-frame.flows\"}
+    extra-data    — (optional) per-call ex-data slots like `:flow-id` /
+                    `:path` / `:route-id` / `:machine-id` / `:frame`.
+
+  Pairs with the `re-frame.core-artefact/defwrapper` factory (rf2-h824v)
+  which drives 26+ call sites across seven `core_<artefact>.cljc`
+  wrappers from a declarative table."
+  ([hook-key where-sym artefact-info]
+   (require-fn! hook-key where-sym artefact-info nil))
+  ([hook-key where-sym {:keys [error-keyword maven require-ns]} extra-data]
+   (or (get @hooks hook-key)
+       (throw (ex-info (str error-keyword)
+                       (merge {:where    where-sym
+                               :recovery :no-recovery
+                               :reason   (str where-sym " requires " maven
+                                              " on the classpath; add it to deps and require "
+                                              require-ns " at app boot.")}
+                              extra-data))))))

@@ -10,38 +10,44 @@
   Per-feature carve-out: the schemas artefact pulls Malli (the default
   validator) onto the classpath — apps that want to drop the ~24 KB
   gzipped Malli surface omit the artefact and either use a substitute
-  validator (per rf2-froe) or skip schema validation entirely."
-  (:require [re-frame.late-bind :as late-bind]))
+  validator (per rf2-froe) or skip schema validation entirely.
 
-(defn app-schema-at
+  Per rf2-h824v the wrappers below are emitted by the
+  `re-frame.core-artefact/defwrapper` factory from a declarative table —
+  one row per public surface."
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
+                                        :cljs [:refer-macros [defwrapper]])]))
+
+(def ^:private schemas-artefact
+  {:error-keyword :rf.error/schemas-artefact-missing
+   :maven         "day8/re-frame2-schemas"
+   :require-ns    "re-frame.schemas"})
+
+(defwrapper app-schema-at
   "Return the registered schema for a path in a frame, or nil. Per Spec
   010 §Schemas as a tooling and agent surface. Returns nil when the
   schemas artefact is not on the classpath."
-  ([path] (app-schema-at path {}))
-  ([path opts]
-   (when-let [f (late-bind/get-fn :schemas/app-schema-at)]
-     (f path opts))))
+  {:hook :schemas/app-schema-at :artefact schemas-artefact :on-absent :nil}
+  ([path]      [path {}])
+  ([path opts] :delegate))
 
-(defn app-schemas
+(defwrapper app-schemas
   "Return every registered `app-schema-at` declaration for a frame as a
   `{path → schema}` map. Per Spec 010 §Per-frame schemas. Returns `{}`
   when the schemas artefact is not on the classpath."
-  ([] (app-schemas {}))
-  ([opts-or-frame-id]
-   (if-let [f (late-bind/get-fn :schemas/app-schemas)]
-     (f opts-or-frame-id)
-     {})))
+  {:hook :schemas/app-schemas :artefact schemas-artefact :on-absent :empty-map}
+  ([]                 [{}])
+  ([opts-or-frame-id] :delegate))
 
-(defn app-schemas-digest
+(defwrapper app-schemas-digest
   "Return a stable digest of the registered schemas for a frame. Per
   Spec 010 §Digest algorithm. Returns `nil` when the schemas artefact
   is not on the classpath."
-  ([] (app-schemas-digest {}))
-  ([opts-or-frame-id]
-   (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
-     (f opts-or-frame-id))))
+  {:hook :schemas/app-schemas-digest :artefact schemas-artefact :on-absent :nil}
+  ([]                 [{}])
+  ([opts-or-frame-id] :delegate))
 
-(defn set-schema-validator!
+(defwrapper set-schema-validator!
   "Register the validator fn that every dev-time schema-validation site
   routes through. Per Spec 010 §Non-Malli validators (rf2-froe) the
   seam is the substitute-Malli extension point — apps that want to
@@ -61,36 +67,29 @@
   this fn replaces them. Returns nil when the schemas artefact is
   not on the classpath (apps that don't want schemas don't need to
   pull `day8/re-frame2-schemas`)."
-  [validate-fn-or-map]
-  (when-let [f (late-bind/get-fn :schemas/set-schema-validator!)]
-    (f validate-fn-or-map)))
+  {:hook :schemas/set-schema-validator! :artefact schemas-artefact :on-absent :nil}
+  ([validate-fn-or-map] :delegate))
 
-(defn set-schema-explainer!
+(defwrapper set-schema-explainer!
   "Register the explainer fn — `(fn [schema value] explanation)` — used
   to enrich schema-validation-failure traces' `:explain` key. Per
   Spec 010 §Non-Malli validators (rf2-froe). See
   `set-schema-validator!` for the validator companion. Returns nil
   when the schemas artefact is not on the classpath."
-  [explain-fn]
-  (when-let [f (late-bind/get-fn :schemas/set-schema-explainer!)]
-    (f explain-fn)))
+  {:hook :schemas/set-schema-explainer! :artefact schemas-artefact :on-absent :nil}
+  ([explain-fn] :delegate))
 
-(defn reg-app-schema
+(defwrapper reg-app-schema
   "Fn-form delegate that performs the late-bind lookup for
   `reg-app-schema`. The `re-frame.core/reg-app-schema` macro (JVM) and
   the CLJS `def`-alias both route here, so the late-bind logic and the
   missing-artefact error message live in one place."
-  ([path schema] (reg-app-schema path schema {}))
-  ([path schema opts]
-   (if-let [f (late-bind/get-fn :schemas/reg-app-schema)]
-     (f path schema opts)
-     (throw (ex-info ":rf.error/schemas-artefact-missing"
-                     {:where    'rf/reg-app-schema
-                      :path     path
-                      :recovery :no-recovery
-                      :reason   "rf/reg-app-schema requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
+  {:hook :schemas/reg-app-schema :artefact schemas-artefact :on-absent :throw
+   :ex-data {:path path}}
+  ([path schema]      [path schema {}])
+  ([path schema opts] :delegate))
 
-(defn reg-app-schemas
+(defwrapper reg-app-schemas
   "Bulk-register `{path -> schema}` against the active frame (or the
   `:frame` opt). Per rf2-jzs9 — the plural form of `reg-app-schema`,
   aimed at feature-modular apps (per Conventions §Feature-modularity
@@ -106,11 +105,6 @@
   Returns the vector of paths registered. See `re-frame.schemas/reg-app-schemas`
   for full semantics and the singular-form fallback when deterministic
   ordering matters."
-  ([path->schema] (reg-app-schemas path->schema {}))
-  ([path->schema opts]
-   (if-let [f (late-bind/get-fn :schemas/reg-app-schemas)]
-     (f path->schema opts)
-     (throw (ex-info ":rf.error/schemas-artefact-missing"
-                     {:where    'rf/reg-app-schemas
-                      :recovery :no-recovery
-                      :reason   "rf/reg-app-schemas requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
+  {:hook :schemas/reg-app-schemas :artefact schemas-artefact :on-absent :throw}
+  ([path->schema]      [path->schema {}])
+  ([path->schema opts] :delegate))

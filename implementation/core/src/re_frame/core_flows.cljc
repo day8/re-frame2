@@ -10,32 +10,32 @@
   Per-feature carve-out: the flows artefact pulls the per-frame flow
   registry, the topological-sort engine, and the dirty-check
   `last-inputs` map — none of which appear on a consumer's classpath
-  when this wrapper's hooks are unregistered."
-  (:require [re-frame.late-bind :as late-bind]))
+  when this wrapper's hooks are unregistered.
 
-(defn clear-flow
+  Per rf2-h824v the wrappers below are emitted by the
+  `re-frame.core-artefact/defwrapper` factory from a declarative table —
+  one row per public surface."
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
+                                        :cljs [:refer-macros [defwrapper]])]))
+
+(def ^:private flows-artefact
+  {:error-keyword :rf.error/flows-artefact-missing
+   :maven         "day8/re-frame2-flows"
+   :require-ns    "re-frame.flows"})
+
+(defwrapper clear-flow
   "Per Spec 013 §Lifecycle: clear a flow from a frame's registry and
   vacate its output path. Late-bound via :flows/clear-flow."
-  ([id] (clear-flow id {}))
-  ([id opts]
-   (if-let [f (late-bind/get-fn :flows/clear-flow)]
-     (f id opts)
-     (throw (ex-info ":rf.error/flows-artefact-missing"
-                     {:where    'rf/clear-flow
-                      :flow-id  id
-                      :recovery :no-recovery
-                      :reason   "rf/clear-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
+  {:hook :flows/clear-flow :artefact flows-artefact :on-absent :throw
+   :ex-data {:flow-id id}}
+  ([id]      [id {}])
+  ([id opts] :delegate))
 
-(defn reg-flow
+(defwrapper reg-flow
   "Fn-form delegate that performs the late-bind lookup for `reg-flow`.
   The `re-frame.core/reg-flow` macro (JVM) and the CLJS `def`-alias both
   route here, so the late-bind logic and the missing-artefact error
   message live in one place."
-  ([flow] (reg-flow flow {}))
-  ([flow opts]
-   (if-let [f (late-bind/get-fn :flows/reg-flow)]
-     (f flow opts)
-     (throw (ex-info ":rf.error/flows-artefact-missing"
-                     {:where    'rf/reg-flow
-                      :recovery :no-recovery
-                      :reason   "rf/reg-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
+  {:hook :flows/reg-flow :artefact flows-artefact :on-absent :throw}
+  ([flow]      [flow {}])
+  ([flow opts] :delegate))
