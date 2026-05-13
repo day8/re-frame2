@@ -4,6 +4,8 @@
 > Long-lived connection lifecycle — WebSocket / SSE / WebRTC peer — modelled as a state machine that owns the socket. Convention, not Spec.
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+>
+> `:rf.ws/*` (WebSocket connections) is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties (effect-as-data, framework-owned socket-actor lifecycle, structured failure taxonomy under `:rf.ws/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown via the connection state machine, in-flight socket-actor registry, per-frame interceptor scoping).
 
 ## Role
 

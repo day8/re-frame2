@@ -12,7 +12,7 @@ re-frame2 is an architectural pattern for building Single Page Apps that target 
 
 ## What's novel and interesting?
 
-Four things:
+Five things:
 
 **1. The spec is the artefact. The code is downstream.** 
 
@@ -55,15 +55,25 @@ Every tool attaches to that trace bus and gets the whole picture for free. Sourc
 
 And, yes, relax, you can set policies to elide sensitive things, as well as too-large binary blobs.
 
+**4. Managed external effects.**
 
-**4. Lisp's quiet advantage.**
+Your app talks async with the outside world — HTTP, websockets, postMessage, socket.io, IPC, push notifications, background workers, server-side fetches during SSR. Every framework lets you do this, but treats each as its own integration story: different retry shape, different abort dance, different error taxonomy, different (or no) privacy-redaction story. The integrations don't compose. The bugs don't transfer.
 
-Also nerdy.
+re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
+
+`:rf.http/managed` is HTTP. `:rf.ws/managed` is WebSockets. `:invoke` / `:invoke-all` on state machines are managed effects. SSR per-request lifecycle is one. **The next surface — postMessage relays, file watchers, Service Worker channels — inherits the shape by name.** Or you can roll your own from the primitives.
+
+And the external story composes naturally with the *internal* management primitives — events, subs, state machines, flows — that handle the 7Guis-class problems. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
+
+**5. Lisp's quiet advantage.**
+
+Apologies for the nerd snipe, but ...
 
 re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like being on the top of a mountain, meditating. 
 
-Having said that, you can roll your own version in JS, TS, Reason, etc.
+Having said that, if you love living in a washing machine, you can roll your own version of re-frame2 in JS, TS, Reason, etc.
 
+I'm glad I got that off my chest.
 
 ### Novelty, bah humbug!
 
@@ -79,17 +89,14 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[State Machines](https://day8.github.io/re-frame2/guide/08-state-machines/)** — near-parity with [XState](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same six-step pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, `:after`, `:always`, declarative `:invoke`, spawn-and-join, actor model, `:tags` query layer. We skip XState's history states in favour of snapshot-as-value capture — a strict superset for any codebase already using re-frame2's revertibility.
   - **[Flows](https://day8.github.io/re-frame2/guide/18-from-re-frame-v1/#flows--the-replacement-for-on-changes)** — registered, runtime-toggleable derived-computation declarations that recompute only when inputs change. Reactive without the framework gymnastics. The v2 incarnation of v1's `on-changes` interceptor, but registered globally and toggleable as data rather than scattered across event handlers.
   - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
-  - **[Managed HTTP](https://day8.github.io/re-frame2/guide/10-doing-http-requests/)** — getting HTTP right is a hassle, so most apps half-arse it. With re-frame2 you have exactly the right tools to do it properly: request retry, abort, encode/decode pipeline, in-flight registry, per-frame interceptors, frame-aware reply addressing, an eight-category failure taxonomy under `:rf.http/*`. Same shape applies to websockets.
-  - **[Nine States of UI](https://day8.github.io/re-frame2/guide/08-state-machines/#parallel-regions)** — compose perfect HTTP hygiene with perfect UI-state hygiene. Nine canonical states — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done` — every loading/error/empty/cardinality UI passes through. All without the need for "suspence". Modelled as one parallel state machine with three regions, so Forms + Managed HTTP + Machines compose to render each state explicitly. And then combine this with **Story**: every state becomes its own variant — render it, review it, lock it in with visual regression, hand it to your AI for design feedback. No more "what should this look like while it's loading and there's stale data and a soft-failure?" — the matrix is locked, and every cell is on a wall.
-
 
 ## Status
 
 **Beta adjacent** 
 
-The specification has been audited end-to-end endless times — precision passes, corectness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
+The specification has been audited end-to-end endless times — precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
 
-The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. And this implementation has view substrait adaptors for three popular CLJS-flavoured libraries:
+The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. And this implementation has view substrate adaptors for three popular CLJS-flavoured libraries:
 
 - **Reagent** — canonical.
 - **UIx** — modern hooks-based React layer.

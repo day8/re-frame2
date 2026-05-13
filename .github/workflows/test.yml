@@ -1229,3 +1229,146 @@ jobs:
 
       - name: Run live-server workflow integration test (tools/story-mcp artefact)
         run: node test/live-server.js
+
+  # ---------------------------------------------------------------------------
+  # MCP-client conformance jobs (rf2-cum40).
+  #
+  # The `node-test-tools-{pair2,story}-mcp` jobs above drive each server
+  # via hand-rolled JSON-RPC on stdin/stdout. That catches server-side
+  # bugs but cannot see protocol-mismatch bugs visible only when a real
+  # MCP-aware consumer (Claude Code, Continue, …) attaches via the
+  # official `@modelcontextprotocol/sdk` `Client` — that library
+  # validates every response against the spec's Zod schemas
+  # (InitializeResultSchema, ListToolsResultSchema, CallToolResultSchema,
+  # …), so a server response that's "close enough" to fool a hand-rolled
+  # probe can still fail the SDK's parse step.
+  #
+  # The `tools/mcp-conformance/` artefact closes that gap. One script
+  # per server, each driving the server through the SDK's
+  # StdioClientTransport + Client.connect() + listTools()/callTool()
+  # surface, walking one canonical workflow per server. See
+  # tools/mcp-conformance/README.md for the full rationale and per-test
+  # scope.
+  # ---------------------------------------------------------------------------
+
+  mcp-conformance-pair2:
+    name: MCP conformance tools/pair2-mcp (rf2-cum40)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/mcp-conformance
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps for pair2-mcp build)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-mcp-conformance-pair2-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-mcp-conformance-pair2-
+            ${{ runner.os }}-cljs-tools-pair2-mcp-
+            ${{ runner.os }}-cljs-
+
+      # The conformance harness drives the pair2-mcp Node bundle, so we
+      # need to compile that bundle first. Same shadow-cljs entry point
+      # as the node-test-tools-pair2-mcp job above. We don't run
+      # pair2-mcp's own tests here — that's the parallel job's
+      # responsibility.
+      - name: Install pair2-mcp deps
+        working-directory: tools/pair2-mcp
+        run: npm install
+
+      - name: Compile pair2-mcp server bundle (shadow-cljs :server)
+        working-directory: tools/pair2-mcp
+        run: npx shadow-cljs compile server
+
+      - name: Install mcp-conformance deps
+        run: npm install
+
+      - name: Run pair2-mcp end-to-end MCP-client conformance
+        run: npm run test:pair2
+
+  mcp-conformance-story:
+    name: MCP conformance tools/story-mcp (rf2-cum40)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/mcp-conformance
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+
+      - name: Cache Maven / gitlibs (story-mcp Clojure deps)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-mcp-conformance-story-${{ hashFiles('tools/story-mcp/deps.edn', 'tools/story/deps.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-mcp-conformance-story-
+            ${{ runner.os }}-node-tools-story-mcp-
+            ${{ runner.os }}-clj-tools-story-mcp-
+            ${{ runner.os }}-clj-
+
+      - name: Install mcp-conformance deps
+        run: npm install
+
+      - name: Run story-mcp end-to-end MCP-client conformance
+        run: npm run test:story
+
+  mcp-conformance-causa:
+    name: MCP conformance tools/causa-mcp (rf2-cum40, SKIPPED until impl)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/mcp-conformance
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+
+      # The causa-mcp server implementation hasn't landed yet
+      # (tools/causa-mcp is spec-only). The script exits 0 with a SKIP
+      # marker so this gate stays green and the placeholder doesn't go
+      # stale. When the impl lands, replace test/end-to-end-causa.js's
+      # body wholesale (the file's header comment documents the
+      # expected shape).
+      - name: Install mcp-conformance deps
+        run: npm install
+
+      - name: Run causa-mcp end-to-end MCP-client conformance (SKIPPED)
+        run: npm run test:causa

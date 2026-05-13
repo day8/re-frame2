@@ -5,6 +5,8 @@
 > **The minimum claim:** flows are *registered, runtime-toggleable computed-state declarations that materialise their output into `app-db`*. They are the v2 incarnation of v1's `on-changes` interceptor — same compute-on-input-change semantics — but registered in the runtime (not on individual events) and toggleable via two reserved fx-ids.
 >
 > **Restraint.** Flows are a **convenience** for a small number of small use-cases. They are not a replacement for subscriptions, not a new dataflow paradigm, not a substitute for state machines, and not the default for derived state. The architecture's main load-bearing pieces are events, subs, machines, and effects; flows sit alongside them as a focused tool for a narrow set of problems. **When in doubt, use a subscription** — flows pay an `app-db` write per recomputation and add a small piece of registered runtime; that cost is only worthwhile when the [reasons in §When (and when not) to use a flow](#when-and-when-not-to-use-a-flow) below apply.
+>
+> `:rf.flow/*` is the **internal-effect cousin** of the managed external effects — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties applied to derived computation (effect-as-data via the registration map, framework-owned scheduler, structured failure taxonomy under `:rf.flow/*`, trace-bus observability, `:sensitive?` / `:large?` composition on flow outputs, runtime-toggleable retry / abort / teardown via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`, in-flight flow registry, per-frame scoping).
 
 ## Abstract
 

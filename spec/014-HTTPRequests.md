@@ -5,6 +5,8 @@
 > **The minimum claim:** *if* an implementation ships HTTP-request infrastructure, it ships `:rf.http/managed` per this spec — a first-class HTTP request fx that bakes in decoding, success/failure normalisation, retry-with-backoff, abort, schema-driven decode, and reply-to-origin dispatch. The fx is rich enough that apps overwhelmingly want it; the contract being uniform is what lets pair tools, `:fx-overrides`, retry policy, error projection, and frame-aware reply addressing compose across implementations without per-app reinvention.
 >
 > **Code samples are in ClojureScript** (the CLJS reference). The contract is host-agnostic; the spec calls out per-host divergences (CLJS Fetch / JVM `java.net.http.HttpClient`) explicitly per row.
+>
+> `:rf.http/managed` is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy under `:rf.http/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown, in-flight registry, per-frame interceptor scoping).
 
 ## Abstract
 
