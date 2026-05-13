@@ -115,6 +115,131 @@
                         :recovery          :no-recovery})
     {}))
 
+;; ---- 4-step pipeline (rf2-2zzyg) ------------------------------------------
+;;
+;; The handler-fn returned by `create-machine-handler` decomposes into four
+;; named pure-fn steps, each ≤ 30 LoC, that read onto Spec 005 §Drain
+;; semantics §Level 3 directly:
+;;
+;;   1. `prepare-machine-ctx`  — stamp frame / platform / parent-id, look
+;;      up the existing snapshot, decide `needs-bootstrap?`, route the
+;;      inner event. Returns a `ctx` map carrying everything downstream
+;;      steps read.
+;;   2. `maybe-boot`           — if bootstrap-pending and not intercepted,
+;;      run `apply-initial-entry-cascade`. Returns a Result whose `::snap`
+;;      is the post-boot snapshot with `:rf/bootstrap-pending?` cleared.
+;;   3. `run-step`             — call `machine-transition` on the
+;;      post-boot snapshot + inner event. Returns the Result from the
+;;      pure engine.
+;;   4. `commit-or-finalize`   — emit transition / snapshot-updated traces,
+;;      build new-db, route to `finalize-machine` if `finished?`.
+;;
+;; The intercept-invoke-all-event short-circuit is the visible top-level
+;; branch in `create-machine-handler` itself — it must short-circuit before
+;; boot / step / commit run.
+
+(defn- prepare-machine-ctx
+  "Step 1 of 4 (rf2-2zzyg). Stamp the live frame / platform / parent-id
+  onto the machine def, look up the existing snapshot at
+  `[:rf/machines <machine-id>]`, decide `needs-bootstrap?`, route the
+  inner event. Returns a `ctx` map the remaining three steps read.
+
+  Per rf2-0z73: detect 'first event for this machine' so the initial
+  state's `:entry` actions fire as part of bringing the machine to life.
+  Two flavours:
+    - Singleton path: `(get-in db path)` is `nil` — the snapshot is
+      being lazily synthesised right now.
+    - Spawn path: `spawn-fx` pre-seeded the snapshot at
+      `[:rf/machines <spawned-id>]` and stamped
+      `:rf/bootstrap-pending? true` so the actor's first dispatch sees
+      the marker and runs the cascade before processing the event."
+  [db frame event machine base-initial]
+  (let [machine-id    (first event)
+        frame-id      (or frame :rf/default)
+        platform      (or (:platform (frame/frame-meta frame-id)) :client)
+        machine       (assoc machine
+                             :rf/frame     frame-id
+                             :rf/platform  platform
+                             :rf/parent-id machine-id)
+        path          [:rf/machines machine-id]
+        existing-snap (get-in db path)]
+    {:db               db
+     :machine-id       machine-id
+     :frame-id         frame-id
+     :machine          machine
+     :path             path
+     :snapshot         (if (nil? existing-snap)
+                         (assoc @base-initial :rf/bootstrap-pending? true)
+                         existing-snap)
+     :needs-bootstrap? (or (nil? existing-snap)
+                           (true? (:rf/bootstrap-pending? existing-snap)))
+     :inner-event      (route-inner-event event)}))
+
+(defn- maybe-boot
+  "Step 2 of 4 (rf2-2zzyg). If `ctx` is bootstrap-pending, run
+  `apply-initial-entry-cascade` once before processing the user event.
+  Bootstrap fx flow OUT of the handler ahead of any fx the user event
+  produces — entry happens-before user-event handling. Returns a Result
+  whose `::snap` has `:rf/bootstrap-pending?` cleared on success.
+
+  Per rf2-0z73 the bootstrap cascade fires the initial state's `:entry`
+  actions; per the Result ADT (rf2-aa2rw) a `:fail` short-circuits the
+  rest of the pipeline."
+  [ctx]
+  (if (:needs-bootstrap? ctx)
+    (let [r (parallel/apply-initial-entry-cascade (:machine ctx) (:snapshot ctx))]
+      (if (result/fail? r)
+        r
+        (result/ok (dissoc (::result/snap r) :rf/bootstrap-pending?)
+                   (::result/fx r))))
+    (result/ok (:snapshot ctx) [])))
+
+(defn- run-step
+  "Step 3 of 4 (rf2-2zzyg). Run the pure macrostep against the post-boot
+  snapshot + the routed inner event. Returns the Result from
+  `parallel/machine-transition` — caller inspects `result/fail?` /
+  `result/ok?` and projects accordingly."
+  [ctx post-boot-snap]
+  (parallel/machine-transition (:machine ctx) post-boot-snap (:inner-event ctx)))
+
+(defn- commit-or-finalize
+  "Step 4 of 4 (rf2-2zzyg). Emit `:rf.machine/transition` (and optional
+  `:rf.machine/snapshot-updated`) traces, build the new app-db, and
+  route to `finalize-machine` if the post-transition snapshot is on a
+  final leaf / all regions final.
+
+  Per Spec 005 §Final states (rf2-gn80): the finality flag is recomputed
+  at the lifecycle-handler boundary against the post-transition
+  snapshot. For single / compound machines, look up the leaf node and
+  check `:final?`. For parallel-region machines, the parent is `:final?`
+  only when every region's leaf is `:final?`. The pure-transition
+  surface stays free of runtime-only metadata."
+  [ctx step-result boot-fx]
+  (let [{next-snapshot ::result/snap fx ::result/fx} step-result
+        {:keys [machine machine-id frame-id db path snapshot inner-event]} ctx
+        merged-fx (vec (concat boot-fx fx))
+        finished? (or (and (not (parallel/parallel? machine))
+                           (transition/final-on-leaf? machine (:state next-snapshot)))
+                      (finalize/all-regions-final? machine (:state next-snapshot)))
+        new-db    (assoc-in db path next-snapshot)]
+    (trace/emit! :machine :rf.machine/transition
+                 {:machine-id machine-id
+                  :event      inner-event
+                  :before     snapshot
+                  :after      next-snapshot})
+    (when (not= snapshot next-snapshot)
+      (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
+                   {:machine-id machine-id
+                    :path       path
+                    :before     snapshot
+                    :after      next-snapshot
+                    :frame      frame-id}))
+    (if finished?
+      (finalize/finalize-machine machine machine-id frame-id
+                                 new-db next-snapshot inner-event merged-fx)
+      {:db new-db
+       :fx merged-fx})))
+
 (defn create-machine-handler
   "Returns a function suitable for registration with `reg-event-fx`.
 
@@ -130,7 +255,12 @@
     - the returned handler fn — frame stamping, intercept-invoke-all-
       event branch (in `lifecycle-fx.join`), bootstrap-pending detection
       + initial-entry cascade, machine-transition dispatch, action-failure
-      projection, finalize delegation (in `lifecycle-fx.finalize`)."
+      projection, finalize delegation (in `lifecycle-fx.finalize`).
+
+  Per rf2-2zzyg the returned handler fn is further decomposed into a
+  four-step pipeline — `prepare-machine-ctx` → `maybe-boot` →
+  `run-step` → `commit-or-finalize` — with the intercept-invoke-all-
+  event short-circuit branching off after step 1."
   [machine]
   (validation/validate-machine! machine)
   ;; Per rf2-f9tu — `synthesise-initial-snapshot` runs lazily INSIDE the
@@ -144,110 +274,34 @@
   ;; (pre-split) implementation deferred this work; preserve that.
   (let [base-initial (delay (synthesise-initial-snapshot machine))]
     (fn [{:keys [db frame] :as _cofx} event]
-      (let [machine-id (first event)
-            frame-id   (or frame :rf/default)
-            ;; Per Spec 009 §:op-type vocabulary:
-            ;; `:rf.machine/event-received` fires at the top of the
-            ;; handler so consumers see the inbound event before any
-            ;; state derivation.
-            _ (trace/emit! :rf.machine/event-received :rf.machine/event-received
-                           {:machine-id machine-id
-                            :event      event
-                            :frame      frame-id})
-            ;; Stamp the live frame + platform + parent-id onto the
-            ;; machine def so spawn-id allocation (frame-scoped per Spec
-            ;; 002) gets the right key, `:after` scheduling can gate on
-            ;; `:server`, and `apply-transition-once` can emit spawn /
-            ;; destroy fx whose args carry `:rf/parent-id` (used by the
-            ;; fx handlers to address the runtime-owned
-            ;; `[:rf/spawned <parent-id> <invoke-id>]` registry slot).
-            platform   (or (:platform (frame/frame-meta frame-id)) :client)
-            machine    (assoc machine
-                              :rf/frame     frame-id
-                              :rf/platform  platform
-                              :rf/parent-id machine-id)
-            path       [:rf/machines machine-id]
-            ;; Per rf2-0z73: detect "first event for this machine" so the
-            ;; initial-state's `:entry` actions fire as part of bringing
-            ;; the machine to life. Two flavours:
-            ;;
-            ;;   - Singleton path: `(get-in db path)` is `nil` — the
-            ;;     snapshot is being lazily synthesised right now.
-            ;;
-            ;;   - Spawn path: `spawn-fx` pre-seeded the snapshot at
-            ;;     `[:rf/machines <spawned-id>]` and stamped
-            ;;     `:rf/bootstrap-pending? true` so the actor's first
-            ;;     dispatch sees the marker and runs the cascade before
-            ;;     processing the event.
-            existing-snap    (get-in db path)
-            needs-bootstrap? (or (nil? existing-snap)
-                                 (true? (:rf/bootstrap-pending? existing-snap)))
-            snapshot         (if (nil? existing-snap)
-                               (assoc @base-initial :rf/bootstrap-pending? true)
-                               existing-snap)
-            inner-event      (route-inner-event event)
-            intercepted      (join/intercept-invoke-all-event machine db path snapshot machine-id inner-event)
-            ;; Per rf2-0z73: when the snapshot is bootstrap-pending, run
-            ;; the initial-state entry cascade once before processing the
-            ;; user event. Bootstrap fx flow OUT of the handler ahead of
-            ;; any fx the user event produces — entry happens-before user
-            ;; event handling.
-            boot-result
-            (if (and needs-bootstrap? (not intercepted))
-              (parallel/apply-initial-entry-cascade machine snapshot)
-              (result/ok snapshot []))
-            boot-failed?     (result/fail? boot-result)
-            post-boot-snap   (when-not boot-failed?
-                               (dissoc (::result/snap boot-result)
-                                       :rf/bootstrap-pending?))
-            boot-fx          (when-not boot-failed?
-                               (::result/fx boot-result))]
-        (cond
+      ;; Per Spec 009 §:op-type vocabulary: `:rf.machine/event-received`
+      ;; fires at the top of the handler so consumers see the inbound
+      ;; event before any state derivation.
+      (trace/emit! :rf.machine/event-received :rf.machine/event-received
+                   {:machine-id (first event)
+                    :event      event
+                    :frame      (or frame :rf/default)})
+      (let [ctx         (prepare-machine-ctx db frame event machine base-initial)
+            intercepted (join/intercept-invoke-all-event
+                          (:machine ctx) db (:path ctx) (:snapshot ctx)
+                          (:machine-id ctx) (:inner-event ctx))]
+        (if intercepted
           intercepted
-          intercepted
-
-          boot-failed?
-          (trace-action-failure! machine-id [:rf.machine/bootstrap] frame-id
-                                 (::result/info boot-result)
-                                 "Machine initial-entry action threw.")
-
-          :else
-          (let [step-result (parallel/machine-transition machine post-boot-snap inner-event)]
-            (if (result/fail? step-result)
-              (trace-action-failure! machine-id inner-event frame-id
-                                     (::result/info step-result)
-                                     "Machine action threw.")
-              (let [{next-snapshot ::result/snap fx ::result/fx} step-result
-                    merged-fx (vec (concat boot-fx fx))
-                    ;; Per Spec 005 §Final states (rf2-gn80): recompute
-                    ;; the finality flag at the lifecycle-handler
-                    ;; boundary against the post-transition snapshot.
-                    ;; For single / compound machines, look up the leaf
-                    ;; node and check `:final?`. For parallel-region
-                    ;; machines, the parent is `:final?` only when every
-                    ;; region's leaf is `:final?`. The pure-transition
-                    ;; surface stays free of runtime-only metadata.
-                    finished? (or (and (not (parallel/parallel? machine))
-                                       (transition/final-on-leaf? machine (:state next-snapshot)))
-                                  (finalize/all-regions-final? machine (:state next-snapshot)))
-                    new-db (assoc-in db path next-snapshot)]
-                (trace/emit! :machine :rf.machine/transition
-                             {:machine-id machine-id
-                              :event      inner-event
-                              :before     snapshot
-                              :after      next-snapshot})
-                (when (not= snapshot next-snapshot)
-                  (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
-                               {:machine-id machine-id
-                                :path       path
-                                :before     snapshot
-                                :after      next-snapshot
-                                :frame      frame-id}))
-                (if finished?
-                  (finalize/finalize-machine machine machine-id frame-id
-                                             new-db next-snapshot inner-event merged-fx)
-                  {:db new-db
-                   :fx merged-fx})))))))))
+          (let [boot-result (maybe-boot ctx)]
+            (if (result/fail? boot-result)
+              (trace-action-failure! (:machine-id ctx) [:rf.machine/bootstrap]
+                                     (:frame-id ctx)
+                                     (::result/info boot-result)
+                                     "Machine initial-entry action threw.")
+              (let [post-boot-snap (::result/snap boot-result)
+                    boot-fx        (::result/fx boot-result)
+                    step-result    (run-step ctx post-boot-snap)]
+                (if (result/fail? step-result)
+                  (trace-action-failure! (:machine-id ctx) (:inner-event ctx)
+                                         (:frame-id ctx)
+                                         (::result/info step-result)
+                                         "Machine action threw.")
+                  (commit-or-finalize ctx step-result boot-fx))))))))))
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 
