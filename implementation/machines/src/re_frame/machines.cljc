@@ -138,6 +138,13 @@
 (def after-schedule-fx      timer/after-schedule-fx)
 (def after-cancel-fx        timer/after-cancel-fx)
 
+;; Per Spec 005 §3-arity escape hatch — `:state` / `:meta` introspection
+;; (rf2-2yupx): explicit opt-in via the `:rf.machine/wants-ctx` metadata
+;; flag replaces the pre-rf2-2yupx structural arity-detection rule. The
+;; `wants-ctx` helper is the wrapper form for anonymous fns where the
+;; `^:rf.machine/wants-ctx` reader-macro form is awkward.
+(def wants-ctx              transition/wants-ctx)
+
 (defn reset-timers!
   "Cancel every in-flight `:after` timer the runtime is currently tracking.
 

@@ -230,7 +230,7 @@ Actions are functions producing data updates and / or effects. They live in `:ac
 
 An action sees `(fn [data event] effects)` and returns either `:data` (a map merged into the existing data slot — last write wins; explicit `nil` clears a key), `:fx` (effects: HTTP, navigation, follow-up dispatches), both, or `nil`. Same contract as an ordinary `reg-event-fx` return.
 
-If a guard or action genuinely needs to branch on the current state name — rare — there's an opt-in 3-arity overload that exposes the snapshot's `:state` and `:meta` slots. Use 2-arity by default; the 3-arity form takes a fixed `(fn [snapshot data event])` signature, so variadic guards have to flag the third positional argument explicitly to avoid surprises.
+If a guard or action genuinely needs to branch on the current state name — rare — there's an opt-in 3-arity overload that exposes the snapshot's `:state` and `:meta` slots. Use 2-arity by default; the 3-arity form is `^:rf.machine/wants-ctx (fn [data event {:state :meta}] ...)` — the metadata flag declares intent explicitly, so the runtime delivers the introspection ctx regardless of arglist shape (variadic or fixed).
 
 ## Reading a machine: `sub-machine`
 
