@@ -95,7 +95,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 | `:view` | Registered views | `reg-view` |
 | `:frame` | Registered frames | `reg-frame` (also `make-frame`) |
 | `:route` | Routes | `reg-route` (Spec 012) |
-| `:app-schema` | App-db schemas registered at paths | `reg-app-schema` (Spec 010) |
+| `:app-schema` | App-db schemas registered at paths — RESERVED kind; the registrar slot is intentionally empty (the schemas artefact owns its own per-frame side-table). Tools introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at` rather than `handlers :app-schema`. | `reg-app-schema` (Spec 010) |
 | `:head` | Registered SSR head/meta functions (per [011 §Head/meta contract](011-SSR.md#headmeta-contract)) | `reg-head` (Spec 011) |
 | `:error-projector` | Registered SSR error projectors (internal trace event → public-error shape, per [011 §Server error projection](011-SSR.md#server-error-projection)) | `reg-error-projector` (Spec 011) |
 | `:flow` | Registered flows (computed-state declarations materialised into `app-db`, per [013 §The registration shape](013-Flows.md#the-registration-shape)) | `reg-flow` (Spec 013) |

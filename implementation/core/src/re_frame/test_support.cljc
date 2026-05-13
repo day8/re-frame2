@@ -304,8 +304,13 @@
            (frame/ensure-default-frame!))
          (doseq [k clear-kinds]
            (registrar/clear-kind! k)
-           ;; Per-frame schema map is the authoritative store; clear it
-           ;; in lockstep when the caller asks for an :app-schema reset.
+           ;; Per rf2-0frdi `:app-schema` is no longer a registrar kind —
+           ;; the schemas artefact owns its own per-frame side-table. The
+           ;; `:clear-kinds [:app-schema]` opt is preserved as the test-
+           ;; support convention for "give me a clean app-schema slate";
+           ;; the registrar `clear-kind!` above is a no-op for this kind,
+           ;; and this branch dispatches the actual reset through the
+           ;; schemas clear-fn.
            (when (and (= k :app-schema) clear-fn)
              (clear-fn)))
          (when init-fn (init-fn))

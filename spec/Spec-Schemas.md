@@ -283,7 +283,7 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
 
 > **Layer:** Public
 
-The metadata stamped on the `:app-schema` registry slot by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md)). The `:path` and `:schema` fields are runtime-stamped from the positional args — user code passes `(rf/reg-app-schema path schema)` rather than `(rf/reg-app-schema id {:path ... :schema ...})`.
+The metadata stamped on the schemas artefact's per-frame side-table entry by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md); per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set) the `:app-schema` registry kind is RESERVED but the registrar slot is intentionally empty — the schemas artefact owns the single source of truth). The `:path` and `:schema` fields are runtime-stamped from the positional args — user code passes `(rf/reg-app-schema path schema)` rather than `(rf/reg-app-schema id {:path ... :schema ...})`.
 
 ```clojure
 (def AppSchemaMeta

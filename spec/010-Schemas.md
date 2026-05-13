@@ -59,7 +59,7 @@ Rather than one giant schema for the whole `app-db`, schemas are registered **at
 
 This fits re-frame's grain — code already accesses `app-db` via paths; schemas are similarly path-anchored. Composable. Hot-reload-friendly per slice. Tooling and agents can ask "what's the schema at path P?" and get a precise local answer.
 
-`reg-app-schema` returns its `path` argument — the primary id under which the schema registers in the `:app-schema` kind — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+`reg-app-schema` returns its `path` argument — the primary id under which the schema registers in the schemas artefact's per-frame side-table (`(frame-id, path) → schema-meta`); per [Spec 001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set) the `:app-schema` registry kind is RESERVED but the registrar slot is intentionally empty, so the schemas artefact owns the single source of truth — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 
 #### `reg-app-schemas` — bulk plural form
 

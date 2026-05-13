@@ -3,24 +3,25 @@
 
   Per Spec 010 §Per-frame schemas. The registry shape is
     {frame-id {path schema-meta}}
-  mirroring `re-frame.flows`'s frame-scoping (rf2-lvwr). The registrar
-  (`:app-schema` kind) still receives a slot-per-path entry so source-
-  coords / hot-reload tooling can introspect a path's most-recent
-  registration; the per-frame map is the authoritative store the
-  validation hot path reads.
+  mirroring `re-frame.flows`'s frame-scoping (rf2-lvwr). The per-frame
+  atom is the **single source of truth** for `app-db` schemas — there is
+  no registrar `:app-schema` slot (resolved rf2-0frdi). Source-coords /
+  hot-reload / pair-tool introspection reads through `app-schema-meta-at`,
+  which returns the per-frame metadata map (including the registration's
+  `:ns` / `:line` / `:file` source-coords).
 
   Owns:
     - `schemas-by-frame` atom (the authoritative store).
     - `reg-app-schema` / `reg-app-schemas` registration entry points.
     - `app-schema-at` / `app-schemas` query entry points.
+    - `app-schema-meta-at` — meta-introspection (source-coords, etc.)
+      consumed by pair-tools and source-coord tests.
     - `frame-schema-entries` cross-artefact seam consumed by
       `re-frame.elision` / `re-frame.epoch` via the late-bind table.
     - `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
       `clear-schemas-by-frame!` — test-support hooks consumed by
-      `re-frame.test-support`'s reset-runtime fixture.
-    - The hot-reload replacement-hook seam (`on-app-schema-registry-event!`)."
+      `re-frame.test-support`'s reset-runtime fixture."
   (:require [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]))
 
 (defonce
@@ -58,17 +59,18 @@
   Per Spec 010 §Per-frame schemas this registration is frame-scoped.
   The frame to register against comes from the optional :frame opt;
   default is (frame/current-frame) — usually :rf/default unless the
-  caller is inside a (with-frame ...) wrapper or a frame-provider."
+  caller is inside a (with-frame ...) wrapper or a frame-provider.
+
+  Per rf2-0frdi the schemas artefact owns its own per-frame side-table
+  (`schemas-by-frame`) — there is no registrar `:app-schema` slot. The
+  authoritative store is keyed by `(frame-id, path)` so that registrations
+  against frame A and frame B against the same path are independent
+  entries. Pair-tools and source-coord tests read via `app-schema-meta-at`."
   ([path schema] (reg-app-schema path schema {}))
   ([path schema opts]
    (let [frame-id (resolve-frame opts)
          meta     (source-coords/merge-coords
                     {:schema schema :path path :frame frame-id})]
-     ;; Stamp the registrar slot so source-coords / handler-meta /
-     ;; hot-reload tooling continue to see :app-schema entries. The
-     ;; registrar is per-process; the per-frame map is the
-     ;; authoritative store for validation.
-     (registrar/register! :app-schema path meta)
      (swap! schemas-by-frame assoc-in [frame-id path] meta)
      path)))
 
@@ -93,8 +95,8 @@
   `:frame` opt overrides the default `(frame/current-frame)` resolution
   for every entry in the map (you cannot mix frames in a single call).
   The singular form `reg-app-schema` remains available and is used
-  internally for each entry — every entry stamps its own registrar slot
-  with source-coords captured from this call site.
+  internally for each entry — every entry stamps its own per-frame side-
+  table entry with source-coords captured from this call site.
 
   Returns the vector of paths registered, in iteration order. Last-
   write-wins on duplicate paths inside the same map (map iteration
@@ -121,6 +123,30 @@
          frame-id (resolve-frame opts)]
      (when-let [m (get-in @schemas-by-frame [frame-id path])]
        (:schema m)))))
+
+(defn app-schema-meta-at
+  "Return the registration metadata map for a path in a frame, or nil.
+
+  Unlike `app-schema-at` (which returns just the `:schema` value), this
+  returns the full meta map stamped at `reg-app-schema` — including
+  source-coords (`:ns` / `:line` / `:file`), `:path`, `:schema`, and
+  `:frame`. Used by pair-tools, 10x panels, and source-coord tests that
+  need to introspect where a schema was registered.
+
+  Per rf2-0frdi this is the canonical replacement for the legacy
+  `(rf/handler-meta :app-schema path)` query — the registrar `:app-schema`
+  slot is no longer populated; the per-frame side-table is the single
+  source of truth.
+
+  Arities:
+    (app-schema-meta-at path)         ;; current frame (or :rf/default)
+    (app-schema-meta-at path opts)    ;; opts map; :frame names the frame
+                                      ;; (keyword sugar also accepted)"
+  ([path] (app-schema-meta-at path {}))
+  ([path opts-or-frame-id]
+   (let [opts     (coerce-opts opts-or-frame-id)
+         frame-id (resolve-frame opts)]
+     (get-in @schemas-by-frame [frame-id path]))))
 
 (defn app-schemas
   "Return every registered `app-schema-at` declaration for a frame as a
@@ -152,33 +178,15 @@
   [frame-id]
   (get @schemas-by-frame frame-id {}))
 
-;; ---- hot-reload invalidation ---------------------------------------------
+;; ---- hot-reload semantics ------------------------------------------------
 ;;
-;; When a frame is destroyed (or a schema is explicitly cleared via the
-;; registrar), drop its per-frame entry so the validation hot path
-;; doesn't keep walking dead schemas. Per Spec 001 §Hot-reload semantics
-;; the registrar's :app-schema slot is shared (path-keyed) across
-;; frames; replacement-hook fires on EVERY re-register, not only when
-;; we want to invalidate. We only act on :rf.registry/handler-cleared-
-;; equivalent paths (kind = :app-schema, no `:now` means cleared).
-
-(defn- on-app-schema-registry-event!
-  [{:keys [kind id was now]}]
-  (when (= kind :app-schema)
-    ;; A `register!` always supplies `now`; `unregister!` / `clear-kind!`
-    ;; produce no replacement-hook callback (they don't fire hooks). The
-    ;; registrar today only invokes hooks on replacement, so this hook
-    ;; sees re-registrations against the same path. Re-registering with
-    ;; an explicit :frame opt MAY be against a different frame — in
-    ;; which case we leave the prior frame's entry alone (it was
-    ;; registered separately) and the new frame's entry is updated by
-    ;; reg-app-schema directly. Nothing to do here today; the hook is
-    ;; published as the seam future invalidation work plugs into.
-    (let [_ was _ now])))
-
-(defonce ^:private _hot-reload-hook
-  (do (registrar/add-replacement-hook! on-app-schema-registry-event!)
-      :installed))
+;; Per rf2-0frdi the schemas artefact no longer participates in the
+;; registrar's replacement-hook stream — `reg-app-schema` writes only to
+;; `schemas-by-frame`. Re-registering a `(frame-id, path)` entry is an
+;; ordinary `swap!`: the new meta replaces the prior entry atomically, and
+;; the validation hot path (`frame-schema-entries`) picks up the new
+;; schema on its next read. There is nothing to invalidate elsewhere —
+;; the per-frame map IS the cache.
 
 ;; ---- test-support snapshot / restore -------------------------------------
 ;;
