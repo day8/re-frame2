@@ -43,6 +43,8 @@ The pair `{:state :data}` reads as the natural English idiom and matches a vocab
  :meta  {<optional> ...}}                      ;; reserved for :rf/snapshot-version etc.
 ```
 
+The runtime ALSO stamps a closed set of `:rf/*` slots inside the snapshot (some at the snapshot root, some inside `:data`) — the spawn-id counter, the `:after`-epoch counter, the bootstrap flag, the spawned-actor address keys, etc. These are framework-owned and catalogued in [Conventions §Reserved snapshot-internal keys](Conventions.md#reserved-snapshot-internal-keys-machine-runtime); user code MUST NOT write under them.
+
 `:state` has **three arms**, disambiguated by the machine's declared shape:
 
 - **Flat machines** — `:state` is a single FSM-keyword (`:idle`, `:editing`, `:loading`, ...). Equivalent to xstate's `state.value` for a non-compound machine. The flat-machine grammar in [§Transition table grammar](#transition-table-grammar) and the Circle Drawer worked example use this form.
@@ -442,7 +444,41 @@ When a callback truly needs the discrete `:state` or any user `:meta` (rare), op
 
 `:on-spawn` doesn't currently take an introspection slot — the snapshot's `:state` at spawn time is the entry-bearing leaf state by definition, so the slot would carry no information beyond the lexical position of the `:invoke`. If a future use case needs it, the same metadata-driven opt-in pattern applies.
 
-The 3-arity overload is **explicitly opted-in via metadata** — `(:rf.machine/wants-ctx (meta fn))` governs dispatch. Per rf2-2yupx this replaces an earlier structural arity-detection rule; see [§3-arity escape hatch — `:state` / `:meta` introspection](#3-arity-escape-hatch--state--meta-introspection) for the rationale.
+#### Dispatch rule — metadata opt-in (`:rf.machine/wants-ctx`)
+
+The 3-arity overload is **explicitly opted-in via metadata** on the guard / action fn itself. The runtime's dispatch rule is one line:
+
+> **A guard or action fn is called with the 3-arity `(data event ctx)` signature iff `(:rf.machine/wants-ctx (meta f))` is truthy. Otherwise it is called with the 2-arity `(data event)` signature.**
+
+`ctx` is the introspection map `{:state <snapshot's-:state> :meta <snapshot's-:meta>}` — a thin projection of the wrapping snapshot, never the snapshot itself. (`:data` is already the first positional parameter; passing it again under `ctx` would invite the footgun of two divergent copies.)
+
+Three value-equivalent ways to attach the flag:
+
+```clojure
+;; (1) inline metadata on the fn literal
+:guard ^:rf.machine/wants-ctx (fn [data event ctx] ...)
+
+;; (2) defn attr-map for a named guard / action
+(defn my-guard {:rf.machine/wants-ctx true}
+  [data event ctx] ...)
+
+;; (3) the wrapper helper — for combinators and anonymous fns where
+;;     attaching reader-macro metadata is awkward
+:guard (machines/wants-ctx (fn [data event ctx] ...))
+```
+
+`re-frame.machines/wants-ctx` is the public helper that sugar-attaches the metadata flag via `vary-meta`; it is equivalent to the reader-macro form on a fn-literal and exists for cases where the literal form does not parse (anonymous fns built by reduce, combinator fns, etc.).
+
+The opt-in is metadata-driven (not structurally arity-detected). Consequences:
+
+- **Explicit user intent.** The fn's signature alone never decides; the user states "I want ctx" via the flag. A `(fn [data event _] ...)` without the flag is called with 2 args and the third parameter is unbound — same as any other 2-arity call against a 3-arg fn under Clojure's per-arity dispatch.
+- **No platform reflection.** The dispatch check is a `(boolean (:rf.machine/wants-ctx (meta f)))` map lookup — no `(.getDeclaredMethods f)` on the JVM, no `(unchecked-get f "cljs$lang$maxFixedArity")` on CLJS. The rule is platform-uniform.
+- **Variadic fns are unambiguous.** A `(fn [data event & rest] ...)` that wants ctx attaches the flag; the same fn without the flag stays in the 2-arity camp. The previous structural rule had to special-case variadics; the metadata rule does not.
+- **Metadata survives `chase-ref`.** When a guard / action slot carries a keyword reference into the machine's `:guards` / `:actions` map, the runtime's reference-chase returns the fn value with its metadata intact — the opt-in attached at definition site carries through to the call site.
+
+Per rf2-2yupx this replaces the earlier structural arity-detection rule (which inspected `.getDeclaredMethods` on JVM / `cljs$lang$maxFixedArity` on CLJS and routed variadics through the 2-arity path). The metadata rule is the normative dispatch contract — conformant implementations MUST consult the `:rf.machine/wants-ctx` metadata flag and MUST NOT introspect the fn's arglist shape.
+
+The `ctx` projection's shape — `{:state :meta}`, no other keys — is closed. Future runtime introspection slots (if any) extend the projection by Spec change, not by user contribution.
 
 ## Registration — the machine IS the event handler
 
