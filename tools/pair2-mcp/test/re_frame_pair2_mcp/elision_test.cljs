@@ -10,40 +10,20 @@
   ...}}` marker; the agent re-fetches via `get-path` with the handle's
   path.
 
-  These tests mirror the private elision helpers from `tools.cljs`
-  (`parse-elision-arg`, `elision-opts-edn`) and pin the eval-form
-  shape — the literal CLJS-source string sent over nREPL. A rename
-  or signature change on the walker / runtime surfaces, or a typo in
-  the inlined form, surfaces here as a failing test rather than a
-  silent contract drift discovered live.
+  Tests pin `parse-elision-arg` and `elision-opts-edn` directly from
+  `re-frame-pair2-mcp.tools.elision`. The downstream eval-form
+  composers (`build-snapshot-form` / `build-get-path-form`) remain
+  local fixtures because their source counterparts live inlined in
+  the per-tool namespaces (`tools.snapshot` / `tools.get-path`) and
+  aren't surfaced as standalone public fns.
 
   Live end-to-end coverage runs against a real shadow-cljs build via
   the existing `test/stdio-roundtrip.js` harness — that's where the
   walker actually fires and we verify the marker comes back as EDN.
   The CLJS layer here just pins the wiring."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [cljs.reader]))
-
-;; ---------------------------------------------------------------------------
-;; Mirrors of the private elision helpers from tools.cljs. Keep in
-;; lockstep — sibling tests follow the same convention (CLJS private
-;; vars aren't reachable across namespaces without `#'` so we copy
-;; the surface and lean on regression coverage).
-;; ---------------------------------------------------------------------------
-
-(defn- parse-elision-arg [raw]
-  (cond
-    (nil? raw)             true
-    (true? raw)            true
-    (false? raw)           false
-    (= raw "false")        false
-    (= raw :false)         false
-    (= raw "true")         true
-    (= raw :true)          true
-    :else                  true))
-
-(defn- elision-opts-edn [enabled?]
-  (pr-str {:rf.size/include-large? (not enabled?)}))
+            [cljs.reader]
+            [re-frame-pair2-mcp.tools.elision :as elision]))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-elision-arg — MCP-arg normalisation.
@@ -53,28 +33,28 @@
   ;; Default-on matches the dedup posture: shrink-by-default, opt out
   ;; explicitly. An agent that hasn't been taught about elision still
   ;; gets the smaller wire payload.
-  (is (true? (parse-elision-arg nil))))
+  (is (true? (elision/parse-elision-arg nil))))
 
 (deftest parse-elision-booleans-pass-through
-  (is (true? (parse-elision-arg true)))
-  (is (false? (parse-elision-arg false))))
+  (is (true? (elision/parse-elision-arg true)))
+  (is (false? (elision/parse-elision-arg false))))
 
 (deftest parse-elision-string-forms-accepted
   ;; The MCP wire ships JSON; clients sending `"false"` should get the
   ;; false reading rather than the budget-default true.
-  (is (false? (parse-elision-arg "false")))
-  (is (true? (parse-elision-arg "true"))))
+  (is (false? (elision/parse-elision-arg "false")))
+  (is (true? (elision/parse-elision-arg "true"))))
 
 (deftest parse-elision-keyword-forms-accepted
-  (is (false? (parse-elision-arg :false)))
-  (is (true? (parse-elision-arg :true))))
+  (is (false? (elision/parse-elision-arg :false)))
+  (is (true? (elision/parse-elision-arg :true))))
 
 (deftest parse-elision-unknown-defaults-to-true
   ;; Least-surprise on the budget-sensitive default: an unrecognised
   ;; value gets the smaller-wire-payload behaviour, not the larger.
-  (is (true? (parse-elision-arg "garbage")))
-  (is (true? (parse-elision-arg 42)))
-  (is (true? (parse-elision-arg :other))))
+  (is (true? (elision/parse-elision-arg "garbage")))
+  (is (true? (elision/parse-elision-arg 42)))
+  (is (true? (elision/parse-elision-arg :other))))
 
 ;; ---------------------------------------------------------------------------
 ;; elision-opts-edn — EDN-render the walker's opts map for inlining.
@@ -86,7 +66,7 @@
   ;; is the walker's own switch (a `true` means pass through, a
   ;; `false` means emit the marker — the keyword surfaces from the
   ;; walker's API, not from our boolean).
-  (let [edn (elision-opts-edn true)
+  (let [edn (elision/elision-opts-edn true)
         parsed (cljs.reader/read-string edn)]
     (is (false? (:rf.size/include-large? parsed)))))
 
@@ -95,7 +75,7 @@
   ;; the walker passes the raw value through. (We also short-circuit
   ;; the walk entirely in the eval form when disabled — see the
   ;; snapshot-eval-form test below.)
-  (let [edn (elision-opts-edn false)
+  (let [edn (elision/elision-opts-edn false)
         parsed (cljs.reader/read-string edn)]
     (is (true? (:rf.size/include-large? parsed)))))
 
@@ -103,7 +83,7 @@
   ;; The EDN we ship over nREPL must be readable on the other side.
   ;; pr-str + read-string round-trips for the structure we emit.
   (doseq [enabled? [true false]]
-    (let [edn (elision-opts-edn enabled?)
+    (let [edn (elision/elision-opts-edn enabled?)
           parsed (cljs.reader/read-string edn)]
       (is (map? parsed))
       (is (contains? parsed :rf.size/include-large?)))))
@@ -128,7 +108,7 @@
   "Mirror of the snapshot-tool's eval-form composition. Two arms:
   elision on/off. Keep in lockstep with `snapshot-tool` in tools.cljs."
   [opts elision?]
-  (let [elision-opts-form (elision-opts-edn elision?)]
+  (let [elision-opts-form (elision/elision-opts-edn elision?)]
     (if elision?
       (str "(let [snap (re-frame-pair2.runtime/snapshot-state "
            (pr-str opts) ")]"
@@ -203,7 +183,7 @@
                         (str "(re-frame-pair2.runtime/snapshot " (pr-str frame) ")")
                         "(re-frame-pair2.runtime/snapshot)")
         frame-edn     (if frame (pr-str frame) "(re-frame-pair2.runtime/current-frame)")
-        elision-opts  (elision-opts-edn elision?)
+        elision-opts  (elision/elision-opts-edn elision?)
         elide-call    (if elision?
                         (str "(re-frame.core/elide-wire-value v"
                              "  (merge {:path path :frame " frame-edn "}"
@@ -314,6 +294,6 @@
   ;; is normative per the walker's docstring; a rename in the framework
   ;; surface needs a co-ordinated update here.
   (is (= "{:rf.size/include-large? false}"
-         (elision-opts-edn true)))
+         (elision/elision-opts-edn true)))
   (is (= "{:rf.size/include-large? true}"
-         (elision-opts-edn false))))
+         (elision/elision-opts-edn false))))

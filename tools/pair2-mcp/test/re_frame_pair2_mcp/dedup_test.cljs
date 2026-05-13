@@ -9,119 +9,74 @@
   reference after diff-encoding) collapse into a flat cache map that
   the agent host reconstructs via `de-dupe.core/expand`.
 
-  These tests mirror the private dedup helpers from `tools.cljs`
-  (`parse-dedup-arg`, `empty-payload?`, `dedup-value`,
-  `dedup-expand`, `dedup-epochs-in-snapshot`). A rename or signature
-  change surfaces as a failing test rather than a silent contract
-  drift.
+  Tests pin the public helpers directly from their owning namespaces:
+  `tools.dedup/parse-dedup-arg`, `tools.dedup/empty-payload?`,
+  `tools.dedup/dedup-value`, `tools.dedup/dedup-expand`,
+  `tools.snapshot-pipeline/dedup-epochs-in-snapshot`. A rename or
+  signature change surfaces as a failing test rather than a silent
+  contract drift.
 
   Live end-to-end coverage runs against a real shadow-cljs build via
   the existing stdio-roundtrip harness; this file pins the pure
   transforms, the round-trip property, the wire shape, and the
   reduction-ratio sanity check."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [de-dupe.core :as dedup]))
-
-;; ---------------------------------------------------------------------------
-;; Mirrors of the private dedup helpers from tools.cljs. Keep in
-;; lockstep — sibling tests follow the same convention (CLJS private
-;; vars aren't reachable across namespaces without `#'` so we copy
-;; the surface and lean on regression coverage).
-;; ---------------------------------------------------------------------------
-
-(defn- parse-dedup-arg [raw]
-  (cond
-    (nil? raw)             true
-    (true? raw)            true
-    (false? raw)           false
-    (= raw "false")        false
-    (= raw :false)         false
-    (= raw "true")         true
-    (= raw :true)          true
-    :else                  true))
-
-(defn- empty-payload? [v]
-  (or (nil? v)
-      (and (coll? v) (empty? v))
-      (not (coll? v))))
-
-(defn- dedup-value [v enabled?]
-  (if (or (not enabled?) (empty-payload? v))
-    v
-    (let [cache (dedup/de-dupe-eq v)]
-      {:rf.mcp/dedup-table cache})))
-
-(defn- dedup-expand [v]
-  (if (and (map? v) (contains? v :rf.mcp/dedup-table))
-    (dedup/expand (:rf.mcp/dedup-table v))
-    v))
-
-(defn- dedup-epochs-in-snapshot [snapshot enabled?]
-  (cond
-    (or (not enabled?) (not (map? snapshot)))
-    snapshot
-    :else
-    (reduce-kv
-      (fn [m fid fmap]
-        (assoc m fid
-               (if (and (map? fmap) (contains? fmap :epochs))
-                 (update fmap :epochs dedup-value enabled?)
-                 fmap)))
-      {} snapshot)))
+            [re-frame-pair2-mcp.tools.dedup :as dedup]
+            [re-frame-pair2-mcp.tools.snapshot-pipeline :as pipeline]))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-dedup-arg — MCP-arg normalisation.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-dedup-default-is-true
-  (is (true? (parse-dedup-arg nil))))
+  (is (true? (dedup/parse-dedup-arg nil))))
 
 (deftest parse-dedup-booleans-pass-through
-  (is (true? (parse-dedup-arg true)))
-  (is (false? (parse-dedup-arg false))))
+  (is (true? (dedup/parse-dedup-arg true)))
+  (is (false? (dedup/parse-dedup-arg false))))
 
 (deftest parse-dedup-string-forms-accepted
   ;; The MCP wire ships JSON; clients sending `"false"` should get
   ;; the false reading rather than the budget-default true.
-  (is (false? (parse-dedup-arg "false")))
-  (is (true? (parse-dedup-arg "true"))))
+  (is (false? (dedup/parse-dedup-arg "false")))
+  (is (true? (dedup/parse-dedup-arg "true"))))
 
 (deftest parse-dedup-keyword-forms-accepted
-  (is (false? (parse-dedup-arg :false)))
-  (is (true? (parse-dedup-arg :true))))
+  (is (false? (dedup/parse-dedup-arg :false)))
+  (is (true? (dedup/parse-dedup-arg :true))))
 
 (deftest parse-dedup-unknown-defaults-to-true
   ;; Least-surprise on the budget-sensitive default: an unrecognised
   ;; value gets the smaller-wire-payload behaviour, not the larger.
-  (is (true? (parse-dedup-arg "garbage")))
-  (is (true? (parse-dedup-arg 42)))
-  (is (true? (parse-dedup-arg :other))))
+  (is (true? (dedup/parse-dedup-arg "garbage")))
+  (is (true? (dedup/parse-dedup-arg 42)))
+  (is (true? (dedup/parse-dedup-arg :other))))
 
 ;; ---------------------------------------------------------------------------
 ;; empty-payload? — the no-op guard.
 ;; ---------------------------------------------------------------------------
 
 (deftest empty-payload-nil-is-empty
-  (is (true? (empty-payload? nil))))
+  (is (true? (dedup/empty-payload? nil))))
 
 (deftest empty-payload-empty-vector-is-empty
-  (is (true? (empty-payload? [])))
-  (is (true? (empty-payload? {})))
-  (is (true? (empty-payload? #{})))
-  (is (true? (empty-payload? '()))))
+  (is (true? (dedup/empty-payload? [])))
+  (is (true? (dedup/empty-payload? {})))
+  (is (true? (dedup/empty-payload? #{})))
+  (is (true? (dedup/empty-payload? '()))))
 
 (deftest empty-payload-scalars-are-empty
   ;; Scalars can't be deduped — the no-op guard catches them.
-  (is (true? (empty-payload? 42)))
-  (is (true? (empty-payload? :keyword)))
-  (is (true? (empty-payload? "string")))
-  (is (true? (empty-payload? true))))
+  (is (true? (dedup/empty-payload? 42)))
+  (is (true? (dedup/empty-payload? :keyword)))
+  (is (true? (dedup/empty-payload? "string")))
+  (is (true? (dedup/empty-payload? true))))
 
 (deftest empty-payload-non-empty-collections-fire-dedup
-  (is (false? (empty-payload? [1 2 3])))
-  (is (false? (empty-payload? {:a 1})))
-  (is (false? (empty-payload? #{:x})))
-  (is (false? (empty-payload? '(1 2)))))
+  (is (false? (dedup/empty-payload? [1 2 3])))
+  (is (false? (dedup/empty-payload? {:a 1})))
+  (is (false? (dedup/empty-payload? #{:x})))
+  (is (false? (dedup/empty-payload? '(1 2)))))
 
 ;; ---------------------------------------------------------------------------
 ;; dedup-value — the wire-boundary wrap.
@@ -130,19 +85,19 @@
 (deftest dedup-disabled-passes-through
   ;; opt-out: caller asks for the raw payload.
   (let [payload [{:a 1 :b 2} {:a 1 :b 2}]]
-    (is (= payload (dedup-value payload false)))))
+    (is (= payload (dedup/dedup-value payload false)))))
 
 (deftest dedup-empty-payload-passes-through
   ;; Empty / scalar inputs skip wrapping — the cache-of-one would
   ;; be a wire-size loss for trivial values.
-  (is (nil? (dedup-value nil true)))
-  (is (= [] (dedup-value [] true)))
-  (is (= {} (dedup-value {} true)))
-  (is (= 42 (dedup-value 42 true))))
+  (is (nil? (dedup/dedup-value nil true)))
+  (is (= [] (dedup/dedup-value [] true)))
+  (is (= {} (dedup/dedup-value {} true)))
+  (is (= 42 (dedup/dedup-value 42 true))))
 
 (deftest dedup-non-empty-collection-emits-marker
   (let [payload [{:a 1} {:b 2}]
-        wrapped (dedup-value payload true)]
+        wrapped (dedup/dedup-value payload true)]
     (is (map? wrapped))
     (is (contains? wrapped :rf.mcp/dedup-table))
     (is (map? (:rf.mcp/dedup-table wrapped))
@@ -152,7 +107,7 @@
   ;; The marker key matches causa-mcp's Principles §5 (Structural
   ;; dedup): `{:rf.mcp/dedup-table ...}`. Agents that learned the
   ;; slot on causa-mcp see the same slot here.
-  (let [wrapped (dedup-value [{:a 1} {:a 1}] true)]
+  (let [wrapped (dedup/dedup-value [{:a 1} {:a 1}] true)]
     (is (= [:rf.mcp/dedup-table] (vec (keys wrapped))))))
 
 ;; ---------------------------------------------------------------------------
@@ -164,15 +119,15 @@
         payload [{:id 1 :payload shared}
                  {:id 2 :payload shared}
                  {:id 3 :payload shared}]
-        wrapped (dedup-value payload true)
-        restored (dedup-expand wrapped)]
+        wrapped (dedup/dedup-value payload true)
+        restored (dedup/dedup-expand wrapped)]
     (is (= payload restored))))
 
 (deftest round-trip-already-expanded-is-noop
   ;; A payload that was never deduped (caller passed `dedup false`)
   ;; round-trips identity through expand.
   (let [payload [{:a 1} {:b 2}]]
-    (is (= payload (dedup-expand payload)))))
+    (is (= payload (dedup/dedup-expand payload)))))
 
 (deftest round-trip-nested-shared-subtrees
   ;; The load-bearing case: epoch slice where every record carries
@@ -188,14 +143,14 @@
                        :db-after  {:rf.mcp/diff-from :db-before
                                    :patches [[[(keyword (str "k" i)) :v]
                                               :assoc (str "new-" i)]]}}))
-        wrapped (dedup-value epochs true)
-        restored (dedup-expand wrapped)]
+        wrapped (dedup/dedup-value epochs true)
+        restored (dedup/dedup-expand wrapped)]
     (is (= epochs restored))))
 
 (deftest round-trip-empty-collections-inside-payload
   (let [payload [{:items [] :state {}} {:items [] :state {}}]
-        wrapped (dedup-value payload true)
-        restored (dedup-expand wrapped)]
+        wrapped (dedup/dedup-value payload true)
+        restored (dedup/dedup-expand wrapped)]
     (is (= payload restored))))
 
 (deftest round-trip-deeply-nested-uniform-records
@@ -206,8 +161,8 @@
                 :user {:id 7 :name "alice"}
                 :ui {:loading? false :error nil}}
         payload (vec (repeat 50 record))
-        wrapped (dedup-value payload true)
-        restored (dedup-expand wrapped)]
+        wrapped (dedup/dedup-value payload true)
+        restored (dedup/dedup-expand wrapped)]
     (is (= payload restored))
     (is (= 50 (count restored)))))
 
@@ -237,7 +192,7 @@
                                    :patches [[[(keyword (str "k" i))]
                                               :assoc (apply str (repeat 256 \y))]]}}))
         raw-size (count (pr-str epochs))
-        wrapped (dedup-value epochs true)
+        wrapped (dedup/dedup-value epochs true)
         wrapped-size (count (pr-str wrapped))]
     (testing "wrapped payload is much smaller than the raw vector"
       ;; Observability: print the actual ratio in the test log so the
@@ -255,7 +210,7 @@
                ") should be < 50% of raw (" raw-size
                "). Ratio: " (/ wrapped-size raw-size 1.0))))
     (testing "round-trip still reconstructs every epoch"
-      (let [restored (dedup-expand wrapped)]
+      (let [restored (dedup/dedup-expand wrapped)]
         (is (= epochs restored))))))
 
 ;; ---------------------------------------------------------------------------
@@ -264,15 +219,15 @@
 
 (deftest edge-case-empty-payload-is-noop
   ;; "empty payload (no-op)" — the wrapper short-circuits.
-  (is (nil? (dedup-value nil true)))
-  (is (= [] (dedup-value [] true))))
+  (is (nil? (dedup/dedup-value nil true)))
+  (is (= [] (dedup/dedup-value [] true))))
 
 (deftest edge-case-no-repeated-structure
   ;; "payload with no repeated structure (table empty)" — the cache
   ;; ships only the root entry; round-trip still exact.
   (let [payload [{:a 1} {:b 2} {:c 3}]
-        wrapped (dedup-value payload true)
-        restored (dedup-expand wrapped)]
+        wrapped (dedup/dedup-value payload true)
+        restored (dedup/dedup-expand wrapped)]
     (is (= payload restored))))
 
 (deftest edge-case-one-big-repeated-subtree
@@ -281,8 +236,8 @@
   (let [shared (into {} (for [i (range 100)]
                           [(keyword (str "k" i)) i]))
         payload (vec (repeat 20 shared))
-        wrapped (dedup-value payload true)
-        restored (dedup-expand wrapped)]
+        wrapped (dedup/dedup-value payload true)
+        restored (dedup/dedup-expand wrapped)]
     (is (= payload restored))
     (is (= 20 (count restored)))
     (is (every? #(= shared %) restored))))
@@ -312,7 +267,7 @@
                 :traces    []}})
 
 (deftest snapshot-dedup-wraps-each-frames-epochs
-  (let [wrapped (dedup-epochs-in-snapshot fixture-snapshot true)]
+  (let [wrapped (pipeline/dedup-epochs-in-snapshot fixture-snapshot true)]
     (testing ":epochs slot wrapped on every frame that has one"
       (doseq [[_fid fmap] wrapped]
         (let [eps (:epochs fmap)]
@@ -324,25 +279,25 @@
 
 (deftest snapshot-dedup-disabled-passes-through
   (is (= fixture-snapshot
-         (dedup-epochs-in-snapshot fixture-snapshot false))))
+         (pipeline/dedup-epochs-in-snapshot fixture-snapshot false))))
 
 (deftest snapshot-dedup-skips-frames-without-epochs-slice
   ;; The :include filter may exclude :epochs. Don't add one.
   (let [snap {:rf/default {:app-db {} :sub-cache {}}}
-        wrapped (dedup-epochs-in-snapshot snap true)]
+        wrapped (pipeline/dedup-epochs-in-snapshot snap true)]
     (is (not (contains? (:rf/default wrapped) :epochs)))))
 
 (deftest snapshot-dedup-non-map-passes-through
-  (is (nil? (dedup-epochs-in-snapshot nil true)))
-  (is (= :not-a-snap (dedup-epochs-in-snapshot :not-a-snap true))))
+  (is (nil? (pipeline/dedup-epochs-in-snapshot nil true)))
+  (is (= :not-a-snap (pipeline/dedup-epochs-in-snapshot :not-a-snap true))))
 
 (deftest snapshot-dedup-round-trips-per-frame
-  (let [wrapped (dedup-epochs-in-snapshot fixture-snapshot true)
+  (let [wrapped (pipeline/dedup-epochs-in-snapshot fixture-snapshot true)
         restored (reduce-kv
                    (fn [m fid fmap]
                      (assoc m fid
                             (if (contains? fmap :epochs)
-                              (update fmap :epochs dedup-expand)
+                              (update fmap :epochs dedup/dedup-expand)
                               fmap)))
                    {}
                    wrapped)]

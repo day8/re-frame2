@@ -8,119 +8,87 @@
   runtime ring surfaces as a `:rf.mcp/cursor-stale` error rather than
   silently restarting.
 
-  These tests mirror the private helpers from `tools.cljs`
-  (`parse-limit-arg`, `encode-cursor`, `decode-cursor`,
-  `cursor-stale-result`) and exercise the full host-side pagination
-  logic by simulating the runtime form's output. The live runtime
-  call sits behind the nREPL eval boundary and is covered by the
-  stdio-roundtrip harness; this layer pins the cursor contract."
+  These tests pin the private helpers in
+  `re-frame-pair2-mcp.tools.cursor` directly (`parse-limit-arg`,
+  `encode-cursor`, `decode-cursor`, `cursor-stale-result`) and exercise
+  the full host-side pagination logic by simulating the runtime form's
+  output. The live runtime call sits behind the nREPL eval boundary
+  and is covered by the stdio-roundtrip harness; this layer pins the
+  cursor contract."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [cljs.reader]
-            [clojure.string :as str]
-            [applied-science.js-interop :as j]))
+            [re-frame-pair2-mcp.tools.cursor :as cursor]))
 
-;; ---------------------------------------------------------------------------
-;; Mirrors of the private cursor helpers. Keep in lockstep with tools.cljs.
-;; ---------------------------------------------------------------------------
+(def default-limit cursor/default-limit)
 
-(def ^:private default-limit 50)
-
-(defn- parse-limit-arg [raw]
-  (cond
-    (or (nil? raw) (undefined? raw)) default-limit
-    (number? raw) (max 1 (long raw))
-    (string? raw) (let [n (js/parseInt raw 10)]
-                    (if (and (number? n) (not (js/isNaN n)))
-                      (max 1 (long n))
-                      default-limit))
-    :else default-limit))
-
-(defn- encode-cursor [payload]
-  (when (and (map? payload) (some? (:after-id payload)))
-    (let [edn (pr-str payload)
-          buf (js/Buffer.from edn "utf8")]
-      (.toString buf "base64"))))
-
-(defn- decode-cursor [s]
-  (cond
-    (or (nil? s) (undefined? s)) nil
-    (not (string? s)) ::malformed
-    (str/blank? s)    nil
-    :else
-    (try
-      (let [buf (js/Buffer.from s "base64")
-            edn (.toString buf "utf8")
-            v   (cljs.reader/read-string edn)]
-        (if (and (map? v) (string? (:after-id v)))
-          v
-          ::malformed))
-      (catch :default _ ::malformed))))
+;; The `decode-cursor` impl returns the malformed sentinel keyword
+;; from the source ns; tests assert against that same value.
+(def malformed :re-frame-pair2-mcp.tools.cursor/malformed)
 
 ;; ---------------------------------------------------------------------------
 ;; parse-limit-arg — MCP-arg normalisation.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-limit-default-when-absent
-  (is (= default-limit (parse-limit-arg nil)))
-  (is (= default-limit (parse-limit-arg js/undefined))))
+  (is (= default-limit (cursor/parse-limit-arg nil)))
+  (is (= default-limit (cursor/parse-limit-arg js/undefined))))
 
 (deftest parse-limit-positive-integer-pass-through
-  (is (= 10 (parse-limit-arg 10)))
-  (is (= 1  (parse-limit-arg 1)))
-  (is (= 1000 (parse-limit-arg 1000))))
+  (is (= 10 (cursor/parse-limit-arg 10)))
+  (is (= 1  (cursor/parse-limit-arg 1)))
+  (is (= 1000 (cursor/parse-limit-arg 1000))))
 
 (deftest parse-limit-clamps-non-positive-to-one
-  (is (= 1 (parse-limit-arg 0)))
-  (is (= 1 (parse-limit-arg -5))))
+  (is (= 1 (cursor/parse-limit-arg 0)))
+  (is (= 1 (cursor/parse-limit-arg -5))))
 
 (deftest parse-limit-parses-numeric-string
-  (is (= 25 (parse-limit-arg "25"))))
+  (is (= 25 (cursor/parse-limit-arg "25"))))
 
 (deftest parse-limit-non-numeric-string-falls-back
-  (is (= default-limit (parse-limit-arg "bogus"))))
+  (is (= default-limit (cursor/parse-limit-arg "bogus"))))
 
 ;; ---------------------------------------------------------------------------
 ;; encode-cursor / decode-cursor — opaque round-trip.
 ;; ---------------------------------------------------------------------------
 
 (deftest encode-cursor-nil-when-no-after-id
-  (is (nil? (encode-cursor nil)))
-  (is (nil? (encode-cursor {})))
-  (is (nil? (encode-cursor {:v 1 :after-id nil}))))
+  (is (nil? (cursor/encode-cursor nil)))
+  (is (nil? (cursor/encode-cursor {})))
+  (is (nil? (cursor/encode-cursor {:v 1 :after-id nil}))))
 
 (deftest encode-cursor-returns-string-on-valid-payload
-  (let [c (encode-cursor {:v 1 :after-id "abc"})]
+  (let [c (cursor/encode-cursor {:v 1 :after-id "abc"})]
     (is (string? c))
     (is (pos? (count c)))))
 
 (deftest cursor-round-trip-preserves-payload
   (let [payload {:v 1 :after-id "epoch-42" :ms 5000 :until-ms 1234567890
                  :frame :rf/default}
-        encoded (encode-cursor payload)
-        decoded (decode-cursor encoded)]
+        encoded (cursor/encode-cursor payload)
+        decoded (cursor/decode-cursor encoded)]
     (is (= payload decoded))))
 
 (deftest decode-cursor-nil-on-nil-input
-  (is (nil? (decode-cursor nil)))
-  (is (nil? (decode-cursor "")))
-  (is (nil? (decode-cursor js/undefined))))
+  (is (nil? (cursor/decode-cursor nil)))
+  (is (nil? (cursor/decode-cursor "")))
+  (is (nil? (cursor/decode-cursor js/undefined))))
 
 (deftest decode-cursor-malformed-on-junk
-  (is (= ::malformed (decode-cursor "not-real-base64-edn-juzlblahHFGYbn")))
-  (is (= ::malformed (decode-cursor 12345)))
+  (is (= malformed (cursor/decode-cursor "not-real-base64-edn-juzlblahHFGYbn")))
+  (is (= malformed (cursor/decode-cursor 12345)))
   ;; base64 of "not-a-map" — decodes but isn't a map with :after-id
   (let [bogus (.toString (js/Buffer.from "[1 2 3]" "utf8") "base64")]
-    (is (= ::malformed (decode-cursor bogus)))))
+    (is (= malformed (cursor/decode-cursor bogus)))))
 
 (deftest decode-cursor-malformed-on-missing-after-id
   (let [bogus (.toString (js/Buffer.from "{:v 1}" "utf8") "base64")]
-    (is (= ::malformed (decode-cursor bogus)))))
+    (is (= malformed (cursor/decode-cursor bogus)))))
 
 (deftest cursor-is-opaque-on-wire
   ;; The agent has no business decoding the cursor — but the encoding
   ;; MUST be a self-contained string (no embedded JSON-confusing chars
   ;; that would break round-trip through bencode + JSON-RPC).
-  (let [c (encode-cursor {:v 1 :after-id "abc-def"})]
+  (let [c (cursor/encode-cursor {:v 1 :after-id "abc-def"})]
     (is (re-matches #"^[A-Za-z0-9+/=]+$" c))))
 
 ;; ---------------------------------------------------------------------------
@@ -200,9 +168,9 @@
                                           :until-ms 99999999
                                           :limit 10})
         ;; Cursor encodes "epoch-9"
-        cursor (encode-cursor {:v 1 :after-id (:next-id page-1)
-                               :until-ms 99999999 :ms nil :frame nil})
-        decoded (decode-cursor cursor)
+        cursor-str (cursor/encode-cursor {:v 1 :after-id (:next-id page-1)
+                                          :until-ms 99999999 :ms nil :frame nil})
+        decoded (cursor/decode-cursor cursor-str)
         ;; Second call resumes after "epoch-9"
         page-2 (runtime-form-output hist {:after-id (:after-id decoded)
                                           :cutoff-ms 0
@@ -218,12 +186,12 @@
   ;; Bead acceptance: "50-epoch ring; pagination over 5 batches returns
   ;; 50 distinct records in order."
   (let [hist (vec (for [n (range 50)] (make-epoch n)))
-        walk (loop [cursor   nil
-                    pages    []
-                    safety   10]
+        walk (loop [cursor-str nil
+                    pages      []
+                    safety     10]
                (if (zero? safety)
                  pages
-                 (let [decoded (decode-cursor cursor)
+                 (let [decoded (cursor/decode-cursor cursor-str)
                        after-id (:after-id decoded)
                        out (runtime-form-output hist {:after-id after-id
                                                       :cutoff-ms 0
@@ -231,8 +199,8 @@
                                                       :limit 10})
                        pages' (conj pages (:epochs out))]
                    (if-let [next-id (:next-id out)]
-                     (recur (encode-cursor {:v 1 :after-id next-id
-                                            :until-ms 99999999 :ms nil :frame nil})
+                     (recur (cursor/encode-cursor {:v 1 :after-id next-id
+                                                   :until-ms 99999999 :ms nil :frame nil})
                             pages'
                             (dec safety))
                      pages'))))
@@ -282,10 +250,10 @@
     (is (empty? (:epochs page-2)))))
 
 (deftest malformed-cursor-decodes-as-malformed-sentinel
-  ;; Caller passes garbage. Host translates ::malformed to the same
-  ;; :rf.mcp/cursor-stale error path as a true age-out.
-  (is (= ::malformed (decode-cursor "not-base64-edn")))
-  (is (= ::malformed (decode-cursor "AAAA"))))
+  ;; Caller passes garbage. Host translates malformed sentinel to the
+  ;; same :rf.mcp/cursor-stale error path as a true age-out.
+  (is (= malformed (cursor/decode-cursor "not-base64-edn")))
+  (is (= malformed (cursor/decode-cursor "AAAA"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Sticky window — fresh epochs don't sneak in mid-iteration.
