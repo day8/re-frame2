@@ -61,6 +61,7 @@ nav:
 
   - Guide:
     - Overview: guide/README.md
+    - "00 — ClojureScript for non-Clojurians": guide/00-clojurescript-for-non-clojurians.md
     - "01 — Why re-frame2": guide/01-why-re-frame2.md
     - "02 — app-db": guide/02-app-db.md
     - "03 — Your first app": guide/03-your-first-app.md
@@ -155,7 +156,17 @@ markdown_extensions:
       slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
   - pymdownx.highlight:
       anchor_linenums: true
-  - pymdownx.superfences
+      # Klipse cells in guide/00-clojurescript-for-non-clojurians.md use the
+      # ```klipse fence. The Klipse JS plugin keys off the `.language-klipse`
+      # class that pymdownx.highlight emits when pygments_lang_class is on;
+      # the static (no-JS) fallback gets clojure-style syntax highlighting
+      # via the alias below in pymdownx.superfences.
+      pygments_lang_class: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: klipse
+          class: language-klipse
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.inlinehilite
   - pymdownx.details
   - pymdownx.tabbed:
