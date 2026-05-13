@@ -268,6 +268,14 @@ default. The cap is normative, not aspirational: a tool that
 cannot answer inside the budget MUST trim, summarise, slice,
 paginate, or dedupe rather than over-spend.
 
+The cross-server contract — default cap, override slot name
+(`max-tokens`), overflow marker key (`:rf.mcp/overflow`),
+agent-host retry contract, and chained-budget rules when an agent
+attaches the triplet in one session — lives at
+[`tools/mcp-conformance/TOKEN-BUDGETS.md`](../../mcp-conformance/TOKEN-BUDGETS.md).
+The six mechanisms below are causa-mcp's expansion of that
+contract.
+
 The motivation is the 2026 trend axis. Microsoft's April 2026
 recommendation (Playwright CLI **over** Playwright MCP for
 coding agents) was driven by MCP responses being roughly 4×

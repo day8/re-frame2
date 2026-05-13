@@ -132,6 +132,13 @@ response passes through a wire-boundary check before egress,
 and over-budget payloads are replaced — not silently truncated —
 with a structured `{:rf.mcp/overflow ...}` marker.
 
+The cross-server contract — default cap, override slot name,
+overflow marker key, agent-host retry contract, and chained-budget
+rules when an agent attaches the triplet in one session — lives at
+[`tools/mcp-conformance/TOKEN-BUDGETS.md`](../../mcp-conformance/TOKEN-BUDGETS.md).
+The eight mechanisms below are pair2-mcp's expansion of that
+contract.
+
 The motivation is the 2026 trend axis. Microsoft's April 2026
 recommendation (Playwright CLI **over** Playwright MCP for
 coding agents) was driven by MCP responses being roughly 4×

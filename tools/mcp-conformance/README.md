@@ -4,7 +4,7 @@ End-to-end **MCP-client** conformance harness for the re-frame2 MCP
 servers — `pair2-mcp`, `story-mcp`, and (when its implementation lands)
 `causa-mcp`. Source: rf2-cum40.
 
-This artefact has three surfaces:
+This artefact has four surfaces:
 
 1. **`test/end-to-end-*.js`** — Node-side end-to-end conformance.
    Drives each server through the official `@modelcontextprotocol/sdk`
@@ -23,6 +23,13 @@ This artefact has three surfaces:
    / `tail-` / `dispatch` / `eval-cljs` / `subscribe` / `unsubscribe`
    / mega-op bare verbs), with one-line semantics and the per-server
    audit table. Source: rf2-mzf1r.
+4. **[`TOKEN-BUDGETS.md`](TOKEN-BUDGETS.md)** — the cross-MCP
+   token-budget posture: the 5,000-token default cap, the
+   `max-tokens` per-call override, the `:rf.mcp/overflow` retry
+   marker, per-server mechanism inventory, chained-budget rules
+   when an agent attaches all three servers in one session, and
+   the deliberate divergences between server implementations.
+   Source: rf2-ll0yq.
 
 ## What this is
 
