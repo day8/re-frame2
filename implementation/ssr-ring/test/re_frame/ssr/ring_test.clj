@@ -11,33 +11,14 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.ring :as ssr-ring]))
+            [re-frame.ssr.ring :as ssr-ring]
+            [re-frame.ssr.test-fixture :as tf]))
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  (reset! ssr/request-slots {})
-  ;; Framework-private SSR side-channel atoms (per Spec 011 §Per-request
-  ;; frame teardown — response-slots joined under rf2-jbcmt). Reach via
-  ;; resolve so process-wide stale entries can't bleed across fixtures.
-  (when-let [v (resolve 're-frame.ssr/response-slots)]
-    (reset! @v {}))
-  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
-    (reset! @v {}))
-  (rf/init! ssr/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; rf2-i3qc0 — the canonical reset-runtime fixture lives in
+;; `re-frame.ssr.test-fixture` (loadable here via the ssr artefact's
+;; test path; see this artefact's deps.edn :test alias `:extra-paths`).
+(use-fixtures :each tf/reset-runtime)
 
 ;; ===========================================================================
 ;; Cookie serialisation (RFC 6265)

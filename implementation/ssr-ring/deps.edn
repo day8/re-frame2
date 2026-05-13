@@ -48,7 +48,14 @@
          day8/re-frame2-ssr {:local/root "../ssr"}}
 
  :aliases
- {:test {:extra-paths ["test"]
+ {:test {;; rf2-i3qc0 — `../ssr/test` is on the path so the shared
+         ;; `re-frame.ssr.test-fixture` ns (one source of truth for the
+         ;; ssr-artefact `:each` reset) is loadable here too. The
+         ;; `--dir test` flag below limits cognitect-test-runner's
+         ;; discovery to THIS artefact's `test/` dir; the ssr-test
+         ;; namespaces under `../ssr/test` are only loaded transitively
+         ;; (the fixture ns is the only `:require` target).
+         :extra-paths ["test" "../ssr/test"]
          ;; Mirrors implementation/ssr/deps.edn :test alias — schemas /
          ;; flows / routing / machines load at ns-load time and the
          ;; reset-runtime fixture reloads them after registrar/clear-all!.
@@ -58,7 +65,7 @@
                        day8/re-frame2-machines {:local/root "../machines"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}
+         :main-opts   ["-m" "cognitect.test-runner" "--dir" "test"]}
 
   ;; Clojars deploy (rf2-r382). Modeled on the per-feature artefacts.
   ;; The release workflow swaps :local/root → :mvn/version before

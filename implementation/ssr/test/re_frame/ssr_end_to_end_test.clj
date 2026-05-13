@@ -31,37 +31,13 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.ssr :as ssr]))
+            [re-frame.ssr :as ssr]
+            [re-frame.ssr.test-fixture :as tf]))
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  ;; SSR side-channel atoms keyed on frame-id (per Spec 011 §Per-request
-  ;; frame teardown contract). The response-slots and pending-error-traces
-  ;; vars are framework-private (^:private at the façade); resolve them
-  ;; reflectively so process-wide stale entries from prior tests can't bleed
-  ;; into this one. request-slots is public; reset directly.
-  (reset! ssr/request-slots {})
-  (when-let [v (resolve 're-frame.ssr/response-slots)]
-    (reset! @v {}))
-  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
-    (reset! @v {}))
-  (rf/init! ssr/adapter)
-  ;; Framework registrations happen at namespace-load time in
-  ;; routing.cljc / ssr.cljc / machines.cljc; clear-all! wiped them, so
-  ;; reload to resurrect :rf/hydrate, :rf.route/navigate, etc.
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  (require 're-frame.machines :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; The canonical reset-runtime fixture lives in `re-frame.ssr.test-fixture`
+;; (rf2-i3qc0) — one source of truth for the registrar/side-channel/ns-
+;; reload cycle that every ssr-artefact JVM test needs between :each.
+(use-fixtures :each tf/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
 
