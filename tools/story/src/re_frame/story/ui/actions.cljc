@@ -146,6 +146,24 @@
     (and (= op-type :fx)    (= operation :rf.fx/handled))    :fx-dispatch
     :else                                                    nil))
 
+(defn- base-row
+  "Build the slots every projected row shares — `:id`, `:class`,
+  `:time`, `:dispatch-id`, `:source`, and `:raw`. Per-class
+  projections in `project-row` then fill in the slots that differ
+  (event-id / event / args / origin / fx-id)."
+  [class {:keys [tags id time] :as ev} trig-src]
+  {:id          id
+   :class       class
+   :time        time
+   :event-id    nil
+   :event       nil
+   :args        nil
+   :dispatch-id (:dispatch-id tags)
+   :origin      nil
+   :fx-id       nil
+   :source      trig-src
+   :raw         ev})
+
 (defn project-row
   "Project one raw trace event into the row shape the panel renders.
   Pure data → data; JVM-testable.
@@ -163,57 +181,34 @@
        :fx-id       <kw|nil>              ;; nil for :dispatch rows
        :source      <{:file :line :column}|nil>  ;; trigger-handler coord, rf2-evgf5 hook
        :raw         <trace-event>}"
-  [{:keys [op-type operation tags id time] :as ev}]
-  (let [class (row-class ev)
+  [{:keys [tags] :as ev}]
+  (let [class      (row-class ev)
         rf-trigger (:rf.trace/trigger-handler ev)
         trig-src   (:source-coord rf-trigger)]
     (case class
       :dispatch
-      {:id          id
-       :class       :dispatch
-       :time        time
-       :event-id    (or (:event-id tags)
-                        (some-> tags :event first))
-       :event       (:event tags)
-       :args        nil
-       :dispatch-id (:dispatch-id tags)
-       :origin      (:origin tags)
-       :fx-id       nil
-       :source      trig-src
-       :raw         ev}
+      (assoc (base-row :dispatch ev trig-src)
+             :event-id (or (:event-id tags) (some-> tags :event first))
+             :event    (:event tags)
+             :origin   (:origin tags))
 
       :fx-dispatch
       (let [fx-args (:fx-args tags)
             evt     (cond
-                      (vector? fx-args)             fx-args ;; :dispatch  → [event-id args...]
-                      (map?    fx-args)             (:event fx-args) ;; :dispatch-later → {:event ... :ms ...}
-                      :else                         nil)]
-        {:id          id
-         :class       :fx-dispatch
-         :time        time
-         :event-id    (some-> evt first)
-         :event       (when (vector? evt) evt)
-         :args        (when (and (vector? evt) (> (count evt) 1))
-                        (vec (rest evt)))
-         :dispatch-id (:dispatch-id tags)
-         :origin      (:origin tags)
-         :fx-id       (:fx-id tags)
-         :source      trig-src
-         :raw         ev})
+                      (vector? fx-args) fx-args              ;; :dispatch       → [event-id args...]
+                      (map?    fx-args) (:event fx-args)     ;; :dispatch-later → {:event ... :ms ...}
+                      :else             nil)]
+        (assoc (base-row :fx-dispatch ev trig-src)
+               :event-id (some-> evt first)
+               :event    (when (vector? evt) evt)
+               :args     (when (and (vector? evt) (> (count evt) 1))
+                           (vec (rest evt)))
+               :origin   (:origin tags)
+               :fx-id    (:fx-id tags)))
 
       ;; nil class — shouldn't happen if action-event? was checked, but
       ;; return a minimal row so the renderer can still surface it.
-      {:id          id
-       :class       :unknown
-       :time        time
-       :event-id    nil
-       :event       nil
-       :args        nil
-       :dispatch-id (:dispatch-id tags)
-       :origin      nil
-       :fx-id       nil
-       :source      trig-src
-       :raw         ev})))
+      (base-row :unknown ev trig-src))))
 
 (defn project-rows
   "Filter `events` (a seq of raw trace events from the buffer) to the
