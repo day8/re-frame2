@@ -621,8 +621,14 @@
 (def ^:private envelope-emitter-source-files
   "Source files that carry the envelope-slot emit sites per server.
   Restricted to the actual tool source — the spec/docs files may
-  mention the slots without emitting them."
-  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs"]
+  mention the slots without emitting them.
+
+  Post-rf2-vrbwx split: pair2-mcp's envelope-slot emit point is the
+  centralised `wire/with-indicators` helper (rf2-dfk28); the literals
+  live in `wire.cljs`. Per-tool routing through the helper is pinned
+  in detail by `indicator_field_test.clj`; this gate just asserts the
+  two literals appear in the canonical helper location."
+  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs"]
    :causa-mcp []          ;; impl not landed; spec mentions don't count
    :story-mcp []})        ;; doesn't walk tree-typed payloads today
 
