@@ -43,7 +43,7 @@
 (def ^:private ops-md      (delay (slurp-rel "references/ops.md")))
 (def ^:private skill-md    (delay (slurp-rel "SKILL.md")))
 (def ^:private errors-md   (delay (slurp-rel "references/errors.md")))
-(def ^:private hot-reload  (delay (slurp-rel "references/hot-reload-protocol.md")))
+(def ^:private hot-reload  (delay (slurp-rel "references/ops.md")))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical-prompts table
@@ -152,8 +152,8 @@
     (is (str/includes? @skill-md "references/errors.md"))))
 
 (deftest skill-router-still-points-at-hot-reload
-  (testing "SKILL.md mentions references/hot-reload-protocol.md"
-    (is (str/includes? @skill-md "references/hot-reload-protocol.md"))))
+  (testing "SKILL.md links to the hot-reload-coordination section in ops.md"
+    (is (str/includes? @skill-md "ops.md#hot-reload-coordination"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Setup-recipe — discoverable + still pointing at the preload mechanism.
@@ -179,7 +179,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest hot-reload-doc-still-describes-probe
-  (testing "hot-reload-protocol.md still describes the probe-based contract"
+  (testing "ops.md §Hot-reload coordination still describes the probe-based contract"
+    (is (str/includes? @hot-reload "Hot-reload coordination"))
     (is (str/includes? @hot-reload "probe"))
     (is (str/includes? @hot-reload "tail-build"))))
 

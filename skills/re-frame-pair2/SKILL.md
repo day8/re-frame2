@@ -97,7 +97,7 @@ Report the hint to the user verbatim — they can fix it in seconds without re-c
 - **REPL changes** (hot-swap a handler, evaluate a form, reset a frame's `app-db`) are **ephemeral**. They survive hot-reloads of unaffected namespaces, but are lost on full page reload. Use them for **probes, experiments, and throwaway fixes**.
 - **Source edits** (using `Edit` / `Write`) are **permanent**. After any source edit, you *must* call `hot-reload/wait` before dispatching or tracing. Otherwise you'll interact with the pre-reload code and get misleading results.
 
-Know which mode you're in and why. For the strict source-edit protocol, see [references/hot-reload-protocol.md](references/hot-reload-protocol.md).
+Know which mode you're in and why. For the strict source-edit protocol, see [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination).
 
 ---
 
@@ -144,8 +144,8 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 | Decode a deduped wire payload (`:rf.mcp/dedup-table`) or pick the right size-conscious arg (`max-tokens`, `path`, `mode`, `dedup`, `elision`, `limit`/`cursor`, `cache`, `max-buffered-*`) | [references/wire-size-budget.md](references/wire-size-budget.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
 | Inspect, propose, or hot-swap a frame's `:on-error` policy — the closed return-map contract | [references/on-error.md](references/on-error.md) |
-| Edit source, then wait for the browser to pick up the new code | [references/hot-reload-protocol.md](references/hot-reload-protocol.md) |
-| Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/migration-from-v1.md](references/migration-from-v1.md) |
+| Edit source, then wait for the browser to pick up the new code | [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination) |
+| Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/ops.md §Dropped from v1](references/ops.md#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent) |
 | Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
 | Drive a Story variant from a pair2 session — the variant *is* a frame; per-variant isolation, gotchas, discovery | [references/variant-as-frame.md](references/variant-as-frame.md) |
 | Use story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `run-a11y`, `record-as-variant`) during a live pair-session — composition with watch-epochs and dispatch-from-pair | [references/stories.md](references/stories.md) |

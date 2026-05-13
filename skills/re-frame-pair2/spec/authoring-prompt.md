@@ -31,9 +31,8 @@ A self-contained prompt that re-authors the `re-frame-pair2` skill from this `sp
 > │   ├── ops.md                          (op catalogue)
 > │   ├── recipes.md                      (named procedures)
 > │   ├── errors.md                       (structured error → English + recovery)
-> │   ├── hot-reload-protocol.md          (source-edit → wait-for-reload protocol)
-> │   ├── migration-from-v1.md            (re-frame-pair v1 → v2 surface map)
 > │   └── mcp-transport.md                (MCP install + bash-shim mapping)
+> │   (the hot-reload protocol and the v1 → v2 surface-map both live in `ops.md` as sections.)
 > ├── scripts/                            (bash shims — deprecated)
 > ├── tests/                              (smoke tests)
 > ├── docs/                               (maintainer docs)
@@ -73,7 +72,7 @@ A self-contained prompt that re-authors the `re-frame-pair2` skill from this `sp
 > *Don't:*
 >
 > *- Don't propose fixes that route through `re-frame-10x` — L2.*
-> *- Don't teach v1 idioms (`re-frame.db`, `dispatch-with`, etc.) — point at `references/migration-from-v1.md`.*
+> *- Don't teach v1 idioms (`re-frame.db`, `dispatch-with`, etc.) — point at `references/ops.md` §Dropped from v1.*
 > *- Don't write `*.md` documentation outside `skills/re-frame-pair2/`.*
 > *- Don't commit `ai/` or `findings/` content.*
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
