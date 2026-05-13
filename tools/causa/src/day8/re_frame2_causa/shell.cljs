@@ -37,6 +37,7 @@
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
@@ -74,7 +75,7 @@
   items still render the Phase 1 stub when selected."
   [{:id :event-detail :label "Event detail" :bead "rf2-op3bz" :live? true}
    {:id :time-travel  :label "Time travel"  :bead "rf2-t53ze" :live? true}
-   {:id :app-db       :label "App-db"        :bead "rf2-xxx"}
+   {:id :app-db       :label "App-db"        :bead "rf2-jps1o" :live? true}
    {:id :causality    :label "Causality"     :bead "rf2-4rqs1" :live? true}
    {:id :subs         :label "Subscriptions" :bead "rf2-x0f5v" :live? true}
    {:id :fx           :label "Effects"       :bead "rf2-xxx"}
@@ -253,6 +254,7 @@
     (case selected
       :event-detail [event-detail/event-detail-view]
       :time-travel  [time-travel/time-travel-view]
+      :app-db       [app-db-diff/app-db-diff-view]
       :causality    [causality-graph/causality-graph-view]
       :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
