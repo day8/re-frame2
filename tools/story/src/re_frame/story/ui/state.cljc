@@ -65,7 +65,19 @@
                            Canvas | Docs | Tests switcher (rf2-9hc8).
                            Unspecified → :dev (canvas). Persisted in
                            localStorage under `re-frame.story/active-
-                           mode-tab/<variant-id>`."
+                           mode-tab/<variant-id>`.
+  - `:test-runs`        — {variant-id → run-state}. Per-variant test-run
+                           record fed both by the `:test` mode pane's
+                           Re-run button and by the chrome-level test
+                           widget's 'Run all'. Each run-state is one of:
+                              :pending  — no run recorded
+                              :running  — run in flight
+                              :pass     — last run: all assertions passed
+                              :fail     — last run: ≥1 assertion failed
+                           plus pass/fail/skip/total counts and timing.
+                           Powers both the chrome widget's aggregate
+                           summary and the sidebar's per-variant dots
+                           (rf2-q0irb)."
   {:selected-variant   nil
    :selected-workspace nil
    :tag-filter         #{}
@@ -76,7 +88,8 @@
    :fingerprints       {}
    :pinned-snapshots   {}
    :panel-visibility   {:trace true :scrubber true :controls true :actions true}
-   :active-mode-tab    {}})
+   :active-mode-tab    {}
+   :test-runs          {}})
 
 ;; ---- pure transition fns (JVM-testable) ----------------------------------
 
@@ -371,3 +384,125 @@
   [f & args]
   (when config/enabled?
     (apply swap! shell-state-atom f args)))
+
+;; ---- test-runs (rf2-q0irb) ----------------------------------------------
+;;
+;; Cross-variant aggregation surface: each variant's last `run-variant`
+;; outcome is folded into `:test-runs`. The chrome-level test widget
+;; reads it as a summary; the sidebar's per-variant rows read individual
+;; entries as a status dot. Both surfaces are pure derivations of this
+;; one slot.
+;;
+;; The test-mode pane's local `results-atom` keeps the full result-map
+;; (assertion records + expanded-row UI state); this shell-state slot
+;; carries only the aggregate counts the chrome widget + sidebar dots
+;; need. Two stores, two read paths, no contention — the pane's local
+;; atom drives the detail view, the shell-state slot drives the global
+;; surfaces.
+
+(def test-run-statuses
+  "Canonical run-state ids, in render order.
+
+  - `:pass`     last run: every assertion passed (and at least one assertion).
+  - `:fail`     last run: ≥1 assertion failed.
+  - `:running`  run currently in flight.
+  - `:pending`  no run recorded yet (or run produced zero assertions)."
+  [:pass :fail :running :pending])
+
+(defn mark-test-running
+  "Stamp `variant-id` as :running. Idempotent."
+  [state variant-id]
+  (assoc-in state [:test-runs variant-id] {:status :running}))
+
+(defn record-test-run
+  "Write the aggregate of a `run-variant` result into `:test-runs`.
+
+  `summary` is the map returned by `test-mode/aggregate-summary` —
+  `{:total :passed :failed :skipped :all-passed?}` — extended with
+  optional `:ran-at-ms` and `:elapsed-ms`. A run that recorded zero
+  assertions lands as `:pending` (rather than `:pass`/`:fail`) so the
+  sidebar dot reads grey — the variant ran but produced no signal."
+  [state variant-id summary]
+  (let [{:keys [total passed failed skipped all-passed?
+                ran-at-ms elapsed-ms]} (or summary {})
+        status (cond
+                 (zero? (or total 0)) :pending
+                 all-passed?          :pass
+                 :else                :fail)]
+    (assoc-in state [:test-runs variant-id]
+              {:status     status
+               :total      (or total 0)
+               :passed     (or passed 0)
+               :failed     (or failed 0)
+               :skipped    (or skipped 0)
+               :ran-at-ms  ran-at-ms
+               :elapsed-ms elapsed-ms})))
+
+(defn clear-test-run
+  "Drop the run record for `variant-id`."
+  [state variant-id]
+  (update state :test-runs dissoc variant-id))
+
+(defn variant-test-status
+  "Return the canonical status keyword for `variant-id` (one of
+  `test-run-statuses`). Variants with no recorded run read `:pending`.
+  Pure data → data; JVM-testable."
+  [state variant-id]
+  (or (get-in state [:test-runs variant-id :status])
+      :pending))
+
+(defn test-summary
+  "Aggregate the chrome-level test widget's headline counts across the
+  given seq of variant-ids — the variants tagged `:test` registered at
+  the time of call. Returns:
+
+      {:total      <count of variant-ids>
+       :passed     <count whose last run was :pass>
+       :failed     <count whose last run was :fail>
+       :running    <count currently in flight>
+       :pending    <count with no recorded run>
+       :all-green? <bool — total > 0 AND failed = 0 AND running = 0
+                          AND pending = 0>}
+
+  Pure data → data; the JVM corpus exercises it against a fixture map
+  without booting Reagent. `all-green?` mirrors `aggregate-summary`'s
+  `:all-passed?` — true only when every variant has a recorded green
+  run; a sea of `:pending` reads as 'not green yet', not 'all green'."
+  [state variant-ids]
+  (let [runs   (:test-runs state)
+        statuses (mapv (fn [vid] (or (get-in runs [vid :status]) :pending))
+                       variant-ids)
+        total    (count variant-ids)
+        n-of     (fn [k] (count (filter #(= % k) statuses)))
+        passed   (n-of :pass)
+        failed   (n-of :fail)
+        running  (n-of :running)
+        pending  (n-of :pending)]
+    {:total      total
+     :passed     passed
+     :failed     failed
+     :running    running
+     :pending    pending
+     :all-green? (and (pos? total)
+                      (zero? failed)
+                      (zero? running)
+                      (zero? pending))}))
+
+(defn testable-variant-ids
+  "Return the seq of variant-ids tagged `:test`, in stable (alphabetical)
+  order. The chrome widget + sidebar dots key off this seq.
+
+  Variants are testable iff (a) their `:tags` contains `:test`, AND
+  (b) they declare a non-empty `:play` slot. The second filter prunes
+  variants tagged `:test` but without any assertions to run — those
+  contribute neither to the headline counts nor to the 'Run all'
+  iteration. Pure data → data; JVM-testable. `id->body` is the
+  `{variant-id → body}` map from `(registrar/handlers :variant)`."
+  [id->body]
+  (->> id->body
+       (filter (fn [[_ body]]
+                 (and (contains? (or (:tags body) #{}) :test)
+                      (seq (or (:play body) [])))))
+       (map first)
+       sort
+       vec))
