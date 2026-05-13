@@ -145,6 +145,7 @@ Load at most two references for a single task. If you find yourself wanting thre
 - **Surface restore limits.** Before any time-travel experiment, walk the cascade's effects and tell the user which effects already fired and cannot be reversed.
 - **Use the assembled epoch stream by default; reach for the raw trace stream when you need detail the projection drops.** `:sub-runs`, `:renders`, `:effects` are the routing surface; `:trace-events` is the escape hatch when the projection is incomplete (e.g. successful-fx attribution).
 - **One trace listener per skill.** This skill registers exactly one listener (`:re-frame-pair2`) and one epoch listener (`:re-frame-pair2-epoch`). Multi-tool coexistence is the expected default — don't worry about other listeners; per Spec 009 §Listener ordering, ordering is not contract.
+- **Sensitive data does not cross the LLM boundary by default.** Per [Spec 009 §Privacy](../../spec/009-Instrumentation.md), the preload's streaming dispatch drops `:sensitive? true` trace events before they reach the agent-facing queue. The retain-N ring buffer is unaffected; explicit `(rf/trace-buffer)` reads see everything. Apps that want sensitive cascades visible to pair2 opt in via `(re-frame-pair2.runtime/configure-privacy! {:include-sensitive? true})`. See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface).
 
 ---
 

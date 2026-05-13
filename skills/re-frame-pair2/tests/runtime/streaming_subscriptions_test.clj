@@ -104,6 +104,35 @@
         acc))
     subs subs))
 
+;; ---------------------------------------------------------------------------
+;; Privacy posture (rf2-3cted) — mirror of the runtime guard.
+;; ---------------------------------------------------------------------------
+;;
+;; Per Spec 009 §Privacy: framework-published listener integrations —
+;; including the pair2 server — MUST default-suppress `:sensitive? true`
+;; trace events before forwarding to the AI surface. The runtime
+;; consults a `privacy-config` slot at `on-trace-streaming` entry and
+;; drops sensitive events from the streaming dispatch unless the
+;; operator has explicitly opted in via `configure-privacy!`.
+;;
+;; KEEP IN SYNC WITH preload/re_frame_pair2/runtime.cljs §Privacy posture.
+
+(defn streaming-drop?
+  "Mirror of `runtime/streaming-drop?` — true when the streaming surface
+   should drop `ev` for privacy reasons given the current privacy config."
+  [privacy-cfg ev]
+  (and (true? (:sensitive? ev))
+       (not (true? (:include-sensitive? privacy-cfg)))))
+
+(defn on-trace-streaming
+  "Mirror of `runtime/on-trace-streaming` for the privacy guard. Takes
+   the privacy config explicitly so the test can drive both branches
+   without global state."
+  [subs privacy-cfg ev]
+  (if (streaming-drop? privacy-cfg ev)
+    subs
+    (dispatch-trace-to-subs! subs ev)))
+
 (defn dispatch-epoch-to-subs!
   [subs record]
   (reduce-kv
@@ -294,6 +323,81 @@
   (let [recognised #{:trace :epoch :fx :error}]
     (is (not (contains? recognised :other)))
     (is (every? recognised [:trace :epoch :fx :error]))))
+
+;; ---------------------------------------------------------------------------
+;; Privacy posture (rf2-3cted)
+;; ---------------------------------------------------------------------------
+
+(deftest streaming-drop-defaults-to-suppressing-sensitive-events
+  (testing "default privacy config suppresses :sensitive? true events"
+    (let [default-cfg {:include-sensitive? false}]
+      (is (true? (streaming-drop? default-cfg {:sensitive? true})))
+      (is (true? (streaming-drop? default-cfg {:sensitive? true :op-type :fx})))))
+  (testing "non-sensitive events are never dropped on the privacy axis"
+    (let [default-cfg {:include-sensitive? false}]
+      (is (false? (streaming-drop? default-cfg {:sensitive? false})))
+      (is (false? (streaming-drop? default-cfg {})))           ;; absent ⇒ not sensitive
+      (is (false? (streaming-drop? default-cfg {:op-type :fx}))))))
+
+(deftest streaming-drop-allows-opt-in-via-include-sensitive
+  (testing "opting in lets :sensitive? true events through"
+    (let [opt-in-cfg {:include-sensitive? true}]
+      (is (false? (streaming-drop? opt-in-cfg {:sensitive? true})))
+      (is (false? (streaming-drop? opt-in-cfg {:sensitive? false})))
+      (is (false? (streaming-drop? opt-in-cfg {}))))))
+
+(deftest sensitive-events-not-forwarded-to-subscribers-by-default
+  ;; Spec 009 §Privacy default contract: a `:sensitive? true` trace
+  ;; event registered against a matching subscription MUST NOT be
+  ;; enqueued under the default privacy posture.
+  (let [default-cfg {:include-sensitive? false}
+        subs (-> {} (subscribe! "s1" {:topic :trace}))
+        sensitive-ev    {:op-type :event :sensitive? true
+                         :tags {:event-id :auth/sign-in}}
+        ordinary-ev    {:op-type :event :sensitive? false
+                         :tags {:event-id :cart/add}}
+        absent-flag-ev {:op-type :event ;; no :sensitive? at all
+                         :tags {:event-id :route/change}}
+        subs (-> subs
+                 (on-trace-streaming default-cfg sensitive-ev)
+                 (on-trace-streaming default-cfg ordinary-ev)
+                 (on-trace-streaming default-cfg absent-flag-ev))]
+    (let [queue (get-in subs ["s1" :queue])]
+      (testing "sensitive event is absent from the streaming queue"
+        (is (not-any? #(true? (:sensitive? %)) queue)))
+      (testing "ordinary events still flow through unchanged"
+        (is (= 2 (count queue)))
+        (is (= [ordinary-ev absent-flag-ev] queue))))))
+
+(deftest sensitive-events-forwarded-when-operator-opts-in
+  ;; The opt-in path is the escape hatch for apps where pair2 itself is
+  ;; the trust boundary. With `:include-sensitive? true` the streaming
+  ;; surface forwards every event regardless of the flag.
+  (let [opt-in-cfg {:include-sensitive? true}
+        subs (-> {} (subscribe! "s1" {:topic :trace}))
+        sensitive-ev {:op-type :event :sensitive? true
+                      :tags {:event-id :auth/sign-in}}
+        ordinary-ev  {:op-type :event :sensitive? false
+                      :tags {:event-id :cart/add}}
+        subs (-> subs
+                 (on-trace-streaming opt-in-cfg sensitive-ev)
+                 (on-trace-streaming opt-in-cfg ordinary-ev))]
+    (testing "both events ride the queue when the operator opts in"
+      (is (= [sensitive-ev ordinary-ev] (get-in subs ["s1" :queue]))))))
+
+(deftest privacy-filter-respects-topic-filter-composition
+  ;; The privacy guard runs *before* the per-subscription filter, so
+  ;; even a subscription whose filter would otherwise match a sensitive
+  ;; event sees nothing under the default policy.
+  (let [default-cfg {:include-sensitive? false}
+        subs (-> {} (subscribe! "auth-events"
+                                 {:topic :trace
+                                  :filter {:event-id :auth/sign-in}}))
+        sensitive-ev {:op-type :event :sensitive? true
+                      :tags {:event-id :auth/sign-in}}
+        subs (on-trace-streaming subs default-cfg sensitive-ev)]
+    (is (empty? (get-in subs ["auth-events" :queue]))
+        "even a filter that *names* the sensitive event must not pull it through")))
 
 (let [{:keys [fail error]} (run-tests 'streaming-subscriptions-test)]
   (when (or (pos? fail) (pos? error))
