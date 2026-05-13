@@ -11,6 +11,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interceptor :as interceptor]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
@@ -275,3 +276,130 @@
           "a map return must not fire the bad-return error")
       (is (true? (:k3bj/touched? (rf/get-frame-db :rf/default)))
           ":db was applied as the effect-map specifies"))))
+
+;; ---- normalise-args: all four documented user-facing shapes (rf2-fuudi) --
+;;
+;; Per the `reg-event-db` docstring (events.cljc), the variadic tail accepts
+;; four shapes:
+;;
+;;   (reg-event-db :id                       handler)             ;; tail = 1
+;;   (reg-event-db :id {:doc "..."}          handler)             ;; tail = 2 (meta)
+;;   (reg-event-db :id [icpt]                handler)             ;; tail = 2 (intc)
+;;   (reg-event-db :id {:doc "..."} [icpt]   handler)             ;; tail = 3
+;;
+;; `normalise-args` dispatches on the *tail* count via `case`. The 4-shape
+;; (count=3) is the one historically miscounted by audit notes that compared
+;; the full call-site arity (4) against the case branches (1/2/3). This
+;; deftest locks in all four shapes: each must register cleanly, retain the
+;; positional interceptors, surface the metadata, and dispatch without
+;; firing the `:rf.warning/interceptors-in-metadata-map` warning that rf2-bbea
+;; introduced.
+
+(deftest normalise-args-accepts-all-four-documented-shapes
+  (let [recorded (record-traces! ::shapes)
+        marker   {:id :test.fuudi/marker :before identity :after identity}]
+    (testing "shape 1 — bare handler: (reg-event-db :id handler)"
+      (rf/reg-event-db :test.fuudi/shape-1
+        (fn [db _] (assoc db :test.fuudi/touched-1? true)))
+      (rf/dispatch-sync [:test.fuudi/shape-1])
+      (is (true? (:test.fuudi/touched-1? (rf/get-frame-db :rf/default))))
+      (let [meta (rf/handler-meta :event :test.fuudi/shape-1)]
+        (is (= :db (:event/kind meta)))
+        (is (= 1 (count (:interceptors meta)))
+            "no user interceptors; chain holds only the runtime :rf/db-handler wrapper")))
+
+    (testing "shape 2 — metadata middle: (reg-event-db :id {:doc \"...\"} handler)"
+      (rf/reg-event-db :test.fuudi/shape-2
+        {:doc "metadata-only middle slot"}
+        (fn [db _] (assoc db :test.fuudi/touched-2? true)))
+      (rf/dispatch-sync [:test.fuudi/shape-2])
+      (is (true? (:test.fuudi/touched-2? (rf/get-frame-db :rf/default))))
+      (let [meta (rf/handler-meta :event :test.fuudi/shape-2)]
+        (is (= "metadata-only middle slot" (:doc meta))
+            ":doc from the metadata-map is retained on the registry entry")
+        (is (= 1 (count (:interceptors meta)))
+            "no user interceptors; chain holds only the runtime :rf/db-handler wrapper")))
+
+    (testing "shape 3 — interceptor-vector middle: (reg-event-db :id [icpt] handler)"
+      (rf/reg-event-db :test.fuudi/shape-3
+        [marker]
+        (fn [db _] (assoc db :test.fuudi/touched-3? true)))
+      (rf/dispatch-sync [:test.fuudi/shape-3])
+      (is (true? (:test.fuudi/touched-3? (rf/get-frame-db :rf/default))))
+      (let [meta (rf/handler-meta :event :test.fuudi/shape-3)
+            ids  (mapv :id (:interceptors meta))]
+        (is (= [:test.fuudi/marker :rf/db-handler] ids)
+            "the user interceptor sits before the runtime wrapper in registration order")))
+
+    (testing "shape 4 — both middle slots: (reg-event-db :id {:doc \"...\"} [icpt] handler)"
+      ;; This is the shape historically described as the '4-arity branch';
+      ;; in `normalise-args` it triggers (case (count args)) → 3 because
+      ;; `id` is the head &-rest separator and is not in `args`.
+      (rf/reg-event-db :test.fuudi/shape-4
+        {:doc "metadata AND positional interceptors"}
+        [marker]
+        (fn [db _] (assoc db :test.fuudi/touched-4? true)))
+      (rf/dispatch-sync [:test.fuudi/shape-4])
+      (is (true? (:test.fuudi/touched-4? (rf/get-frame-db :rf/default))))
+      (let [meta (rf/handler-meta :event :test.fuudi/shape-4)
+            ids  (mapv :id (:interceptors meta))]
+        (is (= "metadata AND positional interceptors" (:doc meta))
+            ":doc from the metadata-map is retained on the registry entry")
+        (is (= [:test.fuudi/marker :rf/db-handler] ids)
+            "the user interceptor sits before the runtime wrapper in registration order")))
+
+    (testing "none of the four shapes fire :rf.warning/interceptors-in-metadata-map"
+      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
+          "all four shapes are well-formed; no metadata-misuse warning expected"))))
+
+(deftest normalise-args-fx-and-ctx-also-accept-the-four-shape
+  (testing "reg-event-fx accepts (id metadata interceptors handler)"
+    (let [marker {:id :test.fuudi/fx-marker :before identity :after identity}]
+      (rf/reg-event-fx :test.fuudi/fx-shape-4
+        {:doc "fx-handler, both middle slots"}
+        [marker]
+        (fn [_ _] {:db {:test.fuudi/fx-touched? true}}))
+      (rf/dispatch-sync [:test.fuudi/fx-shape-4])
+      (is (true? (:test.fuudi/fx-touched? (rf/get-frame-db :rf/default))))
+      (let [meta (rf/handler-meta :event :test.fuudi/fx-shape-4)
+            ids  (mapv :id (:interceptors meta))]
+        (is (= :fx (:event/kind meta)))
+        (is (= "fx-handler, both middle slots" (:doc meta)))
+        (is (= [:test.fuudi/fx-marker :rf/fx-handler] ids)))))
+
+  (testing "reg-event-ctx accepts (id metadata interceptors handler)"
+    (let [marker {:id :test.fuudi/ctx-marker :before identity :after identity}]
+      (rf/reg-event-ctx :test.fuudi/ctx-shape-4
+        {:doc "ctx-handler, both middle slots"}
+        [marker]
+        (fn [ctx]
+          ;; reach into the context properly via the interceptor API, then
+          ;; set a :db effect so we can assert the handler actually ran
+          (let [db (interceptor/get-coeffect ctx :db)]
+            (interceptor/assoc-effect ctx :db
+                                      (assoc db :test.fuudi/ctx-touched? true)))))
+      (rf/dispatch-sync [:test.fuudi/ctx-shape-4])
+      (is (true? (:test.fuudi/ctx-touched? (rf/get-frame-db :rf/default))))
+      (let [meta (rf/handler-meta :event :test.fuudi/ctx-shape-4)
+            ids  (mapv :id (:interceptors meta))]
+        (is (= :ctx (:event/kind meta)))
+        (is (= "ctx-handler, both middle slots" (:doc meta)))
+        (is (= [:test.fuudi/ctx-marker :rf/ctx-handler] ids))))))
+
+(deftest normalise-args-rejects-overlong-and-malformed
+  (testing "tail count > 3 throws the arity error"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"reg-event-\* arity error"
+          (rf/reg-event-db :test.fuudi/too-many
+            {:doc "..."}
+            [{:id :a :before identity :after identity}]
+            (fn [db _] db)
+            :surplus))))
+  (testing "two-arg middle slot that is neither a map nor a vector throws"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"middle slot must be a metadata-map or an interceptor-vector"
+          (rf/reg-event-db :test.fuudi/bad-middle
+            "not-a-map-or-vector"
+            (fn [db _] db))))))
