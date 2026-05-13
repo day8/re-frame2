@@ -20,7 +20,11 @@ Registering a `reg-cofx` handler that injects an input (current time, localStora
 (rf/inject-cofx :cofx-id value)
 ```
 
-Verified in `implementation/core/src/re_frame/cofx.cljc:44` (`reg-cofx`) and `cofx.cljc:57` (`inject-cofx`).
+Verified in `implementation/core/src/re_frame/cofx.cljc:77` (`reg-cofx`) and `cofx.cljc:134` (`inject-cofx`). Metadata may carry:
+
+- `:doc` — one-sentence what-and-why
+- `:spec` — Malli schema for the injected value (Spec 010 §Validation order step 2)
+- `:platforms` — `#{:client :server}`; defaults to both. Cofx with mismatched platforms emit `:rf.cofx/skipped-on-platform` instead of running. Mirrors the `reg-fx` contract per `spec/011-SSR.md` §Effect handling on the server — a client-only cofx (browser locale, localStorage, navigator-info) silently no-ops when injected under an SSR-server frame so it neither blows up under JVM render nor injects nonsense values. The event handler still runs; only the injection is skipped. Example: `^{:platforms #{:client}} (rf/reg-cofx :browser-locale (fn [ctx] (assoc-in ctx [:coeffects :browser-locale] js/navigator.language)))` is safe to register on both platforms; under an `:ssr-server` frame the injection is skipped and the handler sees `nil` for `:browser-locale`.
 
 `inject-cofx` returns an **interceptor** — pass it in the event's interceptors vector (the positional slot, not the metadata-map):
 
@@ -112,6 +116,7 @@ Narrative treatment of the same pattern (for humans): `SKILL-REDIRECT.md` → **
 - **Order matters.** Interceptors run in vector order; a cofx that depends on another cofx's value must come after it.
 - **Two-arg form is for parameterised injection.** Use `(inject-cofx :random-int max-value)` when the same cofx-id needs a different value per attachment.
 - **Missing registration is a structured error trace, not a throw.** `inject-cofx` of an unregistered id emits `:rf.error/no-such-cofx` (carrying `:cofx-id`, `:event-id`, and the optional 2-arity `:cofx-value`) and lets the ctx flow through unchanged (`cofx.cljc:~78,88`). Subscribe via `register-trace-cb!` (or watch through 10x / re-frame-pair) to surface these.
+- **`:platforms #{:client}` makes the cofx skip silently under an SSR-server frame.** A `:rf.cofx/skipped-on-platform` warning trace fires (carrying `:cofx-id`, `:frame`, `:platform`, `:registered-platforms`, and on the 2-arity form `:cofx-value`); the event handler still runs but reads `nil` for the injected key. Active platform comes from the frame's `:config :platform` (set by the `:ssr-server` preset) falling back to host `interop/platform`. Check this first if a cofx mysteriously doesn't fire under SSR. Spec: `spec/011-SSR.md` §Effect handling on the server.
 
 ## Deeper material
 
@@ -119,4 +124,4 @@ Cofx validation (`:spec`), the late-bind seam for `:schemas/validate-cofx!`, ful
 
 ---
 
-*Derived from `implementation/core/src/re_frame/cofx.cljc` @ main `89bd9c3`. Re-verify line numbers after cofx-chain or schema-validation changes.*
+*Derived from `implementation/core/src/re_frame/cofx.cljc` @ main `9d548e18`. Re-verify line numbers after cofx-chain, schema-validation, or `:platforms`-gate changes.*
