@@ -45,6 +45,25 @@
   "Server `name` advertised in the `initialize` response's `serverInfo`."
   "re-frame2-story-mcp")
 
+;; ---- origin tag -----------------------------------------------------------
+
+(def ^:const origin
+  "The `:origin` value every story-mcp write carries per
+  [`spec/Cross-Cutting-Designs.md` §5 Origin tagging](../../../spec/Cross-Cutting-Designs.md).
+
+  The convention: every dispatching / writing surface picks one keyword
+  so post-mortem queries can answer 'who wrote / dispatched this?'.
+  Story-mcp doesn't ship `dispatch` (its surface is JVM-side, no event
+  bus access), but the `register-variant` and `record-as-variant`
+  writes stamp this value onto the registered variant body so
+  inspection of `(story/variant->edn vk)` reveals which variants came
+  from the MCP write surface.
+
+  Pinned here as `:const` so the single source of truth lives next to
+  the other server identity constants (`server-name`,
+  `protocol-version`)."
+  :story-mcp)
+
 ;; ---- write-surface gate ---------------------------------------------------
 
 (defonce

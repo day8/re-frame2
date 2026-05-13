@@ -597,6 +597,99 @@
       (is (re-find #":extends :story\.button/primary" snippet)))))
 
 ;; ---------------------------------------------------------------------------
+;; :origin :story-mcp stamping (rf2-7dnct)
+;;
+;; Per spec/Cross-Cutting-Designs.md §5 — every write surface tags its
+;; writes with a single `:origin` keyword so post-mortem queries can
+;; answer "who wrote this?". Story-mcp's `register-variant` and
+;; `record-as-variant` (write-back path) stamp `:origin :story-mcp` onto
+;; the registered variant body. The keyword value is pinned in
+;; `config/origin`; the registrar's open-shape variant schema admits
+;; the extra slot.
+;; ---------------------------------------------------------------------------
+
+(deftest origin-const-is-story-mcp
+  (testing "the origin keyword is `:story-mcp` per Cross-Cutting-Designs §5"
+    (is (= :story-mcp config/origin))))
+
+(deftest register-variant-stamps-origin-story-mcp
+  (testing "register-variant writes a body carrying :origin :story-mcp"
+    (config/set-allow-writes! true)
+    (let [r    (invoke "register-variant"
+                       {:variant-id "story.button/origin-map"
+                        :body       {:doc  "Origin-stamped via map body."
+                                     :args {:label "Stamped"}}})
+          body (story/variant->edn :story.button/origin-map)]
+      (is (success? r))
+      (is (= :story-mcp (:origin body))
+          "registered body must carry :origin :story-mcp")
+      ;; Caller-supplied keys survive alongside the stamp.
+      (is (= "Origin-stamped via map body." (:doc body)))
+      (is (= {:label "Stamped"} (:args body))))))
+
+(deftest register-variant-edn-string-body-stamps-origin
+  (testing "EDN-string body also lands :origin :story-mcp on the registered body"
+    (config/set-allow-writes! true)
+    (let [r    (invoke "register-variant"
+                       {:variant-id "story.button/origin-edn"
+                        :body       "{:doc \"Origin via EDN.\" :args {:label \"OK\"}}"})
+          body (story/variant->edn :story.button/origin-edn)]
+      (is (success? r))
+      (is (= :story-mcp (:origin body))))))
+
+(deftest register-variant-overrides-caller-supplied-origin
+  (testing "story-mcp owns the :origin slot — caller-supplied values are clobbered"
+    (config/set-allow-writes! true)
+    (let [r    (invoke "register-variant"
+                       {:variant-id "story.button/origin-override"
+                        :body       {:doc    "Caller tried to claim :app origin."
+                                     :origin :app}})
+          body (story/variant->edn :story.button/origin-override)]
+      (is (success? r))
+      (is (= :story-mcp (:origin body))
+          "the write surface owns the :origin slot; an agent cannot claim a different origin"))))
+
+(deftest record-as-variant-write-back-stamps-origin
+  (testing "record-as-variant write-back lands :origin :story-mcp on the new body"
+    (config/set-allow-writes! true)
+    (drive-events-during-recording [[:counter/inc]] 20)
+    (let [r    (invoke "record-as-variant"
+                       {:variant-id  "story.button/primary"
+                        :duration-ms 100
+                        :write-back? true})
+          body (story/variant->edn :story.button/primary)]
+      (is (success? r))
+      (is (true? (-> r :structuredContent :written-back?)))
+      (is (= :story-mcp (:origin body))
+          "write-back body must carry :origin :story-mcp")
+      ;; Pre-existing body keys + the captured :play slot still land.
+      (is (= "Primary button." (:doc body)))
+      (is (= [[:counter/inc]] (:play body))))))
+
+(deftest record-as-variant-write-back-new-id-stamps-origin
+  (testing ":new-variant-id write-back also carries :origin :story-mcp"
+    (config/set-allow-writes! true)
+    (drive-events-during-recording [[:counter/inc]] 20)
+    (let [r    (invoke "record-as-variant"
+                       {:variant-id     "story.button/primary"
+                        :new-variant-id "story.button/origin-recorded"
+                        :duration-ms    100
+                        :write-back?    true})
+          body (story/variant->edn :story.button/origin-recorded)]
+      (is (success? r))
+      (is (= :story-mcp (:origin body))))))
+
+(deftest record-as-variant-without-write-back-does-not-touch-source
+  (testing "without :write-back? the source variant is untouched (no :origin landed)"
+    ;; This pins the contract: the write happens only on the write-back
+    ;; branch. The :origin stamp is the marker of a write — its absence
+    ;; on a non-write-back call is the marker of a no-write.
+    (let [_    (invoke "record-as-variant" {:variant-id "story.button/primary"})
+          body (story/variant->edn :story.button/primary)]
+      (is (nil? (:origin body))
+          "no write happened, so no :origin stamp lands on the source body"))))
+
+;; ---------------------------------------------------------------------------
 ;; Server dispatcher (initialize, tools/list, tools/call, error paths)
 ;; ---------------------------------------------------------------------------
 
