@@ -326,7 +326,23 @@ The two are orthogonal and additive — the conservative recommendation is to de
 
 **Production elision.** The redaction lives behind the same `(when interop/debug-enabled? ...)` outer gate as the rest of the validation hot path (per [§Production builds](#production-builds)). `:advanced` + `goog.DEBUG=false` builds DCE the entire validate-emit body — including the `:rf/redacted` substitution — alongside the trace surface. The redaction is moot when there is no trace to redact.
 
-**Walker.** The CLJS reference ships `re-frame.schemas/extract-sensitive-paths-from-schema` (parallel to `extract-large-paths-from-schema`) — a pure-data Malli-EDN walker that returns `{path {:sensitive? true}}` entries for every `:sensitive? true` slot in a registered schema. The validation emit-site walks the failing path's schema with this helper to decide whether to redact.
+**Walker.** The CLJS reference ships `re-frame.schemas/extract-sensitive-paths-from-schema` (parallel to `extract-large-paths-from-schema`) — a pure-data Malli-EDN walker that returns `{path declaration}` entries for every `:sensitive? true` slot in a registered schema. Each declaration carries `{:sensitive? true :source :schema}` plus an optional `:hint` propagated verbatim from the slot's props (apps reuse the same `:hint` key as `:large?` so a slot can be annotated once for both flags). The validation emit-site walks the failing path's schema with this helper to decide whether to redact.
+
+**Registry feeder (rf2-c1l4d).** Mirroring the `:large?` registry-population path, the schemas artefact also ships `frame-sensitive-declarations` (the per-frame aggregate) and `populate-sensitive-declarations` (the idempotent app-db hydrator) — both published through the late-bind hook table so `re-frame.core`'s boot-time / hot-reload integration writes a sibling slot in the unified elision registry at `app-db [:rf/elision :sensitive-declarations]`:
+
+```clojure
+(rf/reg-app-schema [:user]
+  [:map [:password {:sensitive? true :hint "argon2id"} :string]])
+
+;; After populate-sensitive-declarations, the frame's app-db carries:
+;;   {:rf/elision
+;;     {:sensitive-declarations
+;;       {[:user :password] {:sensitive? true
+;;                           :source     :schema
+;;                           :hint       "argon2id"}}}}
+```
+
+The sibling slot lives under the shared `[:rf/elision]` reserved root per [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry). Two slots (not one merged map) because the `:large?` and `:sensitive?` flags compose orthogonally — a slot may carry either or both, and the schema-validation emit-site's composition rule (sensitive wins) is enforced at trace time, not at registry time. Storing them separately keeps the per-flag query (`(get-in db [:rf/elision :sensitive-declarations <path>])`) O(1) without value-shape inspection. The conflict-resolution rule for the sensitive-declarations slot matches the `:large?` sibling: app-declared (via a privacy fx surface, reserved for future use) beats schema, schema beats any future runtime-flagged sensitivity. Hot-reload of a schema refreshes `:source :schema` entries; `:source :declared` entries are preserved.
 
 **Backward compatibility.** Non-sensitive validation failures (handlers and slots with no `:sensitive?` declaration) are unchanged — `:value`, `:received`, and `:explain` ride the trace verbatim as before. Legacy listener code (tools that read `:tags :value` directly) continues to work for non-sensitive traces and sees the sentinel keyword `:rf/redacted` for sensitive ones; the sentinel is a normal EDN value the consumer can pattern-match on.
 

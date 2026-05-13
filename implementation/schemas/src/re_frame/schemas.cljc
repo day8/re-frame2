@@ -591,13 +591,25 @@
 ;; cleanly under the same Malli EDN shape.
 
 (defn- sensitive-declaration-from-props
-  "Build a `{:sensitive? true}` declaration map from a slot's per-slot
-  props, or nil if `:sensitive? true` is not set. Per Spec 010
-  §`:sensitive?` and Spec 009 §Privacy — the declaration shape is the
-  minimum signal a downstream consumer needs to redact."
+  "Build a `:rf/sensitive-declaration` map from a slot's per-slot props,
+  or nil if `:sensitive? true` is not set. Per Spec 010 §`:sensitive?`
+  and Spec 009 §Privacy — the declaration shape carries `:sensitive?
+  true`, `:source :schema`, plus an optional `:hint` propagated
+  verbatim from the slot's props (mirroring the `:large?` walker —
+  apps that want to attach context for a sensitive slot reuse the
+  same `:hint` key).
+
+  The `:source` slot is included so the unified registry write
+  (populate-sensitive-declarations below, plus the rf2-c1l4d follow-on
+  in re-frame.core) can apply the same conflict-resolution rule as
+  the `:large?` registry: app-declared sensitive paths beat schema-
+  derived ones, schema beats runtime-flagged (the latter is currently
+  unused for sensitivity but reserved for symmetry)."
   [props]
   (when (true? (:sensitive? props))
-    {:sensitive? true}))
+    (cond-> {:sensitive? true
+             :source     :schema}
+      (some? (:hint props)) (assoc :hint (:hint props)))))
 
 (declare walk-sensitive-schema)
 
@@ -716,6 +728,109 @@
   (-> (extract-sensitive-paths-from-schema schema [])
       seq
       boolean))
+
+;; ---- sensitive-declaration registry feeder (rf2-c1l4d) -------------------
+;;
+;; Per the rf2-c1l4d follow-on: mirror the `:large?` walker's
+;; registry-population path for `:sensitive?`. The walker (above) is
+;; pure data; the framework hydrates a sibling slot in the unified
+;; elision registry — `app-db [:rf/elision :sensitive-declarations]`
+;; — at boot / on `reg-app-schema` re-registration so the schema-
+;; validation emit-site (and any future wire-boundary privacy walker)
+;; can consult one canonical map keyed by app-db path. Same shape,
+;; same idempotency, same conflict-resolution rule as the `:large?`
+;; sibling.
+;;
+;; Sibling slot rationale: `:declarations` already carries the
+;; `:large?` registry; `:sensitive-declarations` is the privacy
+;; sibling keyed by the same `[path → declaration]` map shape. Both
+;; live under the shared `[:rf/elision]` reserved root per Spec-
+;; Schemas §`:rf/elision-registry`. Two slots (not one merged map)
+;; because the two flags compose orthogonally — a slot may carry
+;; either or both, and the validation walker's composition rule
+;; (sensitive wins on the schema-validation emit site) reads both
+;; maps and resolves the conflict at emit time. Storing them
+;; separately keeps the per-flag query (`(get-in db [:rf/elision
+;; :sensitive-declarations <path>])`) O(1) without value-shape
+;; inspection.
+
+(defn frame-sensitive-declarations
+  "Return the merged `{path declaration}` map for every `:sensitive? true`
+  slot in every app-schema registered against `frame-id`. Composes
+  `extract-sensitive-paths-from-schema` across the frame's schema set.
+
+  Parallel to `frame-elision-declarations` (the `:large?` sibling).
+  This is the seam the framework's privacy-registry hydration (the
+  rf2-c1l4d follow-on in `re-frame.core`) reaches for at boot / on
+  hot reload — the schemas artefact owns the walker; the unified
+  registry write into `app-db [:rf/elision :sensitive-declarations]`
+  may live downstream once the rest of the privacy contract migrates
+  away from the schema-walked-per-emit model, OR may be invoked
+  directly via `populate-sensitive-declarations` below (the schemas
+  artefact ships both seams so the rf2-c1l4d landing site has a
+  choice — symmetry with `:large?`).
+
+  Each entry's value carries `:sensitive? true`, `:source :schema`,
+  and an optional `:hint` string when the slot's props declared one.
+
+  Per Spec 009 §Privacy / sensitive data in traces the conflict
+  resolution rule is: app-declared (via the privacy fx surface,
+  reserved for future use) beats schema, schema beats any future
+  runtime-flagged sensitivity. This fn returns ONLY the schema
+  layer; the downstream merger (populate-sensitive-declarations)
+  applies the conflict rule.
+
+  Arities:
+    (frame-sensitive-declarations)              ;; current frame
+    (frame-sensitive-declarations frame-id)     ;; explicit frame"
+  ([] (frame-sensitive-declarations (frame/current-frame)))
+  ([frame-id]
+   (reduce-kv
+     (fn [acc path m]
+       (merge acc (extract-sensitive-paths-from-schema (:schema m) path)))
+     {}
+     (frame-schema-entries frame-id))))
+
+(defn populate-sensitive-declarations
+  "Idempotent — given `db` (a frame's app-db) and a frame-id, return
+  `db` with `[:rf/elision :sensitive-declarations]` augmented by every
+  schema-derived sensitive-path declaration for that frame. Idempotent
+  in two senses:
+
+    1. Calling it twice in a row produces the same result the second
+       time (every schema-derived entry is the same map shape).
+    2. Existing entries with `:source :declared` (or any other
+       non-`:schema` source) are NEVER overwritten — the conflict
+       rule (declared beats schema) is preserved.
+
+  Existing entries with `:source :schema` from a prior call ARE
+  overwritten (so hot-reload of a schema picks up the new `:hint`
+  / `:sensitive?` flip). Entries no longer claimed by ANY registered
+  schema are NOT removed (a stale `:source :schema` slot for a path
+  whose schema dropped its `:sensitive?` flag persists until the
+  next explicit clear — symmetric with `populate-elision-declarations`
+  retention semantics).
+
+  Parallel to `populate-elision-declarations` (the `:large?` sibling).
+  Published via the `:schemas/populate-sensitive-declarations` late-
+  bind hook so re-frame.core can call it without statically requiring
+  the schemas artefact (per rf2-p7va — schemas is an optional dep)."
+  [db frame-id]
+  (let [schema-decls (frame-sensitive-declarations frame-id)]
+    (if (empty? schema-decls)
+      db
+      (update-in db [:rf/elision :sensitive-declarations]
+                 (fn [existing]
+                   (reduce-kv
+                     (fn [acc path decl]
+                       (let [existing-source (some-> (get acc path) :source)]
+                         (if (= existing-source :declared)
+                           ;; Preserve declared provenance — conflict
+                           ;; rule: declared beats schema.
+                           acc
+                           (assoc acc path decl))))
+                     (or existing {})
+                     schema-decls))))))
 
 (defn frame-elision-declarations
   "Return the merged `{path declaration}` map for every `:large? true`
@@ -1312,14 +1427,20 @@
 (late-bind/set-fn! :schemas/populate-elision-declarations
                    populate-elision-declarations)
 
-;; Sensitive-paths walker (rf2-kj51z) — published so the rf2-c1l4d
-;; follow-on (which extends the unified elision registry to recognise
-;; schema `:sensitive?` slots) can consume it without statically
-;; requiring the schemas artefact.
+;; Sensitive-paths walker (rf2-kj51z + rf2-c1l4d) — published so
+;; re-frame.core can extend the unified elision registry to recognise
+;; schema `:sensitive?` slots without statically requiring the schemas
+;; artefact. The pair mirrors the `:large?` walker (rf2-nwv63) — same
+;; shape, same idempotency, same conflict-resolution semantics on a
+;; sibling registry slot.
 (late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema
                    extract-sensitive-paths-from-schema)
 (late-bind/set-fn! :schemas/schema-has-sensitive?
                    schema-has-sensitive?)
+(late-bind/set-fn! :schemas/frame-sensitive-declarations
+                   frame-sensitive-declarations)
+(late-bind/set-fn! :schemas/populate-sensitive-declarations
+                   populate-sensitive-declarations)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; reset-runtime-fixture). The fixture wants to capture and restore

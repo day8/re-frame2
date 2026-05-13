@@ -155,6 +155,14 @@
     :producer-ns 're-frame.schemas
     :design-bead "rf2-kj51z"
     :description "Predicate: does any sub-slot of the schema declare :sensitive? true?"}
+   {:key         :schemas/frame-sensitive-declarations
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-c1l4d"
+    :description "Merged {path declaration} for every :sensitive? slot in every app-schema registered against a frame."}
+   {:key         :schemas/populate-sensitive-declarations
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-c1l4d"
+    :description "Idempotent: hydrate app-db [:rf/elision :sensitive-declarations] from a frame's schema-derived sensitive-path declarations."}
 
    ;; ---- re-frame.machines (rf2-xbtj / rf2-8bp3) ------------------------------
    {:key         :machines/reg-machine
