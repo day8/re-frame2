@@ -410,6 +410,56 @@ jobs:
           echo "Rewrote :local/root → :mvn/version $VERSION"
           grep "day8/re-frame2 " deps.edn
 
+      # ─────────────────────────────────────────────────────────────
+      # reagent-slim publication-time ns rename (rf2-zvjme).
+      #
+      # In-tree, the slim adapter ships at `re-frame.adapter.reagent-slim`
+      # because the monorepo shadow-cljs build puts BOTH adapter source
+      # trees on the same classpath — two namespaces with the same name
+      # would clash. At publication time, downstream apps depend on
+      # EXACTLY ONE of {day8/re-frame2-reagent, day8/reagent-slim} so the
+      # adapter ns is single-source per app. Per the slim IMPL-SPEC §1.8
+      # / §13.1 (and confirmed by the rf2-tba5e smoke-test findings),
+      # the slim Maven artefact ships its adapter at the canonical
+      # `re-frame.adapter.reagent` ns — so a downstream app's import line
+      # is `(:require [re-frame.adapter.reagent :as ra])` regardless of
+      # which adapter coord their deps.edn pins.
+      #
+      # This step performs that rename on the throwaway runner checkout
+      # before clein packages the jar:
+      #   1. mv src/re_frame/adapter/reagent_slim.cljs → reagent.cljs
+      #   2. rewrite `(ns re-frame.adapter.reagent-slim ...` →
+      #      `(ns re-frame.adapter.reagent ...` in that file
+      #
+      # The grep assertions on either side make the step fail loudly if
+      # the in-tree source is ever restructured in a way that breaks the
+      # rename — better a release abort than a published artefact with a
+      # stale ns.
+      # ─────────────────────────────────────────────────────────────
+      - name: Rename adapter ns at publication (reagent-slim only)
+        if: matrix.leaf == 'reagent-slim'
+        working-directory: ${{ matrix.directory }}
+        run: |
+          set -euo pipefail
+          src="src/re_frame/adapter/reagent_slim.cljs"
+          dst="src/re_frame/adapter/reagent.cljs"
+          if [ ! -f "$src" ]; then
+            echo "::error::expected source file '$src' not found"
+            exit 1
+          fi
+          if [ -e "$dst" ]; then
+            echo "::error::destination '$dst' already exists — in-tree ns clash detected"
+            exit 1
+          fi
+          if ! grep -qF "(ns re-frame.adapter.reagent-slim" "$src"; then
+            echo "::error::expected '(ns re-frame.adapter.reagent-slim' declaration not found in $src"
+            exit 1
+          fi
+          mv "$src" "$dst"
+          python3 -c 'import pathlib; p = pathlib.Path("src/re_frame/adapter/reagent.cljs"); src = p.read_text(); before = "(ns re-frame.adapter.reagent-slim"; after = "(ns re-frame.adapter.reagent"; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
+          echo "Renamed reagent_slim.cljs → reagent.cljs; ns is now re-frame.adapter.reagent"
+          grep -n "^(ns " "$dst"
+
       - name: Deploy ${{ matrix.leaf }} (${{ matrix.artefact }})
         working-directory: ${{ matrix.directory }}
         env:
