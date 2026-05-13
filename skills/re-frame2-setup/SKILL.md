@@ -29,13 +29,7 @@ This skill teaches **only re-frame2-specific wiring**. Assume the author knows `
 
 ## When NOT to use
 
-| Author intent | Route to |
-|---|---|
-| Add re-frame2 to an existing app with other state management or non-trivial code | `skills/re-frame2/` |
-| Write application code on a working re-frame2 project | `skills/re-frame2/` |
-| Inspect / debug / pair with a running app | `skills/re-frame-pair2/` |
-| Migrate an existing re-frame v1 codebase to v2 | `skills/re-frame-migration/` |
-| Spec, architecture, or porting questions about re-frame2 itself | `skills/re-frame2-implementor/` |
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for adding re-frame2 to an existing non-trivial app (that's authoring), writing application code on a working v2 project, live-app inspection, v1→v2 migration, or spec / architecture / porting questions about re-frame2 itself.
 
 Any non-setup question → route to the right skill; don't improvise here.
 

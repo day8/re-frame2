@@ -13,13 +13,7 @@ Authors re-frame2 ClojureScript application code. Router skill: this file carrie
 
 ## When NOT to use
 
-| Prompt shape | Route to |
-|---|---|
-| Inspect, debug, or modify a running re-frame2 app | `skills/re-frame-pair2/` |
-| Set up a new re-frame2 project from scratch | `skills/re-frame2-setup/` |
-| Migrate an existing re-frame v1 app to v2 | `skills/re-frame-migration/` |
-| Build a NEW re-frame2 implementation in a different host language or substrate | `skills/re-frame2-implementor/` |
-| Read the full API reference, EP rationale, or spec | `SKILL-REDIRECT.md` |
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, porting re-frame2 itself, or spec / API / EP rationale reading.
 
 ## Cardinal rules
 
@@ -101,4 +95,4 @@ Reach for these when the user asks "why does it work this way?" or designs a fea
 
 ---
 
-*re-frame2 (v2 line). v1: [re-frame](https://github.com/day8/re-frame). Live-app inspection: `skills/re-frame-pair2/`. Greenfield bootstrap: `skills/re-frame2-setup/`. v1→v2 migration: `skills/re-frame-migration/`. New re-frame2 implementation in another host/substrate: `skills/re-frame2-implementor/`. Deep-dive links route through `SKILL-REDIRECT.md`.*
+*re-frame2 (v2 line). v1: [re-frame](https://github.com/day8/re-frame). Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). Deep-dive links route through `SKILL-REDIRECT.md`.*

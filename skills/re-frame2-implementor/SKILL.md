@@ -26,13 +26,7 @@ The job is to walk the engineer through two phases:
 
 ## When NOT to use this skill
 
-| Engineer intent | Route to |
-|---|---|
-| Write events / subs / machines / views on the CLJS reference | `skills/re-frame2/` |
-| Bootstrap a fresh greenfield app on the CLJS reference | `skills/re-frame2-setup/` |
-| Migrate a re-frame v1 codebase to the CLJS reference | `skills/re-frame-migration/` |
-| Inspect / dispatch / debug a running v2 app | `skills/re-frame-pair2/` |
-| Understand pattern rationale (EP narrative, principles) | [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) |
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for authoring on the CLJS reference, greenfield bootstrap, v1→v2 migration, live-app inspection, or pattern-rationale reading.
 
 ## Cardinal rules (one-liners; full text in [`reference/cardinal-rules.md`](reference/cardinal-rules.md))
 
@@ -98,4 +92,4 @@ The corpus at [`spec/conformance/`](../../spec/conformance/) is host-agnostic da
 
 ---
 
-*Authoritative contract: [`spec/`](../../spec/). Decision companion: [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md). Conformance: [`spec/conformance/`](../../spec/conformance/). CLJS reference (worked example): `implementation/`. For app authoring on the reference: `skills/re-frame2/`. Greenfield bootstrap: `skills/re-frame2-setup/`. v1→v2 migration: `skills/re-frame-migration/`. Live-app inspection: `skills/re-frame-pair2/`.*
+*Authoritative contract: [`spec/`](../../spec/). Decision companion: [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md). Conformance: [`spec/conformance/`](../../spec/conformance/). CLJS reference (worked example): `implementation/`. Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*

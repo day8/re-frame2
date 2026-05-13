@@ -157,4 +157,4 @@ Load at most two references for a single task. If you find yourself wanting thre
 
 ---
 
-*Deep-dive content (full API reference, EP design rationale, spec corpus, migration guide) routes through [`SKILL-REDIRECT.md`](../../SKILL-REDIRECT.md) at the repo root. For authoring re-frame2 code (rather than inspecting a live app), see `skills/re-frame2/`. For greenfield bootstrap, see `skills/re-frame2-setup/`. For porting re-frame2 itself to a different host language or substrate (rather than using the CLJS reference), see `skills/re-frame2-implementor/`.*
+*Deep-dive content (full API reference, EP design rationale, spec corpus, migration guide) routes through [`SKILL-REDIRECT.md`](../../SKILL-REDIRECT.md) at the repo root. Full skill-disambiguation matrix (when to use which skill) lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*
