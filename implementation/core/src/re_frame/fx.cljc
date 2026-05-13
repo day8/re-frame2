@@ -114,6 +114,61 @@
 
 (declare dispatch-fx-handler)
 
+;; ---- reserved fx-id table -------------------------------------------------
+;;
+;; Per Conventions §Reserved fx-ids — `:dispatch`, `:dispatch-later`,
+;; `:rf.fx/reg-flow`, `:rf.fx/clear-flow` resolve to runtime-internal
+;; callables held behind `late-bind` hooks (avoiding cyclic loads against
+;; the router and flows namespaces). Each entry maps the fx-id to a small
+;; body-fn so the case-block in `handle-one-fx` is a dispatch off this
+;; table — adding a reserved fx-id is a data edit, not a code edit.
+;;
+;; Body-fn signature: `(fn [frame-id args])`. It is invoked inside the
+;; perf bracket; on success it returns; the caller emits `:rf.fx/handled`
+;; uniformly. When a hook is unregistered (the producing artefact is not
+;; on the classpath) the body-fn is a no-op — matching the pre-existing
+;; `when-let [f (late-bind/get-fn ...)]` shape across all four sites.
+;;
+;; `:dispatch-later` carries its own body because it wraps the hook call
+;; in `set-timeout!` and destructures `{:keys [ms event]}` from args; the
+;; other three are uniform `(hook args {:frame frame-id})` calls.
+
+(defn- call-frame-scoped-hook!
+  "Resolve `hook-key` and invoke it with `(hook args {:frame frame-id})`.
+  When the hook is unregistered (producing artefact absent), this is a
+  no-op — matches the pre-refactor `when-let` shape."
+  [hook-key frame-id args]
+  (when-let [f (late-bind/get-fn hook-key)]
+    (f args {:frame frame-id})))
+
+(def ^:private reserved-fx-handlers
+  "Reserved fx-id → body-fn `(fn [frame-id args])`. Driven by
+  `handle-one-fx`; emit of `:rf.fx/handled` lives in the caller so each
+  reserved fx surfaces exactly one success trace, uniformly."
+  {:dispatch
+   ;; Append to back of the frame's router queue.
+   (fn [frame-id args]
+     (call-frame-scoped-hook! :router/dispatch! frame-id args))
+
+   :dispatch-later
+   ;; Delayed dispatch — wraps the same router hook in `set-timeout!`.
+   (fn [frame-id {:keys [ms event]}]
+     (interop/set-timeout!
+       (fn []
+         (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+           (dispatch! event {:frame frame-id})))
+       ms))
+
+   ;; Per Spec 013 — flows are frame-scoped. The flow registers against
+   ;; the dispatching frame.
+   :rf.fx/reg-flow
+   (fn [frame-id args]
+     (call-frame-scoped-hook! :flows/reg-flow-fx! frame-id args))
+
+   :rf.fx/clear-flow
+   (fn [frame-id args]
+     (call-frame-scoped-hook! :flows/clear-flow-fx! frame-id args))})
+
 (defn- resolve-fx-with-overrides
   "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides.
 
@@ -251,49 +306,23 @@
    ;; emit `:dispatch` produces zero `rf:fx:*` entries even with the perf
    ;; flag on.
    (performance/mark-and-measure :fx fx-id
-    (case fx-id
-    :dispatch
-    (do
-      ;; Append to back of the frame's router queue.
-      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-        (dispatch! args {:frame frame-id}))
-      (emit-handled! fx-id args frame-id))
-
-    :dispatch-later
-    (let [{:keys [ms event]} args]
-      (interop/set-timeout!
-        (fn []
-          (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-            (dispatch! event {:frame frame-id})))
-        ms)
-      (emit-handled! fx-id args frame-id))
-
-    :rf.fx/reg-flow
-    ;; Per Spec 013 — flows are frame-scoped. The flow registers against
-    ;; the dispatching frame.
-    (do
-      (when-let [reg-flow! (late-bind/get-fn :flows/reg-flow-fx!)]
-        (reg-flow! args {:frame frame-id}))
-      (emit-handled! fx-id args frame-id))
-
-    :rf.fx/clear-flow
-    (do
-      (when-let [clear-flow! (late-bind/get-fn :flows/clear-flow-fx!)]
-        (clear-flow! args {:frame frame-id}))
-      (emit-handled! fx-id args frame-id))
-
-    ;; The `:rf.machine/spawn` and `:rf.machine/destroy` machine fx-ids
-    ;; are registered by re-frame.machines (day8/re-frame2-machines) via
-    ;; the regular reg-fx path and arrive here through the registrar
-    ;; default below.
-
-    ;; Default: user-registered fx — OR a synthesised meta carrying a
-    ;; function-value override (per `resolved-fx-meta` above; the
-    ;; spec/002 CLJS-reference convenience form). `resolved-meta` was
-    ;; computed once at top of `handle-one-fx` so the case-block fallthrough
-    ;; honours both registry hits and the fn-value override branch without
-    ;; a second lookup.
-    (if-let [meta resolved-meta]
+    (if-let [reserved-body (get reserved-fx-handlers fx-id)]
+      ;; Reserved fx-id — dispatch through the table; one uniform
+      ;; `:rf.fx/handled` emit follows. The `:rf.machine/spawn` and
+      ;; `:rf.machine/destroy` machine fx-ids are NOT in this table —
+      ;; they are registered by re-frame.machines (day8/re-frame2-machines)
+      ;; via the regular reg-fx path and arrive here through the
+      ;; registrar default below.
+      (do
+        (reserved-body frame-id args)
+        (emit-handled! fx-id args frame-id))
+      ;; Default: user-registered fx — OR a synthesised meta carrying a
+      ;; function-value override (per `resolved-fx-meta` above; the
+      ;; spec/002 CLJS-reference convenience form). `resolved-meta` was
+      ;; computed once at top of `handle-one-fx` so the fallthrough
+      ;; honours both registry hits and the fn-value override branch
+      ;; without a second lookup.
+      (if-let [meta resolved-meta]
       (if (fx-runs-on-platform? meta active-platform)
         ;; Per Spec 010 §Validation order step 5 (rf2-xp2o3): before the
         ;; fx handler runs, validate its args against any `:spec` on the
