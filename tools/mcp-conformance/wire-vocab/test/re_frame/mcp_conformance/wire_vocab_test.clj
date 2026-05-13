@@ -340,17 +340,12 @@
 
    {:key      :rf.size/large-elided
     :schema   ElisionMarker
-    ;; Reserved by Conventions / spec; pair2-mcp emits today.
-    ;;
-    ;; causa-mcp's spec currently mentions elision under an ad-hoc
-    ;; `:elided [:cofx :db]` shape (tools/causa-mcp/spec/Principles.md
-    ;; line 420) — a vocabulary-drift discovered by rf2-j2z7o's
-    ;; conformance run. Tracked for fix under rf2-04ozp; until that
-    ;; lands, only :pair2-mcp is in `:servers`. The schema and the
-    ;; cross-MCP-fixture story still apply (two fixtures below
-    ;; representing two distinct emission shapes — declared/string
-    ;; vs runtime-flagged/map-with-digest).
-    :servers  #{:pair2-mcp}
+    ;; Reserved by Conventions / spec; pair2-mcp emits today and
+    ;; causa-mcp's Principles cross-links the canonical shape from
+    ;; its §"Streaming over batch" trimmer. Two fixtures below
+    ;; represent two distinct emission shapes — declared/string vs
+    ;; runtime-flagged/map-with-digest.
+    :servers  #{:pair2-mcp :causa-mcp}
     :fixtures {:pair2-mcp-declared
                {:rf.size/large-elided
                 {:path   [:user :uploaded-pdf]

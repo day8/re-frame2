@@ -416,13 +416,18 @@ The `subscribe` stream returns one event per JSON-RPC
 per notification; the agent host meters consumption. A
 `subscribe` topic whose individual events can exceed the cap
 (a trace event with a large coeffect payload) MUST attach a
-server-side trimmer (drop the heavy fields, attach an
-`:elided [:cofx :db]` marker, surface a follow-up
-`get-trace-buffer` cursor). Mechanisms 1, 4, and 5 apply
-per-notification; mechanisms 2 and 3 are inapplicable inside a
-single notification but DO apply to the `subscribe` call's own
-arguments (e.g., a `:path` filter on the topic, a `:limit` on
-total notifications before auto-unsubscribe).
+server-side trimmer (drop the heavy fields, substitute the
+canonical `:rf.size/large-elided` marker at the elided slot —
+body shape per
+[spec/Spec-Schemas §`:rf/elision-marker`](../../../spec/Spec-Schemas.md#rfelision-marker),
+fetch-handle `[:rf.elision/at <path>]` per
+[pair2-mcp Principles §"Size-elision wire markers"](../../pair2-mcp/spec/Principles.md#size-elision-wire-markers-rf2-urjnc) —
+and surface a follow-up `get-trace-buffer` cursor).
+Mechanisms 1, 4, and 5 apply per-notification; mechanisms 2 and
+3 are inapplicable inside a single notification but DO apply to
+the `subscribe` call's own arguments (e.g., a `:path` filter on
+the topic, a `:limit` on total notifications before
+auto-unsubscribe).
 
 ## Backed by Causa's and the framework's principles
 
