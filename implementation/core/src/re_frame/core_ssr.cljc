@@ -73,3 +73,85 @@
                      :frame    frame-id
                      :recovery :no-recovery
                      :reason   "rf/project-error requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
+
+;; ---- Head/meta contract — rf2-4dra9 --------------------------------------
+;;
+;; Per Spec 011 §Head/meta contract. `re-frame.ssr.head` ships the impl;
+;; the wrappers below look the producing fns up through the late-bind hook
+;; table so core never statically requires re-frame.ssr.head. Apps that
+;; don't pull `day8/re-frame2-ssr` see `:rf.error/ssr-artefact-missing`
+;; when these surfaces are called.
+
+(defn -reg-head
+  "Internal helper — prefer `reg-head` from public callers. This is the
+  fn-form delegate the public macro / CLJS alias forward to. Late-bound
+  via :ssr/reg-head."
+  ([id head-fn]
+   (-reg-head id {} head-fn))
+  ([id metadata head-fn]
+   (if-let [f (late-bind/get-fn :ssr/reg-head)]
+     (f id metadata head-fn)
+     (throw (ex-info ":rf.error/ssr-artefact-missing"
+                     {:where    'rf/reg-head
+                      :id       id
+                      :recovery :no-recovery
+                      :reason   "rf/reg-head requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
+
+(defn render-head
+  "Apply the head fn registered under `head-id` against a frame's
+  app-db and active route. Returns the produced `:rf/head-model`. Per
+  Spec 011 §Head/meta contract. Late-bound via :ssr/render-head.
+
+  Two opt shapes:
+
+    (render-head head-id frame-id)
+    (render-head head-id {:frame frame-id :route route})"
+  [head-id opts]
+  (if-let [f (late-bind/get-fn :ssr/render-head)]
+    (f head-id opts)
+    (throw (ex-info ":rf.error/ssr-artefact-missing"
+                    {:where    'rf/render-head
+                     :head-id  head-id
+                     :recovery :no-recovery
+                     :reason   "rf/render-head requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
+
+(defn active-head
+  "Look up the active route's `:head` metadata; if set, call
+  `render-head` and return the model. Otherwise return the
+  default head per Spec 011 §Default head. Late-bound via
+  :ssr/active-head.
+
+  Arities:
+
+    (active-head)            — uses the default frame `:rf/default`.
+    (active-head frame-id)"
+  ([]
+   (if-let [f (late-bind/get-fn :ssr/active-head)]
+     (f)
+     (throw (ex-info ":rf.error/ssr-artefact-missing"
+                     {:where    'rf/active-head
+                      :recovery :no-recovery
+                      :reason   "rf/active-head requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
+  ([frame-id]
+   (if-let [f (late-bind/get-fn :ssr/active-head)]
+     (f frame-id)
+     (throw (ex-info ":rf.error/ssr-artefact-missing"
+                     {:where    'rf/active-head
+                      :frame    frame-id
+                      :recovery :no-recovery
+                      :reason   "rf/active-head requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
+
+(defn head-model->html
+  "Render a `:rf/head-model` map to its inner-head HTML fragment in
+  canonical order. Per Spec 011 §Default flow step 4. Late-bound via
+  :ssr/head-model-html (the hook key drops the user-facing fn's
+  `->` decoration for late-bind naming hygiene)."
+  ([head-model]
+   (head-model->html head-model {}))
+  ([head-model opts]
+   (if-let [f (late-bind/get-fn :ssr/head-model-html)]
+     (f head-model opts)
+     (throw (ex-info ":rf.error/ssr-artefact-missing"
+                     {:where    'rf/head-model->html
+                      :recovery :no-recovery
+                      :reason   "rf/head-model->html requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))

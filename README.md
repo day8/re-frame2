@@ -1,15 +1,6 @@
 <p align="center"><img src="docs/images/logo/re-frame-colour.png?raw=true" alt="re-frame2 logo"></p>
 
-<p align="center">
-  <a href="https://github.com/day8/re-frame2/actions/workflows/docs.yml"><img src="https://github.com/day8/re-frame2/actions/workflows/docs.yml/badge.svg?branch=main" alt="Docs build"></a>
-  <a href="https://day8.github.io/re-frame2/"><img src="https://img.shields.io/badge/docs-day8.github.io/re--frame2-blue" alt="Docs"></a>
-  <img src="https://img.shields.io/badge/status-pre--alpha-orange" alt="Pre-alpha">
-  <img src="https://img.shields.io/badge/spec-22K%20lines%20%C2%B7%2035%2B%20docs-purple" alt="Spec corpus">
-  <a href="license.txt"><img src="https://img.shields.io/github/license/day8/re-frame2" alt="License"></a>
-  <img src="https://img.shields.io/badge/AI--first-yes-brightgreen" alt="AI-first">
-</p>
 
-> **Install (pre-alpha, pre-Clojars):** add as a `:git/sha` coordinate in `deps.edn` — see [Getting started](docs/guide/01-getting-started.md). Maven/Clojars + npm artefacts are coming once the spec stabilises.
 
 > *This, milord, is my family's axe. We have owned it for almost nine hundred years, see. Of course, sometimes it needed a new blade. And sometimes it has required a new handle, new designs on the metalwork, a little refreshing of the ornamentation ... but is this not the nine hundred-year-old axe of my family? And because it has changed gently over time, it is still a pretty good axe, y'know. Pretty good.*
 >
@@ -115,7 +106,9 @@ The repo ships a working **ClojureScript reference implementation** that validat
 - **UIx** — modern hooks-based React layer.
 - **Helix** — minimal React wrapper.
 
-To smoke test, we are building production apps on the reference implementation today however out of an abundance of caution we have not yet published artifacts to Clojars and NPM. Soon.
+To smoke test, we are building apps on the reference implementation today however out of an abundance of caution we have not yet published artifacts to Clojars and NPM. Soon.
+
+You should absolutely not use it yet - it is changing by the minute.  But if you did want to, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. 
 
 ## AI first
 
