@@ -13,7 +13,8 @@ description: >
   `references/vocabulary.md` for the surface glossary; vocabulary
   matches alone do not justify activation.
 allowed-tools:
-  # MCP transport (preferred — single persistent nREPL connection per session)
+  # MCP transport — single persistent nREPL connection per session.
+  # The canonical path; install via `npm install -g @day8/re-frame-pair2-mcp`.
   - mcp__re-frame-pair2__discover-app
   - mcp__re-frame-pair2__eval-cljs
   - mcp__re-frame-pair2__dispatch
@@ -21,14 +22,6 @@ allowed-tools:
   - mcp__re-frame-pair2__watch-epochs
   - mcp__re-frame-pair2__tail-build
   - mcp__re-frame-pair2__snapshot
-  # Bash-shim transport (deprecated — kept for back-compat sessions
-  # where the MCP server isn't installed yet)
-  - Bash(scripts/discover-app.sh *)
-  - Bash(scripts/eval-cljs.sh *)
-  - Bash(scripts/dispatch.sh *)
-  - Bash(scripts/trace-window.sh *)
-  - Bash(scripts/watch-epochs.sh *)
-  - Bash(scripts/tail-build.sh *)
   - Read
   - Edit
   - Write
@@ -73,7 +66,7 @@ Where the runtime lives:
 - **npm consumers**: the `@day8/re-frame-pair2` package ships the `preload/` directory; the source-path entry above points there.
 - **Local-dev / linked checkouts**: substitute the absolute path to `skills/re-frame-pair2/preload/` for the `node_modules/...` entry.
 
-Verification — run `discover-app` (the MCP tool, or `scripts/discover-app.sh`). The success result includes `:ok? true :session-id "..." :build-id :app`. If the preload is missing you get back:
+Verification — run `discover-app` (the MCP tool `mcp__re-frame-pair2__discover-app`). The success result includes `:ok? true :session-id "..." :build-id :app`. If the preload is missing you get back:
 
 ```edn
 {:ok? false :reason :runtime-not-preloaded
@@ -101,9 +94,7 @@ Before any other op, run:
 discover-app
 ```
 
-(MCP tool call — formal name `mcp__re-frame-pair2__discover-app`.
-When the MCP server isn't configured for this session, fall back to
-the legacy bash shim: `scripts/discover-app.sh`.)
+(MCP tool call — formal name `mcp__re-frame-pair2__discover-app`.)
 
 This locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the `re-frame-pair2.runtime` namespace was loaded by the consumer's `:devtools :preloads` (see §Setup above).
 
@@ -136,7 +127,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
 | Edit source, then wait for the browser to pick up the new code | [references/hot-reload-protocol.md](references/hot-reload-protocol.md) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/migration-from-v1.md](references/migration-from-v1.md) |
-| Install/configure the persistent-connection MCP server, or map a bash shim to its MCP tool name | [references/mcp-transport.md](references/mcp-transport.md) |
+| Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
 
 Load at most two references for a single task. If you find yourself wanting three, the request likely spans concerns and should be broken up.
 

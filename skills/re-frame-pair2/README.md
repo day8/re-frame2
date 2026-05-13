@@ -2,7 +2,7 @@
 
 > ↑ [`skills/`](../) — index of all six re-frame2 skills.
 
-> **Two delivery paths.** This README documents the original delivery path: a Claude `Skill` (markdown + babashka shell shims) cloned/symlinked from `skills/re-frame-pair2/`. The **structural successor** is the MCP server at [`tools/pair2-mcp/`](../../tools/pair2-mcp/) — same seven ops, but exposed over the Model Context Protocol with a persistent nREPL socket (per-op latency ~5–50 ms vs ~700 ms for the bash-shim path), distributed as an npm package (`@day8/re-frame-pair2-mcp`). New sessions should prefer the MCP server; the shell-shim path here remains for back-compat.
+> **Delivery path.** This skill ships an MCP server at [`tools/pair2-mcp/`](../../tools/pair2-mcp/) (npm: `@day8/re-frame-pair2-mcp`) — seven ops over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). The bash-shim transport that originally fronted these ops has been retired from the skill's `allowed-tools:`; the shim scripts under `scripts/` remain on disk only for the project's own e2e test harness.
 
 A `Skill` which makes `Claude Code` a better pair programmer by allowing it to **interact with your running [re-frame2](https://github.com/day8/re-frame2) application**.
 
@@ -49,7 +49,7 @@ Designed for web apps built from the following stack — in pre-alpha, it has no
 - Optional: re-frame2's source-coord annotation enabled (`(rf/configure :source-coords {:annotate-dom? true})`) — and/or [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites. Without one of these, the `dom/*` ops degrade gracefully.
 - [shadow-cljs](https://shadow-cljs.github.io/) as the build tool, with nREPL enabled on the dev build
 
-You don't need to make any changes to your code/project to use it, but you will need [`babashka`](https://babashka.org) installed because the skill's shell shims use it. See the [babashka install guide](https://github.com/babashka/babashka#installation).
+You don't need to make any changes to your code/project to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side.
 
 ## No re-frame-10x dependency
 
@@ -150,41 +150,9 @@ Here's the kinds of conversations you can have with Claude.
 
 ## Install
 
-Two paths — pick one:
-
-- **MCP server** (recommended for new sessions) — `npm install -g @day8/re-frame-pair2-mcp` and add an `mcpServers` entry to your Claude Code settings. See [`tools/pair2-mcp/README.md`](../../tools/pair2-mcp/README.md) for the full configuration and tool surface. **The rest of this section only applies to the skill (shell-shim) path.**
-- **Skill** (back-compat / the path documented below) — clone the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo and reference the skill from `skills/re-frame-pair2/`. No separate npm package or plugin registry entry exists for the skill itself.
-
-Either path needs one shadow-cljs `:devtools :preloads` entry in your dev build (`[re-frame-pair2.runtime]`) and a `:source-paths` line pointing at the bundled `preload/` directory — that part is shared. No extra deps, no closure-defines. The preload only loads in dev — production builds are untouched. See `SKILL.md` §Setup for the two-line snippet.
-
-### Install the skill in Claude Code
-
-#### Global — for you, across any re-frame2 project
-
-Symlink (or copy) the skill into your user Claude config:
-
-```bash
-git clone https://github.com/day8/re-frame2.git    # one-time, anywhere
-ln -s "$(pwd)/re-frame2/skills/re-frame-pair2" ~/.claude/skills/re-frame-pair2
-```
-
-Best when you work on several re-frame2 apps, or you're the only Claude Code user on this project.
-
-#### Project-local — for your whole team via the repo
-
-Copy the skill into the project's own `.claude/skills/re-frame-pair2/` and commit it. Teammates who clone the repo and open Claude Code there get the skill on first use, pinned to the committed version:
-
-```bash
-cd your-re-frame2-project
-cp -r /path/to/re-frame2/skills/re-frame-pair2 .claude/skills/re-frame-pair2
-git add .claude/skills/re-frame-pair2
-```
-
-#### Which to choose
-
-- **Global** if you're the only person using Claude Code here, or you hop between re-frame2 apps.
-- **Project-local** if your team wants one pinned, shared version.
-- **Both** is fine — the project-local install takes precedence when both are present.
+1. Install the MCP server: `npm install -g @day8/re-frame-pair2-mcp`.
+2. Add an `mcpServers` entry to your Claude Code settings — see [`tools/pair2-mcp/README.md`](../../tools/pair2-mcp/README.md) for the configuration snippet and the full tool surface.
+3. Add the shadow-cljs `:devtools :preloads` entry (`[re-frame-pair2.runtime]`) and a `:source-paths` line pointing at the bundled `preload/` directory — see `SKILL.md` §Setup for the two-line snippet. No extra deps, no closure-defines. The preload only loads in dev; production builds are untouched.
 
 ### How the connection works
 
@@ -228,7 +196,7 @@ Useful when you want to force the tool, or when the phrasing of your question do
 
 ### What happens on first use
 
-The skill's first op in a session is `discover-app.sh`, which:
+The skill's first op in a session is `discover-app`, which:
 
 1. Finds the running shadow-cljs nREPL (from `target/shadow-cljs/nrepl.port`, falling back to `.shadow-cljs/nrepl.port` or the `SHADOW_CLJS_NREPL_PORT` env var — the exact location depends on shadow-cljs version and config).
 2. Verifies a browser runtime is attached to that build.
@@ -240,8 +208,8 @@ The skill's first op in a session is `discover-app.sh`, which:
 
 The pieces (design; see *Status* above):
 
-1. `discover-app.sh` finds the running shadow-cljs build and its nREPL port, switches the session into `:cljs` mode for that build, and verifies re-frame2 + `debug-enabled?` + the preload marker.
-2. `eval-cljs.sh` sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
+1. `discover-app` (MCP tool `mcp__re-frame-pair2__discover-app`) finds the running shadow-cljs build and its nREPL port, switches the session into `:cljs` mode for that build, and verifies re-frame2 + `debug-enabled?` + the preload marker.
+2. `eval-cljs` (MCP tool `mcp__re-frame-pair2__eval-cljs`) sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
 3. `preload/re_frame_pair2/runtime.cljs` is the `re-frame-pair2.runtime` namespace itself, loaded into the consumer app via shadow-cljs's `:devtools :preloads`. It registers exactly one trace listener (`:re-frame-pair2`) and one epoch listener (`:re-frame-pair2-epoch`), and installs the `js/globalThis.__re_frame_pair2_runtime` marker the connect-flow probes.
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
 5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-cb`, `trace-buffer`, `register-epoch-cb!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
