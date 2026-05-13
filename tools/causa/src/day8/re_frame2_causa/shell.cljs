@@ -312,20 +312,43 @@
   badge. Per spec/007-UX-IA.md §The five regions item 5.
 
   Phase 1 stub: minimal frame-info text. Live scrubber lands with the
-  time-travel panel bead."
+  time-travel panel bead.
+
+  ## Redaction indicator (rf2-azls9)
+
+  When Causa's trace collector has dropped one or more `:sensitive?
+  true` events under the default privacy posture, render a
+  `[● REDACTED N]` hint in the centre of the rail. The hint
+  disappears on `trace-bus/clear-buffer!` (counter resets together
+  with the buffer) and when the host calls
+  `(causa-config/configure! {:trace/show-sensitive? true})` BEFORE
+  the events flow (the counter never bumps in that case)."
   []
-  [:footer {:style {:height           "40px"
-                    :display          "flex"
-                    :align-items      "center"
-                    :justify-content  "space-between"
-                    :padding          "0 16px"
-                    :background       (:bg-1 tokens)
-                    :border-top       (str "1px solid " (:border-subtle tokens))
-                    :color            (:text-tertiary tokens)
-                    :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                    :font-size        "12px"}}
-   [:span "◀◀  ────●────  ▶▶  (scrubber — rf2-xxx)"]
-   [:span "epoch — / —"]])
+  (let [redacted-count @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
+    [:footer {:style {:height           "40px"
+                      :display          "flex"
+                      :align-items      "center"
+                      :justify-content  "space-between"
+                      :padding          "0 16px"
+                      :background       (:bg-1 tokens)
+                      :border-top       (str "1px solid " (:border-subtle tokens))
+                      :color            (:text-tertiary tokens)
+                      :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+                      :font-size        "12px"}}
+     [:span "◀◀  ────●────  ▶▶  (scrubber — rf2-xxx)"]
+     (when (pos? redacted-count)
+       [:span {:data-testid "rf-causa-redacted-indicator"
+               :title       (str "Spec 009 §Privacy: " redacted-count
+                                 " sensitive trace event"
+                                 (when (not= 1 redacted-count) "s")
+                                 " suppressed by default. Set "
+                                 ":trace/show-sensitive? true via "
+                                 "(causa-config/configure! ...) to "
+                                 "surface them.")
+               :style       {:color       (:magenta tokens)
+                             :font-weight 600}}
+        (str "● REDACTED " redacted-count)])
+     [:span "epoch — / —"]]))
 
 ;; ---- shell view ----------------------------------------------------------
 
