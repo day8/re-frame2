@@ -73,12 +73,13 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.overflow :as overflow]
+            [re-frame.mcp-base.sensitive :as sensitive]
             [re-frame.story :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async :as async]
-            [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.sensitive :as sensitive]))
+            [re-frame.story-mcp.config :as config]))
 
 ;; ---------------------------------------------------------------------------
 ;; Result-builder helpers
@@ -117,35 +118,27 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Args helpers
+;;
+;; The keyword / boolean / int parsers live in `re-frame.mcp-base.args` —
+;; one canonical implementation per the cross-MCP factoring (rf2-vw4sq).
+;; This ns reaches for `args/parse-keyword`, `args/parse-boolean`, and
+;; `args/parse-positive-int` / `args/parse-non-negative-int` directly.
 ;; ---------------------------------------------------------------------------
 
-(defn- read-keyword
-  "Read a keyword from agent-supplied arguments. MCP arguments arrive as
-  JSON, so keyword-typed Story ids come in as strings. We strip a
-  leading `\":\"` if present (some agents may serialise EDN-ish), and
-  use `read-string` only for namespaced keywords; otherwise plain
-  `keyword`.
-
-  Returns nil if the input is nil or empty."
-  [v]
-  (cond
-    (keyword? v) v
-    (nil? v)     nil
-    (string? v)  (let [s (if (and (> (count v) 0) (= \: (.charAt ^String v 0)))
-                           (subs v 1)
-                           v)]
-                   (cond
-                     (str/blank? s)           nil
-                     (str/includes? s "/")    (let [[ns nm] (str/split s #"/" 2)]
-                                                (keyword ns nm))
-                     :else                    (keyword s)))
-    :else        nil))
+(defn- include-sensitive?
+  "True iff the caller opted in to forwarding `:sensitive? true` records
+  / app-db slots for this call. Default off. Reads the
+  `:include-sensitive?` arg via the cross-MCP `args/parse-boolean`
+  parser (so string-form booleans `\"true\"` / `\"yes\"` / `\"1\"` are
+  accepted alongside the JSON `true`)."
+  [arguments]
+  (args/parse-boolean (get arguments :include-sensitive?) false))
 
 (defn- required-arg
   "Read a required argument. Returns `[value nil]` on success, or
   `[nil error-result]` on miss."
-  [args k]
-  (let [v (get args k)]
+  [arguments k]
+  (let [v (get arguments k)]
     (if (or (nil? v) (and (string? v) (str/blank? v)))
       [nil (error-result (str "Missing required argument: " (name k)))]
       [v nil])))
@@ -254,14 +247,14 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk        (read-keyword vid)
+      (let [vk        (args/parse-keyword vid)
             body      (story/variant->edn vk)]
         (if (nil? body)
           (error-result (str "Variant not found: " (pr-str vk)))
           (let [opts       (cond-> {}
-                             (some? (:substrate args))    (assoc :substrate (read-keyword (:substrate args)))
+                             (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
                              (some? (:active-modes args)) (assoc :active-modes
-                                                                 (mapv read-keyword (:active-modes args)))
+                                                                 (mapv args/parse-keyword (:active-modes args)))
                              (some? (:cell-overrides args)) (assoc :cell-overrides
                                                                    (:cell-overrides args)))
                 base-url   (or (:base-url args) "")
@@ -276,7 +269,7 @@
                                 :assertions [{:assertion :rf.error/run-failed
                                               :passed? false
                                               :reason (ex-message e)}]}))
-                incl?      (sensitive/include-sensitive? args)
+                incl?      (include-sensitive? args)
                 payload    {:variant-id   vk
                             :share-url    share-url
                             :lifecycle    (:lifecycle result)
@@ -323,7 +316,7 @@
   [args]
   (let [stories (story/handlers :story)
         tags    (when-let [ts (:tags args)]
-                  (set (map read-keyword ts)))
+                  (set (map args/parse-keyword ts)))
         filtered (if (seq tags)
                    (into {}
                          (filter (fn [[_id body]]
@@ -342,7 +335,7 @@
   [args]
   (let [[sid err] (required-arg args :story-id)]
     (if err err
-      (let [sk   (read-keyword sid)
+      (let [sk   (args/parse-keyword sid)
             body (story/handler-meta :story sk)]
         (if (nil? body)
           (error-result (str "Story not found: " (pr-str sk)))
@@ -354,7 +347,7 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk   (read-keyword vid)
+      (let [vk   (args/parse-keyword vid)
             body (story/variant->edn vk)]
         (if (nil? body)
           (error-result (str "Variant not found: " (pr-str vk)))
@@ -421,7 +414,7 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk   (read-keyword vid)
+      (let [vk   (args/parse-keyword vid)
             body (story/variant->edn vk)]
         (if (nil? body)
           (error-result (str "Variant not found: " (pr-str vk)))
@@ -448,16 +441,16 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk   (read-keyword vid)]
+      (let [vk   (args/parse-keyword vid)]
         (if (nil? (story/variant->edn vk))
           (error-result (str "Variant not found: " (pr-str vk)))
           (let [opts     (cond-> {}
-                           (some? (:substrate args))     (assoc :substrate (read-keyword (:substrate args)))
+                           (some? (:substrate args))     (assoc :substrate (args/parse-keyword (:substrate args)))
                            (some? (:active-modes args))  (assoc :active-modes
-                                                                (mapv read-keyword (:active-modes args)))
+                                                                (mapv args/parse-keyword (:active-modes args)))
                            (some? (:cell-overrides args)) (assoc :cell-overrides
                                                                  (:cell-overrides args)))
-                timeout  (or (:timeout-ms args) 10000)
+                timeout  (args/parse-positive-int (:timeout-ms args) 10000)
                 result   (try
                            (async/deref-blocking (story/run-variant vk opts) timeout)
                            (catch Throwable e
@@ -466,7 +459,7 @@
                               :assertions [{:assertion :rf.error/run-failed
                                             :passed? false
                                             :reason (ex-message e)}]}))
-                incl?    (sensitive/include-sensitive? args)
+                incl?    (include-sensitive? args)
                 payload  {:frame           (:frame result vk)
                           :app-db          (elide-app-db (:app-db result) vk incl?)
                           :assertions      (scrub-assertions (:assertions result) incl?)
@@ -484,13 +477,13 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk   (read-keyword vid)]
+      (let [vk   (args/parse-keyword vid)]
         (if (nil? (story/variant->edn vk))
           (error-result (str "Variant not found: " (pr-str vk)))
           (let [opts    (cond-> {}
-                          (some? (:substrate args))    (assoc :substrate (read-keyword (:substrate args)))
+                          (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
                           (some? (:active-modes args)) (assoc :active-modes
-                                                              (mapv read-keyword (:active-modes args))))
+                                                              (mapv args/parse-keyword (:active-modes args))))
                 payload (story/snapshot-identity vk opts)]
             (text-result (pr-edn payload) payload)))))))
 
@@ -514,7 +507,7 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk    (read-keyword vid)
+      (let [vk    (args/parse-keyword vid)
             atomv (try
                     (let [v (resolve 're-frame.story.ui.a11y/violations-by-frame)]
                       (when v (deref @v)))
@@ -544,8 +537,8 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk         (read-keyword vid)
-            incl?      (sensitive/include-sensitive? args)
+      (let [vk         (args/parse-keyword vid)
+            incl?      (include-sensitive? args)
             raw        (assertions/read-assertions vk)
             all        (scrub-assertions raw incl?)
             failures   (filterv (complement :passed?) all)
@@ -589,7 +582,7 @@
           e1 e1
           e2 e2
           :else
-          (let [vk      (read-keyword vid)
+          (let [vk      (args/parse-keyword vid)
                 body-v  (cond
                           (map? body)    body
                           (string? body) (try
@@ -626,7 +619,7 @@
   (or (assert-writes-allowed)
       (let [[vid err] (required-arg args :variant-id)]
         (if err err
-          (let [vk    (read-keyword vid)
+          (let [vk    (args/parse-keyword vid)
                 had?  (some? (story/variant->edn vk))]
             (story/unregister! :variant vk)
             (let [payload {:variant-id vk :unregistered? had?}]
@@ -720,18 +713,18 @@
   [args]
   (let [[vid err] (required-arg args :variant-id)]
     (if err err
-      (let [vk           (read-keyword vid)
+      (let [vk           (args/parse-keyword vid)
             body         (story/variant->edn vk)]
         (if (nil? body)
           (error-result (str "Variant not found: " (pr-str vk)))
-          (let [write-back?   (boolean (:write-back? args))
+          (let [write-back?   (args/parse-boolean (:write-back? args) false)
                 gate-err      (when write-back? (assert-writes-allowed))]
             (if gate-err gate-err
-              (let [duration-ms (or (:duration-ms args) 0)
-                    new-vid     (some-> (:new-variant-id args) read-keyword)
+              (let [duration-ms (args/parse-non-negative-int (:duration-ms args) 0)
+                    new-vid     (some-> (:new-variant-id args) args/parse-keyword)
                     target-vid  (or new-vid vk)
                     doc         (:doc args)
-                    extends     (or (some-> (:extends args) read-keyword) vk)
+                    extends     (or (some-> (:extends args) args/parse-keyword) vk)
                     alias-arg   (:alias args)
                     started     (now-ms)
                     _           (story/start-recording! vk)
