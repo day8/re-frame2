@@ -1989,10 +1989,10 @@ Sections below are written in second person to an AI agent performing the migrat
 
 ### Your task
 
-You are migrating a ClojureScript codebase from re-frame v1.x to **re-frame2**. The headline expectation is that **most codebases require no changes at all** — re-frame2 is designed for maximum backwards compatibility. Your job is to:
+You are migrating a ClojureScript codebase from re-frame v1.x to **re-frame2**. re-frame2 is a **small, well-defined breaking-change set** on top of the v1 `re-frame.core` API — most call sites compile unchanged, but the breakages are real (40+ M- and O-rules in Part 1) and you are the mechanism that applies them. The median migration is M-0 plus a handful of compile errors; the worst case touches a dozen surfaces. Your job is to:
 
-1. **Apply [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — bump the dep coord to `day8/re-frame2`. Then verify the codebase compiles and runs with nothing else changed.** This is the success path for the majority of projects.
-2. **If compilation or runtime failures occur, identify which migration rule (`M-N` in Part 1) applies, apply it, and re-verify.**
+1. **Apply [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — bump the dep coord to `day8/re-frame2` (plus the substrate adapter).** Then attempt to compile and run. M-0 is mandatory; nothing else can be verified without it.
+2. **Sweep the codebase against the M-rules in Part 1.** Apply Type A rewrites mechanically; flag Type B sites and wait for the user's decision. Re-verify after each pass.
 3. **Optionally, if the user has asked you to also modernise the codebase, apply the opt-in upgrades (the `O-N` rules in Part 1).** Do not do this unless asked.
 4. **Report back** — succinctly summarise what changed, why, and what still needs attention.
 
