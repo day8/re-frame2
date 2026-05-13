@@ -54,7 +54,7 @@ Per-kind extensions (e.g., `:on-create` on `reg-frame`, `:path` on `reg-route`) 
 
 ### Allowed forms of the middle slot
 
-For backwards-compatibility with re-frame v1, the middle slot of `reg-event-*` is either:
+The middle slot of `reg-event-*` is either:
 
 1. **A vector of interceptors** (the interceptor chain):
    ```clojure
