@@ -79,6 +79,25 @@
   {:hook :schemas/set-schema-explainer! :artefact schemas-artefact :on-absent :nil}
   ([explain-fn] :delegate))
 
+(defwrapper set-schema-printer!
+  "Register the schema-print companion — `(fn [schema-value]
+  canonical-string)` — the digest pipeline hashes (Spec 010 §Schema
+  digest line 491, rf2-wla45). Parallel to `set-schema-validator!`
+  and `set-schema-explainer!`: ports that ship a non-Malli schema
+  language register their own serialiser so the digest reflects the
+  validator's own contract rather than the framework's Malli-EDN
+  default.
+
+  The fn MUST be pure and cross-runtime deterministic — a CLJS
+  server and a CLJS client running the same schema set MUST produce
+  the same bytes (Spec 010 §Digest algorithm). Setting `nil` falls
+  back to the default EDN canonicaliser so the digest is never
+  undefined.
+
+  Returns nil when the schemas artefact is not on the classpath."
+  {:hook :schemas/set-schema-printer! :artefact schemas-artefact :on-absent :nil}
+  ([print-fn] :delegate))
+
 (defwrapper reg-app-schema
   "Fn-form delegate that performs the late-bind lookup for
   `reg-app-schema`. The `re-frame.core/reg-app-schema` macro (JVM) and
