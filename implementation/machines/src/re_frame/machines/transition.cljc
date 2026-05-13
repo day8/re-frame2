@@ -799,6 +799,156 @@
   (let [node (node-at machine (state-path state))]
     (final-state-node? node)))
 
+;; ---- apply-transition-once: cascade phases --------------------------------
+;;
+;; Per Spec 005 §Entry/exit cascading along the LCA, one transition flows
+;; through four named phases. Each phase is a pure helper; `apply-transition-
+;; once` composes them. The decomposition is per rf2-8sz7f / audit §T6.
+;;
+;;   compute-cascade-paths  — derive src/target paths, LCA, exit/entry/action
+;;                            refs, the `[prefix node]` pair vectors, and
+;;                            the epoch-bumps? predicate. Pure geometry.
+;;
+;;   run-cascade            — feed the ordered ref-vec through
+;;                            `collect-actions`: exit shallowest-first →
+;;                            action at LCA → entry shallowest-first.
+;;                            Returns the post-cascade Result (snap+fx).
+;;
+;;   commit-snapshot        — stamp `:state` (denormalised to match the
+;;                            input shape) and bump the `:after` epoch when
+;;                            any exited/entered node carries `:after`.
+;;
+;;   run-spawn-phase        — reduce over `entered-pairs` dispatching to
+;;                            `handle-invoke-spawn` / `handle-invoke-all-
+;;                            spawn`. Threads snapshot + acc-fx; short-
+;;                            circuits to `result/fail` on `:data`-fn throws.
+
+(defn- compute-cascade-paths
+  "Phase 1 — derive the transition's geometry. Returns a map with:
+    :src-path       — source state path (vector).
+    :target-leaf    — initial-cascaded target path (nil for internal).
+    :internal?      — true iff the transition has no `:target`.
+    :lca-len        — common-prefix length of src and target.
+    :exit-refs      — `:exit` action-refs, leaf→LCA (reverse order).
+    :entry-refs     — `:entry` action-refs, LCA→leaf.
+    :action-refs    — single-element vec carrying the transition's `:action`.
+    :all-refs       — `(concat exit-refs action-refs entry-refs)` — the
+                      ordered cascade ref-vec fed to `collect-actions`.
+    :exited-pairs   — `[[prefix node] ...]` for states being exited (in
+                      cascade order — leaf→LCA reversed gives shallowest-
+                      first; this slot is unreversed for spawn/destroy
+                      identification by prefix).
+    :entered-pairs  — same shape, for states being entered.
+    :epoch-bumps?   — true iff any exited/entered node carries an `:after`
+                      table (per Spec 005 §Hierarchy interaction)."
+  [machine snapshot transition]
+  (let [src-path      (state-path (:state snapshot))
+        decl-path     (:decl-path transition (vec (take 1 src-path)))
+        raw-target    (:target transition)
+        target-leaf   (some->> (target-path decl-path src-path raw-target)
+                               (initial-cascade machine))
+        internal?     (nil? raw-target)
+        lca-len       (if internal?
+                        (count src-path)
+                        (common-prefix-length src-path target-leaf))
+        ;; Walk each path once; reuse the `[prefix node]` pair vectors
+        ;; for both the cascade ref derivation AND the spawn/destroy fx
+        ;; emission downstream (per audit §T6 #2 — eliminate the double
+        ;; nodes-along-path call).
+        exited-pairs  (when-not internal?
+                        (vec (drop lca-len (nodes-along-path machine src-path))))
+        entered-pairs (when-not internal?
+                        (vec (drop lca-len (nodes-along-path machine target-leaf))))
+        exit-refs     (when-not internal?
+                        (map (fn [[_ n]] (:exit n)) (reverse exited-pairs)))
+        entry-refs    (when-not internal?
+                        (map (fn [[_ n]] (:entry n)) entered-pairs))
+        action-refs   [(:action transition)]
+        epoch-bumps?  (and (not internal?)
+                           (boolean (some (fn [[_ n]] (:after n))
+                                          (concat exited-pairs entered-pairs))))]
+    {:src-path      src-path
+     :decl-path     decl-path
+     :raw-target    raw-target
+     :target-leaf   target-leaf
+     :internal?     internal?
+     :lca-len       lca-len
+     :exited-pairs  exited-pairs
+     :entered-pairs entered-pairs
+     :exit-refs     exit-refs
+     :entry-refs    entry-refs
+     :action-refs   action-refs
+     :all-refs      (concat exit-refs action-refs entry-refs)
+     :epoch-bumps?  epoch-bumps?}))
+
+(defn- run-cascade
+  "Phase 2 — run the ordered cascade (`exit` shallowest-first → `action`
+  at LCA → `entry` shallowest-first) via `collect-actions`. Returns the
+  Result from `collect-actions` — either `result/ok` with the post-cascade
+  snapshot + accumulated fx, or a `result/fail` carrying the throwing
+  action's diagnostic map."
+  [machine snapshot event cascade]
+  (collect-actions machine snapshot event (:all-refs cascade)))
+
+(defn- commit-snapshot
+  "Phase 3 — write the new `:state` onto the post-cascade snapshot and
+  bump the `:after` epoch when any state being exited/entered declares
+  `:after`. Per Spec 005 §Delayed `:after` transitions §Hierarchy
+  interaction. Internal transitions preserve the input snapshot's
+  `:state` unchanged."
+  [machine snapshot snap-after cascade]
+  (let [{:keys [internal? raw-target target-leaf epoch-bumps?]} cascade
+        new-state (cond
+                    internal?             (:state snapshot)
+                    (vector? raw-target)  (vec target-leaf)
+                    (keyword? raw-target) (if (= 1 (count target-leaf))
+                                            (first target-leaf)
+                                            (vec target-leaf))
+                    :else                 (denormalise-state target-leaf (:state snapshot)))]
+    (cond
+      internal?
+      (assoc snap-after :state new-state)
+
+      epoch-bumps?
+      (let [epoch-path (after-epoch-path machine)
+            new-epoch  (inc (or (get-in snap-after epoch-path) 0))]
+        (-> snap-after
+            (assoc :state new-state)
+            (assoc-in epoch-path new-epoch)))
+
+      :else
+      (assoc snap-after :state new-state))))
+
+(defn- run-spawn-phase
+  "Phase 4 — reduce over `entered-pairs` dispatching `:invoke` /
+  `:invoke-all` declarations to their respective spawn handlers. Threads
+  the post-commit snapshot + an fx accumulator; a `reduced` from either
+  handler short-circuits to a `result/fail` Result. Returns either
+  `result/ok` carrying `[snap-after-spawns spawn-fx]` or the propagated
+  failure."
+  [machine event snap-final cascade]
+  (let [{:keys [internal? entered-pairs]} cascade
+        parent-id (or (:rf/parent-id machine) :rf/transition-pure)]
+    (if internal?
+      (result/ok snap-final [])
+      (let [step (reduce
+                   (fn [[s acc-fx] [prefix n]]
+                     (cond
+                       (:invoke n)
+                       (handle-invoke-spawn machine parent-id s acc-fx prefix n event)
+
+                       (:invoke-all n)
+                       (handle-invoke-all-spawn machine parent-id s acc-fx prefix n event)
+
+                       :else
+                       [s acc-fx]))
+                   [snap-final []]
+                   entered-pairs)]
+        (if (result/fail? step)
+          step
+          (let [[snap-after-spawns spawn-fx] step]
+            (result/ok snap-after-spawns spawn-fx)))))))
+
 (defn apply-transition-once
   "Apply one transition (exit cascade → action → entry cascade → state
   change). Returns a `result/ok` Result carrying the new snapshot + fx,
@@ -818,128 +968,44 @@
   the change becomes stale). A target leaf that declares :after schedules
   a fresh timer at the new epoch via a :rf.machine.timer/scheduled trace.
 
-  Per Spec 005 §Final states (rf2-gn80): when the target leaf carries
-  `:final? true`, the returned snapshot is tagged with `:rf/finished? true`
-  so the orchestrating lifecycle handler can fire the parent's `:on-done`
-  callback and auto-destroy the actor synchronously.
+  Per Spec 005 §Final states (rf2-gn80): the returned snapshot is NOT
+  tagged with `:rf/finished?` here — that flag is recomputed at the
+  lifecycle-handler boundary so the pure-call surface (conformance corpus,
+  JVM pure-fn tests) stays free of transient runtime metadata.
+
+  Per rf2-8sz7f / audit §T6 the body composes four named phases:
+  `compute-cascade-paths` → `run-cascade` → `commit-snapshot` →
+  `run-spawn-phase`. Each phase is a pure helper above.
 
   `transition` is the transition map with a synthetic :decl-path key
   recording where in the state-path tree the transition was declared."
   [machine snapshot event transition]
-  (let [src-path     (state-path (:state snapshot))
-        decl-path    (:decl-path transition (vec (take 1 src-path)))
-        raw-target   (:target transition)
-        target-leaf  (some->> (target-path decl-path src-path raw-target)
-                              (initial-cascade machine))
-        internal?    (nil? raw-target)
-        lca-len      (if internal?
-                       (count src-path)
-                       (common-prefix-length src-path target-leaf))
-        exit-refs    (when-not internal?
-                       (->> (nodes-along-path machine src-path)
-                            (drop lca-len)
-                            (reverse)
-                            (map (fn [[_ n]] (:exit n)))))
-        entry-refs   (when-not internal?
-                       (->> (nodes-along-path machine target-leaf)
-                            (drop lca-len)
-                            (map (fn [[_ n]] (:entry n)))))
-        action-refs  [(:action transition)]
-        all-refs     (concat exit-refs action-refs entry-refs)
-        cascade      (collect-actions machine snapshot event all-refs)]
-    (if (result/fail? cascade)
-      (result/fail-with cascade {:decl-path  decl-path
-                                 :transition transition
-                                 :state-path src-path})
-      (let [{snap-after ::result/snap fx ::result/fx} cascade
-            ;; Per rf2-t07u (Option A revised) — the runtime carries
-            ;; `[prefix-path node]` pairs through here so spawn / destroy
-            ;; fx emissions can identify each `:invoke`-bearing state by
-            ;; its absolute prefix-path (the per-state "invoke-id") and
-            ;; write/read the runtime-owned `[:rf/spawned <parent-id>
-            ;; <prefix-path>]` slot.
-            exited-pairs  (when-not internal?
-                            (->> (nodes-along-path machine src-path)
-                                 (drop lca-len)
-                                 (vec)))
-            entered-pairs (when-not internal?
-                            (->> (nodes-along-path machine target-leaf)
-                                 (drop lca-len)
-                                 (vec)))
-            exited-nodes  (mapv second exited-pairs)
-            entered-nodes (mapv second entered-pairs)
-            ;; Per Spec 005 §Delayed `:after` transitions §Hierarchy
-            ;; interaction: the epoch advances iff any state being EXITED
-            ;; or ENTERED in this transition declares an `:after` table.
-            ;; Sibling-leaf transitions that don't cross an `:after`-bearing
-            ;; state leave the epoch alone. Internal transitions never
-            ;; advance.
-            epoch-bumps?  (and (not internal?)
-                               (boolean
-                                 (some :after (concat exited-nodes entered-nodes))))
-            new-state    (cond
-                           internal?            (:state snapshot)
-                           (vector? raw-target) (vec target-leaf)
-                           (keyword? raw-target) (if (= 1 (count target-leaf))
-                                                   (first target-leaf)
-                                                   (vec target-leaf))
-                           :else                (denormalise-state target-leaf (:state snapshot)))
-            snap-final   (cond
-                           internal?
-                           (assoc snap-after :state new-state)
-
-                           epoch-bumps?
-                           (let [epoch-path (after-epoch-path machine)
-                                 new-epoch  (inc (or (get-in snap-after epoch-path) 0))]
-                             (-> snap-after
-                                 (assoc :state new-state)
-                                 (assoc-in epoch-path new-epoch)))
-
-                           :else
-                           (assoc snap-after :state new-state))
+  (let [cascade  (compute-cascade-paths machine snapshot transition)
+        cascade-r (run-cascade machine snapshot event cascade)]
+    (if (result/fail? cascade-r)
+      (result/fail-with cascade-r {:decl-path  (:decl-path cascade)
+                                   :transition transition
+                                   :state-path (:src-path cascade)})
+      (let [{snap-after ::result/snap fx ::result/fx} cascade-r
+            snap-final      (commit-snapshot machine snapshot snap-after cascade)
             parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
-            after-fx        (build-after-fx machine entered-pairs internal? snap-final)
-            after-cancel-fx (build-after-cancel-fx parent-id exited-pairs internal?)
-            destroy-fx      (build-destroy-fx parent-id exited-pairs internal?)
-            ;; The spawn reducer's accumulator is the live `[s acc-fx]`
-            ;; pair the inner `handle-invoke-spawn` / `-all-spawn`
-            ;; helpers thread; a `reduced` from those helpers short-
-            ;; circuits to a `result/fail` Result, so the final value
-            ;; here is either the pair or the failure map.
-            spawn-result
-            (if internal?
-              [snap-final []]
-              (reduce
-                (fn [[s acc-fx] [prefix n]]
-                  (cond
-                    (:invoke n)
-                    (handle-invoke-spawn machine parent-id s acc-fx prefix n event)
-
-                    (:invoke-all n)
-                    (handle-invoke-all-spawn machine parent-id s acc-fx prefix n event)
-
-                    :else
-                    [s acc-fx]))
-                [snap-final []]
-                entered-pairs))]
-        (if (result/fail? spawn-result)
-          (result/fail-with spawn-result {:decl-path  decl-path
-                                          :transition transition
-                                          :state-path src-path})
-          (let [[snap-after-spawns spawn-fx] spawn-result
+            after-fx        (build-after-fx machine (:entered-pairs cascade)
+                                            (:internal? cascade) snap-final)
+            after-cancel-fx (build-after-cancel-fx parent-id (:exited-pairs cascade)
+                                                   (:internal? cascade))
+            destroy-fx      (build-destroy-fx parent-id (:exited-pairs cascade)
+                                              (:internal? cascade))
+            spawn-r         (run-spawn-phase machine event snap-final cascade)]
+        (if (result/fail? spawn-r)
+          (result/fail-with spawn-r {:decl-path  (:decl-path cascade)
+                                     :transition transition
+                                     :state-path (:src-path cascade)})
+          (let [{snap-after-spawns ::result/snap spawn-fx ::result/fx} spawn-r
                 all-fx (vec (concat fx
                                     (or after-cancel-fx [])
                                     (or destroy-fx [])
                                     spawn-fx
                                     (or after-fx [])))]
-            ;; Per Spec 005 §Final states (rf2-gn80): we deliberately do
-            ;; NOT tag the snapshot with `:rf/finished?` here. The flag
-            ;; is recomputed at the lifecycle-handler boundary (using
-            ;; `final-on-leaf?` against the post-transition snapshot)
-            ;; so the pure-call surface (the conformance corpus and
-            ;; JVM pure-fn tests) stays free of transient runtime
-            ;; metadata. The pure function returns the canonical
-            ;; `{:state :data}` shape regardless of finality.
             (result/ok snap-after-spawns all-fx)))))))
 
 (defn- pick-always-transition
