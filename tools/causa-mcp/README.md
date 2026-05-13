@@ -43,7 +43,7 @@ Full design contract:
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this jar is, why it's separate from Causa, how the eighteen-tool catalogue maps to Causa's panels, the relationship to Chrome DevTools MCP. |
 | [`spec/Principles.md`](./spec/Principles.md) | Load-bearing principles: origin tagging is the convention, EDN canonical, closed-set catalogue with deliberate escape valve, same single-persistent-nREPL footing as pair2-mcp. |
-| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | The eight direction-setting decisions: question, options, pick, why, date locked. |
+| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | The twelve direction-setting decisions: question, options, pick, why, date locked. |
 
 The full tool catalogue (signatures, return shapes, example
 flows) lives in

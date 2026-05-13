@@ -12,7 +12,7 @@ without opening Causa's UI.
 > [`DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md).
 > The design locks accumulated in this file have been lifted there;
 > citations point to their canonical homes. This file remains the
-> **catalogue prose** (the seventeen tools enumerated with signatures
+> **catalogue prose** (the eighteen tools enumerated with signatures
 > and return shapes); when implementation lands and
 > `tools/causa-mcp/spec/003-Tool-Catalogue.md` is authored, the
 > catalogue prose migrates there and this file shrinks to a pointer.
@@ -117,17 +117,20 @@ the actual op runs. Mirrors the bash-shim chain's
 
 ## Tool catalogue
 
-Seventeen MCP tools across five bands: inspection (read-only),
+Eighteen MCP tools across five bands: inspection (read-only),
 mutation (user-confirmed equivalents in the UI), streaming
-(`notifications/progress`-shaped), escape hatch (`eval-cljs`), and
-meta (session-lifecycle). Each maps to a Causa surface; together
-they let an agent observe, dispatch, time-travel, stream, and
-inspect.
+(`notifications/progress`-shaped + the diagnostic),
+escape hatch (`eval-cljs`), and meta (session-lifecycle). Each
+maps to a Causa surface (or the cross-server symmetry posture);
+together they let an agent observe, dispatch, time-travel,
+stream, and inspect.
 
-The seventeen-tool cardinality and closed-set policy are locked at
+The eighteen-tool cardinality and closed-set policy are locked at
 [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-5--tool-catalogue-cardinality-and-shape)
-Lock #5; the closed-set discipline and `eval-cljs` escape valve
-posture live at
+Lock #5 (as amended by Lock #12 on 2026-05-14, which added
+`list-subscriptions` to close the parity gap with pair2-mcp's
+`subscription-info` impl); the closed-set discipline and
+`eval-cljs` escape valve posture live at
 [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
 §Closed-set tool catalogue, deliberate escape valve. The
 **catalogue prose itself** (the tables below) remains here until
@@ -184,17 +187,19 @@ final `tools/call` result is a summary
 `{:ok? true :sub-id <uuid> :delivered N :overflow N :ticks K :reason
 <terminated-reason>}`.
 
-| Tool | Topics | Returns |
+| Tool | Topics / Args | Returns |
 |---|---|---|
 | `subscribe` | `:trace`, `:epoch`, `:fx`, `:error` | Stream of events matching `filter`; topic-mediated base filter overlaid by user filter (user wins on conflict). Filter vocabulary mirrors [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary) for `:trace` / `:fx` / `:error`; mirrors `watch-epochs` for `:epoch`. |
 | `unsubscribe` | (n/a) | Idempotent close. Returns `{:ok? true :sub-id <id> :existed? <bool>}`. Useful when the agent host can't propagate `tools/call` cancellation cleanly. |
+| `list-subscriptions` | `:topic` (keyword, optional), `:sub-id` (uuid string, optional) | Request-response (NOT streaming) diagnostic enumerating active subscriptions. Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at} ...]}`. Empty `:subs` when no streams are open / the filter matches nothing. Useful when a streaming probe seems to have gone quiet (confirm the sub is still registered; read `:queue-depth` / `:overflow-reason` for evidence of a dead consumer). Mirrors pair2-mcp's `subscription-info` workflow (rf2-zjz9q) under a NAMING.md-conformant verb (per [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` Lock #12](../../causa-mcp/spec/DESIGN-RATIONALE.md)). |
 
-Termination paths: client cancel → `:reason :aborted`; out-of-band
-`unsubscribe` → `:reason :sub-gone`; cap reached → `:reason
-:max-ms-reached` or `:reason :max-events-reached`. Per-event matches
-inherit the same `:origin :causa-mcp` filter axis as the rest of the
-catalogue — an agent can subscribe to *just* its own mutation
-footprint via `subscribe {:topic :trace :filter {:origin :causa-mcp}}`.
+Termination paths (for `subscribe`): client cancel → `:reason
+:aborted`; out-of-band `unsubscribe` → `:reason :sub-gone`; cap
+reached → `:reason :max-ms-reached` or `:reason
+:max-events-reached`. Per-event matches inherit the same
+`:origin :causa-mcp` filter axis as the rest of the catalogue —
+an agent can subscribe to *just* its own mutation footprint via
+`subscribe {:topic :trace :filter {:origin :causa-mcp}}`.
 
 ### Escape hatch
 
@@ -207,7 +212,7 @@ Args: `form` (string, required — EDN-encoded CLJS form), `frame`
 triggers), `build` (string, optional).
 
 `eval-cljs` is the **deliberate escape valve**: the catalogue is
-closed-set on purpose (sixteen named surfaces alongside this one
+closed-set on purpose (seventeen named surfaces alongside this one
 escape hatch), but agents occasionally need to reach for something
 not yet catalogued. Rather than refuse them and force a workaround through
 Chrome MCP's `evaluate_script` (which loses the `:origin` tag), we
@@ -276,7 +281,7 @@ automatic re-inject → op proceeds.
 | Axis | `tools/pair2-mcp/` | `tools/causa-mcp/` |
 |---|---|---|
 | **Audience** | Editor-side AI workflows (pair-programming). | Debugger-side AI workflows (inspection, time-travel). |
-| **Surface** | 9 tools focused on dispatch / eval / hot-swap / trace, plus streaming. | 17 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming + escape hatch + session lifecycle. |
+| **Surface** | 9 tools focused on dispatch / eval / hot-swap / trace, plus streaming. | 18 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming (incl. `list-subscriptions` diagnostic) + escape hatch + session lifecycle. |
 | **`:origin` tag** | `:pair` | `:causa-mcp` |
 | **Runtime injection** | `re-frame-pair2.runtime` | `re-frame2-causa-mcp.runtime` |
 | **Implementation** | shadow-cljs `:node-script`, npm-published. | Same. |

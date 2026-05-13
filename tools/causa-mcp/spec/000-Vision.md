@@ -47,7 +47,7 @@ without the UI dependencies.
 A Node-based stdio JSON-RPC server, written in ClojureScript,
 compiled via shadow-cljs to a single `.js` artefact. AI agents
 launch it as a subprocess; one persistent nREPL socket is held
-for the lifetime of the session; seventeen Causa-shaped tools are
+for the lifetime of the session; eighteen Causa-shaped tools are
 exposed as MCP tools.
 
 The architecture mirrors [`tools/pair2-mcp/`](../../pair2-mcp/)
@@ -79,7 +79,7 @@ mirrors pair2-mcp exactly (see
 | Side | Root ns | Lives in | Loaded by | Role |
 |---|---|---|---|---|
 | **MCP server** (Node process) | `day8.re-frame2-causa-mcp.*` | `tools/causa-mcp/src/` (when impl lands) | `npx @day8/re-frame2-causa-mcp` (the agent host spawns the subprocess) | Speaks MCP/JSON-RPC over stdio; speaks nREPL/bencode to shadow-cljs; renders eval forms that target the injected runtime. |
-| **Injected runtime** (browser eval target) | `day8.re-frame2-causa.runtime` | the [Causa](../../causa/) panel's preload classpath | shadow-cljs `:devtools :preloads` (rides Causa-the-panel's existing preload) | Lives in the consumer app's runtime; exposes the seventeen tool-shaped accessors the server's eval forms call; carries the `current-origin` dynamic var that stamps `:origin :causa-mcp` on mutations. |
+| **Injected runtime** (browser eval target) | `day8.re-frame2-causa.runtime` | the [Causa](../../causa/) panel's preload classpath | shadow-cljs `:devtools :preloads` (rides Causa-the-panel's existing preload) | Lives in the consumer app's runtime; exposes the eighteen tool-shaped accessors the server's eval forms call; carries the `current-origin` dynamic var that stamps `:origin :causa-mcp` on mutations. |
 
 **The two namespaces never share a JVM / Node process.** The MCP
 server runs on Node; the injected runtime runs in the browser.
@@ -89,7 +89,7 @@ EDN form addressed at `day8.re-frame2-causa.runtime/<accessor>`,
 shadow-cljs evaluates it inside the browser tab, the return
 value comes back over the same socket. There is no shared state,
 no shared classpath, no shared dep — only a contract on the
-shape of the seventeen accessors.
+shape of the eighteen accessors.
 
 **Why two roots, not one.** Conflating the two roles into a
 single namespace (the obvious wrong default) creates two
@@ -143,7 +143,7 @@ root.
 
 ## MCP catalogue summary
 
-Seventeen tools across five bands (per the [canonical counts in
+Eighteen tools across five bands (per the [canonical counts in
 `README.md`](./README.md#canonical-counts)); the full enumeration
 with signatures, return shapes, and example flows lives in
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
@@ -155,12 +155,13 @@ until implementation lands and this folder grows its own
 |---|---|
 | **Inspection** (read-only, 9 tools) | `get-trace-buffer`, `get-epoch-history`, `get-app-db`, `get-app-db-diff`, `get-machine-state`, `get-machine-list`, `get-issues`, `get-handlers`, `get-source-coord`. |
 | **Mutation** (user-confirmed equivalents, 3 tools) | `restore-epoch`, `reset-frame-db`, `dispatch`. |
-| **Streaming** (push-mode, 2 tools) | `subscribe`, `unsubscribe` — `notifications/progress` shaped, topic-mediated filters. |
+| **Streaming** (push-mode + diagnostic, 3 tools) | `subscribe`, `unsubscribe` — `notifications/progress` shaped, topic-mediated filters; `list-subscriptions` — request-response diagnostic enumerating open subs with queue stats (per [`DESIGN-RATIONALE.md` Lock #12](./DESIGN-RATIONALE.md)). |
 | **Escape hatch** (1 tool) | `eval-cljs` — arbitrary CLJS form; any side-effects inherit `:origin :causa-mcp`. |
 | **Meta** (session lifecycle, 2 tools) | `discover-app`, `tail-build`. |
 
-Each tool maps to a Causa panel; together they let an agent
-observe, dispatch, time-travel, stream, and inspect.
+Each tool maps to a Causa-side affordance (the seventeen panel
+mirrors plus the streaming-registry diagnostic); together they
+let an agent observe, dispatch, time-travel, stream, and inspect.
 
 ## Every MCP-driven mutation leaves a visible footprint
 
@@ -221,7 +222,7 @@ Causa-MCP is the **debugger-side** counterpart to pair2-mcp's
 | Axis | [`tools/pair2-mcp/`](../../pair2-mcp/) | `tools/causa-mcp/` |
 |---|---|---|
 | Audience | Editor-side AI workflows (build/edit/test). | Debugger-side AI workflows (inspect/time-travel). |
-| Surface | 9 tools (dispatch, eval, hot-swap, trace, streaming). | 17 tools (inspection + mutation + streaming + escape hatch + session lifecycle). |
+| Surface | 9 tools (dispatch, eval, hot-swap, trace, streaming). | 18 tools (inspection + mutation + streaming + escape hatch + session lifecycle). |
 | `:origin` tag | `:pair` | `:causa-mcp` |
 | MCP-server ns (Node-side) | `re-frame-pair2-mcp.*` (e.g. `re-frame-pair2-mcp.server`, `.tools`, `.nrepl`, `.cache`) | `day8.re-frame2-causa-mcp.*` (when impl lands) |
 | Injected-runtime ns (browser-side) | `re-frame-pair2.runtime` | `day8.re-frame2-causa.runtime` (rides Causa's preload) |

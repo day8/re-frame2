@@ -104,7 +104,7 @@ extension** to pair2-mcp / story-mcp.
 | `unregister-variant` | `unregister-` | Conformant. |
 | `record-as-variant` | `record-as-` | Conformant. |
 
-### Causa-mcp (planned, ~17 tools per `tools/causa/spec/010-MCP-Server.md`)
+### Causa-mcp (planned, 18 tools per `tools/causa-mcp/spec/`)
 
 | Tool | Verb shape | Notes |
 |---|---|---|
@@ -113,6 +113,7 @@ extension** to pair2-mcp / story-mcp.
 | `dispatch` | bare (universal) | Conformant. |
 | `tail-build` | `tail-` | Conformant. |
 | `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
+| `list-subscriptions` | `list-` | Conformant — enumeration of active streaming subscriptions; the cross-server-symmetric counterpart to pair2-mcp's (non-conformant) `subscription-info`. Per [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` Lock #12](../causa-mcp/spec/DESIGN-RATIONALE.md) (rf2-3we2k, 2026-05-14) — the eighteenth tool, picked under the conformant verb when pair2-mcp's drift was surfaced by audit rf2-m9yoi. |
 | `get-trace-buffer` | `get-` | Conformant — filter-addressed slice read. |
 | `get-epoch-history` | `get-` | Conformant — filter-addressed slice read. |
 | `get-app-db` | `get-` | Conformant. |
