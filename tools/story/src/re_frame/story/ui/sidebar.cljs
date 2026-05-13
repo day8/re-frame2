@@ -373,14 +373,15 @@
               :substrate      (:substrate (state/get-state))}]
     (-> (runtime/run-variant vid opts)
         (async/then  (fn [result]
-                       ;; The aggregate-summary helper lives in test-
-                       ;; mode.cljc but we can't require that ns here
-                       ;; (cyclic: test-mode requires state, which would
-                       ;; loop back through sidebar's requires). Inline
-                       ;; the same six-line fold here — total / passed /
-                       ;; failed / skipped — and let `record-test-run`
-                       ;; do the rest. Two trivially-equal folds is
-                       ;; cheaper than threading another module.
+                       ;; The aggregate-summary helper lives in
+                       ;; `test-mode.pure` but we can't require that ns
+                       ;; here (cyclic: test-mode.state requires this
+                       ;; ns's parent shell-state, which would loop back
+                       ;; through sidebar's requires). Inline the same
+                       ;; six-line fold here — total / passed / failed /
+                       ;; skipped — and let `record-test-run` do the
+                       ;; rest. Two trivially-equal folds is cheaper
+                       ;; than threading another module.
                        (let [assertions (or (:assertions result) [])
                              skipped?   (fn [r] (= :rf.assert/skipped
                                                    (:assertion r)))

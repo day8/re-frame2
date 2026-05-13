@@ -24,7 +24,7 @@
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.docs   :as docs]
             [re-frame.story.ui.state  :as state]
-            [re-frame.story.ui.test-mode :as test-mode]
+            [re-frame.story.ui.test-mode.pure :as test-mode]
             [re-frame.story.ui.workspace :as workspace]))
 
 ;; ---- fixtures ------------------------------------------------------------

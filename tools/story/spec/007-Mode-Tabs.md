@@ -96,7 +96,7 @@ from Story v1).
 `:docs` → the docs pane — `re-frame.story.ui.docs/docs-view`
 (rf2-rodx). See [`008-Docs-Mode.md`](008-Docs-Mode.md) for the
 section composition + read-only contract.
-`:test` → the tests pane — `re-frame.story.ui.test-mode/test-view`
+`:test` → the tests pane — `re-frame.story.ui.test-mode.view/test-view`
 (rf2-qmjo). See [`009-Test-Mode.md`](009-Test-Mode.md) for the
 status pill / per-row table / Re-run contract.
 

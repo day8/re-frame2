@@ -236,7 +236,7 @@ seven render paths already read**:
 - `multi_substrate/render` — same.
 - `workspace/workspace-view` — same.
 - `docs/docs-view` — uses `:active-modes` for the args-resolved view.
-- `test_mode/test-view` — same.
+- `test_mode/view/test-view` — same.
 - `controls/args-editor` — same (resolves args for display).
 - `share/build-share-url` — encodes `:active-modes` into the URL.
 

@@ -26,7 +26,8 @@
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.sidebar :as sidebar]
-            [re-frame.story.ui.test-mode :as test-mode]
+            [re-frame.story.ui.test-mode.pure :as test-mode-pure]
+            [re-frame.story.ui.test-mode.view :as test-mode-view]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.scrubber-xref :as xref]
             [re-frame.story.ui.trace :as trace]
@@ -363,38 +364,38 @@
 
 (deftest test-view-is-a-fn
   (testing "test-view is callable from the shell"
-    (is (fn? test-mode/test-view))))
+    (is (fn? test-mode-view/test-view))))
 
 (deftest test-view-empty-state-without-play
   (testing "test-view renders the empty-state placeholder when the
             variant body has no :play slot — the variant is registered
             but declares zero assertions, so no run is fired."
     (story/reg-variant :story.tv/no-play {:events []})
-    (let [result (test-mode/test-view :story.tv/no-play)]
+    (let [result (test-mode-view/test-view :story.tv/no-play)]
       ;; r/create-class returns a fn — Reagent will invoke it during
       ;; render. We at least confirm the helper returns a non-nil
       ;; component descriptor.
       (is (some? result)))
-    (is (nil? (test-mode/test-view nil))
+    (is (nil? (test-mode-view/test-view nil))
         "no variant-id = no pane")))
 
 (deftest test-view-pure-helpers
   (testing "the pure section helpers run end-to-end in CLJS too"
-    (let [summary (test-mode/aggregate-summary
+    (let [summary (test-mode-pure/aggregate-summary
                     [{:assertion :rf.assert/path-equals :passed? true}
                      {:assertion :rf.assert/sub-equals  :passed? false}])]
       (is (= 2 (:total summary)))
       (is (= 1 (:passed summary)))
       (is (= 1 (:failed summary)))
       (is (false? (:all-passed? summary))))
-    (let [row (test-mode/assertion-row
+    (let [row (test-mode-pure/assertion-row
                 {:assertion :rf.assert/path-equals
                  :payload   [[:k] 1] :passed? true})]
       (is (= :pass (:status row))))
-    (is (= "12 ms" (test-mode/format-elapsed-ms 12)))
-    (is (= "1.2 s" (test-mode/format-elapsed-ms 1234)))
+    (is (= "12 ms" (test-mode-pure/format-elapsed-ms 12)))
+    (is (= "1.2 s" (test-mode-pure/format-elapsed-ms 1234)))
     (is (re-matches #"\d{2}:\d{2}:\d{2}"
-                    (test-mode/format-timestamp-ms (.getTime (js/Date.)))))))
+                    (test-mode-pure/format-timestamp-ms (.getTime (js/Date.)))))))
 
 ;; ---- canvas: decorator-wrap exception swallow ---------------------------
 ;;

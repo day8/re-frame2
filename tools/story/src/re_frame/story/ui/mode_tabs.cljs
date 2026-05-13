@@ -11,7 +11,8 @@
               owns the chip strip only.
   - `:test` — Tests. The in-canvas aggregated pass/fail summary for the
               variant's interactions / assertions. Implemented in
-              `re-frame.story.ui.test-mode` (rf2-qmjo); this primitive
+              `re-frame.story.ui.test-mode.view` (rf2-qmjo, split per rf2-8n2fz);
+              this primitive
               owns the chip strip only.
 
   ## Primitive surface
@@ -30,7 +31,7 @@
 
   - `:dev`  → existing canvas / workspace path (unchanged).
   - `:docs` → `re-frame.story.ui.docs/docs-view` (rf2-rodx).
-  - `:test` → `re-frame.story.ui.test-mode/test-view` (rf2-qmjo).
+  - `:test` → `re-frame.story.ui.test-mode.view/test-view` (rf2-qmjo).
 
   ## Visual style
 
@@ -185,7 +186,8 @@
 ;; ---- placeholder panes ---------------------------------------------------
 ;;
 ;; rf2-rodx (Docs) is implemented in `re-frame.story.ui.docs`; rf2-qmjo
-;; (Tests) is implemented in `re-frame.story.ui.test-mode`. Both
+;; (Tests) is implemented in `re-frame.story.ui.test-mode.view` (split
+;; per rf2-8n2fz into pure/state/view). Both
 ;; placeholders have been removed — the shell routes the `:docs` /
 ;; `:test` cases directly at the dedicated panes. The `:placeholder`
 ;; style entry below stays in the styles map in case a future pane

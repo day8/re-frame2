@@ -33,13 +33,13 @@ assertion vocabulary). The pane's job is to:
 
 ## Surface
 
-One namespace, one entry point, plus pure helpers for the JVM test
-corpus:
+Three companion namespaces (split per rf2-8n2fz — see `pure.cljc`,
+`state.cljs`, `view.cljs` under `src/re_frame/story/ui/test_mode/`):
 
 ```clojure
-(re-frame.story.ui.test-mode/test-view variant-id)   ; CLJS Reagent component
+(re-frame.story.ui.test-mode.view/test-view variant-id)   ; CLJS Reagent component
 
-;; pure data → data (JVM-testable):
+;; pure data → data (JVM-testable) — under re-frame.story.ui.test-mode.pure:
 (variant-has-tests? variant-id)
   ; → boolean — true iff the variant body declares a non-empty :play
 (aggregate-summary assertions)
@@ -56,9 +56,9 @@ corpus:
   ; → ISO-8601-ish "HH:mm:ss" for the last-run badge
 ```
 
-The render shell's `main-pane` calls `test-mode/test-view` when the
-per-variant mode-tab is `:test`. Selection is owned by the mode-tabs
-primitive; this spec does not touch the chip strip.
+The render shell's `main-pane` calls `test-mode.view/test-view` when
+the per-variant mode-tab is `:test`. Selection is owned by the
+mode-tabs primitive; this spec does not touch the chip strip.
 
 ## Section composition
 
