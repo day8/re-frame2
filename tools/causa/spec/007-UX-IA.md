@@ -378,10 +378,14 @@ build from that coord.
 
 | Editor | Config key | URI template |
 |---|---|---|
-| VS Code (and forks: Cursor, Windsurf, code-server) | `:vscode` (default) | `vscode://file/<path>:<line>:<column>` |
-| Cursor (distinct scheme) | `:cursor` | `cursor://file/<path>:<line>:<column>` |
+| VS Code (and forks that share its scheme: code-server, VSCodium) | `:vscode` (default) | `vscode://file/<path>:<line>:<column>` |
+| Cursor (distinct scheme — VS Code fork) | `:cursor` | `cursor://file/<path>:<line>:<column>` |
+| Windsurf (distinct scheme — VS Code fork, registers its own handler) | `:windsurf` | `windsurf://file/<path>:<line>:<column>` |
+| Zed | `:zed` | `zed://file/<path>:<line>:<column>` |
 | JetBrains family (IDEA, WebStorm, Cursive, PyCharm) | `:idea` | `idea://open?file=<path>&line=<line>&column=<column>` |
-| Anything else (Sublime, Zed, Emacs server-mode, Vim with a URL handler) | `{:custom <template>}` | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
+| Anything else (Sublime, Emacs server-mode, Vim with a URL handler, Helix) | `{:custom <template>}` | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
+
+The `:windsurf` and `:zed` rows mirror the VS Code colon-suffix shape — Windsurf as a VS Code fork inherits the file/line/column grammar; Zed's `zed://` handler (registered via the editor's "Register Zed Scheme" action) accepts the same URI shape per its open-listener pipeline. Editors that ship without a stable URI handler still route through `{:custom <template>}` until they standardise.
 
 ### Configuration
 
