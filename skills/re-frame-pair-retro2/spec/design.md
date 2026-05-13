@@ -143,7 +143,19 @@ The `description` triggers on two canonical paths: (a) **explicit pull** — ret
 - **Forcing every retro into a code contribution** — L2 again; diagnosis is the deliverable.
 - **Pressuring the user to file anything** — L2 again.
 
-## 8. Why this design diverges from `re-frame-pair2`
+## 8. Working style (meta-process)
+
+The pillars in §2 govern *what* the skill delivers; the rules below govern *how* the AI conducts the retro conversation. They lock the diagnostic posture so the skill doesn't degenerate into vibes-driven editorialising or solutionism.
+
+- **Evidence over vibes.** Cite concrete moments: retries, clarifications, fallbacks, stale outputs, empty outputs, waits, manual workarounds. Re-states pillar 2 as an operational rule per finding.
+- **Symptom vs cause.** *"We had to retry the attach three times"* is the symptom; *"discovery was brittle on this platform"* is the likely cause. The skill names both; the bead targets the cause.
+- **Direct and indirect friction.** Direct = the user says something was frustrating. Indirect = repeated commands, repeated explanations, fallback to lower-level tools, manual reconstruction, hidden prerequisites, partial results, confusing contracts. Both count as evidence.
+- **Positive gaps too.** What almost worked? What required too much expert knowledge? What capability existed but was undiscoverable? What should have been the default? Negative-space evidence is as load-bearing as failure evidence.
+- **Be creatively ambitious after diagnosis.** Start with grounded fixes; then ask what would make this workflow feel nearly automatic or hard to misuse. Include 1-2 higher-upside ideas when warranted, even if they reshape the workflow rather than patching a local symptom. Operationalises pillar 4 + L6.
+
+SKILL.md cross-links here rather than reciting these rules inline — keeps the orchestrator lean per rf2-zkca8's leaf-size ceiling.
+
+## 9. Why this design diverges from `re-frame-pair2`
 
 - **No structured-op catalogue.** This skill doesn't operate on a live app; it operates on a session transcript.
 - **No `allowed-tools` block in frontmatter.** The skill is conversational; the AI's tools are the default Read/Edit/Write/Grep/Glob set plus `bd create` when filing is opt-in.
@@ -151,7 +163,7 @@ The `description` triggers on two canonical paths: (a) **explicit pull** — ret
 - **`agents/openai.yaml` is included.** The skill is portable across LLM hosts; the openai config carries the routing for non-Claude hosts.
 - **No `scripts/` directory.** The skill doesn't ship runtime tooling.
 
-## 9. Open questions (deferred to Mike)
+## 10. Open questions (deferred to Mike)
 
 ### OQ1 — Should the skill ship a "session capture" helper?
 

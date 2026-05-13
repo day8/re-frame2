@@ -69,13 +69,9 @@ Routing decisions (mid-session pair work, app-authoring without a live runtime, 
 
 When in doubt, ask: *"Was there a `re-frame-pair2` session you want me to retrospect on? If you can paste a short recap I can work from that."* Decline rather than fabricate evidence.
 
-## Working style (short form)
+## Working style
 
-- **Evidence over vibes.** Cite concrete moments: retries, clarifications, fallbacks, stale outputs, empty outputs, waits, manual workarounds.
-- **Symptom vs cause.** *"We had to retry the attach three times"* is the symptom; *"discovery was brittle on this platform"* is the likely cause.
-- **Direct and indirect friction.** The user says something was frustrating *or* you see repeated commands, repeated explanations, fallback to lower-level tools, manual reconstruction, hidden prerequisites, partial results, confusing contracts.
-- **Positive gaps too.** What almost worked? What required too much expert knowledge? What capability existed but was undiscoverable? What should have been the default?
-- **Be creatively ambitious after diagnosis.** Start with grounded fixes; then ask what would make this workflow feel nearly automatic or hard to misuse. Include 1-2 higher-upside ideas when warranted, even if they reshape the workflow rather than patching a local symptom. Label speculative ideas clearly.
+Diagnostic posture rules (evidence over vibes; symptom vs cause; direct/indirect friction; positive gaps; creatively ambitious *after* diagnosis) live in [`spec/design.md` §8 Working style](spec/design.md#8-working-style-meta-process). Apply them per finding.
 
 ## Analysis workflow
 
