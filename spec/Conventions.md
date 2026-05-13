@@ -255,8 +255,6 @@ For knobs that apply globally to the framework runtime, are addressed by a **key
 - `(rf/configure :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
 - `(rf/configure :trace-buffer {:depth 200})` — ring-buffer depth for trace events
 - `(rf/configure :sub-cache {:grace-period-ms 50})` — deferred ref-counting grace period
-- `(rf/configure :strict-subs true)` — reject unschema'd sub-registrations
-- `(rf/configure :ssr {:public-error-id ...})` — SSR error-projection policy
 
 ### 2. `set-!` / `install-!` fns — adapter-pluggable hooks
 
@@ -276,6 +274,7 @@ For configuration whose lifetime is a single frame's existence — expressed at 
 - `:interceptor-overrides` — replace interceptors in the chain by `:id`
 - `:interceptors` — *add* (prepend) interceptors to the chain
 - `:on-create` / `:on-destroy` — lifecycle events fired at frame create / destroy
+- `:ssr {:public-error-id ... :dev-error-detail? ...}` — SSR error-projection policy (per [011](011-SSR.md))
 
 ### How to slot a new config option
 
