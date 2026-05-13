@@ -22,7 +22,7 @@ surfaces. It must not add:
 - New effect substrates.
 - New component substrates.
 
-The eighteen tools route through the existing
+The seventeen tools route through the existing
 `re-frame2-causa-mcp.runtime` namespace via `cljs-eval`. Nothing
 new is registered against the framework; nothing new is
 introduced into a consumer app's runtime.
@@ -133,7 +133,7 @@ Concretely:
   `re-frame2-causa-mcp.runtime/session-id`); a missing sentinel
   triggers automatic re-injection on the next op rather than a
   failed boot.
-- The runtime contract is the shape of the eighteen tools, not
+- The runtime contract is the shape of the seventeen tools, not
   a specific framework version.
 
 A project that adopts a non-default build id, a custom nREPL
@@ -162,7 +162,7 @@ Same posture as pair2-mcp.
 
 ## Read-mostly catalogue; mutate via the in-panel-equivalent gates
 
-The eighteen tools split 9 read / 3 mutate / 2 stream / 1 escape
+The seventeen tools split 9 read / 3 mutate / 2 stream / 1 escape
 hatch / 2 meta. The mutating tools (`restore-epoch`,
 `reset-frame-db`, `dispatch`) mirror the in-panel right-click
 affordances the human user already has — Causa-MCP doesn't
@@ -184,8 +184,8 @@ entry.
 
 ## Closed-set tool catalogue, deliberate escape valve
 
-The catalogue is **closed-set on purpose**: eighteen named
-surfaces map to eighteen Causa panels. Adding tools is a
+The catalogue is **closed-set on purpose**: seventeen named
+surfaces map to seventeen Causa panels. Adding tools is a
 deliberate act (a `bd` bead, a discussion, a Lock entry in
 [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)). Drift is
 prevented by the discipline that every new tool maps to an

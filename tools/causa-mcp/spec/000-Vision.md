@@ -47,7 +47,7 @@ without the UI dependencies.
 A Node-based stdio JSON-RPC server, written in ClojureScript,
 compiled via shadow-cljs to a single `.js` artefact. AI agents
 launch it as a subprocess; one persistent nREPL socket is held
-for the lifetime of the session; eighteen Causa-shaped tools are
+for the lifetime of the session; seventeen Causa-shaped tools are
 exposed as MCP tools.
 
 The architecture mirrors [`tools/pair2-mcp/`](../../pair2-mcp/)
@@ -83,8 +83,9 @@ Different tool catalogue. Different `:origin` tag.
 
 ## MCP catalogue summary
 
-Eighteen tools across five bands; the full enumeration with
-signatures, return shapes, and example flows lives in
+Seventeen tools across five bands (per the [canonical counts in
+`README.md`](./README.md#canonical-counts)); the full enumeration
+with signatures, return shapes, and example flows lives in
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 until implementation lands and this folder grows its own
 `003-Tool-Catalogue.md` (the pair2-mcp-shape companion to
@@ -97,7 +98,6 @@ until implementation lands and this folder grows its own
 | **Streaming** (push-mode, 2 tools) | `subscribe`, `unsubscribe` — `notifications/progress` shaped, topic-mediated filters. |
 | **Escape hatch** (1 tool) | `eval-cljs` — arbitrary CLJS form; any side-effects inherit `:origin :causa-mcp`. |
 | **Meta** (session lifecycle, 2 tools) | `discover-app`, `tail-build`. |
-| **Compatibility** (1 tool) | (room for one more on the v1.0 ship; current catalogue is 17 + 1 placeholder for any catalogue-promotion that lands before ship.) |
 
 Each tool maps to a Causa panel; together they let an agent
 observe, dispatch, time-travel, stream, and inspect.
@@ -161,7 +161,7 @@ Causa-MCP is the **debugger-side** counterpart to pair2-mcp's
 | Axis | [`tools/pair2-mcp/`](../../pair2-mcp/) | `tools/causa-mcp/` |
 |---|---|---|
 | Audience | Editor-side AI workflows (build/edit/test). | Debugger-side AI workflows (inspect/time-travel). |
-| Surface | 9 tools (dispatch, eval, hot-swap, trace, streaming). | 18 tools (inspection + mutation + streaming + escape hatch + session lifecycle). |
+| Surface | 9 tools (dispatch, eval, hot-swap, trace, streaming). | 17 tools (inspection + mutation + streaming + escape hatch + session lifecycle). |
 | `:origin` tag | `:pair` | `:causa-mcp` |
 | Runtime ns | `re-frame-pair2.runtime` | `re-frame2-causa-mcp.runtime` |
 | Implementation | shadow-cljs `:node-script`, npm-published. | Same. |
