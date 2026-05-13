@@ -12,7 +12,7 @@ re-frame2 is an architectural pattern for building Single Page Apps that target 
 
 ## What's novel and interesting?
 
-Three things:
+Four things:
 
 **1. The spec is the artefact. The code is downstream.** 
 
@@ -50,6 +50,12 @@ re-frame2's predictable computational pipeline has a single, deeply integrated t
 Result: your application is the ultimate surveillance state. With the ClojureScript implementation, you can even get trace form-by-form (think statement-by-statement), but not by default.
 
 Every tool attaches to that trace bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Pair-programmer AI tooling can interact with your running system. Same with tests, stories. They all consume the same surface.
+
+
+**4. Lisp's quiet advantage.**
+
+re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like being on the top of a mountain, meditating. Having said that, you can roll your own version in JS, TS, Reason, etc.
+
 
 ### Novelty, bah humbug!
 
@@ -98,18 +104,6 @@ Here's how AI-first shows up in practice:
 2. Apps built on re-frame2 are **AI-pair-programmable at runtime**. The runtime exposes deep trace and integration surfaces specifically so an AI can interact with the dynamics of your running app, not just stare at static source. The thing your AI pair is looking at is the actual state, the actual event stream, the actual subscription graph — not a static file from yesterday. The successor to v1's nREPL-attached `re-frame-pair` ships in this repo as the `re-frame-pair2` Claude skill, with an MCP companion (`pair2-mcp`) on the runtime side.
 
 3. **Migration is AI-driven**. re-frame2 contains breaking changes from v1. I am not happy about this. To soften the blow, the repo ships a complete migration prompt for an AI — currently 40+ rules, mechanical where the rewrite can be mechanical, flagged-for-human-review in the rare cases where the rewrite depends on intent. And to the Clojurists reading: I apologise for the breakage. It hurts my soul too. Please, please don't tell Mr Hickey.
-
-## re-frame first
-
-re-frame was created in late 2014. Over ten years later, I believe — and I have skin in this game, so weigh accordingly — that it is still a state-of-the-art pattern for SPA development. The reason is not that the world stopped innovating. It's that re-frame happened to land on a small set of decisions early which turned out to compose extremely well, and the JavaScript ecosystem has spent ten years independently rediscovering them, one painful migration at a time.
-
-**The computational model is simple**, and that simplicity is the leverage. State is explicit and centralised. Data is immutable. Effects are isolated and described as data. Views stay at the edge of the flow where they belong, not at its centre. Even the "DSL languages" inside the app — hiccup, effect maps, transition tables, schemas, subscription queries — are data, not hidden runtime magic. There's a longer essay on this in spec/Principles.md.
-
-I can't tell you what an advantage it is, in practice, to have a small predictable data-oriented computational model. No side channels. No async backdoors. No "is this stale because of the dependency array" hooks decisions. My language is Turing complete, sure; my architecture doesn't need to be. And every higher-order concept — state machines, async effects, SSR, routing — inherits the same shape rather than escaping it into ad-hoc territory.
-
-**Ten years of staying still on purpose**. In that decade, half a dozen "new" state-management patterns have churned through the JS world. Redux, MobX, Zustand, Recoil, Jotai, signals, server components — each one a serious attempt, and each one creeping incrementally toward the ground re-frame already stands on. (The one significant exception is XState, from which I have drawn much inspiration. Statecharts are so damn good.) Imagine what your team's productivity would look like if you didn't have to contend with a new magic system burning your fingers every two years.
-
-**Lisp's quiet advantage**. re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like being on the top of a mountain, meditating.
 
 ## Reading paths
 
