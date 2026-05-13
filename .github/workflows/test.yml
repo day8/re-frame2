@@ -1312,6 +1312,17 @@ jobs:
       - name: Run pair2-mcp end-to-end MCP-client conformance
         run: npm run test:pair2
 
+      # Live-runtime variant (rf2-ynaoc): exercises the wire-cap
+      # `:rf.mcp/overflow` marker under a real over-budget eval. Gated
+      # on $SHADOW_CLJS_NREPL_PORT — unset on CI, so this step exits 0
+      # with a SKIP marker. The script's contract is that an unset
+      # gate is a clean SKIP, not a failure; the test runs locally on
+      # Mike's machine where shadow-cljs is already attached. A
+      # follow-on bead tracks auto-spawning shadow-cljs against an
+      # example so CI gains hermetic coverage of the live path.
+      - name: Run pair2-mcp live-overflow conformance (SKIPPED without nREPL)
+        run: npm run test:pair2-live-overflow
+
   mcp-conformance-story:
     name: MCP conformance tools/story-mcp (rf2-cum40)
     runs-on: ubuntu-latest
