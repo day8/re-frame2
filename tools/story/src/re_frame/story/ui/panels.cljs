@@ -52,7 +52,8 @@
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.a11y :as a11y]
-            [re-frame.story.ui.canvas :as canvas]))
+            [re-frame.story.ui.canvas :as canvas]
+            [re-frame.story.ui.schema-validation :as schema-validation]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -250,7 +251,10 @@
        :placement :right
        :render    layout-debug-render-id})
     ;; A11y panel — registers in its own ns.
-    (a11y/install-canonical-a11y!)))
+    (a11y/install-canonical-a11y!)
+    ;; Schema-validation panel (rf2-dvue) — registers in its own ns
+    ;; so the late-bind validator lookup stays isolated.
+    (schema-validation/install!)))
 
 ;; ---- panel host ---------------------------------------------------------
 
