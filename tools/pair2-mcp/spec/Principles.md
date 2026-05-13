@@ -144,7 +144,76 @@ dozens of tool calls — pair2-mcp's `snapshot` mega-op and the
 single oversized response burns the budget the agent needs
 for the next ten ops.
 
+The discipline rests on **eight normative mechanisms**.
+Mechanisms 1-6 align deliberately with
+[`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
+§Tight token budget per response so that an agent learning
+the slot on one server gets the same slot on the others;
+mechanisms 7-8 are pair2-mcp-specific (epoch-record diff
+encoding and streaming-subscribe budgets — both will likely
+absorb into causa-mcp's catalogue when its impl lands).
+Every catalogue entry in
+[`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) declares
+which mechanisms apply, with a **typical-token** hint
+(`~1.2k`, `~3k under :sample`) and a **cap-reached**
+behaviour note. The hints surface in `list-tools` so the
+agent can plan ahead. The cap is enforced at the wire
+boundary, not just documented.
+
+The eight mechanisms in pair2-mcp:
+
+1. **Token budget cap** (§"The wire-boundary cap") — 5,000-token
+   default + `max-tokens` per-call override + `{:rf.mcp/overflow ...}`
+   marker.
+2. **Path slicing** (§"Path slicing") — `:path` arg + tree-summary
+   default on rich snapshot slices.
+3. **Cursor pagination** (§"Per-tool budget discipline" /
+   pagination bullet) — `:limit` + `:cursor` for unbounded
+   sequence-returning ops.
+4. **Lazy summary** (§"Per-tool budget discipline" /
+   summarisation-modes bullet) — `:mode :summary` default for
+   rich payloads + `{:rf.mcp/summary ...}` shape.
+5. **Structural dedup** (§"Structural dedup") — `day8/de-dupe`
+   substitution table + `{:rf.mcp/dedup-table ...}` wire shape.
+6. **Size-elision wire markers** (§"Size-elision wire markers") —
+   the framework's `elide-wire-value` walker substitutes
+   `{:rf.size/large-elided ...}` markers for declared-large
+   slots.
+7. **Diff-encoded `:db-after`** (§"Diff-encoded `:db-after`") —
+   path-keyed structural patches against the same record's
+   `:db-before`. *pair2-mcp-specific*: addresses the
+   epoch-record pair shape, which causa-mcp's `get-epoch` /
+   `get-epoch-history` will need to absorb when its impl lands.
+8. **Streaming subscribe byte+event budget** (§"Streaming
+   subscribe byte+event budget") — runtime-side queue feeding
+   `subscribe` carries OR-combined event-count + byte caps.
+   *pair2-mcp-specific*: causa-mcp's `subscribe` will share
+   the upstream-queue posture when its streaming impl lands.
+
+The reserved `:rf.mcp/*` and `:rf.size/*` keyword namespaces
+are catalogued at
+[`spec/Conventions.md §Reserved namespaces (framework-owned)`](../../../spec/Conventions.md#reserved-namespaces-framework-owned)
+— the same `:rf.mcp/overflow`, `:rf.mcp/summary`,
+`:rf.mcp/dedup-table`, `:rf.mcp/diff-from`, and
+`:rf.size/large-elided` keys appear on the wire of every
+re-frame2 MCP server.
+
+The subsections below run in **pipeline order**
+(wire-boundary cap → path slicing → per-tool budget → diff
+encoding → dedup → size elision → streaming budget), not
+mechanism-number order — the mechanism numbers track the
+cross-server catalogue identity, while the file order
+matches the order each transform runs at the wire boundary.
+Each section heading carries its mechanism number for
+cross-reference.
+
 ### The wire-boundary cap (enforced, rf2-rvyzy)
+
+Mechanism 1 — the token-budget-cap peer of causa-mcp's
+[Principles §1 Token budget cap](../../causa-mcp/spec/Principles.md).
+Cap, override slot, and overflow-marker reserved key are
+identical cross-server; the marker's internal slot shape
+differs (see callout below).
 
 The cap is enforced in `tools.cljs` at the `invoke` boundary,
 applied as the final step after every per-tool function
@@ -168,7 +237,9 @@ internals.
   callers that have already paginated or genuinely need the
   full payload). The knob surfaces in `tools/list` so clients
   can discover it.
-- **Overflow shape**: an over-budget payload is replaced with
+- **Overflow shape**: a tool that would exceed the cap MUST NOT
+  silently truncate. Instead it MUST return a structured
+  overflow marker as the entire payload:
 
   ```clojure
   {:rf.mcp/overflow
@@ -182,29 +253,87 @@ internals.
   The agent host MUST treat `{:rf.mcp/overflow {:limit :reached}}`
   as a structured retry signal — narrow args, drop slices, or
   pass `max-tokens 0` if the full payload is genuinely needed.
+  The `:rf.mcp/overflow` key is reserved cross-server (pair2-mcp,
+  story-mcp, causa-mcp use the same key) so an agent that
+  recognises it once recognises it everywhere.
+
+  *Differs from causa-mcp.* causa-mcp's
+  [Principles §1 Token budget cap](../../causa-mcp/spec/Principles.md)
+  documents the marker with slot names `:cap` / `:would-be` /
+  `:hint` / `:continuation`; pair2-mcp's implemented shape uses
+  `:limit :reached` plus `:token-count` / `:cap-tokens` /
+  `:tool` / `:hint` (per rf2-rvyzy). The divergence is
+  intentional — pair2-mcp's wrapper measures the *post-shrunk*
+  payload after the diff-encode/dedup/elision pipeline, so the
+  continuation hint is tool-specific rather than a generic
+  `:continuation {:cursor ... :next-args ...}` shape. The
+  reserved keyword namespace (`:rf.mcp/overflow`) and the
+  retry-signal contract are identical; the slot vocabulary
+  differs. Cross-server alignment of the slot shape is tracked
+  separately — when both wrappers stabilise, one shape wins.
 - **Pluggable strategy**: the wrapper dispatches on a
   `:strategy` keyword. Today only `:truncate-with-marker` is
   implemented (replace the payload with the overflow marker).
-  Path-slicing and lazy-summary already landed (rf2-tygdv,
-  generalised to every rich snapshot slice in rf2-u2029) as
-  per-tool input-shape concerns: the `snapshot` tool accepts a
-  `:path` arg, a global `:mode` arg, and a per-slice `:modes`
-  override, and defaults to a `{:rf.mcp/summary ...}` response
-  for every rich slice (`:app-db`, `:sub-cache`, `:machines`,
-  `:epochs`, `:traces`) — the discovery workflow ("I don't know
-  which slice carries the answer") stays inside the cap by
-  construction rather than relying on the cap as a backstop.
-  `get-path` continues to take a `:path` arg for the targeted-read
-  surface. Diff-encoded `:db-after` (rf2-1wdzp) and structural
-  dedup (rf2-obpa9) also live at the tool surface — see the
-  dedicated mechanisms below. They run BEFORE the cap so the
-  wrapper measures the already-shrunk payload.
+  Path-slicing and lazy-summary (rf2-tygdv, generalised to
+  every rich snapshot slice in rf2-u2029), diff-encoded
+  `:db-after` (rf2-1wdzp), structural dedup (rf2-obpa9), and
+  size-elision wire markers (rf2-urjnc) all live at the tool
+  surface — see the dedicated mechanisms below. They run
+  BEFORE the cap so the wrapper measures the already-shrunk
+  payload.
 - **Silent truncation is not allowed**: a payload that exceeds
   the cap MUST NOT be shipped in any partial form that would
   let the agent host parse it as a valid response. The marker
   is the only over-budget response shape.
 
+### Path slicing (rf2-tygdv, generalised in rf2-u2029)
+
+Mechanism 2 — the path-slicing peer of causa-mcp's
+[Principles §2 Path slicing](../../causa-mcp/spec/Principles.md).
+Argument name (`:path`), EDN encoding, default-summary
+behaviour, and `:path-not-found` error are identical
+cross-server.
+
+Tools returning rich nested values (`snapshot`, `get-path`)
+MUST accept an optional `:path` argument — an EDN-encoded
+vector of keys (e.g. `"[:cart :items 3 :sku]"`) addressing a
+subtree.
+
+The default behaviour **without** a `:path` argument on a
+rich-shape op MUST be a tree-summary (per the lazy-summary
+mechanism), not the full payload. With `:path`, the tool
+returns the addressed subtree subject to the remaining
+mechanisms (still budgeted, still summarised at the leaf if
+rich). Out-of-range paths return `:ok? false :reason :path-not-found`
+with the deepest valid prefix attached so the agent can
+re-aim. This is the same slicing convention causa-mcp adopts
+in
+[Principles §2 Path slicing](../../causa-mcp/spec/Principles.md);
+an agent that learned the slot on causa-mcp sees the same
+slot here.
+
+Concretely on pair2-mcp's catalogue: `snapshot` accepts a
+top-level `:path` arg (drilling into the chosen slice) and a
+`:mode` arg (`:summary` default, `:sample`, `:full`) plus a
+per-slice `:modes` override map; `get-path` takes a `:path`
+arg for the targeted-read surface. The discovery workflow ("I
+don't know which slice carries the answer") stays inside the
+cap by construction rather than relying on the cap as a
+backstop. The same wire-shape vocabulary (`{:rf.mcp/summary
+{:type :map :keys [...] :counts {...} :bytes ~N}}` on
+summarised slices) crosses to causa-mcp's catalogue under
+mechanism 4 (lazy summary) — single learning step on the
+agent side.
+
 ### Per-tool budget discipline
+
+Covers mechanisms 3 (cursor pagination) and 4 (lazy summary)
+together — the per-tool-shape-discipline peers of causa-mcp's
+[Principles §3 Cursor pagination](../../causa-mcp/spec/Principles.md)
+and [§4 Lazy summary](../../causa-mcp/spec/Principles.md).
+`:cursor` / `:limit` slot names, `:mode :summary` default,
+and the `{:rf.mcp/summary {:type ... :keys ... :counts ...
+:bytes ...}}` shape are identical cross-server.
 
 In addition to the wire-cap (a backstop), tools are designed to
 stay inside the budget by construction:
@@ -246,6 +375,12 @@ the agent to ask for what it actually needs, and never let a
 single op blow the session.
 
 ### Diff-encoded `:db-after` on epoch slices (rf2-1wdzp)
+
+Mechanism 7 — pair2-mcp-specific. causa-mcp's catalogue will
+ship the same shape against `get-epoch` / `get-epoch-history`
+when its impl lands; the cross-server vocabulary
+(`:rf.mcp/diff-from`, the `[<path> :assoc <v>]` / `[<path>
+:dissoc]` patch grammar) is already pinned here.
 
 Every `:rf/epoch-record` carries `:db-before` and `:db-after`
 — two near-identical full app-db snapshots
@@ -336,9 +471,17 @@ prefix.
 
 ### Structural dedup (rf2-obpa9)
 
-The fourth wire-protocol mechanism. Persistent data structures
-share subtrees in memory; `pr-str` flattens the sharing and
-writes every shared node out in full. After diff-encoding
+Mechanism 5 — the structural-dedup peer of causa-mcp's
+[Principles §5 Structural dedup](../../causa-mcp/spec/Principles.md).
+The wire shape (`:rf.mcp/dedup-table` substitution table) is
+identical; the algorithm
+([`day8/de-dupe`](https://github.com/day8/de-dupe)) is shared.
+An agent that learned the slot on causa-mcp sees the same slot
+here.
+
+Persistent data structures share subtrees in memory; `pr-str`
+flattens the sharing and writes every shared node out in full.
+After diff-encoding
 (above) collapses each `:db-after`, the dominant remaining cost
 is the per-record `:db-before` reference — a 10-epoch window
 over a 1MB app-db is still ~10MB on the wire. Structural dedup
@@ -427,7 +570,17 @@ blob.
 
 ### Size-elision wire markers (rf2-urjnc)
 
-The fifth wire-protocol mechanism. After diff-encoding
+Mechanism 6 — the size-elision peer of causa-mcp's
+[Principles §6 Size elision (`:rf.size/large-elided` marker)](../../causa-mcp/spec/Principles.md).
+The marker shape (`{:rf.size/large-elided {:path ... :bytes ...
+:type ... :reason ... :hint ... :handle [:rf.elision/at ...]}}`)
+is reserved cross-server per
+[`spec/Conventions.md §Reserved namespaces`](../../../spec/Conventions.md#reserved-namespaces-framework-owned)
+and emitted by the same framework walker
+(`rf/elide-wire-value`) in both servers. An agent that learned
+the slot on causa-mcp sees the same slot here.
+
+After diff-encoding
 (rf2-1wdzp) collapses each `:db-after` and dedup (rf2-obpa9)
 pools repeated subtrees, a single large slot — say a 100KB
 uploaded PDF base64 on `[:user :uploaded-pdf]` — still rides
@@ -534,9 +687,18 @@ inside the 5,000-token cap without further drill-down.
 
 ### Streaming subscribe byte+event budget (rf2-ho4ve)
 
-The sixth wire-protocol mechanism, applied at the *upstream*
+Mechanism 8 — pair2-mcp-specific, applied at the *upstream*
 edge — the runtime-side queue feeding the `subscribe` tool —
-rather than at the wire boundary itself. The motivation is
+rather than at the wire boundary itself.
+
+*Differs from causa-mcp.* causa-mcp's
+[Principles §Streaming over batch](../../causa-mcp/spec/Principles.md)
+documents `subscribe` as a per-notification cap with the
+upstream-queue model deferred to impl. pair2-mcp ships a
+runtime-side OR-combined event-count + byte budget today; when
+causa-mcp's streaming impl lands it will absorb the same
+posture (the chatty-filter case and the large-payload-storm
+case both apply to causa-mcp's trace stream). The motivation is
 memory pressure: an event-count-only buffer (`:max-buffered
 500`) is misleading when event size varies by orders of
 magnitude. Five small trace events fit in ~500 bytes; five
