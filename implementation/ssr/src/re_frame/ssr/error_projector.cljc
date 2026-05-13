@@ -63,11 +63,14 @@
     :rf.error/no-such-handler            → 404 :not-found
     :rf.error/no-such-route              → 404 :not-found
     :rf.error/schema-validation-failure  → 400 :bad-request
-    :rf.error/handler-exception          → 500 :internal-error
-    :rf.error/sub-exception              → 500 :internal-error
-    :rf.error/fx-handler-exception       → 500 :internal-error
-    :rf.error/drain-depth-exceeded       → 500 :internal-error
     anything else                        → 500 :internal-error
+                                           (fallback-public-error)
+
+  The non-enumerated default covers the 500-class trace events
+  (:rf.error/handler-exception, :rf.error/sub-exception,
+  :rf.error/fx-handler-exception, :rf.error/drain-depth-exceeded) and
+  any future :rf.error/* category that should fall through to the
+  locked generic-500 shape — no new case arm required.
 
   Pure: takes a trace event, returns a public-error map. No I/O, no
   config. Custom projectors may inject auth-specific 401/403 codes
@@ -88,20 +91,10 @@
      :message    "Invalid input"
      :retryable? false}
 
-    (:rf.error/handler-exception
-      :rf.error/sub-exception
-      :rf.error/fx-handler-exception
-      :rf.error/drain-depth-exceeded)
-    {:status     500
-     :code       :internal-error
-     :message    "Something went wrong"
-     :retryable? false}
-
-    ;; default — generic 500
-    {:status     500
-     :code       :internal-error
-     :message    "Something went wrong"
-     :retryable? false}))
+    ;; default — generic 500. Reuses the locked fallback shape so the
+    ;; "anything not enumerated → 500" mapping is the literal default
+    ;; rather than a ceremonial copy of the fallback literal.
+    fallback-public-error))
 
 (defn reg-error-projector
   "Register a projector under :error-projector kind. The fn maps an
