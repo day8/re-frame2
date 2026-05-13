@@ -426,41 +426,42 @@ Universal trace event shape, including error events.
 
 The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` under `:tags` of **every** trace event emitted inside a cascade; `:parent-dispatch-id` rides under `:tags` of `:event/dispatched` events only (it documents inter-cascade lineage). Per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id). Per-event frame attribution rides under `[:tags :frame]`. Per-event handler attribution rides under the top-level `:rf.trace/trigger-handler` slot when a handler is in scope at emit time — `:rf.fx/handled` carries the fx handler's coord, `:rf.machine/transition` carries the machine's coord, every `:rf.error/*` carries the responsible handler's coord, every emit inside an event handler's chain carries the event handler's coord. Per [009 §`:rf.trace/trigger-handler` — naming the in-scope handler](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler).
 
-The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md#spec-ulation). The reserved values used by the framework (in alphabetical order):
+The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md#spec-ulation). The canonical reserved values used by the framework — the family-level discriminators a consumer branches on — are enumerated below. Per-emit-site `:operation` keywords (e.g. `:rf.machine/transition`, `:rf.machine.timer/scheduled`, `:rf.epoch/snapshotted`, `:rf.error/handler-exception`) ride under each op-type family; the authoritative cross-reference is [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) and the [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+
+**Severity discriminators** (every error / warning / advisory event carries one of these):
 
 | `:op-type` | Used for | Spec |
 |---|---|---|
-| `:error` | Any `:rf.error/*` operation | 009 |
-| `:event` | Top-level event handler invocation | 009 |
-| `:event/do-fx` | Effect-resolution pass after handler returns | 009 |
-| `:frame/created`, `:frame/destroyed` | Frame lifecycle | 002 |
-| `:rf.frame/drain-interrupted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. `:op-type :frame` (frame-lifecycle family, not error). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
-| `:rf.machine/transition` | State-machine transition | 005 |
-| `:rf.machine.microstep/transition` | State-machine `:always` per-microstep transition | 005 |
-| `:rf.machine/done` | State machine entered a `:final?` state; the runtime fired the parent's `:on-done` (if any) and is about to auto-destroy the actor. `:tags {:machine-id <finishing-actor-id> :output <value-or-nil> :parent-id <parent-registration-id-or-nil>}`. Per [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key) and rf2-gn80. | 005 |
-| `:rf.machine.timer/scheduled` | State-machine `:after` timer scheduled at state entry (or re-scheduled on subscription-driven re-resolution per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution)). `:tags` carries `:delay-source <:literal | :sub | :fn>` and `:sub-id` (when source = `:sub`). | 005 |
-| `:rf.machine.timer/fired` | State-machine `:after` timer fired (live; epoch matched). `:tags` carries `:fired? <bool>` indicating whether the guard passed (false ⇒ suppressed, no transition; sibling timers continue). | 005 |
-| `:rf.machine.timer/stale-after` | State-machine `:after` timer fired with mismatched epoch (state was exited before the timer expired) and was silently ignored | 005 |
-| `:rf.machine.timer/cancelled-on-resolution` | State-machine `:after` timer with subscription-vector delay was cancelled because the subscription's value changed; a fresh timer is scheduled. Per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution). `:tags {:delay <prior-ms> :reason :sub-changed :sub-id <sub-id>}`. | 005 |
-| `:rf.machine.timer/skipped-on-server` | State-machine `:after` entry reached under SSR; timer scheduling suppressed per [005 §SSR mode](005-StateMachines.md#ssr-mode) | 005 |
-| `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` | Registrar mutations | 001 / 009 |
+| `:error` | Any `:rf.error/*` operation — a failure the runtime halted or recovered. Refines into `:rf/error-event` (below) | 009 |
+| `:warning` | Non-error advisories the runtime emitted alongside continuing default behaviour (e.g. `:rf.warning/plain-fn-under-non-default-frame-once`, `:rf.fx/skipped-on-platform`, `:rf.cofx/skipped-on-platform`). Refines into `:rf/error-event` | 009 |
+| `:info` | Informational advisories without warning/error severity (e.g. `:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, `:rf.http.interceptor/registered`, `:rf.http.interceptor/cleared`) | 009 / 014 |
+
+**Cascade-body discriminators** (the success-path / lifecycle traces emitted inside the run-to-completion drain):
+
+| `:op-type` | Used for | Spec |
+|---|---|---|
+| `:event` | Top-level event-handler invocation (`:event/dispatched`, `:event/db-changed`, etc.) | 009 |
+| `:event/do-fx` | Effect-resolution pass after the handler returns | 009 |
+| `:sub/create` | Subscription created (first reference / registration into the reactive graph) | 009 |
+| `:sub/run` | Subscription computation ran (input changed; output recomputed) | 009 |
 | `:view/render` | View render (per [Spec 004 §Render-tree primitives](004-Views.md)) | 004 / 009 |
-| `:rf.epoch/snapshotted`, `:rf.epoch/restored`, `:rf.epoch/db-replaced` | Tool-Pair epoch operations (the latter is the rf2-zq55 pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)) | Tool-Pair |
-| `:route.nav-token/allocated` | A new navigation token was allocated for an `:rf/url-changed` / `:rf.route/navigate` cascade. `:tags {:route-id <id> :nav-token <token>}` | 012 |
-| `:route.nav-token/stale-suppressed` | An async result arrived carrying a `:nav-token` that no longer matches the active route's token; the result was silently suppressed. `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}` | 012 |
-| `:rf.route/url-changed` | The runtime emitted `:rf/url-changed` for a fragment-only navigation (path and query unchanged); `:on-match` was NOT re-fired. `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}` | 012 |
-| `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation; pending-nav slot was set; user dispatch of `:rf.route/continue` / `:rf.route/cancel` is awaited. `:tags {:pending-id <id> :requested-url <url> :rejecting-route <id>}` | 012 |
-| `:rf.fx/override-applied` | An override redirected an fx call | 002 |
-| `:ssr` | Generic SSR-context op (server-render boundaries) | 011 |
-| `:sub/create`, `:sub/run` | Subscription lifecycle | 009 |
-| `:warning` | Non-error advisories (e.g., `:rf.warning/plain-fn-under-non-default-frame-once`) | 009 |
-| `:fx` | An effect substrate event (e.g. `:rf.fx/handled`, `:rf.fx/override-applied`) — the universal discriminator for fx outcomes when not error/warning-shaped | 009 |
-| `:info` | Informational advisories (e.g. `:rf.http/retry-attempt`) | 009 / 014 |
-| `:registry` | Registrar mutation events (handler-registered/cleared/replaced) | 001 / 009 |
-| `:machine` | Machine-substrate events (transitions, lifecycle, timers). Carries `:operation :rf.machine/destroyed` emits from `lifecycle_fx.cljc` for the non-frame-exit destroy causes (`:reason :rf.machine/finished` / `:explicit` / `:parent-unmount-cascade`). | 005 |
-| `:rf.machine.lifecycle/created`, `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — uniform create/destroy emit shape used by lifecycle observers (one op-type per direction; the operation is identical to the op-type). `-destroyed` fires on every actor instance going away; during a frame's destroy cascade `frame.cljc` emits one per active machine snapshot carrying `:reason :parent-frame-destroyed` (see [009 §`:op-type` vocabulary — Frame-exit machine teardown](009-Instrumentation.md#op-type-vocabulary)). | 005 / 009 |
-| `:rf.epoch` | Epoch-history events (snapshotted, restored, db-replaced) | Tool-Pair |
-| `:frame` | Frame-lifecycle events (created, re-registered, destroyed) | 002 |
+| `:fx` | Effect-substrate success-path / lifecycle events (e.g. `:rf.fx/handled`, `:rf.fx/override-applied`) — the universal discriminator for fx outcomes when not error/warning-shaped | 002 / 009 |
+
+**Family-level discriminators** (umbrella `:op-type` values whose per-emit-site `:operation` varies; consumers filter the whole family with one key):
+
+| `:op-type` | Used for | Spec |
+|---|---|---|
+| `:frame` | Frame-lifecycle family — `:frame/created`, `:frame/re-registered`, `:frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
+| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.invoke-all/*` operation, `:rf.machine.invoke/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason :rf.machine/finished` / `:explicit` / `:parent-unmount-cascade` (the non-frame-exit causes; `:parent-frame-destroyed` rides on the `:rf.machine.lifecycle/destroyed` family below). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
+| `:rf.machine.lifecycle/created` | Machine instance lifecycle — `created` half. Uniform create-emit shape used by lifecycle observers; `:tags {:frame <id> :machine-id <id>}` | 005 / 009 |
+| `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :machine-id <id> :last-state <state> :reason <:parent-frame-destroyed | :rf.machine/finished | :explicit | :parent-unmount-cascade>}`. Frame-exit cascade emits one per active machine snapshot carrying `:reason :parent-frame-destroyed` (see [009 §`:op-type` vocabulary — Frame-exit machine teardown](009-Instrumentation.md#op-type-vocabulary)) | 005 / 009 |
+| `:registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
+| `:flow` | Flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)) — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed`. All five carry `:tags :flow-id` and `:tags :frame` so tools can attribute and route per-frame; consumers filter `:op-type :flow` to subscribe to the whole stream | 013 |
+| `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted`, `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the rf2-zq55 pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :epoch-id <id> :event-id <id>?}` | Tool-Pair |
+| `:rf.epoch.cb` | Epoch-callback listener-silencing notifications — `:rf.epoch.cb/silenced-on-frame-destroy`. Emitted once per `(frame, cb-id)` pair when a frame previously observed by a `register-epoch-cb!` callback is destroyed so a tool whose previously-firing cb has gone silent learns *why* without polling registry state. Per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames) and rf2-d656 | Tool-Pair |
+| `:ssr` | Generic SSR-context family — server-render boundary traces (per [011](011-SSR.md)). Distinct from `:rf.ssr/*` operations under `:op-type :warning` (`:rf.ssr/hydration-mismatch` etc.) which ride the severity channel | 011 |
+
+**Per-operation rows** carry their own `:op-type` membership — e.g. `:rf.machine/transition` is an `:operation` whose `:op-type` is `:machine`; `:route.nav-token/stale-suppressed` is an `:operation` whose `:op-type` is `:error`; `:rf.fx/handled` is an `:operation` whose `:op-type` is `:fx`. The [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) is the single normative cross-reference: every emit site is enumerated there with its `:operation`, `:op-type`, trigger, default `:recovery`, and `:tags` payload.
 
 The error category schemas in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
 
