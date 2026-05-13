@@ -143,73 +143,92 @@
                 ~(source-coords/coords-form form-meta file ns-sym)]
         ~body-form)))
 
-#?(:clj
-   (defmacro reg-event-db
-     "Register a `(fn [db event-vec] new-db)` event handler under `id`.
-     Captures source-coords (Spec 001) at this call site. See
-     `re-frame.events/reg-event-db` for the full signature."
-     [id & args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(events/reg-event-db ~id ~@args))))
+;; The canonical reg-* defmacro captures source-coords at the caller's
+;; call site and splices the args through to a fn-form delegate. `defreg-
+;; macro` (rf2-bd6zl) is a macro-defining macro that emits exactly that
+;; body, so each reg-* declaration below collapses to a one-liner. The
+;; `~'&form` / `~'*file*` / `~'*ns*` escapes resolve at the INNER
+;; defmacro's expansion time (the user's call site), not at this helper's.
+;; `delegate-sym` is resolved through `re-frame.core`'s aliases at
+;; defreg-macro expansion time (where the aliases live), then baked into
+;; the inner macro as a fully-qualified symbol — the consumer's namespace
+;; never needs to alias the producing ns. reg-machine (below) stays
+;; bespoke — its per-element coord-walker body doesn't match the
+;; canonical splice-through pattern.
 
 #?(:clj
-   (defmacro reg-event-fx
+   (defn ^:private resolve-delegate-sym
+     "Resolve `sym` against `re-frame.core`'s aliases and return the fully-
+     qualified symbol. Lets defreg-macro emit a delegate call that doesn't
+     depend on the consumer's namespace aliasing the producing ns."
+     [sym]
+     (let [v (ns-resolve (find-ns 're-frame.core) sym)]
+       (when (nil? v)
+         (throw (ex-info (str "defreg-macro: cannot resolve delegate symbol " sym
+                              " in re-frame.core")
+                         {:sym sym})))
+       (symbol (str (.ns ^clojure.lang.Var v))
+               (str (.sym ^clojure.lang.Var v))))))
+
+#?(:clj
+   (defmacro ^:private defreg-macro
+     [macro-sym delegate-sym docstring & [attr-map]]
+     (let [qualified (resolve-delegate-sym delegate-sym)]
+       `(defmacro ~macro-sym
+          ~docstring
+          ~(or attr-map {})
+          [~'& args#]
+          (with-coords-form (meta ~'&form) ~'*file*
+                            (symbol (str (ns-name ~'*ns*)))
+                            (list* '~qualified args#))))))
+
+#?(:clj
+   (defreg-macro reg-event-db events/reg-event-db
+     "Register a `(fn [db event-vec] new-db)` event handler under `id`.
+     Captures source-coords (Spec 001) at this call site. See
+     `re-frame.events/reg-event-db` for the full signature."))
+
+#?(:clj
+   (defreg-macro reg-event-fx events/reg-event-fx
      "Register a `(fn [cofx event-vec] effect-map)` event handler under `id`.
      Effect-map is a closed shape: only `:db` and `:fx` at the top level.
      Captures source-coords (Spec 001) at this call site. See
-     `re-frame.events/reg-event-fx` for the full signature."
-     [id & args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(events/reg-event-fx ~id ~@args))))
+     `re-frame.events/reg-event-fx` for the full signature."))
 
 #?(:clj
-   (defmacro reg-event-ctx
+   (defreg-macro reg-event-ctx events/reg-event-ctx
      "Register a `(fn [context] context)` full-context event handler under `id`.
      Advanced — most handlers want `reg-event-db` or `reg-event-fx` instead.
      Captures source-coords (Spec 001) at this call site. See
-     `re-frame.events/reg-event-ctx` for the full signature."
-     [id & args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(events/reg-event-ctx ~id ~@args))))
+     `re-frame.events/reg-event-ctx` for the full signature."))
 
 #?(:clj
-   (defmacro reg-sub
+   (defreg-macro reg-sub subs/reg-sub
      "Register a subscription under `id`. Layer-1 subs read `app-db`
      directly; layer-2 subs chain off other subs via `:<-`. Captures
      source-coords (Spec 001) at this call site. See
-     `re-frame.subs/reg-sub` for the full signature."
-     [id & args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(subs/reg-sub ~id ~@args))))
+     `re-frame.subs/reg-sub` for the full signature."))
 
 #?(:clj
-   (defmacro reg-fx
+   (defreg-macro reg-fx fx/reg-fx
      "Register an effect handler under `id`. Handler signature is
      `(fn [ctx args] ...)`; runs when a `reg-event-fx` returns an effect-map
      carrying `[id args]` inside its `:fx` vector. Captures source-coords
      (Spec 001) at this call site. See `re-frame.fx/reg-fx` for the full
-     signature."
-     [id & args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(fx/reg-fx ~id ~@args))))
+     signature."))
 
 #?(:clj
-   (defmacro reg-cofx
+   (defreg-macro reg-cofx cofx/reg-cofx
      "Register a coeffect handler under `id` — a source of input data
      injected into an event handler's `:coeffects` map via `inject-cofx`.
      Captures source-coords (Spec 001) at this call site. See
-     `re-frame.cofx/reg-cofx` for the full signature."
-     [id & args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(cofx/reg-cofx ~id ~@args))))
+     `re-frame.cofx/reg-cofx` for the full signature."))
 
 #?(:clj
-   (defmacro reg-frame
+   (defreg-macro reg-frame frame/reg-frame
      "Register a frame. Captures source-coords (Spec 001) at this call site.
      See `re-frame.frame/reg-frame` for the full signature."
-     [id metadata]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(frame/reg-frame ~id ~metadata))))
+     {:arglists '([id metadata])}))
 
 ;; CLJS side keeps the fn-aliases. Source-coord capture on CLJS will
 ;; ride a future re-frame.core-macros companion ns. The fns themselves
@@ -427,51 +446,44 @@
 ;; the late-bind glue in the sub-namespace.
 
 #?(:clj
-   (defmacro reg-flow
+   (defreg-macro reg-flow rf-flows/reg-flow
      "Register a flow. Captures source-coords (Spec 001) at this call site.
      Implementation ships in `day8/re-frame2-flows` (rf2-tfw3); apps must
      add the artefact and require `re-frame.flows` at boot. See
-     `re-frame.core-flows/reg-flow` for the full signature."
-     [& args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(rf-flows/reg-flow ~@args))))
+     `re-frame.core-flows/reg-flow` for the full signature."))
 
 #?(:clj
-   (defmacro reg-route
+   (defreg-macro reg-route rf-routing/reg-route
      "Register a route under `id`. `metadata` is a map keyed at minimum on
      `:path` (URL pattern, Spec 012 §Pattern syntax). Captures
      source-coords (Spec 001) at this call site. Implementation ships in
      `day8/re-frame2-routing` (rf2-k682); apps must add the artefact and
      require `re-frame.routing` at boot. See
      `re-frame.core-routing/reg-route` for the full signature."
-     [id metadata]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(rf-routing/reg-route ~id ~metadata))))
+     {:arglists '([id metadata])}))
+
+;; reg-app-schema / reg-app-schemas: the splice-through form passes
+;; whatever arity the user called with to the delegate fn, which itself
+;; supplies the `opts = {}` default via its 2-arity overload (see
+;; `re-frame.core-schemas`). No compile-time `(or opts {})` defaulting
+;; needed.
 
 #?(:clj
-   (defmacro reg-app-schema
+   (defreg-macro reg-app-schema rf-schemas/reg-app-schema
      "Register a Malli schema at a path inside app-db (frame-scoped per
      Spec 010). Captures source-coords (Spec 001) at this call site.
      Implementation ships in `day8/re-frame2-schemas` (rf2-p7va). See
      `re-frame.core-schemas/reg-app-schema` for the full signature."
-     {:arglists '([path schema] [path schema opts])}
-     [path schema & [opts]]
-     (let [opts' (or opts {})]
-       (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                         `(rf-schemas/reg-app-schema ~path ~schema ~opts')))))
+     {:arglists '([path schema] [path schema opts])}))
 
 #?(:clj
-   (defmacro reg-app-schemas
+   (defreg-macro reg-app-schemas rf-schemas/reg-app-schemas
      "Bulk-register a `{path -> schema}` map against the active frame (or
      the `:frame` opt). Plural form of `reg-app-schema`. Captures
      source-coords (Spec 001) at this call site. Implementation ships in
      `day8/re-frame2-schemas` (rf2-p7va). See
      `re-frame.core-schemas/reg-app-schemas` for the full signature."
-     {:arglists '([path->schema] [path->schema opts])}
-     [path->schema & [opts]]
-     (let [opts' (or opts {})]
-       (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                         `(rf-schemas/reg-app-schemas ~path->schema ~opts')))))
+     {:arglists '([path->schema] [path->schema opts])}))
 
 #?(:clj
    (defmacro reg-machine
@@ -553,14 +565,11 @@
 (def ^:private -reg-error-projector rf-ssr/-reg-error-projector)
 
 #?(:clj
-   (defmacro reg-error-projector
+   (defreg-macro reg-error-projector rf-ssr/-reg-error-projector
      "Register an error projector — `(trace-event) -> public-error-map`.
      Frames opt in via the `:ssr` config's `:public-error-id` key.
      Captures source-coords (Spec 001) at this call site. Per Spec 011
-     §Server error projection."
-     [& args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(rf-ssr/-reg-error-projector ~@args))))
+     §Server error projection."))
 
 #?(:cljs
    (def reg-error-projector -reg-error-projector))
@@ -573,14 +582,11 @@
 (def ^:private -reg-head rf-ssr/-reg-head)
 
 #?(:clj
-   (defmacro reg-head
+   (defreg-macro reg-head rf-ssr/-reg-head
      "Register a head-fragment producer — `(fn [db route] head-model)`.
      `id` is a namespaced keyword (e.g. `:my.app/article`); routes name
      a head via `:head` route metadata. Captures source-coords (Spec 001)
-     at this call site. Per Spec 011 §Head/meta contract."
-     [& args]
-     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(rf-ssr/-reg-head ~@args))))
+     at this call site. Per Spec 011 §Head/meta contract."))
 
 #?(:cljs
    (def reg-head -reg-head))
