@@ -12,6 +12,7 @@
   during drain — the difference is only in the wrapping shape."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.privacy :as privacy]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -249,6 +250,11 @@
              :event/kind   :db
              :handler-fn   handler-fn
              :interceptors (vec all-chain)))
+    ;; Per rf2-isdwf / Spec 009 §Privacy: emit
+    ;; :rf.warning/sensitive-without-redaction once per (kind, id) pair
+    ;; when :sensitive? true but no with-redacted in the chain. Called
+    ;; AFTER register! so listeners see the registration trace first.
+    (privacy/warn-sensitive-without-redaction! :event id meta interceptors)
     id))
 
 (defn reg-event-fx
@@ -304,6 +310,7 @@
              :event/kind   :fx
              :handler-fn   handler-fn
              :interceptors (vec all-chain)))
+    (privacy/warn-sensitive-without-redaction! :event id meta interceptors)
     id))
 
 (defn reg-event-ctx
@@ -339,6 +346,7 @@
              :event/kind   :ctx
              :handler-fn   handler-fn
              :interceptors (vec all-chain)))
+    (privacy/warn-sensitive-without-redaction! :event id meta interceptors)
     id))
 
 (defn clear-event

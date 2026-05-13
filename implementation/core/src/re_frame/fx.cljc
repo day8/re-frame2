@@ -306,8 +306,18 @@
         ;; is not what consumers want — Story/Causa want jump-to-source
         ;; to land on the fx handler's `reg-fx` site, not the event
         ;; handler that produced the fx vector).
+        ;; Per rf2-isdwf: bind `*current-sensitive?*` to the fx
+        ;; handler's reading so any trace event emitted inside the
+        ;; fx body's scope (including the success `:rf.fx/handled`
+        ;; emit) carries the fx-handler-level sensitivity flag.
+        ;; Per Spec 009 §Privacy "innermost in-scope handler's flag
+        ;; wins" rule: when an event handler is sensitive but the fx
+        ;; handler it dispatches to is not, the `:rf.fx/handled`
+        ;; trace event reflects the FX handler's reading.
         (binding [trace/*current-trigger-handler*
-                  (trace/trigger-handler-from-meta :fx fx-id meta)]
+                  (trace/trigger-handler-from-meta :fx fx-id meta)
+                  trace/*current-sensitive?*
+                  (trace/sensitive?-from-meta meta)]
           (let [ok? (try
                       ((:handler-fn meta) (cond-> {:frame frame-id}
                                             origin-event (assoc :event origin-event))

@@ -200,6 +200,72 @@
   Per Spec 009 §Dispatch correlation and rf2-g6ih4."
   nil)
 
+;; ---- *current-sensitive?* (rf2-isdwf) -------------------------------------
+;;
+;; Per Spec 009 §Privacy / sensitive data in traces (lines 1149-1268):
+;; every trace event emitted inside the scope of a handler whose
+;; registration carries `:sensitive? true` in its metadata MUST be
+;; stamped with `:sensitive? true` at the top level of the emitted
+;; event. The runtime carries the in-scope handler's sensitivity
+;; reading through the dynamic Var `*current-sensitive?*` — bound
+;; alongside `*current-trigger-handler*` (rf2-3nn8 / rf2-lf84g) at
+;; every handler-scope binding site (router, fx, cofx, subs, views).
+;;
+;; `emit!` and `emit-error!` read this Var and hoist `:sensitive? true`
+;; to the emitted event's TOP LEVEL (per Spec 009 line 1175 — the
+;; stamp rides alongside `:source` / `:recovery`, not under `:tags`,
+;; so a single keyword read tells consumers to filter).
+;;
+;; Cascade composition rule (Spec 009 line 1177): the innermost
+;; in-scope handler's reading wins; the runtime does NOT transitively
+;; widen the flag across handler boundaries. Tools that want "every
+;; trace event in a sensitive cascade" group by `:dispatch-id` and
+;; OR-reduce.
+;;
+;; Production elision: when `interop/debug-enabled?` is false the
+;; whole trace surface compiles out via the outer `when` gate in
+;; `emit!`, so the Var read is dead code.
+
+(def ^:dynamic *current-sensitive?*
+  "Boolean. True when the in-scope handler's registration metadata
+  carries `:sensitive? true`. Bound alongside `*current-trigger-handler*`
+  at every handler-scope binding site (router process-event, fx
+  dispatcher, cofx injector, sub recompute, view render). `emit!` and
+  `emit-error!` read this Var and stamp the emitted trace event's
+  top-level `:sensitive?` field when true.
+
+  nil / false outside any handler's scope (registration-time emits,
+  outermost-dispatch lookup failures, async-callback emits). The
+  field is OMITTED from the trace event when the Var reads falsy —
+  consumers treat absent as false.
+
+  Per Spec 009 §Privacy and rf2-isdwf."
+  nil)
+
+(defn sensitive?-from-meta
+  "Read `:sensitive?` from a registrar slot's meta map. Returns
+  `true` iff the meta carries `:sensitive? true`; `false` for every
+  other shape (nil meta, absent key, falsy value).
+
+  Used by handler-scope binding sites to compute the value to bind
+  `*current-sensitive?*` to. Per rf2-isdwf."
+  [meta]
+  (true? (:sensitive? meta)))
+
+(defn sensitive?
+  "Predicate: is `trace-event`'s top-level `:sensitive?` field truthy?
+
+  The framework-published predicate every consumer (Causa, Story,
+  pair2-preload, pair2-mcp, story-mcp, causa-mcp) gates on. Replaces
+  the per-consumer `(and (map? ev) (true? (:sensitive? ev)))` private
+  helper.
+
+  Per Spec 009 §Privacy / sensitive data in traces and rf2-isdwf
+  (audit G5)."
+  [trace-event]
+  (and (map? trace-event)
+       (true? (:sensitive? trace-event))))
+
 (defn trigger-handler-from-meta
   "Build a `:rf.trace/trigger-handler` value from a registrar meta map.
   `kind` is the registry kind (`:event`, `:sub`, `:fx`, `:cofx`, `:view`);
@@ -298,6 +364,11 @@
                      than this numeric host-clock timestamp.
     :between       — `[t0 t1]` two-element vector — keep only events
                      whose :time falls in [t0, t1] inclusive.
+    :sensitive?    — boolean. Match the top-level `:sensitive?` field
+                     (per Spec 009 §Privacy filter-vocab row, rf2-isdwf).
+                     Pass `false` to exclude sensitive events; pass
+                     `true` to select only sensitive events. Absent ⇒
+                     no constraint.
     :pred          — `(fn [ev] -> truthy)` arbitrary predicate. Receives
                      the full event map. Returning truthy keeps the event.
 
@@ -313,6 +384,7 @@
      (let [{:keys [operation op-type since frame
                    severity event-id handler-id source origin
                    dispatch-id since-ms between pred]} opts
+           sensitive-filter (:sensitive? opts)
            [between-t0 between-t1] (when (and (sequential? between)
                                               (= 2 (count between)))
                                      between)
@@ -343,6 +415,12 @@
                   (or (nil? between-t0)
                       (and (number? (:time ev))
                            (<= between-t0 (:time ev) between-t1)))
+                  ;; Per rf2-isdwf: top-level `:sensitive?` is hoisted
+                  ;; (NOT nested under :tags). Match against the
+                  ;; top-level slot only; absent reads as false.
+                  (or (nil? sensitive-filter)
+                      (= (true? sensitive-filter)
+                         (true? (:sensitive? ev))))
                   (or (nil? pred) (pred ev))))]
        (filterv predicate @trace-buffer-state)))))
 
@@ -434,7 +512,17 @@
           ;; trace event, NOT inside :tags. Hoist them here.
           cascade-id   *current-dispatch-id*
           trigger      *current-trigger-handler*
-          base-tags    (dissoc tags :source :recovery)
+          ;; Per rf2-isdwf: hoist `:sensitive?` to the top level of
+          ;; the trace event when the in-scope handler's registration
+          ;; meta carries `:sensitive? true`. Caller-supplied
+          ;; `:sensitive?` in tags wins (e.g. `emit-dispatched-trace!`
+          ;; computes its own reading at queue time, before the
+          ;; handler-scope binding exists).
+          tag-sensitive? (:sensitive? tags)
+          sensitive?     (cond
+                           (some? tag-sensitive?) (true? tag-sensitive?)
+                           :else                  (true? *current-sensitive?*))
+          base-tags    (dissoc tags :source :recovery :sensitive?)
           ;; Per rf2-g6ih4: stamp the cascade's :dispatch-id on every
           ;; event emitted inside the drain so consumers can group raw
           ;; trace events by cascade without inferring from sequence.
@@ -454,7 +542,13 @@
                      ;; registration coord onto every trace event
                      ;; emitted inside a handler's scope. Symmetric
                      ;; with `emit-error!` per rf2-3nn8.
-                     trigger  (assoc :rf.trace/trigger-handler trigger))]
+                     trigger  (assoc :rf.trace/trigger-handler trigger)
+                     ;; Per rf2-isdwf: top-level `:sensitive? true`
+                     ;; stamp. Absent (NOT `:sensitive? false`) when
+                     ;; the in-scope handler is not sensitive — per
+                     ;; Spec 009 line 1176 "Consumers treat absent
+                     ;; as false."
+                     sensitive? (assoc :sensitive? true))]
       (push-to-buffer! event)
       (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]
@@ -495,7 +589,15 @@
     (let [trigger    *current-trigger-handler*
           call-site  *current-call-site*
           cascade-id *current-dispatch-id*
-          base-tags  (merge {:category error-operation} tags)
+          ;; Per rf2-isdwf: hoist `:sensitive?` to top-level on error
+          ;; events too. Caller-supplied tag wins (e.g. callers that
+          ;; need to force-stamp regardless of in-scope handler).
+          tag-sensitive? (:sensitive? tags)
+          sensitive?     (cond
+                           (some? tag-sensitive?) (true? tag-sensitive?)
+                           :else                  (true? *current-sensitive?*))
+          base-tags  (merge {:category error-operation}
+                            (dissoc tags :sensitive?))
           tags+      (if (and cascade-id (not (contains? base-tags :dispatch-id)))
                        (assoc base-tags :dispatch-id cascade-id)
                        base-tags)
@@ -505,8 +607,9 @@
                               :time      (interop/now-ms)
                               :tags      tags+
                               :recovery  (:recovery tags :no-recovery)}
-                       trigger   (assoc :rf.trace/trigger-handler trigger)
-                       call-site (assoc :rf.trace/call-site       call-site))]
+                       trigger    (assoc :rf.trace/trigger-handler trigger)
+                       call-site  (assoc :rf.trace/call-site       call-site)
+                       sensitive? (assoc :sensitive? true))]
       (push-to-buffer! event)
       (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]

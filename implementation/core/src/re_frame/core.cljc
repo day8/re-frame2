@@ -40,6 +40,7 @@
             [re-frame.subs :as subs]
             [re-frame.interceptor :as interceptor]
             [re-frame.std-interceptors :as std-interceptors]
+            [re-frame.privacy :as privacy]
             [re-frame.spec :as spec]
             [re-frame.late-bind :as late-bind]
             [re-frame.source-coords :as source-coords]
@@ -934,6 +935,20 @@
 (def inject-cofx     cofx/inject-cofx)
 (def path            std-interceptors/path)
 (def unwrap          std-interceptors/unwrap)
+
+;; ---- privacy (Spec 009 §Privacy; rf2-isdwf) ------------------------------
+;;
+;; The `with-redacted` positional interceptor and the framework's
+;; published `sensitive?` predicate. Per Spec 009 lines 1149-1268:
+;; `:sensitive?` is the filter-out signal (top-level on the trace
+;; event); `with-redacted` is the in-place payload scrub. The two
+;; compose — a handler carrying both `:sensitive? true` in its
+;; metadata-map AND `with-redacted` in its positional chain emits
+;; trace events that are BOTH stamped `:sensitive? true` AND carry
+;; redacted payloads. See API.md and Spec 009.
+
+(def with-redacted   privacy/with-redacted)
+(def sensitive?      trace/sensitive?)
 
 ;; ---- :spec/validate-at-boundary (rf2-r2uh) -------------------------------
 ;;
