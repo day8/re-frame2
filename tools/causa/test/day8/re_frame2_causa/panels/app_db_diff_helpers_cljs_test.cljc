@@ -146,14 +146,51 @@
 
 ;; ---- (3) reserved-keys partition ----------------------------------------
 
-(deftest reserved-app-db-keys-includes-the-five-runtime-keys
+(deftest reserved-app-db-keys-includes-the-six-runtime-keys
   (testing "reserved-app-db-keys matches spec/Conventions.md
             §Reserved app-db keys"
     (is (contains? h/reserved-app-db-keys :rf/machines))
     (is (contains? h/reserved-app-db-keys :rf/route))
     (is (contains? h/reserved-app-db-keys :rf/system-ids))
     (is (contains? h/reserved-app-db-keys :rf/pending-navigation))
-    (is (contains? h/reserved-app-db-keys :rf/spawned))))
+    (is (contains? h/reserved-app-db-keys :rf/spawned))
+    (is (contains? h/reserved-app-db-keys :rf/elision))))
+
+(def ^:private conventions-reserved-app-db-keys
+  "The canonical set of reserved app-db keys per spec/Conventions.md
+  §Reserved app-db keys. Hard-coded here as a drift-detector: if a
+  new reserved key lands in Conventions and this set is updated,
+  `partition-reserved`'s coverage MUST be updated in lockstep — see
+  rf2-w1r29 for the gap that motivated this test (rf2-qictc surfaced
+  the lockstep expectation; `:rf/elision` had drifted out of the
+  partition set).
+
+  Per the rule in tools/causa/spec/004-App-DB-Diff.md §Reserved-keys
+  group: 'If a new reserved key lands in Conventions, the `[runtime]`
+  group's coverage and this table are updated in lockstep.' This
+  hard-coded set is the test-side mirror of that table; updating
+  Conventions, the panel table, AND this set is a single atomic
+  change."
+  #{:rf/machines
+    :rf/route
+    :rf/system-ids
+    :rf/pending-navigation
+    :rf/spawned
+    :rf/elision})
+
+(deftest reserved-app-db-keys-matches-conventions-md
+  (testing "drift-detector: every key in spec/Conventions.md §Reserved
+            app-db keys is covered by partition-reserved (rf2-w1r29
+            follow-on to rf2-qictc)"
+    (is (= conventions-reserved-app-db-keys h/reserved-app-db-keys)
+        "partition-reserved's reserved-app-db-keys must equal the
+        canonical Conventions set exactly — additions and removals
+        in Conventions must land in Causa in the same change.")
+    (doseq [k conventions-reserved-app-db-keys]
+      (is (h/reserved-path? [k :child :leaf])
+          (str "reserved-path? must return true for a path rooted at " k))
+      (is (h/reserved-path? [k])
+          (str "reserved-path? must return true for a top-level " k " path")))))
 
 (deftest reserved-path-true-for-rf-roots
   (testing "reserved-path? returns true when the first path key is reserved"
