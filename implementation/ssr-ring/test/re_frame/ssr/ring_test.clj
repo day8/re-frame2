@@ -359,6 +359,41 @@
             "each request's handler saw its own URI — no slot bleed")))))
 
 ;; ===========================================================================
+;; ssr-handler — :ssr opt reaches the per-request frame's :ssr metadata
+;;
+;; Regression (rf2-8cx3y): the docstring documented `:ssr` but the
+;; destructure read `:ssr-config`, so any caller passing
+;; `{:ssr {:dev-error-detail? true ...}}` had it silently dropped —
+;; `cond->` never asserted the key onto the per-request frame config,
+;; and the default projector ran regardless of the caller's intent.
+;; Pre-alpha: no back-compat — `:ssr` is now the canonical name and
+;; matches both `rf/make-frame`'s frame-config key and Spec 011.
+;; ===========================================================================
+
+(deftest handler-passes-through-ssr-opt-to-frame-meta
+  (testing ":ssr opt → per-request frame's :ssr metadata (rf2-8cx3y)"
+    (let [captured (atom :unset)]
+      (rf/reg-event-fx :init/capture-ssr-meta
+        {:platforms #{:server}}
+        (fn [{:keys [frame]} _]
+          (reset! captured (:ssr (rf/frame-meta frame)))
+          {}))
+
+      (rf/reg-view* :pages/blank-for-ssr-opt (fn [] [:div]))
+
+      (let [handler (ssr-ring/ssr-handler
+                      {:on-create [:init/capture-ssr-meta]
+                       :root-view [:pages/blank-for-ssr-opt]
+                       :ssr       {:dev-error-detail? true
+                                   :public-error-id   :myapp/projector}})]
+        (handler {:uri "/" :request-method :get})
+        (is (= {:dev-error-detail? true
+                :public-error-id   :myapp/projector}
+               @captured)
+            "the :ssr opt reaches the per-request frame's :ssr metadata
+             — the destructure matches the documented key")))))
+
+;; ===========================================================================
 ;; ssr-handler — payload-keys slice
 ;; ===========================================================================
 
