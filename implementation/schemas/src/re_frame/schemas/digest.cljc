@@ -6,6 +6,18 @@
   frames produce equal digests iff their `{path → schema-value}` maps
   serialise byte-for-byte identically.
 
+  Per Spec 010 §Schema digest line 491 the per-schema serialisation
+  step routes through the registered validator's `schema-print`
+  companion fn — pluggable via `re-frame.schemas.validator/printer-fn`
+  (rf2-wla45). The default is `validator/default-edn-print` (the
+  Malli-EDN canonical `pr-str`); non-Malli ports register their own
+  serialiser via `set-schema-printer!` so the digest reflects the
+  registered validator's serialisation contract rather than the
+  framework's Malli-EDN default. The rest of the pipeline — SHA-256
+  per entry, `<path> <hex>\\n` line emission, lexicographic line sort,
+  `\"sha256:\" + first-16-hex` truncation — is fixed by spec and shared
+  across every port.
+
   Used by:
     - The epoch-restore schema-mismatch trace (epoch.cljc) — pinpoints
       when a frame's schema set drifted between record and restore.
@@ -15,48 +27,10 @@
       have shifted under them."
   (:require #?(:cljs [goog.crypt :as gcrypt])
             #?(:cljs [goog.crypt.Sha256])
-            [re-frame.schemas.storage :as storage])
+            [re-frame.schemas.storage :as storage]
+            [re-frame.schemas.validator :as validator])
   #?(:clj (:import [java.security MessageDigest]
                    [java.nio.charset StandardCharsets])))
-
-(defn- canonicalise-schema-form
-  "Normalise a Malli EDN schema form for stable byte serialisation:
-  metadata is stripped, and map-keys (the Malli `props` map's contents
-  in `[:map {k v ...} & children]`) are emitted in (compare a b) order
-  via `sort-by str`. The result is fed through `pr-str` to produce the
-  canonical UTF-8 byte sequence Spec 010 hashes."
-  [form]
-  (letfn [(canon [x]
-            (cond
-              (map? x)
-              ;; Sort keys lexicographically by their printed form so two
-              ;; equivalent maps with different insertion order serialise
-              ;; identically. Using a sorted-map preserves the order
-              ;; through pr-str.
-              (into (sorted-map-by (fn [a b]
-                                     (compare (pr-str a) (pr-str b))))
-                    (map (fn [[k v]] [(canon k) (canon v)]))
-                    x)
-              (vector? x) (mapv canon x)
-              (set? x)    (into (sorted-set-by (fn [a b]
-                                                 (compare (pr-str a) (pr-str b))))
-                                (map canon)
-                                x)
-              (seq? x)    (doall (map canon x))
-              :else       x))]
-    (canon form)))
-
-(defn- schema-print
-  "Serialise a schema value to a stable UTF-8 byte-source string. Per
-  Spec 010 §Digest algorithm step 1, the CLJS reference uses `pr-str`
-  over the Malli EDN form with map-key ordering normalised and metadata
-  stripped."
-  [schema-value]
-  (binding [*print-meta*       false
-            *print-readably*   true
-            *print-dup*        false
-            *print-namespace-maps* false]
-    (pr-str (canonicalise-schema-form schema-value))))
 
 (defn- utf8-bytes
   "Encode a string as UTF-8 bytes."
@@ -92,11 +66,14 @@
 
 (defn- digest-line
   "Per Spec 010 §Digest algorithm step 3 — emit one line per
-  `(path, schema-value)` of the form `<path-string> <hex-of-sha256>\\n`."
+  `(path, schema-value)` of the form `<path-string> <hex-of-sha256>\\n`.
+  The per-schema serialisation routes through the registered
+  `schema-print` companion (rf2-wla45) so non-Malli ports compute
+  digests against their own canonical bytes."
   [path schema-value]
   (str (pr-str path)
        " "
-       (sha256-hex (schema-print schema-value))
+       (sha256-hex (validator/run-printer schema-value))
        "\n"))
 
 (defn- compute-digest

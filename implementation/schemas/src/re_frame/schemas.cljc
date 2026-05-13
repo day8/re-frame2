@@ -74,10 +74,12 @@
 (def schemas-by-frame storage/schemas-by-frame)
 (def validator-fn     validator/validator-fn)
 (def explainer-fn     validator/explainer-fn)
+(def printer-fn       validator/printer-fn)
 
-;; Validator / explainer (rf2-froe).
+;; Validator / explainer / printer (rf2-froe + rf2-wla45).
 (def set-schema-validator!   validator/set-schema-validator!)
 (def set-schema-explainer!   validator/set-schema-explainer!)
+(def set-schema-printer!     validator/set-schema-printer!)
 (def reset-schema-validator! validator/reset-schema-validator!)
 
 ;; Registration + per-frame query (Spec 010 §Per-frame schemas).
@@ -155,6 +157,7 @@
 (late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
 (late-bind/set-fn! :schemas/set-schema-validator! set-schema-validator!)
 (late-bind/set-fn! :schemas/set-schema-explainer! set-schema-explainer!)
+(late-bind/set-fn! :schemas/set-schema-printer!   set-schema-printer!)
 
 ;; Elision-walker hooks (rf2-nwv63 / rf2-v9tw2) — published so
 ;; re-frame.core's downstream registry-population code can hydrate

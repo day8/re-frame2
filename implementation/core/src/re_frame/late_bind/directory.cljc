@@ -123,6 +123,10 @@
     :producer-ns 're-frame.schemas
     :design-bead "rf2-froe"
     :description "Install a pluggable schema-explainer fn paired with the validator."}
+   {:key         :schemas/set-schema-printer!
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-wla45"
+    :description "Install a pluggable schema-print companion fn (Spec 010 §Schema digest line 491). The digest pipeline hashes this fn's UTF-8 output; non-Malli ports register their own serialiser so digests reflect the registered validator's serialisation contract."}
    {:key         :schemas/validate-with-registered-fn
     :producer-ns 're-frame.schemas
     :design-bead "rf2-r2uh"

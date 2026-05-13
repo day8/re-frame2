@@ -300,6 +300,7 @@
 (def app-schemas-digest     rf-schemas/app-schemas-digest)
 (def set-schema-validator!  rf-schemas/set-schema-validator!)
 (def set-schema-explainer!  rf-schemas/set-schema-explainer!)
+(def set-schema-printer!    rf-schemas/set-schema-printer!)
 
 ;; ---- clearing ------------------------------------------------------------
 
