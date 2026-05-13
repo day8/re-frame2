@@ -26,15 +26,15 @@
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     ;; The :mode region starts at :create; the :lifecycle region starts
     ;; at :idle.
-    (assert (= :create (rf/compute-sub [:editor/mode] (rf/get-frame-db f))))
-    (assert (= :idle   (rf/compute-sub [:editor/status] (rf/get-frame-db f))))
+    (assert (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/create] (rf/get-frame-db f))))
+    (assert (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/idle] (rf/get-frame-db f))))
     (rf/dispatch-sync [:editor/edit-field :title "Hello"] {:frame f})
     (rf/dispatch-sync [:editor/edit-field :description "Short"] {:frame f})
     (rf/dispatch-sync [:editor/edit-field :body "Body"] {:frame f})
     (rf/dispatch-sync [:editor/submit] {:frame f})
     ;; A successful submit advances :mode → :edit and :lifecycle → :saved.
-    (assert (= :saved (rf/compute-sub [:editor/status] (rf/get-frame-db f))))
-    (assert (= :edit  (rf/compute-sub [:editor/mode] (rf/get-frame-db f))))
+    (assert (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/saved] (rf/get-frame-db f))))
+    (assert (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/edit] (rf/get-frame-db f))))
     (assert (false? (rf/compute-sub [:editor/dirty?] (rf/get-frame-db f))))))
 
 (defn editor-can-leave-test []

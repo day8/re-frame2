@@ -364,17 +364,6 @@
               (when (contains? tags tag) render))
             render-priority))))
 
-;; Legacy sub names kept as thin adapters over the machine so existing
-;; tests and any external callers still resolve. Prefer the tag queries
-;; and the render selector in new code.
-(rf/reg-sub :editor/status
-  :<- [:rf/machine :ui/article-editor]
-  (fn [snap _] (get-in snap [:state :lifecycle])))
-
-(rf/reg-sub :editor/mode
-  :<- [:rf/machine :ui/article-editor]
-  (fn [snap _] (get-in snap [:state :mode])))
-
 ;; ============================================================================
 ;; VIEWS
 ;; ============================================================================
