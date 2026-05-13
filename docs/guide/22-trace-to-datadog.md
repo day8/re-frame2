@@ -159,7 +159,8 @@ The full recipe:
    :service "my-app"})
 
 (rf/reg-event-fx :my-app.observability/ship
-  {:doc "POST one Datadog event. Retry on transport / 5xx."}
+  {:doc               "POST one Datadog event. Retry on transport / 5xx."
+   :rf.trace/no-emit? true}                       ;; ← closes the listener-loop. See "Closing the listener loop" below.
   (fn [_ [_ {:keys [datadog-event] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       (case (:kind reply)
@@ -205,6 +206,25 @@ A few things worth pointing at:
 2. **No `rf/elide-wire-value` call in user code.** The framework runs every record through elision *before* invoking your listener. By the time you see the record, sensitive values are dropped and large values are marker-substituted. (Compare to ch.15's trace-bus consumers, where elision is the consumer's job because trace events are emitted before any elision pass.)
 3. **`:request-id` is unique per send.** A UUID per request lets the managed-HTTP in-flight registry track the POSTs independently. If you reuse an id, the second send aborts the first ([ch.10](10-doing-http-requests.md) covers the rules).
 4. **The triple-gate is conservative on purpose.** If you forget any one of the three predicates, the integration silently no-ops. Configure thoughtfully; deploy carefully; the Datadog dashboard will tell you if events stop arriving.
+5. **`:rf.trace/no-emit? true` on the shipper closes the listener loop.** See the next section.
+
+## Closing the listener loop
+
+The event-emit listener fires *once per dispatched event*. The listener above dispatches `:my-app.observability/ship`. That dispatch is itself an event — without an opt-out, the listener fires again on the shipper, dispatches another `:my-app.observability/ship`, and the cascade spirals into infinite re-dispatch. Every Datadog ship triggers another Datadog ship.
+
+The opt-out is one key on the handler's registration meta:
+
+```clojure
+(rf/reg-event-fx :my-app.observability/ship
+  {:rf.trace/no-emit? true}                       ;; ← opt-out
+  (fn [_ [_ {:keys [datadog-event] :as msg}]] ...))
+```
+
+`:rf.trace/no-emit?` is a framework-level escape hatch designed for exactly this shape — handlers whose dispatches are framework-internal bookkeeping that should not re-enter observability consumers. The event-emit substrate honours the flag and drops the per-event record for opt-out handlers before any listener fan-out, so your shipper still runs (its `:db` change, its `:fx` walk, its HTTP POST), but the event-emit listener never sees the shipper's dispatch and the loop closes. The same flag suppresses the dev-only trace bus inside the handler — see [`spec/009-Instrumentation.md` §Trace-emission opt-out](../../spec/009-Instrumentation.md) for the full semantics.
+
+Apply the same meta to any other handler your listener might end up dispatching as part of the shipping pipeline (a batch flush handler, a back-off retry handler, anything that runs only because the listener fired). If a shipped record is the *only* reason a handler runs, that handler should opt out.
+
+`:rf.trace/no-emit?` does *not* protect against an error-emit feedback loop. The error-emit substrate does not honour the flag today — if a shipper handler reliably throws (a malformed URL, a credentials misconfiguration) and your error-emit listener dispatches the same shipper to forward the error record, you have a different loop on the error path. The cheap fix is the same shape: keep error-shipping idempotent and bounded (e.g., a circuit breaker that stops re-dispatching after N consecutive failures inside a window), or wrap the shipper's `:fx` in an `:on-error` per-frame policy ([ch.14](14-errors.md)) that swallows shipper exceptions before they re-enter the error-emit substrate.
 
 ## Batching
 
@@ -226,7 +246,7 @@ A sketch:
 ;; (every 30s) → :my-app.observability/flush-buffer.
 ```
 
-`ship-batch` POSTs the array as a single Datadog v2 batch submission — same retry policy, same elision (already applied per-record before they reached the buffer), lower request volume. Tune the buffer size and flush interval against your dispatch frequency and Datadog's [API rate limits](https://docs.datadoghq.com/api/latest/rate-limits/).
+`ship-batch` POSTs the array as a single Datadog v2 batch submission — same retry policy, same elision (already applied per-record before they reached the buffer), lower request volume. Register `ship-batch` (and any `flush-buffer` event the periodic flush dispatches) with `{:rf.trace/no-emit? true}` for the same reason `ship` carries it — those dispatches exist only because the listener fired, and feeding them back through the substrate is the loop you closed above. Tune the buffer size and flush interval against your dispatch frequency and Datadog's [API rate limits](https://docs.datadoghq.com/api/latest/rate-limits/).
 
 ## The shape is generic
 
