@@ -77,6 +77,8 @@ When in doubt, ask: *"Was there a `re-frame-pair2` session you want me to retros
 
 ## Analysis workflow
 
+Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, and opt-in bead protocol shared with `re-frame2-improver`. The protocol leaf is the normative source for the workflow shape; the steps below are the pair2-retro specialisation.
+
 1. **Reconstruct the session goal.** The user's intended outcome, plus environment facts (platform, target repo, live runtime state, tooling constraints).
 2. **Build a short timeline.** Turns where progress stalled, restarted, detoured, required a workaround. Tool errors, empty/stale outputs, retries, clarification loops.
 3. **Extract friction.** Numbered list first. For each: what happened, where it appeared, initial category guess. Ask which to dig into and what was missed.
@@ -122,6 +124,7 @@ If `bd` is not configured in the target repo, produce a ready-to-paste body and 
 
 ## Reference files
 
+- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Extracted by rf2-dhe9v; consumed by both this skill and `re-frame2-improver`.
 - [`references/analysis-lenses.md`](references/analysis-lenses.md) — friction signals (generic + re-frame2-specific), root-cause categories, improvement patterns, routing decisions, prioritization.
 - [`references/known-frictions.md`](references/known-frictions.md) — recurring classes of `re-frame-pair2` pain; sanity-check one-off vs pattern.
 - [`references/issue-template.md`](references/issue-template.md) — bead/issue body template.
