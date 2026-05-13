@@ -82,7 +82,10 @@
                          :before (fn [ctx]
                                    (reset! seen-keys (set (keys ctx)))
                                    ctx))]
-                       inc)
+                       ;; reg-event-db handlers receive (slice, event-vec);
+                       ;; `inc` is arity-1 so wrap it explicitly to honour
+                       ;; the (fn [db event] new-db) contract.
+                       (fn [slice _] (inc slice)))
       (rf/dispatch-sync [:path-ns/init])
       (rf/dispatch-sync [:path-ns/inc])
       (is (contains? @seen-keys :rf/path-stack)
