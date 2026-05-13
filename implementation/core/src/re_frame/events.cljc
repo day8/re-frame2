@@ -67,18 +67,6 @@
 ;; (NOT merged silently nor routed through the fx machinery) — silently
 ;; routing a top-level :dispatch was the v1 behaviour M-8 explicitly removes.
 
-(defn- legacy-key-suggestion
-  "Return a one-clause hint mapping a known legacy top-level key to its M-8
-  rewrite, or nil for an unrecognised key. Used to compose the :reason
-  string per Spec 009 §Style rubric for :reason strings."
-  [k]
-  (case k
-    :dispatch        "wrap as `:fx [[:dispatch event]]`"
-    :dispatch-later  "wrap as `:fx [[:dispatch-later {...}]]`"
-    :dispatch-n      "expand each event into `:fx [[:dispatch e1] [:dispatch e2] ...]`"
-    :http            "wrap as `:fx [[:http {...}]]`"
-    nil))
-
 (defn- police-effect-map-shape!
   "Emit :rf.error/effect-map-shape for each non-:db / non-:fx top-level key
   in `effects`. Per Spec migration M-8 the effect-map is closed at the top
@@ -89,12 +77,9 @@
                        (remove #{:db :fx})
                        (vec))]
     (doseq [k offending]
-      (let [v          (get effects k)
-            suggestion (legacy-key-suggestion k)
-            reason     (str "Effect-map for `" event-id "` returned top-level key `" k
-                            "`; only `:db` and `:fx` are allowed at the top level"
-                            (when suggestion (str " — " suggestion))
-                            ".")]
+      (let [v      (get effects k)
+            reason (str "Effect-map for `" event-id "` returned top-level key `" k
+                        "`; only `:db` and `:fx` are allowed at the top level.")]
         (trace/emit-error! :rf.error/effect-map-shape
                            {:failing-id    event-id
                             :event-id      event-id
