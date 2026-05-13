@@ -306,6 +306,185 @@ Cross-reference: [`001-Causality-Graph.md`](./001-Causality-Graph.md)
 §Interactions — chips reuse the same panel-jump primitives the
 graph's click and right-click affordances expose.
 
+## Streaming-token effect contract
+
+The LLM call is a streaming fetch. Per §Result formatting tokens
+arrive at roughly 25 tokens/sec with first words within ~600ms of
+the user pressing Enter, and per §Causa data chips §Encoding
+contract the chip parser walks each accreted token in order so chip
+fragments resolve as they cross the brace boundary. The wire shape
+of that stream — the effect that drives it, the event that
+delivers each token, the event that terminates it — is normative
+here; the per-provider fetch (Claude / OpenAI / Gemini / Local /
+Custom — see §Provider abstraction) is the swap-out, not the
+contract.
+
+### Effect surface
+
+The single outbound surface is the registered effect
+`:rf.causa.fx/llm-stream`. The only event that calls it is
+`:rf.causa/copilot-submit-question` per §Pull-only model — no other
+handler in Causa may emit `:rf.causa.fx/llm-stream` directly, and
+the effect MUST NOT fire on mount, on provider switch, on
+conversation restore, or on any background timer.
+
+The effect argument map is:
+
+```
+{:provider           <kw — :claude | :openai | :gemini | :local | :custom>
+ :text               <str — the user's question, post-trim>
+ :parsed             <map-or-nil — parse-slash-command result>
+ :redaction-settings <map — per-category opt-in flags>}
+```
+
+The provider integration MUST apply `redact-payload` (per §Redaction
+defaults) BEFORE issuing the network fetch — privacy-by-default is
+not the provider's discretion. The fetch hits the provider directly
+from the browser; Day8 never proxies (§What this doesn't do).
+
+### Token-delivery event
+
+Each token arriving on the stream MUST be dispatched as the
+event-db:
+
+```
+[:rf.causa/copilot-stream-token <token-string>]
+```
+
+The token-string is the model's wire token verbatim — no
+client-side de-tokenisation, no whitespace coercion, no chip
+pre-parsing. The handler appends the string to the trailing
+answer's `:text` (per the `append-token` shape catalogued in
+[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) §Events)
+and increments `:rf.causa/copilot-streaming-token-count`.
+
+Chip parsing per §Causa data chips §Encoding contract is a *render
+concern*, not a transport concern — `parse-streamed-answer` runs
+over the accreted `:text` on each render, so a chip fragment that
+arrives split across two tokens is invisible across the boundary
+and pops into existence once the closing brace is seen.
+
+### Termination
+
+A stream MUST terminate by exactly one of:
+
+1. **Normal end.** The provider closes the stream cleanly; the
+   effect MUST dispatch `[:rf.causa/copilot-stream-end]`, which
+   flips the trailing turn's `:streaming?` flag to `false` and
+   resets the streaming-token-count subscription.
+2. **API error.** Network failure, rate limit, expired key —
+   surfaced per §When the model is wrong §API error. The effect
+   MUST still dispatch `[:rf.causa/copilot-stream-end]` so the
+   trailing turn is no longer marked in-flight before the error
+   banner renders; the partial `:text` accreted to that turn
+   remains visible (the user can see how far the model got).
+
+The end event is the SOLE termination signal. The token-delivery
+event MUST NOT carry an inline `:final?` flag, a `:done? true`
+sentinel, or any other per-token termination signal — the trailing
+turn's transition from streaming to settled is the stream-end
+event's job alone. Rationale: one signal is unambiguous; an
+overloaded final-token shape forces every reader to special-case
+the last token and risks misclassifying a model that legitimately
+emits an empty terminating chunk.
+
+### Per-turn ordering guarantee
+
+Tokens MUST arrive in the order the provider emits them. The
+trailing answer turn is the only legal accretion target — the
+effect MUST NOT reorder tokens before dispatch, MUST NOT batch
+multiple tokens into a single event (a one-token-one-event
+discipline keeps the trace stream legible per
+[`013-Trace-Bus.md`](./013-Trace-Bus.md)), and MUST NOT skip
+tokens. Per-`append-token` the conversation handler ignores
+tokens that arrive when the trailing turn is not an in-flight
+answer (defensive — see the ns docstring in
+`ai_co_pilot_helpers.cljc`), so a late token from a cancelled
+stream cannot corrupt a finalised turn.
+
+### Single-stream invariant
+
+At most ONE stream may be in flight per Causa frame. The
+conversation buffer threads a single trailing answer turn (per
+§Ephemeral conversation); the contract is *append to the trailing
+turn*, which presumes that turn exists and is in-flight. The submit
+handler MUST refuse a new `:rf.causa/copilot-submit-question` while
+the trailing turn is `:streaming? true`; the rail's input row MAY
+disable the submit button under that condition for the affordance
+to be visible.
+
+There is no `:dispatch-id`-keyed dispatch table. The single-stream
+invariant obviates the need for one — the trailing turn IS the
+stream's identity. Multi-stream concurrency is explicitly out of
+scope for v1.0 (a "let me ask three things at once" form would
+fragment the conversation rail and complicate the chip-resolution
+contract).
+
+### Cancellation
+
+A stream MUST be cancelled — the underlying fetch aborted, no
+further `:rf.causa/copilot-stream-token` dispatches honoured —
+under any of:
+
+1. **Causa close.** Per §Ephemeral conversation the conversation
+   buffer is cleared on Causa close; the in-flight stream MUST
+   abort as part of the unmount lifecycle. The effect handler
+   carries a teardown registered against Causa's shell so an
+   abort fires before the frame's app-db slot is unmounted.
+2. **`/clear` slash command + Ctrl+L.** The
+   `:rf.causa/copilot-clear-conversation` event resets the buffer;
+   the in-flight stream (if any) MUST abort. A late token arriving
+   after the clear MUST be dropped silently — `append-token`'s
+   defensive precondition (trailing turn must be a streaming
+   answer) catches the case naturally, but the effect SHOULD also
+   abort the underlying fetch to avoid burning the user's tokens.
+3. **Tab reload.** Browser-driven; the fetch dies with the page
+   per §Ephemeral conversation §Cleared on tab reload.
+
+Cancellation is **silent** — no toast, no banner, no log row. The
+user pressed Ctrl+L; the cost is paid. Cancellation MUST NOT
+synthesise a `:rf.causa/copilot-stream-end` for the discarded
+trailing turn (the turn is already gone from the conversation
+buffer); dispatching one would attempt to mark a nonexistent
+trailing turn as settled and corrupt the next answer turn the user
+opens.
+
+### MUST-list (normative)
+
+- **MUST** apply the redaction filter per §Redaction defaults to the
+  outbound payload before any network fetch.
+- **MUST** dispatch tokens via `[:rf.causa/copilot-stream-token
+  <string>]` one event per provider chunk, in provider-emit order.
+- **MUST** terminate every stream with exactly one
+  `[:rf.causa/copilot-stream-end]` dispatch, including on API
+  error.
+- **MUST** refuse a new `:rf.causa/copilot-submit-question` while
+  the trailing turn is in-flight (single-stream invariant).
+- **MUST** abort the in-flight fetch on Causa close, on
+  `:rf.causa/copilot-clear-conversation`, and on tab reload.
+- **MUST NOT** signal termination via an inline per-token `:final?`
+  flag — `:rf.causa/copilot-stream-end` is the sole settlement
+  signal.
+- **MUST NOT** reorder, batch, or drop tokens between provider and
+  dispatch.
+- **MUST NOT** call `:rf.causa.fx/llm-stream` from any handler other
+  than `:rf.causa/copilot-submit-question` — the pull-only posture
+  (Lock 10) depends on this being the only outbound surface.
+
+### Cross-references
+
+- Effect + event registrations:
+  [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md)
+  §Subscriptions / §Events / §Effects (the
+  `:rf.causa/copilot-*` and `:rf.causa.fx/llm-stream` rows).
+- Pull-only posture: §Pull-only model above; lock #10 in
+  [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
+- Ephemeral lifecycle: §Ephemeral conversation below; lock #12.
+- Redaction filter: §Redaction defaults below;
+  `redact-payload` shape in `ai_co_pilot_helpers.cljc`.
+- Chip stream-parsing: §Causa data chips §Encoding contract above.
+- Provider integrations (v1 stubbed): §Provider abstraction above.
+
 ## Ephemeral conversation
 
 Conversation is **per-session, in-memory only** (lock #12 in
