@@ -2895,10 +2895,6 @@ Recommendation: paste-and-render is the realistic target; full bidirectional is 
 
 Resolved: machine-scoped. Guards and actions live in the machine's `:guards` / `:actions` maps inside the `create-machine-handler` spec; transition-table keyword references resolve **machine-locally** at registration time. There is no `reg-machine-guard` / `reg-machine-action` API and no `:machine-guard` / `:machine-action` registry kind. Cross-machine reuse is via Clojure vars (define a var; reference it from each machine's `:guards` / `:actions` map) — no framework support needed beyond ordinary var resolution. See [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler) and [§Inspectability bias](#inspectability-bias).
 
-### Spawn id format
-
-`:request/protocol#42` (separator) vs `:request.protocol/42` (slash with numeric tail). Lean: `:request/protocol#42` — keeps it a keyword, the `#` is unambiguously instance-id.
-
 ### Auto-cleanup of orphaned actors
 
 When a view spawns an actor and unmounts, what stops the leak? Lean: explicit `[:rf.machine/destroy actor-id]` fx for v1 (matches `make-frame`); opt-in `:owned-by` for post-v1.
@@ -2916,6 +2912,10 @@ Resolved: the dispatch shape for events targeting a machine is the sub-event for
 ### Multiple machine instances at one path
 
 Snapshots live at the runtime-managed path `[:rf/machines <id>]`, keyed by the registered id. Two registrations sharing an id collide at the registry layer (last-write-wins per the standard registration semantics, with a re-registration trace event); a single id never has two snapshot locations. The earlier "two machines at one `:path`" scenario cannot arise because users no longer pick a path. Per-frame isolation falls out of each frame having its own `app-db` and thus its own `:rf/machines` map. See [§Where snapshots live](#where-snapshots-live).
+
+### Spawn id format — `<id-prefix>#<n>` keyword (RESOLVED)
+
+Resolved: a declarative-`:invoke` spawn allocates a keyword id of the form `<id-prefix>#<n>`, preserving any namespace on the prefix — e.g. an `:id-prefix :request/protocol` produces `:request/protocol#1`, `:request/protocol#2`, … The `#` separator is the instance-id marker and is unambiguous (Clojure keyword readers tolerate `#` in the name part, and no user-facing keyword convention uses it). `<n>` is a per-`<id-prefix>` monotonic integer starting at 1; the counter lives in the snapshot at `[:rf/spawn-counter <id-prefix>]` so allocation is deterministic from `(definition, snapshot, event)` (per rf2-gr8q — `machine-transition` is a pure function). `:id-prefix` defaults to the parent's `:machine-id`; an explicit `:invoke-id` bypasses allocation entirely (the actor is bound under that literal). The slash-with-numeric-tail alternative (`:request.protocol/42`) is rejected — it collides with the namespace/name convention every other re-frame2 keyword follows, and a trailing numeric segment is not idiomatic Clojure. The format is shared by the imperative `[:rf.machine/spawn ...]` fx-id allocator (whose counter lives at `[:rf/spawn-counter <machine-id>]` in the spawning frame's `app-db`) and the declarative-`:invoke` allocator (whose counter lives in-snapshot); both produce identically-shaped ids. See [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the `:rf/spawn-counter` slot schema and [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn) for the allocation call sites.
 
 ## Lessons from xstate (deliberate divergences)
 
