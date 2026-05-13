@@ -67,6 +67,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | Machine `:tags` slot and `:rf/machine-has-tag?` sub | M-47 | — | Additive. No user-side action. |
 | `:type :parallel` machines with map-shaped `:state` | M-48 | — | Additive. No user-side action. |
 | Snapshot `:state` reader pattern-matching against the third arm (map) | M-49 | — | Additive; widens to a third arm. Readers that pattern-match exhaustively on `:state` may need to widen the dispatch. |
+| `(rf/with-overrides ...)` test-support macro | **M-50** | A | Mechanical rename to `with-fx-overrides`. Body, override-map shape, and composition with `with-frame` are unchanged — only the macro name moves, for symmetry with the `:fx-overrides` opt key and `*fx-overrides*` dynvar. |
 | Unary `reg-fx` handler `(fn [args] ...)` | **M-51** | A | Mechanical: `(fn [args] body)` → `(fn [_ args] body)`. The unary back-compat path is cut; the runtime invokes every fx with two args. Async handlers should additionally capture `(rf/dispatcher)` for frame-aware callbacks. |
 | `(ts/run-test-sync ...)` / `(re-frame-test/run-test-sync ...)` | **M-52** | A | Removed. Hoist body to inline `dispatch-sync` calls under the standard `reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bracketing). v2's `dispatch-sync` is already settle-by-default; the macro was pure migration tax. |
 

@@ -6,7 +6,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../spec/MIGRATION.md). Th
 
 ## Contents
 
-- Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25, M-52)
+- Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25, M-50, M-52)
 - Effect-map consolidation (M-8)
 - Dispatch-shape rewrites (M-4, M-9, M-16)
 
@@ -110,6 +110,24 @@ body...
 ```
 
 v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on the synchronicity axis; the registrar snapshot/restore half is covered by the per-test fixture every v2 suite installs.
+
+### M-50 — `with-overrides` → `with-fx-overrides`
+
+```clojure
+;; SEARCH
+(rf/with-overrides {<override-map>}
+  body...)
+(re-frame.core/with-overrides {<override-map>}
+  body...)
+
+;; REWRITE — rename the macro; body and override-map shape unchanged
+(rf/with-fx-overrides {<override-map>}
+  body...)
+(re-frame.core/with-fx-overrides {<override-map>}
+  body...)
+```
+
+Mechanical name-rename only. The macro's `binding` over `re-frame.router/*fx-overrides*`, the override-map shape, precedence rules, and composition with `with-frame` are unchanged — three names (macro / `:fx-overrides` opt key / `*fx-overrides*` dynvar) now share the `fx-overrides` stem. Cross-ref: rf2-mozsm; see [MIGRATION.md §M-50](../../../spec/MIGRATION.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
 
 ---
 
