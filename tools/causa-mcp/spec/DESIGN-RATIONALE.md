@@ -630,6 +630,105 @@ forestall the same drift pair2-mcp is paying down. Pre-dates
 
 ---
 
+## Lock #10 — Size-elision marker shape is normative across MCP servers
+
+**Locked 2026-05-13 (Mike).** **`:rf.size/large-elided` is the
+sixth wire-protocol mechanism, and the marker shape is
+normative across the MCP triplet (pair2-mcp, story-mcp,
+causa-mcp).** The marker substitutes per-value inside any
+tree-typed payload; sensitive-drop wins over large-elide when
+both predicates match. Per-call opt-out is `:include-large?`
+(default `false`); the `:elided-large` indicator field rides
+every consumer-facing tool response that walks a tree-typed
+payload.
+
+### Question
+
+Lock #9 baked five wire-protocol mechanisms before impl began.
+spec/009-Instrumentation.md (rf2-hmmx7) and spec/Conventions.md
+subsequently landed `:rf.size/large-elided` as a per-value
+substitution marker, distinct from the four `:rf.mcp/*`
+top-level markers (cap / summary / diff / dedup). pair2-mcp's
+Principles.md picked up the marker as its fifth mechanism
+(rf2-urjnc). Should Causa-MCP promote it to the sixth
+mechanism in `Principles.md` before impl begins, on the same
+"bake-before-impl" calculus as Lock #9 — or wait until impl
+surfaces the same drift?
+
+### Pick
+
+**Promote `:rf.size/large-elided` to mechanism #6 in
+`Principles.md`.** Bake the marker shape, the `:sensitive?`
+composition rule ("sensitive wins"), the `:include-large?`
+opt-out slot, the `:elided-large` indicator field, and the
+pipeline order ("elision runs first") into the spec before
+`tools/causa-mcp/src/` exists.
+
+### Why
+
+- **Same calculus as Lock #9.** Greenfield is the rare cheap
+  window. pair2-mcp added the marker after impl shipped
+  (rf2-urjnc) and is paying the retrofit cost (the
+  `elide-wire-value` walker now has to be plumbed into every
+  existing tool's eval-form generator). Causa-MCP is spec-only
+  today; locking the sixth mechanism alongside the first five
+  means the impl is born compliant — no retrofit pass.
+- **The shape is already normative upstream.** spec/009
+  §"Size elision in traces" and spec/Spec-Schemas
+  §`:rf/elision-marker` are the source-of-truth normative
+  catalogue. Lock #10 promotes that normative shape into the
+  Causa-MCP Principles.md so the catalogue contract
+  (`003-Tool-Catalogue.md`, when it lands) has a per-mechanism
+  slot to bind every tool to.
+- **The composition rule is load-bearing.** "Sensitive wins"
+  isn't an obvious default — naively, a value matching both
+  predicates could emit a marker carrying a `:path` /
+  `:bytes` / `:digest` triple, leaking signal an audit
+  mustn't see. The spec ([Spec 009 §Composition](../../../spec/009-Instrumentation.md))
+  locks the cascade `(and sensitive? large?) → ::drop`
+  upstream; Lock #10 lifts that rule into Causa-MCP's
+  principles so the impl can't accidentally invert it.
+- **Cross-server alignment.** pair2-mcp's
+  [`Principles.md` §"Size-elision wire markers"](../../pair2-mcp/spec/Principles.md#size-elision-wire-markers-rf2-urjnc)
+  declares the same marker shape, the same handle vocabulary,
+  the same opt-out arg name (`:include-large?`). An agent that
+  learns the slot on pair2-mcp gets the same slot on
+  causa-mcp. Lock #10 is the Causa-MCP-side pin.
+- **The `:include-large?` opt-out is the deliberate slot.**
+  Default-off, opt-in. Same posture as `:include-sensitive?`
+  (Lock #4-adjacent privacy gate) — the shape rhymes so the
+  agent's mental model carries across both axes.
+
+### Date locked
+
+2026-05-13 (Mike). Locked in rf2-knshj, following rf2-04ozp's
+alignment pass (PR #709) that brought causa-mcp's existing
+references to `:rf.size/large-elided` in line with pair2-mcp's
+wording. This lock promotes the marker from "referenced in
+the streaming section" to "named sixth mechanism with full
+catalogue contract".
+
+### Trail-of-thought citations
+
+- [Spec 009 §Size elision in traces](../../../spec/009-Instrumentation.md)
+  (rf2-hmmx7) — the normative source-of-truth for the marker
+  shape, the policy keys, and the composition cascade.
+- [Spec-Schemas §`:rf/elision-marker`](../../../spec/Spec-Schemas.md#rfelision-marker)
+  — the schema-level catalogue entry.
+- [Conventions §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned)
+  — the `:rf.size/*` and `:rf.elision/*` reservations.
+- pair2-mcp
+  [`Principles.md` §"Size-elision wire markers"](../../pair2-mcp/spec/Principles.md#size-elision-wire-markers-rf2-urjnc)
+  (rf2-urjnc) — the precedent consumer; same shape on the
+  wire.
+- causa-mcp alignment pass (rf2-04ozp, PR #709) — the
+  preceding edit that landed the marker references in the
+  streaming section and in §"Tight token budget per
+  response"; Lock #10 promotes those references to a top-level
+  mechanism.
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -643,8 +742,9 @@ forestall the same drift pair2-mcp is paying down. Pre-dates
 | 7 | Chrome DevTools MCP posture | **Co-install, stay in lane** | 2026-05-12 |
 | 8 | bencode pinning | **`bencode@~2.0.3`** (inherited from pair2-mcp Lock #5) | 2026-05-12 |
 | 9 | Wire-protocol budget posture | **Five mechanisms baked into spec before impl** (cap + slicing + pagination + lazy-summary + dedup) | 2026-05-13 |
+| 10 | Size-elision marker shape | **`:rf.size/large-elided` is the sixth mechanism; shape normative across MCP triplet; sensitive wins on composition** | 2026-05-13 |
 
-These nine locks define Causa-MCP's pre-implementation surface.
+These ten locks define Causa-MCP's pre-implementation surface.
 They were extracted from
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 and [Causa's own DESIGN-RATIONALE](../../causa/spec/DESIGN-RATIONALE.md)
