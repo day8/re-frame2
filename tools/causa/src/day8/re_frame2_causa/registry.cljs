@@ -116,6 +116,30 @@
                                               (no-op on non-browser
                                               targets)
 
+  ## Phase 5+ scope (rf2-r9f9u) — Machine Inspector panel
+
+  Folds `(rf/machines)` + the live `:rf/machine` snapshots + the
+  trace-buffer's `:rf.machine/transition` slice into the data shape
+  the panel renders.
+
+  Subs:
+
+    - `:rf.causa/registered-machines`        sub — vector of ids
+    - `:rf.causa/machine-snapshots`          sub — {id snapshot}
+    - `:rf.causa/selected-machine-id`        sub — picker focus
+    - `:rf.causa/machine-inspector-data`     sub — composite
+
+  Events:
+
+    - `:rf.causa/select-machine-id`          event-db
+    - `:rf.causa/clear-machine-selection`    event-db
+    - `:rf.causa/set-registered-machines-override-for-test` event-db
+    - `:rf.causa/set-machine-snapshots-override-for-test`   event-db
+
+  No new fxs — the panel is read-only at v1 (share-affordance,
+  source-coord jumps live in `tools/machines-viz/` per Spec 003
+  §Embedding posture and require its impl to land first).
+
   Subsequent panel beads add their own per-panel events / subs / fxs."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
@@ -128,6 +152,7 @@
             [day8.re-frame2-causa.panels.flows-helpers :as flows-helpers]
             [day8.re-frame2-causa.panels.hydration-debugger-helpers :as hd-helpers]
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as issues-helpers]
+            [day8.re-frame2-causa.panels.machine-inspector-helpers :as machine-helpers]
             [day8.re-frame2-causa.panels.mcp-server-helpers :as mcp-helpers]
             [day8.re-frame2-causa.panels.performance-helpers :as perf-helpers]
             [day8.re-frame2-causa.panels.routes-helpers :as routes-helpers]
@@ -1646,6 +1671,116 @@
     (rf/reg-event-db :rf.causa/clear-route-selection
       (fn [db _event]
         (dissoc db :selected-route-id)))
+
+    ;; ---- Phase 5+ (rf2-r9f9u) — Machine Inspector panel --------------
+    ;;
+    ;; Per `tools/causa/spec/003-Machine-Inspector.md` the panel
+    ;; surfaces every registered machine (via `(rf/machines)` — Spec
+    ;; 005 §Querying machines), the live `:rf/machine` snapshot per id
+    ;; (via the framework `:rf/machine` sub — Spec 005 §Subscribing to
+    ;; machines), and the Causa trace buffer's `:rf.machine/transition`
+    ;; slice for the selected machine.
+    ;;
+    ;; The chart component itself lives in `tools/machines-viz/` per
+    ;; `tools/machines-viz/spec/API.md`. At v1 the impl is deferred
+    ;; (only the scaffold landed via rf2-x50eu); the panel embeds the
+    ;; prop contract through a placeholder component (see panel ns
+    ;; docstring for the swap-when-impl-ships plan).
+    ;;
+    ;; Tests stub the registered-machine + snapshot surfaces by
+    ;; writing override slots to Causa's app-db (mirrors the routes
+    ;; panel's `:rf.causa/set-registered-routes-override-for-test`
+    ;; pattern) so the JVM + node-test suites can drive the projection
+    ;; without booting a host with `rf/reg-machine` calls. Production
+    ;; paths read through `rf/machines` + `subscribe [:rf/machine id]`
+    ;; directly.
+    ;;
+    ;; Shape of `:rf.causa/machine-inspector-data`:
+    ;;
+    ;;     {:machines     [<machine-row> ...]
+    ;;      :total        <int>
+    ;;      :selected-id  <id-or-nil>
+    ;;      :selected     <row-or-nil>
+    ;;      :chart-props  <props-or-nil>
+    ;;      :transitions  [<transition-row> ...]
+    ;;      :empty-kind   <:no-machines / nil>}
+
+    ;; Read the registered-machine vector. Reads `(rf/machines)` —
+    ;; returns `[]` when the machines artefact is not on the
+    ;; classpath (see implementation/core/src/re_frame/core_machines.cljc
+    ;; §machines). The fallback path is wrapped in a `try` so any
+    ;; future API change collapses to an empty registry rather than
+    ;; throwing through the sub.
+    (rf/reg-sub :rf.causa/registered-machines
+      (fn [db _query]
+        (let [ov (get db :registered-machines-override)]
+          (or ov
+              (try (vec (rf/machines))
+                   (catch :default _ []))))))
+
+    ;; Test-only override hook for the registered-machines surface.
+    ;; Production code paths never dispatch this — the slot exists
+    ;; only so JVM + node-test suites can drive the projection
+    ;; without booting a host with `rf/reg-machine` calls.
+    (rf/reg-event-db :rf.causa/set-registered-machines-override-for-test
+      (fn [db [_ ov]]
+        (if (nil? ov)
+          (dissoc db :registered-machines-override)
+          (assoc db :registered-machines-override ov))))
+
+    ;; The live snapshots map for every registered machine, keyed by
+    ;; machine-id. Reads off the target-frame-db's `:rf/machines`
+    ;; slot (per Spec 005 §Where snapshots live — `:rf/machines` is
+    ;; the reserved app-db key); the test override slot mirrors the
+    ;; registered-machines pattern so JVM tests write a snapshot map
+    ;; without a live frame.
+    (rf/reg-sub :rf.causa/machine-snapshots
+      :<- [:rf.causa/target-frame-db]
+      (fn [target-frame-db _query]
+        (when (map? target-frame-db)
+          (get target-frame-db :rf/machines {}))))
+
+    (rf/reg-sub :rf.causa/machine-snapshots-override
+      (fn [db _query]
+        (get db :machine-snapshots-override)))
+
+    (rf/reg-event-db :rf.causa/set-machine-snapshots-override-for-test
+      (fn [db [_ ov]]
+        (if (nil? ov)
+          (dissoc db :machine-snapshots-override)
+          (assoc db :machine-snapshots-override ov))))
+
+    ;; The user's per-panel machine selection (drives the picker
+    ;; focus). nil = default to first row.
+    (rf/reg-sub :rf.causa/selected-machine-id
+      (fn [db _query]
+        (get db :selected-machine-id)))
+
+    ;; The composite — one read produces every slot the panel
+    ;; consumes (matches the per-panel composite pattern every other
+    ;; Causa panel uses).
+    (rf/reg-sub :rf.causa/machine-inspector-data
+      :<- [:rf.causa/registered-machines]
+      :<- [:rf.causa/machine-snapshots]
+      :<- [:rf.causa/machine-snapshots-override]
+      :<- [:rf.causa/trace-buffer]
+      :<- [:rf.causa/selected-machine-id]
+      :<- [:rf.causa/target-frame]
+      (fn [[machines live-snapshots snapshots-override buffer selected-id target-frame]
+           _query]
+        (let [snapshots (or snapshots-override live-snapshots {})]
+          (machine-helpers/project-data
+            machines snapshots buffer selected-id target-frame))))
+
+    ;; ---- Machine Inspector panel events ----------------------------
+
+    (rf/reg-event-db :rf.causa/select-machine-id
+      (fn [db [_ machine-id]]
+        (assoc db :selected-machine-id machine-id)))
+
+    (rf/reg-event-db :rf.causa/clear-machine-selection
+      (fn [db _event]
+        (dissoc db :selected-machine-id)))
 
     ;; ---- Phase 5 (rf2-rccf3) — AI Co-Pilot panel -----------------------
     ;;
