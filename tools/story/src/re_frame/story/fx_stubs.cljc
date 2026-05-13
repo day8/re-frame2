@@ -162,8 +162,8 @@
 ;;
 ;; The Stage 3 `frames/ensure-stub-event!` registers an event-fx under
 ;; `:rf.story.fx-stub/<decorator-id>` that appends to the log. Stage 5
-;; needs that event to ALSO record into the assertion
-;; emitted-fx-accumulator so `:rf.assert/effect-emitted` works.
+;; needs that event to ALSO record into the assertion module's
+;; per-frame `:emitted-fx` slot so `:rf.assert/effect-emitted` works.
 ;;
 ;; Rather than re-register a different event shape, we expose a
 ;; `tap-stub-event!` helper the frames runtime can call from inside
@@ -173,10 +173,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn tap-stub-event!
-  "Update the assertion module's `emitted-fx-accumulator` to record
-  that `fx-id` fired against `frame-id`. The frames runtime's
-  `ensure-stub-event!` calls this when the stub event handles a
-  redirected fx call."
+  "Record (via the assertion module) that `fx-id` fired against
+  `frame-id`. The frames runtime's `ensure-stub-event!` calls this
+  when the stub event handles a redirected fx call."
   [frame-id fx-id]
   (assertions/record-emitted-fx! frame-id fx-id)
   nil)

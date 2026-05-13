@@ -30,9 +30,7 @@
                 (get-in db [:rf/machines machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
-  (reset! assertions/warnings-accumulator          {})
-  (reset! assertions/emitted-fx-accumulator        {})
-  (reset! assertions/dispatched-events-accumulator {})
+  (reset! assertions/trace-accumulators {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!))
 

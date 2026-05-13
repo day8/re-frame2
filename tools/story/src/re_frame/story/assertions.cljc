@@ -63,42 +63,38 @@
             [malli.core               :as malli]))
 
 ;; ---------------------------------------------------------------------------
-;; Per-frame trace-bus accumulator (warnings + emitted fx)
+;; Per-frame trace-bus accumulators (warnings + emitted fx + dispatched)
 ;;
 ;; `:rf.assert/no-warnings` needs to know which warning-level trace
 ;; events fired during the play sequence. `:rf.assert/effect-emitted`
-;; needs to know which fx-ids the cascade emitted. We expose a small
-;; per-frame side-table keyed by frame-id that the play-runner clears
-;; at play start and the assertion handlers consult at evaluation time.
+;; needs to know which fx-ids the cascade emitted. `:rf.assert/dispatched?`
+;; needs to know which event vectors fired. We expose one per-frame
+;; side-table keyed by frame-id that the play-runner clears at play
+;; start and the assertion handlers consult at evaluation time.
 ;;
 ;; This is NOT a new framework registry — it's a Story-internal atom
 ;; (analogous to `re-frame.story.ui.trace/buffers`) that the runtime
 ;; populates from the standard trace bus.
 ;;
-;; Both atoms are gated under `config/enabled?` at write time; under
-;; production builds they stay empty and the assertion handlers read
-;; empties.
+;; Shape:
+;;   {frame-id {:warnings    [trace-event ...]
+;;              :emitted-fx  #{fx-id ...}
+;;              :dispatched  [event-vec ...]}}
+;;
+;; Writes are gated under `config/enabled?`; production builds leave
+;; the atom empty and the assertion handlers read empty defaults.
 ;; ---------------------------------------------------------------------------
 
-(defonce
-  ^{:doc "frame-id → vector of warning trace events captured since the
-         most recent `(reset-warnings! frame-id)` call. The play-runner
-         calls reset! at play start."}
-  warnings-accumulator
-  (atom {}))
+(def ^:private empty-frame-accumulators
+  {:warnings   []
+   :emitted-fx #{}
+   :dispatched []})
 
 (defonce
-  ^{:doc "frame-id → set of fx-ids emitted in cascades fanning out from
-         the most recent play-start. Populated by the per-frame trace
-         listener registered by the play-runner."}
-  emitted-fx-accumulator
-  (atom {}))
-
-(defonce
-  ^{:doc "frame-id → vector of event vectors dispatched during the play
-         sequence. Used by `:rf.assert/dispatched?` to verify an event
-         was observed."}
-  dispatched-events-accumulator
+  ^{:doc "frame-id → {:warnings [...] :emitted-fx #{...} :dispatched [...]}.
+         The play-runner calls `reset-trace-accumulators!` at play start
+         and `drop-trace-accumulators!` at frame teardown."}
+  trace-accumulators
   (atom {}))
 
 (defn reset-trace-accumulators!
@@ -107,44 +103,40 @@
   config/enabled?) no-op."
   [frame-id]
   (when config/enabled?
-    (swap! warnings-accumulator           assoc frame-id [])
-    (swap! emitted-fx-accumulator         assoc frame-id #{})
-    (swap! dispatched-events-accumulator  assoc frame-id []))
+    (swap! trace-accumulators assoc frame-id empty-frame-accumulators))
   nil)
 
 (defn drop-trace-accumulators!
-  "Discard every per-frame accumulator entry. Called from frame
-  teardown so destroyed variants don't leak memory."
+  "Discard the per-frame accumulator entry. Called from frame teardown
+  so destroyed variants don't leak memory."
   [frame-id]
-  (swap! warnings-accumulator           dissoc frame-id)
-  (swap! emitted-fx-accumulator         dissoc frame-id)
-  (swap! dispatched-events-accumulator  dissoc frame-id)
+  (swap! trace-accumulators dissoc frame-id)
   nil)
 
 (defn record-warning!
   "Append a warning trace event to `frame-id`'s accumulator."
   [frame-id ev]
   (when config/enabled?
-    (swap! warnings-accumulator update frame-id (fnil conj []) ev))
+    (swap! trace-accumulators update-in [frame-id :warnings] (fnil conj []) ev))
   nil)
 
 (defn record-emitted-fx!
   "Add `fx-id` to `frame-id`'s emitted-fx accumulator."
   [frame-id fx-id]
   (when config/enabled?
-    (swap! emitted-fx-accumulator update frame-id (fnil conj #{}) fx-id))
+    (swap! trace-accumulators update-in [frame-id :emitted-fx] (fnil conj #{}) fx-id))
   nil)
 
 (defn record-dispatched!
   "Append `event-vec` to `frame-id`'s dispatched-events accumulator."
   [frame-id event-vec]
   (when config/enabled?
-    (swap! dispatched-events-accumulator update frame-id (fnil conj []) event-vec))
+    (swap! trace-accumulators update-in [frame-id :dispatched] (fnil conj []) event-vec))
   nil)
 
-(defn frame-warnings  [frame-id] (get @warnings-accumulator frame-id []))
-(defn frame-fx        [frame-id] (get @emitted-fx-accumulator frame-id #{}))
-(defn frame-dispatched [frame-id] (get @dispatched-events-accumulator frame-id []))
+(defn frame-warnings   [frame-id] (get-in @trace-accumulators [frame-id :warnings]   []))
+(defn frame-fx         [frame-id] (get-in @trace-accumulators [frame-id :emitted-fx] #{}))
+(defn frame-dispatched [frame-id] (get-in @trace-accumulators [frame-id :dispatched] []))
 
 ;; ---------------------------------------------------------------------------
 ;; Programmatic record helper

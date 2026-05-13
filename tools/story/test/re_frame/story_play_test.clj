@@ -38,9 +38,7 @@
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (config/set-global-args! {})
-  (reset! assertions/warnings-accumulator          {})
-  (reset! assertions/emitted-fx-accumulator        {})
-  (reset! assertions/dispatched-events-accumulator {})
+  (reset! assertions/trace-accumulators {})
   (reset! play/stepper-state                       {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
@@ -140,9 +138,7 @@
        :play   [[:rf.assert/path-equals [:x] :nope]]})
     (async/deref-blocking (story/run-variant :story.tear/v) 5000)
     (story/destroy-variant! :story.tear/v)
-    (is (not (contains? @assertions/warnings-accumulator :story.tear/v)))
-    (is (not (contains? @assertions/emitted-fx-accumulator :story.tear/v)))
-    (is (not (contains? @assertions/dispatched-events-accumulator :story.tear/v)))))
+    (is (not (contains? @assertions/trace-accumulators :story.tear/v)))))
 
 ;; ===========================================================================
 ;; Play stepper
@@ -246,7 +242,7 @@
   (testing "vector form with an empty accumulator (pre-fix simulation) returns false"
     (let [frame-id :story.v2g9/stalled
           body {:loaders-complete-when [[:fixture/loaded]]}]
-      (reset! assertions/dispatched-events-accumulator {})
+      (reset! assertions/trace-accumulators {})
       (is (false? (loaders/evaluate-complete-when frame-id body))
           "predicate is false when the accumulator has no record of the required event")
       ;; And once the listener-fed accumulator carries the event, the
@@ -267,7 +263,7 @@
       (assertions/record-dispatched! frame-id [:auth/ready])
       (is (true? (loaders/evaluate-complete-when frame-id variant-body))
           "both events observed — predicate is true")
-      (reset! assertions/dispatched-events-accumulator {}))))
+      (reset! assertions/trace-accumulators {}))))
 
 (deftest loaders-complete-when-fn-form
   (testing "literal fn predicate is invoked with the frame's app-db"
