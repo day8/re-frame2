@@ -319,6 +319,43 @@ A short orientation map for everything cofx-related you'll see in re-frame2 code
 
 The forward link from [chapter 07's table](07-interceptors.md#the-context-map) points here: the `:coeffects` half of the context map is where every input lives, and `inject-cofx` is the canonical way to put something new in it.
 
+## A note on async — coeffects MUST be synchronous
+
+One firm rule before you start writing your own: **a cofx handler MUST resolve synchronously.** It may not return a Promise, a `core.async` channel, or schedule a callback that fills the coeffect later. The value has to be present, in hand, by the time the cofx fn returns.
+
+The reason is the shape of the cascade. `inject-cofx` runs as an interceptor's `:before` on the way in, *before* the handler. The handler then runs as a pure function of `[coeffects event]` — every key it destructures out of `:coeffects` is assumed materialised at call time. An async cofx breaks this in one of two ways: either the runtime would have to *block* the cascade waiting for the promise to resolve (which defeats async-ness and stalls the whole drain loop), or the handler would run against an unresolved placeholder (which is just a bug). Neither is acceptable, so the runtime simply doesn't try; cofx handlers run, return a context, and the next interceptor sees the value sitting under `[:coeffects <id>]`.
+
+If you need data the world can only provide asynchronously — a fetch, a WebSocket round-trip, a `requestIdleCallback` — that work belongs on the *output* side, as a managed effect. The shape is: the user's interaction dispatches an event; the event's handler returns an effect map that includes the async effect (e.g. `:rf.http/managed`); the effect handler runs the async work and dispatches a follow-on event when the result lands. The follow-on event arrives synchronously like any other, its handler reads the now-materialised value out of its event vector (or out of `app-db` if a prior fx wrote it), and the cascade stays pure end-to-end. [Chapter 10](10-doing-http-requests.md) walks the HTTP version of this pattern; [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md) is the normative shape across all async effects.
+
+The wrong shape and the right shape, side by side:
+
+```clojure
+;; ❌ Don't do this — async cofx
+(rf/reg-cofx :user/profile
+  (fn [ctx]
+    (assoc-in ctx [:coeffects :user/profile]
+              (js/fetch "/api/me"))))   ;; ← returns a Promise, not a profile
+
+(rf/reg-event-fx :profile/show
+  [(rf/inject-cofx :user/profile)]
+  (fn [{:keys [db user/profile]} _]
+    {:db (assoc db :profile profile)}))   ;; ← `profile` is a Promise. Broken.
+
+;; ✅ Do this — dispatch event → managed effect → follow-on event
+(rf/reg-event-fx :profile/show
+  (fn [_ _]
+    {:fx [[:rf.http/managed
+           {:request    {:url "/api/me"}
+            :on-success [:profile/loaded]
+            :on-failure [:profile/load-failed]}]]}))
+
+(rf/reg-event-fx :profile/loaded
+  (fn [{:keys [db]} [_ profile]]
+    {:db (assoc db :profile profile)}))
+```
+
+The rule of thumb: **cofx for values the world can hand back instantly** (`js/Date.`, `random-uuid`, `localStorage.getItem`, a sub's current value). **Managed effects for values the world has to go fetch.** If you find yourself wanting `await` inside a `reg-cofx`, that's the signal — it's not a coeffect, it's an event chain.
+
 ## What we covered
 
 - A coeffect is a *side-cause* — data the handler reads from the world that isn't `app-db`. It's the symmetric twin of an effect.
@@ -327,6 +364,7 @@ The forward link from [chapter 07's table](07-interceptors.md#the-context-map) p
 - Multiple cofxes compose by listing multiple `inject-cofx` interceptors in source order.
 - `reg-event-db` doesn't see injected cofx values; use `reg-event-fx` for any handler that needs them.
 - A handler that needs a sub's current value wraps the read as a cofx and injects it — never `rf/subscribe` from inside a handler body.
+- Coeffects MUST be synchronous — async data acquisition belongs in a managed effect with a follow-on event, never in a cofx handler.
 - Testing is by re-registration — stub `:now` to return a fixed instant, scope it with `with-fresh-registrar`, and the handler-under-test becomes deterministic.
 
 ## Next
