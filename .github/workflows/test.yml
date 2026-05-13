@@ -1314,14 +1314,36 @@ jobs:
 
       # Live-runtime variant (rf2-ynaoc): exercises the wire-cap
       # `:rf.mcp/overflow` marker under a real over-budget eval. Gated
-      # on $SHADOW_CLJS_NREPL_PORT — unset on CI, so this step exits 0
-      # with a SKIP marker. The script's contract is that an unset
-      # gate is a clean SKIP, not a failure; the test runs locally on
-      # Mike's machine where shadow-cljs is already attached. A
-      # follow-on bead tracks auto-spawning shadow-cljs against an
-      # example so CI gains hermetic coverage of the live path.
+      # on $SHADOW_CLJS_NREPL_PORT — unset on this step, so it exits 0
+      # with a SKIP marker. The script's contract is that an unset gate
+      # is a clean SKIP, not a failure; this step still runs so the
+      # gating logic is exercised on every CI run and a regression that
+      # broke the SKIP path (e.g. crashing on missing env) surfaces
+      # here. The hermetic variant below runs the actual live path.
       - name: Run pair2-mcp live-overflow conformance (SKIPPED without nREPL)
         run: npm run test:pair2-live-overflow
+
+      # Hermetic live-runtime variant (rf2-uw6d6): boots shadow-cljs
+      # against the pair2 fixture (`skills/re-frame-pair2/tests/fixture/`
+      # — a minimal counter with `re-frame-pair2.runtime` preloaded),
+      # launches headless Chromium so the runtime sentinel lands, then
+      # runs the same `live-pair2-overflow.js` with
+      # SHADOW_CLJS_NREPL_PORT set to the spawned port. Tears
+      # shadow-cljs + Chromium down on exit. Closes the CI-coverage gap
+      # the SKIP-path leaves: cap-trigger threshold drift, marker shape
+      # regressions on real payloads, and SDK strict-schema rejection
+      # of cap-marker shapes now surface on every CI run, not only
+      # locally on Mike's machine.
+      - name: Install implementation deps (for playwright)
+        working-directory: implementation
+        run: npm install --no-audit --no-fund
+
+      - name: Install Playwright chromium (for hermetic browser preload)
+        working-directory: implementation
+        run: npx playwright install --with-deps chromium
+
+      - name: Run pair2-mcp live-overflow conformance (HERMETIC — spawns shadow-cljs)
+        run: npm run test:pair2-live-overflow-hermetic
 
   mcp-conformance-story:
     name: MCP conformance tools/story-mcp (rf2-cum40)
