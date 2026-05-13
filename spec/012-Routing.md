@@ -964,6 +964,32 @@ The story / devcard / SSR cases all benefit:
 - URL-state-as-source-of-truth (URL canonical, `app-db` derives) — currently the inverse: `app-db` canonical, URL derives.
 - Declarative redirect rules in route metadata — currently redirects are interceptors.
 
+## Resolved decisions
+
+### `:rf.route.nav-token/*` trace-operation namespace (rf2-o39mn)
+
+The two nav-token trace operations — `:rf.route.nav-token/allocated` and `:rf.route.nav-token/stale-suppressed` (per [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression)) — live under `:rf.route.nav-token/*`. An earlier carve-out grandfathered the bare `:route.nav-token/*` prefix as the sole framework trace-operation namespace outside `:rf.*` (per the now-removed paragraph in [Conventions](Conventions.md)); rf2-o39mn closed that single-bit-of-difference exception, mechanically renaming all 91 occurrences across spec, conformance fixtures, implementation, docs, skills, and tools. The Conventions single-root rule (every framework-owned keyword sits under `:rf.*`) now holds without exception.
+
+### Default frame is URL-bound; non-default frames opt in
+
+Per [§Multi-frame routing](#multi-frame-routing) the default frame (`:rf/default`) is **URL-bound** by default; non-default frames are not. Non-default frames opt into URL binding via `(rf/reg-frame :my-frame {:url-bound? true})`; the runtime enforces "only one frame can own the URL at a time" (re-registering a second `:url-bound? true` frame emits `:rf.error/duplicate-url-binding`). This was chosen over a "first frame to dispatch `:rf.route/navigate` wins" rule because explicit declaration is auditable at registration time and matches the story / devcard / per-test-fixture / SSR-per-request use cases without surprise.
+
+### State-first, URL-second update order is locked
+
+Per [§Pattern-level contract](#pattern-level-contract), navigation runs state changes first, then the URL update, then `:on-match` dispatches and the scroll effect. The order is locked: if the URL update fails (browser denies, user is offline) the state is still consistent. An earlier alternative — URL-first — was rejected because the `app-db` becomes the source of truth for what URL the runtime *intends*; the `:rf.nav/push-url` fx is a downstream sync.
+
+### Three-enum scroll strategy (`:top`, `:restore`, `:preserve`)
+
+Per [§Scroll restoration](#scroll-restoration) the canonical scroll-strategy contract is the closed three-enum set. A custom scroll-strategy registry was considered but deferred to [§Open questions](#open-questions) — the three enums cover the documented cases (default-to-top on new navigation, restore on back/forward, preserve on intra-page transitions) and host-specific strategies layer additively via the map-form opt-in. Locking the enum keeps tools' enumeration of scroll behaviour decidable.
+
+### `:rf.route/not-found` is the single canonical reserved id
+
+Per [§Route-not-found — `:rf.route/not-found` (canonical)](#route-not-found--rfroutenot-found-canonical) the framework names exactly one reserved route id for unmatched URLs. Earlier sketches considered per-host customisation of the reserved id; the single-id rule was chosen because tools, conformance fixtures, and the `:rf.warning/no-not-found-route` trace event all depend on it. Apps that want per-error-kind visual treatment branch inside the `:rf.route/not-found` view on `:reason`.
+
+### Run-to-completion enforced for navigation cascades
+
+Per [§Pattern-level contract](#pattern-level-contract) the `:rf.route/navigate` cascade — state update, URL push, `:on-match` dispatches, scroll effect — settles inside a single drain. This matches [Spec 002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) and was chosen over a multi-drain cascade so that subscribers see a consistent post-navigation state in one render pass rather than visible intermediate states.
+
 ## Cross-references
 
 - [000-Vision §Working design implications](000-Vision.md#working-design-implications) — "routing is state plus events."

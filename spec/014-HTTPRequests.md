@@ -1064,6 +1064,62 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 - **HTTP/2 server push.** Not a re-frame2 concern; the platform handles it transparently.
 - **Response-side interceptors (`:after`).** v1's middleware contract is request-side only ([§Middleware](#middleware), rf2-6y3q). Apps that want to project / log / retry on response paths use `:accept` (domain-failure normalisation) and the trace stream; a future `:after` slot composes additively when it lands.
 
+## Open questions
+
+### Response-side middleware composition
+
+Per [§Middleware](#middleware) (rf2-6y3q) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred until the request-side surface settles in practice and the composition order with `:accept` is decided.
+
+### App-extensible query-param denylist
+
+Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on-rf2-2p8wr) (rf2-2p8wr) the always-on query-string denylist is a fixed framework-owned set. An extensible registration surface (`rf.http/declare-sensitive-query-param!` parallel to the header denylist) is a natural addition — deferred until a real app surfaces a query-param-auth pattern outside the default set.
+
+### Streaming responses (`:rf.http/streaming`)
+
+Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape.
+
+### Pluggable backoff strategy
+
+Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-jitter backoff. Pluggable backoff (per-call strategy fn, registered named strategies, host-customisable defaults) is an additive surface — deferred until apps surface a real need that the default doesn't cover.
+
+## Resolved decisions
+
+### `:rf.http/managed` is the canonical framework-provided fx
+
+Per [§Implementation status](#implementation-status) `:rf.http/managed` is the locked v1 surface: args-map shape, failure categories, reply addressing, retry semantics, abort surface, schema-reflection metadata, and trace events are all locked across implementations. This was chosen over a "convention" (every app rolls its own HTTP fx) so `:fx-overrides` target the same id across applications, pair tools introspect the same envelope, Spec 010 schemas plug into the same decode pipeline, and conformance fixtures key off the canonical surface.
+
+### Failure categories are a closed set
+
+Per [§Failure categories (closed set)](#failure-categories-closed-set) the failure taxonomy under `:rf.http/*` (`:transport`, `:cors`, `:timeout`, `:http-4xx`, `:http-5xx`, `:decode-failure`, `:accept-failure`, `:aborted`) is closed for v1. Additions require a Spec change. Apps that want domain-level discrimination layer `:accept` (per [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation)) — they don't extend the framework's failure taxonomy. This keeps the `:rf.http/*` trace vocabulary decidable for tools and the [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) finite.
+
+### `:rf.http/cors` is CLJS-only
+
+Per [§Failure categories (closed set)](#failure-categories-closed-set) the `:rf.http/cors` row is CLJS-only — JVM transports never emit it. CORS is a browser-policy concern; the JVM has no cross-origin policy to enforce. The asymmetry is documented so tools that consume the trace stream don't assume the row exists on every host.
+
+### Request-side middleware only in v1 (rf2-6y3q)
+
+Per [§Middleware](#middleware) (rf2-6y3q) the v1 middleware contract is per-frame request-side only — the interceptor chain sits between the user's args and the transport, not between the transport and the reply. The request-side cases (Bearer token, correlation-id, base-URL rewrite) all surfaced as the high-frequency pattern; response-side composition is deferred to [§Open questions](#open-questions). The request-side surface ships first because its shape is settled.
+
+### Frame-aware reply dispatch (rf2-wvkn)
+
+Per [§Frame awareness](#frame-awareness) every `:rf.http/managed` reply dispatch inherits the originating frame; replies route to the right frame even when the request was issued from a non-default frame (story variant, per-test fixture, SSR per-request). The frame-capture discipline matches [Pattern-AsyncEffect](Pattern-AsyncEffect.md) and is universal across the async-effect surface.
+
+### Actor-destroy aborts in-flight requests (rf2-wvkn)
+
+Per [§Aborts](#aborts) (rf2-wvkn) `:rf.http/managed` requests issued from inside a spawned state-machine actor are aborted automatically when the actor is destroyed. The actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy)) is the reverse index; `actor-in-flight-snapshot` is the test-only inspection helper. This was chosen over "orphan the request and ignore the reply" because orphaned requests waste transport quota and the reply path's frame-target may no longer exist — both costs grow under retries.
+
+### Privacy honoured via `:sensitive?` on HTTP trace events (rf2-bma05)
+
+Per [§Privacy](#privacy) (rf2-bma05) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call, per-request, and per-handler `:sensitive?` flags OR-reduce; the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive headers via `rf.http/declare-sensitive-header!`.
+
+### Query-string denylist is always-on (rf2-2p8wr)
+
+Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on-rf2-2p8wr) (rf2-2p8wr) the framework redacts denylisted query-string parameter values in `:url` slots **regardless** of the effective `:sensitive?` flag. Param-name and position are preserved; the value is replaced inline with the `:rf/redacted` text token. Always-on was chosen over flag-gated because query-string-auth patterns (older REST APIs, webhooks) leak through `:rf.warning/decode-defaulted` and similar URL-carrying traces even when the dispatching event isn't `:sensitive?` — the redaction must run unconditionally for the URL slot to be safe.
+
+### Stale-suppression piggy-backs on the epoch carry
+
+Per [Pattern-StaleDetection](Pattern-StaleDetection.md) and [§Reply addressing](#reply-addressing) managed requests inherit the dispatching event's epoch carry; replies that arrive after a newer navigation / actor restart are suppressed at the dispatch site. The same epoch idiom is used by `:after` timers (per [Spec 005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) and route nav-tokens (per [Spec 012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)); the recurring pattern is documented in [Pattern-StaleDetection](Pattern-StaleDetection.md).
+
 ## Cross-references
 
 - [Pattern-AsyncEffect](Pattern-AsyncEffect.md) — generic six-step async shape; Spec 014 specialises it.
