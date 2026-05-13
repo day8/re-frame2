@@ -137,7 +137,7 @@
 
 (defn uninstall-managed-request-stubs!
   []
-  (fx/unregister-fx stub-fx-id)
+  (fx/clear-fx stub-fx-id)
   nil)
 
 (defn with-managed-request-stubs*
