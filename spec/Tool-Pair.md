@@ -220,7 +220,7 @@ The trace event is enumerated in [009 §`:op-type` vocabulary](009-Instrumentati
 
 **Production elision.** The destroyed-frame contract surfaces (the registry-lookup error traces, the silencing trace, the read-empty shapes) all share the universal `re-frame.interop/debug-enabled?` gate; production builds (`:advanced` + `goog.DEBUG=false`) elide the trace emit and the dev-only Tool-Pair surfaces themselves (per [§Time-travel](#time-travel-epoch-snapshots-and-undo) §Production elision and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)). A shipped binary does not carry the silencing trace string.
 
-Cross-references: [002 §Destroy](002-Frames.md#destroy) (the lifecycle event being raced), [009 §Error categories](009-Instrumentation.md#error-categories-initial-set) (the `:rf.error/no-such-handler` row consumed here), [§How AI tools attach](#how-ai-tools-attach) (the attachment surface that consumes the silencing trace).
+Cross-references: [002 §Destroy](002-Frames.md#destroy) (the lifecycle event being raced), [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (the `:rf.error/no-such-handler` row consumed here), [§How AI tools attach](#how-ai-tools-attach) (the attachment surface that consumes the silencing trace).
 
 ## Performance API consumption
 

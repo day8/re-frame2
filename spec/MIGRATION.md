@@ -1598,7 +1598,7 @@ Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destro
 
 **What does NOT change.** Direct dispatches from ordinary event handlers (no spawned-actor envelope) are NOT subject to the cascade. The user-supplied `:request-id` and `:rf.http/managed-abort` fx remain available for app-level abort. The orthogonal indexing means a request can be aborted by either path without interference.
 
-**Cross-references.** [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts); [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy); [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) for the trace event registration.
+**Cross-references.** [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts); [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy); [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) for the trace event registration.
 
 ### M-46. `:rf.http/managed` ships as a child-invokable machine in addition to the fx (additive)
 
