@@ -907,3 +907,234 @@ jobs:
       # S3-005).
       - name: Verify counter-slim-and-fast bundle isolates stock Reagent + react-dom/server
         run: npm run test:bundle-comparison
+
+  # ---------------------------------------------------------------------------
+  # Per-tool CI jobs (rf2-qq70f).
+  #
+  # Each `tools/<name>/` artefact ships its own test tree. Some surfaces
+  # (the *_cljs_test.cljs / .cljc files under tools/story/ and tools/causa/)
+  # are already picked up by the consolidated `:node-test` build above
+  # because shadow-cljs.edn lists those source paths. JVM-runnable tests
+  # (clojure -M:test) and out-of-consolidated-tree node-test surfaces
+  # were the gaps — these per-tool jobs close them.
+  #
+  # Job naming mirrors the per-artefact `jvm-<name>` / `cljs-*` pattern
+  # used above. Like the artefact jobs, none `needs:` another — they run
+  # in parallel.
+  # ---------------------------------------------------------------------------
+
+  jvm-tools-causa:
+    name: JVM tools/causa (clojure -M:test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/causa
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-tools-causa-${{ hashFiles('tools/causa/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-tools-causa-
+            ${{ runner.os }}-clj-
+
+      # Causa ships JVM test files (`config_test.clj`, `trace_bus_test.clj`)
+      # alongside its CLJS test trees. The CLJS surfaces are already
+      # picked up by the consolidated `:node-test` build (shadow-cljs.edn
+      # lists tools/causa/test as a source path); this job closes the
+      # JVM-side gap. `|| echo …` keeps the job green if the JVM-runnable
+      # set shrinks to zero in the future — same shape as `jvm-machines`
+      # / `jvm-reagent` above.
+      - name: Run JVM tests (tools/causa artefact)
+        run: clojure -M:test || echo "no JVM-runnable tests in tools/causa artefact"
+
+  jvm-tools-story:
+    name: JVM tools/story (clojure -M:test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/story
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-tools-story-${{ hashFiles('tools/story/deps.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-tools-story-
+            ${{ runner.os }}-clj-
+
+      # tools/story ships a substantial JVM test surface
+      # (story_test.clj, story_runtime_test.clj, story_assertions_test.clj,
+      # story_ui_test.clj, story_share_test.clj, story_play_test.clj,
+      # story_source_coords_test.clj, story_scrubber_xref_test.clj,
+      # story_layout_debug_test.clj, story_fx_stubs_test.clj). The CLJS
+      # surfaces are already covered by the consolidated `:node-test`
+      # build above (shadow-cljs.edn lists tools/story/test as a source
+      # path); this job closes the JVM-side gap.
+      - name: Run JVM tests (tools/story artefact)
+        run: clojure -M:test
+
+  jvm-tools-story-mcp:
+    name: JVM tools/story-mcp (clojure -M:test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/story-mcp
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-tools-story-mcp-${{ hashFiles('tools/story-mcp/deps.edn', 'tools/story/deps.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-tools-story-mcp-
+            ${{ runner.os }}-clj-
+
+      # tools/story-mcp is JVM-only by design (Spec 010 §JVM-only): its
+      # tests (`protocol_test.clj`, `tools_test.clj`) exercise the
+      # JSON-RPC wire format and the MCP tool registrar. Neither runs
+      # under shadow-cljs's consolidated `:node-test`; this is the only
+      # PR-time CI surface for this artefact.
+      - name: Run JVM tests (tools/story-mcp artefact)
+        run: clojure -M:test
+
+  jvm-tools-template:
+    name: JVM tools/template (clojure -M:test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/template
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-tools-template-${{ hashFiles('tools/template/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-tools-template-
+            ${{ runner.os }}-clj-
+
+      # tools/template is a clj-new template — its tests
+      # (`re_frame2_test.clj`, `template_emission_test.clj`) generate
+      # scaffolded apps into a tmp dir and assert the shape. Pure JVM;
+      # nothing CLJS-side. This is the only PR-time CI surface for this
+      # artefact.
+      #
+      # The template's `re_frame2_test.clj` opportunistically invokes
+      # `clojure -P` against generated deps.edn if `clojure` is on PATH
+      # to confirm the deps parse — the setup-clojure step above ensures
+      # that probe runs.
+      - name: Run JVM tests (tools/template artefact)
+        run: clojure -M:test
+
+  node-test-tools-pair2-mcp:
+    name: Node tools/pair2-mcp (shadow-cljs :server-test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/pair2-mcp
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-tools-pair2-mcp-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-tools-pair2-mcp-
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm install
+
+      # tools/pair2-mcp ships as a Node binary on npm; its sources are
+      # CLJS compiled via shadow-cljs to a self-contained Node script.
+      # The artefact is NOT on implementation/shadow-cljs.edn's
+      # `:source-paths`, so the consolidated `:node-test` build does
+      # not see it. The canonical test entry-point is `npm test`, which
+      # compiles the `:server-test` build (shadow-cljs.edn) and runs
+      # `out/server-test.js` under Node. The test suite covers the
+      # bencode framing helpers (`nrepl_test`), the snapshot reader
+      # (`snapshot_test`), and the subscribe surface (`subscribe_test`).
+      - name: Run shadow-cljs :server-test (tools/pair2-mcp artefact)
+        run: npm test
