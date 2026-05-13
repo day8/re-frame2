@@ -129,7 +129,7 @@ The seventeen-tool cardinality and closed-set policy are locked at
 Lock #5; the closed-set discipline and `eval-cljs` escape valve
 posture live at
 [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
-�Closed-set tool catalogue, deliberate escape valve. The
+�Closed-set tool catalogue, deliberate escape valve. The
 **catalogue prose itself** (the tables below) remains here until
 implementation lands and migrates it to
 `tools/causa-mcp/spec/003-Tool-Catalogue.md`.: harmonise tool count between prose and table (rf2-mdoqh))
@@ -469,6 +469,292 @@ That structured-trace bus is also what powers `subscribe` /
 `unsubscribe`, `:origin` tagging, `get-app-db-diff`, and the
 epoch-history time-travel substrate. It's the foundation; the
 catalogue is its surface.
+
+## Panel-side consumer
+
+The Causa **MCP Server panel** is the Causa-side mirror of this
+server: a sidebar surface that filters the trace-buffer to events
+tagged `:tags :origin :causa-mcp` and renders them as a read-only,
+scrollable, timestamped ribbon. Where the catalogue above is the
+**agent-facing** contract (JSON-RPC over stdio), this section is the
+**human-facing** contract (the panel a programmer flips to when they
+want to know "what is the AI doing in my app right now?").
+
+The panel reads the trace-buffer; the buffer is the truth. There is
+no separate detection loop, no sentinel probe, no health endpoint —
+"agent attached" is the boolean "at least one `:origin :causa-mcp`
+event has landed this session." This matches the
+trace-bus-is-truth posture of every other Causa panel (per
+[`013-Trace-Bus.md`](./013-Trace-Bus.md)).
+
+### Panel surface (MUST)
+
+A dedicated sidebar panel keyed `:mcp-server` MUST ship in the
+Causa shell's left-rail panel list. The panel renders:
+
+- a **header strip** — title, agent-attached badge, total / rendered
+  counts, op-type chip row with histogram counts, a `since-ms`
+  numeric input, and a "Clear filters" affordance;
+- an inline **Settings sub-pane** — origin colour swatch + the
+  cross-panel highlight toggle (per §Cross-panel highlight toggle
+  below);
+- the **feed** — one row per `:origin :causa-mcp` trace event, in
+  reverse chronological order (newest first, parity with the Issues
+  ribbon), with `timestamp · op-type · operation · tool · description
+  · source-coord` slotted across six columns.
+
+Click a row → the row's `:dispatch-id` is selected via
+`:rf.causa/select-dispatch-id` and the active panel pivots to
+`:event-detail` for the cascade. Rows whose underlying event carries
+no `:dispatch-id` (registry-time emits, lifecycle traces) are
+non-clickable.
+
+The registry surface (subscriptions, events, the
+`:rf.causa/mcp-server` composite) is enumerated in
+[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md)
+§MCP Server panel.
+
+### Locked decisions
+
+Three design questions surfaced during implementation; each is locked
+here so the panel is one-shottable from spec alone.
+
+#### Decision (a) — Sidebar panel: MUST
+
+A dedicated `:mcp-server` sidebar panel **MUST** ship, distinct from
+the Trace panel.
+
+**Rationale.** The Trace panel is the all-origins surface; an
+`:origin :causa-mcp` view forced into it as a filter chip would make
+the agent-watching workflow a multi-click setup every session. A
+dedicated panel gives the user a single entry point ("what is the
+agent doing?") and parallels every other Phase-5 Causa panel
+(Issues, Trace, Performance, Subscriptions, …) — each owns its
+question.
+
+**Alternatives rejected.**
+
+- *Settings-only* (a flag on the Trace panel) — forces a hunt across
+  the Trace panel with the origin filter manually set every session;
+  loses the dedicated empty-state copy ("no agent activity observed")
+  that orients first-time users.
+- *Compose into Trace as a saved-view tab* — a per-tab origin filter
+  cannot carry the panel-specific affordances (origin swatch,
+  cross-panel highlight toggle, agent-attached badge) without
+  bloating the Trace panel's surface.
+
+#### Decision (b) — Origin colour for `:causa-mcp`: SHOULD be cyan-500 `#06B6D4`
+
+The `:origin :causa-mcp` axis **SHOULD** render in cyan-500 `#06B6D4`
+across every Causa surface that paints an origin marker (panel
+swatches, trace-row hue, causality-graph node-border tint).
+
+**Rationale.** The `:origin` axis already has two locked colours in
+[`007-UX-IA.md`](./007-UX-IA.md) §Colour system — indigo `#5570FF`
+for `:pair`, lighter cyan `#43C3D0` for `:story` / `:test`. The
+`:causa-mcp` axis needs a hue that (1) reads as **cyan-family** so
+the AI-driven axes cluster visually against the indigo `:pair` axis
+and the warm `:app` axis, and (2) is **distinguishable from the
+existing lighter cyan** at a glance. Tailwind cyan-500 `#06B6D4` is
+a deeper, more saturated cyan than the existing `:cyan` token; it
+clears AA contrast against `bg-2` (`#1B1E24`) and pairs naturally
+with the existing accent palette.
+
+`SHOULD` rather than `MUST` because the colour table itself is
+owned by [`007-UX-IA.md`](./007-UX-IA.md) §Colour system; this spec
+fixes the value for v1 and the follow-on amendment to 007-UX-IA's
+Colour-system table promotes the same hex into the shared token map
+so every panel that paints an `:origin` swatch reads one source of
+truth. Until then the value lives at
+`mcp_server_helpers.cljc/causa-mcp-origin-colour`.
+
+**Alternatives rejected.**
+
+- *Re-use indigo `#5570FF`* — collides with `:pair`'s locked hue;
+  two AI-driven axes sharing a colour defeats the
+  per-origin-at-a-glance affordance.
+- *Re-use the existing `#43C3D0` cyan* — collides with `:story` /
+  `:test`; a programmer scrubbing a session with a story playing
+  back would not be able to tell agent and story dispatches apart.
+- *Pick magenta `#E879F9` (the AI co-pilot highlight)* — reads as
+  highlight, not as origin; would compete with the co-pilot's own
+  affordance.
+
+#### Decision (c) — Bidirectional Causa→agent surface: MUST NOT (v1)
+
+A bidirectional surface — Causa pushing **into** the agent
+(attention hints, "look here," session-state callbacks) — **MUST
+NOT** ship in v1. The panel is **read-only**: events flow agent → bus
+→ panel; nothing flows panel → agent.
+
+**Rationale.** Any "Causa-to-agent" channel is a
+**causa-mcp-jar implementation concern**, not a Causa-panel concern.
+The agent is the user's delegate over MCP; if the user wants to
+nudge the agent they speak to the agent directly through the agent
+host (Claude Code, Cursor, Copilot). A panel-injected back-channel
+would (1) require a new transport (panel → MCP server, not the other
+way round), (2) violate the §Lifecycle and reconnect contract (the
+agent host owns the session), and (3) couple the panel's lifecycle
+to the agent's in a way that breaks the
+"panel works without the MCP server attached" property.
+
+`MUST NOT` rather than `MAY (deferred)` because a back-channel
+silently introduced as a follow-on would invalidate audit-trail
+guarantees: the `:origin :causa-mcp` tag is a closed-set per
+[Lock #4](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-4--origin-tagging-is-the-convention),
+and a panel-driven event tagged that way would be **mis-attributed**
+(it came from the user, not the agent).
+
+**Alternatives rejected.**
+
+- *Session-attention hints* (panel highlights → agent prompt
+  augmentation) — better served by the agent host's own context-pack
+  mechanism; not Causa's surface.
+- *"Pause the agent" button* — a stop-the-agent control belongs in
+  the agent host, not in Causa. Causa MAY surface the activity feed;
+  it MUST NOT issue commands back.
+
+If a future bead motivates re-opening this lock, the change MUST go
+through a new `:origin` value (e.g. `:causa-panel`) so the
+five-value origin vocabulary in §Origin vocabulary stays
+unambiguous — never by overloading `:causa-mcp`.
+
+### Cross-panel highlight toggle
+
+The panel ships a Settings-strip checkbox bound to
+`:rf.causa/mcp-origin-filter-enabled?` (default `false`, opt-in).
+The flag is a **cross-panel hint**:
+
+- The MCP-Server panel itself MUST honour the flag for its own
+  rendering as a no-op (the panel is already origin-filtered by
+  construction).
+- The Trace, Causality-Graph, and Event-detail panels **MAY**
+  consult the flag to **dim or de-emphasise** non-`:origin
+  :causa-mcp` rows / nodes / cascades when it is enabled. "Dim"
+  here means the existing colour token rendered at reduced opacity
+  (`0.45`) plus a non-coloured non-agent badge; the layout MUST NOT
+  change.
+- No panel MUST consume the flag; consuming it is opt-in per panel.
+
+**Rationale.** A user who wants to follow the agent across the whole
+Causa surface ("ride the agent's session") doesn't want to flip a
+filter chip in three different panels. A single toggle in the MCP-
+Server panel — the agent's home surface — is the natural locus. The
+flag is `MAY`, not `MUST`, because the dimming affordance is a
+display device, not a semantic gate; a panel that hasn't yet wired
+it is still spec-correct, and consumers that DO honour it inherit
+the same closed-set `:origin` value enumerated in §Origin vocabulary.
+
+The registry entry (default `false`, sub `:rf.causa/mcp-origin-filter-enabled?`,
+event `:rf.causa/toggle-mcp-origin-filter`) is enumerated under
+[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md)
+§MCP Server panel.
+
+### Algorithm
+
+The feed projection is a pure data → data pipeline: trace-buffer
+events → per-row records → filter-applied rows → empty-state
+classification → composite map the view consumes. The pipeline is
+JVM-runnable so it can be tested without a DOM (the helpers ns is
+`.cljc`, exercised under `clojure -M:test`); the view emits hiccup.
+Nothing in the algorithm reaches into the substrate or mutates
+runtime state.
+
+#### Input model
+
+The projection consumes three inputs, indexed once per call:
+
+- **`events`** — the raw trace-buffer slice exposed by
+  `(rf/trace-buffer)`, per
+  [Spec 009 §Trace bus](../../../spec/009-Instrumentation.md). Each
+  event MUST carry `:id`, `:time`, `:op-type`, `:operation`, and
+  `:tags`; the projection consults `[:tags :origin]`, `[:tags :tool]`,
+  `[:tags :event]`, `[:tags :reason]`, `[:tags :sub-id]`,
+  `[:tags :fx-id]`, `[:tags :dispatch-id]`, and
+  `[:rf.trace/trigger-handler :source-coord]`.
+- **`filters`** — the current filter state, a
+  `{:op-types #{...} :since-ms <ms>}` map. Both axes are independent;
+  `nil` `:since-ms` and empty `:op-types` disable their axes.
+- **`now`** — wall-clock ms, helper-injected so unit tests don't
+  depend on the system clock. Pure-ish — abstracted via
+  `now-ms` so JVM tests can `with-redefs`.
+
+#### Pipeline
+
+1. **Project rows.** Walk `events`; for each event with
+   `[:tags :origin] = :causa-mcp`, emit a row record
+   `{:id :time :op-type :operation :origin :tool :description
+   :source-coord :dispatch-id :raw}`. Non-`:causa-mcp` events MUST
+   be dropped at this step; the panel is `:origin`-exclusive by
+   construction. The `:description` slot is computed by reading
+   `[:tags :event]` → `[:tags :tool]` → `[:tags :reason]` →
+   `[:tags :exception-message]` → `[:tags :sub-id]` →
+   `[:tags :fx-id]` in priority order (first non-nil wins),
+   prepended with `(str operation) " — "`; if every slot is nil the
+   row's `:description` is `(str operation)` alone.
+2. **Apply filters.** For each row, check `passes-op-type?` (in
+   active set, or set is empty) AND `passes-since?` (`:time` within
+   `since-ms` of `now`, or either bound is nil). Rows that fail
+   either axis are dropped. Both axes are AND-composed; an
+   axis-empty row passes the axis trivially.
+3. **Reverse for display.** The view orientation is newest-first
+   (parity with the Issues ribbon); the projection reverses the
+   filtered vector before returning.
+4. **Classify empty state.** A three-way enum drives the view's
+   empty-state branch:
+   - `:no-activity` — no `:causa-mcp` events at all in the buffer
+     (`(empty? all)`). The "no agent activity observed" empty state
+     paints with pointer copy about origin-tagging discipline.
+   - `:no-matches` — events exist but filters hide them all
+     (`(seq all)` ∧ `(empty? filtered)`). The "no matches" empty
+     state paints with a Clear-filters affordance.
+   - `nil` — at least one row survived; render the feed.
+5. **Emit composite.** Return `{:rows :total :rendered
+   :op-type-counts :distinct-op-types :filters :agent-attached?
+   :empty-kind}`. `:total` is the pre-filter count; `:rendered` is
+   the post-filter count; `:op-type-counts` is the histogram over
+   pre-filter rows (so chip counts don't change when the user
+   toggles a chip); `:agent-attached?` is `(boolean (seq all))`.
+
+#### Pull-only detection — no probe
+
+The panel **MUST NOT** issue a separate sentinel probe ("is the
+runtime injected?"). The MCP server itself probes its runtime per
+§Lifecycle and reconnect; the panel reads the trace-buffer and
+treats "saw at least one `:origin :causa-mcp` event" as the proxy
+for "agent attached this session." This is simpler than a parallel
+detector loop, matches every other Causa panel's posture, and stays
+correct under reconnect: a page reload empties the buffer, the
+panel returns to `:no-activity`, the next agent action populates
+the buffer and the badge flips back.
+
+The detection is **session-scoped**, not real-time-presence-scoped:
+a closed agent connection that has performed work this session
+still reads as "attached" until the buffer ages the events out.
+This is the desired semantics — the panel surfaces "what has the
+agent done?", not "is a TCP socket open?"; the latter is a server
+concern (per §Lifecycle and reconnect).
+
+#### Distinct op-types — first-seen order
+
+The op-type chip row is populated from the distinct `:op-type`
+values present in the *pre-filter* row set, in first-seen
+(chronological) order. The first-seen-order rule is MUST: an
+alphabetical sort would re-order chips between renders as new
+op-types arrive, breaking muscle memory. The histogram counts
+on each chip likewise track the pre-filter set so the user can
+read "how many of this op-type exist" independently of the
+active filter.
+
+#### JVM behaviour
+
+The helpers ns is `.cljc`; the panel-side reader path is unused on
+JVM (there is no DOM, no `rf/subscribe`). The pure helpers
+(`project-row`, `apply-filters`, `passes-op-type?`, `passes-since?`,
+`project-feed`, `agent-attached?`) MUST be total on JVM with
+synthesised event vectors so the unit-test target exercises them
+without the runtime — the test target `clojure -M:test` is the
+canonical gate for the algebra.
 
 ## What this doesn't do
 
