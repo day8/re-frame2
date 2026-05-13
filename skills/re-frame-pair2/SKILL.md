@@ -146,6 +146,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/migration-from-v1.md](references/migration-from-v1.md) |
 | Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
 | Drive a Story variant from a pair2 session — the variant *is* a frame; per-variant isolation, gotchas, discovery | [references/variant-as-frame.md](references/variant-as-frame.md) |
+| Use story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `run-a11y`, `record-as-variant`) during a live pair-session — composition with watch-epochs and dispatch-from-pair | [references/stories.md](references/stories.md) |
 
 Load at most two references for a single task. If you find yourself wanting three, the request likely spans concerns and should be broken up.
 
