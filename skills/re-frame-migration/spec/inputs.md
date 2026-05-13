@@ -58,10 +58,10 @@ These are deliberately out of the loop:
 
 When MIGRATION.md changes, the skill needs targeted updates. The audit shape:
 
-1. **New rule added** to MIGRATION.md → add a row to `reference/breaking-changes.md` and pick its place in `reference/sequencing.md`. If the rule is Type A, add a shape to `reference/automated-transforms.md`. If Type B, add a walkthrough to `reference/guided-checklist.md`.
-2. **Rule's type changed** (A → B or B → A) → move it between `automated-transforms.md` and `guided-checklist.md` and update its row in `breaking-changes.md`.
+1. **New rule added** to MIGRATION.md → add a row to `reference/breaking-changes.md` and pick its place in `reference/sequencing.md`. If the rule is Type A, add a shape to whichever of `reference/auto-call-site-rewrites.md` (per-call-site) or `reference/auto-cross-cutting.md` (cross-cutting) fits the rule's shape. If Type B, add a walkthrough to whichever of `reference/guided-handlers-state.md` (handlers / views / db-seeding) or `reference/guided-interceptors-subs.md` (interceptors / subs / payloads) fits the rule's surface.
+2. **Rule's type changed** (A → B or B → A) → move it between the relevant `auto-*.md` and `guided-*.md` leaves and update its row in `breaking-changes.md`.
 3. **Rule removed / strikethrough'd** → mark its row in `breaking-changes.md` with strikethrough; remove the shape / walkthrough.
-4. **New per-feature artefact** split out → add a row to `setup.md`'s pay-as-you-go table and to `automated-transforms.md`'s per-feature add table.
+4. **New per-feature artefact** split out → add a row to `setup.md`'s pay-as-you-go table and to `auto-cross-cutting.md`'s per-feature add table.
 5. **MIGRATION.md Part 2 changes** (the execution procedure) → audit `reference/kickoff-prompt.md` and `reference/output-format.md` for any phrasing that referenced the old shape.
 
 The skill's `breaking-changes.md` is the integration point — every M-rule and O-rule in MIGRATION.md gets a row. A periodic audit greps both files and reports rules-in-MIGRATION-not-in-skill.

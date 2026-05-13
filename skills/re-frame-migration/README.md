@@ -60,8 +60,10 @@ skills/re-frame-migration/
 │   ├── setup.md                   # M-0 detail: dep-coord swap, substrate adapter picker
 │   ├── breaking-changes.md        # Rule index keyed to v1 trigger surfaces
 │   ├── sequencing.md              # Recommended rule order
-│   ├── automated-transforms.md    # Type A patterns (mechanical rewrites)
-│   ├── guided-checklist.md        # Type B walkthroughs (judgment-call rewrites)
+│   ├── auto-call-site-rewrites.md # Type A: per-call-site mechanical rewrites
+│   ├── auto-cross-cutting.md      # Type A: cross-cutting renames, views, init, artefacts
+│   ├── guided-handlers-state.md   # Type B: handler / view / db-seeding walkthroughs
+│   ├── guided-interceptors-subs.md# Type B: interceptor / sub / payload walkthroughs
 │   └── output-format.md           # The migration-summary shape
 └── spec/
     ├── design.md                  # Locked design decisions

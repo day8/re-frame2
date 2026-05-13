@@ -93,31 +93,35 @@ skills/re-frame-migration/
 ├── package.json                   (npm metadata for distribution)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 ├── reference/
-│   ├── kickoff-prompt.md          (~60 lines)
-│   ├── setup.md                   (~130 lines)
-│   ├── breaking-changes.md        (~180 lines)
-│   ├── sequencing.md              (~100 lines)
-│   ├── automated-transforms.md    (~210 lines)
-│   ├── guided-checklist.md        (~240 lines)
-│   └── output-format.md           (~110 lines)
+│   ├── kickoff-prompt.md           (~60 lines)
+│   ├── setup.md                    (~130 lines)
+│   ├── breaking-changes.md         (~180 lines)
+│   ├── sequencing.md               (~100 lines)
+│   ├── auto-call-site-rewrites.md  (~180 lines; Type A — ns / effect-map / dispatch)
+│   ├── auto-cross-cutting.md       (~175 lines; Type A — keywords / interceptors / views / init / artefacts)
+│   ├── guided-handlers-state.md    (~145 lines; Type B — handler / view / db-seeding / error-handler)
+│   ├── guided-interceptors-subs.md (~150 lines; Type B — interceptor / sub / payload / observer)
+│   └── output-format.md            (~110 lines)
 └── spec/
     ├── design.md                  (this file)
     ├── inputs.md                  (the canonical inputs the skill leans on)
     └── authoring-prompt.md        (one-shot reauthor prompt)
 ```
 
-**Totals**: SKILL.md (~190) + 7 reference leaves (~1,030) + 3 spec files (~250) ≈ ~1,470 LoC across 11 files. Every leaf well under the 250-line ceiling; SKILL.md well under the 500-line Anthropic guideline.
+**Totals**: SKILL.md (~190) + 9 reference leaves (~1,130) + 3 spec files (~250) ≈ ~1,570 LoC across 13 files. Every leaf comfortably under the 250-line ceiling; SKILL.md well under the 500-line Anthropic guideline.
+
+**Type A / Type B split into two leaves each.** The 365L `automated-transforms.md` and 300L `guided-checklist.md` originals violated the 250-line soft ceiling. They've been split along natural cluster boundaries: Type A divides into per-call-site rewrites (ns / effect-map / dispatch shapes) and cross-cutting (keyword renames / interceptor cleanup / views / init / artefact adds); Type B divides into handler-state-shaped (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15) and interceptor-sub-payload-shaped (M-17, M-18, M-19, M-21, M-23, M-26). All four leaves remain one level deep from SKILL.md — no SKILL → A → B chains.
 
 ## 6. Why the leaf split
 
-The seven reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
+The nine reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
 
 - **Phase 2 (bump-only success)**: `setup.md` + `output-format.md`. ~240 LoC.
-- **Phase 3 (sweep with Type A only)**: `automated-transforms.md` + `breaking-changes.md` + `sequencing.md` + `output-format.md`. ~600 LoC.
-- **Phase 3 (sweep with Type B)**: add `guided-checklist.md`. ~840 LoC.
-- **Full migration (rare)**: all seven leaves. ~1,030 LoC.
+- **Phase 3 (sweep with Type A only)**: `auto-call-site-rewrites.md` + `auto-cross-cutting.md` + `breaking-changes.md` + `sequencing.md` + `output-format.md`. ~745 LoC.
+- **Phase 3 (sweep with Type A + Type B)**: add the relevant `guided-*.md` (typically one; both for cross-surface migrations). ~890–1,040 LoC.
+- **Full migration (rare)**: all nine reference leaves. ~1,130 LoC.
 
-Even the worst case is well under any reasonable context budget; the median case is ~25% of the total skill content.
+Even the worst case is well under any reasonable context budget; the median case is ~25% of the total skill content. The Type A split lets a Phase-3 sweep that only trips per-call-site rules load `auto-call-site-rewrites.md` (~180L) without dragging in the cross-cutting catalogue (and vice versa). Likewise the Type B split lets a sub-only migration load just `guided-interceptors-subs.md`.
 
 ## 7. Anti-patterns the skill explicitly resists
 
@@ -151,7 +155,7 @@ These remain open at authoring time:
 
 ### OQ1 — Should the skill ship a runnable `migrate.bb` for mechanical transforms?
 
-**Status**: deferred. The skill ships as pure guidance for v0.1. If post-launch experience shows the automated-transforms leaf is being applied identically across many migrations, a `migrate.bb` script would be a logical next bead — driven by real call-site data.
+**Status**: deferred. The skill ships as pure guidance for v0.1. If post-launch experience shows the Type A leaves (`auto-call-site-rewrites.md` / `auto-cross-cutting.md`) are being applied identically across many migrations, a `migrate.bb` script would be a logical next bead — driven by real call-site data.
 
 ### OQ2 — Should there be a "before you start" diagnostic that profiles the codebase?
 

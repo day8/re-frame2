@@ -1,194 +1,17 @@
-# automated-transforms
+# auto-cross-cutting
 
-Type A patterns: the unambiguous mechanical rewrites the agent applies without asking. Each entry gives the **search shape**, the **rewrite shape**, the **rule id** (so the report cites it correctly), and any **edge case** that promotes a sub-case to Type B.
+Type A — cross-cutting mechanical rewrites the agent applies without asking. Covers framework-keyword renames, interceptor-list cleanup, view / hiccup rewrites, dropped public-surface drops, init wiring, and per-feature artefact adds.
 
-For the *why* of each rule, see [`MIGRATION.md`](../../../spec/MIGRATION.md). This leaf is a shape catalogue, not a rationale.
+For the *why* of each rule, see [`MIGRATION.md`](../../../spec/MIGRATION.md). This leaf is a shape catalogue, not a rationale. For per-call-site mechanical rewrites (namespaces, effect-map, dispatch shapes), see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
 
 ## Contents
 
-- Dep-coord and namespace rewrites
-- Effect-map consolidation (M-8)
-- Dispatch-shape rewrites (M-4, M-9, M-16)
-- Framework keyword renames (M-20)
+- Framework keyword renames (M-20, M-35)
 - Interceptor list cleanup (M-21 mechanical half)
 - View / hiccup rewrites (M-22, M-24)
-- Test-namespace rename (M-25)
 - `reg-event-fx` shape (M-26 mechanical half)
-- Init / adapter (M-40, M-38)
+- Init / adapter (M-40)
 - Per-feature artefact adds (M-27 through M-33)
-
----
-
-## Dep-coord and namespace rewrites
-
-### M-0 — Dep coord swap
-
-See `reference/setup.md` for the per-build-tool detail. Applied once, in Phase 2.
-
-### M-1 — Private-namespace requires
-
-```clojure
-;; SEARCH
-(:require [re-frame.db :as db])
-(:require [re-frame.db :refer [app-db]])
-(:require [re-frame.router :as router])
-(:require [re-frame.subs :as subs])
-(:require [re-frame.events :as events])
-(:require [re-frame.registrar :as reg])
-
-;; REWRITE
-;; Remove the :require entirely; replace usages per the table:
-@db/app-db           → (rf/get-frame-db :rf/default)
-@re-frame.db/app-db  → (rf/get-frame-db :rf/default)
-(reset! re-frame.db/app-db v) → flag (Type B — see M-15) — propose
-                                 (rf/dispatch-sync [::reset-app-db v])
-(subs/clear-subscription-cache!) → (rf/clear-subscription-cache! :rf/default)
-(reg/get-handler kind id) → (rf/get-handler kind id)
-```
-
-**Edge case → Type B**: `(reset! re-frame.db/app-db ...)` is intent-sensitive (real bypass vs. test reset vs. seeding); promote to M-15 review.
-
-### M-38 — Substrate adapter ns rename
-
-```clojure
-;; SEARCH
-(:require [re-frame.substrate.reagent :as reagent-adapter])
-
-;; REWRITE
-(:require [re-frame.adapter.reagent :as reagent-adapter])
-```
-
-Same for `uix` / `helix` variants.
-
-### M-23 — `re-frame.alpha` removal (mechanical half)
-
-```clojure
-;; SEARCH
-(:require [re-frame.alpha :as rf])  ; or :refer [reg sub]
-
-;; REWRITE — remove the require; rewrite each call site:
-(reg :event-fx :id ...)              → (reg-event-fx :id ...)
-(reg :event-db :id ...)              → (reg-event-db :id ...)
-(reg :event-ctx :id ...)             → (reg-event-ctx :id ...)
-(reg :sub :id ...)                   → (reg-sub :id ...)
-(reg :fx :id ...)                    → (reg-fx :id ...)
-(reg :cofx :id ...)                  → (reg-cofx :id ...)
-(reg :flow :id ...)                  → (reg-flow ...)
-(sub <vector>)                       → (subscribe <vector>)
-(sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
-```
-
-**Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation, file a follow-up bead if the user explicitly wanted non-default lifecycle.
-
-### M-25 — `re-frame.test` rename
-
-```clojure
-;; SEARCH
-(:require [re-frame.test :as rf-test])
-(:require [day8.re-frame.test :as rf-test])
-
-;; REWRITE
-(:require [re-frame.test-support :as rf-test])
-```
-
-Helper names (`dispatch-sequence`, `assert-state`, `run-test-sync`) unchanged.
-Also: drop `day8/re-frame-test` from the Maven coords.
-
----
-
-## Effect-map consolidation (M-8)
-
-The single highest-impact mechanical rewrite. The transformation is structural.
-
-```clojure
-;; SEARCH
-{:db   ...
- :dispatch       <event-vec>}
-
-{:dispatch-later <map-or-vec-of-maps>}
-
-{:dispatch-n     [<event-vec> ...]}
-
-{:db   ...
- :<user-fx-id>   <args>}
-
-;; REWRITE — fold every non-:db key into :fx
-{:db ...
- :fx [[:dispatch <event-vec>]]}
-
-{:fx [[:dispatch-later <map>] ...]}           ; one entry per map in the original vector
-
-{:fx [[:dispatch <e1>] [:dispatch <e2>] ...]} ; one entry per event-vec
-
-{:db ...
- :fx [[:<user-fx-id> <args>]]}
-```
-
-**Procedure** (sweep first, then per-handler rewrite):
-
-1. Discover the project's user-fx ids: `grep -E "\\(rf/reg-fx\\s+:" -r src/`.
-2. Add the built-ins: `:dispatch`, `:dispatch-later`, `:dispatch-n`.
-3. For each `reg-event-fx` body, walk the returned effect map literal.
-4. For each top-level key other than `:db`:
-   - In the discovered set → rewrite per the rules above.
-   - Not in the set → **flag** (might be a destructure key, not an effect).
-5. If `:fx` already exists, concatenate: existing `:fx` first, new entries after.
-
-**Edge case → flag**: an unknown top-level key. Could be a destructure or a typo'd fx-id.
-
----
-
-## Dispatch-shape rewrites
-
-### M-4 — `dispatch-with` / `dispatch-sync-with`
-
-```clojure
-;; SEARCH
-(rf/dispatch-with      <event-vec> <opts-shape>)
-(rf/dispatch-sync-with <event-vec> <opts-shape>)
-
-;; REWRITE
-(rf/dispatch      <event-vec> {:fx-overrides <opts-shape>})
-(rf/dispatch-sync <event-vec> {:fx-overrides <opts-shape>})
-```
-
-The `opts-shape` shape carries the same content; only the slot key changes (it now lives inside `:fx-overrides`).
-
-### M-9 — `dispatch-sync` inside a handler
-
-```clojure
-;; SEARCH — lexically inside (reg-event-* :id ... (fn ...))
-(rf/dispatch-sync <event-vec>)
-
-;; REWRITE — move the event into :fx
-{:db ...
- :fx [[:dispatch <event-vec>]]}
-```
-
-If the handler was `reg-event-db`, promote it to `reg-event-fx` so it can return an `:fx` slot.
-
-### M-16 — `^:flush-dom` metadata
-
-```clojure
-;; SEARCH
-^:flush-dom <event-vec>
-
-;; REWRITE
-;; Wrap in a :dispatch-later fx
-{:fx [[:dispatch-later {:ms 0 :dispatch <event-vec>}]] ...}
-```
-
-Old form:
-```clojure
-{:dispatch ^:flush-dom [:do-work]
- :db       (assoc db :processing true)}
-```
-
-New form:
-```clojure
-{:db (assoc db :processing true)
- :fx [[:dispatch-later {:ms 0 :dispatch [:do-work]}]]}
-```
 
 ---
 
@@ -247,7 +70,7 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 
 **`trim-v` reaches M-19 territory** (the handler may have positional destructure). Flag the handler shape — the M-19 sweep handles destructure rewriting separately.
 
-`on-changes` / `enrich` / `after` → Type B, see `reference/guided-checklist.md`.
+`on-changes` / `enrich` / `after` → Type B, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
 
 ---
 
@@ -320,7 +143,7 @@ rf/trace-api-version                 → drop (no replacement)
 (rf/destroy-machine id)              → wrap in event-fx returning {:fx [[:rf.machine/destroy id]]}
 ```
 
-**Type B → see guided-checklist**: `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`.
+**Type B → see [`guided-interceptors-subs.md`](guided-interceptors-subs.md) (M-26) and [`guided-handlers-state.md`](guided-handlers-state.md) (M-13)**: `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`.
 
 ---
 
@@ -358,7 +181,7 @@ The `:require` is what triggers the artefact's load-time hook registrations. Wit
 
 ## What this leaf is NOT
 
-- It is not a complete migration script. Type B rules live in `reference/guided-checklist.md`.
+- It is not the full Type A catalogue — per-call-site mechanical rewrites (namespaces, effect-map, dispatch shapes) live in [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md).
 - It is not a substitute for [`MIGRATION.md`](../../../spec/MIGRATION.md)'s per-rule rationale — when you apply a rewrite, you cite the rule id; you don't quote the rule's text inline.
 - It is not exhaustive. The shapes here are the most common Type A trigger patterns. If a call site matches the *intent* of a Type A rule but not the *shape* here, apply the rewrite — the shapes are illustrative.
 
