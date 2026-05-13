@@ -277,18 +277,30 @@
 
   Per rf2-hqbeh: the per-frame `:on-error` slot is a runtime error-
   recovery surface and MUST fire even when the trace surface is
-  compile-time elided in CLJS production builds. We build the structured
-  error-event map up-front, hand it to `error-emit/dispatch-on-error!`
-  (always-on; survives `goog.DEBUG=false`), then forward to the dev-only
-  `trace/emit-error!` for trace listeners and the retain-N buffer. The
-  trace path enriches the emitted event with the cascade's
-  `:dispatch-id` and the in-scope handler's source-coord; the always-on
-  path delivers the same `:operation`/`:tags` body the policy fn
-  expects."
-  [error event-id event frame ctx]
+  compile-time elided in CLJS production builds. Per rf2-bacs4: a
+  corpus-wide listener registry runs in parallel for off-box
+  observability shippers (Sentry / Honeybadger / Rollbar). We build
+  the structured error-event map AND the tight error-record up-front,
+  hand both to `error-emit/dispatch-on-error!` (always-on; survives
+  `goog.DEBUG=false`), then forward to the dev-only
+  `trace/emit-error!` for trace listeners and the retain-N buffer.
+  The trace path enriches the emitted event with the cascade's
+  `:dispatch-id` and the in-scope handler's source-coord; the
+  always-on path delivers the same `:operation`/`:tags` body the
+  policy fn expects PLUS the tight `:error/:event/:event-id/:frame/
+  :time/:exception/:elapsed-ms` record to corpus-wide listeners."
+  [error event-id event frame ctx start-ms]
   (let [e          (:exception error)
         msg        #?(:clj (.getMessage e) :cljs (.-message e))
         emit-event (or (:rf/redacted-event ctx) event)
+        end-ms     (interop/now-ms)
+        ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
+        ;; `interop/now-ms` returns a long on the JVM but a float on
+        ;; CLJS (`js/performance.now()` carries sub-millisecond
+        ;; precision). Round once at the substrate boundary so the
+        ;; record's contract holds on both platforms (mirrors
+        ;; rf2-ph8pa / rf2-rirbq).
+        elapsed-ms (long (max 0 (- end-ms start-ms)))
         tags       {:event-id          event-id
                     :event             emit-event
                     :frame             frame
@@ -299,15 +311,23 @@
                     :exception-message msg
                     :reason            "Event handler threw."
                     :recovery          :no-recovery}]
-    ;; Always-on per rf2-hqbeh: the `:on-error` policy fn fires through
-    ;; the always-on substrate so production builds with the trace
-    ;; surface elided still observe the error. The synthesised event
+    ;; Always-on per rf2-hqbeh / rf2-bacs4: the `:on-error` policy fn
+    ;; fires through the always-on substrate so production builds with
+    ;; the trace surface elided still observe the error; in parallel,
+    ;; every fn registered through `rf/register-error-emit-listener!`
+    ;; receives the tight error-record. The synthesised error-event
     ;; matches the dev-side `:rf/trace-event` shape closely enough for
     ;; policy fns to discriminate on `:operation` / `:tags`. Trigger-
     ;; handler / dispatch-id enrichment is dev-only and not present
     ;; here — those ride the trace path below.
     (error-emit/dispatch-on-error!
+      :rf.error/handler-exception
+      emit-event
+      event-id
       frame
+      e
+      elapsed-ms
+      end-ms
       {:operation :rf.error/handler-exception
        :op-type   :error
        :tags      tags
@@ -474,7 +494,7 @@
                   effects      (:effects final-ctx)
                   error        (:rf/interceptor-error final-ctx)]
               (when error
-                (emit-handler-exception! error event-id event frame final-ctx))
+                (emit-handler-exception! error event-id event frame final-ctx start-ms))
               (commit-db-effect! effects event-id event frame final-ctx)
               (run-flows! frame event)
               (run-fx-effects! effects frame frame-record fx-overrides event)

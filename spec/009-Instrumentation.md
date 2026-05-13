@@ -504,6 +504,22 @@ Five surfaces survive elision and are the canonical production-debugging fallbac
    ```
 
    Catches the "accidentally deployed a dev bundle with prod config" bug class.
+
+   **The error-emit listener surface** (per rf2-bacs4, `register-error-emit-listener!` / `unregister-error-emit-listener!` — see [API.md §Error-emit](API.md#error-emit-always-on-production-survivable)) — sibling of #2 above, runs through the SAME always-on error-emit substrate as the per-frame `:on-error` slot (#1) but along an independent fan-out path. NOT gated by `re-frame.interop/debug-enabled?`. The router fans out one record per `:rf.error/*` event after the handler-exception path runs. The record is intentionally tight — `{:error <kw> :event <vector> :event-id <kw> :frame <kw> :time <millis> :exception <ex> :elapsed-ms <int>}` — enough discriminator for production error observability (failing event-id, frame, exception object, latency); not enough for causal reconstruction (`:dispatch-id`, source-coord, `:rf.trace/trigger-handler` ride the dev-only trace surface and elide with it). The `:event` vector is passed through `re-frame.elision/elide-wire-value` ONCE before fan-out with off-box defaults (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`). The two paths from the substrate are mutually isolated: a buggy listener cannot block the per-frame `:on-error` policy fn, and a buggy policy fn cannot block listeners. Listener registration sites SHOULD use `^boolean re-frame.interop/debug-enabled?` as a belt-and-braces gate alongside the user's explicit config flag, symmetric with the event-emit pattern above:
+
+   ```clojure
+   (when (and (= "production" (:env config))
+              (not ^boolean re-frame.interop/debug-enabled?)
+              (:dsn config))
+     (rf/register-error-emit-listener!
+       :sentry/forward
+       (fn [error-record]
+         (sentry/capture-exception (:exception error-record)
+                                   {:tags {:event-id (:event-id error-record)
+                                           :frame    (:frame error-record)}}))))
+   ```
+
+   Use the two listener surfaces together to route both events and errors through one hosted observability back-end without preserving the full trace surface.
 3. **The Performance API channel** (per [§Performance instrumentation](#performance-instrumentation)) — gated on the independent `re-frame.performance/enabled?` `goog-define`, default off. A production build that wants timing observability flips `{:closure-defines {re-frame.performance/enabled? true}}`; the bracket sites at the four hot paths (`:event`, `:sub`, `:fx`, `:render`) emit User-Timing measure entries that any `PerformanceObserver` — including the host APM's — reads via `performance.getEntriesByType('measure')`. This is the production observability surface re-frame2 ships and supports.
 4. **The SSR error-projector boundary** (per [011 §Server error projection](011-SSR.md#server-error-projection)) — on the server (JVM/SSR), `re-frame.interop/debug-enabled?` is hardcoded `true` (per [§JVM builds](#jvm-builds)), so the trace surface is live. The runtime emits structured `:rf.error/*` traces, the registered error projector consumes them, and the locked `:rf/public-error` shape is written to the HTTP response. Apps with an SSR tier get the full trace + projection pipeline server-side independent of the client-side bundle's elision.
 5. **Native browser machinery** — uncaught exceptions still reach `window.onerror` / `window.onunhandledrejection`. A re-frame2 event handler that throws in production still surfaces there; what's missing is the structured `:rf.error/handler-exception` shape, the `:dispatch-id` correlation, and the `:rf.trace/trigger-handler` coord — those rode the trace surface. Prefer the `:on-error` slot (#1) for structured access to the failing handler's id and the exception.

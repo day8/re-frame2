@@ -11,18 +11,44 @@
     - Re-registration of the frame replaces the `:on-error` slot;
       the old policy fn does NOT fire after replacement.
 
+  Per rf2-bacs4 — exercise the corpus-wide
+  `register-error-emit-listener!` registry alongside the per-frame
+  slot:
+
+    - A registered listener fires per `:rf.error/*` event.
+    - Listener exceptions are swallowed; siblings still run.
+    - Unregistering a listener stops it receiving subsequent events.
+    - The listener and the per-frame `:on-error` policy fn are
+      INDEPENDENT — a buggy listener cannot block the policy fn, and
+      a buggy policy fn cannot block listeners.
+    - The error-record shape is TIGHT: exactly
+      `{:error :event :event-id :frame :time :exception :elapsed-ms}`.
+    - `:elapsed-ms` is an integer on every platform (rf2-ph8pa
+      contract).
+
   Dev-side coverage (runs under `:node-test` / `:browser-test` /
   `clojure -M:test`). The CLJS production-mode counterpart lives in
   `re-frame.on-error-elision-prod-test` — that suite pins the same
   contract under `:advanced` + `goog.DEBUG=false`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+    {:adapter plain-atom/adapter
+     :init-fn (fn []
+                ;; Per rf2-bacs4: the listener registry is a `defonce`
+                ;; atom that survives test re-runs. Clear before each
+                ;; test so a listener registered by one test doesn't
+                ;; leak into the next.
+                (error-emit/clear-error-emit-listeners!))}))
+
+;; ============================================================================
+;; rf2-hqbeh — per-frame :on-error policy
+;; ============================================================================
 
 (deftest on-error-fires-when-handler-throws
   (testing "Per rf2-hqbeh / Spec 009 §Error-handler policy: a frame
@@ -88,3 +114,162 @@
                        (throw (ex-info "boom" {}))))
     ;; :rf/default is registered by the fixture with no :on-error.
     (is (nil? (rf/dispatch-sync [:on-error-test/no-policy-throw])))))
+
+;; ============================================================================
+;; rf2-bacs4 — corpus-wide register-error-emit-listener!
+;; ============================================================================
+
+(deftest error-listener-fires-on-handler-exception
+  (testing "Per rf2-bacs4: a registered listener receives exactly one
+            tight error-record per `:rf.error/handler-exception`. The
+            record's shape is fixed: `:error :event :event-id :frame
+            :time :exception :elapsed-ms`."
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :err/throw
+                       (fn [_db _]
+                         (throw (ex-info "kaboom" {:cause :test}))))
+      (rf/dispatch-sync [:err/throw])
+      (is (= 1 (count @seen))
+          "listener fired exactly once for one thrown handler")
+      (let [r (first @seen)]
+        (is (= :rf.error/handler-exception (:error r)))
+        (is (= [:err/throw]    (:event r)))
+        (is (= :err/throw      (:event-id r)))
+        (is (= :rf/default     (:frame r)))
+        (is (some? (:exception r))           ":exception present")
+        (is (number? (:time r))              ":time is a wall-clock millis number")
+        (is (integer? (:elapsed-ms r))       ":elapsed-ms is an integer ms count")
+        (is (not (neg? (:elapsed-ms r)))     ":elapsed-ms is non-negative")
+        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms}
+               (set (keys r)))
+            "record carries ONLY the tight rf2-bacs4 keys — no trace-bus enrichment")))))
+
+(deftest error-listener-exception-is-swallowed
+  (testing "Per the substrate contract: a buggy listener cannot break
+            the cascade OR prevent sibling listeners from running.
+            Listener throws are caught inside the substrate and
+            silently dropped — no recursive emit, no propagation to
+            user code."
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :test/throws
+        (fn [_record]
+          (throw (ex-info "listener went boom" {}))))
+      (rf/register-error-emit-listener!
+        :test/sibling
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :err/throw2
+                       (fn [_db _]
+                         (throw (ex-info "handler kaboom" {}))))
+      ;; Must NOT throw — the listener's exception is swallowed.
+      (is (nil? (rf/dispatch-sync [:err/throw2]))
+          "dispatch-sync returned nil despite the listener throw")
+      (is (= 1 (count @seen))
+          "the sibling listener still received the record — fan-out is
+           defensive across listeners"))))
+
+(deftest error-listener-unregister-stops-delivery
+  (testing "Per rf2-bacs4: unregistering a listener stops it receiving
+            subsequent events. Re-registering under the same id
+            reattaches it."
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :err/throw3 (fn [_db _] (throw (ex-info "x" {}))))
+      (rf/dispatch-sync [:err/throw3])
+      (is (= 1 (count @seen)) "listener fired before unregister")
+      (rf/unregister-error-emit-listener! :test/recorder)
+      (rf/dispatch-sync [:err/throw3])
+      (is (= 1 (count @seen)) "listener silent after unregister")
+      ;; Re-register under the same id and dispatch again.
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/dispatch-sync [:err/throw3])
+      (is (= 2 (count @seen))
+          "listener fired again after re-registration under the same id"))))
+
+(deftest listener-and-on-error-policy-fire-independently
+  (testing "Per rf2-bacs4: the corpus-wide listener registry and the
+            per-frame `:on-error` policy fn fire from ONE normative
+            emission site along TWO independent fan-out paths. Both
+            see the same handler exception; a buggy listener cannot
+            block the policy fn, and a buggy policy fn cannot block
+            listeners."
+    (let [listener-saw (atom nil)
+          policy-saw   (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (reset! listener-saw record)))
+      (rf/reg-event-db :err/both
+                       (fn [_db _] (throw (ex-info "boom" {}))))
+      (rf/dispatch-sync [:err/both])
+      ;; Both paths fired.
+      (is (some? @policy-saw)   "per-frame :on-error policy fired")
+      (is (some? @listener-saw) "corpus-wide listener fired")
+      ;; The two paths carry DIFFERENT shapes — the policy fn receives
+      ;; the legacy structured error-event (with `:operation`/`:tags`),
+      ;; the listener receives the tight record (rf2-bacs4 shape).
+      (is (= :rf.error/handler-exception (:operation @policy-saw))
+          "policy fn received the legacy structured shape")
+      (is (= :rf.error/handler-exception (:error @listener-saw))
+          "listener received the tight record shape")
+      (is (= :err/both (:event-id @listener-saw))))))
+
+(deftest listener-isolation-policy-throw-does-not-block-listener
+  (testing "Per rf2-bacs4 §independent paths: a policy-fn throw is
+            caught by the substrate and does NOT prevent the
+            corpus-wide listener from firing — the two fan-out paths
+            are mutually isolated."
+    (let [listener-saw (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [_ev] (throw (ex-info "policy boom" {})))})
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (reset! listener-saw record)))
+      (rf/reg-event-db :err/policy-throws
+                       (fn [_db _] (throw (ex-info "handler boom" {}))))
+      (is (nil? (rf/dispatch-sync [:err/policy-throws]))
+          "dispatch settled despite both handler and policy throwing")
+      (is (some? @listener-saw)
+          "corpus-wide listener fired even though policy fn threw"))))
+
+(deftest listener-isolation-listener-throw-does-not-block-policy
+  (testing "Per rf2-bacs4 §independent paths: a listener throw is
+            caught by the substrate and does NOT prevent the
+            per-frame `:on-error` policy fn from firing."
+    (let [policy-saw (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
+      (rf/register-error-emit-listener!
+        :test/throws
+        (fn [_record] (throw (ex-info "listener boom" {}))))
+      (rf/reg-event-db :err/listener-throws
+                       (fn [_db _] (throw (ex-info "handler boom" {}))))
+      (is (nil? (rf/dispatch-sync [:err/listener-throws]))
+          "dispatch settled despite both handler and listener throwing")
+      (is (some? @policy-saw)
+          "per-frame :on-error policy fired even though listener threw"))))
+
+(deftest listener-elapsed-ms-is-integer
+  (testing "Per rf2-bacs4 §Record shape + rf2-ph8pa contract:
+            `:elapsed-ms` MUST be an integer on every platform. CLJS
+            `performance.now()` returns a float; the substrate
+            rounds at the boundary so the contract holds."
+    (let [seen (atom nil)]
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (reset! seen record)))
+      (rf/reg-event-db :err/elapsed (fn [_db _] (throw (ex-info "x" {}))))
+      (rf/dispatch-sync [:err/elapsed])
+      (let [r @seen]
+        (is (some? r))
+        (is (integer? (:elapsed-ms r))
+            ":elapsed-ms is integer on every platform (no float leak from
+             CLJS performance.now())")))))
