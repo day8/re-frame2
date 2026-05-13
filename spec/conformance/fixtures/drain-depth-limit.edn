@@ -7,7 +7,7 @@
 
 {:fixture/id           :drain/depth-limit
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/error}
+ :fixture/capabilities #{:core/event-handler :core/error :core/trace}
  :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. The runtime rolls app-db back to the pre-drain snapshot (atomic rollback per Spec 002 rule 3) and the cascade halts."
 
  :fixture/registry

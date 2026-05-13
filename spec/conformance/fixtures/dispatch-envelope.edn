@@ -5,7 +5,7 @@
 
 {:fixture/id           :dispatch/envelope
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler}
+ :fixture/capabilities #{:core/event-handler :core/frame :core/trace}
  :fixture/doc          "An event dispatched with :source :ui surfaces in the cofx context map. Implementations expose :frame, :trace-id, and :source as additional keys on the cofx map for reg-event-fx handlers."
 
  :fixture/registry

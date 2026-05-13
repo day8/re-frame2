@@ -166,6 +166,9 @@ The conventions above describe the schema; the corpus itself shows what those ta
 | Fixture | `:fixture/capabilities` | What the tag set means |
 |---|---|---|
 | `counter-inc-once.edn` | `#{:core/event-handler :core/sub}` | The simplest pattern-required-only fixture: a single event handler, one sub. Every conformant port runs this. |
+| `frame-lifecycle.edn` | `#{:core/event-handler :core/frame :core/trace}` | The default frame's `:on-create` / `:on-destroy` events fire at frame creation and destruction; the runtime emits `:frame/created` / `:frame/destroyed` trace ops. Verifies both the frame-lifecycle contract and the trace-bus emission. |
+| `frame-multi-instance.edn` | `#{:core/event-handler :core/sub :core/frame :core/trace}` | Two frames sharing one registrar with isolated app-db; each trace event carries a per-frame `:frame` tag so the bus is multi-frame addressable. |
+| `error-handler-exception.edn` | `#{:core/event-handler :core/error :core/trace}` | A handler throws; the runtime emits a structured `:rf.error/handler-exception` trace with `:op-type :error` and `:recovery :no-recovery`. The trace shape is the primary contract. |
 | `after-hierarchy.edn` | `#{:fsm/hierarchical :fsm/delayed-after}` | A parent compound state with an `:after` timer. Only ports that claim both hierarchical FSM and `:after` will run it. |
 | `spawn-from-action.edn` | `#{:fsm/flat :actor/spawn-destroy}` | Imperative spawn of a child actor from inside a transition action. Requires the actor-model spawn-destroy capability on top of flat FSMs. |
 | `flow-lifecycle-emits-traces.edn` | `#{:core/event-handler :flow/basic :flow/trace}` | The flow primitive emits its five lifecycle trace events. Requires the flow substrate and the flow-trace stream. |

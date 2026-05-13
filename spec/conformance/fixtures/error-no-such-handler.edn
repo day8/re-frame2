@@ -5,7 +5,7 @@
 
 {:fixture/id           :error/no-such-handler
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/error}
+ :fixture/capabilities #{:core/event-handler :core/error :core/trace}
  :fixture/doc          "Dispatching an unknown event id. Runtime logs a structured error trace event and the cascade continues (no-op for that event)."
 
  :fixture/registry

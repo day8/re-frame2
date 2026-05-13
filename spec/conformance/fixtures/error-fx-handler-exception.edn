@@ -6,7 +6,7 @@
 
 {:fixture/id           :error/fx-handler-exception
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/event-handler :core/fx :core/error}
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
  :fixture/doc          "An fx implementation throws while processing its args. The runtime emits :rf.error/fx-handler-exception, skips the offending fx, and continues with the rest of the effect map's :fx vector."
 
  :fixture/registry
