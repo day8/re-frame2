@@ -29,6 +29,7 @@ Read these in order. Each chapter assumes the previous one.
 | 04a | [Schemas](04a-schemas.md) | The Malli warmup — `reg-app-schema`, event `:spec`, dev-vs-production timing. Read before forms or HTTP, where schemas show up in volume. |
 | 05 | [Coeffects](05-coeffects.md) | The matching *inputs* half — `reg-cofx`, `inject-cofx`, the side-causes (current time, GUIDs, localStorage). Optional side-track. |
 | 06 | [Views and frames](06-views-and-frames.md) | What you put on the screen, and how you isolate state. |
+| 06a | [Frames](06a-frames.md) | The dedicated frames chapter — what a frame is, when you need more than one, `reg-frame` / `make-frame` / `frame-provider`, `:rf/default`. Read before testing, stories, or SSR if multi-frame is new. |
 | 07 | [Interceptors](07-interceptors.md) | The sandwich, the context map, custom `:before` / `:after`. Optional deep-dive. |
 | 08 | [State machines](08-state-machines.md) | When the answer to a flow is a finite state machine. |
 | 09 | [Forms](09-forms.md) | The standard form slice, seven-event lifecycle, error-visibility rule. |
