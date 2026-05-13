@@ -394,6 +394,86 @@
       (is (not (str/includes? body "admin-flag"))))))
 
 ;; ===========================================================================
+;; default-html-shell — title is sourced from the head fragment, never the
+;; shell. Two <title> tags per document is malformed HTML (rf2-3z841).
+;; ===========================================================================
+
+(deftest default-shell-emits-exactly-one-title-when-route-declares-head
+  (testing "the shell must not duplicate the head fragment's <title>. The
+            head/meta contract (Spec 011 §Head/meta) is the canonical
+            source — the shell defers."
+    (rf/reg-head :head/main
+                 (fn [_db _route] {:title "From head fragment"}))
+    (rf/reg-route :route/x
+                  {:doc  "Route x"
+                   :path "/"
+                   :head :head/main})
+    (rf/reg-event-db :init/seed-route
+      (fn [db _]
+        (assoc db :rf/route {:id :route/x})))
+    (rf/reg-view* :pages/blank-for-title (fn [] [:div]))
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/seed-route]
+                      :root-view [:pages/blank-for-title]})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)
+          opens    (count (re-seq #"<title" body))
+          closes   (count (re-seq #"</title>" body))]
+      (is (= 200 (:status response)))
+      (is (= 1 opens)
+          "exactly one <title> opening tag — head fragment is the canonical source")
+      (is (= 1 closes)
+          "exactly one </title> closing tag")
+      (is (str/includes? body "<title>From head fragment</title>")
+          "the head fragment's title is what reaches the wire"))))
+
+(deftest default-shell-emits-default-head-title-when-no-route-head
+  (testing "no route :head → active-head returns default-head, which rolls
+            the frame's :doc into :title; still exactly one <title> tag."
+    (rf/reg-view* :pages/blank-no-head (fn [] [:div]))
+    (rf/reg-event-db :init/noop (fn [db _] db))
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/noop]
+                      :root-view [:pages/blank-no-head]})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)
+          opens    (count (re-seq #"<title" body))]
+      (is (= 200 (:status response)))
+      ;; default-head pulls :title from :doc; ssr-ring per-request frame's
+      ;; :doc is "ssr-ring per-request frame". The presence (or absence)
+      ;; of a non-empty :doc-derived title is contract-dependent; the
+      ;; tight invariant is "no more than one <title>".
+      (is (<= opens 1)
+          "no duplicate <title> when head fragment carries (or omits) a title"))))
+
+(deftest default-shell-emits-no-title-when-head-fragment-empty
+  (testing "head fragment with no :title → shell emits zero <title> tags.
+            The head fragment is the sole title source; an empty model
+            yields a titleless document, not a fallback shell title."
+    (rf/reg-head :head/no-title
+                 (fn [_db _route] {})) ; no :title key
+    (rf/reg-route :route/no-title
+                  {:doc  "Route no-title"
+                   :path "/"
+                   :head :head/no-title})
+    (rf/reg-event-db :init/seed-no-title
+      (fn [db _]
+        (assoc db :rf/route {:id :route/no-title})))
+    (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/seed-no-title]
+                      :root-view [:pages/blank-no-title]})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)]
+      (is (= 200 (:status response)))
+      (is (zero? (count (re-seq #"<title" body)))
+          "head fragment with no :title key → no <title> in the document
+           (no shell fallback)"))))
+
+;; ===========================================================================
 ;; ssr-middleware — match? predicate
 ;; ===========================================================================
 

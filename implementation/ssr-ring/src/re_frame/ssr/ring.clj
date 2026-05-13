@@ -240,23 +240,28 @@
   body in a minimal-but-runnable document. Override via `:html-shell`
   in `ssr-handler` opts when you need custom <head> / scripts / styles.
 
+  `<title>` is NOT emitted by the shell — the head fragment is the
+  canonical source per Spec 011 §Head/meta contract (rf2-4dra9, rf2-3z841).
+  `default-head` rolls the frame's `:doc` into `:title` when a route does
+  not declare `:head`, so a sensible title is always present in the
+  resolved head fragment threaded in as the `:head` opt. Emitting one
+  here would produce two `<title>` tags per document — malformed HTML.
+
   Args:
     body-html — the string returned by re-frame.ssr/render-to-string
     payload-edn — the hydration payload, pre-serialised with pr-str
     opts — the caller's adapter opts (merged with any per-request
-           overrides); standard keys :title / :head / :body-end /
-           :script-src / :app-element-id influence the envelope."
+           overrides); standard keys :head / :body-end / :script-src /
+           :app-element-id / :lang influence the envelope."
   [body-html payload-edn
-   {:keys [title head body-end script-src app-element-id lang]
-    :or   {title           "re-frame2 app"
-           app-element-id  "app"
+   {:keys [head body-end script-src app-element-id lang]
+    :or   {app-element-id  "app"
            script-src      "/main.js"
            lang            "en"}}]
   (str "<!DOCTYPE html>"
        "<html lang=\"" lang "\">"
        "<head>"
        "<meta charset=\"utf-8\">"
-       "<title>" title "</title>"
        (or head "")
        "</head>"
        "<body>"
