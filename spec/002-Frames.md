@@ -590,7 +590,7 @@ The mechanism is symmetric with how event handlers receive their context: **fx h
   (fn [m event]
     (rf/dispatch event {:frame (:frame m)})))
 
-;; multiple dispatches are expressed via :fx (nested pairs) — :dispatch-n is deprecated
+;; multiple dispatches are expressed via :fx (nested pairs); the v1 :dispatch-n top-level key is gone
 ;; e.g., handler returns:
 ;;   {:fx [[:dispatch [:event-1]]
 ;;         [:dispatch [:event-2]]]}
