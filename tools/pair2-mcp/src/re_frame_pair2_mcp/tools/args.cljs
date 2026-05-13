@@ -20,7 +20,8 @@
   subtree. The vocabulary is shared across pair2-mcp / causa-mcp /
   story-mcp so agents recognise the surface once."
   (:require [cljs.reader]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame.mcp-base.args :as base-args]))
 
 (def valid-slices
   #{:app-db :sub-cache :machines :epochs :traces})
@@ -28,14 +29,15 @@
 (defn ->frame-keyword
   "Coerce a frame-id string into a keyword. Accepts both bare names
    (`\"rf/default\"`) and EDN-shaped strings (`\":rf/default\"`) — strips
-   a leading colon when present so callers can pass either form."
+   a leading colon when present so callers can pass either form.
+
+   Delegates to `re-frame.mcp-base.args/parse-keyword` (rf2-vw4sq) so
+   the slice-key / frame-key coercion is single-sourced across the
+   pair2-mcp wire surface — same helper underpins both
+   `parse-frames-arg` and the per-slice-mode key coercion in
+   `parse-modes-arg`."
   [x]
-  (cond
-    (keyword? x) x
-    (string? x)
-    (let [s (if (str/starts-with? x ":") (subs x 1) x)]
-      (keyword s))
-    :else (keyword x)))
+  (base-args/parse-keyword x))
 
 (defn coerce-path-segment
   "Coerce one segment of a JS-array path argument.
@@ -127,15 +129,11 @@
   "Normalise the global `mode` MCP arg. Accepts strings (`\"summary\"`,
   `\"full\"`) or keywords. Defaults to `:summary` — the lazy-summary
   default per rf2-u2029. Unrecognised values default to `:summary`
-  (budget-sensitive default)."
+  (budget-sensitive default).
+
+  Delegates to `re-frame.mcp-base.args/parse-mode` (rf2-vw4sq)."
   [raw]
-  (cond
-    (nil? raw)                 :summary
-    (= raw :full)              :full
-    (= raw :summary)           :summary
-    (= raw "full")             :full
-    (= raw "summary")          :summary
-    :else                      :summary))
+  (base-args/parse-mode raw :summary #{:summary :full}))
 
 (defn parse-modes-arg
   "Normalise the per-slice `modes` MCP arg into a `{<slice-keyword>
@@ -143,7 +141,13 @@
   Unknown slices are dropped. Unknown mode values are dropped (the
   slice falls back to the global mode default). Slice keys may be
   bare strings (`\"app-db\"`), EDN-shaped strings (`\":app-db\"`),
-  or keywords."
+  or keywords.
+
+  Slice-key coercion delegates to `->frame-keyword` (which routes
+  through `re-frame.mcp-base.args/parse-keyword`); per-slice mode
+  coercion delegates to `re-frame.mcp-base.args/parse-mode` with a
+  sentinel default so unrecognised values can be detected and
+  dropped rather than coerced to the global default (rf2-vw4sq)."
   [raw]
   (let [as-clj (cond
                  (nil? raw)            nil
@@ -155,28 +159,16 @@
                       (not (boolean? raw))
                       (not (number? raw)))
                  (try (js->clj raw) (catch :default _ nil))
-                 :else nil)
-        coerce-k (fn [k]
-                   (cond
-                     (keyword? k) k
-                     (string? k)
-                     (let [s (if (str/starts-with? k ":") (subs k 1) k)]
-                       (keyword s))
-                     :else nil))
-        coerce-v (fn [v]
-                   (cond
-                     (= v :summary)  :summary
-                     (= v :full)     :full
-                     (= v "summary") :summary
-                     (= v "full")    :full
-                     :else           nil))]
+                 :else nil)]
     (if-not (map? as-clj)
       {}
       (reduce-kv
         (fn [m k v]
-          (let [k' (coerce-k k)
-                v' (coerce-v v)]
-            (if (and k' (contains? valid-slices k') v')
+          (let [k' (->frame-keyword k)
+                v' (base-args/parse-mode v ::unknown #{:summary :full})]
+            (if (and k'
+                     (contains? valid-slices k')
+                     (not= v' ::unknown))
               (assoc m k' v')
               m)))
         {} as-clj))))
