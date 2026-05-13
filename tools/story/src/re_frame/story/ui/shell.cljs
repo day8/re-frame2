@@ -43,6 +43,7 @@
             [re-frame.story.frames :as frames]
             [re-frame.story.identity :as identity]
             [re-frame.story.runtime :as runtime]
+            [re-frame.trace :as rf-trace]
             [re-frame.story.ui.actions :as actions]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.controls :as controls]
@@ -191,9 +192,18 @@
   []
   (try
     (detect-watch-drift!)
-    (catch :default _e
-      ;; Swallow: a transient hashing error shouldn't take down the
-      ;; chrome widget. The next tick re-tries.
+    (catch :default e
+      ;; Swallow + breadcrumb. A transient hashing error shouldn't
+      ;; take down the chrome widget (the next tick re-tries), but
+      ;; the exception itself MUST be observable — per rf2-dd5ze
+      ;; audit (SH2): silent swallows on the watch-mode hot-loop hide
+      ;; real bugs. `emit-error!` gates on `interop/debug-enabled?`
+      ;; so the call DCE's to a no-op in production builds.
+      (rf-trace/emit-error!
+        :rf.story.shell/watch-mode-tick-failed
+        {:exception e
+         :where     :rf.story.shell/watch-mode-tick!
+         :recovery  :next-tick-retry})
       nil)))
 
 (defonce ^:private hot-reload-poll-handle (atom nil))
@@ -284,43 +294,75 @@
                  :render?        true}]
       (try
         (runtime/run-variant variant-id opts)
-        (catch :default _e
-          ;; Swallow: the canvas re-tries via :component-did-mount /
-          ;; :component-did-update, and the result-map's error path
-          ;; will surface inline. We just need the frame allocated up-
-          ;; front for the first render so the view's subscribe calls
-          ;; resolve against a populated app-db rather than nil.
+        (catch :default e
+          ;; Swallow + breadcrumb. The canvas re-tries via
+          ;; :component-did-mount / :component-did-update, and the
+          ;; result-map's error path will surface inline — but the
+          ;; exception itself MUST be observable. Per rf2-dd5ze audit
+          ;; (SH3): a silent catch on a fundamental-write path (the
+          ;; variant-frame allocation that the very next render reads)
+          ;; was hiding errors. `emit-error!` gates on `interop/debug-
+          ;; enabled?` so the call DCE's to a no-op in production
+          ;; builds (where the chrome itself is elided anyway).
+          (rf-trace/emit-error!
+            :rf.story.shell/ensure-variant-frame-failed
+            {:variant-id variant-id
+             :exception  e
+             :where      :rf.story.shell/ensure-variant-frame!
+             :recovery   :canvas-retry})
           nil)))))
 
+;; Per rf2-dd5ze audit (SH3, P1): the prev-selection tracker lives at
+;; module scope. The shell is a singleton (`shell-singleton`, below)
+;; but its lifecycle is install / tear-down / re-install — a fresh
+;; local `(atom ...)` on every `selection-watcher` invocation hides the
+;; cross-install lifetime from the reader and risks watch-fn closures
+;; capturing an atom whose contents are stale by the time the watch
+;; fires. Module-level `defonce` makes the lifetime explicit: one
+;; cross-mount tracker, reseeded on every install, cleared on every
+;; teardown.
+(defonce ^:private selection-prev (atom nil))
+
 (defn- selection-watcher
-  "Reagent reaction that wires listeners against the currently-selected
-  variant. Implemented as a watch on the shell state atom so it fires
-  on every selection change."
+  "Install a watch on the shell state atom that fires on every
+  `:selected-variant` change; on selection edge ensure trace / scrubber
+  listeners are wired and the variant's frame is pre-allocated.
+
+  Idempotent: re-installing replaces the previous watch (same key
+  `::shell-selection`, so `add-watch` overwrites). The cross-mount
+  prev-selection tracker is the module-level `selection-prev` atom —
+  reseeded here from the current shell state so the first firing
+  diffs against a fresh baseline rather than a value left over from a
+  previous mount."
   []
-  (let [prev (atom (:selected-variant @state/shell-state-atom))]
-    (add-watch state/shell-state-atom
-               ::shell-selection
-               (fn [_ _ _ new-state]
-                 (let [now (:selected-variant new-state)
-                       before @prev]
-                   (when (not= before now)
-                     (when before
-                       ;; Don't tear down listeners on switch — leave
-                       ;; the buffer behind so the user can switch back
-                       ;; without losing context. Stage 6 may add an
-                       ;; explicit 'clear' button.
-                       nil)
-                     (when now
-                       (ensure-listeners-for-variant! now)
-                       ;; rf2-zme7: pre-allocate the variant's frame
-                       ;; before React commits a canvas render that
-                       ;; would otherwise deref subscriptions against a
-                       ;; non-existent frame.
-                       (ensure-variant-frame! now))
-                     (reset! prev now)))))))
+  (reset! selection-prev (:selected-variant @state/shell-state-atom))
+  (add-watch state/shell-state-atom
+             ::shell-selection
+             (fn [_ _ _ new-state]
+               (let [now    (:selected-variant new-state)
+                     before @selection-prev]
+                 (when (not= before now)
+                   (when before
+                     ;; Don't tear down listeners on switch — leave
+                     ;; the buffer behind so the user can switch back
+                     ;; without losing context. Stage 6 may add an
+                     ;; explicit 'clear' button.
+                     nil)
+                   (when now
+                     (ensure-listeners-for-variant! now)
+                     ;; rf2-zme7: pre-allocate the variant's frame
+                     ;; before React commits a canvas render that
+                     ;; would otherwise deref subscriptions against a
+                     ;; non-existent frame.
+                     (ensure-variant-frame! now))
+                   (reset! selection-prev now))))))
 
 (defn- remove-selection-watcher! []
-  (remove-watch state/shell-state-atom ::shell-selection))
+  (remove-watch state/shell-state-atom ::shell-selection)
+  ;; Clear the cross-mount tracker so the next install starts from a
+  ;; clean baseline rather than diffing the first selection against a
+  ;; value held over from the previous mount.
+  (reset! selection-prev nil))
 
 ;; ---- the top-level component ---------------------------------------------
 
