@@ -1107,7 +1107,7 @@
               ~@body))))))
 
 #?(:clj
-   (defmacro with-overrides
+   (defmacro with-fx-overrides
      "Bind a per-call `:fx-overrides` map for `body`'s lexical scope.
      Per rf2-5uwl — test-support ergonomic that lifts the
      `{fx-id -> override}` map out of every `(rf/dispatch ... {:fx-overrides ...})`
@@ -1115,8 +1115,8 @@
 
      Shape:
 
-       (rf/with-overrides {:fx/http :fx/http-stub
-                           :fx/clock (fn [m _] :tick)}
+       (rf/with-fx-overrides {:fx/http :fx/http-stub
+                              :fx/clock (fn [m _] :tick)}
          (rf/dispatch-sync [:user/login {...}])
          (rf/dispatch-sync [:tick])
          ...)
@@ -1131,10 +1131,10 @@
 
      Precedence on key collision:
 
-       per-call opt  >  lexical `with-overrides`  >  per-frame `:fx-overrides`
+       per-call opt  >  lexical `with-fx-overrides`  >  per-frame `:fx-overrides`
 
      A `(rf/dispatch ev {:fx-overrides {:fx/http :other}})` inside a
-     `(rf/with-overrides {:fx/http :stub} ...)` block wins; the macro's
+     `(rf/with-fx-overrides {:fx/http :stub} ...)` block wins; the macro's
      value applies to dispatches that DON'T thread their own opt.
 
      Composes with `with-frame` — nest in either order. The macro is a
