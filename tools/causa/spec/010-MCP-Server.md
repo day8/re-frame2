@@ -117,21 +117,22 @@ the actual op runs. Mirrors the bash-shim chain's
 
 ## Tool catalogue
 
-Eighteen MCP tools across five bands: inspection (read-only),
+Seventeen MCP tools across five bands: inspection (read-only),
 mutation (user-confirmed equivalents in the UI), streaming
-(`notifications/progress`-shaped), an escape hatch, and meta
-(session-lifecycle). Each maps to a Causa surface; together they let
-an agent observe, dispatch, time-travel, stream, and inspect.
+(`notifications/progress`-shaped), escape hatch (`eval-cljs`), and
+meta (session-lifecycle). Each maps to a Causa surface; together
+they let an agent observe, dispatch, time-travel, stream, and
+inspect.
 
-The eighteen-tool cardinality and closed-set policy are locked at
+The seventeen-tool cardinality and closed-set policy are locked at
 [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-5--tool-catalogue-cardinality-and-shape)
 Lock #5; the closed-set discipline and `eval-cljs` escape valve
 posture live at
 [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
-§Closed-set tool catalogue, deliberate escape valve. The
+�Closed-set tool catalogue, deliberate escape valve. The
 **catalogue prose itself** (the tables below) remains here until
 implementation lands and migrates it to
-`tools/causa-mcp/spec/003-Tool-Catalogue.md`.
+`tools/causa-mcp/spec/003-Tool-Catalogue.md`.: harmonise tool count between prose and table (rf2-mdoqh))
 
 ### Inspection (read-only)
 
@@ -206,9 +207,9 @@ Args: `form` (string, required — EDN-encoded CLJS form), `frame`
 triggers), `build` (string, optional).
 
 `eval-cljs` is the **deliberate escape valve**: the catalogue is
-closed-set on purpose (twelve named surfaces map to twelve Causa
-panels), but agents occasionally need to reach for something not yet
-catalogued. Rather than refuse them and force a workaround through
+closed-set on purpose (sixteen named surfaces alongside this one
+escape hatch), but agents occasionally need to reach for something
+not yet catalogued. Rather than refuse them and force a workaround through
 Chrome MCP's `evaluate_script` (which loses the `:origin` tag), we
 ship the escape hatch first-class. If a particular `eval-cljs` call
 becomes recurrent, that's the signal to promote it to its own
@@ -275,7 +276,7 @@ automatic re-inject → op proceeds.
 | Axis | `tools/pair2-mcp/` | `tools/causa-mcp/` |
 |---|---|---|
 | **Audience** | Editor-side AI workflows (pair-programming). | Debugger-side AI workflows (inspection, time-travel). |
-| **Surface** | 9 tools focused on dispatch / eval / hot-swap / trace, plus streaming. | 18 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming + escape hatch + session lifecycle. |
+| **Surface** | 9 tools focused on dispatch / eval / hot-swap / trace, plus streaming. | 17 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming + escape hatch + session lifecycle. |
 | **`:origin` tag** | `:pair` | `:causa-mcp` |
 | **Runtime injection** | `re-frame-pair2.runtime` | `re-frame2-causa-mcp.runtime` |
 | **Implementation** | shadow-cljs `:node-script`, npm-published. | Same. |
