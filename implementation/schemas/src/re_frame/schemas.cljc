@@ -33,8 +33,10 @@
       (rf2-froe / rf2-t0hq).
     - `re-frame.schemas.storage`        — per-frame schema registry
       (`schemas-by-frame`, `reg-app-schema` / `reg-app-schemas`,
-      `app-schema-at` / `app-schemas`, `frame-schema-entries`,
-      snapshot/restore/clear) + the hot-reload replacement-hook seam.
+      `app-schema-at` / `app-schema-meta-at` / `app-schemas`,
+      `frame-schema-entries`, snapshot/restore/clear). Per rf2-0frdi
+      this is the single source of truth — there is no registrar
+      `:app-schema` slot.
     - `re-frame.schemas.walker`         — unified per-slot flag walker
       (rf2-nwv63 / rf2-kj51z / rf2-oghml) parameterised on the flag
       key, plus `extract-large-paths-from-schema`,
@@ -82,6 +84,7 @@
 (def reg-app-schema       storage/reg-app-schema)
 (def reg-app-schemas      storage/reg-app-schemas)
 (def app-schema-at        storage/app-schema-at)
+(def app-schema-meta-at   storage/app-schema-meta-at)
 (def app-schemas          storage/app-schemas)
 (def frame-schema-entries storage/frame-schema-entries)
 

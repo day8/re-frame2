@@ -1088,6 +1088,12 @@
       (rf/reg-error-projector :rf2-o1bp/err1 (fn [_ _] {}))
 
       ;; ---- :app-schema -------------------------------------------------
+      ;; Per rf2-0frdi reg-app-schema writes only to the schemas artefact's
+      ;; own per-frame side-table (`schemas/schemas-by-frame`), NOT to the
+      ;; registrar — same pattern as `:http-interceptor` above. The kind
+      ;; is registered for completeness; introspection of registered
+      ;; app-db schemas goes through `schemas/app-schemas` / `schemas/
+      ;; app-schema-meta-at` rather than `registry-summary` / `handler-ids`.
       (rf/reg-app-schema [:rf2-o1bp/path] :any)
 
       ;; ---- (1) registry-summary returns {kind → count} -------------------
@@ -1114,7 +1120,13 @@
           (is (= 1 (delta :error-projector))
               ":error-projector +1 (built-in :rf.ssr/default-error-projector
                was in baseline)")
-          (is (= 1 (delta :app-schema)) ":app-schema +1")))
+          ;; Per rf2-0frdi `:app-schema` is no longer a registrar kind —
+          ;; reg-app-schema writes only to the schemas artefact's per-
+          ;; frame side-table. Same as `:http-interceptor` above, the kind
+          ;; does NOT appear in registry-summary.
+          (is (= 0 (delta :app-schema))
+              ":app-schema +0 — reg-app-schema is owned by the schemas
+               artefact's side-table, not the registrar (rf2-0frdi)")))
 
       ;; ---- (2) handler-ids returns a set of ids per kind ----------------
       (testing "(rf/handler-ids kind) returns a set of ids"
@@ -1126,6 +1138,10 @@
               route-ids       (rf/handler-ids :route)
               flow-ids        (rf/handler-ids :flow)
               ep-ids          (rf/handler-ids :error-projector)
+              ;; Per rf2-0frdi `:app-schema` is owned by the schemas
+              ;; artefact's side-table — handler-ids on the registrar
+              ;; kind is empty. App-db schema introspection goes through
+              ;; `schemas/app-schemas` (returns `{path → schema}`).
               schema-ids      (rf/handler-ids :app-schema)]
           (is (set? event-ids) "handler-ids returns a set")
           (is (contains? event-ids :rf2-o1bp/evt1))
@@ -1139,7 +1155,9 @@
           (is (contains? route-ids :rf2-o1bp/route1))
           (is (contains? flow-ids :rf2-o1bp/flow1))
           (is (contains? ep-ids :rf2-o1bp/err1))
-          (is (contains? schema-ids [:rf2-o1bp/path]))))
+          (is (not (contains? schema-ids [:rf2-o1bp/path]))
+              "registrar handler-ids :app-schema is empty — schemas owns its
+               own side-table (rf2-0frdi)")))
 
       ;; ---- (3) handlers returns {id → metadata} per kind ----------------
       (testing "(rf/handlers kind) returns {id → metadata}"
