@@ -19,12 +19,62 @@
   convention: a path is an EDN-encoded vector of keys addressing a
   subtree. The vocabulary is shared across pair2-mcp / causa-mcp /
   story-mcp so agents recognise the surface once."
-  (:require [cljs.reader]
+  (:require [applied-science.js-interop :as j]
+            [cljs.reader]
             [clojure.string :as str]
             [re-frame.mcp-base.args :as base-args]))
 
 (def valid-slices
   #{:app-db :sub-cache :machines :epochs :traces})
+
+;; ---------------------------------------------------------------------------
+;; Boolean-arg table (rf2-c4fmh).
+;;
+;; The four boolean MCP args shared across pair2-mcp tools each have one
+;; load-bearing knob: their default posture. Their accept-shapes —
+;; `true`/`false`, `"true"`/`"false"`/`"yes"`/`"no"`/`"1"`/`"0"` (case-
+;; insensitive), `:true`/`:false`, unrecognised ⇒ default — are
+;; identical and come from `re-frame.mcp-base.args/parse-boolean`
+;; (rf2-vw4sq). Per-arg micro-wrappers were redundant friction: an
+;; agent that learned `:dedup "yes"` worked, but `:cache "yes"` had
+;; previously default-falsed because cache.cljs hand-rolled a smaller
+;; parser. This table is the single source of truth for both the
+;; default posture AND the accept-shape contract.
+;;
+;; Defaults:
+;;
+;;   :dedup              true   — structural dedup wins shrink-by-default
+;;   :elision            true   — size-elision wins shrink-by-default
+;;   :cache              false  — per-call cache is opt-in until agent
+;;                                hosts have been taught the marker
+;;   :include-sensitive? false  — spec/009 MUST default-suppress
+;;
+;; Callers reach in via `parse-bool-arg`
+;; (`(args/parse-bool-arg raw-args :dedup)`). The dispatcher and per-
+;; tool bodies thread the raw JS args object through; nil-safety on
+;; the args object is centralised here.
+
+(def bool-args
+  "Cross-tool boolean MCP args + their default postures (rf2-c4fmh)."
+  {:dedup              {:default true}
+   :elision            {:default true}
+   :cache              {:default false}
+   :include-sensitive? {:default false}})
+
+(defn parse-bool-arg
+  "Resolve a boolean MCP arg by name. Returns the per-arg default from
+  `bool-args` when the slot is absent / nil / unrecognised; delegates
+  recognised-value parsing to
+  `re-frame.mcp-base.args/parse-boolean` (rf2-vw4sq) — the cross-MCP
+  accept-shape contract.
+
+  `args` may be a JS args object, `nil`, or `js/undefined` — all three
+  collapse to the table default."
+  [args k]
+  (let [default (get-in bool-args [k :default])
+        raw     (when (and args (not (undefined? args)))
+                  (j/get args (name k)))]
+    (base-args/parse-boolean raw default)))
 
 (defn ->frame-keyword
   "Coerce a frame-id string into a keyword. Accepts both bare names

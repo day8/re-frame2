@@ -16,14 +16,13 @@
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
-            [re-frame-pair2-mcp.tools.elision :as elision]
-            [re-frame-pair2-mcp.tools.sensitive :as sensitive]))
+            [re-frame-pair2-mcp.tools.elision :as elision]))
 
 (defn snapshot-tool [conn raw-args]
   (let [build-id    (wire/arg-build raw-args)
         frames      (args/parse-frames-arg (wire/arg raw-args :frames))
         include     (args/parse-include-arg (wire/arg raw-args :include))
-        incl?       (sensitive/include-sensitive? raw-args)
+        incl?       (args/parse-bool-arg raw-args :include-sensitive?)
         path        (args/parse-path-arg (wire/arg raw-args :path))
         mode        (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         ;; Global lazy-summary mode (rf2-u2029): `:summary` (default)
@@ -32,8 +31,8 @@
         ;; `:modes` map takes precedence over the global mode.
         slice-mode  (args/parse-mode-arg (wire/arg raw-args :mode))
         slice-modes (args/parse-modes-arg (wire/arg raw-args :modes))
-        dedup?      (dedup/parse-dedup-arg (wire/arg raw-args :dedup))
-        elision?    (elision/parse-elision-arg (wire/arg raw-args :elision))
+        dedup?      (args/parse-bool-arg raw-args :dedup)
+        elision?    (args/parse-bool-arg raw-args :elision)
         opts        {:frames frames :include include}
         ;; Eval form composition (rf2-urjnc). The snapshot composer
         ;; returns a per-frame map; we wrap each frame's `:app-db`

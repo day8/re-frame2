@@ -183,8 +183,8 @@
         poll-ms            (or (wire/arg raw-args :poll-ms) default-poll-ms)
         max-ms             (or (wire/arg raw-args :max-ms) 0)
         max-events         (or (wire/arg raw-args :max-events) 0)
-        incl?              (sensitive/include-sensitive? raw-args)
-        dedup?             (dedup/parse-dedup-arg (wire/arg raw-args :dedup))
+        incl?              (args/parse-bool-arg raw-args :include-sensitive?)
+        dedup?             (args/parse-bool-arg raw-args :dedup)
         {:keys [signal send-note progress-tk]} (parse-mcp-extra extra)]
     (cond
       (or (nil? topic)

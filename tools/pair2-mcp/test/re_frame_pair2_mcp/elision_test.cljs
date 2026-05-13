@@ -10,12 +10,16 @@
   ...}}` marker; the agent re-fetches via `get-path` with the handle's
   path.
 
-  Tests pin `parse-elision-arg` and `elision-opts-edn` directly from
+  Tests pin `elision-opts-edn` directly from
   `re-frame-pair2-mcp.tools.elision`. The downstream eval-form
   composers (`build-snapshot-form` / `build-get-path-form`) remain
   local fixtures because their source counterparts live inlined in
   the per-tool namespaces (`tools.snapshot` / `tools.get-path`) and
   aren't surfaced as standalone public fns.
+
+  `:elision` MCP-arg normalisation lives on the shared table-driven
+  parser (`re-frame-pair2-mcp.tools.args/parse-bool-arg`, rf2-c4fmh);
+  see `re-frame-pair2-mcp.args-test` for the coverage.
 
   Live end-to-end coverage runs against a real shadow-cljs build via
   the existing `test/stdio-roundtrip.js` harness — that's where the
@@ -24,37 +28,6 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
             [re-frame-pair2-mcp.tools.elision :as elision]))
-
-;; ---------------------------------------------------------------------------
-;; parse-elision-arg — MCP-arg normalisation.
-;; ---------------------------------------------------------------------------
-
-(deftest parse-elision-default-is-true
-  ;; Default-on matches the dedup posture: shrink-by-default, opt out
-  ;; explicitly. An agent that hasn't been taught about elision still
-  ;; gets the smaller wire payload.
-  (is (true? (elision/parse-elision-arg nil))))
-
-(deftest parse-elision-booleans-pass-through
-  (is (true? (elision/parse-elision-arg true)))
-  (is (false? (elision/parse-elision-arg false))))
-
-(deftest parse-elision-string-forms-accepted
-  ;; The MCP wire ships JSON; clients sending `"false"` should get the
-  ;; false reading rather than the budget-default true.
-  (is (false? (elision/parse-elision-arg "false")))
-  (is (true? (elision/parse-elision-arg "true"))))
-
-(deftest parse-elision-keyword-forms-accepted
-  (is (false? (elision/parse-elision-arg :false)))
-  (is (true? (elision/parse-elision-arg :true))))
-
-(deftest parse-elision-unknown-defaults-to-true
-  ;; Least-surprise on the budget-sensitive default: an unrecognised
-  ;; value gets the smaller-wire-payload behaviour, not the larger.
-  (is (true? (elision/parse-elision-arg "garbage")))
-  (is (true? (elision/parse-elision-arg 42)))
-  (is (true? (elision/parse-elision-arg :other))))
 
 ;; ---------------------------------------------------------------------------
 ;; elision-opts-edn — EDN-render the walker's opts map for inlining.

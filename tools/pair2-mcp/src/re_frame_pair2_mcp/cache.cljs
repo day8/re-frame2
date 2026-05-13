@@ -70,7 +70,8 @@
   - **Disabled by default**: pass `cache true` (or the per-call MCP
     arg) to opt in. Default-off keeps the contract simple for
     callers who haven't yet learned the `:rf.mcp/cache-hit` shape.
-    See `parse-cache-arg`.
+    The arg is parsed by the shared
+    `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh).
   - **Per-tool opt-out**: streaming / progress-bearing tools
     (`subscribe`, `dispatch` with `:trace`) bypass the cache. Their
     return value is the result of an action, not a read.
@@ -95,7 +96,6 @@
   (rf2-obpa9), `:rf.mcp/summary` (rf2-tygdv), `:rf.size/large-elided`
   (rf2-urjnc). Agents that learned the family see one more slot."
   (:require [applied-science.js-interop :as j]
-            [clojure.string :as str]
             [re-frame-pair2-mcp.tools.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------
@@ -256,28 +256,6 @@
                            :text (pr-str (cache-hit-payload
                                            (assoc entry :tool tool)
                                            via))}]}))
-
-;; ---------------------------------------------------------------------------
-;; Arg parsing — opt-in switch.
-;; ---------------------------------------------------------------------------
-
-(defn parse-cache-arg
-  "Resolve the per-call cache switch. Accepts boolean or stringified
-  boolean; default is FALSE (cache opt-in until agent hosts have been
-  taught the marker shape — same pattern as `dedup` before its
-  default flipped)."
-  [raw]
-  (cond
-    (nil? raw)         false
-    (true? raw)        true
-    (false? raw)       false
-    (= raw "true")     true
-    (= raw "false")    false
-    (= raw :true)      true
-    (= raw :false)     false
-    (and (string? raw) (= (str/lower-case raw) "true"))  true
-    (and (string? raw) (= (str/lower-case raw) "false")) false
-    :else              false))
 
 ;; ---------------------------------------------------------------------------
 ;; The wire-boundary entry-point.

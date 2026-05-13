@@ -28,7 +28,7 @@
   (let [build-id  (wire/arg-build raw-args)
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         path      (args/parse-path-arg (wire/arg raw-args :path))
-        elision?  (elision/parse-elision-arg (wire/arg raw-args :elision))]
+        elision?  (args/parse-bool-arg raw-args :elision)]
     (cond
       (nil? path)
       (js/Promise.resolve
