@@ -472,6 +472,8 @@ The harness (per [conformance/README §How an implementation runs the corpus](co
 - `:ssr/*` — run if Q3 yes.
 - `:schemas/*` — run if Q4 yes (regardless of mechanism).
 
+See [conformance/README §Capability tagging worked example](conformance/README.md#capability-tagging-worked-example) for a five-fixture cross-section showing the tag conventions in practice on real corpus entries — useful as a copy-from reference when authoring the implementation's harness manifest.
+
 The corpus is the **acceptance test** for [Goal 2 — AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone). A fixture an AI cannot reproduce without consulting outside sources is a **spec gap**, not an implementation gap; remediation is to fix the spec corpus, not the implementation.
 
 ---

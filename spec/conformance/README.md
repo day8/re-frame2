@@ -42,7 +42,7 @@ The classic shape: a starting state (frame configuration plus initial `app-db`),
 ```clojure
 {:fixture/id           :counter/inc-once
  :fixture/doc          "Single increment of the counter."
- :fixture/capabilities #{:core/event-handler :core/sub :core/trace}     ;; per §Capability tagging below
+ :fixture/capabilities #{:core/event-handler :core/sub}                ;; per §Capability tagging below — see also §Capability tagging worked example
  :fixture/registry    {:event {:counter/initialise {:doc "Seed."}
                                :counter/inc        {:doc "Increment."}}
                        :sub   {:count             {:doc "Current count."}}
@@ -150,7 +150,21 @@ Capability tag conventions:
 
 A flat-FSM-only port declares `:capabilities #{:core/event-handler ... :fsm/flat :actor/own-state :actor/spawn-destroy ...}` in its harness manifest; the corpus runs every fixture whose capabilities are a subset and skips the rest. The aggregate score is `passed / claimed-applicable` — an accounting of what works for the claimed list.
 
-The `:fixture/handlers` entries in both modes are written in the handler-body DSL described next: pure data the host realises into native closures. No host-specific code ships in the fixtures.
+See [§Capability tagging worked example](#capability-tagging-worked-example) immediately below for the actual tags carried by representative fixtures in the corpus today.
+
+### Capability tagging worked example
+
+The conventions above describe the schema; the corpus itself shows what those tags look like in practice. The following five fixtures are pulled verbatim from `fixtures/` — together they span the main capability axes (core, FSM hierarchy, actor model, flow tracing, managed HTTP). An AI port author landing fresh can use these as a tag-vocabulary reference rather than inventing names.
+
+| Fixture | `:fixture/capabilities` | What the tag set means |
+|---|---|---|
+| `counter-inc-once.edn` | `#{:core/event-handler :core/sub}` | The simplest pattern-required-only fixture: a single event handler, one sub. Every conformant port runs this. |
+| `after-hierarchy.edn` | `#{:fsm/hierarchical :fsm/delayed-after}` | A parent compound state with an `:after` timer. Only ports that claim both hierarchical FSM and `:after` will run it. |
+| `spawn-from-action.edn` | `#{:fsm/flat :actor/spawn}` | Imperative spawn of a child actor from inside a transition action. Requires the actor-model spawn capability on top of flat FSMs. |
+| `flow-lifecycle-emits-traces.edn` | `#{:core/event-handler :flow/basic :flow/trace}` | The flow primitive emits its five lifecycle trace events. Requires the flow substrate and the flow-trace stream. |
+| `http-managed-get-success.edn` | `#{:core/event-handler :core/sub :core/fx :rf.http/managed}` | The managed-HTTP fx happy path. Builds on the core triad and adds the managed-HTTP capability from [Spec 014](../014-HTTPRequests.md). |
+
+Read the chosen tag namespaces from the [conventions list above](#capability-tagging) and refer back to this table when authoring a new fixture or a port's harness manifest: copy the tag from the closest existing fixture rather than coining a new one.
 
 ### Handler bodies as data
 
