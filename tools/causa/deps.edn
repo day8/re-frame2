@@ -34,12 +34,37 @@
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../implementation/core"}
 
-         ;; Reagent is the default substrate for Causa's UI at v1 (the
-         ;; preload uses Reagent's createRoot via reagent.dom.client
-         ;; when the host is Reagent; the substrate adapter abstracts
-         ;; the render path for other adapters). Pinned to the same
-         ;; version implementation/shadow-cljs.edn carries.
-         reagent/reagent {:mvn/version "2.0.1"}}
+         ;; Per rf2-wl5pa — Causa targets day8/reagent-slim (the rewrite)
+         ;; rather than stock Reagent. Causa has zero direct `reagent.*`
+         ;; requires under tools/causa/src/ (the dep is purely the
+         ;; substrate the host installs and that mount.cljs reaches via
+         ;; re-frame.substrate.adapter/render). Switching from stock
+         ;; Reagent to slim means:
+         ;;
+         ;;   1. UIx-only / Helix-only / plain-atom users get Causa
+         ;;      without dragging stock Reagent into their transitive
+         ;;      deps — Causa picks the lighter substrate regardless
+         ;;      of the host's adapter choice.
+         ;;
+         ;;   2. The smaller dev bundle (3954 bytes smaller on the
+         ;;      counter example per the rf2-tba5e smoke test) shaves
+         ;;      hot-reload latency — Causa overhead is felt most
+         ;;      acutely in the watch loop where the dev bundle dominates.
+         ;;
+         ;;   3. The framework's own devtools dogfood the framework's
+         ;;      Reagent rewrite at the load profile that matters.
+         ;;
+         ;; Note on the adapter ns: the in-tree slim adapter ns is
+         ;; `re-frame.adapter.reagent-slim`; at artefact-publication
+         ;; time the slim artefact ships its own `re-frame.adapter.reagent`
+         ;; ns (per implementation/adapters/reagent-slim/IMPL-SPEC.md §1.8).
+         ;; Either way, Causa never directly :requires the adapter ns —
+         ;; mount.cljs reaches the substrate via
+         ;; re-frame.substrate.adapter/render so the host's installed
+         ;; adapter governs the render path; the slim dep here is purely
+         ;; transitive-classpath assembly so Causa's published artefact
+         ;; carries an adapter on the consumer side.
+         day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}}
 
  :aliases
  {:test {:extra-paths ["test"]
