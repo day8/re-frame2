@@ -89,7 +89,7 @@
 (deftest cell-overrides-pure
   (testing "set + clear overrides work on the pure map"
     (let [s  state/default-shell-state
-          s1 (state/set-cell-override s :story.a/x :n 42)
+          s1 (state/set-cell-override-scalar s :story.a/x :n 42)
           s2 (state/clear-cell-overrides s1 :story.a/x)]
       (is (= 42 (get-in s1 [:cell-overrides :story.a/x :n])))
       (is (nil? (get-in s2 [:cell-overrides :story.a/x]))))))

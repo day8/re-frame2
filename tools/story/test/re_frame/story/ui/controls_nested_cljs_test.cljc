@@ -9,7 +9,8 @@
   Splits into two tiers:
 
   - **JVM + CLJS** (`state.cljc` is `.cljc`) — the path-aware
-    `set-cell-override` arity. Pure data → data.
+    `set-cell-override` fn (plus its `-scalar` wrapper). Pure data →
+    data.
   - **CLJS-only** (`controls.cljs` is CLJS-only — it depends on
     Reagent / DOM) — `infer-widget` widget-spec emission on every
     collection operator, plus `resolve-argtypes` integration with the
@@ -177,40 +178,43 @@
 
 ;; ---- JVM + CLJS: path-aware set-cell-override ---------------------------
 
-(deftest set-cell-override-scalar-arity-unchanged
-  (testing "3-arity with a bare key writes a top-level override"
+(deftest set-cell-override-scalar-wrapper
+  (testing "set-cell-override-scalar wraps the arg-key into a singleton
+            path and writes a top-level override"
     (let [s  state/default-shell-state
-          s1 (state/set-cell-override s :story.a/x :label "hi")]
+          s1 (state/set-cell-override-scalar s :story.a/x :label "hi")]
       (is (= "hi" (get-in s1 [:cell-overrides :story.a/x :label]))))))
 
-(deftest set-cell-override-path-arity-writes-nested
-  (testing "vector-key arity writes at the nested path"
+(deftest set-cell-override-writes-nested
+  (testing "a multi-element path writes at the nested location"
     (let [s  state/default-shell-state
           s1 (state/set-cell-override s :story.a/x [:meta :author] "ada")]
       (is (= "ada" (get-in s1 [:cell-overrides :story.a/x :meta :author]))))))
 
-(deftest set-cell-override-path-arity-deeply-nested
-  (testing "path can address depth ≥ 2"
+(deftest set-cell-override-deeply-nested
+  (testing "path can address depth ≥ 3"
     (let [s  state/default-shell-state
           s1 (state/set-cell-override s :story.a/x
                                       [:outer :inner :leaf] 42)]
       (is (= 42 (get-in s1 [:cell-overrides :story.a/x
                             :outer :inner :leaf]))))))
 
-(deftest set-cell-override-path-arity-with-index
-  (testing "path arity tolerates integer indices (vector slots)"
+(deftest set-cell-override-tolerates-integer-indices
+  (testing "vector indices are valid path elements (per assoc-in)"
     (let [s  state/default-shell-state
           s1 (state/set-cell-override s :story.a/x [:items 0] "x")]
       (is (= "x" (get-in s1 [:cell-overrides :story.a/x :items 0]))))))
 
-(deftest set-cell-override-singleton-vector-path-equivalent-to-scalar
-  (testing "a 1-element vector path is equivalent to the scalar arity"
+(deftest set-cell-override-singleton-path-equivalent-to-scalar-wrapper
+  (testing "a 1-element path produces the same result as the scalar wrapper"
     (let [s  state/default-shell-state
-          s1 (state/set-cell-override s :story.a/x [:label] "hi")]
-      (is (= "hi" (get-in s1 [:cell-overrides :story.a/x :label]))))))
+          via-path   (state/set-cell-override        s :story.a/x [:label] "hi")
+          via-scalar (state/set-cell-override-scalar s :story.a/x  :label  "hi")]
+      (is (= via-path via-scalar))
+      (is (= "hi" (get-in via-path [:cell-overrides :story.a/x :label]))))))
 
-(deftest set-cell-override-empty-vector-path-noop
-  (testing "an empty vector path leaves the state unchanged"
+(deftest set-cell-override-empty-path-noop
+  (testing "an empty path leaves the state unchanged"
     (let [s  state/default-shell-state
           s1 (state/set-cell-override s :story.a/x [] :ignored)]
       (is (= s s1)))))
@@ -218,7 +222,7 @@
 (deftest set-cell-override-roundtrip-deep-then-shallow
   (testing "shallow override at the same arg-key shadows deep entries"
     (let [s0 state/default-shell-state
-          s1 (state/set-cell-override s0 :story.a/x [:meta :author] "ada")
-          s2 (state/set-cell-override s1 :story.a/x :meta {:author "bob"})]
+          s1 (state/set-cell-override        s0 :story.a/x [:meta :author] "ada")
+          s2 (state/set-cell-override-scalar s1 :story.a/x  :meta {:author "bob"})]
       (is (= {:author "bob"}
              (get-in s2 [:cell-overrides :story.a/x :meta]))))))

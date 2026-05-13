@@ -299,10 +299,10 @@
   `<header role=\"toolbar\">` landmark — the strip itself is a plain
   hiccup `<div>` so axe-core's region rule sees the landmark."
   []
-  (let [shell  @state/shell-state-atom
-        active (set (:active-modes shell))
-        modes  (registrar/handlers :mode)
-        groups (state/group-modes-by-axis modes)]
+  (let [shell    @state/shell-state-atom
+        active   (set (:active-modes shell))
+        modes    (registrar/handlers :mode)
+        {:keys [axes unaxed]} (state/group-modes-by-axis modes)]
     [:header
      {:style      (:strip styles)
       :role       "toolbar"
@@ -311,15 +311,22 @@
      (if (empty? modes)
        [:span {:style (:empty styles)} "no modes registered"]
        (doall
-         (for [[axis ids] groups]
-           ^{:key (str axis)}
-           [:span {:style (:axis-group styles)}
-            (when (not= axis :re-frame.story.ui.state/unaxed)
-              [axis-label axis])
-            [:span {:style (:chip-row styles)}
-             (for [mid ids]
-               ^{:key mid}
-               [chip mid (get modes mid) (contains? active mid)])]])))
+         (concat
+           (for [[axis ids] axes]
+             ^{:key (str axis)}
+             [:span {:style (:axis-group styles)}
+              [axis-label axis]
+              [:span {:style (:chip-row styles)}
+               (for [mid ids]
+                 ^{:key mid}
+                 [chip mid (get modes mid) (contains? active mid)])]])
+           (when (seq unaxed)
+             [^{:key "unaxed"}
+              [:span {:style (:axis-group styles)}
+               [:span {:style (:chip-row styles)}
+                (for [mid unaxed]
+                  ^{:key mid}
+                  [chip mid (get modes mid) (contains? active mid)])]]]))))
      [:span {:style (:spacer styles)}]
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
      ;; affordance so the chrome-wide recorder is reachable regardless of

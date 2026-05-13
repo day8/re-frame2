@@ -213,10 +213,10 @@
 ;; ---- pure: per-variant status dot (rf2-q0irb) ---------------------------
 
 (def status->dot-style-key
-  "Pure data → data: map a `:test-runs` status keyword to the styles
-  map key that renders its dot colour. The render-only mapping lives
-  next to the canonical statuses so both surfaces (sidebar dot, chrome
-  widget) can JVM-test the projection without booting Reagent."
+  "Pure data → data: map a `[:tests :runs]` status keyword to the
+  styles map key that renders its dot colour. The render-only mapping
+  lives next to the canonical statuses so both surfaces (sidebar dot,
+  chrome widget) can JVM-test the projection without booting Reagent."
   {:pass    :dot-pass
    :fail    :dot-fail
    :running :dot-running
@@ -279,7 +279,7 @@
           (str tag)]))]))
 
 (defn status-dot
-  "Render the per-variant status glyph. Variants not in `:test-runs`
+  "Render the per-variant status glyph. Variants not in `[:tests :runs]`
   (no recorded run AND not tagged `:test`/empty `:play`) skip the dot
   entirely — the row layout shifts left a few pixels but stays
   readable. Variants whose status is `:pending` show an empty-ring dot
@@ -377,7 +377,7 @@
 
 (defn- run-one-test!
   "Dispatch a single `run-variant` against `vid` and fold the result
-  into the shell-state `:test-runs` slot. Marks `:running` up front,
+  into the shell-state `[:tests :runs]` slot. Marks `:running` up front,
   records pass/fail/skip counts on resolve, and clears the slot on
   rejection. Shared between the chrome widget's 'Run all' button and
   the watch-mode auto-re-run (rf2-z1h0f).
@@ -426,9 +426,9 @@
   `run-variant` for the given seq of variant-ids whose snapshot-identity
   drifted since the last observation. Shares the same per-variant
   pipeline as 'Run all' — marks running, folds the result into
-  `:test-runs` — so the sidebar dots and chrome widget headline transit
-  through `:running` to the new `:pass` / `:fail` exactly as if the user
-  had clicked the button.
+  `[:tests :runs]` — so the sidebar dots and chrome widget headline
+  transit through `:running` to the new `:pass` / `:fail` exactly as
+  if the user had clicked the button.
 
   Called from `re-frame.story.ui.shell/detect-and-tick!` when watch
   mode is on and a drift is detected."
@@ -494,7 +494,7 @@
          (if any-run? "Running…" "Run all")]
         ;; rf2-z1h0f — watch-mode toggle. Eye glyph reads on/off; the
         ;; chip's aria-pressed reflects the boolean. Toggle-on seeds
-        ;; `:test-content-hashes` so the first detector tick after
+        ;; `[:tests :content-hashes]` so the first detector tick after
         ;; toggle-on doesn't fire a spurious re-run for every variant.
         [:div {:style (:watch-row styles)}
          [:button
@@ -525,7 +525,7 @@
   Per rf2-q0irb the sidebar carries two extra surfaces — the per-
   variant status dots (rendered inside each variant row when the
   variant is `:test`-tagged + `:play`-bearing) and the chrome-level
-  test widget at the foot. Both read from `:test-runs`; the widget
+  test widget at the foot. Both read from `[:tests :runs]`; the widget
   drives `run-variant` over the testable set on click."
   []
   (let [shell         @state/shell-state-atom
@@ -536,7 +536,7 @@
         visible       (state/filter-variants (:variants registry) tag-filter)
         grouped       (state/group-variants-by-story visible)
         workspaces    (:workspaces registry)
-        test-runs     (:test-runs shell)
+        test-runs     (get-in shell [:tests :runs])
         testable-set  (set (state/testable-variant-ids (:variants registry)))]
     [:nav {:style      (:wrap styles)
            :aria-label "Stories and workspaces"

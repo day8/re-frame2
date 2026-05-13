@@ -12,9 +12,11 @@
   - `select-workspace`   — change the focused workspace id.
   - `toggle-tag-filter`  — flip a tag on/off in the filter set.
   - `set-active-modes`   — replace the active mode set.
-  - `set-cell-override`  — set a single arg override (scalar key or
-                           nested path; the nested-path arity backs the
-                           nested-schema controls walker, rf2-agshe).
+  - `set-cell-override`  — set a single arg override at a path
+                           `[arg-key & sub-path]`; the nested-path
+                           form backs the nested-schema controls
+                           walker (rf2-agshe). The `-scalar` wrapper
+                           handles the bare top-level arg-key case.
   - `clear-cell-overrides` — drop all overrides for the focused variant.
   - `filter-variants`    — pure fn: given a set of variant bodies + the
                            shell state, return the visible subset.
@@ -66,31 +68,34 @@
                            Unspecified → :dev (canvas). Persisted in
                            localStorage under `re-frame.story/active-
                            mode-tab/<variant-id>`.
-  - `:test-runs`        — {variant-id → run-state}. Per-variant test-run
-                           record fed both by the `:test` mode pane's
-                           Re-run button and by the chrome-level test
-                           widget's 'Run all'. Each run-state is one of:
-                              :pending  — no run recorded
-                              :running  — run in flight
-                              :pass     — last run: all assertions passed
-                              :fail     — last run: ≥1 assertion failed
-                           plus pass/fail/skip/total counts and timing.
-                           Powers both the chrome widget's aggregate
-                           summary and the sidebar's per-variant dots
-                           (rf2-q0irb).
-  - `:test-watch-mode?` — boolean. When true the chrome test widget's
-                           eye-icon toggle is on and the shell auto-
-                           re-runs testable variants whose snapshot
-                           identity drifted since the last observation
-                           (rf2-z1h0f). Default false — explicit re-run
-                           is the v1 contract; watch-mode is opt-in.
-  - `:test-content-hashes` — {variant-id → hex-hash} the last-observed
-                           snapshot-identity content hash per testable
-                           variant. The watch-mode detector compares the
-                           current registry's hashes against this slot;
-                           a delta triggers an auto-rerun for the
-                           affected variants. Empty when watch mode is
-                           off (the detector seeds it on toggle-on)."
+  - `:tests` — sub-map grouping every chrome-test-widget slot under
+               one root (rf2-uefbk). Holds:
+
+      `:runs`           — {variant-id → run-state}. Per-variant test-run
+                          record fed both by the `:test` mode pane's
+                          Re-run button and by the chrome-level test
+                          widget's 'Run all'. Each run-state is one of:
+                             :pending  — no run recorded
+                             :running  — run in flight
+                             :pass     — last run: all assertions passed
+                             :fail     — last run: ≥1 assertion failed
+                          plus pass/fail/skip/total counts and timing.
+                          Powers both the chrome widget's aggregate
+                          summary and the sidebar's per-variant dots
+                          (rf2-q0irb).
+      `:watch-mode?`    — boolean. When true the chrome test widget's
+                          eye-icon toggle is on and the shell auto-
+                          re-runs testable variants whose snapshot
+                          identity drifted since the last observation
+                          (rf2-z1h0f). Default false — explicit re-run
+                          is the v1 contract; watch-mode is opt-in.
+      `:content-hashes` — {variant-id → hex-hash} the last-observed
+                          snapshot-identity content hash per testable
+                          variant. The watch-mode detector compares the
+                          current registry's hashes against this slot;
+                          a delta triggers an auto-rerun for the
+                          affected variants. Empty when watch mode is
+                          off (the detector seeds it on toggle-on)."
   {:selected-variant    nil
    :selected-workspace  nil
    :tag-filter          #{}
@@ -102,9 +107,9 @@
    :pinned-snapshots    {}
    :panel-visibility    {:trace true :scrubber true :controls true :actions true}
    :active-mode-tab     {}
-   :test-runs           {}
-   :test-watch-mode?    false
-   :test-content-hashes {}})
+   :tests               {:runs           {}
+                         :watch-mode?    false
+                         :content-hashes {}}})
 
 ;; ---- pure transition fns (JVM-testable) ----------------------------------
 
@@ -174,55 +179,52 @@
   (assoc state :active-modes []))
 
 (defn group-modes-by-axis
-  "Build the toolbar's chip layout: `{axis [mode-id ...]}` for every
-  `:axis`-tagged mode plus an `::unaxed` bucket for axis-less modes.
-  Within each bucket the ids are sorted alphabetically. Pure data →
-  data; JVM-testable.
+  "Build the toolbar's chip layout. Pure data → data; JVM-testable.
 
   `id->body` is the `{mode-id → mode-body}` map from
-  `(registrar/handlers :mode)`. Returns a sorted-by-axis seq of
-  `[axis [mode-id ...]]` pairs — the `::unaxed` bucket always sorts
-  last so axis-tagged groups render left-to-right with the trailing
-  un-grouped chips on the right."
+  `(registrar/handlers :mode)`. Returns
+
+      {:axes   [[axis [mode-id ...]] ...]  ; sorted alphabetically by axis-name
+       :unaxed [mode-id ...]}              ; un-grouped modes, sorted alphabetically
+
+  — an explicit two-slot map (no sentinels). The caller renders the
+  axis-tagged groups left-to-right and the un-grouped chips at the
+  trailing edge. Within each bucket the ids are sorted alphabetically."
   [id->body]
   (let [axed   (->> id->body
                     (filter (fn [[_ b]] (some? (:axis b))))
                     (group-by (fn [[_ b]] (:axis b)))
                     (map (fn [[axis pairs]]
                            [axis (vec (sort (map first pairs)))]))
-                    (sort-by (fn [[axis _]] (str axis))))
+                    (sort-by (fn [[axis _]] (str axis)))
+                    vec)
         unaxed (->> id->body
                     (filter (fn [[_ b]] (nil? (:axis b))))
                     (map first)
                     sort
                     vec)]
-    (cond-> (vec axed)
-      (seq unaxed) (conj [::unaxed unaxed]))))
+    {:axes axed :unaxed unaxed}))
 
 (defn set-cell-override
-  "Set a single arg override for `variant-id`. The override may target
-  either a top-level arg-key (scalar arity) or a nested path within the
-  arg's value (vector arity — used by the nested Malli walker per
-  rf2-agshe). The vector arity is path-aware: the first element is the
-  top-level arg-key; the remaining elements address into the nested
-  value via `assoc-in` semantics.
+  "Set a single arg override for `variant-id`. `path` is a vector
+  `[arg-key & sub-path]` — the first element is the top-level arg-key,
+  the remaining elements address into the nested value via `assoc-in`
+  semantics. Used by the nested Malli walker per rf2-agshe.
 
-  - 3-arity:           `(set-cell-override state v k v)` — scalar override.
-  - vector-key arity:  `(set-cell-override state v [k & path] value)` —
-                       nested override. When `path` is empty the call is
-                       equivalent to the scalar form."
-  [state variant-id arg-key-or-path value]
-  (cond
-    (and (sequential? arg-key-or-path) (seq arg-key-or-path))
-    (let [[k & path] arg-key-or-path]
-      (assoc-in state (into [:cell-overrides variant-id k] path) value))
+  An empty path is a no-op (caller error; the state is returned
+  unchanged). For top-level scalar overrides use `set-cell-override-
+  scalar`, a thin wrapper that wraps the arg-key in a singleton vector."
+  [state variant-id path value]
+  (if (seq path)
+    (assoc-in state (into [:cell-overrides variant-id] path) value)
+    state))
 
-    (sequential? arg-key-or-path)
-    ;; Empty path — no-op (caller error; leave state untouched).
-    state
-
-    :else
-    (assoc-in state [:cell-overrides variant-id arg-key-or-path] value)))
+(defn set-cell-override-scalar
+  "Set a top-level arg override for `variant-id`. Thin wrapper around
+  `set-cell-override` for the scalar case (no nested walk). Equivalent
+  to `(set-cell-override state variant-id [arg-key] value)`."
+  [state variant-id arg-key value]
+  (set-cell-override state variant-id [arg-key] value))
 
 (defn clear-cell-overrides
   "Drop every override for `variant-id`."
@@ -403,10 +405,10 @@
 ;; ---- test-runs (rf2-q0irb) ----------------------------------------------
 ;;
 ;; Cross-variant aggregation surface: each variant's last `run-variant`
-;; outcome is folded into `:test-runs`. The chrome-level test widget
-;; reads it as a summary; the sidebar's per-variant rows read individual
-;; entries as a status dot. Both surfaces are pure derivations of this
-;; one slot.
+;; outcome is folded into `[:tests :runs]`. The chrome-level test
+;; widget reads it as a summary; the sidebar's per-variant rows read
+;; individual entries as a status dot. Both surfaces are pure
+;; derivations of this one slot.
 ;;
 ;; The test-mode pane's local `results-atom` (in
 ;; `re-frame.story.ui.test-mode.state`) keeps the full result-map
@@ -428,7 +430,7 @@
 (defn mark-test-running
   "Stamp `variant-id` as :running. Idempotent."
   [state variant-id]
-  (assoc-in state [:test-runs variant-id] {:status :running}))
+  (assoc-in state [:tests :runs variant-id] {:status :running}))
 
 (defn aggregate-summary
   "Walk `assertions` (the vector pulled off a `run-variant` result map)
@@ -465,7 +467,7 @@
      :all-passed? (and (pos? total) (zero? failed) (zero? skipped))}))
 
 (defn record-test-run
-  "Write the aggregate of a `run-variant` result into `:test-runs`.
+  "Write the aggregate of a `run-variant` result into `[:tests :runs]`.
 
   `summary` is the map returned by `aggregate-summary` —
   `{:total :passed :failed :skipped :all-passed?}` — extended with
@@ -479,7 +481,7 @@
                  (zero? (or total 0)) :pending
                  all-passed?          :pass
                  :else                :fail)]
-    (assoc-in state [:test-runs variant-id]
+    (assoc-in state [:tests :runs variant-id]
               {:status     status
                :total      (or total 0)
                :passed     (or passed 0)
@@ -491,14 +493,14 @@
 (defn clear-test-run
   "Drop the run record for `variant-id`."
   [state variant-id]
-  (update state :test-runs dissoc variant-id))
+  (update-in state [:tests :runs] dissoc variant-id))
 
 (defn variant-test-status
   "Return the canonical status keyword for `variant-id` (one of
   `test-run-statuses`). Variants with no recorded run read `:pending`.
   Pure data → data; JVM-testable."
   [state variant-id]
-  (or (get-in state [:test-runs variant-id :status])
+  (or (get-in state [:tests :runs variant-id :status])
       :pending))
 
 (defn test-summary
@@ -519,15 +521,17 @@
   `:all-passed?` — true only when every variant has a recorded green
   run; a sea of `:pending` reads as 'not green yet', not 'all green'."
   [state variant-ids]
-  (let [runs   (:test-runs state)
-        statuses (mapv (fn [vid] (or (get-in runs [vid :status]) :pending))
-                       variant-ids)
-        total    (count variant-ids)
-        n-of     (fn [k] (count (filter #(= % k) statuses)))
-        passed   (n-of :pass)
-        failed   (n-of :fail)
-        running  (n-of :running)
-        pending  (n-of :pending)]
+  (let [runs    (get-in state [:tests :runs])
+        ;; Single O(N) frequencies pass — read each variant's status
+        ;; once and bucket by keyword. Missing entries default to :pending.
+        buckets (frequencies
+                  (map (fn [vid] (or (get-in runs [vid :status]) :pending))
+                       variant-ids))
+        total   (count variant-ids)
+        passed  (get buckets :pass    0)
+        failed  (get buckets :fail    0)
+        running (get buckets :running 0)
+        pending (get buckets :pending 0)]
     {:total      total
      :passed     passed
      :failed     failed
@@ -566,7 +570,7 @@
 ;; `run-variant` for the variants whose identity changed. The detection
 ;; signal is the variant's snapshot-identity content-hash
 ;; (re-frame.story.identity/snapshot-identity); a delta against the
-;; recorded :test-content-hashes slot triggers the re-run.
+;; recorded [:tests :content-hashes] slot triggers the re-run.
 
 (defn set-test-watch-mode
   "Toggle/set the chrome-level watch-mode flag. When `on?` is true the
@@ -576,25 +580,25 @@
   → data; JVM-testable."
   [state on?]
   (if on?
-    (assoc state :test-watch-mode? true)
-    (-> state
-        (assoc :test-watch-mode? false)
-        (assoc :test-content-hashes {}))))
+    (assoc-in state [:tests :watch-mode?] true)
+    (update state :tests assoc
+            :watch-mode?    false
+            :content-hashes {})))
 
 (defn test-watch-mode?
   "Return `true` iff watch mode is currently on. Pure."
   [state]
-  (boolean (:test-watch-mode? state)))
+  (boolean (get-in state [:tests :watch-mode?])))
 
 (defn record-test-content-hashes
   "Stamp the current snapshot-identity content hashes for every testable
   variant. `id->hash` is `{variant-id → hex-string}`. The detector
   reads this slot on the next tick to decide which variants drifted."
   [state id->hash]
-  (assoc state :test-content-hashes (or id->hash {})))
+  (assoc-in state [:tests :content-hashes] (or id->hash {})))
 
 (defn watch-mode-drift
-  "Pure data → data: given the previous `:test-content-hashes` map and a
+  "Pure data → data: given the previous `[:tests :content-hashes]` map and a
   freshly-computed `current` `{variant-id → hex}` map, return the
   ordered vector of variant-ids whose hash differs from `prev` (i.e.
   the variants the watch-mode detector should re-run on this tick).
