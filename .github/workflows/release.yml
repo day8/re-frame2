@@ -7,6 +7,7 @@
 #                                         │
 #                                         ├── deploy-schemas
 #                                         ├── deploy-reagent
+#                                         ├── deploy-reagent-slim
 #                                         ├── deploy-uix
 #                                         ├── deploy-helix
 #                                         ├── deploy-machines
@@ -168,6 +169,10 @@ jobs:
         working-directory: implementation/adapters/reagent
         run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
 
+      - name: JVM tests (reagent-slim artefact, classpath probe)
+        working-directory: implementation/adapters/reagent-slim
+        run: clojure -M:test || echo "no JVM-runnable tests in reagent-slim artefact (expected)"
+
       - name: JVM tests (uix artefact, classpath probe)
         working-directory: implementation/adapters/uix
         run: clojure -M:test || echo "no JVM-runnable tests in uix artefact (expected)"
@@ -308,6 +313,10 @@ jobs:
             artefact: day8/re-frame2-reagent
             directory: implementation/adapters/reagent
             local-root: ../../core
+          - leaf: reagent-slim
+            artefact: day8/reagent-slim
+            directory: implementation/adapters/reagent-slim
+            local-root: ../../core
           - leaf: uix
             artefact: day8/re-frame2-uix
             directory: implementation/adapters/uix
@@ -439,6 +448,7 @@ jobs:
             Artefacts published to Clojars:
             - `day8/re-frame2` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-reagent` ${{ needs.deploy-core.outputs.version }}
+            - `day8/reagent-slim` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-uix` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-helix` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-schemas` ${{ needs.deploy-core.outputs.version }}
