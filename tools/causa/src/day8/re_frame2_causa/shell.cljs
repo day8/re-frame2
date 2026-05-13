@@ -52,6 +52,7 @@
             [day8.re-frame2-causa.panels.mcp-server :as mcp-server]
             ;; ── mcp-server panel end ──
             [day8.re-frame2-causa.panels.performance :as performance]
+            [day8.re-frame2-causa.panels.routes :as routes]
             [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
             [day8.re-frame2-causa.panels.trace :as trace]
@@ -95,6 +96,7 @@
    {:id :trace        :label "Trace"         :bead "rf2-argrj" :live? true}
    {:id :machines     :label "Machines"      :bead "rf2-xxx"}
    {:id :flows        :label "Flows"         :bead "rf2-83irn" :live? true}
+   {:id :routes       :label "Routes"        :bead "rf2-6blai" :live? true}
    {:id :performance  :label "Performance"   :bead "rf2-75121" :live? true}
    {:id :issues       :label "Issues"        :bead "rf2-d1p4o" :live? true}
    {:id :schemas      :label "Schemas"       :bead "rf2-htffa" :live? true}
@@ -286,6 +288,7 @@
       :fx           [effects/effects-view]
       ;; ── effects panel end ──
       :flows        [flows/flows-view]
+      :routes       [routes/routes-view]
       :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
       :hydration    [hydration-debugger/hydration-debugger-view]
