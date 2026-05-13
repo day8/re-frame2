@@ -56,7 +56,14 @@
   The `:value`, `:received`, and `:explain` slots are redacted; the
   structural / categorical slots (`:path`, `:failing-id`, `:spec-id`,
   `:reason`) are kept — consumers need them to locate the broken slot
-  without leaking user data."
+  without leaking user data.
+
+  Per rf2-4fbsd the emit-sites carry two slots for the failing value
+  (`:value` and `:received`, per Spec 010 §`:sensitive?`) and one slot
+  for the registered explainer's output (`:explain`). The earlier
+  `:event` (duplicate of `:received`) and `:malli-error` (duplicate of
+  `:explain`) tags have been dropped — consumers reach for `:received`
+  / `:value` / `:explain`."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.schemas.storage :as storage]
@@ -100,12 +107,10 @@
   correctly. Idempotent — safe to call on an already-redacted map."
   [tags]
   (cond-> tags
-    (contains? tags :value)       (assoc :value       redacted-sentinel)
-    (contains? tags :received)    (assoc :received    redacted-sentinel)
-    (contains? tags :explain)     (assoc :explain     redacted-sentinel)
-    (contains? tags :malli-error) (assoc :malli-error redacted-sentinel)
-    (contains? tags :event)       (assoc :event       redacted-sentinel)
-    true                          (assoc :sensitive?  true)))
+    (contains? tags :value)    (assoc :value     redacted-sentinel)
+    (contains? tags :received) (assoc :received  redacted-sentinel)
+    (contains? tags :explain)  (assoc :explain   redacted-sentinel)
+    true                       (assoc :sensitive? true)))
 
 (defn- type-of-value [v]
   (cond
@@ -246,19 +251,18 @@
       event
       sensitive-by-meta?
       (fn [schema explanation]
-        {:where       :event
-         :event-id    event-id
-         :failing-id  event-id
-         :spec-id     event-id
-         :received    event
-         :event       event
-         :malli-error explanation
-         :explain     explanation
-         :reason      (str "Event " event-id
-                           " payload failed schema "
-                           schema ", got "
-                           (type-of-value event) ".")
-         :recovery    :no-recovery})
+        {:where      :event
+         :event-id   event-id
+         :failing-id event-id
+         :spec-id    event-id
+         :received   event
+         :value      event
+         :explain    explanation
+         :reason     (str "Event " event-id
+                          " payload failed schema "
+                          schema ", got "
+                          (type-of-value event) ".")
+         :recovery   :no-recovery})
       nil)
     true))
 
@@ -276,20 +280,19 @@
       value
       sensitive-by-meta-or-schema?
       (fn [schema explanation]
-        {:where       :sub-return
-         :sub-id      sub-id
-         :failing-id  sub-id
-         :spec-id     sub-id
-         :query-v     query-v
-         :received    value
-         :value       value
-         :malli-error explanation
-         :explain     explanation
-         :reason      (str "Subscription " sub-id
-                           " return value failed schema "
-                           schema ", got "
-                           (type-of-value value) ".")
-         :recovery    :replaced-with-default})
+        {:where      :sub-return
+         :sub-id     sub-id
+         :failing-id sub-id
+         :spec-id    sub-id
+         :query-v    query-v
+         :received   value
+         :value      value
+         :explain    explanation
+         :reason     (str "Subscription " sub-id
+                          " return value failed schema "
+                          schema ", got "
+                          (type-of-value value) ".")
+         :recovery   :replaced-with-default})
       nil)
     true))
 
@@ -307,20 +310,19 @@
       value
       sensitive-by-meta-or-schema?
       (fn [schema explanation]
-        {:where       :cofx
-         :cofx-id     cofx-id
-         :event-id    event-id
-         :failing-id  event-id
-         :spec-id     cofx-id
-         :received    value
-         :value       value
-         :malli-error explanation
-         :explain     explanation
-         :reason      (str "Coeffect " cofx-id
-                           " injected value failed schema "
-                           schema ", got "
-                           (type-of-value value) ".")
-         :recovery    :no-recovery})
+        {:where      :cofx
+         :cofx-id    cofx-id
+         :event-id   event-id
+         :failing-id event-id
+         :spec-id    cofx-id
+         :received   value
+         :value      value
+         :explain    explanation
+         :reason     (str "Coeffect " cofx-id
+                          " injected value failed schema "
+                          schema ", got "
+                          (type-of-value value) ".")
+         :recovery   :no-recovery})
       nil)
     true))
 
@@ -343,26 +345,26 @@
       args
       sensitive-by-meta-or-schema?
       (fn [schema explanation]
-        (cond-> {:where       :fx-args
-                 :fx-id       fx-id
-                 :fx-args     args
-                 :failing-id  fx-id
-                 :spec-id     fx-id
-                 :received    args
-                 :value       args
-                 :malli-error explanation
-                 :explain     explanation
-                 :reason      (str "Effect " fx-id
-                                   " args failed schema "
-                                   schema ", got "
-                                   (type-of-value args) ".")
-                 :recovery    :skipped}
+        (cond-> {:where      :fx-args
+                 :fx-id      fx-id
+                 :fx-args    args
+                 :failing-id fx-id
+                 :spec-id    fx-id
+                 :received   args
+                 :value      args
+                 :explain    explanation
+                 :reason     (str "Effect " fx-id
+                                  " args failed schema "
+                                  schema ", got "
+                                  (type-of-value args) ".")
+                 :recovery   :skipped}
           event-id (assoc :event-id event-id)))
       ;; Extra-redact: the doubled `:fx-args` slot isn't covered by
-      ;; the generic `redact-tags` (which only knows :value /
-      ;; :received / :explain / :malli-error / :event). Scrub it
-      ;; here so the redaction is symmetric across all four
-      ;; meta-bearing validate-*! surfaces.
+      ;; the generic `redact-tags` (which only knows `:value` /
+      ;; `:received` / `:explain` — the value-bearing slots Spec 010
+      ;; §`:sensitive?` blesses). Scrub `:fx-args` here so the
+      ;; redaction is symmetric across all four meta-bearing
+      ;; validate-*! surfaces.
       (fn [tags] (assoc tags :fx-args redacted-sentinel)))
     true))
 

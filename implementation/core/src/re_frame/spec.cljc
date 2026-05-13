@@ -217,20 +217,19 @@
                       ;; with debug-enabled? flipped off — exactly the
                       ;; surface the rf2-r2uh tests exercise.
                       (trace/emit-error! :rf.error/schema-validation-failure
-                                         {:where       :event
-                                          :event-id    event-id
-                                          :failing-id  event-id
-                                          :spec-id     event-id
-                                          :received    event
-                                          :event       event
-                                          :malli-error explanation
-                                          :explain     explanation
-                                          :source      :boundary
-                                          :reason      (str "Event " event-id
-                                                            " payload failed boundary "
-                                                            "schema " schema ", got "
-                                                            (type-of-value event) ".")
-                                          :recovery    :no-recovery})
+                                         {:where      :event
+                                          :event-id   event-id
+                                          :failing-id event-id
+                                          :spec-id    event-id
+                                          :received   event
+                                          :value      event
+                                          :explain    explanation
+                                          :source     :boundary
+                                          :reason     (str "Event " event-id
+                                                           " payload failed boundary "
+                                                           "schema " schema ", got "
+                                                           (type-of-value event) ".")
+                                          :recovery   :no-recovery})
                       ;; Per Spec 010 §Per-step recovery step 1: handler
                       ;; is not invoked. The handler-as-interceptor
                       ;; checks :rf/skip-handler? in its :before slot
