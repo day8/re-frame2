@@ -11,14 +11,8 @@ description: >
   project", "scaffold re-frame2", "hello-world re-frame2 app", "new
   re-frame2 app", or a build failure on a freshly-scaffolded project that
   traces to missing `re-frame.core` / `re-frame.adapter.reagent` wiring.
-  Do not use for: adding re-frame2 to an existing application that
-  already has its own state management or non-trivial code (that is an
-  authoring task — use `re-frame2`); writing application code on a
-  working re-frame2 project (use `re-frame2`); live-app inspection (use
-  `re-frame-pair2`); v1→v2 migration of an existing re-frame v1 codebase
-  (use `re-frame-migration`); spec, architecture, or porting questions
-  about re-frame2 itself (use `re-frame2-implementor`). Exits once the
-  counter mounts.
+  Exits once the counter mounts. For full disqualifier list and routing
+  to sibling skills, see `skills/README.md` §Skill routing — single source.
 allowed-tools:
   - Bash(clojure *)
   - Bash(npm *)
