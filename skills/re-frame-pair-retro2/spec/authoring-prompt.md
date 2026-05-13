@@ -1,24 +1,24 @@
-# re-frame-pair-improver2 — Authoring Prompt
+# re-frame-pair-retro2 — Authoring Prompt
 
-A self-contained prompt that re-authors the `re-frame-pair-improver2` skill from this `spec/` folder alone. Drop into a fresh Claude Code session in the re-frame2 repo root.
+A self-contained prompt that re-authors the `re-frame-pair-retro2` skill from this `spec/` folder alone. Drop into a fresh Claude Code session in the re-frame2 repo root.
 
 ## The prompt
 
-> *I'm re-authoring the `re-frame-pair-improver2` skill at `skills/re-frame-pair-improver2/`. The skill helps a user **retrospect on a re-frame-pair2 session** — diagnose friction, classify root causes, propose 2-5 prioritised improvements (plus optional bolder ideas), and optionally draft a bead. The skill defaults to **diagnosis, not contribution**; bead filing is opt-in. The skill is one of the principal feedback loops for the `re-frame-pair2` skill family.*
+> *I'm re-authoring the `re-frame-pair-retro2` skill at `skills/re-frame-pair-retro2/`. The skill helps a user **retrospect on a re-frame-pair2 session** — diagnose friction, classify root causes, propose 2-5 prioritised improvements (plus optional bolder ideas), and optionally draft a bead. The skill defaults to **diagnosis, not contribution**; bead filing is opt-in. The skill is one of the principal feedback loops for the `re-frame-pair2` skill family.*
 >
 > *Read these first (in this order):*
 >
-> *1. `skills/re-frame-pair-improver2/spec/design.md` — the locked design decisions (L1 through L12). Pillars 1-4 in §2 are non-negotiable. L1 (no re-frame-10x routing) and L2 (no bead filing without approval) are cardinal.*
-> *2. `skills/re-frame-pair-improver2/spec/inputs.md` — the canonical inputs the skill leans on.*
+> *1. `skills/re-frame-pair-retro2/spec/design.md` — the locked design decisions (L1 through L12). Pillars 1-4 in §2 are non-negotiable. L1 (no re-frame-10x routing) and L2 (no bead filing without approval) are cardinal.*
+> *2. `skills/re-frame-pair-retro2/spec/inputs.md` — the canonical inputs the skill leans on.*
 > *3. `skills/re-frame-pair2/SKILL.md` + `skills/re-frame-pair2/references/` — the sibling skill the user just exercised. The improver reads the parent's friction surface (ops, recipes, errors, hot-reload-protocol).*
 > *4. `skills/re-frame-pair2/spec/design.md` — the sibling's locks. The improver respects these when proposing changes.*
 > *5. `skills/re-frame2/SKILL.md` + `skills/re-frame2/spec/design.md` — the application-authoring sibling (relevant for upstream-routing decisions).*
 > *6. `skills/re-frame-migration/SKILL.md` — the closest structural sibling with an existing `spec/` triad. Voice / shape mirror this.*
 >
-> *Then write the skill at `skills/re-frame-pair-improver2/` with this exact file structure:*
+> *Then write the skill at `skills/re-frame-pair-retro2/` with this exact file structure:*
 >
 > ```
-> skills/re-frame-pair-improver2/
+> skills/re-frame-pair-retro2/
 > ├── SKILL.md                            (~170 lines; conversation guide + 6-step workflow)
 > ├── README.md                           (human-facing intro)
 > ├── LICENSE                             (MIT)
@@ -87,12 +87,12 @@ A self-contained prompt that re-authors the `re-frame-pair-improver2` skill from
 > *- Don't confuse a transient local outage with a product gap unless the workflow made recovery harder than it should have.*
 > *- Don't propose vague improvements like "better UX" without naming the concrete missing behaviour.*
 > *- Don't pressure the user to file anything.*
-> *- Don't write `*.md` documentation outside `skills/re-frame-pair-improver2/`.*
+> *- Don't write `*.md` documentation outside `skills/re-frame-pair-retro2/`.*
 > *- Don't commit `ai/` or `findings/` content.*
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
 > *- Don't include bead-ids in user-facing leaves.*
 >
-> *Open the PR with title `feat(skills): re-frame-pair-improver2 — pair-session retrospective skill`. PR body lists: the skill structure, the file LoC table, the six-step workflow, the ten lenses, the output format, the relationship to the sibling skills (`re-frame-pair2` — its primary feedback loop; `re-frame2` — for upstream routing).*
+> *Open the PR with title `feat(skills): re-frame-pair-retro2 — pair-session retrospective skill`. PR body lists: the skill structure, the file LoC table, the six-step workflow, the ten lenses, the output format, the relationship to the sibling skills (`re-frame-pair2` — its primary feedback loop; `re-frame2` — for upstream routing).*
 
 ## Notes on the reauthoring contract
 

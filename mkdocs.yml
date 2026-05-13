@@ -137,7 +137,7 @@ nav:
     - "re-frame-migration (v1→v2)": skills/re-frame-migration.md
     - re-frame2-implementor: skills/re-frame2-implementor.md
     - re-frame-pair2: skills/re-frame-pair2.md
-    - re-frame-pair-improver2: skills/re-frame-pair-improver2.md
+    - re-frame-pair-retro2: skills/re-frame-pair-retro2.md
 
   - API:
     - Reference: spec/API.md

@@ -27,7 +27,7 @@ Per-leaf format (locked under rf2-bquci):
 
 ## Planned shared leaf (rf2-dhe9v will land)
 
-- `retro-protocol.md` — diagnosis-first workflow, evidence-citation discipline, layer-routing rules. Extracted from `re-frame-pair-improver2` (which rf2-75z9d will rename to `re-frame-pair-retro2`). Consumed by both this skill and the renamed retro skill.
+- `retro-protocol.md` — diagnosis-first workflow, evidence-citation discipline, layer-routing rules. Extracted from `re-frame-pair-retro2`. Consumed by both this skill and `re-frame-pair-retro2`.
 
 ## Cross-references
 

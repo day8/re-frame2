@@ -1,4 +1,0 @@
-interface:
-  display_name: "re-frame-pair2 improver"
-  short_description: "Find re-frame-pair2 workflow friction."
-  default_prompt: "Use $re-frame-pair-improver2 to review this session, identify where re-frame-pair2 made the workflow harder than it should have been, and propose concrete improvements before drafting any bead."

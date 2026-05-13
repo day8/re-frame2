@@ -1,4 +1,4 @@
-# re-frame-pair-improver2 — Inputs
+# re-frame-pair-retro2 — Inputs
 
 The canonical inputs the skill leans on. A re-authoring pass needs these to reproduce the leaves.
 

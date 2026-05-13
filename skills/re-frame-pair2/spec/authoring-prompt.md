@@ -80,7 +80,7 @@ A self-contained prompt that re-authors the `re-frame-pair2` skill from this `sp
 > *- Don't include bead-ids in user-facing leaves.*
 > *- Don't invent alternate vocabulary (e.g. "state graph" for frame). Pillar 2.*
 >
-> *Open the PR with title `feat(skills): re-frame-pair2 — live-app pair-programming skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the three primitives, the MCP-vs-bash transport story, the relationship to the sibling skills (`re-frame2` for authoring, `re-frame-pair-improver2` for retrospectives).*
+> *Open the PR with title `feat(skills): re-frame-pair2 — live-app pair-programming skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the three primitives, the MCP-vs-bash transport story, the relationship to the sibling skills (`re-frame2` for authoring, `re-frame-pair-retro2` for retrospectives).*
 
 ## Notes on the reauthoring contract
 

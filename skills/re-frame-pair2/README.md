@@ -37,7 +37,7 @@ re-frame-pair2 is a clean port: same vocabulary (read / write / trace / watch / 
 ## Cross-link
 
 - [re-frame-pair](https://github.com/day8/re-frame-pair) — the v1 skill (re-frame + re-frame-10x; this is its source).
-- [re-frame-pair-improver2](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-improver2) — the post-session retrospective skill that reviews pair sessions and proposes improvements to re-frame-pair2 itself. Sibling to v1's [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver).
+- [re-frame-pair-retro2](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-retro2) — the retrospective skill that reviews pair sessions and proposes improvements to re-frame-pair2 itself. Sibling to v1's [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver).
 - [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the canonical surface contract this skill consumes.
 
 ## Which technical stack?
