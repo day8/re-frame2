@@ -111,6 +111,12 @@
 (def project-error                   error-projector/project-error)
 (def apply-error-projection!         error-listener/apply-error-projection!)
 (def get-response                    error-listener/get-response)
+;; Audit rf2-asmj1 P5 / cluster rf2-sljs1 — split the side-effect from
+;; the pure read. `peek-response` is a pure read (no projector drain);
+;; `flush-response!` drains pending error projections then reads.
+;; `get-response` is kept as the drain-then-read host-adapter alias.
+(def peek-response                   error-listener/peek-response)
+(def flush-response!                 error-listener/flush-response!)
 ;; framework-private at the public surface — Spec 011 §Per-request
 ;; frame teardown. Tests reach the var via `(resolve ...)`.
 (def ^:private pending-error-traces  error-listener/pending-error-traces)

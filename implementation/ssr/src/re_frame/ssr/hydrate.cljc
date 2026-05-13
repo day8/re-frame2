@@ -31,9 +31,14 @@
   (let [new-db        (or (:rf/app-db payload) (:app-db payload) db)
         version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
-        metadata      (cond-> {}
-                        (:rf/render-hash payload) (assoc :server-hash (:rf/render-hash payload))
-                        version                   (assoc :version     version))]
+        ;; Declarative `:rf/hydration` metadata construction — additive,
+        ;; nil-pruned. New keys land here as kv pairs without re-ordering
+        ;; the previous `cond->` clauses (audit rf2-asmj1 Q9 / cluster
+        ;; rf2-sljs1).
+        metadata      (into {}
+                            (filter (comp some? val))
+                            {:server-hash (:rf/render-hash payload)
+                             :version     version})]
     ;; Per Spec 011 §The :rf/hydrate event: dispatch the compatibility-
     ;; check fxs as part of `:fx` so a mismatch surfaces a structured
     ;; trace event without crashing the hydration path. Both fxs gate on

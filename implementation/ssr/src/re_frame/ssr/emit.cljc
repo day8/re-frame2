@@ -52,9 +52,9 @@
   [tag-kw]
   (let [s     (name tag-kw)
         ;; Match: tag-name optionally followed by #id and .class fragments.
-        [_ tag id classes]
-        #?(:clj  (re-matches #"([^#.]+)(?:#([^.]+))?(.*)" s)
-           :cljs (re-matches #"([^#.]+)(?:#([^.]+))?(.*)" s))
+        ;; `re-matches` reads identically on both platforms — no reader-
+        ;; conditional needed (audit rf2-asmj1 Q6 / cluster rf2-sljs1).
+        [_ tag id classes] (re-matches #"([^#.]+)(?:#([^.]+))?(.*)" s)
         class-list (when (and classes (seq classes))
                      (->> (clojure.string/split classes #"\.")
                           (remove empty?)
