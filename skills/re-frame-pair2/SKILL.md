@@ -125,6 +125,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 | Pick a structured op (read, write, trace, DOM bridge, watch, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
+| Inspect, propose, or hot-swap a frame's `:on-error` policy — the closed return-map contract | [references/on-error.md](references/on-error.md) |
 | Edit source, then wait for the browser to pick up the new code | [references/hot-reload-protocol.md](references/hot-reload-protocol.md) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/migration-from-v1.md](references/migration-from-v1.md) |
 | Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
