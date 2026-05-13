@@ -2878,15 +2878,6 @@ Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a first-class c
 
 ## Open questions
 
-### Library packaging — in-tree or separate?
-
-The pure-transition + factory + spawn APIs are small. They could ship inside `re-frame` itself (alongside the existing handlers) or as a separate `re-frame.machines` library. Arguments either way:
-
-- **In-tree:** discoverable; any re-frame app can use machines with no extra dep.
-- **Separate:** keeps re-frame core small; lets machines evolve faster than re-frame.
-
-Recommendation: prototype as separate, promote to in-tree once the API stabilises.
-
 ### Stately.ai compatibility — exact or approximate?
 
 Aim for *paste-and-render* compatibility (a re-frame machine definition pastes into stately.ai and renders correctly), accepting some superficial vocabulary differences (e.g. our action ids vs stately's `actions: {...}` map). Or aim for *full bidirectional* compatibility (exact JSON shape parity)?
@@ -2902,6 +2893,10 @@ Resolved: machine-scoped. Guards and actions live in the machine's `:guards` / `
 When a view spawns an actor and unmounts, what stops the leak? Lean: explicit `[:rf.machine/destroy actor-id]` fx for v1 (matches `make-frame`); opt-in `:owned-by` for post-v1.
 
 ## Resolved decisions
+
+### Library packaging — in-tree or separate? (RESOLVED)
+
+Resolved: **separate artefact**, `day8/re-frame-2-machines`. Per rf2-xbtj (executing rf2-5vjj Strategy B), the machine substrate ships as a per-feature artefact split out of core — `implementation/machines/src/re_frame/machines*` with its own `deps.edn` and shadow-cljs build target, and core-side cross-references late-bound via the hook registry so apps not using machines pay zero bundle cost. The earlier "prototype as separate, promote to in-tree once API stabilises" recommendation is superseded: the per-feature artefact pattern (machines, schemas, routing, flows, http, ssr, epoch) is now the standard packaging shape — see [Conventions.md §Packaging conventions](Conventions.md#packaging-conventions) for the catalogued split.
 
 ### Eventless `:always` transitions — microstep loop inside drain (RESOLVED)
 
