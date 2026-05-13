@@ -431,13 +431,24 @@
   `re-frame.source-coords.editor-uri/editor-uri` for the per-editor URI
   grammar.
 
+  `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
+  true` trace events per Spec 009 §Privacy (rf2-bclgj). Defaults to
+  `false` — Story's trace, actions, recorder, and play-assertion
+  listeners drop sensitive events and the UI surfaces a `[● REDACTED]`
+  hint. Set to `true` while debugging redaction policy to see the raw
+  cascade.
+
   Other keys are accepted for forward compatibility but ignored at
   Stage 3."
-  [{:keys [global-args editor] :as _opts}]
+  [{:keys [global-args editor]
+    show-sensitive? :trace/show-sensitive?
+    :as opts}]
   (when (some? global-args)
     (config/set-global-args! global-args))
   (when (some? editor)
     (config/set-editor! editor))
+  (when (contains? opts :trace/show-sensitive?)
+    (config/set-show-sensitive! show-sensitive?))
   nil)
 
 ;; ---- registry reset (test fixtures) -------------------------------------

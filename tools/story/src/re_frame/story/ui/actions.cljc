@@ -97,6 +97,7 @@
   contract."
   #?(:cljs
      (:require [reagent.core            :as r]
+               [re-frame.story.config   :as config]
                [re-frame.story.ui.trace :as trace])))
 
 ;; ---- the dispatch-shaped fx-ids -----------------------------------------
@@ -356,9 +357,14 @@
      "Clear the underlying trace buffer for `variant-id`.  Shared with
      the trace panel — both panels read the same buffer — so this is
      a destructive operation.  Unpauses on clear (otherwise the panel
-     would still render the now-stale snapshot)."
+     would still render the now-stale snapshot).
+
+     Per rf2-bclgj: also clears the per-variant suppressed-events
+     counter so the redaction hint hides when the user resets the
+     panel."
      [variant-id]
      (trace/clear-buffer! variant-id)
+     (config/reset-suppressed-count! variant-id)
      (unpause! variant-id)
      nil))
 
@@ -397,6 +403,13 @@
                        :color "white"
                        :border-color "#264f78"}
       :hint           {:color "#9a9a9a"
+                       :font-style "italic"
+                       :font-size "10px"
+                       :margin-bottom "6px"}
+      ;; rf2-bclgj: the redaction hint mirrors the trace panel's
+      ;; `[● REDACTED]` indicator. Muted red so the privacy-gate state
+      ;; reads as advisory, not as a hard error.
+      :redact-note    {:color "#d16969"
                        :font-style "italic"
                        :font-size "10px"
                        :margin-bottom "6px"}
@@ -479,12 +492,20 @@
        (fn [variant-id]
          (let [paused (paused? variant-id)
                events (current-events variant-id)
-               rows   (project-rows events)]
+               rows   (project-rows events)
+               ;; rf2-bclgj: same per-variant suppressed-events counter
+               ;; the trace panel reads. The trace listener bumps it once
+               ;; per sensitive event, the actions panel renders the
+               ;; redaction hint when the count is non-zero. Read on every
+               ;; render — the buffer's reactive deref above is what re-
+               ;; runs the render.
+               redacted-count (config/suppressed-count variant-id)]
            [:div {:style      (:panel styles)
                   :role       "region"
                   :aria-label "Actions"
                   :tab-index  "0"
-                  :data-test  "story-actions-panel"}
+                  :data-test  "story-actions-panel"
+                  :data-redacted-count (str redacted-count)}
             [:div {:style (:title styles)}
              [:span {:style (:title-text styles)}
               "Actions" (when variant-id (str " " (pr-str variant-id)))
@@ -505,6 +526,17 @@
             [:div {:style (:hint styles)}
              "auto-captures every dispatch + dispatch-shaped fx — "
              "no manual instrumentation needed."]
+            ;; rf2-bclgj: surface the same `[● REDACTED]` hint the trace
+            ;; panel renders so users on the actions panel see the
+            ;; privacy-gate state too.
+            (when (pos? redacted-count)
+              [:div {:style     (:redact-note styles)
+                     :data-test "story-actions-redact-note"}
+               "[● REDACTED] " redacted-count " sensitive event"
+               (when (> redacted-count 1) "s")
+               " suppressed — set "
+               [:code {:style {:color "#9cdcfe"}} ":trace/show-sensitive? true"]
+               " to surface"])
             (if (zero? (count rows))
               [:div {:style (:empty styles)}
                "no actions yet — interact with the variant to see dispatches stream in"]

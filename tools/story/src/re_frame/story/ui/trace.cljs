@@ -83,19 +83,27 @@
         a)))
 
 (defn clear-buffer!
-  "Drop the buffer for `variant-id` (or all buffers when no arg)."
+  "Drop the buffer for `variant-id` (or all buffers when no arg).
+  Per rf2-bclgj: also clears the matching per-variant suppressed-
+  events counter so the `[● REDACTED]` hint hides when the user
+  resets the panel."
   ([]
    (doseq [a (vals @buffers)] (reset! a []))
+   (config/reset-suppressed-count!)
    nil)
   ([variant-id]
    (when-let [a (get @buffers variant-id)]
      (reset! a []))
+   (config/reset-suppressed-count! variant-id)
    nil))
 
 (defn drop-buffer!
-  "Remove the buffer entry entirely. Called from shell unmount."
+  "Remove the buffer entry entirely. Called from shell unmount.
+  Per rf2-bclgj: also clears the per-variant suppressed-events
+  counter so it doesn't leak across variant teardowns."
   [variant-id]
   (swap! buffers dissoc variant-id)
+  (config/reset-suppressed-count! variant-id)
   nil)
 
 (defn- append!
@@ -128,14 +136,25 @@
 (defn register-listener!
   "Install a trace listener that appends every `variant-id`-scoped event
   into the per-variant buffer. Idempotent (re-registering replaces).
-  Returns the listener id."
+  Returns the listener id.
+
+  Per Spec 009 §Privacy + rf2-bclgj: events whose `:sensitive?` flag
+  is true are dropped from the buffer when the global
+  `:trace/show-sensitive?` flag is false (the default). The
+  suppressed-events counter bumps for the variant so the panel's
+  `[● REDACTED]` hint can advertise that the buffer is shorter than
+  the runtime's actual emit count. The actions panel reads from the
+  same buffer (per rf2-5yriz), so the suppression cascades to it for
+  free."
   [variant-id]
   (when config/enabled?
     (let [id (listener-id variant-id)]
       (trace/register-trace-cb! id
         (fn [ev]
           (when (variant-event? variant-id ev)
-            (append! variant-id ev))))
+            (if (config/suppress-sensitive? ev)
+              (config/note-suppressed! variant-id)
+              (append! variant-id ev)))))
       id)))
 
 (defn remove-listener!
@@ -186,6 +205,15 @@
                   :color "#9cdcfe"}
    :scrub-note   {:font-size "10px"
                   :color "#dcdcaa"
+                  :font-style "italic"
+                  :margin-bottom "4px"}
+   ;; rf2-bclgj: the redaction hint surfaces when sensitive events have
+   ;; been suppressed by the per-listener privacy gate. A muted red dot
+   ;; + count + the literal `[● REDACTED]` token from the spec so the
+   ;; user sees why the buffer is shorter than the cascade's actual
+   ;; emit count.
+   :redact-note  {:font-size "10px"
+                  :color "#d16969"
                   :font-style "italic"
                   :margin-bottom "4px"}
    :row          {:display "grid"
@@ -270,7 +298,14 @@
             all-cascades       (group-cascades events)
             visible-cascades   (filter-cascades-up-to all-cascades cap)
             hidden-by-scrub    (- (count all-cascades)
-                                  (count visible-cascades))]
+                                  (count visible-cascades))
+            ;; rf2-bclgj: read the per-variant suppressed-events counter
+            ;; on every render. The atom is plain (not a Reagent ratom),
+            ;; so the dereference doesn't drive reactivity; the buffer's
+            ;; reactive deref above is what re-runs the render — every
+            ;; suppressed event also runs the per-listener body so the
+            ;; counter is up to date the moment we read it.
+            redacted-count     (config/suppressed-count variant-id)]
         ;; Per rf2-xc65: the panel wrap is scrollable (`overflow auto`
         ;; + `max-height 240px`). `tab-index "0"` + an aria-label make
         ;; it keyboard-focusable and named so axe-core's
@@ -280,7 +315,8 @@
                :aria-label "Trace cascades"
                :tab-index  "0"
                :data-test  "story-trace-panel"
-               :data-scrubbed-epoch (when selected-epoch (str selected-epoch))}
+               :data-scrubbed-epoch (when selected-epoch (str selected-epoch))
+               :data-redacted-count (str redacted-count)}
          [:div {:style (:title styles)}
           "Trace " (when variant-id (str (pr-str variant-id))) " — "
           (count events) " events, " (count visible-cascades) " cascades"]
@@ -293,6 +329,18 @@
             (when (pos? hidden-by-scrub)
               (str " — " hidden-by-scrub " later cascade"
                    (when (> hidden-by-scrub 1) "s") " hidden"))])
+         ;; rf2-bclgj: when sensitive events have been suppressed, render
+         ;; the `[● REDACTED]` indicator so the user knows the buffer is
+         ;; shorter than the runtime's actual emit count. The number
+         ;; comes from the per-listener suppression counter.
+         (when (pos? redacted-count)
+           [:div {:style (:redact-note styles)
+                  :data-test "story-trace-redact-note"}
+            "[● REDACTED] " redacted-count " sensitive event"
+            (when (> redacted-count 1) "s")
+            " suppressed — set "
+            [:code {:style {:color "#9cdcfe"}} ":trace/show-sensitive? true"]
+            " to surface"])
          [:div {:style (merge (:row styles) (:header styles))}
           [:span {:style (:cell styles)} "event"]
           [:span {:style (:cell styles)} "handler"]

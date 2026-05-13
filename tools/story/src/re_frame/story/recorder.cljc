@@ -279,21 +279,31 @@
   "Trace-bus callback. Routes a single trace event through the
   recorder's filter chain:
 
-    1. Must be a `:event/dispatched` emission.
-    2. Must target the recorder's `:variant-id` (skip cross-frame
+    1. Must NOT be a `:sensitive? true` event (per Spec 009 §Privacy
+       + rf2-bclgj — Story is a framework-published trace consumer
+       that default-suppresses sensitive events; otherwise the
+       recorder would capture an event vector that the surrounding
+       cascade is trying to keep out of off-box egress).
+    2. Must be a `:event/dispatched` emission.
+    3. Must target the recorder's `:variant-id` (skip cross-frame
        traffic — interactions in another canvas shouldn't show up).
-    3. Must carry an event vector on `:tags :event`.
+    4. Must carry an event vector on `:tags :event`.
 
   `record-event!` applies the `recordable-event?` filter (assertion
   events, internal helpers) before appending."
   [ev]
   (when (recording?)
-    (let [{:keys [op-type operation tags]} ev]
-      (when (and (= op-type :event)
-                 (= operation :event/dispatched)
-                 (= (:frame tags) (recording-variant))
-                 (vector? (:event tags)))
-        (record-event! (:event tags))))))
+    (cond
+      (config/suppress-sensitive? ev)
+      (config/note-suppressed! (get-in ev [:tags :frame]))
+
+      :else
+      (let [{:keys [op-type operation tags]} ev]
+        (when (and (= op-type :event)
+                   (= operation :event/dispatched)
+                   (= (:frame tags) (recording-variant))
+                   (vector? (:event tags)))
+          (record-event! (:event tags)))))))
 
 (defn install-trace-listener!
   "Install the recorder's trace-bus listener. Idempotent — re-installing

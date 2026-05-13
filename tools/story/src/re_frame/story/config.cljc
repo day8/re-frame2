@@ -173,3 +173,110 @@
   "Return the current editor preference."
   []
   @editor)
+
+;; ---- *show-sensitive?* (rf2-bclgj — :sensitive? trace-event policy) ------
+;;
+;; Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published
+;; trace-consuming integrations MUST default-suppress `:sensitive? true`
+;; events. Story is a framework-published consumer — the trace panel,
+;; actions panel, recorder, and play assertions module all subscribe to
+;; the raw trace stream — so each listener body gates on this flag.
+;;
+;; Default is `false` (suppress sensitive events). A story author
+;; debugging redaction policy flips this on via
+;; `(story/configure! {:trace/show-sensitive? true})`.
+;;
+;; The flag is read at the head of every listener body, so toggling it
+;; takes effect on the next trace event without re-registering listeners.
+
+(defonce
+  ^{:doc "Atom holding the `:trace/show-sensitive?` flag. Default
+         `false`. When `false` (default), every Story-registered trace
+         listener short-circuits on events whose `:sensitive?` field is
+         true, and the UI surface tracks how many were suppressed.
+         When `true`, listeners receive every event unchanged. Per
+         Spec 009 §Privacy + bead rf2-bclgj."}
+  show-sensitive?
+  (atom false))
+
+(defn set-show-sensitive!
+  "Replace the `:trace/show-sensitive?` flag. Story's `configure!`
+  calls this. `nil` resets to the default (`false`)."
+  [v]
+  (reset! show-sensitive? (boolean v))
+  nil)
+
+(defn get-show-sensitive
+  "Return the current `:trace/show-sensitive?` flag value."
+  []
+  @show-sensitive?)
+
+(defn sensitive-event?
+  "True iff the trace event `ev` carries `:sensitive? true` at the top
+  level. Per Spec 009 §Privacy + §Listener filtering semantics — the
+  framework stamps `:sensitive? true` on every trace event emitted
+  inside a registration that opted in, and consumers branch on this
+  flag. Absent/false means non-sensitive."
+  [ev]
+  (boolean (and (map? ev) (= true (:sensitive? ev)))))
+
+(defn suppress-sensitive?
+  "Should this trace event be suppressed by a Story-registered
+  listener under the current `:trace/show-sensitive?` setting?
+
+  Returns `true` iff (a) the event is `:sensitive? true` AND (b) the
+  show-sensitive flag is `false`. Listeners wrap their body in
+  `(when-not (suppress-sensitive? ev) ...)`."
+  [ev]
+  (and (sensitive-event? ev)
+       (not @show-sensitive?)))
+
+;; ---- *suppressed-counters* (rf2-bclgj — UI redaction indicator) ----------
+;;
+;; The UI panels (trace, actions) render a `[● REDACTED]` hint when
+;; sensitive events were suppressed for the focused variant. The hint
+;; tells the user "you're seeing fewer events than the runtime emitted
+;; because the privacy gate is on" — useful when a sensitive cascade
+;; would otherwise vanish silently.
+;;
+;; The counter is per-variant (keyed by `:tags :frame`), with a `:global`
+;; bucket for events that have no frame scope (registration-time emits,
+;; outermost-dispatch lookup failures — `:sensitive?` is rarely set on
+;; those, but we keep the bucket so a count is never lost).
+
+(defonce
+  ^{:doc "Atom: `{variant-id → suppressed-count}`. Each Story-side
+         listener that drops a sensitive event bumps the counter for
+         the event's `:tags :frame`. The UI's redaction hint reads
+         this counter; `reset-suppressed-count!` clears it (e.g. on
+         variant teardown or 'clear' button)."}
+  suppressed-counters
+  (atom {}))
+
+(defn note-suppressed!
+  "Bump the suppressed-events counter for the variant the event
+  targeted. Called by every Story-registered listener when
+  `suppress-sensitive?` returned true. `variant-id` may be `nil` /
+  absent — those count under `:global`."
+  [variant-id]
+  (let [k (or variant-id :global)]
+    (swap! suppressed-counters update k (fnil inc 0)))
+  nil)
+
+(defn suppressed-count
+  "Return the count of sensitive trace events that have been
+  suppressed for `variant-id`. Zero if no events have been suppressed
+  (or no listener has reported any) for that variant. `nil` /
+  unspecified returns the `:global` bucket."
+  ([] (suppressed-count :global))
+  ([variant-id]
+   (or (get @suppressed-counters (or variant-id :global)) 0)))
+
+(defn reset-suppressed-count!
+  "Reset the suppressed-events counter. With no arg, clears all.
+  With a `variant-id`, clears just that bucket. Called from the UI's
+  'clear' button and on variant teardown."
+  ([] (reset! suppressed-counters {}) nil)
+  ([variant-id]
+   (swap! suppressed-counters dissoc (or variant-id :global))
+   nil))
