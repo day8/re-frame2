@@ -123,8 +123,14 @@
 (defn- ld-json-string
   "Serialise a JSON-LD object map to its `<script type=\"application/ld+json\">`
   body. CLJ uses a minimal printer (works for the spec's canonical shape:
-  strings, numbers, booleans, vectors, maps with string keys). CLJS uses
-  `js/JSON.stringify` via `clj->js`."
+  strings, numbers, booleans, vectors, maps with string and/or keyword
+  keys). CLJS uses `js/JSON.stringify` via `clj->js`.
+
+  On the JVM side, keyword keys and keyword values are both serialised
+  to their fully-qualified name — `:my.app/foo` → `\"my.app/foo\"` — so
+  namespaces survive serialisation. The key and value handling are
+  symmetric; rf2-a50nz fixed an earlier asymmetry that quietly stripped
+  the namespace prefix off keys."
   [x]
   #?(:cljs (js/JSON.stringify (clj->js x))
      :clj  (letfn [(emit [v]
@@ -140,9 +146,12 @@
                        (keyword? v) (emit (if-let [ns (namespace v)]
                                             (str ns "/" (name v))
                                             (name v)))
+                       ;; Keyword keys delegate to the keyword branch above
+                       ;; so namespaces are preserved — fixes the asymmetric
+                       ;; key/value handling reported in rf2-a50nz.
                        (map? v)     (str "{"
                                          (str/join "," (map (fn [[k val]]
-                                                              (str (emit (if (keyword? k) (name k) k))
+                                                              (str (emit k)
                                                                    ":"
                                                                    (emit val)))
                                                             v))
