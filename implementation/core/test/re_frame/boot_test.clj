@@ -71,11 +71,11 @@
         "init! installs the supplied adapter")
     (is (= 1 (default-frame-count))
         "init! registers exactly one :rf/default frame")
-    (let [adapter-after-first (adapter/current-adapter)
+    (let [adapter-after-first (adapter/current-adapter-spec)
           frames-after-first  @frame/frames]
       ;; Second boot — should be a no-op.
       (rf/init! plain-atom/adapter)
-      (is (identical? adapter-after-first (adapter/current-adapter))
+      (is (identical? adapter-after-first (adapter/current-adapter-spec))
           "the second init! does NOT re-install the adapter (same identity)")
       (is (= frames-after-first @frame/frames)
           "the second init! does NOT mutate the frames registry"))
@@ -88,7 +88,7 @@
         "precondition: cold start, no adapter installed")
     ;; First install — succeeds.
     (adapter/install-adapter! plain-atom/adapter)
-    (is (identical? plain-atom/adapter (adapter/current-adapter))
+    (is (identical? plain-atom/adapter (adapter/current-adapter-spec))
         "first install-adapter! seats the plain-atom adapter")
     ;; Second install (without dispose) — must throw with the spec'd error.
     (let [thrown (try
@@ -106,13 +106,13 @@
         (is (some? (:attempted data))
             "ex-data carries the :attempted (rejected) adapter")))
     ;; Sanity: the originally-installed adapter is still seated.
-    (is (identical? plain-atom/adapter (adapter/current-adapter))
+    (is (identical? plain-atom/adapter (adapter/current-adapter-spec))
         "the rejected install does NOT replace or unseat the existing adapter")))
 
 (deftest dispose-adapter-clears-slot
   (testing "dispose-adapter! tears down + clears the slot; subsequent install! succeeds"
     (adapter/install-adapter! plain-atom/adapter)
-    (is (identical? plain-atom/adapter (adapter/current-adapter))
+    (is (identical? plain-atom/adapter (adapter/current-adapter-spec))
         "precondition: adapter installed")
     ;; Dispose — clears the slot.
     (adapter/dispose-adapter!)
@@ -120,7 +120,7 @@
         "after dispose-adapter! the slot is nil")
     ;; Re-install — works now without throwing.
     (adapter/install-adapter! plain-atom/adapter)
-    (is (identical? plain-atom/adapter (adapter/current-adapter))
+    (is (identical? plain-atom/adapter (adapter/current-adapter-spec))
         "install-adapter! succeeds after a prior dispose-adapter!"))
   (testing "dispose-adapter! on an empty slot is a no-op (no throw)"
     (adapter/dispose-adapter!)
@@ -234,10 +234,55 @@
 (deftest init-map-form-installs-literal-spec
   (testing "(rf/init! adapter-map) installs the literal adapter — only legal form"
     (rf/init! plain-atom/adapter)
-    (is (identical? plain-atom/adapter (adapter/current-adapter))
+    (is (identical? plain-atom/adapter (adapter/current-adapter-spec))
         "init! with a literal adapter map installs that exact spec")
     (is (= 1 (default-frame-count))
         ":rf/default frame is present after the literal-adapter init!")))
+
+;; ---- current-adapter vs current-adapter-spec (rf2-ivx3a) -----------------
+;;
+;; Per Spec 006 §Adapter introspection: `current-adapter` returns the
+;; `:kind` discriminator keyword from the installed adapter spec map;
+;; `current-adapter-spec` returns the full map. The two questions are
+;; genuinely different — predicate / branch code vs tools that need fn
+;; handles — and each accessor answers exactly one.
+
+(deftest current-adapter-returns-discriminator-keyword
+  (testing "current-adapter returns the :kind keyword per Spec 006 §Adapter introspection"
+    (is (nil? (adapter/current-adapter))
+        "no adapter installed → current-adapter is nil")
+    (rf/init! plain-atom/adapter)
+    (is (= :plain-atom (adapter/current-adapter))
+        "current-adapter projects the :kind slot of the installed adapter")
+    (is (keyword? (adapter/current-adapter))
+        "current-adapter returns a keyword, NOT the adapter spec map")
+    (is (= :plain-atom (:kind plain-atom/adapter))
+        "the plain-atom adapter spec map carries :kind :plain-atom directly")))
+
+(deftest current-adapter-spec-returns-the-installed-map
+  (testing "current-adapter-spec returns the spec map passed to install"
+    (is (nil? (adapter/current-adapter-spec))
+        "no adapter installed → current-adapter-spec is nil")
+    (rf/init! plain-atom/adapter)
+    (is (identical? plain-atom/adapter (adapter/current-adapter-spec))
+        "current-adapter-spec returns the exact map identity passed to init!")
+    (is (map? (adapter/current-adapter-spec))
+        "current-adapter-spec returns a map, NOT the discriminator keyword")
+    (is (fn? (:make-state-container (adapter/current-adapter-spec)))
+        "the spec map carries the adapter contract fns")
+    (is (fn? (:replace-container! (adapter/current-adapter-spec)))
+        "the spec map carries the adapter contract fns")
+    (is (fn? (:make-derived-value (adapter/current-adapter-spec)))
+        "the spec map carries the adapter contract fns")))
+
+(deftest current-adapter-falls-back-to-custom-when-kind-missing
+  (testing "an installed adapter lacking :kind reports as :custom per Spec 006"
+    (let [kindless (dissoc plain-atom/adapter :kind)]
+      (adapter/install-adapter! kindless)
+      (is (= :custom (adapter/current-adapter))
+          "current-adapter falls back to :custom when the spec map omits :kind")
+      (is (identical? kindless (adapter/current-adapter-spec))
+          "current-adapter-spec still returns the literal installed map"))))
 
 (deftest adapter-swap-resets-substrate-state-keeps-registrar
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
@@ -272,7 +317,7 @@
         (is (nil? (adapter/current-adapter))
             "between swap steps the slot is empty")
         (adapter/install-adapter! adapter-b)
-        (is (identical? adapter-b (adapter/current-adapter))
+        (is (identical? adapter-b (adapter/current-adapter-spec))
             "adapter B is now installed")
         ;; The registrar (events / subs / handlers) survives the swap.
         (is (= registrar-before @registrar/kind->id->metadata)

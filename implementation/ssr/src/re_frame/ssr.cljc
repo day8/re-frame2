@@ -441,7 +441,8 @@
   slot, no late-bind wiring required at the call site. The :render slot
   throws (`:rf.error/render-on-headless-adapter`) — SSR uses
   render-to-string exclusively. Per rf2-agql and Spec 011 §init flow."
-  {:make-state-container      ssr-make-state-container
+  {:kind                      :ssr
+   :make-state-container      ssr-make-state-container
    :read-container            ssr-read-container
    :replace-container!        ssr-replace-container!
    :subscribe-container       ssr-subscribe-container

@@ -856,11 +856,14 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def AdapterMap
   ;; The substrate adapter spec map per Spec 006 §The reactive-substrate
-  ;; adapter contract. Nine entries; see the spec for the contract on each.
-  ;; Consumers pass this to (rf/init! adapter-map) — each adapter ns
-  ;; (re-frame.adapter.{reagent,uix,helix}, re-frame.ssr,
+  ;; adapter contract. Nine fn entries plus a :kind discriminator
+  ;; keyword (per Spec 006 §Adapter introspection — surfaced by
+  ;; `(rf/current-adapter)`). Consumers pass this map to
+  ;; (rf/init! adapter-map) — each adapter ns
+  ;; (re-frame.adapter.{reagent,reagent-slim,uix,helix}, re-frame.ssr,
   ;; re-frame.substrate.plain-atom) exports an `adapter` Var of this shape.
   [:map
+   [:kind                      :keyword]
    [:make-state-container      fn?]
    [:read-container            fn?]
    [:replace-container!        fn?]
