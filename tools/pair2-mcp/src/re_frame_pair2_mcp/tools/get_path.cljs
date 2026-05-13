@@ -9,10 +9,16 @@
   `(get-in app-db path)` server-side so only the addressed subtree
   crosses the wire.
 
-  Path vocabulary mirrors `get-in`: a vector of keys / indices."
-  (:require [re-frame.mcp-base.vocab :as base-vocab]
-            [re-frame-pair2-mcp.nrepl :as nrepl]
+  Path vocabulary mirrors `get-in`: a vector of keys / indices.
+
+  Post-eval shrink pipeline lives in
+  `re-frame-pair2-mcp.tools.wire-pipeline` (rf2-ae8ie). The eval form
+  ran `re-frame.core/elide-wire-value` server-side already; the
+  `:scalar-value` arm of `run-wire-pipeline` just counts the
+  resulting `:rf.size/large-elided` markers."
+  (:require [re-frame-pair2-mcp.nrepl :as nrepl]
             [re-frame-pair2-mcp.tools.wire :as wire]
+            [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.elision :as elision]))
@@ -77,18 +83,12 @@
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then (fn [v]
-                     ;; :elided-large indicator-field per Conventions
-                     ;; §Cross-MCP indicator-field vocabulary (rf2-2499j).
-                     ;; The eval form ran `re-frame.core/elide-wire-value`
-                     ;; over the resolved `:value` (when elision was
-                     ;; on), so the response may carry one or more
-                     ;; `:rf.size/large-elided` markers. Count them on
-                     ;; the envelope so the agent sees the elision
-                     ;; footprint without diffing the payload.
-                     (let [elided (base-vocab/count-elided-markers v)]
+                     (let [{:keys [value indicators]}
+                           (wp/run-wire-pipeline v {:kind :scalar-value})
+                           {:keys [elided]} indicators]
                        (wire/ok-text (wire/with-indicators
-                                       (cond-> v
-                                         frame          (assoc :frame frame)
-                                         (:ok? v)       (assoc :elision elision?))
+                                       (cond-> value
+                                         frame           (assoc :frame frame)
+                                         (:ok? value)    (assoc :elision elision?))
                                        {:elided elided})))))
             (.catch (fn [err] (probe/err->result :get-path-failed err))))))))

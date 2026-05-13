@@ -10,10 +10,15 @@
   current ring, `:next-cursor` rides the response — the agent calls
   back with the cursor to consume the remainder. The cursor is the
   opaque sibling of the `:since-id` arg; both can be used, but
-  `:cursor` takes precedence (it carries sticky pred/frame state)."
-  (:require [re-frame.mcp-base.vocab :as base-vocab]
-            [re-frame-pair2-mcp.nrepl :as nrepl]
+  `:cursor` takes precedence (it carries sticky pred/frame state).
+
+  Post-eval shrink pipeline lives in
+  `re-frame-pair2-mcp.tools.wire-pipeline` (rf2-ae8ie). This tool body
+  builds the eval form, awaits the runtime response, and routes the
+  matches vector through `run-wire-pipeline` with `:kind :epoch-vector`."
+  (:require [re-frame-pair2-mcp.nrepl :as nrepl]
             [re-frame-pair2-mcp.tools.wire :as wire]
+            [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.cursor :as cursor]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
@@ -61,34 +66,32 @@
                     (cursor/cursor-stale-result "watch-epochs"
                                                 {:requested-id (or (:requested-id v) effective-after)
                                                  :head-id      (:head-id v)})
-                    (let [matches        (vec (:matches v))
-                          [kept dropped] (sensitive/strip-sensitive matches incl?)
-                          encoded        (dedup/diff-encode-epochs kept mode)
-                          deduped        (dedup/dedup-value encoded dedup?)
-                          ;; :elided-large parity per Conventions §Cross-MCP
-                          ;; indicator-field vocabulary (rf2-2499j). Same
-                          ;; rationale as trace-window — no elision walk on
-                          ;; epoch records today; the scaffolding emits the
-                          ;; slot the moment a future revision wires it.
-                          elided         (base-vocab/count-elided-markers deduped)
-                          next-id        (:next-id v)
-                          next-cursor    (cursor/encode-cursor
-                                           (when next-id
-                                             {:v        1
-                                              :after-id next-id
-                                              :ms       nil
-                                              :until-ms nil
-                                              :frame    sticky-frame}))
-                          remaining      (or (:remaining v) 0)
-                          base           (cond-> {:ok?           true
-                                                  :head-id       (:head-id v)
-                                                  :id-aged-out?  (boolean aged-out?)}
-                                           (:requested-id v) (assoc :requested-id (:requested-id v)))]
+                    (let [matches (vec (:matches v))
+                          {:keys [value indicators]}
+                          (wp/run-wire-pipeline matches
+                                                {:kind   :epoch-vector
+                                                 :incl?  incl?
+                                                 :mode   mode
+                                                 :dedup? dedup?})
+                          {:keys [dropped elided count]} indicators
+                          next-id     (:next-id v)
+                          next-cursor (cursor/encode-cursor
+                                        (when next-id
+                                          {:v        1
+                                           :after-id next-id
+                                           :ms       nil
+                                           :until-ms nil
+                                           :frame    sticky-frame}))
+                          remaining   (or (:remaining v) 0)
+                          base        (cond-> {:ok?          true
+                                               :head-id      (:head-id v)
+                                               :id-aged-out? (boolean aged-out?)}
+                                        (:requested-id v) (assoc :requested-id (:requested-id v)))]
                       (wire/ok-text (wire/with-indicators
                                       (assoc base
-                                             :matches             deduped
+                                             :matches             value
                                              :limit               limit
-                                             :count               (count encoded)
+                                             :count               count
                                              :epochs-mode         mode
                                              :dedup               dedup?
                                              :has-more?           (some? next-cursor)
