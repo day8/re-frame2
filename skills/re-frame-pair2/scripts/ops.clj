@@ -1,10 +1,29 @@
 #!/usr/bin/env bb
-;;;; scripts/ops.clj — babashka entry point for all re-frame-pair2 ops.
+;;;; scripts/ops.clj — babashka entry point for the re-frame-pair2 bash-shim
+;;;; transport.
 ;;;;
-;;;; Each `scripts/*.sh` is a thin wrapper that exec's:
-;;;;     bb ops.clj <subcommand> [args...]
+;;;; Role
+;;;; ----
+;;;; This file is the dispatcher behind the seven `scripts/*.sh` shims
+;;;; (`discover-app.sh`, `eval-cljs.sh`, `dispatch.sh`, `trace-window.sh`,
+;;;; `watch-epochs.sh`, `tail-build.sh`). Each shell wrapper is a one-liner
+;;;; that exec's `bb ops.clj <subcommand> [args...]` and forwards the edn
+;;;; printed on stdout.
 ;;;;
-;;;; Subcommands:
+;;;; Transport status — bash-shim is the **legacy / fallback** transport.
+;;;; The structural successor is the persistent-connection MCP server in
+;;;; `tools/pair2-mcp/`, which holds a single nREPL connection per session
+;;;; (~14× faster than the per-call connect/disconnect this file performs).
+;;;; Keep the shims for ad-hoc shell scripting, CI scripts, or when the
+;;;; MCP server isn't configured in the agent host. Op semantics are
+;;;; identical between transports — see
+;;;; `skills/re-frame-pair2/references/ops.md` for the full op catalogue
+;;;; (MCP form in the Invocation column; bash-shim forms in the
+;;;; back-compat appendix) and `references/mcp-transport.md` for the MCP
+;;;; surface.
+;;;;
+;;;; Subcommands (each maps 1:1 to a shim under `scripts/`)
+;;;; -----------------------------------------------------
 ;;;;   discover     — locate shadow-cljs nREPL, verify prerequisites,
 ;;;;                  probe for the preloaded re-frame-pair2.runtime
 ;;;;                  namespace, report {:ok? ...}
@@ -15,6 +34,30 @@
 ;;;;   watch        — pull-mode live streaming of matching epochs
 ;;;;   tail-build   — wait for hot-reload to land; probe-form gated
 ;;;;
+;;;; File layout (top→bottom)
+;;;; ------------------------
+;;;;   1. Bencode + nREPL socket client (inline, no Maven dep)
+;;;;   2. Config / env (build-id, port-file discovery)
+;;;;   3. Output helpers (`emit`, `die`)
+;;;;   4. nREPL conveniences (`jvm-eval`, `cljs-eval`, `cljs-eval-value`)
+;;;;   5. One section per subcommand (`discover`, `eval`, `dispatch`,
+;;;;      `trace-recent`, `watch`, `tail-build`)
+;;;;   6. `-main` dispatcher
+;;;;
+;;;; When to add a new helper here vs. elsewhere
+;;;; -------------------------------------------
+;;;; - **New op shared across MCP + bash-shim**: add the underlying call
+;;;;   to `re-frame-pair2.runtime` (in `preload/`), wire it into the MCP
+;;;;   tool surface (`tools/pair2-mcp/src/`), THEN add a thin subcommand
+;;;;   here that calls it via `cljs-eval-value`. Document in
+;;;;   `references/ops.md`. The runtime is the source of truth.
+;;;; - **Bash-only flag tweak** (new `--foo` on an existing subcommand):
+;;;;   inline it here, update `references/ops.md` back-compat appendix.
+;;;; - **Anything else** (new transport, new wire format, new shim):
+;;;;   probably belongs in `tools/pair2-mcp/` rather than another shim.
+;;;;
+;;;; Runtime preload requirement
+;;;; ---------------------------
 ;;;; The runtime is no longer injected at first connect — it ships into
 ;;;; the consumer app via shadow-cljs's `:devtools :preloads` mechanism.
 ;;;; See `skills/re-frame-pair2/SKILL.md` (§Setup) for the one-line
