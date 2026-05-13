@@ -13,6 +13,7 @@
   drops shipped a per-session inject fallback; that path was cut for
   rf2-7dvg."
   (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]))
 
 ;; ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@
   "Call `(re-frame-pair2.runtime/health)`. Caller must have already
   confirmed the preload landed via `runtime-preloaded?`."
   [conn build-id]
-  (nrepl/cljs-eval-value conn build-id "(re-frame-pair2.runtime/health)"))
+  (nrepl/cljs-eval-value conn build-id (ef/emit (ef/rt-call 'health))))
 
 (defn ensure-runtime!
   "Confirm the pair2 runtime is preloaded. Resolves to nil on success,

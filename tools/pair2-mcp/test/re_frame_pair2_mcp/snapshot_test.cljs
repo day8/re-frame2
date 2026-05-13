@@ -9,8 +9,10 @@
   case slips break the test rather than silently shipping a broken
   contract."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [cljs.reader]
             [clojure.string :as str]
-            [applied-science.js-interop :as j]))
+            [applied-science.js-interop :as j]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]))
 
 ;; The parsers are private in tools.cljs — re-implement the contract
 ;; here so we test what callers see and so the test fails if the
@@ -82,12 +84,15 @@
   (is (= [:app-db :sub-cache] (parse-include #js ["app-db" "sub-cache"]))))
 
 (deftest snapshot-state-form-is-edn-readable
-  ;; The MCP server pr-strs the opts map into a CLJS eval form like
-  ;; `(re-frame-pair2.runtime/snapshot-state {:frames :all :include [...]})`.
-  ;; Ensure the canonical default round-trips through pr-str.
+  ;; The MCP server lifts the opts map into the eval-form DSL
+  ;; (rf2-dpzpe), which renders `(re-frame-pair2.runtime/snapshot-state
+  ;; {:frames :all :include [...]})`. Assert against the parsed opts
+  ;; map rather than regex-matching the source string.
   (let [opts {:frames :all
               :include (parse-include nil)}
-        form (str "(re-frame-pair2.runtime/snapshot-state "
-                  (pr-str opts) ")")]
-    (is (re-find #":frames :all" form))
-    (is (re-find #":include \[:app-db :sub-cache :machines :epochs :traces\]" form))))
+        form (ef/emit (ef/rt-call 'snapshot-state opts))
+        edn  (cljs.reader/read-string form)]
+    (is (= 're-frame-pair2.runtime/snapshot-state (first edn)))
+    (is (= :all (-> edn second :frames)))
+    (is (= [:app-db :sub-cache :machines :epochs :traces]
+           (-> edn second :include)))))

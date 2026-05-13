@@ -12,6 +12,7 @@
   builds the eval form, awaits the runtime response, and routes the
   epoch vector through `run-wire-pipeline` with `:kind :epoch-vector`."
   (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
@@ -39,30 +40,37 @@
             window-ms (or (:ms cursor-in) ms)
             cutoff-ms (- until-ms window-ms)
             sticky-frame (or (:frame cursor-in) frame)
-            frame-form (when sticky-frame (str " " (pr-str sticky-frame)))
             ;; Server-side slice: pull the history, drop up-to-cursor,
             ;; filter to the window, take `limit`. The runtime ships
             ;; only what the page needs — not the whole history.
-            form (str "(let [hist (vec (re-frame-pair2.runtime/epoch-history"
-                      (or frame-form "") "))"
-                      " after-id " (pr-str after-id)
-                      " aged-out? (and after-id (not-any? #(= after-id (:epoch-id %)) hist))"
-                      " sliced (if aged-out? []"
-                      "          (if after-id"
-                      "            (vec (rest (drop-while #(not= after-id (:epoch-id %)) hist)))"
-                      "            hist))"
-                      " filtered (filterv #(and (>= (or (:committed-at %) 0) " cutoff-ms ")"
-                      "                         (<= (or (:committed-at %) 0) " until-ms "))"
-                      "                   sliced)"
-                      " page (vec (take " limit " filtered))"
-                      " next-id (when (< (count page) (count filtered))"
-                      "           (:epoch-id (last page)))]"
-                      " {:epochs page"
-                      "  :id-aged-out? aged-out?"
-                      "  :requested-id after-id"
-                      "  :head-id (some-> hist peek :epoch-id)"
-                      "  :next-id next-id"
-                      "  :remaining (max 0 (- (count filtered) (count page)))})")]
+            history-call (if sticky-frame
+                           (ef/rt-call 'epoch-history sticky-frame)
+                           (ef/rt-call 'epoch-history))
+            form (ef/emit
+                   (ef/rt-let
+                     ['hist      (ef/rt-raw (str "(vec " (ef/emit history-call) ")"))
+                      'after-id  after-id
+                      'aged-out? (ef/rt-raw
+                                   "(and after-id (not-any? #(= after-id (:epoch-id %)) hist))")
+                      'sliced    (ef/rt-raw
+                                   (str "(if aged-out? []"
+                                        "  (if after-id"
+                                        "    (vec (rest (drop-while #(not= after-id (:epoch-id %)) hist)))"
+                                        "    hist))"))
+                      'filtered  (ef/rt-raw
+                                   (str "(filterv #(and (>= (or (:committed-at %) 0) " cutoff-ms ")"
+                                        "                (<= (or (:committed-at %) 0) " until-ms "))"
+                                        " sliced)"))
+                      'page      (ef/rt-raw (str "(vec (take " limit " filtered))"))
+                      'next-id   (ef/rt-raw
+                                   "(when (< (count page) (count filtered)) (:epoch-id (last page)))")]
+                     (ef/rt-raw
+                       (str "{:epochs page"
+                            " :id-aged-out? aged-out?"
+                            " :requested-id after-id"
+                            " :head-id (some-> hist peek :epoch-id)"
+                            " :next-id next-id"
+                            " :remaining (max 0 (- (count filtered) (count page)))}"))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then

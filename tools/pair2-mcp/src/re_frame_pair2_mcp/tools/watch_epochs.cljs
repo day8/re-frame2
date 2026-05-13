@@ -17,6 +17,7 @@
   builds the eval form, awaits the runtime response, and routes the
   matches vector through `run-wire-pipeline` with `:kind :epoch-vector`."
   (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
@@ -42,20 +43,28 @@
             ;; so the agent's continuation flow stays consistent.
             effective-after (or (:after-id cursor-in) since-id)
             sticky-frame    (or (:frame cursor-in) frame)
-            frame-arg       (if sticky-frame (str " " (pr-str sticky-frame)) "")
-            form (str "(let [r (re-frame-pair2.runtime/epochs-since "
-                      (pr-str effective-after) frame-arg ")"
-                      "      matches (filterv #(re-frame-pair2.runtime/epoch-matches? "
-                      (pr-str (or pred-map {})) " %) (:epochs r))"
-                      "      page (vec (take " limit " matches))"
-                      "      next-id (when (< (count page) (count matches))"
-                      "                (:epoch-id (last page)))]"
-                      "  {:matches page"
-                      "   :id-aged-out? (:id-aged-out? r)"
-                      "   :requested-id (:requested-id r)"
-                      "   :head-id (:head-id r)"
-                      "   :next-id next-id"
-                      "   :remaining (max 0 (- (count matches) (count page)))})")]
+            epochs-since-call (if sticky-frame
+                                (ef/rt-call 'epochs-since effective-after sticky-frame)
+                                (ef/rt-call 'epochs-since effective-after))
+            matches-form (str "(filterv #"
+                              (ef/emit (ef/rt-call 'epoch-matches?
+                                                   (or pred-map {})
+                                                   (ef/rt-raw "%")))
+                              " (:epochs r))")
+            form (ef/emit
+                   (ef/rt-let
+                     ['r       epochs-since-call
+                      'matches (ef/rt-raw matches-form)
+                      'page    (ef/rt-raw (str "(vec (take " limit " matches))"))
+                      'next-id (ef/rt-raw
+                                 "(when (< (count page) (count matches)) (:epoch-id (last page)))")]
+                     (ef/rt-raw
+                       (str "{:matches page"
+                            " :id-aged-out? (:id-aged-out? r)"
+                            " :requested-id (:requested-id r)"
+                            " :head-id (:head-id r)"
+                            " :next-id next-id"
+                            " :remaining (max 0 (- (count matches) (count page)))}"))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then

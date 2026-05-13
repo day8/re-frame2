@@ -24,6 +24,7 @@
   (:require [applied-science.js-interop :as j]
             [re-frame.mcp-base.vocab :as base-vocab]
             [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
@@ -66,12 +67,12 @@
 
       :else
       (let [subscribe-form
-            (str "(re-frame-pair2.runtime/subscribe! "
-                 (pr-str (cond-> {:topic               topic
-                                  :max-buffered-events max-buf-events
-                                  :max-buffered-bytes  max-buf-bytes}
-                           filter-map (assoc :filter filter-map)))
-                 ")")]
+            (ef/emit
+              (ef/rt-call 'subscribe!
+                          (cond-> {:topic               topic
+                                   :max-buffered-events max-buf-events
+                                   :max-buffered-bytes  max-buf-bytes}
+                            filter-map (assoc :filter filter-map))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id subscribe-form)))
             (.then
@@ -97,8 +98,7 @@
                               (fn [reason]
                                 (-> (nrepl/cljs-eval-value
                                       conn build-id
-                                      (str "(re-frame-pair2.runtime/unsubscribe! "
-                                           (pr-str sub-id) ")"))
+                                      (ef/emit (ef/rt-call 'unsubscribe! sub-id)))
                                     (.catch (fn [_] nil))
                                     (.then
                                       (fn [_]
@@ -127,8 +127,7 @@
                                   :else
                                   (-> (nrepl/cljs-eval-value
                                         conn build-id
-                                        (str "(re-frame-pair2.runtime/drain-subscription! "
-                                             (pr-str sub-id) ")"))
+                                        (ef/emit (ef/rt-call 'drain-subscription! sub-id)))
                                       (.then
                                         (fn [drain-resp]
                                           (cond

@@ -10,7 +10,8 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
             [clojure.string :as str]
-            [applied-science.js-interop :as j]))
+            [applied-science.js-interop :as j]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]))
 
 ;; Mirror of `parse-filter-arg` from tools.cljs (private). Keeping a
 ;; parallel test fixture documents the contract and pins the semantics —
@@ -52,52 +53,62 @@
   (is (= {:op-type :error}
          (parse-filter {:op-type :error}))))
 
-;; The subscribe-form constructor is private. Re-implement here to
-;; pin the exact CLJS form we send to the runtime.
+;; The subscribe-form constructor is private. Re-implement here over
+;; the eval-form DSL to pin the IR + emitted source we send to the
+;; runtime (rf2-dpzpe). Tests assert against opts-map data shape via
+;; `cljs.reader/read-string` over the emitted form — no regex over
+;; raw source, no whitespace fragility.
+
+(defn- subscribe-opts
+  [topic filter-map max-buf-events max-buf-bytes]
+  (cond-> {:topic               topic
+           :max-buffered-events max-buf-events
+           :max-buffered-bytes  max-buf-bytes}
+    filter-map (assoc :filter filter-map)))
 
 (defn- subscribe-form
   [topic filter-map max-buf-events max-buf-bytes]
-  (str "(re-frame-pair2.runtime/subscribe! "
-       (pr-str (cond-> {:topic               topic
-                        :max-buffered-events max-buf-events
-                        :max-buffered-bytes  max-buf-bytes}
-                 filter-map (assoc :filter filter-map)))
-       ")"))
+  (ef/emit (ef/rt-call 'subscribe!
+                       (subscribe-opts topic filter-map
+                                       max-buf-events max-buf-bytes))))
+
+(defn- form->opts
+  "Round-trip the emitted source back into Clojure data; assert against
+  the opts-map directly instead of regex over source bytes."
+  [form]
+  (-> form cljs.reader/read-string second))
 
 (deftest subscribe-form-with-trace-and-filter
-  (let [form (subscribe-form :trace {:op-type :error :event-id :user/login}
-                             500 5000000)]
-    (is (re-find #":topic :trace" form))
-    (is (re-find #":max-buffered-events 500" form))
-    (is (re-find #":max-buffered-bytes 5000000" form))
-    (is (re-find #":op-type :error" form))
-    (is (re-find #":event-id :user/login" form))))
+  (let [opts (form->opts
+               (subscribe-form :trace {:op-type :error :event-id :user/login}
+                               500 5000000))]
+    (is (= :trace                       (:topic opts)))
+    (is (= 500                          (:max-buffered-events opts)))
+    (is (= 5000000                      (:max-buffered-bytes opts)))
+    (is (= {:op-type :error :event-id :user/login} (:filter opts)))))
 
 (deftest subscribe-form-without-filter-omits-key
-  (let [form (subscribe-form :epoch nil 250 1000000)]
-    (is (re-find #":topic :epoch" form))
-    (is (re-find #":max-buffered-events 250" form))
-    (is (re-find #":max-buffered-bytes 1000000" form))
-    (is (not (re-find #":filter" form)))))
+  (let [opts (form->opts (subscribe-form :epoch nil 250 1000000))]
+    (is (= :epoch  (:topic opts)))
+    (is (= 250     (:max-buffered-events opts)))
+    (is (= 1000000 (:max-buffered-bytes  opts)))
+    (is (not (contains? opts :filter)))))
 
 (deftest subscribe-form-fx-topic
-  (let [form (subscribe-form :fx {:event-id :http/get} 100 100000)]
-    (is (re-find #":topic :fx" form))
-    (is (re-find #":max-buffered-events 100" form))
-    (is (re-find #":max-buffered-bytes 100000" form))
-    (is (re-find #":event-id :http/get" form))))
+  (let [opts (form->opts (subscribe-form :fx {:event-id :http/get} 100 100000))]
+    (is (= :fx     (:topic opts)))
+    (is (= 100     (:max-buffered-events opts)))
+    (is (= 100000  (:max-buffered-bytes  opts)))
+    (is (= {:event-id :http/get} (:filter opts)))))
 
 (deftest subscribe-form-carries-both-budgets
   ;; rf2-ho4ve: the wire shape must always carry BOTH :max-buffered-events
   ;; and :max-buffered-bytes — the runtime applies an OR-combined budget,
   ;; so half the pair would leak through to the runtime's default for the
   ;; missing slot. Pin the round-trip here.
-  (let [form (subscribe-form :trace nil 1000 2000000)
-        edn  (cljs.reader/read-string
-               (subs form (count "(re-frame-pair2.runtime/subscribe! ")
-                     (dec (count form))))]
-    (is (= 1000    (:max-buffered-events edn)))
-    (is (= 2000000 (:max-buffered-bytes  edn)))))
+  (let [opts (form->opts (subscribe-form :trace nil 1000 2000000))]
+    (is (= 1000    (:max-buffered-events opts)))
+    (is (= 2000000 (:max-buffered-bytes  opts)))))
 
 ;; Recognised topics — keep this set in lockstep with the runtime's
 ;; subscribe! whitelist.
@@ -150,19 +161,19 @@
     (is (= 12345 (j/get-in p [:data :dropped-bytes])))
     (is (= ":max-buffered-bytes" (j/get-in p [:data :overflow-reason])))))
 
-;; Unsubscribe-form pinning — the CLJS form sent over nREPL.
+;; Unsubscribe + drain form pinning — built over the eval-form DSL
+;; (rf2-dpzpe). The expected source strings are the DSL's emit output;
+;; a rename of the runtime ns flows through `ef/runtime-ns`.
 
 (defn- unsubscribe-form [sub-id]
-  (str "(re-frame-pair2.runtime/unsubscribe! "
-       (pr-str sub-id) ")"))
-
-(deftest unsubscribe-form-roundtrips
-  (let [form (unsubscribe-form "abc-123-uuid")]
-    (is (= "(re-frame-pair2.runtime/unsubscribe! \"abc-123-uuid\")" form))))
+  (ef/emit (ef/rt-call 'unsubscribe! sub-id)))
 
 (defn- drain-form [sub-id]
-  (str "(re-frame-pair2.runtime/drain-subscription! "
-       (pr-str sub-id) ")"))
+  (ef/emit (ef/rt-call 'drain-subscription! sub-id)))
+
+(deftest unsubscribe-form-roundtrips
+  (is (= "(re-frame-pair2.runtime/unsubscribe! \"abc-123-uuid\")"
+         (unsubscribe-form "abc-123-uuid"))))
 
 (deftest drain-form-roundtrips
   (is (= "(re-frame-pair2.runtime/drain-subscription! \"sub-xyz\")"
