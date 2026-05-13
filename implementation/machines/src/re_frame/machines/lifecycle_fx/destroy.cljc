@@ -21,55 +21,56 @@
   the declarative-`:invoke-all` exit-cascade form. The slot at
   `[:rf/spawned <parent-id> <invoke-id>]` holds a join-state map whose
   `:children` sub-map has every spawned child id. The handler iterates
-  `:children` and tears each one down, then clears the slot."
+  `:children` and tears each one down, then clears the slot.
+
+  Per rf2-lha2t the actor-teardown app-db dance lives in
+  `re-frame.machines.lifecycle-fx.teardown` — one helper, three (now
+  unified) call-sites."
   (:require [re-frame.frame :as frame]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
+            [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
-(defn- find-system-id-for
-  "Walk the `:rf/system-ids` reverse index of `db` looking for the entry
-  whose value is `actor-id`. Returns the bound `:system-id` keyword or
-  nil."
-  [db actor-id]
-  (some (fn [[sid mid]]
-          (when (= mid actor-id) sid))
-        (get db :rf/system-ids)))
+(defn- emit-system-id-released!
+  "Per Spec 005 §Cancellation cascade D8 — fire the
+  `:rf.machine/system-id-released` trace when an actor's `:system-id`
+  binding was released as part of teardown. No-op when sid is nil."
+  [frame-id sid actor-id]
+  (when sid
+    (trace/emit! :machine :rf.machine/system-id-released
+                 {:frame      frame-id
+                  :system-id  sid
+                  :machine-id actor-id})))
 
 (defn- destroy-single-actor!
-  "Destroy a single spawned actor: dissoc the snapshot at
-  `[:rf/machines <id>]`, clear any `:system-id` binding pointing at it,
-  unregister the live event handler. Used by `destroy-machine-fx` for
-  the keyword-form legacy/imperative destroy AND iterated for each
-  child in an `:invoke-all` teardown.
+  "Destroy a single spawned actor against the frame's container: apply
+  the unified teardown projection (per
+  `re-frame.machines.lifecycle-fx.teardown`), abort in-flight
+  `:rf.http/managed` requests (rf2-wvkn), emit the
+  `:system-id-released` trace, and unregister the live event handler.
 
-  Per rf2-wvkn (Spec 005 §Cancellation cascade), also fires the
-  `:http/abort-on-actor-destroy` late-bind hook so any in-flight
-  `:rf.http/managed` requests the actor had issued are aborted."
+  Used by `destroy-machine-fx` for the keyword-form legacy/imperative
+  destroy AND iterated for each child in an `:invoke-all` teardown."
   [frame-id actor-id]
   (when actor-id
     (finalize/abort-actor-in-flight-http! actor-id)
     (when-let [container (frame/get-frame-db frame-id)]
-      (let [old-db       (adapter/read-container container)
-            released-sid (find-system-id-for old-db actor-id)
-            new-db       (cond-> old-db
-                           true         (update :rf/machines dissoc actor-id)
-                           released-sid (update :rf/system-ids dissoc released-sid))]
+      (let [old-db (adapter/read-container container)
+            [new-db released-sid] (teardown/teardown-actor
+                                    old-db {:actor-id actor-id})]
         (adapter/replace-container! container new-db)
-        (when released-sid
-          (trace/emit! :machine :rf.machine/system-id-released
-                       {:frame      frame-id
-                        :system-id  released-sid
-                        :machine-id actor-id}))
+        (emit-system-id-released! frame-id released-sid actor-id)
         (registrar/unregister! :event actor-id)
         released-sid))))
 
 (defn- destroy-invoke-all-children!
   "Per rf2-6vmw — the declarative-`:invoke-all` exit-cascade form.
   Resolves the children map from `[:rf/spawned parent-id invoke-id]`,
-  tears each child down via `destroy-single-actor!`, then prunes the
-  spawn registry slot under the lazy-allocation invariant."
+  tears each child down via `destroy-single-actor!`, then clears the
+  join-state slot via the unified teardown projection (slot-prune only:
+  nil actor-id)."
   [frame-id parent-id invoke-id]
   (let [join-state (when-let [container (frame/get-frame-db frame-id)]
                      (get-in (adapter/read-container container)
@@ -84,40 +85,31 @@
                     :child-id   child-id
                     :reason     :explicit})        ;; rf2-gn80 D6 — discriminator
       (destroy-single-actor! frame-id spawned-id))
-    ;; Clear the slot + lazy-allocation prune.
+    ;; Clear the join-state slot via the unified projection (slot-only).
     (when-let [container (frame/get-frame-db frame-id)]
       (let [old-db (adapter/read-container container)
-            new-db (cond-> old-db
-                     true (update-in [:rf/spawned parent-id]
-                                     dissoc invoke-id)
-                     (empty? (get-in old-db [:rf/spawned parent-id]))
-                     (update :rf/spawned dissoc parent-id))
-            new-db (cond-> new-db
-                     (empty? (get new-db :rf/spawned))
-                     (dissoc :rf/spawned))]
+            [new-db _] (teardown/teardown-actor
+                         old-db {:parent-id parent-id
+                                 :invoke-id invoke-id})]
         (adapter/replace-container! container new-db)))
     nil))
 
 (defn- destroy-single!
   "Per rf2-t07u — the keyword (legacy/imperative) form and the single-
   `:invoke` (tracked map) form of `:rf.machine/destroy`. Resolves the
-  actor-id (keyword direct OR via the `[:rf/spawned ...]` slot), tears
-  down its snapshot + system-id binding + handler, prunes the spawn
-  registry under the lazy-allocation invariant."
+  actor-id (keyword direct OR via the `[:rf/spawned ...]` slot), emits
+  the `:rf.machine/destroyed` trace, then applies the unified teardown
+  projection."
   [frame-id args]
   (let [tracked?  (map? args)
         parent-id (when tracked? (:rf/parent-id args))
         invoke-id (when tracked? (:rf/invoke-id args))
+        container (frame/get-frame-db frame-id)
+        old-db    (when container (adapter/read-container container))
         actor-id  (if tracked?
-                    (when-let [container (frame/get-frame-db frame-id)]
-                      (get-in (adapter/read-container container)
-                              [:rf/spawned parent-id invoke-id]))
+                    (when old-db (get-in old-db [:rf/spawned parent-id invoke-id]))
                     args)
-        released-sid
-        (when (and actor-id (frame/get-frame-db frame-id))
-          (find-system-id-for
-            (adapter/read-container (frame/get-frame-db frame-id))
-            actor-id))]
+        released-sid (teardown/find-system-id-for-actor old-db actor-id)]
     (trace/emit! :machine :rf.machine/destroyed
                  {:frame      frame-id
                   :actor-id   actor-id
@@ -130,28 +122,13 @@
     ;; destroy) or the spawn was suppressed (SSR / platform gating).
     (when actor-id
       (finalize/abort-actor-in-flight-http! actor-id)
-      (when-let [container (frame/get-frame-db frame-id)]
-        (let [old-db (adapter/read-container container)
-              new-db (cond-> old-db
-                       true          (update :rf/machines dissoc actor-id)
-                       released-sid  (update :rf/system-ids dissoc released-sid)
-                       tracked?      (update-in [:rf/spawned parent-id]
-                                                dissoc invoke-id))
-              ;; Tidy up the per-parent map if it just emptied — same
-              ;; lazy-allocation invariant as :rf/system-ids.
-              new-db (cond-> new-db
-                       (and tracked?
-                            (empty? (get-in new-db [:rf/spawned parent-id])))
-                       (update :rf/spawned dissoc parent-id))
-              new-db (cond-> new-db
-                       (and tracked? (empty? (get new-db :rf/spawned)))
-                       (dissoc :rf/spawned))]
+      (when container
+        (let [[new-db _] (teardown/teardown-actor
+                           old-db {:actor-id  actor-id
+                                   :parent-id parent-id
+                                   :invoke-id invoke-id})]
           (adapter/replace-container! container new-db)))
-      (when released-sid
-        (trace/emit! :machine :rf.machine/system-id-released
-                     {:frame      frame-id
-                      :system-id  released-sid
-                      :machine-id actor-id}))
+      (emit-system-id-released! frame-id released-sid actor-id)
       ;; Unregister the live handler. Last so any in-flight trace emit
       ;; against the actor still resolves before the slot disappears.
       (registrar/unregister! :event actor-id))
