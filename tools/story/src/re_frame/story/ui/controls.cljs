@@ -36,6 +36,7 @@
   (:require [re-frame.story.registrar :as registrar]
             [re-frame.story.args      :as args]
             [re-frame.story.decorators :as decorators]
+            [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.state  :as state]))
 
 ;; ---- styling -------------------------------------------------------------
@@ -564,13 +565,20 @@
 
 (defn panel
   "The full controls panel — args editor + decorator list + save-layout
-  action. Per rf2-xi9zk the per-variant mode-picker moved to the
-  chrome-level toolbar (`re-frame.story.ui.toolbar`); the controls
-  panel keeps args / decorator sections only."
+  + save-as-variant actions. Per rf2-xi9zk the per-variant mode-picker
+  moved to the chrome-level toolbar (`re-frame.story.ui.toolbar`); the
+  controls panel keeps args / decorator sections only.
+
+  rf2-one3t: the 'save as new variant' button captures the live canvas
+  state (effective args after the five-layer precedence chain) and
+  surfaces an EDN `(reg-variant ...)` form in a review-then-commit
+  modal — the SB9 story-from-UI parity affordance (per
+  spec/005-SOTA-Features §Save current canvas state as variant)."
   [variant-id]
   [:div {:style (:wrap styles)}
    (when variant-id
      [args-editor variant-id])
    (when variant-id
      [decorator-list variant-id])
+   [save-variant-ui/save-variant-button variant-id]
    [save-layout-button]])
