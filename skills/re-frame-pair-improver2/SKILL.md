@@ -1,6 +1,24 @@
 ---
 name: re-frame-pair-improver2
-description: Analyzes a user's recent work with re-frame-pair2 to surface friction, wasted effort, missing observability, workflow mismatches, and high-leverage improvement opportunities. Use when the user asks how re-frame-pair2 could better support their workflow, wants a retrospective on a debugging or pairing session, or wants concrete improvement ideas or bead drafts for re-frame-pair2. Do not use for: ordinary re-frame-pair2 use (use re-frame-pair2 itself), authoring re-frame2 app code (use re-frame2), or general framework feedback unrelated to the pair tool.
+description: >
+  Retrospect on a **just-finished** `re-frame-pair2` session and turn it
+  into prioritised improvement ideas for the `re-frame-pair2` skill,
+  scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract.
+  Surfaces friction, wasted effort, missing observability, workflow
+  mismatches, and high-leverage product gaps; optionally drafts a `bd`
+  bead the user can file. Use only when there is a concrete recent
+  `re-frame-pair2` session to retrospect on — turns where the user
+  attached to a running app, dispatched events, walked traces or epochs,
+  hot-swapped a handler, or time-travelled with `restore-epoch` — and
+  the user explicitly asks to improve `re-frame-pair2` or wants an
+  opt-in bead draft. **Do not use** for ordinary `re-frame-pair2`
+  operation (use `re-frame-pair2` itself), generic debugging
+  retrospectives with no pair-tool involvement, authoring re-frame2 app
+  code (use `re-frame2`), spec or architecture discussion, or framework
+  feedback unrelated to the pair tool. Vocabulary matches alone
+  ("retro", "what went wrong", "how could this be better") do not
+  justify activation — a real `re-frame-pair2` session must have
+  occurred in this conversation or be summarised by the user.
 ---
 
 # re-frame-pair-improver2
@@ -25,6 +43,19 @@ Deliver:
 - **Stay focused on improving `re-frame-pair2`.** If the right fix is upstream in `re-frame2` (Tool-Pair surfaces, trace stream, epoch-history, schema reflection, source-coord annotation), say so and route the proposal to a `bd` bead against the `re-frame2` repo, not `re-frame-pair2`.
 - **Do not propose fixes via `re-frame-10x`.** v2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation).
 
+## When NOT to use this skill
+
+Activation precondition is strict: a concrete `re-frame-pair2` session must have already occurred (in this conversation, or as a user-supplied recap). Decline and route elsewhere when:
+
+- No `re-frame-pair2` session happened. Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope — there is no pair-tool surface to improve.
+- The user is mid-session and still trying to make progress. Switch back to `re-frame-pair2`; retrospect after the work, not during it.
+- The user is authoring re-frame2 app code (handlers, subs, frames, schemas) without a live runtime involved. Route to `re-frame2`.
+- The feedback is about the `re-frame2` framework spec, architecture, or design — not the pair-tool experience. Either route to `re-frame2` directly or file a `bd` bead against the `re-frame2` repo without invoking this skill.
+- The user wants help fixing a bug in their own app (not in `re-frame-pair2`). Route to `re-frame-pair2`.
+- Vocabulary alone matches ("retro", "what went wrong", "improve workflow") but no pair-tool session is on the table. Ask the user to confirm the session before activating; if there is none, decline.
+
+When in doubt, ask: *"Was there a `re-frame-pair2` session you want me to retrospect on?"* Decline rather than fabricate evidence.
+
 ## Working style (short form)
 
 - **Evidence over vibes.** Cite concrete moments: retries, clarifications, fallbacks, stale outputs, empty outputs, waits, manual workarounds.
@@ -38,7 +69,7 @@ Deliver:
 1. **Reconstruct the session goal.** The user's intended outcome, plus environment facts (platform, target repo, live runtime state, tooling constraints).
 2. **Build a short timeline.** Turns where progress stalled, restarted, detoured, required a workaround. Tool errors, empty/stale outputs, retries, clarification loops.
 3. **Extract friction.** Numbered list first. For each: what happened, where it appeared, initial category guess. Ask which to dig into and what was missed.
-4. **Classify the root cause** using the lens table in [`references/analysis-lenses.md`](references/analysis-lenses.md). Prefer one primary cause per finding; allow multiple contributing causes when needed.
+4. **Classify the root cause.** Pick one primary cause per finding from the canonical taxonomy in [`references/analysis-lenses.md` §Root-cause categories](references/analysis-lenses.md#root-cause-categories) (single source of truth — do not redefine inline). Allow multiple contributing causes when needed.
 5. **Generate improvements at the right layer** — skill wording, structured op, runtime surface, cross-platform behavior, validation/fixture, instrumentation, or an upstream `re-frame2` bead. Prefer proposals that remove repeated effort, not just this session's exact symptom. Offer options: no action / docs / tool change / pair2 bead / upstream re-frame2 bead.
 6. **Prioritize.** Favor high-impact, specific, evidence-supported, trust-improving ideas. Return 2-5; default mix is 1-3 grounded + 0-2 bolder.
 
