@@ -34,6 +34,10 @@
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
   (reset! ssr/request-slots {})
+  (when-let [v (resolve 're-frame.ssr/response-slots)]
+    (reset! @v {}))
+  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
+    (reset! @v {}))
   (rf/init! ssr/adapter)
   ;; Namespace-load-time registrations get wiped by clear-all!; reload
   ;; so :rf/hydrate, :rf.server/* fxs, AND the :rf.server/request cofx

@@ -187,7 +187,9 @@
 (defn render-to-string
   "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML
   emitter. Returns a STRING. The structural hash (`render-tree-hash`)
-  and HTTP response (`[:rf/response]`) are separate surfaces.
+  and the HTTP response accumulator (`re-frame.ssr/get-response`, backed
+  by the framework-private `response-slots` side-channel atom per
+  rf2-jbcmt — Spec 011 §Response storage substrate) are separate surfaces.
 
   Implements HTML5 void elements, :tag#id.cls parsing, boolean attrs,
   text/attr escaping, registered-view resolution, var-reference

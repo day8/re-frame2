@@ -24,6 +24,11 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  (reset! ssr/request-slots {})
+  (when-let [v (resolve 're-frame.ssr/response-slots)]
+    (reset! @v {}))
+  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
+    (reset! @v {}))
   (rf/init! ssr/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr    :reload)

@@ -30,11 +30,12 @@
  :fixture/dispatches []
 
  :fixture/expect
- ;; Submap match — extra app-db keys (e.g. the framework-populated
- ;; :rf/response accumulator) are tolerated. We assert :page here AND
- ;; the :rf/response slot's :status so the runtime fx visibly fires.
- {:final-app-db {:page :not-found
-                 :rf/response {:status 404}}
+ ;; Submap match. Per rf2-jbcmt the :rf/response accumulator lives in a
+ ;; framework-private side-channel atom (re-frame.ssr/response-slots),
+ ;; NOT in app-db — so the fixture pins the response shape via
+ ;; :ssr/request-result and only the application-visible :page slot on
+ ;; :final-app-db.
+ {:final-app-db {:page :not-found}
 
   :ssr/request-result
   {:response {:status 404

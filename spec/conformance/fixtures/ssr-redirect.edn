@@ -27,12 +27,12 @@
  :fixture/dispatches []                                              ;; the :on-create cascade is sufficient
 
  :fixture/expect
- ;; Submap match — assert the framework-populated :rf/response slot
- ;; carries the redirect AND the redirect's :status flowed through to
- ;; the top-level :status (per Spec 011 §Redirect precedence).
- {:final-app-db
-  {:rf/response {:status   302
-                 :redirect {:status 302 :location "/login"}}}
+ ;; Submap match. Per rf2-jbcmt the :rf/response accumulator lives in a
+ ;; framework-private side-channel atom (re-frame.ssr/response-slots),
+ ;; NOT in app-db — so the redirect shape is asserted via
+ ;; :ssr/request-result. Spec 011 §Redirect precedence: the redirect's
+ ;; :status flows through to the response :status.
+ {:final-app-db {}
 
   :ssr/request-result
   {:html     :absent                                                 ;; redirect truncates the body

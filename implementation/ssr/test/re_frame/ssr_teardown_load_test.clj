@@ -13,8 +13,10 @@
 
     1. The frame record (app-db, router queue, drain-lock, sub-cache,
        lifecycle, config) — owned by `re-frame.frame/frames`.
-    2. `:rf/response` accumulator — inside the frame's app-db; rides with
-       the frame.
+    2. HTTP response accumulator — owned by
+       `re-frame.ssr/response-slots`, a defonce side-channel atom keyed
+       by frame-id (rf2-jbcmt moved this off app-db to plug a hydration-
+       payload leak + per-fx full-app-db swap).
     3. Per-frame pending-error-traces buffer — owned by
        `re-frame.ssr/pending-error-traces`, a defonce side-channel atom
        keyed by frame-id.
@@ -32,9 +34,9 @@
        leftover per-request frames). Verifies the frame record itself
        releases.
     b. After every iteration, the SSR side-channel atoms
-       (`pending-error-traces`, `request-slots`) are back to baseline.
-       Verifies the `:ssr/on-frame-destroyed` hook (rf2-fcj33) fires and
-       clears both slots.
+       (`pending-error-traces`, `request-slots`, `response-slots`) are
+       back to baseline. Verifies the `:ssr/on-frame-destroyed` hook
+       (rf2-fcj33 / rf2-jbcmt) fires and clears every slot.
     c. After a triggered GC, the JVM heap delta is small relative to
        the total bytes the test churned — proves no large object graph
        is retained past frame destruction.
@@ -63,6 +65,13 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  (reset! ssr/request-slots {})
+  ;; Framework-private SSR side-channel atoms — reach via resolve so
+  ;; process-wide stale entries can't bleed across fixtures.
+  (when-let [v (resolve 're-frame.ssr/response-slots)]
+    (reset! @v {}))
+  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
+    (reset! @v {}))
   (rf/init! ssr/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
@@ -93,6 +102,21 @@
   with the private-deref above."
   []
   @ssr/request-slots)
+
+(defn- response-slots-atom
+  "Return the `re-frame.ssr/response-slots` atom. It's `^:private` at the
+  façade (per Spec 011 §Response storage substrate, rf2-jbcmt — the
+  accumulator's framework-private side-channel slot) so we resolve the
+  Var reflectively, like `pending-error-traces`."
+  []
+  (deref (or (resolve 're-frame.ssr/response-slots)
+             (throw (ex-info "Cannot resolve re-frame.ssr/response-slots — ns layout changed?"
+                             {})))))
+
+(defn- response-slots-snapshot
+  "Snapshot the current value of the per-frame response-accumulator atom."
+  []
+  @(response-slots-atom))
 
 (defn- non-default-frame-ids
   "Every frame-id currently registered, minus `:rf/default`. Per-request
@@ -142,11 +166,18 @@
 
 (defn- install-registry!
   "Register the events + view the load test uses. Called once per test;
-  the runtime reset between tests wipes everything."
+  the runtime reset between tests wipes everything.
+
+  `:load-test/server-init` fires `:rf.server/set-header` so each request
+  writes to `response-slots` — exercises the side-channel that needs
+  cleanup on frame destroy (per Spec 011 §Response storage substrate,
+  rf2-jbcmt)."
   []
-  (rf/reg-event-db :load-test/server-init
-    (fn [db [_ {:keys [i]}]]
-      (assoc db :i i :rf/route {:id :route/load})))
+  (rf/reg-event-fx :load-test/server-init
+    {:platforms #{:server}}
+    (fn [{:keys [db]} [_ {:keys [i]}]]
+      {:db (assoc db :i i :rf/route {:id :route/load})
+       :fx [[:rf.server/set-header {:name "X-Load-Test" :value (str i)}]]}))
   (rf/reg-view* :load-test/page
     (fn []
       [:div.page
@@ -177,6 +208,7 @@
         baseline-frames        (count (non-default-frame-ids))
         baseline-pending       (count (pending-error-traces-snapshot))
         baseline-requests      (count (request-slots-snapshot))
+        baseline-responses     (count (response-slots-snapshot))
         baseline-heap          (heap-bytes)
         start-ns               (System/nanoTime)]
     (dotimes [i n] (one-request! i))
@@ -185,20 +217,23 @@
           end-frames     (count (non-default-frame-ids))
           end-pending    (count (pending-error-traces-snapshot))
           end-requests   (count (request-slots-snapshot))
+          end-responses  (count (response-slots-snapshot))
           duration-ms    (/ (- end-ns start-ns) 1e6)]
-      {:n                 n
-       :duration-ms       duration-ms
-       :req-per-sec       (long (/ n (/ duration-ms 1e3)))
-       :baseline-frames   baseline-frames
-       :end-frames        end-frames
-       :baseline-pending  baseline-pending
-       :end-pending       end-pending
-       :baseline-requests baseline-requests
-       :end-requests      end-requests
-       :baseline-heap-mb  (/ baseline-heap 1024.0 1024.0)
-       :end-heap-mb       (/ end-heap 1024.0 1024.0)
-       :heap-delta-mb     (/ (- end-heap baseline-heap) 1024.0 1024.0)
-       :bytes-per-req     (long (/ (- end-heap baseline-heap) (max 1 n)))})))
+      {:n                  n
+       :duration-ms        duration-ms
+       :req-per-sec        (long (/ n (/ duration-ms 1e3)))
+       :baseline-frames    baseline-frames
+       :end-frames         end-frames
+       :baseline-pending   baseline-pending
+       :end-pending        end-pending
+       :baseline-requests  baseline-requests
+       :end-requests       end-requests
+       :baseline-responses baseline-responses
+       :end-responses      end-responses
+       :baseline-heap-mb   (/ baseline-heap 1024.0 1024.0)
+       :end-heap-mb        (/ end-heap 1024.0 1024.0)
+       :heap-delta-mb      (/ (- end-heap baseline-heap) 1024.0 1024.0)
+       :bytes-per-req      (long (/ (- end-heap baseline-heap) (max 1 n)))})))
 
 ;; ---- the test -------------------------------------------------------------
 
@@ -229,6 +264,15 @@
                "the hook isn't wired into frame/destroy-frame! — and "
                "this test intentionally omits clear-request! so the "
                "destroy hook is the ONLY release path."))
+      (is (= 0 (:end-responses result))
+          (str "response-slots leaked across destroy-frame! — "
+               "end-count " (:end-responses result) " > 0; the "
+               ":ssr/on-frame-destroyed hook didn't clear the slot. "
+               "Per Spec 011 §Response storage substrate (rf2-jbcmt) "
+               "the accumulator is a per-frame side-channel atom whose "
+               "release path is the destroy-frame! teardown hook; each "
+               "request fires :rf.server/set-header so the slot is "
+               "populated then must be cleared."))
 
       ;; (c) Heap delta. Each request allocates ~a few KB of transient
       ;; state — frame record, drain ctx, render-tree, response map,

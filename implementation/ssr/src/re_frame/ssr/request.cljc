@@ -39,7 +39,8 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.late-bind :as late-bind]
-            [re-frame.ssr.error-listener :as error-listener]))
+            [re-frame.ssr.error-listener :as error-listener]
+            [re-frame.ssr.response :as response]))
 
 (defonce
   ^{:doc "Per-frame storage for the active HTTP request. Keys are
@@ -93,27 +94,33 @@
 ;; ---- per-request frame teardown (rf2-fcj33) -------------------------------
 ;;
 ;; Per Spec 011 §Per-request frame teardown contract. The SSR runtime owns
-;; two side-channel `defonce` atoms keyed by frame-id — `pending-error-
-;; traces` (per-frame buffer of captured error trace events, in
-;; `re-frame.ssr.error-projector`) and `request-slots` (per-frame
-;; HTTP-request map, here). Both live outside app-db (see the rationale
-;; comments above each defonce) and so are NOT cleared by the frame's
-;; app-db / sub-cache teardown in `frame/destroy-frame!`.
+;; three side-channel `defonce` atoms keyed by frame-id —
+;; `pending-error-traces` (per-frame buffer of captured error trace events,
+;; in `re-frame.ssr.error-listener`), `request-slots` (per-frame HTTP-request
+;; map, here), and `response-slots` (per-frame HTTP response accumulator,
+;; in `re-frame.ssr.response` — rf2-jbcmt moved this off `app-db`). All three
+;; live outside app-db (see the rationale comments above each defonce) and
+;; so are NOT cleared by the frame's app-db / sub-cache teardown in
+;; `frame/destroy-frame!`.
 ;;
 ;; This fn is the cleanup hook. Wired into `frame/destroy-frame!` via the
 ;; `:ssr/on-frame-destroyed` late-bind key — `core` calls it from its
 ;; ordered teardown step list when the SSR artefact is on the classpath;
 ;; the hook resolves to nil and the destroy proceeds without it when the
 ;; SSR artefact is absent. Idempotent: tolerates a frame-id with no slot
-;; in either atom.
+;; in any of the three atoms.
 
 (defn on-frame-destroyed!
   "Per Spec 011 §Per-request frame teardown contract (rf2-fcj33). Drop
-  the per-frame entries in `pending-error-traces` and `request-slots`
-  for `frame-id`. Called from `frame/destroy-frame!` via the
-  `:ssr/on-frame-destroyed` late-bind hook. Idempotent — a second call
-  against the same frame-id sees both atoms already cleared and does
-  nothing.
+  the per-frame entries in `pending-error-traces`, `request-slots`, and
+  `response-slots` for `frame-id`. Called from `frame/destroy-frame!`
+  via the `:ssr/on-frame-destroyed` late-bind hook. Idempotent — a
+  second call against the same frame-id sees the atoms already cleared
+  and does nothing.
+
+  Per rf2-jbcmt the `response-slots` side-channel was added to plug the
+  `:rf/response` hydration-payload leak / per-fx full-app-db swap; this
+  hook releases that slot symmetrically with the request slot.
 
   Per rf2-4dra9 (Spec 011 §Head/meta contract), also invokes any
   registered `:ssr/head-on-frame-destroyed` hook so `re-frame.ssr.head`
@@ -122,6 +129,7 @@
   [frame-id]
   (error-listener/clear-pending-error-traces! frame-id)
   (swap! request-slots dissoc frame-id)
+  (response/clear-response! frame-id)
   (when-let [head-cleanup! (late-bind/get-fn :ssr/head-on-frame-destroyed)]
     (try (head-cleanup! frame-id)
          (catch #?(:clj Throwable :cljs :default) _ nil)))

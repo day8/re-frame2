@@ -23,6 +23,14 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  (reset! ssr/request-slots {})
+  ;; Framework-private SSR side-channel atoms (per Spec 011 §Per-request
+  ;; frame teardown — response-slots joined under rf2-jbcmt). Reach via
+  ;; resolve so process-wide stale entries can't bleed across fixtures.
+  (when-let [v (resolve 're-frame.ssr/response-slots)]
+    (reset! @v {}))
+  (when-let [v (resolve 're-frame.ssr/pending-error-traces)]
+    (reset! @v {}))
   (rf/init! ssr/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
@@ -536,3 +544,124 @@
         (is (not @wrapped-called))
         (is (= 200 (:status ssr-response)))
         (is (str/includes? (:body ssr-response) "<!DOCTYPE html>"))))))
+
+;; ===========================================================================
+;; hydration-payload-omits-rf-response-accumulator (rf2-jbcmt)
+;;
+;; Privacy regression — per Spec 011 §Response storage substrate the HTTP
+;; response accumulator MUST NOT ride `app-db`. Earlier drafts stored the
+;; accumulator at `[:rf/response]` in the request frame's app-db; without
+;; explicit `:payload-keys` filtering, the hydration payload at
+;; `build-payload` shipped the whole app-db (with the accumulator's
+;; server-only Set-Cookie / X-* headers / redirect locations) onto the
+;; client wire. The rf2-jbcmt fix moved storage to a framework-private
+;; side-channel atom keyed by frame-id (`re-frame.ssr/response-slots`)
+;; so the accumulator can NEVER reach the hydration payload — the
+;; privacy boundary is self-enforcing at the storage layer rather than
+;; caller-vigilance at every host adapter.
+;;
+;; This test exercises a full login-flow shape (set-status + secret
+;; header + leak-probe cookie + append-header) and asserts:
+;;   (a) the hydration payload script tag contains the public app-db,
+;;   (b) the payload's serialised contents do NOT contain `:rf/response`,
+;;   (c) the payload's serialised contents do NOT contain the secret
+;;       values (cookie auth token, internal header value),
+;;   (d) the Set-Cookie and X-Secret-Header DO appear on response headers
+;;       (the wire shape — i.e. they reach the wire via the response
+;;       headers, NOT via the hydration payload).
+;; ===========================================================================
+
+(deftest hydration-payload-omits-rf-response-accumulator
+  (testing "rf2-jbcmt: the :rf/response accumulator is side-channel — it
+            never appears in the hydration payload, even when a login-shape
+            request sets server-only cookies / headers / status"
+    (rf/reg-event-fx :auth/login
+      {:platforms #{:server}}
+      (fn [{:keys [db]} _]
+        {:db (assoc db :public/article-title "Public Title"
+                       :public/user-id "u-42")
+         :fx [;; A login-flow shape — every public surface of the
+              ;; response API touched, with server-only PII /
+              ;; auth-token values to leak-probe.
+              [:rf.server/set-status 200]
+              [:rf.server/set-cookie {:name      "session"
+                                      :value     "SUPER_SECRET_AUTH_TOKEN_xyz"
+                                      :http-only true
+                                      :secure    true
+                                      :same-site :lax
+                                      :path      "/"}]
+              [:rf.server/delete-cookie {:name "stale-session" :path "/"}]
+              [:rf.server/set-header {:name  "X-Secret-Header"
+                                      :value "INTERNAL_ONLY_VALUE_abc"}]
+              [:rf.server/append-header {:name  "X-Audit"
+                                         :value "v1"}]
+              [:rf.server/append-header {:name  "X-Audit"
+                                         :value "v2"}]]}))
+
+    (rf/reg-view* :pages/dashboard
+      (fn [] [:div.page [:h1 "Public dashboard"]]))
+
+    (let [handler   (ssr-ring/ssr-handler
+                      {:on-create [:auth/login]
+                       :root-view [:pages/dashboard]})
+          response  (handler {:uri            "/dashboard"
+                              :request-method :get
+                              :headers        {"user-agent" "rf2-jbcmt-leak-probe"}})
+          body      (:body response)
+          ;; The payload script tag's contents are EDN per the default
+          ;; html-shell — `<script id="__rf_payload" type="application/edn">
+          ;; ...edn... </script>`.
+          payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                             body)
+          payload-edn (when payload-m (second payload-m))]
+
+      ;; (sanity) the request reached 200 — drain settled cleanly.
+      (is (= 200 (:status response)))
+
+      ;; (a) Public state IS on the wire — the payload carries the app-db slice.
+      (is (some? payload-edn)
+          "hydration payload script tag is present in the body")
+      (is (str/includes? payload-edn "Public Title")
+          "payload's app-db carries the public state (sanity)")
+      (is (str/includes? payload-edn "u-42")
+          "payload's app-db carries the public user id (sanity)")
+
+      ;; (b) The :rf/response accumulator key itself MUST NOT appear in
+      ;; the payload — the side-channel substrate guarantees this.
+      (is (not (str/includes? payload-edn ":rf/response"))
+          "rf2-jbcmt: payload does NOT carry :rf/response — the accumulator
+           lives in a framework-private side-channel atom, not in app-db")
+
+      ;; (c) The server-only secret values MUST NOT appear in the payload.
+      ;; This is the regression-bite assertion: pre-rf2-jbcmt these strings
+      ;; rode the wire as part of `[:rf/response :cookies ...]` /
+      ;; `[:rf/response :headers ...]` inside the app-db slice.
+      (is (not (str/includes? payload-edn "SUPER_SECRET_AUTH_TOKEN_xyz"))
+          "rf2-jbcmt: the Set-Cookie auth token does NOT leak into the
+           hydration payload")
+      (is (not (str/includes? payload-edn "INTERNAL_ONLY_VALUE_abc"))
+          "rf2-jbcmt: the internal X-Secret-Header value does NOT leak
+           into the hydration payload")
+      (is (not (str/includes? payload-edn "stale-session"))
+          "rf2-jbcmt: even delete-cookie metadata stays server-side")
+
+      ;; (d) The wire response DOES carry the Set-Cookie + X-Secret-Header.
+      ;; The privacy contract is "side-channel only" — the values reach
+      ;; the wire as response headers (where they're supposed to be), and
+      ;; ONLY as response headers (NOT also via the payload).
+      (let [headers    (:headers response)
+            set-cookie (or (get headers "Set-Cookie")
+                           (get headers "set-cookie"))
+            secret-hdr (or (get headers "X-Secret-Header")
+                           (get headers "x-secret-header"))
+            audit-hdr  (or (get headers "X-Audit")
+                           (get headers "x-audit"))]
+        (is (some? set-cookie)
+            "Set-Cookie header IS on the wire response (the place it belongs)")
+        (let [sc-str (if (vector? set-cookie) (str/join "; " set-cookie) (str set-cookie))]
+          (is (str/includes? sc-str "session=SUPER_SECRET_AUTH_TOKEN_xyz")
+              "the session cookie's auth token IS in the Set-Cookie response header"))
+        (is (= "INTERNAL_ONLY_VALUE_abc" secret-hdr)
+            "X-Secret-Header value IS on the wire response (header surface)")
+        (is (some? audit-hdr)
+            "X-Audit append-header reached the wire (multi-valued)")))))
