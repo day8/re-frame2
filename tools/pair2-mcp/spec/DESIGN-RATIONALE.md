@@ -193,8 +193,9 @@ resolve-fn}` pending map).
 
 ## Lock #4 — Tool catalogue cardinality
 
-**Locked 2026-05-12 (Mike).** **Seven ops**, mirroring the bash-shim
-catalogue exactly.
+**Locked 2026-05-12 (Mike).** **Seven ops at v0.1.0**, mirroring the
+bash-shim catalogue exactly. The catalogue has since grown to **nine
+ops** via two additive drops; see *Subsequent evolution* below.
 
 ### Question
 
@@ -250,6 +251,33 @@ vocabulary, identical contract semantics.
 - The bash-shim catalogue had stabilised at seven ops over multiple
   iterations before the MCP port; the cardinality was already
   validated by daily use.
+
+### Subsequent evolution
+
+The original seven-op cardinality has been amended twice. The lock's
+reasoning (mirror the bash-shim catalogue; mode flags over op
+decomposition; bounded surface) still holds — both amendments are
+*additive* per-need extensions, not a rejection of the lock.
+
+- **rf2-7dvg** cut `inject-runtime`: the runtime now ships into the
+  consumer app via shadow-cljs `:devtools :preloads`, so the inject
+  op is gone. The bash-shim catalogue dropped to six; the MCP
+  catalogue followed.
+- **rf2-x70e** added `snapshot`: a coarse-grained per-frame state read
+  composed server-side over the existing per-slice runtime readers.
+  Earns its keep as a mega-op for investigate-X workflows that would
+  otherwise chain 5–10 individual `eval-cljs` reads. No bash-shim
+  equivalent; the shim chain stays at six.
+- **rf2-hq49** added `subscribe` / `unsubscribe`: streaming
+  subscription on the trace + epoch bus, layered over MCP's
+  `notifications/progress` mechanism. Push-mode replacement for the
+  polling-shaped `watch-epochs`. No bash-shim equivalent.
+
+Net: pair2-mcp ships **nine ops** (`discover-app`, `eval-cljs`,
+`dispatch`, `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
+`subscribe`, `unsubscribe`). The bash shims ship six. The shim
+catalogue is a strict subset of the MCP catalogue, with identical
+names and arg shapes for every overlapping op.
 
 ---
 
@@ -337,9 +365,14 @@ changes.
   existing runbooks, skill docs, and personal workflows that
   reference them. The benefit of removal (less code) is small
   compared to the cost (someone's session breaking on a Tuesday).
-- **Identical op vocabulary.** The seven MCP tools mirror the
-  seven shim ops exactly. Agents can mix calls in the same workflow
-  during transition — no all-or-nothing switch is required.
+- **Overlapping op vocabulary.** Six of the nine MCP tools
+  (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
+  `watch-epochs`, `tail-build`) mirror the six bash shims exactly,
+  with identical names and arg shapes. The remaining three
+  (`snapshot`, `subscribe`, `unsubscribe`) are MCP-only additions
+  per Lock #4's *Subsequent evolution* note — they have no shim
+  equivalent. Agents can mix calls in the same workflow during
+  transition — no all-or-nothing switch is required.
 - **MCP server isn't proven across the team yet.** Side-by-side
   shipping gives the MCP server time to accumulate trust before
   becoming the only path.
@@ -365,10 +398,13 @@ changes.
 | 1 | Implementation language | **ClojureScript + shadow-cljs → Node** | 2026-05-12 |
 | 2 | Agent-host transport | **MCP over stdio** | 2026-05-12 |
 | 3 | Connection model | **Single persistent nREPL socket** | 2026-05-12 |
-| 4 | Tool catalogue cardinality | **Seven ops** (mirror the shim catalogue) | 2026-05-12 |
+| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown to nine** (mirror the shim catalogue + `snapshot` + `subscribe`/`unsubscribe`) | 2026-05-12 |
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
 
 These six locks together define pair2-mcp's v0.1.0 surface. Anything
 outside these decisions is up for design discussion; anything inside
-is direction-set and shipped.
+is direction-set and shipped. Lock #4's cardinality has since grown
+additively (see its *Subsequent evolution* note); the load-bearing
+direction — mirror the shim catalogue, prefer mode flags over op
+decomposition, keep the surface bounded — still holds.

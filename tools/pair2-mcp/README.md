@@ -11,7 +11,7 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the seven pair2
+via shadow-cljs to a single `.js` file) that exposes the nine pair2
 ops as MCP tools. AI agents (Claude Code, Cursor, Copilot) launch it
 as a subprocess; one persistent nREPL socket is held for the lifetime
 of the session.
@@ -34,6 +34,8 @@ cljs-eval compile.
 | `watch-epochs` | `watch-epochs.sh`         | Pull-mode poll for matching epochs added after a given epoch-id. Predicate keys: `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`. |
 | `tail-build`   | `tail-build.sh`           | Wait for a hot-reload to land by polling a probe form until its value changes. |
 | `snapshot`     | _(new — no bash equivalent)_ | Coarse-grained per-frame state read in one round-trip. Returns a map keyed by frame-id with `:app-db`, `:sub-cache`, `:machines`, `:epochs`, `:traces` slices. Prefer for investigate-X workflows over chaining 5-10 individual reads. |
+| `subscribe`    | _(new — no bash equivalent)_ | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
+| `unsubscribe`  | _(new — no bash equivalent)_ | Close a streaming subscription out-of-band. Idempotent — closing an unknown sub-id returns `:existed? false` rather than an error. |
 
 ## Quick start
 
@@ -132,7 +134,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The seven tools (six per-op + the `snapshot` mega-op), their argument schemas, EDN result shape. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The nine tools (seven per-op + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` pair), their argument schemas, EDN result shape. |
 
 ## Development
 
@@ -178,7 +180,7 @@ tools/pair2-mcp/
 ├── pilot/                                    ; pre-port toolchain pilot
 └── src/re_frame_pair2_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools.cljs                            ; the 7 MCP tools (6 per-op + snapshot mega-op)
+    ├── tools.cljs                            ; the 9 MCP tools (7 per-op + snapshot mega-op + subscribe/unsubscribe streaming pair)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame_pair2_mcp/nrepl_test.cljs    ; bencode framing unit tests
