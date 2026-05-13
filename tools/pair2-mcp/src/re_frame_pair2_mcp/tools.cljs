@@ -60,7 +60,16 @@
             [clojure.string :as str]
             [de-dupe.core :as dedup]
             [re-frame-pair2-mcp.cache :as cache]
-            [re-frame-pair2-mcp.nrepl :as nrepl]))
+            [re-frame-pair2-mcp.nrepl :as nrepl]
+            ;; rf2-vw4sq — shared MCP primitives. The wire-vocabulary
+            ;; keys, the spec/009 default-suppress filter, the
+            ;; argument-coercion helpers, the path-keyed diff-encode,
+            ;; and the overflow-marker shape are all in the base now.
+            [re-frame.mcp-base.args :as base-args]
+            [re-frame.mcp-base.diff-encode :as base-diff]
+            [re-frame.mcp-base.overflow :as base-overflow]
+            [re-frame.mcp-base.sensitive :as base-sensitive]
+            [re-frame.mcp-base.vocab :as base-vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; Config — build id.
@@ -126,14 +135,16 @@
 ;;   each tool's internals.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private default-max-tokens 5000)
+;; `default-max-tokens` and `token-estimate` come from
+;; `re-frame.mcp-base.overflow` (rf2-vw4sq) — the cap value and the
+;; character→token approximation are cross-MCP conventions, pinned
+;; once in the base.
+(def ^:private default-max-tokens base-overflow/default-max-tokens)
 
 (defn- token-estimate
-  "Cheap character→token approximation: `(quot (count s) 4)`. Aligned
-  with the published Anthropic rule-of-thumb for English / EDN. The
-  goal is a bounded wire payload, not a precise per-token meter."
+  "Delegates to `base-overflow/token-estimate`."
   [s]
-  (quot (count s) 4))
+  (base-overflow/token-estimate s))
 
 (defn- max-tokens-arg
   "Resolve the per-call cap from MCP args. Returns the integer cap in
@@ -159,21 +170,21 @@
    "discover-app"  "Unusual — the health summary should be small. Inspect `(re-frame-pair2.runtime/health)` directly via `eval-cljs` with a projection."
    "dispatch"      "Trace mode is returning a full epoch — re-run with `trace false` and read the epoch via `watch-epochs`/`snapshot` with a narrower path."})
 
-(def ^:private overflow-hint-fallback
-  "Response over budget. Re-call with narrower args, or raise `max-tokens` (0 disables the cap).")
+;; The fallback string lives in `re-frame.mcp-base.overflow` so the
+;; cross-MCP marker presents identically. Re-exported here to avoid
+;; touching the every-call-site `get overflow-hints` usage.
+(def ^:private overflow-hint-fallback base-overflow/overflow-hint-fallback)
 
 (defn- overflow-payload
-  "Build the structured overflow marker that replaces an over-budget
-  response. Shape is stable per spec/Principles.md §Tight token
-  budget: callers pattern-match on the top-level `:rf.mcp/overflow`
-  key. `:limit :reached` is a fixed sentinel; `:token-count` is the
-  estimate that tripped the cap; `:hint` is tool-specific."
+  "Build the structured overflow marker. Shape lives in
+  `re-frame.mcp-base.overflow/overflow-payload` (rf2-vw4sq); per-tool
+  hint table stays local."
   [{:keys [tool token-count cap]}]
-  {:rf.mcp/overflow {:limit       :reached
-                     :token-count token-count
-                     :cap-tokens  cap
-                     :tool        tool
-                     :hint        (get overflow-hints tool overflow-hint-fallback)}})
+  (base-overflow/overflow-payload
+    {:tool        tool
+     :token-count token-count
+     :cap         cap
+     :hint        (get overflow-hints tool overflow-hint-fallback)}))
 
 (defn- sum-text-tokens
   "Sum `token-estimate` across every `:text` slot in the MCP
@@ -273,137 +284,26 @@
 ;; (rf2-lwgg8 mechanism 5). Agents recognise the family once.
 ;; ---------------------------------------------------------------------------
 
-(declare collect-patches)
-
-(defn- collect-map-patches
-  "Generate patches that transform map `a` into map `b` at `path`.
-  Recurses into sub-maps; vectors and scalars are treated as leaves
-  (replaced wholesale via `:assoc` rather than re-diffed element-wise
-  — element-wise vector diff doesn't shrink the wire for the typical
-  app-db where vector values are short)."
-  [a b path]
-  (let [ks (into #{} (concat (keys a) (keys b)))]
-    (reduce
-      (fn [acc k]
-        (let [av (get a k ::absent)
-              bv (get b k ::absent)
-              p  (conj path k)]
-          (cond
-            ;; Key removed.
-            (= bv ::absent)
-            (conj acc [p :dissoc])
-            ;; Key added.
-            (= av ::absent)
-            (conj acc [p :assoc bv])
-            ;; Unchanged — skip.
-            (= av bv)
-            acc
-            ;; Both maps: recurse.
-            (and (map? av) (map? bv))
-            (into acc (collect-patches av bv p))
-            ;; Otherwise: leaf replacement.
-            :else
-            (conj acc [p :assoc bv]))))
-      []
-      ks)))
-
-(defn- collect-patches
-  "Patch-list factory. Two maps recurse via `collect-map-patches`; any
-  other shape change is a single root-level `:assoc` replacement."
-  [a b path]
-  (cond
-    (= a b) []
-    (and (map? a) (map? b)) (collect-map-patches a b path)
-    :else [[path :assoc b]]))
-
-(defn- apply-patches
-  "Apply a vector of patches to `base`, returning the reconstructed
-  value. Patches are `[path :assoc v]` or `[path :dissoc]`. Root-path
-  patches (path `[]`) replace `base` outright (for `:assoc`) or are a
-  no-op (for `:dissoc`, by convention)."
-  [base patches]
-  (reduce
-    (fn [acc patch]
-      (let [[path op v] patch]
-        (cond
-          (empty? path)
-          (if (= op :assoc) v acc)
-          (= op :assoc)
-          (assoc-in acc path v)
-          (= op :dissoc)
-          (let [parent-path (vec (butlast path))
-                k           (last path)]
-            (if (empty? parent-path)
-              (dissoc acc k)
-              (update-in acc parent-path dissoc k)))
-          :else acc)))
-    base
-    patches))
+;; Diff-encode helpers all live in `re-frame.mcp-base.diff-encode`
+;; (rf2-vw4sq). Local names are retained as thin aliases so the
+;; call-sites below stay readable without sprinkling `base-diff/` at
+;; every use.
 
 (defn- diff-encode-db-after
-  "Replace an epoch's `:db-after` with a path-keyed structural diff
-  against its own `:db-before`. Returns the epoch with `:db-after`
-  shaped as `{:rf.mcp/diff-from :db-before :patches [...]}`.
-
-  When `:db-before` is missing (older epoch from a runtime that
-  pruned it, or a synthetic record), the function leaves the epoch
-  unchanged — there's nothing to diff against and silently shipping a
-  half-shape would corrupt the agent's view."
+  "Delegates to `re-frame.mcp-base.diff-encode/diff-encode-db-after`."
   [epoch]
-  (if-not (and (map? epoch)
-               (contains? epoch :db-before)
-               (contains? epoch :db-after))
-    epoch
-    (let [patches (collect-patches (:db-before epoch) (:db-after epoch) [])]
-      (assoc epoch :db-after
-             {:rf.mcp/diff-from :db-before
-              :patches          patches}))))
-
-(defn- decode-db-after
-  "Reverse `diff-encode-db-after`. Given an epoch whose `:db-after` is
-  a `{:rf.mcp/diff-from :db-before :patches [...]}` marker,
-  reconstruct the full `:db-after` from the epoch's `:db-before` and
-  the patch list. Idempotent on already-full epochs (the marker check
-  returns the input unchanged when `:db-after` isn't a diff).
-  Provided for agent-host round-trip parity and for the unit tests."
-  [epoch]
-  (let [da (when (map? epoch) (:db-after epoch))]
-    (if-not (and (map? da)
-                 (= :db-before (:rf.mcp/diff-from da)))
-      epoch
-      (let [patches   (:patches da)
-            db-before (:db-before epoch)
-            rebuilt   (apply-patches db-before (or patches []))]
-        (assoc epoch :db-after rebuilt)))))
+  (base-diff/diff-encode-db-after epoch))
 
 (defn- diff-encode-epochs
-  "Apply `diff-encode-db-after` to every epoch in `epochs` unless
-  `mode` is `:full` (in which case the vector passes through
-  unchanged). Each record is encoded against ITS OWN `:db-before` —
-  no cross-record dependency; the slice can be reordered, paginated,
-  or filtered without breaking decode.
-
-  `mode` is one of:
-    :diff — default. Each `:db-after` becomes a structural diff.
-    :full — pass through (legacy behaviour, opt-in)."
+  "Delegates to `re-frame.mcp-base.diff-encode/diff-encode-epochs`."
   [epochs mode]
-  (if (= mode :full)
-    epochs
-    (mapv diff-encode-db-after epochs)))
+  (base-diff/diff-encode-epochs epochs mode))
 
 (defn- parse-epochs-mode
-  "Normalise the `epochs-mode` MCP arg into the keyword the encoder
-  expects. Accepts strings (`\"diff\"` / `\"full\"`), keywords
-  (`:diff` / `:full`), or nil (default `:diff`). Unrecognised values
-  fall back to `:diff` — least surprise on a budget-sensitive default."
+  "Normalise the `epochs-mode` MCP arg. Delegates to
+  `re-frame.mcp-base.args/parse-mode` (rf2-vw4sq)."
   [raw]
-  (cond
-    (nil? raw)         :diff
-    (= raw :full)      :full
-    (= raw "full")     :full
-    (= raw :diff)      :diff
-    (= raw "diff")     :diff
-    :else              :diff))
+  (base-args/parse-mode raw :diff #{:diff :full}))
 
 ;; ---------------------------------------------------------------------------
 ;; Structural dedup at the wire boundary (rf2-obpa9).
@@ -486,20 +386,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- parse-dedup-arg
-  "Normalise the `dedup` MCP arg into a boolean. Accepts booleans,
-  strings (`\"true\"`/`\"false\"`), keywords (`:true`/`:false`), or
-  nil (default `true`). Unrecognised values default to `true` —
-  the budget-sensitive default fires dedup."
+  "Normalise the `dedup` MCP arg into a boolean. Default `true` —
+  the budget-sensitive default fires dedup. Delegates to
+  `re-frame.mcp-base.args/parse-boolean` (rf2-vw4sq)."
   [raw]
-  (cond
-    (nil? raw)             true
-    (true? raw)            true
-    (false? raw)           false
-    (= raw "false")        false
-    (= raw :false)         false
-    (= raw "true")         true
-    (= raw :true)          true
-    :else                  true))
+  (base-args/parse-boolean raw true))
 
 (defn- empty-payload?
   "True for values where dedup yields no win — nil, empty collections,
@@ -512,15 +403,15 @@
 
 (defn- dedup-value
   "Apply structural dedup to `v` and wrap the result in the cross-MCP
-  marker. Returns `v` unchanged when `enabled?` is false or when
-  `v` is empty / scalar (no dedup opportunity). Uses `de-dupe-eq`
-  (equality-based) — see the section header for the identity-vs-equality
-  rationale."
+  marker (`base-vocab/dedup-table-key` — rf2-vw4sq). Returns `v`
+  unchanged when `enabled?` is false or when `v` is empty / scalar
+  (no dedup opportunity). Uses `de-dupe-eq` (equality-based) — see
+  the section header for the identity-vs-equality rationale."
   [v enabled?]
   (if (or (not enabled?) (empty-payload? v))
     v
     (let [cache (dedup/de-dupe-eq v)]
-      {:rf.mcp/dedup-table cache})))
+      {base-vocab/dedup-table-key cache})))
 
 (defn- dedup-expand
   "Reverse `dedup-value`. Given a value possibly wrapped in the
@@ -530,8 +421,8 @@
   isn't present). Provided for round-trip parity and for the unit
   tests; the agent host can call the same shape locally."
   [v]
-  (if (and (map? v) (contains? v :rf.mcp/dedup-table))
-    (dedup/expand (:rf.mcp/dedup-table v))
+  (if (and (map? v) (contains? v base-vocab/dedup-table-key))
+    (dedup/expand (get v base-vocab/dedup-table-key))
     v))
 
 ;; ---------------------------------------------------------------------------
@@ -611,31 +502,22 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- parse-elision-arg
-  "Normalise the `elision` MCP arg into a boolean. Accepts booleans,
-  strings (`\"true\"`/`\"false\"`), keywords (`:true`/`:false`), or
-  nil (default `true`). Unrecognised values default to `true` —
-  least-surprise on the budget-sensitive default fires elision."
+  "Normalise the `elision` MCP arg into a boolean. Default `true` —
+  least-surprise on the budget-sensitive default fires elision.
+  Delegates to `re-frame.mcp-base.args/parse-boolean` (rf2-vw4sq)."
   [raw]
-  (cond
-    (nil? raw)             true
-    (true? raw)            true
-    (false? raw)           false
-    (= raw "false")        false
-    (= raw :false)         false
-    (= raw "true")         true
-    (= raw :true)          true
-    :else                  true))
+  (base-args/parse-boolean raw true))
 
 (defn- elision-opts-edn
   "Render the elision opts map as an EDN string for inlining into a
   CLJS eval form sent over nREPL. Today the only knob is the
-  on/off boolean (`:rf.size/include-large?`): when elision is enabled
-  we pass `{:rf.size/include-large? false}` so the walker emits
-  markers; when disabled we set `:rf.size/include-large? true` so
-  values pass through unmodified. `:frame` and `:path` are
+  on/off boolean (`base-vocab/include-large-opt`): when elision is
+  enabled we pass `{:rf.size/include-large? false}` so the walker
+  emits markers; when disabled we set `:rf.size/include-large? true`
+  so values pass through unmodified. `:frame` and `:path` are
   caller-supplied at the call-site inside the form."
   [enabled?]
-  (pr-str {:rf.size/include-large? (not enabled?)}))
+  (pr-str {base-vocab/include-large-opt (not enabled?)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Preload probe.
@@ -711,19 +593,17 @@
 
 (defn- include-sensitive?
   "True iff the caller has opted in to forwarding `:sensitive? true`
-  events for this call. Default off."
+  events for this call. Default off. The arg name
+  `:include-sensitive?` is the cross-MCP convention (rf2-vw4sq)."
   [args]
   (boolean (arg args :include-sensitive?)))
 
 (defn- sensitive-event?
-  "Does this event carry the top-level `:sensitive? true` stamp? The
-  filter is conservative — only the literal `true` value drops; any
-  other value (including the runtime's possible string-coercion via an
-  ill-behaved transport) passes through. The `:rf/trace-event` schema
-  (per spec/009) types `:sensitive?` as a boolean."
+  "Delegates to `re-frame.mcp-base.sensitive/sensitive-event?`
+  (rf2-vw4sq). The predicate is the conservative spec/009 stamp
+  check: only the literal `true` value drops."
   [ev]
-  (and (map? ev)
-       (true? (:sensitive? ev))))
+  (base-sensitive/sensitive-event? ev))
 
 (defn- sensitive-epoch?
   "Does this epoch record carry — or transitively contain — a
@@ -759,7 +639,13 @@
   has no `:trace-events` slot so `sensitive-epoch?` collapses to the
   same `:sensitive?` top-level check; an epoch record with a
   sensitive constituent trace event drops even if its top-level
-  rollup is absent."
+  rollup is absent.
+
+  Cross-MCP factoring (rf2-vw4sq): the predicate `sensitive-event?`
+  delegates to `re-frame.mcp-base.sensitive`. The epoch-level union
+  check is pair2-mcp-specific (story-mcp doesn't emit epoch records);
+  the trace-event-only `strip-sensitive` in the base is the right fit
+  for story-mcp / causa-mcp consumers."
   [items include?]
   (cond
     include?            [items 0]
@@ -839,19 +725,11 @@
   50)
 
 (defn- parse-limit-arg
-  "Normalise the `:limit` MCP arg into a positive integer. Accepts ints
-  (passed through), strings (parsed), or nil (default 50). Non-positive
-  values clamp to 1; non-numeric falls back to default. The cap is a
-  guarantee — the response will never contain more than `limit` items."
+  "Normalise the `:limit` MCP arg into a positive integer. Default
+  `default-limit` (50). Delegates to
+  `re-frame.mcp-base.args/parse-positive-int` (rf2-vw4sq)."
   [raw]
-  (cond
-    (or (nil? raw) (undefined? raw)) default-limit
-    (number? raw) (max 1 (long raw))
-    (string? raw) (let [n (js/parseInt raw 10)]
-                    (if (and (number? n) (not (js/isNaN n)))
-                      (max 1 (long n))
-                      default-limit))
-    :else default-limit))
+  (base-args/parse-positive-int raw default-limit))
 
 (defn- encode-cursor
   "Encode a cursor payload as a base64 string. Returns nil on a nil/empty
@@ -884,12 +762,13 @@
       (catch :default _ ::malformed))))
 
 (defn- cursor-stale-result
-  "Structured `:rf.mcp/cursor-stale` error result. Agents pattern-match
-  on `:reason :rf.mcp/cursor-stale` and either restart (drop the
-  cursor) or rewind via a wider window."
+  "Structured cursor-stale error result. The `:reason` value
+  (`base-vocab/cursor-stale-reason`, namespaced `:rf.mcp/cursor-stale`)
+  is the cross-MCP convention agents pattern-match on (rf2-vw4sq);
+  they either restart (drop the cursor) or rewind via a wider window."
   [tool {:keys [requested-id head-id]}]
   (err-text (cond-> {:ok? false
-                     :reason :rf.mcp/cursor-stale
+                     :reason base-vocab/cursor-stale-reason
                      :tool   tool
                      :hint   (str "Cursor's epoch-id is no longer in the runtime ring. "
                                   "Drop the cursor and restart, or widen the window "
