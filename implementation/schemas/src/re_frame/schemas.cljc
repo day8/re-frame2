@@ -124,47 +124,51 @@
 ;; namespace without forcing the schemas artefact onto every consumer's
 ;; classpath (per rf2-p7va — schemas is optional). Publish entry points
 ;; through the late-bind hook registry. See re-frame.late-bind.
+;;
+;; Calls are written as literal `set-fn!` invocations with a literal
+;; keyword (one per line) rather than collapsed into a data-driven
+;; doseq, so the late-bind drift gate
+;; (`re-frame.late-bind-drift-test`) can detect each publication via
+;; regex — matching the convention of every other artefact's
+;; publication block (flows / machines / routing / http / ssr).
 
-(doseq [[k f]
-        {;; Validation hot-path hooks (consumed by router / cofx / subs / epoch).
-         :schemas/validate-app-db!     validate-app-db!
-         :schemas/validate-event!      validate-event!
-         :schemas/validate-sub-return! validate-sub-return!
-         :schemas/validate-cofx!       validate-cofx!
-         :schemas/validate-fx!         validate-fx!
-         :schemas/frame-schema-entries frame-schema-entries
+;; Validation hot-path hooks (consumed by router / cofx / subs / epoch).
+(late-bind/set-fn! :schemas/validate-app-db!     validate-app-db!)
+(late-bind/set-fn! :schemas/validate-event!      validate-event!)
+(late-bind/set-fn! :schemas/validate-sub-return! validate-sub-return!)
+(late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)
+(late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
+(late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)
 
-         ;; Boundary-validation seam (rf2-r2uh integration).
-         :schemas/validate-with-registered-fn validate-with-registered-fn
-         :schemas/explain-with-registered-fn  explain-with-registered-fn
+;; Boundary-validation seam (rf2-r2uh integration).
+(late-bind/set-fn! :schemas/validate-with-registered-fn validate-with-registered-fn)
+(late-bind/set-fn! :schemas/explain-with-registered-fn  explain-with-registered-fn)
 
-         ;; Public-API re-export hooks (consumed by re-frame.core-schemas).
-         :schemas/reg-app-schema        reg-app-schema
-         :schemas/reg-app-schemas       reg-app-schemas
-         :schemas/app-schema-at         app-schema-at
-         :schemas/app-schemas           app-schemas
-         :schemas/app-schemas-digest    app-schemas-digest
-         :schemas/set-schema-validator! set-schema-validator!
-         :schemas/set-schema-explainer! set-schema-explainer!
+;; Public-API re-export hooks (consumed by re-frame.core-schemas).
+(late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)
+(late-bind/set-fn! :schemas/reg-app-schemas       reg-app-schemas)
+(late-bind/set-fn! :schemas/app-schema-at         app-schema-at)
+(late-bind/set-fn! :schemas/app-schemas           app-schemas)
+(late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
+(late-bind/set-fn! :schemas/set-schema-validator! set-schema-validator!)
+(late-bind/set-fn! :schemas/set-schema-explainer! set-schema-explainer!)
 
-         ;; Elision-walker hooks (rf2-nwv63 / rf2-v9tw2) — published so
-         ;; re-frame.core's downstream registry-population code can
-         ;; hydrate `[:rf/elision :declarations]` at boot / on
-         ;; reg-app-schema without statically depending on the schemas
-         ;; artefact.
-         :schemas/extract-large-paths-from-schema extract-large-paths-from-schema
-         :schemas/frame-elision-declarations      frame-elision-declarations
-         :schemas/populate-elision-declarations   populate-elision-declarations
+;; Elision-walker hooks (rf2-nwv63 / rf2-v9tw2) — published so
+;; re-frame.core's downstream registry-population code can hydrate
+;; `[:rf/elision :declarations]` at boot / on reg-app-schema without
+;; statically depending on the schemas artefact.
+(late-bind/set-fn! :schemas/extract-large-paths-from-schema extract-large-paths-from-schema)
+(late-bind/set-fn! :schemas/frame-elision-declarations      frame-elision-declarations)
+(late-bind/set-fn! :schemas/populate-elision-declarations   populate-elision-declarations)
 
-         ;; Sensitive-paths walker (rf2-kj51z / rf2-c1l4d).
-         :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema
-         :schemas/schema-has-sensitive?               schema-has-sensitive?
-         :schemas/frame-sensitive-declarations        frame-sensitive-declarations
-         :schemas/populate-sensitive-declarations     populate-sensitive-declarations
+;; Sensitive-paths walker (rf2-kj51z / rf2-c1l4d).
+(late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
+(late-bind/set-fn! :schemas/schema-has-sensitive?               schema-has-sensitive?)
+(late-bind/set-fn! :schemas/frame-sensitive-declarations        frame-sensitive-declarations)
+(late-bind/set-fn! :schemas/populate-sensitive-declarations     populate-sensitive-declarations)
 
-         ;; Test-support hooks (consumed by re-frame.test-support's
-         ;; reset-runtime-fixture).
-         :schemas/snapshot-by-frame    snapshot-schemas-by-frame
-         :schemas/restore-by-frame!    restore-schemas-by-frame!
-         :schemas/clear-by-frame!      clear-schemas-by-frame!}]
-  (late-bind/set-fn! k f))
+;; Test-support hooks (consumed by re-frame.test-support's
+;; reset-runtime-fixture).
+(late-bind/set-fn! :schemas/snapshot-by-frame    snapshot-schemas-by-frame)
+(late-bind/set-fn! :schemas/restore-by-frame!    restore-schemas-by-frame!)
+(late-bind/set-fn! :schemas/clear-by-frame!      clear-schemas-by-frame!)
