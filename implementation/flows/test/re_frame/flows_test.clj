@@ -138,6 +138,77 @@
     (is (not (contains? (get @flows/flows :rf/default) :b))
         "cycle-detection rolls back the partial registration of :b")))
 
+(deftest ^:expected-fail
+  reg-flow-replacement-that-introduces-cycle-preserves-prior-registration
+  ;; Regression for rf2-7csri (bug) / rf2-cdh9h (this test). Pinned per
+  ;; audit rf2-o3hok finding Exec#2 (TE2). The current `reg-flow` rollback
+  ;; path (flows.cljc:144-151) writes the new entry FIRST then runs cycle
+  ;; detection; on a cyclic re-registration the rollback dissocs by id,
+  ;; which DELETES the prior registration as well as the just-written
+  ;; one. A hot-reload that accidentally introduces a cycle therefore
+  ;; silently vacates the previously-working flow. The correct behaviour:
+  ;; detect the cycle on a PROSPECTIVE flow-map BEFORE mutating, and on
+  ;; failure leave the prior registration intact.
+  ;;
+  ;; This test is marked ^:expected-fail because rf2-7csri is not yet
+  ;; merged — the cognitect test-runner alias excludes :expected-fail
+  ;; selectors by default so CI stays green. Drop the metadata once the
+  ;; sibling fix lands.
+  (testing "a cyclic reg-flow REPLACEMENT must not silently delete the prior registration"
+    ;; Set up a non-cyclic two-flow graph where REPLACING :b is what
+    ;; closes the cycle. Cannot use a self-cycle on :b (topo-sort skips
+    ;; the `id = other` self-edge via `(not= id other)`), so we set
+    ;; :a's :inputs to point at :b's :path. After replacement of :b's
+    ;; inputs to point at :a's :path, the cycle :a → :b → :a closes.
+    ;;
+    ;; 1. :a reads [:b], writes [:a]. Currently no cycle because :b is
+    ;;    not yet registered.
+    (rf/reg-flow {:id     :a
+                  :inputs [[:b]]
+                  :output (fn [b] (str "A-from-B-" b))
+                  :path   [:a]})
+    (is (contains? (get @flows/flows :rf/default) :a)
+        "initial :a registers cleanly")
+
+    ;; 2. :b reads an unrelated path [:source], writes [:b]. Graph is
+    ;;    :b → :a (one-way), no cycle. The prior `reg-flow-detects-
+    ;;    cycles-at-registration` test pins the INITIAL-cycle case
+    ;;    (where :b at first registration closes the cycle). This test
+    ;;    pins the REPLACEMENT case — :b registers cleanly first, then
+    ;;    its replacement is what would close the cycle.
+    (let [original-b-output (fn [src] (str "B-of-" src))]
+      (rf/reg-flow {:id     :b
+                    :inputs [[:source]]
+                    :output original-b-output
+                    :path   [:b]})
+      (is (contains? (get @flows/flows :rf/default) :b)
+          "initial :b registers cleanly (reads [:source]; no cycle)")
+
+      ;; 3. RE-register :b with :inputs [[:a]]. :a already reads [:b],
+      ;;    so the prospective graph closes :a → :b → :a. Cycle
+      ;;    detection MUST reject the replacement.
+      (is (thrown? Throwable
+            (rf/reg-flow {:id     :b
+                          :inputs [[:a]]
+                          :output (fn [a] (str "B-from-A-" a))
+                          :path   [:b]}))
+          "the cyclic replacement of :b throws :rf.error/flow-cycle")
+
+      ;; 4. THE KEY ASSERTION: the prior :b is STILL in the registry —
+      ;;    not silently deleted. The bug today (flows.cljc:149) dissocs
+      ;;    by id on rollback, vacating the prior registration along
+      ;;    with the just-written one.
+      (is (contains? (get @flows/flows :rf/default) :b)
+          "after a failed cyclic replacement, the prior :b registration is preserved")
+      (let [b-after (get-in @flows/flows [:rf/default :b])]
+        (is (= [[:source]] (:inputs b-after))
+            "prior :b's :inputs are intact ([[:source]], not the rejected [[:a]])")
+        (is (identical? original-b-output (:output b-after))
+            "prior :b's :output fn has the SAME identity (not the rejected new fn)"))
+      ;; And the registrar slot — flow-id-keyed — must still resolve.
+      (is (some? (registrar/lookup :flow :b))
+          "the :flow registrar slot for :b is still populated"))))
+
 ;; ---------------------------------------------------------------------------
 ;; 2. Dirty-check / re-evaluation
 ;; ---------------------------------------------------------------------------
