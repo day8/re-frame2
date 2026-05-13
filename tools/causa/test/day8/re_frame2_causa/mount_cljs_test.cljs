@@ -122,17 +122,54 @@
      "_created"
      created)))
 
+(defn- can-stub-js-document?
+  "True iff the running host lets us write `js/document` via `set!`.
+
+  In node-test there is no real `document` global; `(set! js/document
+  ...)` installs a fresh slot on `goog.global` and subsequent reads
+  see the new value. In a real browser `window.document` is a non-
+  configurable read-only WebIDL accessor — the JS engine silently
+  drops the assignment (or throws in strict mode), so subsequent
+  reads still return the genuine `HTMLDocument`. Test code that
+  installs a stub via `set! js/document` and asserts against that
+  stub silently fails in that case.
+
+  Per rf2-higwg: detect the host by writing-and-checking; if the
+  write didn't take effect we're inside a real browser
+  (`:browser-test` build under Playwright) and the mount tests'
+  stub-driven contracts can't be exercised. The predicate gates
+  `with-stub-document*` so the deftest bodies no-op on that host.
+  The contracts are still proven on the node-test build where
+  stubbing works."
+  []
+  (let [marker (js-obj "rf2-higwg-marker" true)
+        prior  (when (exists? js/document) js/document)]
+    (set! js/document marker)
+    (let [installed? (identical? js/document marker)]
+      (if prior
+        (set! js/document prior)
+        (when installed?
+          (js-delete js/goog.global "document")))
+      installed?)))
+
 (defn- with-stub-document* [f]
-  (let [doc       (mk-stub-document)
-        had-doc?  (exists? js/document)
-        prior     (when had-doc? js/document)]
-    (set! js/document doc)
-    (try
-      (f doc)
-      (finally
-        (if had-doc?
-          (set! js/document prior)
-          (js-delete js/goog.global "document"))))))
+  ;; Per rf2-higwg: in `:browser-test` the host's `window.document` is
+  ;; non-configurable and `set!` silently no-ops — the stub never
+  ;; takes effect and `mount/open!`'s `(.appendChild (.-body
+  ;; js/document) node)` lands on the real document. Skip the body
+  ;; cleanly in that host; the contracts run on node-test where the
+  ;; stub does install.
+  (when (can-stub-js-document?)
+    (let [doc       (mk-stub-document)
+          had-doc?  (exists? js/document)
+          prior     (when had-doc? js/document)]
+      (set! js/document doc)
+      (try
+        (f doc)
+        (finally
+          (if had-doc?
+            (set! js/document prior)
+            (js-delete js/goog.global "document")))))))
 
 (defn- with-stub-document [f]
   (with-stub-document* f))

@@ -1136,6 +1136,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
@@ -1265,6 +1270,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4

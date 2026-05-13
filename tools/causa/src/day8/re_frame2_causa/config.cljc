@@ -162,22 +162,37 @@
   absent — those count under `:global`.
 
   Per rf2-0vxdn: in CLJS, also dispatches
-  `:rf.causa/note-sensitive-suppressed` into the `:rf/causa` frame so
-  the bottom-rail's `[● REDACTED N]` indicator updates IMMEDIATELY
-  via the reactive sub-graph (the sub reads
-  `:suppressed-counters` off Causa's app-db). The atom-bump stays
-  as the JVM-runnable data primitive (`sensitive_trace` CLJC tests
-  assert it directly); the dispatch is the reactive surface for
-  CLJS. Guarded on the `:rf/causa` frame's existence — production
-  preload always installs it, but tests / hot-reload windows may
-  call `note-suppressed!` before the frame registers."
+  `:rf.causa/note-sensitive-suppressed` so the bottom-rail's
+  `[● REDACTED N]` indicator updates IMMEDIATELY via the reactive
+  sub-graph (the event handler updates the active frame's app-db
+  `:suppressed-counters` slot; the sub reads off the same db). The
+  atom-bump stays as the JVM-runnable data primitive
+  (`sensitive_trace` CLJC tests assert it directly); the dispatch
+  is the reactive surface for CLJS.
+
+  Per rf2-higwg: the dispatch follows the active frame chain rather
+  than binding to `:rf/causa` explicitly. The shell's bottom-rail
+  is a plain Reagent fn (not `reg-view`-registered) so its
+  subscribe resolves through the chain to `:rf/default` — the
+  framework emits the `:rf.warning/plain-fn-under-non-default-
+  frame-once` warning on first render but the routing falls
+  through cleanly. Pairing the dispatch's write target with the
+  read's read target (both chain-resolved) keeps the indicator
+  reactive without requiring an explicit `reg-frame :rf/causa` at
+  preload time (which would fail — `reg-frame` needs a substrate
+  adapter installed via `rf/init!`, and the preload runs at
+  ns-load time before that).
+
+  Guarded on `:rf/default`'s existence so JVM / pre-`init!` callers
+  (`sensitive_trace_cljs_test`'s fixture has no frames registered)
+  bump the atom without emitting an `:rf.error/frame-destroyed`
+  trace into the bus."
   [frame-id]
   (let [k (or frame-id :global)]
     (swap! suppressed-counters update k (fnil inc 0)))
   #?(:cljs
-     (when (frame/frame :rf/causa)
-       (binding [frame/*current-frame* :rf/causa]
-         (rf/dispatch [:rf.causa/note-sensitive-suppressed frame-id]))))
+     (when (frame/frame :rf/default)
+       (rf/dispatch [:rf.causa/note-sensitive-suppressed frame-id])))
   nil)
 
 (defn suppressed-count
