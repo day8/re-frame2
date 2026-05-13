@@ -29,10 +29,13 @@
  *   5. Live trace bus: with Causa visible, clicking the counter's '+'
  *      button produces a fresh trace row in the Trace panel — proves
  *      Causa is observing the framework's live trace bus.
- *   6. [● REDACTED N] indicator: firing a sensitive event via the
- *      page console bumps the bottom-rail's counter — proves
- *      config/note-suppressed! → :rf.causa/suppressed-sensitive-count
- *      sub → bottom-rail hint is wired through.
+ *   6. [● REDACTED N] indicator: calling `config/note-suppressed!`
+ *      from the page console bumps the bottom-rail's counter and
+ *      the indicator re-renders IMMEDIATELY — proves the reactive
+ *      wiring through the sub-graph (rf2-0vxdn — the call
+ *      dispatches `:rf.causa/note-sensitive-suppressed` so the
+ *      sub fires on the standard app-db write path; no host-
+ *      dispatch workaround is required).
  */
 
 const { expectTextEquals, expectVisible } = require('../../scripts/spec-helpers.cjs');
@@ -154,21 +157,22 @@ module.exports = {
     }
 
     // ----------------------------------------------------------------
-    // 6. [● REDACTED N] indicator — config/note-suppressed! bumps the
-    //     counter, the bottom-rail hint appears.
+    // 6. [● REDACTED N] indicator — config/note-suppressed! bumps
+    //     the counter and the bottom-rail hint re-renders
+    //     IMMEDIATELY (rf2-0vxdn).
     // ----------------------------------------------------------------
     //
-    // The collector path that bumps the counter is exercised by the
+    // The collector path that emits this call is exercised by the
     // node-test sensitive_trace_cljs_test.cljc; this browser-level
-    // assertion proves the wiring through the subscription and the
-    // shell's bottom-rail render.
+    // assertion proves the reactive wiring through Causa's app-db
+    // slot, the subscription, and the shell's bottom-rail render.
     //
-    // We dial the counter directly via the exposed CLJS namespace
-    // (shadow-cljs dev compilation preserves the namespace path on
-    // goog.global). Then we dispatch a no-op counter click to force
-    // the subscription graph to recompute — the
-    // :rf.causa/suppressed-sensitive-count sub thunks a plain atom
-    // and only re-fires when the surrounding sub-graph recomputes.
+    // Per rf2-0vxdn `config/note-suppressed!` itself dispatches
+    // `:rf.causa/note-sensitive-suppressed` into `:rf/causa` (the
+    // atom-bump remains for JVM tests; the dispatch is the
+    // reactive surface for CLJS). The sub reads `:suppressed-
+    // counters` off Causa's app-db, so the indicator re-renders on
+    // the next React commit without any extra host dispatch.
     const noted = await page.evaluate(() => {
       const cfg =
         window.day8 &&
@@ -186,11 +190,9 @@ module.exports = {
       throw new Error(`Could not bump suppressed counter: ${noted.reason}`);
     }
 
-    // Force a host dispatch so the Causa subscribe-graph recomputes
-    // and the bottom-rail re-renders against the bumped counter.
-    await page.getByRole('button', { name: '+' }).click();
-    await expectTextEquals(span, '7');
-
+    // No host-dispatch workaround required — the bump itself
+    // dispatched `:rf.causa/note-sensitive-suppressed`, so the
+    // bottom-rail sub re-fired and the indicator is now visible.
     const redacted = page.locator(`[data-testid="${REDACTED_TESTID}"]`);
     await expectVisible(redacted, 5000);
     const redactedText = (await redacted.textContent()) || '';

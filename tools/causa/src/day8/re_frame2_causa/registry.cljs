@@ -216,15 +216,19 @@
     ;; hint when this is positive so the user sees why the buffer is
     ;; shorter than the runtime's actual emit count.
     ;;
-    ;; The counter lives in `config/suppressed-counters` (a plain
-    ;; atom). This sub thunks the pure-data accessor; like
-    ;; `:rf.causa/trace-buffer` it relies on the surrounding
-    ;; subscribe-graph recompute cycle for staleness — the bottom-rail
-    ;; re-renders whenever any of its sibling subs re-fire, and the
-    ;; counter is read fresh on each pass.
+    ;; Per rf2-0vxdn the counter lives in Causa's app-db at
+    ;; `:suppressed-counters` ({frame-id → count}); `config/note-
+    ;; suppressed!` dispatches `:rf.causa/note-sensitive-suppressed`
+    ;; in CLJS, so the sub fires on the standard app-db-write
+    ;; reactive path and the bottom-rail re-renders IMMEDIATELY —
+    ;; no dependency on sibling subs recomputing. The plain
+    ;; `config/suppressed-counters` atom remains as the JVM-runnable
+    ;; data primitive (sensitive_trace CLJC tests + trace-bus' JVM
+    ;; data-shape coverage); the CLJS path dual-writes via dispatch
+    ;; so the reactive surface stays consistent.
     (rf/reg-sub :rf.causa/suppressed-sensitive-count
-      (fn [_db _query]
-        (config/suppressed-count)))
+      (fn [db _query]
+        (reduce + 0 (vals (get db :suppressed-counters {})))))
 
     ;; Currently-active panel — drives the canvas's switch logic in
     ;; shell.cljs. Default is the hero panel per §10 Lock 7.
@@ -615,6 +619,30 @@
     (rf/reg-event-db :rf.causa/select-panel
       (fn [db [_ panel-id]]
         (assoc db :selected-panel panel-id)))
+
+    ;; Bump the per-frame suppressed-events counter (rf2-0vxdn).
+    ;; Dispatched from `trace-bus/collect-trace!` (CLJS) under
+    ;; `:rf/causa` whenever the privacy gate drops a `:sensitive? true`
+    ;; trace event. `frame-id` is the event's `:tags :frame` (the host
+    ;; frame the trace targeted); `nil` falls under `:global`. Drives
+    ;; the bottom-rail `[● REDACTED N]` indicator via the
+    ;; `:rf.causa/suppressed-sensitive-count` sub — fully reactive.
+    (rf/reg-event-db :rf.causa/note-sensitive-suppressed
+      (fn [db [_ frame-id]]
+        (update-in db [:suppressed-counters (or frame-id :global)]
+                   (fnil inc 0))))
+
+    ;; Reset the suppressed-events counter (rf2-0vxdn). With no arg,
+    ;; clears every bucket; with a `frame-id`, drops just that bucket.
+    ;; Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing the
+    ;; trace ring buffer also drops the REDACTED indicator state (the
+    ;; "you missed N events" overhang disappears alongside the events
+    ;; that produced it).
+    (rf/reg-event-db :rf.causa/reset-suppressed-counters
+      (fn [db [_ frame-id]]
+        (if frame-id
+          (update db :suppressed-counters dissoc (or frame-id :global))
+          (dissoc db :suppressed-counters))))
 
     (rf/reg-event-db :rf.causa/select-dispatch-id
       (fn [db [_ dispatch-id]]

@@ -85,7 +85,13 @@
   suppressed-events counter bumps for the targeted frame so the
   shell can surface a `[● REDACTED N]` hint. Opt in via
   `(causa-config/configure! {:trace/show-sensitive? true})` to
-  surface the raw cascade while debugging redaction policy."
+  surface the raw cascade while debugging redaction policy.
+
+  Per rf2-0vxdn the indicator is fully reactive: `config/note-
+  suppressed!` itself dispatches `:rf.causa/note-sensitive-suppressed`
+  into `:rf/causa` (CLJS) so the sub reads `:suppressed-counters`
+  off Causa's app-db on the standard write path. The buffer state
+  here is unchanged; the dispatch happens one stack frame deeper."
   [event]
   (when interop/debug-enabled?
     (cond
@@ -204,7 +210,11 @@
   production. Per rf2-azls9, also resets the per-frame
   suppressed-sensitive counters so the bottom-rail `[● REDACTED N]`
   hint disappears alongside the cleared events — clearing the buffer
-  is the natural moment to drop the 'you missed N events' overhang."
+  is the natural moment to drop the 'you missed N events' overhang.
+
+  Per rf2-0vxdn `config/reset-suppressed-count!` itself dispatches
+  `:rf.causa/reset-suppressed-counters` in CLJS so the reactive
+  app-db slot clears in lockstep with the atom."
   []
   (when interop/debug-enabled?
     (reset! buffer-state [])

@@ -23,7 +23,9 @@
   Causa shell (gated on `interop/debug-enabled?` in preload.cljs); the
   atom survives but is never read. CLJC so the JVM test corpus can
   cover the round-trip without a CLJS runtime."
-  (:require [re-frame.source-coords.editor-uri :as editor-uri]))
+  (:require [re-frame.source-coords.editor-uri :as editor-uri]
+            #?@(:cljs [[re-frame.core :as rf]
+                       [re-frame.frame :as frame]])))
 
 ;; ---- editor preference ---------------------------------------------------
 
@@ -132,6 +134,15 @@
 ;; (registration-time emits, outermost-dispatch lookup failures —
 ;; `:sensitive?` is rarely set on those, but we keep the bucket so a
 ;; count is never lost).
+;;
+;; Per rf2-0vxdn the counter is also mirrored into Causa's app-db at
+;; `[:rf/causa db :suppressed-counters]` via dispatch (CLJS-only) so
+;; the `:rf.causa/suppressed-sensitive-count` sub fires on the
+;; standard reactive write path — the `[● REDACTED N]` indicator
+;; updates IMMEDIATELY on every bump, with no dependency on sibling
+;; subs recomputing. The atom here remains the JVM-runnable data
+;; primitive so `config.cljc`'s shape is testable without a CLJS
+;; runtime + re-frame frame.
 
 (defonce
   ^{:doc "Atom: `{frame-id → suppressed-count}`. Causa's trace
@@ -146,10 +157,25 @@
   "Bump the suppressed-events counter for the frame the event
   targeted. Called by Causa's trace collector when
   `suppress-sensitive?` returned true. `frame-id` may be `nil` /
-  absent — those count under `:global`."
+  absent — those count under `:global`.
+
+  Per rf2-0vxdn: in CLJS, also dispatches
+  `:rf.causa/note-sensitive-suppressed` into the `:rf/causa` frame so
+  the bottom-rail's `[● REDACTED N]` indicator updates IMMEDIATELY
+  via the reactive sub-graph (the sub reads
+  `:suppressed-counters` off Causa's app-db). The atom-bump stays
+  as the JVM-runnable data primitive (`sensitive_trace` CLJC tests
+  assert it directly); the dispatch is the reactive surface for
+  CLJS. Guarded on the `:rf/causa` frame's existence — production
+  preload always installs it, but tests / hot-reload windows may
+  call `note-suppressed!` before the frame registers."
   [frame-id]
   (let [k (or frame-id :global)]
     (swap! suppressed-counters update k (fnil inc 0)))
+  #?(:cljs
+     (when (frame/frame :rf/causa)
+       (binding [frame/*current-frame* :rf/causa]
+         (rf/dispatch [:rf.causa/note-sensitive-suppressed frame-id]))))
   nil)
 
 (defn suppressed-count
@@ -167,10 +193,26 @@
 (defn reset-suppressed-count!
   "Reset the suppressed-events counter. With no arg, clears all.
   With a `frame-id`, clears just that bucket. Called from
-  `trace-bus/clear-buffer!` and from test fixtures."
-  ([] (reset! suppressed-counters {}) nil)
+  `trace-bus/clear-buffer!` and from test fixtures.
+
+  Per rf2-0vxdn: in CLJS, also dispatches
+  `:rf.causa/reset-suppressed-counters` into `:rf/causa` so the
+  reactive copy in Causa's app-db drops in lockstep with the atom.
+  Guarded on the frame existing — `reset-suppressed-count!` is
+  called from test fixtures before any frame is registered."
+  ([]
+   (reset! suppressed-counters {})
+   #?(:cljs
+      (when (frame/frame :rf/causa)
+        (binding [frame/*current-frame* :rf/causa]
+          (rf/dispatch [:rf.causa/reset-suppressed-counters]))))
+   nil)
   ([frame-id]
    (swap! suppressed-counters dissoc (or frame-id :global))
+   #?(:cljs
+      (when (frame/frame :rf/causa)
+        (binding [frame/*current-frame* :rf/causa]
+          (rf/dispatch [:rf.causa/reset-suppressed-counters frame-id]))))
    nil))
 
 ;; ---- configure! convenience ---------------------------------------------

@@ -14,10 +14,14 @@
        arm count + each arm's mapping is asserted here.
 
     2. The bottom-rail `[● REDACTED N]` indicator (rf2-azls9). The
-       `config/suppressed-counters` counter is well-tested in
-       `config_test.clj`; the *render* gate `(pos? redacted-count)`
-       and the pluralisation in the title attribute are asserted
-       here. Includes the 1 → 2 transition.
+       `config/suppressed-counters` atom is well-tested in
+       `sensitive_trace_cljs_test.cljc`; the *render* gate
+       `(pos? redacted-count)` and the pluralisation in the title
+       attribute are asserted here. Includes the 1 → 2 transition.
+       Per rf2-0vxdn the counter is reactive — bumping via the
+       `:rf.causa/note-sensitive-suppressed` event re-renders the
+       indicator immediately (no `clear-subscription-cache!`
+       workaround required).
 
     3. The hydration sidebar entry's dormant-flag drop (rf2-pzxsr —
        tools/causa/spec/006-Hydration-Debugger.md §Visibility). When
@@ -134,6 +138,23 @@
   [panel-id]
   (rf/dispatch-sync [:rf.causa/select-panel panel-id]))
 
+(defn- note-suppressed!
+  "Drive the redaction counter through the production reactive path
+  (rf2-0vxdn). Mirrors what `trace-bus/collect-trace!` does in CLJS
+  when it drops a `:sensitive? true` trace event — synchronously
+  bumps the counter in Causa's app-db so the indicator's sub fires
+  before the next render. `dispatch-sync` skips the dispatch queue,
+  so the assertion can run on the very next line."
+  [frame-id]
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/note-sensitive-suppressed frame-id])))
+
+(defn- reset-suppressed!
+  "Reset the redaction counter via the production event (rf2-0vxdn)."
+  []
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/reset-suppressed-counters])))
+
 (defn- causa-setup! []
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {}))
@@ -223,17 +244,18 @@
 ;; -------------------------------------------------------------------------
 ;;
 ;; The bottom-rail subscribes to `:rf.causa/suppressed-sensitive-count`;
-;; the indicator renders only when (pos? n). The counter lives in
-;; `config/suppressed-counters` and is bumped by `config/note-
-;; suppressed!`. The fixture's `causa-init!` resets it to 0.
+;; the indicator renders only when (pos? n). Per rf2-0vxdn the counter
+;; lives in Causa's app-db at `:suppressed-counters`; the trace
+;; collector dispatches `:rf.causa/note-sensitive-suppressed` to bump
+;; it, so the sub re-fires on the standard app-db-write reactive path
+;; — bumping immediately drives an indicator re-render with no
+;; `(rf/clear-subscription-cache! :rf/causa)` workaround.
 
 (deftest redacted-indicator-absent-when-count-zero
   (testing "(pos? 0) is false — the indicator is NOT rendered when
             no sensitive events have been suppressed"
     (causa-setup!)
     (rf/with-frame :rf/causa
-      (is (= 0 (config/suppressed-count))
-          "fixture starts with zero — sanity check")
       (let [tree (shell/shell-view)]
         (is (nil? (find-by-testid tree "rf-causa-redacted-indicator"))
             "no REDACTED node in the tree when count is 0")))))
@@ -242,7 +264,7 @@
   (testing "the indicator surfaces when at least one sensitive trace
             event has been suppressed"
     (causa-setup!)
-    (config/note-suppressed! :rf/default)
+    (note-suppressed! :rf/default)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             node (find-by-testid tree "rf-causa-redacted-indicator")]
@@ -256,16 +278,13 @@
             count != 1 — spec 009 §Privacy: 'N sensitive trace
             event(s) suppressed'.
 
-            The sub thunks `config/suppressed-count` which reads an
-            atom outside the reactive graph; in production the sub
-            recomputes because sibling subs fire on every trace
-            event landing. In tests we step the counter manually,
-            so we drop the subscription cache between renders to
-            force a recompute."
+            Per rf2-0vxdn the sub reads `:suppressed-counters` off
+            Causa's app-db, so each bump re-fires the sub on the
+            standard write path — no subscription-cache flush
+            required between bumps."
     (causa-setup!)
     ;; count = 1 → singular in title
-    (config/note-suppressed! :rf/default)
-    (rf/clear-subscription-cache! :rf/causa)
+    (note-suppressed! :rf/default)
     (rf/with-frame :rf/causa
       (let [tree  (shell/shell-view)
             node  (find-by-testid tree "rf-causa-redacted-indicator")
@@ -276,9 +295,8 @@
         (is (not (re-find #"events" title))
             "singular form has no plural 's'")))
     ;; bump to 3 → plural in title
-    (config/note-suppressed! :rf/default)
-    (config/note-suppressed! :rf/default)
-    (rf/clear-subscription-cache! :rf/causa)
+    (note-suppressed! :rf/default)
+    (note-suppressed! :rf/default)
     (rf/with-frame :rf/causa
       (let [tree  (shell/shell-view)
             node  (find-by-testid tree "rf-causa-redacted-indicator")
@@ -288,31 +306,29 @@
 
 (deftest redacted-indicator-transition-from-zero-to-nonzero
   (testing "the indicator appears on the first suppressed event and
-            stays until the counter is reset. See pluralises-title
-            test for why clear-subscription-cache! between bumps."
+            stays until the counter is reset. Per rf2-0vxdn the
+            reactive sub re-fires on every bump — no
+            clear-subscription-cache! workaround between steps."
     (causa-setup!)
     ;; T0 — no indicator
     (rf/with-frame :rf/causa
       (is (nil? (find-by-testid (shell/shell-view)
                                 "rf-causa-redacted-indicator"))))
     ;; T1 — bump → indicator visible with count 1
-    (config/note-suppressed! :rf/default)
-    (rf/clear-subscription-cache! :rf/causa)
+    (note-suppressed! :rf/default)
     (rf/with-frame :rf/causa
       (let [n (find-by-testid (shell/shell-view)
                               "rf-causa-redacted-indicator")]
         (is (some? n) "indicator appears on first bump")
         (is (re-find #"REDACTED 1" (text-nodes n)))))
     ;; T2 — bump again → count moves to 2
-    (config/note-suppressed! :rf/default)
-    (rf/clear-subscription-cache! :rf/causa)
+    (note-suppressed! :rf/default)
     (rf/with-frame :rf/causa
       (let [n (find-by-testid (shell/shell-view)
                               "rf-causa-redacted-indicator")]
         (is (re-find #"REDACTED 2" (text-nodes n)))))
     ;; T3 — reset → indicator gone
-    (config/reset-suppressed-count!)
-    (rf/clear-subscription-cache! :rf/causa)
+    (reset-suppressed!)
     (rf/with-frame :rf/causa
       (is (nil? (find-by-testid (shell/shell-view)
                                 "rf-causa-redacted-indicator"))
@@ -322,7 +338,7 @@
   (testing "no upper-bound clipping — the indicator renders the raw
             count even at large values (spec 009 doesn't cap)"
     (causa-setup!)
-    (dotimes [_ 250] (config/note-suppressed! :rf/default))
+    (dotimes [_ 250] (note-suppressed! :rf/default))
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             node (find-by-testid tree "rf-causa-redacted-indicator")]
