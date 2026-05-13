@@ -132,6 +132,9 @@
 ;; and emits a literal map into the macro expansion; the runtime sees
 ;; ordinary data.
 
+#?(:clj
+   (do
+
 (defn ^:private form-coords
   "Read source coords off a Clojure form's metadata. Forms the reader has
   decorated (lists, vectors, maps, symbols) carry `:line` / `:column` from
@@ -149,73 +152,78 @@
         (:line m)   (assoc :line (:line m))
         (:column m) (assoc :column (:column m))))))
 
+(defmacro ^:private stamp!
+  "Compile-time helper for the machine-spec walker. Reads source coords off
+  `form` and, when any are present, stamps them into the transient
+  accumulator at `path`. Inlines to the equivalent
+  `(when-let [c (form-coords form ns-sym file)] (assoc! acc path c))` so
+  the imperative-mutation shape `walk-states-tree` relies on for
+  macro-expansion-time performance is preserved.
+
+  Lexical-capture contract: callers must have `acc` (a transient map),
+  `ns-sym` (a symbol), and `file` (a string or nil) in scope. The macro
+  is private to this namespace and used only inside `walk-states-tree`
+  and `walk-machine-spec`, both of which bind those three locals.
+
+  Per rf2-7bha1: hides the repetitive shape behind a single two-arg call
+  at every reference-site stamp, dropping ~45 LoC of nested `when-let`s
+  for a ~20 LoC macro+helpers definition."
+  [path form]
+  `(when-let [c# (form-coords ~form ~'ns-sym ~'file)]
+     (assoc! ~'acc ~path c#)))
+
 (defn- walk-states-tree
   "Recursively walk the literal `:states` map. `path` accumulates the
   spec-path from the spec's root. Adds entries into the mutable `acc`
   transient for each captured reference site / state-node.
 
   Note on style: this walker is mutation-heavy (transient `acc` threaded
-  through nested `reduce-kv` / `doseq` with `assoc!`) rather than the
-  more functional shape of a visitor that returns collected entries.
-  The imperative shape is deliberate — this code runs at macro-expansion
-  time and gets called on every `reg-machine` form. Transients avoid the
-  per-state allocation cost of building intermediate persistent maps
-  during expansion. The result is materialised once at the edge in
-  `walk-machine-spec`. Refactoring to a fully declarative visitor is
-  feasible but would need to be benchmarked against current
+  through nested `reduce-kv` / `doseq` with `assoc!` via the `stamp!`
+  macro) rather than the more functional shape of a visitor that returns
+  collected entries. The imperative shape is deliberate — this code runs
+  at macro-expansion time and gets called on every `reg-machine` form.
+  Transients avoid the per-state allocation cost of building intermediate
+  persistent maps during expansion. The result is materialised once at
+  the edge in `walk-machine-spec`. Refactoring to a fully declarative
+  visitor is feasible but would need to be benchmarked against current
   compile-time numbers before adoption."
   [states-form path acc ns-sym file]
   (when (map? states-form)
     (reduce-kv
       (fn [acc state-id node]
         (let [node-path (conj path state-id)]
-          (when-let [c (form-coords node ns-sym file)]
-            (assoc! acc node-path c))
+          (stamp! node-path node)
           (when (map? node)
             ;; :entry / :exit references
             (when-let [e (:entry node)]
-              (when-let [c (form-coords e ns-sym file)]
-                (assoc! acc (conj node-path :entry) c)))
+              (stamp! (conj node-path :entry) e))
             (when-let [e (:exit node)]
-              (when-let [c (form-coords e ns-sym file)]
-                (assoc! acc (conj node-path :exit) c)))
+              (stamp! (conj node-path :exit) e))
             ;; :invoke {:on-spawn ...}
             (when-let [inv (:invoke node)]
-              (when-let [c (form-coords inv ns-sym file)]
-                (assoc! acc (conj node-path :invoke) c))
+              (stamp! (conj node-path :invoke) inv)
               (when (map? inv)
                 (when-let [os (:on-spawn inv)]
-                  (when-let [c (form-coords os ns-sym file)]
-                    (assoc! acc (conj node-path :invoke :on-spawn) c)))))
+                  (stamp! (conj node-path :invoke :on-spawn) os))))
             ;; :on transitions — map of event-id → transition-or-vector
             (when-let [on-map (:on node)]
               (when (map? on-map)
                 (reduce-kv
                   (fn [_ ev-id t]
                     (let [tp (conj node-path :on ev-id)]
-                      (when-let [c (form-coords t ns-sym file)]
-                        (assoc! acc tp c))
+                      (stamp! tp t)
                       (cond
                         (map? t)
                         (do
-                          (when-let [g (:guard t)]
-                            (when-let [c (form-coords g ns-sym file)]
-                              (assoc! acc (conj tp :guard) c)))
-                          (when-let [a (:action t)]
-                            (when-let [c (form-coords a ns-sym file)]
-                              (assoc! acc (conj tp :action) c))))
+                          (when-let [g (:guard t)]  (stamp! (conj tp :guard) g))
+                          (when-let [a (:action t)] (stamp! (conj tp :action) a)))
                         (vector? t)
                         (doseq [[i tx] (map-indexed vector t)
                                 :when (map? tx)]
                           (let [tp' (conj tp i)]
-                            (when-let [c (form-coords tx ns-sym file)]
-                              (assoc! acc tp' c))
-                            (when-let [g (:guard tx)]
-                              (when-let [c (form-coords g ns-sym file)]
-                                (assoc! acc (conj tp' :guard) c)))
-                            (when-let [a (:action tx)]
-                              (when-let [c (form-coords a ns-sym file)]
-                                (assoc! acc (conj tp' :action) c))))))
+                            (stamp! tp' tx)
+                            (when-let [g (:guard tx)]  (stamp! (conj tp' :guard) g))
+                            (when-let [a (:action tx)] (stamp! (conj tp' :action) a)))))
                       nil))
                   nil on-map)))
             ;; :always — vector of transition maps
@@ -224,26 +232,18 @@
                 (doseq [[i tx] (map-indexed vector always)
                         :when (map? tx)]
                   (let [tp (conj node-path :always i)]
-                    (when-let [c (form-coords tx ns-sym file)]
-                      (assoc! acc tp c))
-                    (when-let [g (:guard tx)]
-                      (when-let [c (form-coords g ns-sym file)]
-                        (assoc! acc (conj tp :guard) c)))
-                    (when-let [a (:action tx)]
-                      (when-let [c (form-coords a ns-sym file)]
-                        (assoc! acc (conj tp :action) c)))))))
+                    (stamp! tp tx)
+                    (when-let [g (:guard tx)]  (stamp! (conj tp :guard) g))
+                    (when-let [a (:action tx)] (stamp! (conj tp :action) a))))))
             ;; :after — map of delay → target-or-transition
             (when-let [after (:after node)]
               (when (map? after)
                 (reduce-kv
                   (fn [_ delay t]
                     (let [tp (conj node-path :after delay)]
-                      (when-let [c (form-coords t ns-sym file)]
-                        (assoc! acc tp c))
+                      (stamp! tp t)
                       (when (map? t)
-                        (when-let [a (:action t)]
-                          (when-let [c (form-coords a ns-sym file)]
-                            (assoc! acc (conj tp :action) c))))
+                        (when-let [a (:action t)] (stamp! (conj tp :action) a)))
                       nil))
                   nil after)))
             ;; recurse into nested :states
@@ -287,10 +287,11 @@
           (when (map? m)
             (reduce-kv
               (fn [_ id fn-form]
-                (when-let [c (form-coords fn-form ns-sym file)]
-                  (assoc! acc [path-key id] c))
+                (stamp! [path-key id] fn-form)
                 nil)
               nil m))))
       ;; Reference-site stamping under :states.
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
       (persistent! acc))))
+
+   )) ;; end #?(:clj (do ...))
