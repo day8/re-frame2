@@ -340,14 +340,17 @@
 (defn variants-of
   "Return the variant ids whose story is `story-id`. Cheap O(N) scan
   over the variant side-table — fine for dev-time use; if perf becomes
-  a concern Stage 3 indexes."
+  a concern Stage 3 indexes.
+
+  Per spec/007 §Canonical id grammar a story `:story.foo` has nil
+  namespace and name `\"story.foo\"`; its variants `:story.foo/empty`
+  carry namespace `\"story.foo\"`. So variant membership is just
+  `(= (namespace vid) (name story-id))` — no string surgery."
   [story-id]
-  (let [prefix (str (subs (str story-id) 1) "/")]   ; ":story.foo" → "story.foo/"
-    (->> (ids :variant)
-         (filter (fn [vid] (let [s (str vid)]      ; ":story.foo/empty"
-                             (and (>= (count s) (inc (count prefix)))
-                                  (= (subs s 1 (inc (count prefix))) prefix)))))
-         set)))
+  (let [story-ns (name story-id)]
+    (into #{}
+          (filter (fn [vid] (= (namespace vid) story-ns)))
+          (ids :variant))))
 
 (defn variants-with-tag
   "Return the variant ids whose `:tags` set contains `tag`."

@@ -410,6 +410,31 @@
     (is (= #{:story.foo/a :story.foo/b} (story/variants-of :story.foo)))
     (is (= #{:story.bar/c}              (story/variants-of :story.bar)))))
 
+(deftest variants-of-empty-when-no-children
+  (testing "variants-of returns empty set when the story has no registered variants"
+    (is (= #{} (story/variants-of :story.no-variants)))
+    (story/reg-variant :story.other/x {:events []})
+    (is (= #{} (story/variants-of :story.no-variants)))))
+
+(deftest variants-of-rejects-nested-namespace
+  (testing "variants-of must NOT return variants of a deeper-namespaced story
+            — guards against the old string-prefix shape where
+            `:story.foo.bar/x` was a structurally-suspect 'prefix match' of
+            `:story.foo`. The namespace-equality check rules it out by
+            construction."
+    (story/reg-variant :story.foo/a     {:events []})
+    (story/reg-variant :story.foo.bar/x {:events []})
+    (story/reg-variant :story.foo.bar/y {:events []})
+    (is (= #{:story.foo/a}                       (story/variants-of :story.foo)))
+    (is (= #{:story.foo.bar/x :story.foo.bar/y}  (story/variants-of :story.foo.bar)))))
+
+(deftest variants-of-short-and-bare-story
+  (testing "variants-of works for the bare `:story` root and short names"
+    (story/reg-variant :story/root {:events []})
+    (story/reg-variant :story.a/v  {:events []})
+    (is (= #{:story/root} (story/variants-of :story)))
+    (is (= #{:story.a/v}  (story/variants-of :story.a)))))
+
 (deftest variants-with-tags-intersection
   (testing "variants-with-tags returns variants whose :tags intersects the query"
     (story/reg-variant :story.tag/a {:events [] :tags #{:dev :test}})
