@@ -128,6 +128,51 @@
     (ok-text {:ok? false :reason fallback-reason :message (.-message err)})))
 
 ;; ---------------------------------------------------------------------------
+;; :sensitive? default-suppress (per spec/009 §Privacy / sensitive data).
+;;
+;; Spec 009 mandates that framework-published forwarders — Sentry /
+;; Honeybadger, pair2 server, Causa-MCP — MUST default-drop trace events
+;; whose registration was declared `:sensitive? true`. The runtime
+;; stamps `:sensitive? true` at the top level of every emitted trace
+;; event inside such a registration's handler scope; an event with no
+;; such stamp (or `:sensitive? false`) is fine to forward.
+;;
+;; Opt-in escape hatch: an MCP arg of `:include-sensitive? true` (on
+;; any read/stream tool that surfaces trace-like data) removes the
+;; filter for that call. The default is off — apps that want sensitive
+;; cascades visible to the pair tool configure the policy explicitly.
+;; ---------------------------------------------------------------------------
+
+(defn- include-sensitive?
+  "True iff the caller has opted in to forwarding `:sensitive? true`
+  events for this call. Default off."
+  [args]
+  (boolean (arg args :include-sensitive?)))
+
+(defn- sensitive-event?
+  "Does this event carry the top-level `:sensitive? true` stamp? The
+  filter is conservative — only the literal `true` value drops; any
+  other value (including the runtime's possible string-coercion via an
+  ill-behaved transport) passes through. The `:rf/trace-event` schema
+  (per spec/009) types `:sensitive?` as a boolean."
+  [ev]
+  (and (map? ev)
+       (true? (:sensitive? ev))))
+
+(defn- strip-sensitive
+  "Remove `:sensitive? true` events from `events` unless the caller opted
+  in. Returns `[kept dropped-count]`. Cheap on the common path
+  (no sensitive events ⇒ identical-vector return + zero drop count)."
+  [events include?]
+  (cond
+    include?            [events 0]
+    (empty? events)     [events 0]
+    :else
+    (let [kept (filterv (complement sensitive-event?) events)
+          n    (- (count events) (count kept))]
+      [kept n])))
+
+;; ---------------------------------------------------------------------------
 ;; Tool: discover-app — verify the stack and probe the preloaded runtime.
 ;; ---------------------------------------------------------------------------
 
@@ -230,19 +275,22 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- trace-window-tool [conn args]
-  (let [ms       (or (arg args :ms) 1000)
-        build-id (arg-build args)
-        frame    (some-> (arg args :frame) keyword)
-        form     (if frame
-                   (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms " " (pr-str frame) ")")
-                   (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms ")"))]
+  (let [ms        (or (arg args :ms) 1000)
+        build-id  (arg-build args)
+        frame     (some-> (arg args :frame) keyword)
+        incl?     (include-sensitive? args)
+        form      (if frame
+                    (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms " " (pr-str frame) ")")
+                    (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms ")"))]
     (-> (ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [epochs]
-                 (ok-text {:ok? true
-                           :window-ms ms
-                           :count (count epochs)
-                           :epochs epochs})))
+                 (let [[kept dropped] (strip-sensitive (vec epochs) incl?)]
+                   (ok-text (cond-> {:ok? true
+                                     :window-ms ms
+                                     :count (count kept)
+                                     :epochs kept}
+                              (pos? dropped) (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :trace-failed err))))))
 
 ;; ---------------------------------------------------------------------------
@@ -257,6 +305,7 @@
   (let [build-id  (arg-build args)
         frame     (some-> (arg args :frame) keyword)
         since-id  (arg args :since-id)
+        incl?     (include-sensitive? args)
         pred-map  (when-let [p (arg args :pred)] (js->clj p :keywordize-keys true))
         frame-arg (if frame (str " " (pr-str frame)) "")
         form      (str "(let [r (re-frame-pair2.runtime/epochs-since "
@@ -269,7 +318,12 @@
     (-> (ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]
-                 (ok-text (merge {:ok? true} (when (map? v) v)))))
+                 (let [matches        (when (map? v) (:matches v))
+                       [kept dropped] (strip-sensitive (vec matches) incl?)
+                       base           (cond-> {:ok? true}
+                                        (map? v) (merge v))]
+                   (ok-text (cond-> (assoc base :matches kept)
+                              (pos? dropped) (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :watch-failed err))))))
 
 ;; ---------------------------------------------------------------------------
@@ -381,20 +435,49 @@
         (if (seq v) v full))
       :else full)))
 
+(defn- scrub-snapshot-sensitive
+  "Walk a snapshot's per-frame map and drop `:sensitive? true` items from
+  the `:traces` slice (and, defensively, `:epochs` — epoch records may
+  inherit the stamp in future runtime revisions per spec/009). Returns
+  `[scrubbed dropped-count]`. The non-trace slices (:app-db, :sub-cache,
+  :machines) pass through unchanged — redaction of those payloads is
+  the `with-redacted` interceptor's job, not the forwarder's."
+  [snapshot include?]
+  (if (or include? (not (map? snapshot)))
+    [snapshot 0]
+    (let [dropped (atom 0)
+          scrub-slice
+          (fn [items]
+            (let [[kept n] (strip-sensitive (vec items) false)]
+              (swap! dropped + n)
+              kept))
+          scrub-frame
+          (fn [frame-map]
+            (cond-> frame-map
+              (contains? frame-map :traces) (update :traces scrub-slice)
+              (contains? frame-map :epochs) (update :epochs scrub-slice)))
+          scrubbed (reduce-kv (fn [m k v]
+                                (assoc m k (if (map? v) (scrub-frame v) v)))
+                              {} snapshot)]
+      [scrubbed @dropped])))
+
 (defn- snapshot-tool [conn args]
   (let [build-id (arg-build args)
         frames   (parse-frames-arg (arg args :frames))
         include  (parse-include-arg (arg args :include))
+        incl?    (include-sensitive? args)
         opts     {:frames frames :include include}
         form     (str "(re-frame-pair2.runtime/snapshot-state "
                       (pr-str opts) ")")]
     (-> (ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]
-                 (ok-text {:ok?      true
-                           :frames   (if (= :all frames) :all (vec frames))
-                           :include  include
-                           :snapshot v})))
+                 (let [[scrubbed dropped] (scrub-snapshot-sensitive v incl?)]
+                   (ok-text (cond-> {:ok?      true
+                                     :frames   (if (= :all frames) :all (vec frames))
+                                     :include  include
+                                     :snapshot scrubbed}
+                              (pos? dropped) (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :snapshot-failed err))))))
 
 ;; ---------------------------------------------------------------------------
@@ -472,6 +555,7 @@
         poll-ms     (or (arg args :poll-ms) default-poll-ms)
         max-ms      (or (arg args :max-ms) 0)    ;; 0 = no upper bound
         max-events  (or (arg args :max-events) 0) ;; 0 = no upper bound
+        incl?       (include-sensitive? args)
         progress-tk (some-> extra
                             (j/get :_meta)
                             (j/get :progressToken))
@@ -502,9 +586,10 @@
                   (let [sub-id (:sub-id subscribe-resp)]
                     (js/Promise.
                       (fn [resolve _reject]
-                        (let [tick      (atom 0)
-                              delivered (atom 0)
-                              overflow* (atom 0)
+                        (let [tick               (atom 0)
+                              delivered          (atom 0)
+                              overflow*          (atom 0)
+                              dropped-sensitive* (atom 0)
                               terminate
                               (fn [reason]
                                 ;; Drop the runtime subscription and
@@ -520,13 +605,15 @@
                                       (fn [_]
                                         (resolve
                                           (ok-text
-                                            {:ok?        true
-                                             :sub-id     sub-id
-                                             :topic      topic
-                                             :delivered  @delivered
-                                             :overflow   @overflow*
-                                             :ticks      @tick
-                                             :reason     reason}))))))
+                                            (cond-> {:ok?        true
+                                                     :sub-id     sub-id
+                                                     :topic      topic
+                                                     :delivered  @delivered
+                                                     :overflow   @overflow*
+                                                     :ticks      @tick
+                                                     :reason     reason}
+                                              (pos? @dropped-sensitive*)
+                                              (assoc :dropped-sensitive @dropped-sensitive*))))))))
                               poll
                               (fn poll []
                                 (cond
@@ -551,10 +638,14 @@
                                             (terminate :sub-gone)
 
                                             :else
-                                            (let [evts (:events drain-resp)
-                                                  ov   (:overflow drain-resp 0)
-                                                  n    (count evts)]
+                                            (let [raw-evts       (:events drain-resp)
+                                                  ov             (:overflow drain-resp 0)
+                                                  [evts dropped] (strip-sensitive
+                                                                   (vec raw-evts) incl?)
+                                                  n              (count evts)]
                                               (swap! overflow* + ov)
+                                              (when (pos? dropped)
+                                                (swap! dropped-sensitive* + dropped))
                                               (when (or (pos? n) (pos? ov))
                                                 (swap! tick inc)
                                                 (swap! delivered + n)
@@ -566,9 +657,11 @@
                                                                      progress-tk
                                                                      @tick
                                                                      (pr-str
-                                                                       {:sub-id sub-id
-                                                                        :events evts
-                                                                        :overflow ov})
+                                                                       (cond-> {:sub-id sub-id
+                                                                                :events evts
+                                                                                :overflow ov}
+                                                                         (pos? dropped)
+                                                                         (assoc :dropped-sensitive dropped)))
                                                                      ov)})
                                                     (catch :default _ nil))))
                                               (js/setTimeout poll poll-ms)))))
@@ -633,18 +726,28 @@
                   :required ["event"]
                   :additionalProperties false}}
    {:name "trace-window"
-    :description "Return the :rf/epoch-records added in the last N ms for the operating frame."
+    :description (str "Return the :rf/epoch-records added in the last N ms for the operating frame. "
+                      "Per spec/009 §Privacy this forwarder default-drops items carrying `:sensitive? true` "
+                      "at the top level; opt back in with `include-sensitive? true`. Dropped count surfaces "
+                      "as `:dropped-sensitive` on the result when non-zero.")
     :inputSchema {:type "object"
                   :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000)"}
                                :frame {:type "string"}
+                               :include-sensitive? {:type "boolean"
+                                                    :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build {:type "string"}}
                   :additionalProperties false}}
    {:name "watch-epochs"
-    :description "Pull-mode poll: returns the epochs matching `pred` that landed after `since-id`. Call repeatedly to live-watch. Predicate keys: :event-id, :event-id-prefix, :effects, :touches-path, :sub-ran, :render, :origin, :frame."
+    :description (str "Pull-mode poll: returns the epochs matching `pred` that landed after `since-id`. "
+                      "Call repeatedly to live-watch. Predicate keys: :event-id, :event-id-prefix, :effects, "
+                      ":touches-path, :sub-ran, :render, :origin, :frame. Per spec/009 §Privacy this forwarder "
+                      "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`.")
     :inputSchema {:type "object"
                   :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh)"}
                                :pred     {:type "object" :description "Filter map"}
                                :frame    {:type "string"}
+                               :include-sensitive? {:type "boolean"
+                                                    :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build    {:type "string"}}
                   :additionalProperties false}}
    {:name "tail-build"
@@ -659,7 +762,11 @@
                       "Returns a map keyed by frame-id whose values carry the requested slices: "
                       ":app-db, :sub-cache, :machines, :epochs, :traces. "
                       "Server-side composition over the existing per-slice runtime readers. "
-                      "Prefer this over chaining 5-10 individual reads.")
+                      "Prefer this over chaining 5-10 individual reads. "
+                      "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
+                      "`:sensitive? true`; opt back in with `include-sensitive? true`. App-db / sub-cache / "
+                      "machines slices pass through unchanged — payload redaction is the `with-redacted` "
+                      "interceptor's job, not the forwarder's.")
     :inputSchema {:type "object"
                   :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
                                          :oneOf [{:type "string"}
@@ -668,6 +775,8 @@
                                          :description "Slices to include. Defaults to all five. Recognised: app-db, sub-cache, machines, epochs, traces."
                                          :items {:type "string"
                                                  :enum ["app-db" "sub-cache" "machines" "epochs" "traces"]}}
+                               :include-sensitive? {:type "boolean"
+                                                    :description "Opt back in to forwarding `:sensitive? true` items in the :traces / :epochs slices. Default false."}
                                :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
                   :additionalProperties false}}
    {:name "subscribe"
@@ -679,7 +788,10 @@
                       "Filter vocab depends on topic — :trace/:fx/:error accept the (rf/trace-buffer) filter map "
                       "(:operation :op-type :frame :severity :event-id :handler-id :source :origin :dispatch-id :since-ms :between); "
                       ":epoch accepts the epoch-matches? predicate map (:event-id :event-id-prefix :effects :touches-path "
-                      ":sub-ran :render :origin :frame). Pass `filter` either as a JSON object or as an EDN-encoded string.")
+                      ":sub-ran :render :origin :frame). Pass `filter` either as a JSON object or as an EDN-encoded string. "
+                      "Per spec/009 §Privacy this forwarder default-drops events carrying `:sensitive? true` at the top "
+                      "level; opt back in with `include-sensitive? true`. Dropped count surfaces as `:dropped-sensitive` "
+                      "on each progress payload (when non-zero) and the final summary.")
     :inputSchema {:type "object"
                   :properties {:topic   {:type "string"
                                          :description "Topic name. Required."
@@ -695,6 +807,8 @@
                                          :description "Hard upper-bound on how long the subscription stays open, ms. 0 = unbounded (close on cancel only). Default 0."}
                                :max-events {:type "integer"
                                             :description "Terminate after this many events have been delivered. 0 = unbounded. Default 0."}
+                               :include-sensitive? {:type "boolean"
+                                                    :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build   {:type "string"}}
                   :required ["topic"]
                   :additionalProperties false}}
