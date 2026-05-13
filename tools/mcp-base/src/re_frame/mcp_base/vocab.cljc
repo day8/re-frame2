@@ -14,7 +14,7 @@
   keys here, once, prevents per-consumer drift and gives a single
   search target when the vocabulary grows.
 
-  ## Two namespaces
+  ## Two namespaces plus envelope slots
 
   `:rf.mcp/*` — per-tool wire-mechanism markers (overflow, cursor,
                 dedup-table, diff-from, cache-hit, cursor-stale).
@@ -27,6 +27,13 @@
                  namespaces; Spec 009 §Size elision in traces). The
                  walker emits the marker; MCP servers re-emit it on
                  the wire.
+
+  Unqualified envelope slots — `:dropped-sensitive` /
+  `:elided-large` — ride alongside the tool's unqualified envelope
+  slots; they are scalar counters summarising the walker's
+  suppression count on a per-call basis. Per Conventions §Cross-MCP
+  indicator-field vocabulary and Spec 009 §Size elision in traces
+  (Indicator field on tool responses, MUST-level).
 
   ## JSON-RPC error codes
 
@@ -134,6 +141,67 @@
   "Framework opt: byte threshold above which an auto-detected leaf is
   elided. Per Spec 009 §Size elision in traces."
   :rf.size/threshold-bytes)
+
+;; ---------------------------------------------------------------------------
+;; Envelope indicator-field slots (Conventions §Cross-MCP indicator-field
+;; vocabulary; Spec 009 §Size elision in traces — Indicator field on tool
+;; responses). MUST-level pin per rf2-2499j: every tool that returns a
+;; structured response map and walks a tree-typed payload carries BOTH
+;; counts on the envelope (omit when zero, alongside the qualified wire
+;; markers `:rf/redacted` / `:rf.size/large-elided` at the leaf-
+;; substitution site).
+;;
+;; Unqualified keys — they ride alongside the tool's own unqualified
+;; envelope slots (`{:trace [...] :dropped-sensitive 3}`,
+;; `{:db {...} :elided-large 2}`). Mixing namespaced and unqualified
+;; envelope keys would split the response shape across two conventions
+;; and burn agent-host pattern-match budget for no information gain.
+;; The wire markers at the leaf-substitution site stay namespaced —
+;; they are addressable values the agent re-fetches; these counts are
+;; scalar summaries on the envelope.
+;; ---------------------------------------------------------------------------
+
+(def dropped-sensitive-key
+  "Envelope-slot key for the count of `:sensitive? true` leaves dropped
+  at the wire boundary. Unqualified per Conventions §Cross-MCP
+  indicator-field vocabulary. Omit the slot when the count is zero.
+  Mirror of `[● REDACTED N]` on on-box dev-tool surfaces."
+  :dropped-sensitive)
+
+(def elided-large-key
+  "Envelope-slot key for the count of leaves replaced with the
+  `:rf.size/large-elided` marker at the wire boundary. Unqualified
+  per Conventions §Cross-MCP indicator-field vocabulary. Omit the
+  slot when the count is zero. Mirror of `[● ELIDED N]` on on-box
+  dev-tool surfaces. Per Spec 009 §Size elision in traces —
+  Indicator field on tool responses (MUST-level)."
+  :elided-large)
+
+(defn count-elided-markers
+  "Walk `v` and count every `{:rf.size/large-elided ...}` marker it
+  contains. The walker is shallow at the marker boundary — once a
+  marker is found, its body is NOT recursed into (marker bodies are
+  scalar metadata, not tree-shaped). Recurses through maps, vectors,
+  sets, and seqs; treats every other value as a leaf.
+
+  Returns an integer ≥ 0. Cheap on the common path (post-elision
+  payload with no markers ⇒ one full walk producing zero).
+
+  Counterpart to `re-frame.mcp-base.sensitive/strip-sensitive`'s
+  `dropped-count` return — both indicators ride the response envelope
+  per Conventions §Cross-MCP indicator-field vocabulary."
+  [v]
+  (cond
+    (and (map? v) (contains? v large-elided-key))
+    1
+
+    (map? v)
+    (reduce-kv (fn [n _k child] (+ n (count-elided-markers child))) 0 v)
+
+    (or (vector? v) (set? v) (seq? v))
+    (reduce (fn [n child] (+ n (count-elided-markers child))) 0 v)
+
+    :else 0))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON-RPC 2.0 error codes (per §5.1; reused by MCP per the spec)

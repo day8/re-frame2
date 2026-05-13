@@ -244,6 +244,34 @@
   [:map [:rf.size/large-elided ElisionMarkerBody]])
 
 ;; ---------------------------------------------------------------------------
+;; Envelope indicator-field slots (`:dropped-sensitive` / `:elided-large`).
+;; Per Conventions §Cross-MCP indicator-field vocabulary (rf2-2499j) and
+;; Spec 009 §Size elision in traces — Indicator field on tool responses
+;; (MUST-level). Unqualified keys riding the tool's own envelope; integer
+;; counters; omit when zero. These are NOT cross-server wire MARKERS
+;; (those are the `:rf.mcp/*` / `:rf.size/*` namespaced shapes above) —
+;; they are scalar envelope-level summaries of how many walker
+;; suppressions happened per call. The conformance contract: both slots
+;; ride alongside every tool that walks a tree-typed payload, the keys
+;; are unqualified (no namespace), and the values are non-negative
+;; integers.
+;; ---------------------------------------------------------------------------
+
+(def DroppedSensitive
+  "`{... :dropped-sensitive N}` envelope slot — integer count of leaves
+  the walker dropped because they matched `:sensitive? true`. Open map
+  so it composes with any tool's envelope shape; the load-bearing
+  claim is the slot KEY (`:dropped-sensitive`, unqualified) and the
+  value's `nat-int?` type."
+  [:map {:closed false} [:dropped-sensitive nat-int?]])
+
+(def ElidedLarge
+  "`{... :elided-large N}` envelope slot — integer count of leaves the
+  walker replaced with the `:rf.size/large-elided` marker. Same
+  shape contract as `:dropped-sensitive`."
+  [:map {:closed false} [:elided-large nat-int?]])
+
+;; ---------------------------------------------------------------------------
 ;; Canonical-marker index. The ordered set of cross-MCP markers; each
 ;; entry binds the schema, a description, and the per-server fixtures.
 ;; A new marker landing in the cross-server vocabulary MUST add an
@@ -517,3 +545,123 @@
                  "`canonical-markers` to include :story-mcp in "
                  ":servers, add a story-mcp fixture, and extend "
                  "`server-source-files`."))))))
+
+;; ---------------------------------------------------------------------------
+;; Envelope indicator-field gate (rf2-2499j MUST-level pin).
+;;
+;; Per Conventions §Cross-MCP indicator-field vocabulary and Spec 009
+;; §Size elision in traces — Indicator field on tool responses, tools
+;; that return structured response maps MUST carry an `:elided-large`
+;; count alongside the existing `:dropped-sensitive` count, one MUST-
+;; level row per consumer-facing tool that walks a tree-typed payload.
+;;
+;; Conformance contract:
+;;
+;; 1. Schema-level: both envelope slots validate as
+;;    `[:map {:closed false} [<slot> nat-int?]]`. Fixtures sourced from
+;;    each emitting server.
+;; 2. Source-text pin: every server in `:envelope-emitters` carries
+;;    BOTH the `:dropped-sensitive` literal AND the `:elided-large`
+;;    literal (parity — one without the other is the round-2 audit
+;;    must-fix this gate defends against).
+;; 3. story-mcp absence tripwire: today story-mcp does not walk any
+;;    tree-typed payload through `elide-wire-value` (it operates on
+;;    small, structured story/variant metadata that stays under the
+;;    wire-cap by construction); neither slot appears in its source.
+;;    When story-mcp adopts a walker, the reviewer adds it to
+;;    `:envelope-emitters` AND wires the parity emission — both at
+;;    once, per the MUST-level pin.
+;;
+;; The mcp-base vocab ns (`tools/mcp-base/src/re_frame/mcp_base/vocab.cljc`)
+;; reserves the two slot KEYS as constants (`dropped-sensitive-key`,
+;; `elided-large-key`); the count-walker helper
+;; (`count-elided-markers`) lives next to them. Consumers import the
+;; ns to keep the key bytes byte-identical across servers.
+;; ---------------------------------------------------------------------------
+
+(def envelope-indicator-slots
+  "Conformance contract for the two unqualified envelope-indicator
+  slots. Each entry pins the schema, per-server fixtures, and the set
+  of servers that emit the slot today. The two slots are siblings —
+  any server that emits one MUST emit the other (the MUST-level
+  parity is the round-2 audit fix this gate enforces)."
+  [{:slot     :dropped-sensitive
+    :schema   DroppedSensitive
+    :emitters #{:pair2-mcp}
+    :fixtures {:pair2-mcp-trace-window
+               {:ok? true :epochs [] :dropped-sensitive 3}
+               :pair2-mcp-snapshot
+               {:ok? true :snapshot {} :dropped-sensitive 1}}}
+
+   {:slot     :elided-large
+    :schema   ElidedLarge
+    :emitters #{:pair2-mcp}
+    :fixtures {:pair2-mcp-snapshot
+               {:ok? true :snapshot {} :elided-large 2}
+               :pair2-mcp-get-path
+               {:ok? true :exists? true :path [:user :pdf] :value
+                {:rf.size/large-elided
+                 {:path [:user :pdf]
+                  :bytes 102400
+                  :type :string
+                  :reason :declared
+                  :hint "User PDF; fetch via get-path."
+                  :handle [:rf.elision/at [:user :pdf]]}}
+                :elided-large 1}}}])
+
+(deftest envelope-indicator-fixtures-conform
+  (doseq [{:keys [slot schema fixtures]} envelope-indicator-slots
+          [fixture-name fixture-value]   fixtures]
+    (testing (str "envelope slot " slot " — fixture " fixture-name)
+      (is (m/validate schema fixture-value)
+          (str "Fixture " fixture-name " for " slot
+               " failed schema validation:\n"
+               (me/humanize (m/explain schema fixture-value)))))))
+
+(def ^:private envelope-emitter-source-files
+  "Source files that carry the envelope-slot emit sites per server.
+  Restricted to the actual tool source — the spec/docs files may
+  mention the slots without emitting them."
+  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs"]
+   :causa-mcp []          ;; impl not landed; spec mentions don't count
+   :story-mcp []})        ;; doesn't walk tree-typed payloads today
+
+(deftest envelope-slot-parity-in-pair2-mcp
+  ;; MUST-level pin (Conventions rf2-2499j, Spec 009 §Indicator field
+  ;; on tool responses): every server that emits one slot MUST emit
+  ;; the other. The round-2 alignment audit (rf2-zjqh8) caught
+  ;; pair2-mcp emitting only `:dropped-sensitive`; this gate locks
+  ;; in the parity so the regression can't return silently.
+  (let [files (get envelope-emitter-source-files :pair2-mcp)]
+    (is (seq files)
+        "No source files registered for pair2-mcp envelope emit sites.")
+    (doseq [rel files]
+      (let [src (read-source rel)]
+        (testing (str "pair2-mcp " rel " — :dropped-sensitive literal")
+          (is (str/includes? src ":dropped-sensitive")
+              (str ":dropped-sensitive literal missing from " rel)))
+        (testing (str "pair2-mcp " rel " — :elided-large literal")
+          (is (str/includes? src ":elided-large")
+              (str ":elided-large literal missing from " rel
+                   " — parity break per Conventions rf2-2499j.")))))))
+
+(deftest story-mcp-still-emits-zero-envelope-indicators
+  ;; Tripwire mirroring `story-mcp-still-emits-zero-cross-mcp-markers`.
+  ;; The day story-mcp adopts a tree-typed-payload walker (e.g. wires
+  ;; `elide-wire-value` over the `:app-db` slot in `preview-variant` /
+  ;; `run-variant`), both envelope slots MUST land together. This
+  ;; tripwire flips RED on the FIRST adoption so the reviewer can't
+  ;; merge half the parity.
+  (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/tools.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"]
+        slots       [":dropped-sensitive" ":elided-large"]]
+    (doseq [rel  story-files
+            slot slots]
+      (testing (str "story-mcp source " rel " — " slot " absence")
+        (is (not (str/includes? (read-source rel) slot))
+            (str slot " literal found in " rel
+                 ".\nIf story-mcp now walks a tree-typed payload, "
+                 "the OTHER envelope slot MUST land in the same commit "
+                 "(Conventions rf2-2499j MUST-level parity). Update "
+                 "`envelope-emitter-source-files` and "
+                 "`envelope-indicator-slots`."))))))
