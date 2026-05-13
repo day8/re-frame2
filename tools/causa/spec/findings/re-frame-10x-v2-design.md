@@ -1,6 +1,6 @@
-# re-frame-10x v2 — Design From a Blank Slate
+# Causa — Design From a Blank Slate
 
-> Bead **rf2-buor (P2 research).** Local-only working draft for Mike to iterate on. **Not committed; not normative; not a port.** The exercise: imagine re-frame-10x's successor with re-frame2's instrumentation as the substrate and 2026-class devtools expectations as the bar. Be bold; flag what's speculative.
+> Bead **rf2-buor (P2 research).** Working draft for Mike to iterate on. **Not normative; not a port.** The exercise: imagine re-frame-10x's successor with re-frame2's instrumentation as the substrate and 2026-class devtools expectations as the bar. Be bold; flag what's speculative. (Historical working title: "re-frame-10x v2"; the rename to Causa was locked 2026-05-11.)
 >
 > Companion docs: [`re-frame-2-story-feature-set.md`](re-frame-2-story-feature-set.md) (rf2-m6tu) and [`re-frame-2-story-sota-refinement.md`](rf2-94b0). Substrate this consumes: [Spec 009 Instrumentation](../spec/009-Instrumentation.md), [Spec Tool-Pair](../spec/Tool-Pair.md), [Spec 002 Frames](../spec/002-Frames.md), [Spec 005 Machines](../spec/005-StateMachines.md), [Spec 013 Flows](../spec/013-Flows.md), [Spec 011 SSR](../spec/011-SSR.md), [Spec 010 Schemas](../spec/010-Schemas.md), [Spec 012 Routing](../spec/012-Routing.md), [Spec Runtime-Architecture](../spec/Runtime-Architecture.md).
 
@@ -12,7 +12,7 @@
 
 ## §1 Problem statement
 
-### What re-frame-10x v2 is for
+### What Causa is for
 
 **A debugger that explains the runtime to the human in the runtime's own terms.** When a re-frame app misbehaves, the debugger should let the programmer ask — and answer — five canonical questions:
 
@@ -29,13 +29,13 @@ v1 of 10x answered #1–#4 partially and #5 not really. The bar in 2026 is **all
 - **The re-frame programmer mid-feature.** Building, breaking, fixing. Wants the trace ribbon in their face but unobtrusive; wants click-to-source from anywhere; wants to scrub.
 - **The re-frame programmer reading an unfamiliar codebase.** "Why does clicking *Save* eventually re-render this card three modules over?" Wants a causal graph.
 - **The on-call programmer triaging a production-shaped repro.** Wants to load a session, scrub, find the divergence.
-- **The AI agent driving the runtime via re-frame-pair / Story / MCP surfaces.** Doesn't open the UI itself but consumes the same data through the same primitives — re-frame-10x v2 and the agent surfaces are siblings, not parent/child.
+- **The AI agent driving the runtime via re-frame-pair / Story / MCP surfaces.** Doesn't open the UI itself but consumes the same data through the same primitives — Causa and the agent surfaces are siblings, not parent/child.
 
 ### What jobs it does that nothing else does well
 
-- **Causal cascades across frames.** Redux DevTools is single-store; XState Inspector is per-machine; React DevTools is component-shaped. None of them shows the full cascade: dispatch → handler → fx → re-dispatch → machine transition → flow recompute → sub recompute → render. re-frame2 sees all of it; 10x v2 *shows* all of it.
-- **Time-travel that survives schema evolution.** re-frame2's `restore-epoch` has six named failure modes (per [Tool-Pair §Time-travel](../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). 10x v2 surfaces those failures structurally — "this rewind would break because schema `:auth` tightened since the snapshot."
-- **Live machine state on a stately-quality chart, embedded in the same surface as event traces.** Stately Inspector is great; it's also a separate tab in a separate tool. 10x v2 unifies it with the event log so a click on `:rf.machine/transition` jumps to the chart with the source state pre-highlighted.
+- **Causal cascades across frames.** Redux DevTools is single-store; XState Inspector is per-machine; React DevTools is component-shaped. None of them shows the full cascade: dispatch → handler → fx → re-dispatch → machine transition → flow recompute → sub recompute → render. re-frame2 sees all of it; Causa *shows* all of it.
+- **Time-travel that survives schema evolution.** re-frame2's `restore-epoch` has six named failure modes (per [Tool-Pair §Time-travel](../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). Causa surfaces those failures structurally — "this rewind would break because schema `:auth` tightened since the snapshot."
+- **Live machine state on a stately-quality chart, embedded in the same surface as event traces.** Stately Inspector is great; it's also a separate tab in a separate tool. Causa unifies it with the event log so a click on `:rf.machine/transition` jumps to the chart with the source state pre-highlighted.
 - **SSR/hydration debugging.** The render-tree hash diff per epoch, server-vs-client view side-by-side. No JS debugger does this because none of the JS frameworks make hydration mismatches structurally observable.
 
 **One-line pitch:** *Causa is a causality-graph debugger that answers "why did this happen?" for re-frame2 apps, built on Spec 009's trace bus and Tool-Pair's epoch contract.*
@@ -83,8 +83,8 @@ From scanning v1's issue tracker and the wiki:
 
 v1's tracing cost is real on hot dispatches. v2 inherits Spec 009's compile-time elision (zero prod cost), but at *dev* time we need to be careful:
 
-- **Trace buffer depth defaults to 200** (per Spec 009). 10x v2's UI never reads from anywhere else for "recent history" — no parallel ring buffer. Configurable to 1000 for deep sessions.
-- **Epoch history depth defaults to 50** (per Tool-Pair). Configurable. 10x v2 shows the depth and a "fill ratio" so users know if they're aging out epochs faster than they're inspecting them.
+- **Trace buffer depth defaults to 200** (per Spec 009). Causa's UI never reads from anywhere else for "recent history" — no parallel ring buffer. Configurable to 1000 for deep sessions.
+- **Epoch history depth defaults to 50** (per Tool-Pair). Configurable. Causa shows the depth and a "fill ratio" so users know if they're aging out epochs faster than they're inspecting them.
 - **Sub-cache panel** never holds references to cached values longer than the rendering frame (avoid extending sub lifetimes via the debugger).
 - **App-db viewer** virtualises deep trees (lazy expansion past 100 keys).
 - **The causality graph view** caps at the last 200 dispatches by default (matches trace buffer); deeper views require explicit "load older."
@@ -93,7 +93,7 @@ v1's tracing cost is real on hot dispatches. v2 inherits Spec 009's compile-time
 
 ## §3 What re-frame2 unlocks
 
-The framework grew capabilities since v1 that fundamentally change what's debuggable. Each row below is "new in re-frame2 → new tooling story 10x v2 must tell."
+The framework grew capabilities since v1 that fundamentally change what's debuggable. Each row below is "new in re-frame2 → new tooling story Causa must tell."
 
 | re-frame2 capability | New tooling story |
 |---|---|
@@ -101,18 +101,18 @@ The framework grew capabilities since v1 that fundamentally change what's debugg
 | **Machines** ([005](../spec/005-StateMachines.md)) | Stately-quality state-chart per machine, live-highlighted; transition log keyed by machine; `:invoke-all` parallel-child viz; `:after` timer countdown indicators; microstep replay. |
 | **Flows** ([013](../spec/013-Flows.md)) | Flow dependency graph; per-flow recompute count; "this flow ran *N* times this session" heatmap; the `:rf.flow/skip` (rf2-719e value-equal recompute suppression) badge so devs can see when flows are correctly *not* running. |
 | **Source-coord stamping** ([001](../spec/001-Registration.md), [006](../spec/006-ReactiveSubstrate.md)) | **Click-to-source everywhere.** Every registered id, every DOM node (via `data-rf2-source-coord`), every machine guard/action/transition (via `:rf.machine/source-coords`). Source location surfaced as copyable `file:line` chips — the user opens the file in their editor of choice. No protocol-handler dependency. |
-| **Trace bus** ([009](../spec/009-Instrumentation.md)) | The substrate of everything. Open shape, stable vocabulary, `:op-type` discriminator. 10x v2 does not invent its own trace shape — it consumes Spec 009. |
+| **Trace bus** ([009](../spec/009-Instrumentation.md)) | The substrate of everything. Open shape, stable vocabulary, `:op-type` discriminator. Causa does not invent its own trace shape — it consumes Spec 009. |
 | **Epoch history + `:rf/epoch-record` projections** ([Tool-Pair](../spec/Tool-Pair.md)) | First-class time-travel; per-frame epoch scrubber; pre-folded `:sub-runs` / `:renders` / `:effects` so the tool doesn't refold the raw trace. |
 | **`reset-frame-db!`** ([Tool-Pair §Pair-tool writes](../spec/Tool-Pair.md#pair-tool-writes--state-injection)) | "Edit app-db live" affordance — type a JSON value into the panel, the runtime takes it. Records a synthetic epoch so the change is undoable. |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
-| **`register-epoch-cb!`** | The assembled-per-cascade listener is what 10x v2 routes off; cheaper than raw-stream re-folding. |
-| **Tool-Pair surface** | 10x v2 *and* re-frame-pair *and* Story consume the same primitives. No 10x dependency from the agent tools. 10x v2 is a peer, not a parent. |
+| **`register-epoch-cb!`** | The assembled-per-cascade listener is what Causa routes off; cheaper than raw-stream re-folding. |
+| **Tool-Pair surface** | Causa *and* re-frame-pair *and* Story consume the same primitives. No 10x dependency from the agent tools. Causa is a peer, not a parent. |
 | **Schemas (Malli)** ([010](../spec/010-Schemas.md)) | Real-time schema-violation feed with five named recovery modes; "the schema for this path is X" tooltip on every app-db key; live `app-schemas-digest` shown so devs notice schema drift between dev and SSR. |
 | **SSR + hydration** ([011](../spec/011-SSR.md)) | Hydration-mismatch debugger — server render tree vs client render tree, structural diff, click-to-source on the divergent node. The `:rf.ssr/hydration-mismatch` trace is the entry point. |
 | **Routing** ([012](../spec/012-Routing.md)) | URL ↔ frame state visualisation; the `:rf/route` slice rendered as a breadcrumb above the app-db tree; nav-token timeline showing stale-result suppression in flight. |
 | **`:origin` opt on dispatch** | Filter the event log by actor ("show me only the dispatches Claude issued this session"). Pair-tool / Story / human dispatches are all distinguishable. |
 | **Performance API (`rf:*` `User Timing` measures)** | The performance ribbon reads `PerformanceObserver` directly — no re-frame2 API call needed; works in prod too if the opt-in flag is on. |
-| **Production-elision verifier** | 10x v2 can run `npm run test:elision` in-process and show "your build will ship *N* bytes of dev-only sentinels" — i.e. detect leaks before deploy. |
+| **Production-elision verifier** | Causa can run `npm run test:elision` in-process and show "your build will ship *N* bytes of dev-only sentinels" — i.e. detect leaks before deploy. |
 
 The architectural shift: in v1, 10x had to *invent* observability surfaces because the runtime had few. In v2, the runtime emits structured data for every interesting moment; 10x's job is *presentation*.
 
@@ -166,7 +166,7 @@ Open by default (per UX §12.2 lock). Toggled via `Ctrl+Shift+/`; user can close
 
 ### 4.4 Machine inspector with live state-chart highlighting
 
-Embedded XState-Inspector-quality visualisation. Built on the same primitives `tools/machines-viz/` will use ([per `tools/README.md`](../tools/README.md)). The relationship: 10x v2 *embeds* machines-viz's chart component as a panel (registered via the cross-tool embedding contract, mirroring how Story embeds 10x's epoch panel — see §9).
+Embedded XState-Inspector-quality visualisation. Built on the same primitives `tools/machines-viz/` will use ([per `tools/README.md`](../tools/README.md)). The relationship: Causa *embeds* machines-viz's chart component as a panel (registered via the cross-tool embedding contract, mirroring how Story embeds 10x's epoch panel — see §9).
 
 What you see:
 
@@ -368,7 +368,7 @@ The trace timeline and the event log are the most-accessible-by-default — they
 
 ### Mobile
 
-Does 10x v2 consider mobile use? **Mostly no, with a narrow exception.**
+Does Causa consider mobile use? **Mostly no, with a narrow exception.**
 
 10x is a debugger and debugging happens at a workstation. We don't make the in-app 10x panel responsive to <600px viewports.
 
@@ -402,7 +402,7 @@ A **"reduced motion"** toggle (respecting `prefers-reduced-motion`) kills all an
 
 ### Bundle size budget
 
-The elision contract (Spec 009 §Production builds) gives us a hard guarantee: **0 bytes in production**, full stop. CI's `npm run test:elision` job (which 10x v2 inherits — its sentinels join the runtime's) blocks any leak.
+The elision contract (Spec 009 §Production builds) gives us a hard guarantee: **0 bytes in production**, full stop. CI's `npm run test:elision` job (which Causa inherits — its sentinels join the runtime's) blocks any leak.
 
 In dev mode, the bundle target is:
 
@@ -416,23 +416,23 @@ We achieve this via shadow-cljs's per-output target slicing — every panel is a
 
 Acceptable cost on the running app:
 
-- **Trace bus emission overhead:** measured in microseconds per event (per Spec 009). 10x v2 adds <2µs per emit (one listener invocation + a `cons` onto a transient batch).
+- **Trace bus emission overhead:** measured in microseconds per event (per Spec 009). Causa adds <2µs per emit (one listener invocation + a `cons` onto a transient batch).
 - **Causality graph live updates:** debounced to 16ms (one rAF). A burst of 1000 events still updates the graph once per frame.
 - **App-db diff:** O(changed paths) via PersistentHashMap pointer-eq. Negligible on dbs <10MB; bounded by the change set.
 - **Rendering:** every panel virtualises long lists; nothing renders >200 rows at once; the causality graph caps at the last 200 dispatches.
 
-The hard rule: **opening 10x v2 must not change observable INP** on a typical app. If it does, we cut features until it doesn't.
+The hard rule: **opening Causa must not change observable INP** on a typical app. If it does, we cut features until it doesn't.
 
 ### Install / enable / disable
 
 ```clojure
 ;; In shadow-cljs.edn dev build:
-{:builds {:app {:devtools {:preloads [day8.re-frame2-10x.preload]}}}}
+{:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
 That's it. The preload registers under `register-trace-cb!` and `register-epoch-cb!`, mounts a hidden DOM root, listens for `Ctrl+Shift+X`. No code change in the app itself.
 
-Disabling: remove the `:preloads` entry, or set `:closure-defines {day8.re-frame2-10x.config/enabled? false}` to force-disable even in dev.
+Disabling: remove the `:preloads` entry, or set `:closure-defines {day8.re-frame2-causa.config/enabled? false}` to force-disable even in dev.
 
 We follow v1's preload convention exactly — muscle memory transfer is free.
 
@@ -442,9 +442,9 @@ We follow v1's preload convention exactly — muscle memory transfer is free.
 
 ### Story embeds 10x's epoch panel (already decided)
 
-From [`re-frame-2-story-feature-set.md`](re-frame-2-story-feature-set.md) §6.7 and §4.4: Story registers a story-panel that embeds 10x v2's epoch panel as the variant's observability ribbon.
+From [`re-frame-2-story-feature-set.md`](re-frame-2-story-feature-set.md) §6.7 and §4.4: Story registers a story-panel that embeds Causa's epoch panel as the variant's observability ribbon.
 
-**The embedding contract** (this design): every 10x v2 panel exports a **`Panel`** React component (or hiccup-fn equivalent) that accepts:
+**The embedding contract** (this design): every Causa panel exports a **`Panel`** React component (or hiccup-fn equivalent) that accepts:
 
 ```clojure
 {:frame    :story.auth/login          ;; which frame to observe
@@ -453,15 +453,15 @@ From [`re-frame-2-story-feature-set.md`](re-frame-2-story-feature-set.md) §6.7 
  :scope    {:dispatch-id-prefix ...}} ;; optional filter to restrict the observation window
 ```
 
-Story's `reg-story-panel` wires the embedded panel into the variant page. The contract is: the 10x v2 panel **knows it's embedded** (so it doesn't claim Ctrl+Shift+X, doesn't open its own pop-out, doesn't show a "close" button), but otherwise renders identically.
+Story's `reg-story-panel` wires the embedded panel into the variant page. The contract is: the Causa panel **knows it's embedded** (so it doesn't claim Ctrl+Shift+X, doesn't open its own pop-out, doesn't show a "close" button), but otherwise renders identically.
 
-10x v2 exposes the **embedded epoch panel** at v1.0. The embedded causality graph and embedded machine inspector ship at v1.1 (so Story can embed them too if it wants).
+Causa exposes the **embedded epoch panel** at v1.0. The embedded causality graph and embedded machine inspector ship at v1.1 (so Story can embed them too if it wants).
 
 ### machines-viz overlap
 
-`tools/machines-viz/` and 10x v2's machine inspector both render state-charts. The relationship: **machines-viz owns the chart component; 10x v2 embeds it** as one of its 17 panels. Same direction as Story → 10x.
+`tools/machines-viz/` and Causa's machine inspector both render state-charts. The relationship: **machines-viz owns the chart component; Causa embeds it** as one of its 17 panels. Same direction as Story → 10x.
 
-The contract: `machines-viz` exports a `MachineChart` component that accepts a machine-id and a frame-id, renders the chart, handles the live-highlight. 10x v2's machine inspector panel is a thin wrapper that adds the transition-history ribbon and the source-coord jump affordance. machines-viz can be used without 10x v2 (programmer who only wants a chart); 10x v2 *depends* on machines-viz for the chart rendering.
+The contract: `machines-viz` exports a `MachineChart` component that accepts a machine-id and a frame-id, renders the chart, handles the live-highlight. Causa's machine inspector panel is a thin wrapper that adds the transition-history ribbon and the source-coord jump affordance. machines-viz can be used without Causa (programmer who only wants a chart); Causa *depends* on machines-viz for the chart rendering.
 
 ### re-frame-pair2 overlap
 
@@ -484,7 +484,7 @@ re-frame-pair2 is AI-driven (an LLM integration via nREPL). Causa is human-drive
 - `reset-frame-db` — inject state.
 - `dispatch` — fire an event (with `:origin :mcp`).
 
-This is largely **the same surface as `tools/story-mcp/`**, because Story's MCP and 10x v2's MCP both ultimately surface the Tool-Pair contract. The split exists for jar-bundle isolation and per-tool release cadence; the tools converge on a common MCP-tool vocabulary. v1.1.
+This is largely **the same surface as `tools/story-mcp/`**, because Story's MCP and Causa's MCP both ultimately surface the Tool-Pair contract. The split exists for jar-bundle isolation and per-tool release cadence; the tools converge on a common MCP-tool vocabulary. v1.1.
 
 We *don't* duplicate the pair tool's MCP — re-frame-pair2's MCP (if it ships one) is editor-focused; 10x's MCP is debugger-focused. Both can coexist; agents pick the one their workflow needs.
 
@@ -571,7 +571,7 @@ Explicit non-goals at v1.0: Chrome extension, standalone HTML viewer / remote-at
 
 ### Visual identity
 
-- A single mark: an arrow forking from one node into three nodes (the cascade). Works at favicon size; works as the launch button in 10x v2 itself.
+- A single mark: an arrow forking from one node into three nodes (the cascade). Works at favicon size; works as the launch button in Causa itself.
 - The default theme is dark with a violet accent (echoing `:origin :pair` violet — every cause has an origin).
 - One typeface (Inter or system-ui) plus one monospace (JetBrains Mono / system mono).
 - No mascots, no skeuomorphism, no cute.
@@ -608,7 +608,7 @@ Where this design is speculative or weak:
 
 The bar this design sets: a programmer hits `Ctrl+Shift+X`, sees the cascade their last click triggered, asks "why?", and has the answer in 5 seconds. Causa earns its keep at that bar.
 
-If a panel doesn't help answer "why?" or "what happened?" or "what's wrong?", it doesn't ship. We could pile features (the rolling Storybook MCP / a11y / coverage / theme story is real for component workshops; 10x v2's lane is *debugging the runtime*). Restraint is what keeps the tool habit-forming instead of impressive.
+If a panel doesn't help answer "why?" or "what happened?" or "what's wrong?", it doesn't ship. We could pile features (the rolling Storybook MCP / a11y / coverage / theme story is real for component workshops; Causa's lane is *debugging the runtime*). Restraint is what keeps the tool habit-forming instead of impressive.
 
 The headline isn't "we built a better trace panel." The headline is "we built the debugger re-frame2 deserves — one that explains the runtime to the human in the runtime's own terms, with an AI co-pilot for when explaining isn't enough."
 
