@@ -42,6 +42,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
+            [day8.re-frame2-causa.panels.flows :as flows]
             [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.performance :as performance]
@@ -85,7 +86,7 @@
    {:id :fx           :label "Effects"       :bead "rf2-xxx"}
    {:id :trace        :label "Trace"         :bead "rf2-argrj" :live? true}
    {:id :machines     :label "Machines"      :bead "rf2-xxx"}
-   {:id :flows        :label "Flows"         :bead "rf2-xxx"}
+   {:id :flows        :label "Flows"         :bead "rf2-83irn" :live? true}
    {:id :performance  :label "Performance"   :bead "rf2-75121" :live? true}
    {:id :issues       :label "Issues"        :bead "rf2-d1p4o" :live? true}
    {:id :schemas      :label "Schemas"       :bead "rf2-htffa" :live? true}
@@ -266,6 +267,7 @@
       :time-travel  [time-travel/time-travel-view]
       :app-db       [app-db-diff/app-db-diff-view]
       :causality    [causality-graph/causality-graph-view]
+      :flows        [flows/flows-view]
       :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
       :hydration    [hydration-debugger/hydration-debugger-view]
