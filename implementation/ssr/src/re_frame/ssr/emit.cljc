@@ -140,49 +140,97 @@
 
     :else out))
 
-(defn emit-element [el]
-  (cond
-    (nil? el)         ""
-    (string? el)      (escape-html el)
-    (number? el)      (str el)
-    (boolean? el)     ""
-    (vector? el)
-    (let [head (first el)]
-      (cond
-        (keyword? head)
-        (let [;; Look up registered view first.
-              maybe-view (registrar/lookup :view head)]
-          (if maybe-view
-            (let [raw   (apply (:handler-fn maybe-view) (rest el))
-                  ;; Spec 006 §Source-coord annotation: inject the
-                  ;; data-rf2-source-coord attribute on the registered
-                  ;; view's root DOM element when the slot's metadata
-                  ;; carries source coords.
-                  coord (format-view-source-coord head maybe-view)
-                  out   (if coord
-                          (inject-coord-on-root-hiccup coord raw)
-                          raw)]
-              (emit-element out))
-            (let [[tag-name tag-attrs] (parse-tag-name head)
-                  [user-attrs children]
-                  (if (map? (second el))
-                    [(second el) (drop 2 el)]
-                    [{} (rest el)])
-                  attrs       (merge-class-attrs tag-attrs user-attrs)
-                  void?       (contains? void-elements (keyword tag-name))]
-              (if void?
-                (str "<" tag-name (attr-string attrs) ">")
-                (str "<" tag-name (attr-string attrs) ">"
-                     (emit-children children)
-                     "</" tag-name ">")))))
+;; ---- root-attrs injection (per rf2-lxwse) --------------------------------
+;;
+;; The render-hash (data-rf-render-hash) is stamped on the first DOM-tag
+;; element of the rendered tree. Historically this used a post-emit regex
+;; replace on the output string; rf2-lxwse refactored that into a
+;; structural injection on the hiccup root before stringification — the
+;; same pattern as `inject-coord-on-root-hiccup` above. To compose with
+;; that source-coord injection (which only runs inside the view-ref
+;; resolution branch of `emit-element`), the injection threads an optional
+;; `root-attrs` map down through `emit-element` and consumes it on the
+;; first DOM-tag emission — past any view-refs, fragments (`:<>`),
+;; Reagent-native heads (`:>`), or fn-headed components on the root path.
+;; Non-DOM-rooted trees silently no-op on the injection (matches the
+;; source-coord exemption).
 
-        (fn? head)
-        (emit-element (apply head (rest el)))
+(defn merge-root-attrs
+  "Merge root-level injected attrs (per rf2-lxwse) into the attrs map of
+  a DOM tag. Existing attribute values win — the injected attr is only
+  added when the key isn't already present, so a caller-supplied
+  `data-rf-render-hash` on the root never gets overwritten."
+  [attrs root-attrs]
+  (reduce-kv (fn [m k v]
+               (if (contains? m k) m (assoc m k v)))
+             attrs
+             root-attrs))
 
-        :else (str el)))
+(defn emit-element
+  "Emit a hiccup node as an HTML string. The optional `root-attrs` map
+  (per rf2-lxwse) carries attributes destined for the first DOM-tag
+  element on the root path — view-refs, fragments, Reagent-native heads,
+  and fn-headed components pass it through; the first DOM-tag emission
+  merges and consumes it. Recursive calls into children always pass
+  `nil` so the injection lands on the root only."
+  ([el] (emit-element el nil))
+  ([el root-attrs]
+   (cond
+     (nil? el)         ""
+     (string? el)      (escape-html el)
+     (number? el)      (str el)
+     (boolean? el)     ""
+     (vector? el)
+     (let [head (first el)]
+       (cond
+         (keyword? head)
+         (let [;; Look up registered view first.
+               maybe-view (registrar/lookup :view head)]
+           (if maybe-view
+             (let [raw   (apply (:handler-fn maybe-view) (rest el))
+                   ;; Spec 006 §Source-coord annotation: inject the
+                   ;; data-rf2-source-coord attribute on the registered
+                   ;; view's root DOM element when the slot's metadata
+                   ;; carries source coords.
+                   coord (format-view-source-coord head maybe-view)
+                   out   (if coord
+                           (inject-coord-on-root-hiccup coord raw)
+                           raw)]
+               ;; Pass root-attrs through view-ref resolution so the hash
+               ;; lands on the resolved DOM root, alongside the source-coord.
+               (emit-element out root-attrs))
+             (let [[tag-name tag-attrs] (parse-tag-name head)
+                   [user-attrs children]
+                   (if (map? (second el))
+                     [(second el) (drop 2 el)]
+                     [{} (rest el)])
+                   merged-attrs (merge-class-attrs tag-attrs user-attrs)
+                   ;; Fragment `:<>` and Reagent-native `:>` heads are
+                   ;; exempt from root-attrs injection (matches the
+                   ;; `inject-coord-on-root-hiccup` skip-list per
+                   ;; rf2-lxwse acceptance criteria) — drop root-attrs
+                   ;; on these heads.
+                   skip-attrs?  (or (= :<> head) (= :> head))
+                   attrs        (if (and root-attrs (not skip-attrs?))
+                                  (merge-root-attrs merged-attrs root-attrs)
+                                  merged-attrs)
+                   void?        (contains? void-elements (keyword tag-name))]
+               (if void?
+                 (str "<" tag-name (attr-string attrs) ">")
+                 (str "<" tag-name (attr-string attrs) ">"
+                      (emit-children children)
+                      "</" tag-name ">")))))
 
-    (sequential? el) (emit-children el)
-    :else (escape-html el)))
+         (fn? head)
+         ;; Pass root-attrs through fn-headed component resolution too —
+         ;; the wrapping fn is structurally the same kind of indirection as
+         ;; a registered-view ref.
+         (emit-element (apply head (rest el)) root-attrs)
+
+         :else (str el)))
+
+     (sequential? el) (emit-children el)
+     :else (escape-html el))))
 
 (defn render-to-string
   "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML
@@ -194,18 +242,19 @@
   Implements HTML5 void elements, :tag#id.cls parsing, boolean attrs,
   text/attr escaping, registered-view resolution, var-reference
   resolution, :doctype? prefix, and :emit-hash? root-element hash
-  injection for client-side mismatch detection."
+  injection for client-side mismatch detection.
+
+  Per rf2-lxwse: when `:emit-hash?` is true, `data-rf-render-hash` is
+  threaded as `root-attrs` through `emit-element` and merged onto the
+  first DOM-tag element of the rendered tree — past view-refs, fragments,
+  Reagent-native heads, and fn-headed components on the root path. This
+  replaces the prior post-emit regex-on-string injection: structural,
+  composes with the source-coord annotation, and silently no-ops for
+  non-DOM-rooted trees (matching the source-coord exemption)."
   [render-tree opts]
-  (let [body (emit-element render-tree)
-        body (if (:emit-hash? opts)
-               (let [h (hash/render-tree-hash render-tree)]
-                 ;; Inject data-rf-render-hash on the FIRST '<tag' opener
-                 ;; — that's the root element. Skip <!DOCTYPE> if present.
-                 (clojure.string/replace-first
-                   body
-                   #"(<[a-zA-Z][^\s>/]*)"
-                   (str "$1 data-rf-render-hash=\"" h "\"")))
-               body)]
+  (let [root-attrs (when (:emit-hash? opts)
+                     {:data-rf-render-hash (hash/render-tree-hash render-tree)})
+        body       (emit-element render-tree root-attrs)]
     (if (:doctype? opts)
       (str "<!DOCTYPE html>" body)
       body)))
