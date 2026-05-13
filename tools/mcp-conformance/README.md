@@ -4,6 +4,19 @@ End-to-end **MCP-client** conformance harness for the re-frame2 MCP
 servers — `pair2-mcp`, `story-mcp`, and (when its implementation lands)
 `causa-mcp`. Source: rf2-cum40.
 
+This artefact has two surfaces:
+
+1. **`test/end-to-end-*.js`** — Node-side end-to-end conformance.
+   Drives each server through the official `@modelcontextprotocol/sdk`
+   client to validate JSON-RPC handshake + tool catalogue + one
+   canonical workflow per server. Source: rf2-cum40.
+2. **`wire-vocab/`** — JVM-side cross-server wire-vocabulary
+   conformance. Pins the canonical Malli schema for every
+   reserved `:rf.mcp/*` / `:rf.size/large-elided` / `:rf.elision/at`
+   marker and asserts that fixtures + source text from every
+   emitting server conform. Source: rf2-j2z7o. See
+   [`wire-vocab/README.md`](wire-vocab/README.md).
+
 ## What this is
 
 Every existing test surface for these servers is **server-side**:
