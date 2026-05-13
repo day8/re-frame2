@@ -68,15 +68,6 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[Managed HTTP](https://day8.github.io/re-frame2/guide/10-doing-http-requests/)** — getting HTTP right is a hassle, so most apps half-arse it. With re-frame2 you have exactly the right tools to do it properly: request retry, abort, encode/decode pipeline, in-flight registry, per-frame interceptors, frame-aware reply addressing, an eight-category failure taxonomy under `:rf.http/*`. Same shape applies to websockets.
   - **[Nine States of UI](https://day8.github.io/re-frame2/guide/08-state-machines/#parallel-regions)** — pair perfect HTTP hygiene with perfect UI-state hygiene. Nine canonical states — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done` — every loading/error/empty/cardinality UI passes through. Modelled as one parallel state machine with three regions, so Forms + Managed HTTP + Machines compose to render each state explicitly. And then combine this with **Story**: every state becomes its own variant — render it, review it, lock it in with visual regression, hand it to your AI for design feedback. No more "what should this look like while it's loading and there's stale data and a soft-failure?" — the matrix is locked, and every cell is on a wall.
 
-### The core
-
-The surfaces every re-frame2 app uses:
-
-- **State management** — central, immutable app state. One source of truth per frame.
-- **Isolated computational frames** — multiple independent runtimes in one app, each with its own data store, dispatch queue, and registry. Embedded widgets, tenant isolation, multi-pane shells.
-- **Frame-scoped revertibility** — pointer-swap state revert. Time-travel and undo at zero copy cost.
-- **Events + effects** — events drive transitions; effects are data, not callbacks. Composable, testable, observable, stubbable.
-- **Subscriptions** — pure derived values with explicit dependency tracking and recompute suppression. Computed-once, fanned-out, bookkeeping handled.
 
 ## Reference implementation
 
@@ -89,16 +80,6 @@ It provides three popular CLJS-flavoured substrates:
 - **Helix** — minimal React wrapper.
 
 You can build production apps on the reference today (Clojars publish lands with `v0.0.1.alpha`).
-
-### Tooling
-
-The reference implementation comes with a growing AI- and developer-facing toolset:
-
-- **`re-frame-pair2`** — an nREPL-attached AI pair-programming companion. Watches, traces, and interacts with your running app.
-- **`re-frame2-story`** *(in design)* — Storybook-flavoured component playground with frame-aware controls, machine-state visualisation, and time-travel.
-- **Causa** *(in design)* — interactive devtools panel for the runtime; the structural successor to re-frame-10x.
-- **Source-coord stamping** — every registration carries its source location; click-to-source from any tool.
-- **Trace bus** — a first-class observability surface that all tooling consumes.
 
 ## Status
 
@@ -114,7 +95,7 @@ Here's how AI-first shows up in practice:
 
 1. **The pattern is one-shot-able.** The spec in this repo is complete enough that an AI can one-shot the implementation. The corollary is that the spec is the durable artefact; the implementation is downstream and replaceable. Don't like the spec? Fork it, change it, generate your own framework. That's a real workflow now, and I think it's going to be more important than people realise.
 
-2. Apps built on re-frame2 are **AI-pair-programmable at runtime**. The runtime exposes deep trace and integration surfaces specifically so an AI can interact with the dynamics of your running app, not just stare at static source. The thing your AI pair is looking at is the actual state, the actual event stream, the actual subscription graph — not a static file from yesterday. An improved version of re-frame-pair — the nREPL-attached AI companion from v1 — is being formalised for v2.
+2. Apps built on re-frame2 are **AI-pair-programmable at runtime**. The runtime exposes deep trace and integration surfaces specifically so an AI can interact with the dynamics of your running app, not just stare at static source. The thing your AI pair is looking at is the actual state, the actual event stream, the actual subscription graph — not a static file from yesterday. The successor to v1's nREPL-attached `re-frame-pair` ships in this repo as the `re-frame-pair2` Claude skill, with an MCP companion (`pair2-mcp`) on the runtime side.
 
 3. **Migration is AI-driven**. re-frame2 contains breaking changes from v1. I am not happy about this. To soften the blow, the repo ships a complete migration prompt for an AI — currently 40+ rules, mechanical where the rewrite can be mechanical, flagged-for-human-review in the rare cases where the rewrite depends on intent. And to the Clojurists reading: I apologise for the breakage. It hurts my soul too. Please, please don't tell Mr Hickey.
 
@@ -207,14 +188,17 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
                                it — bundle-isolated from production builds.
   template/                    day8/clj-template.re-frame2 — clj-new template for new re-frame2
                                apps; the v1 re-frame-template's v2 successor. Build-time scaffold.
-  story/                       day8/re-frame2-story — Storybook-flavoured playground (in design)
-  story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story; separate
-                               jar (in design)
+  story/                       day8/re-frame2-story — Storybook-flavoured playground
+  story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story; separate jar
   pair2-mcp/                   day8/re-frame2-pair2-mcp — MCP agent surface for the re-frame-pair2
-                               nREPL companion (in design)
+                               nREPL companion
   causa/                       day8/re-frame2-causa — Causa, the re-frame2 devtools panel;
-                               the structural successor to re-frame-10x (in design)
-skills/                        Claude skills (planned; pair-improver and friends)
+                               the structural successor to re-frame-10x
+  causa-mcp/                   day8/re-frame2-causa-mcp — MCP agent surface for Causa (spec-only)
+  machines-viz/                day8/re-frame2-machines-viz — state-machine chart renderer
+                               (spec-only)
+skills/                        Claude skills — re-frame-pair2, re-frame-pair-improver2,
+                               re-frame2, re-frame2-setup, re-frame-migration
 ```
 
 ## Information for AIs
