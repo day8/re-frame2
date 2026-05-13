@@ -267,6 +267,69 @@ Combinators (`:or`, `:and`, `:maybe`, `:tuple`, `:multi`, `:vector`, `:set`) des
 
 **Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same registry shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`, `populate-elision-declarations`) and is published through the late-bind hook table — `re-frame.core` calls it without statically requiring the schemas artefact (per the rf2-p7va per-feature artefact split).
 
+### `:sensitive?` — privacy in schema-validation error traces (rf2-kj51z)
+
+Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces), the `:sensitive?` flag is the framework's declarative privacy marker. The schema-validation hot path MUST honour it before emitting `:rf.error/schema-validation-failure` trace events — those events carry the **failing value verbatim** by default (Malli's standard behaviour), and a sensitive credential / PII slot whose post-handler `app-db` value fails its schema would leak through the trace surface to every registered listener (including off-box error monitors and pair-tool forwarders).
+
+**Two sources of sensitivity** the validation site MUST consult, in this order (most-specific wins):
+
+1. **Per-slot `:sensitive?` on the failing path's schema.** A slot or container whose Malli props carry `:sensitive? true` declares the slot's value sensitive — parallel to `:large?` (per [§`:large?` — schema-driven size-elision nomination](#large--schema-driven-size-elision-nomination-rf2-nwv63) above). Two structural positions are accepted, exactly as for `:large?`:
+
+   ```clojure
+   ;; (a) slot-level — the schema slot's per-slot props
+   [:map [:password {:sensitive? true} :string]]
+   ;; ⇒ [:password] sensitive
+
+   ;; (b) container-level — the schema's own props when the schema is
+   ;;     registered at the path directly
+   (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
+   ;; ⇒ [:auth :token] sensitive
+   ```
+
+2. **Registration-meta `:sensitive?`** on the surrounding `reg-event-*` / `reg-sub` / `reg-cofx`. The handler-meta consulted at validation time (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)) carries `:sensitive? true` for handlers that opted in. Per-step validation sites apply it as a coarse fallback: any failure in a sensitive handler's scope is redacted regardless of per-slot props. The `app-db` validation site reads the per-slot props only (no surrounding handler scope to consult — the `validate-app-db!` call is keyed by frame, not by a single handler's registration).
+
+**Redaction shape.** When either source declares the failing slot sensitive, the trace event MUST:
+
+- Replace `:value` (the failing value) and `:received` (if present) with the framework-reserved sentinel keyword `:rf/redacted` (per [009 §`with-redacted` interceptor](009-Instrumentation.md#the-with-redacted-interceptor) — same sentinel, same reserved-keyword guarantee).
+- Replace `:explain` with `:rf/redacted` — the Malli explainer output carries the failing value verbatim under `:value` / `:errors[].value` and re-leaks it. Tools that want a structural error description without the value reach for the path (`:tags :path`) and the schema's id (`:tags :spec-id`).
+- Stamp `:sensitive? true` in the trace event's `:tags` map. Consumers route on `(get-in trace-event [:tags :sensitive?])` until top-level hoisting lands (rf2-isdwf is in flight in core; once landed, the runtime promotes `:tags :sensitive?` to the top-level `:sensitive?` slot per [009 §Trace-event field: `:sensitive?` at the top level](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level) — the schemas-side emit-site does not need to be revisited).
+
+Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schema id (`:tags :spec-id`), and the human-readable `:reason` string remain unredacted — these are structural / categorical signals that do not carry user data, and consumers need them to locate the broken slot. Only the value-bearing slots (`:value`, `:received`, `:explain`) are redacted.
+
+```clojure
+;; Failing app-db at a sensitive slot:
+(rf/reg-app-schema [:auth]
+  [:map [:token {:sensitive? true} :string]])
+
+(rf/dispatch [:auth/init-bad])   ;; commits {:auth {:token 42}} — int, not string
+
+;; The schema-validation-failure trace is shaped:
+{:operation :rf.error/schema-validation-failure
+ :op-type   :error
+ :tags      {:where      :app-db
+             :path       [:auth :token]    ;; structural — kept
+             :frame      :rf/default
+             :value      :rf/redacted      ;; value redacted (was 42)
+             :explain    :rf/redacted      ;; Malli explanation redacted (re-leaks)
+             :sensitive? true              ;; consumers route on this
+             :reason     "App-db at path [:auth :token] failed schema ..."
+             :failing-id :auth/init-bad}
+ :recovery :no-recovery}
+```
+
+**Composition with `:large?`** (per [009 §Unified wire-elision surface](009-Instrumentation.md#privacy--sensitive-data-in-traces)). A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the schema-validation emit site never produces a `:rf.size/large-elided` marker for a sensitive value (the marker itself would leak `:path` / `:bytes` / `:digest`). The validation emit-site mirrors the `rf/elide-wire-value` walker's composition rule.
+
+**Composition with `with-redacted`.** Independent. `with-redacted` (per [009](009-Instrumentation.md#the-with-redacted-interceptor)) overwrites named keys in the event vector and downstream cofx; it does not reach into the schema-validation failure trace. A handler declaring both `:sensitive? true` and `(with-redacted [...])` gets:
+- the event vector redacted at the named keys (via `with-redacted`), AND
+- the schema-validation `:value` / `:explain` redacted on top (via this section's contract).
+The two are orthogonal and additive — the conservative recommendation is to declare both when the handler is sensitive enough to want both layers of defence.
+
+**Production elision.** The redaction lives behind the same `(when interop/debug-enabled? ...)` outer gate as the rest of the validation hot path (per [§Production builds](#production-builds)). `:advanced` + `goog.DEBUG=false` builds DCE the entire validate-emit body — including the `:rf/redacted` substitution — alongside the trace surface. The redaction is moot when there is no trace to redact.
+
+**Walker.** The CLJS reference ships `re-frame.schemas/extract-sensitive-paths-from-schema` (parallel to `extract-large-paths-from-schema`) — a pure-data Malli-EDN walker that returns `{path {:sensitive? true}}` entries for every `:sensitive? true` slot in a registered schema. The validation emit-site walks the failing path's schema with this helper to decide whether to redact.
+
+**Backward compatibility.** Non-sensitive validation failures (handlers and slots with no `:sensitive?` declaration) are unchanged — `:value`, `:received`, and `:explain` ride the trace verbatim as before. Legacy listener code (tools that read `:tags :value` directly) continues to work for non-sensitive traces and sees the sentinel keyword `:rf/redacted` for sensitive ones; the sentinel is a normal EDN value the consumer can pattern-match on.
+
 ## Per-frame schemas
 
 `reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id` and default to the active frame (or `:rf/default`).
