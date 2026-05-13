@@ -19,7 +19,7 @@ surfaces. It must not add:
 - New effect substrates.
 - New component substrates.
 
-The seven ops route through the existing `re-frame-pair2.runtime`
+The nine ops route through the existing `re-frame-pair2.runtime`
 namespace via `cljs-eval`. Nothing new is registered against the
 framework; nothing new is introduced into a consumer app's runtime.
 
@@ -85,7 +85,7 @@ Concretely:
   shadow-cljs `:devtools :preloads`; a missing marker resolves to a
   structured `:reason :runtime-not-preloaded` error with the setup
   hint, no cljs-eval inject fallback (rf2-7dvg).
-- The runtime contract is the shape of the six ops, not a specific
+- The runtime contract is the shape of the nine ops, not a specific
   framework version.
 
 A project that adopts a non-default build id, a custom nREPL port,
@@ -116,17 +116,20 @@ mix shim calls and MCP tool calls in the same workflow during the
 transition. Existing skill docs and runbooks that reference the
 shims keep working; nothing breaks because the MCP server shipped.
 
-The op vocabulary (the seven canonical pair2 ops) is identical
-between the two surfaces — only the transport changes. This is what
-makes the back-compat tractable: the contract is the same; the
-plumbing underneath is different.
+The op vocabulary overlaps cleanly: the bash shims cover six of the
+nine canonical pair2 ops (`discover-app`, `eval-cljs`, `dispatch`,
+`trace-window`, `watch-epochs`, `tail-build`), with identical names
+and arg shapes — only the transport differs. The MCP-only additions
+(`snapshot`, plus the streaming pair `subscribe` / `unsubscribe`) have
+no shim equivalent. This is what makes the back-compat tractable: the
+overlap is contract-identical; the plumbing underneath is different.
 
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
 
 - **Regularity over cleverness** — one obvious way to do a thing.
-  The seven op names and shapes are stable.
+  The nine op names and shapes are stable.
 - **Named things over anonymous things** — every op has a stable
   name; every reason keyword in an `:ok? false` response is stable.
 - **Public query surfaces** — pair2-mcp reads only what the

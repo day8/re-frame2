@@ -20,7 +20,7 @@ A Node-based stdio JSON-RPC server, written in ClojureScript,
 compiled via shadow-cljs to a single `.js` artefact. AI agents
 (Claude Code, Cursor, Copilot) launch it as a subprocess; one
 persistent nREPL socket is held for the lifetime of the session;
-the seven canonical pair2 ops are exposed as MCP tools.
+the nine canonical pair2 ops are exposed as MCP tools.
 
 ## What it isn't
 
