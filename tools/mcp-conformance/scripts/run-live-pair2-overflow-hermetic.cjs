@@ -70,10 +70,16 @@ const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_HTTP_PORT}/`;
 
 // Wall-clock caps. shadow-cljs cold-start with a warm Maven cache is
 // typically 30-60s on GHA; warm restart is much faster. We give the
-// boot 240s so a cold-cache run still has headroom.
-const SHADOW_BOOT_TIMEOUT_MS = 240_000;
+// boot 360s so the first cold-cache run of the day (no `~/.m2`
+// restore hit at all) still has headroom while Maven resolves the
+// fixture's :local/root deps (core + reagent + epoch + Reagent/Malli
+// trees). The CI workflow's `mcp-conformance-pair2` job hashes those
+// inputs into its actions/cache key (rf2-c565x), so this stopgap only
+// kicks in on the truly cold path; warm-cache runs still bind the
+// nREPL port in <60s.
+const SHADOW_BOOT_TIMEOUT_MS = 360_000;
 const RUNTIME_PRELOAD_TIMEOUT_MS = 60_000;
-const HERMETIC_TIMEOUT_MS = 360_000;
+const HERMETIC_TIMEOUT_MS = 540_000;
 const POLL_MS = 500;
 
 const LIVE_TEST = path.join(
