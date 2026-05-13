@@ -10,10 +10,10 @@ description: >
   or any prompt referencing a v1 surface (re-frame.db, dispatch-with,
   reg-global-interceptor, reg-sub-raw, ^:flush-dom, re-frame.alpha,
   re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys).
-  Do not use for: greenfield bootstrap (use `re-frame2-setup`), writing v2
-  application code (use `re-frame2`), live v2-app inspection
-  (use `re-frame-pair2`), or porting re-frame2 itself
-  (use `re-frame2-implementor`).
+  **Do not use** for: greenfield bootstrap (use `re-frame2-setup`),
+  writing v2 application code (use `re-frame2`), live v2-app inspection
+  (use `re-frame-pair2`), or porting re-frame2 itself (use
+  `re-frame2-implementor`).
 allowed-tools:
   - Bash(rg *)
   - Bash(rg -l *)
