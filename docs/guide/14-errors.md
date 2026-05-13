@@ -228,8 +228,9 @@ For server-side rendering, raw error events should never leak to the browser —
                 "An unexpected error occurred.")
      :request-id (get-in error-event [:tags :request-id])}))
 
-;; Activate the projector for SSR:
-(rf/configure :ssr {:public-error-id :my-app/public-error})
+;; Activate the projector on the server frame's metadata:
+(rf/make-frame {:platform :server
+                :ssr {:public-error-id :my-app/public-error}})
 ```
 
 The projector is the **canonical surface** for mapping raw errors to user-facing UX. The runtime calls it on the server side before render; the result is what reaches the browser. If the projector itself throws (or returns a non-`:rf/public-error` shape), the runtime falls back to a locked generic-500 shape and emits `:rf.error/sanitised-on-projection` — your monitoring dashboard sees when the public boundary fell back.

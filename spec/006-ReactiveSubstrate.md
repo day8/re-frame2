@@ -541,7 +541,6 @@ The behaviour is environment-specific:
 
 - **At registration time** (when the macro runs), the runtime cannot fully validate `:<-` — the input might be registered later in the load order.
 - **At first use** (when something tries to subscribe to `:cart/total`), the runtime resolves all inputs. If any input is unregistered, the runtime emits a `:rf.error/no-such-sub` trace event (per [009 §Error contract](009-Instrumentation.md#error-contract)) and returns `nil` for that input. Recovery: `:replaced-with-default`.
-- **In strict mode** (`:strict-subs` config), the unresolved-input error escalates to a thrown exception so the bug is loud during dev.
 
 The subscription's body still runs with `nil` substituted for the unresolved input. This is intentional: it keeps the trace stream readable (the agent sees one error event rather than a chain of cascading throws) and lets the caller handle the missing data gracefully if it can.
 

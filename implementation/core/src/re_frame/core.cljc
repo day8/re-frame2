@@ -1316,8 +1316,8 @@
      `(with-managed-request-stubs* ~stubs (fn [] ~@body))))
 
 (defn configure
-  "Configure a runtime knob. Closed v1 keys (additive across versions
-  per Spec-ulation):
+  "Configure a process-level runtime knob. Closed v1 keys (additive
+  across versions per Spec-ulation):
 
     :epoch-history {:depth N}         — set the per-frame epoch ring depth
                                          (default 50). 0 disables recording.
@@ -1329,8 +1329,13 @@
                                          disposal). Per Spec 006 §Reference
                                          counting and disposal.
 
-  Per Tool-Pair §How AI tools attach. Future keys (e.g. :performance-api
-  per Spec 009) will land additively."
+  Unknown keys are a silent no-op. Per Tool-Pair §How AI tools attach.
+  Future keys (e.g. :performance-api per Spec 009) will land additively.
+
+  This surface is process-level. Per-frame settings (e.g. the `:ssr`
+  error-projection policy) live on the frame's metadata at `reg-frame`
+  / `make-frame` time — see [Conventions §Configuration surfaces] and
+  [API.md §Configure keys]."
   [knob opts]
   (case knob
     ;; :epoch-history is published by the `day8/re-frame2-epoch`

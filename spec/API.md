@@ -40,7 +40,7 @@
 | `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
 | `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 (deferred — see rf2-gr0n) | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. |
-| `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | 011 | New registry kind `:error-projector`; named via `(rf/configure :ssr {:public-error-id ...})`. |
+| `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | 011 | New registry kind `:error-projector`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata (per `reg-frame` / `make-frame`). |
 
 ### Clearing registrations
 
@@ -190,7 +190,7 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 |---|---|---|---|---|
 | `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | 011 |
 | `render-tree-hash` | Fn | `(render-tree-hash render-tree)` → 32-bit FNV-1a structural hash (lowercase hex). Identical output on JVM and CLJS for the same canonical-EDN representation. Per [011 §Hydration-mismatch detection](011-SSR.md). | v1 | 011 |
-| `project-error` | Fn | `(project-error frame-id trace-event)` → `:rf/public-error`. Applies the active error-projector (selected by `(rf/configure :ssr {:public-error-id ...})`) for the named frame. Per [011 §Server error projection](011-SSR.md). | v1 | 011 |
+| `project-error` | Fn | `(project-error frame-id trace-event)` → `:rf/public-error`. Applies the active error-projector (selected by the frame's `:ssr {:public-error-id ...}` metadata) for the named frame. Per [011 §Server error projection](011-SSR.md). | v1 | 011 |
 | `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
 | `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
 
@@ -228,7 +228,7 @@ Standard cofx (server-only):
 
 `reg-fx`'s `:platforms` metadata key (a set containing `:server` and/or `:client`) gates fx execution by active platform; **default `#{:server :client}` (universal)** when the key is absent. Skipped fx emit a `:rf.fx/skipped-on-platform` trace event. Detail in [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx).
 
-`(rf/configure :ssr {...})` keys are catalogued in [§Configure keys](#configure-keys) below.
+SSR error-projection policy is **per-frame metadata** (see [Conventions §Configuration surfaces](Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucket 3): a frame opts in via the `:ssr {:public-error-id ... :dev-error-detail? ...}` map on its `reg-frame` / `make-frame` metadata. See [011 §Server error projection](011-SSR.md#server-error-projection) for the keys.
 
 ---
 
@@ -543,18 +543,8 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 | `:epoch-history` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 50}` | v1 (dev-only) | Tool-Pair |
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
 | `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
-| `:strict-subs` | boolean — reject sub-registration shapes that don't have a registered schema | `false` | v1 | 010 |
-| `:ssr` | `{:public-error-id :detect-mismatch? :on-mismatch :on-view-exception :dev-error-detail?}` (see [011](011-SSR.md) for each) | per [011](011-SSR.md) | v1 | 011 |
 
-Detail for `:ssr`:
-
-| Sub-key | Values | Meaning |
-|---|---|---|
-| `:public-error-id` | registered error-projector id | Selects the projector that produces `:rf/public-error` from internal error trace events. |
-| `:dev-error-detail?` | boolean | Include `:details` in `:rf/public-error`. Defaults to the dev-build flag. |
-| `:on-mismatch` | `:warned-and-replaced` / `:hard-error` | Hydration-mismatch policy. |
-| `:detect-mismatch?` | boolean | Run hydration-mismatch detection on first client render. |
-| `:on-view-exception` | `:project` / `:throw` | What to do when a view body throws during SSR. |
+SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure` key — it is per-frame metadata on the frame's `:ssr` map (see [Conventions §Configuration surfaces](Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucket 3 and [011 §Server error projection](011-SSR.md#server-error-projection)). Different frames in the same process can carry different projector / dev-detail settings, so the natural lifetime is per-frame, not process-global.
 
 The configure-keys vocabulary is fixed-and-additive (Spec-ulation): existing keys cannot be renamed or removed; new keys are added by extending the table. User code that wraps `configure` should pattern-match on known keys and ignore unknown ones.
 

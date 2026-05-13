@@ -312,7 +312,7 @@ The metadata map accepted by `reg-head` (per [011 §Mechanism — registered hea
 
 > **Layer:** Public
 
-The metadata map accepted by `reg-error-projector` (per [011 §Server error projection](011-SSR.md#server-error-projection)). The projector fn itself is `(fn [trace-event] public-error-map)` — pure, value-shaped. The projector named in `(rf/configure :ssr {:public-error-id ...})` is the active projector.
+The metadata map accepted by `reg-error-projector` (per [011 §Server error projection](011-SSR.md#server-error-projection)). The projector fn itself is `(fn [trace-event] public-error-map)` — pure, value-shaped. The projector named in a frame's `:ssr {:public-error-id ...}` metadata is that frame's active projector.
 
 ```clojure
 (def ErrorProjectorMeta

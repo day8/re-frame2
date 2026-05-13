@@ -107,7 +107,7 @@ Re-registering a schema at a path replaces the previous one (last-write-wins, sa
 | Schema attached to | Validates | Failure recovery (canonical, see [§Per-step recovery](#per-step-recovery) for full detail) |
 |---|---|---|
 | `reg-event-*` `:spec` | The dispatched event vector, *before* the handler runs. | Skip handler; emit `:rf.error/schema-validation-failure :where :event`; downstream queue continues. |
-| `reg-sub` `:spec` | The sub's return value, *after* compute. | `:replaced-with-default` (sub yields `nil`); strict mode re-raises. |
+| `reg-sub` `:spec` | The sub's return value, *after* compute. | `:replaced-with-default` (sub yields `nil`). |
 | `reg-fx` `:spec` | The effect's argument data, *before* the fx handler runs. | Skip the offending fx only; sibling fx in the same `:fx` vector continue; downstream queue continues. |
 | `reg-cofx` `:spec` | The coeffect's data, *after* injection. | Skip handler; emit `:where :cofx`; downstream queue continues. |
 | `reg-app-schema` (path-based) | The slice at the registered path, *after every handler* completes a state mutation. | Roll back the `:db` effect; treat dispatch as failed. |
