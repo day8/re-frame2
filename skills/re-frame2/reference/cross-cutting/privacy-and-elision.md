@@ -53,6 +53,8 @@ Marker shape on the wire (Spec-Schemas `:rf/elision-marker`):
 
 Verified: schema-driven population at `implementation/schemas/src/re_frame/schemas.cljc:418-540` (`:large?` walker over `:map` / `:multi` / nested schemas); registry layout per `Spec-Schemas §:rf/elision-registry`.
 
+**Wrapper descent (rf2-b20zm).** The idiomatic Malli "optional but typed" shape `[:maybe [:string {:large? true}]]` works — the boot-walker descends a single-child `:maybe` wrapper that carries no props of its own and reads `:large?` / `:sensitive?` / `:hint` off the inner schema. An explicit outer props map (`[:maybe {:large? true} :string]`) still wins; no descent in that case. **`:and` / `:or` / `:enum` are NOT descended in v1** (conservative scope — merge / priority semantics across multi-child wrappers are TBD); put the flag on the outer schema or on a single-child `:maybe` inner.
+
 ## `rf/elide-wire-value` — manual invocation
 
 For HTTP forwarders, custom loggers, or any consumer code that ships an app-db slice off-box. Same walker the framework's listeners use; **never hand-roll**.
@@ -71,6 +73,16 @@ For HTTP forwarders, custom loggers, or any consumer code that ships an app-db s
 ```
 
 Off-box defaults (`include-large?` / `include-sensitive?` both `false`): large → marker, sensitive → `:rf/redacted`. Verified: `re-frame.elision/elide-wire-value` (`elision.cljc:443-540`); the **single normative emission site** for both sentinels — per-tool reimplementation is prohibited.
+
+The complete `:rf.size/*` opts-map vocabulary (per [Conventions §Reserved namespaces](../../../../spec/Conventions.md) and [API.md §`rf/elide-wire-value`](../../../../spec/API.md)):
+
+| Key | Default | Effect |
+|---|---|---|
+| `:rf.size/include-large?` | `false` | When `true`, large values flow through; when `false` (off-box default), they elide to `:rf.size/large-elided` markers. |
+| `:rf.size/include-sensitive?` | `false` | When `true`, sensitive values flow through the walker without drop (in-box only). Per rf2-11bot PR #758. |
+| `:rf.size/include-digests?` | `false` | When `true`, the marker carries a `sha256:<hex>` `:digest` slot. Off by default — computing it forces a full walk that negates the elision's cost-saving. |
+| `:rf.size/threshold-bytes` | `16384` | Auto-detect threshold: values whose `pr-str` exceeds this length flag at the leaf. `0` disables runtime auto-detect (only declared / schema entries elide). Process-wide knob via `(rf/configure :elision ...)`. |
+| `:rf.size/elision-policy` | n/a | Wrapper key — when a tool composes the four keys above as a nested policy map, this is its outer slot. The walker also accepts the four keys flat (the `rf/elide-wire-value` form shown above). |
 
 ## `rf/sensitive?` — public predicate
 

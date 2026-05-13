@@ -68,6 +68,52 @@ Verified: `re-frame.error-emit/dispatch-on-error!` (`error_emit.cljc:171-230`); 
 
 **Composition with per-frame `:on-error` policy** (rf2-hqbeh): the error-emit substrate runs the per-frame `:on-error` policy AND the corpus-wide listener registry from one emission site. Use `:on-error` for **in-app recovery** (retry, mark, navigate); use `register-error-emit-listener!` for **off-box observability**. They are independent — register both when you need both.
 
+### `:on-error` shape and wiring (the in-app recovery slot)
+
+`:on-error` is a `reg-frame` metadata slot. The framework calls it with the structured error event AFTER emitting the trace and BEFORE applying the category's default recovery. It returns a closed-shape map telling the runtime how to proceed; `nil` defers to the category default.
+
+```clojure
+(rf/reg-frame :rf/default
+  {:doc "App-shell frame with monitoring + recovery."
+   :on-error
+   (fn handle-error [error-event]
+     ;; error-event is an :rf/trace-event with :op-type :error.
+     (case (:operation error-event)
+       :rf.error/handler-exception
+       {:recovery    :replaced-with-default
+        :replacement {:db (get-in error-event [:tags :db-before])}
+        :notes       "handler threw — rolled back to db-before"}
+
+       :rf.error/schema-validation-failure
+       {:recovery    :replaced-with-default
+        :replacement (get-in error-event [:tags :default-value])}
+
+       ;; default: defer to the category's documented recovery
+       nil))})
+```
+
+**Return-map contract** (closed shape, per [Spec 009 §Error-handler policy](../../../../spec/009-Instrumentation.md#error-handler-policy-on-error-per-frame)):
+
+```clojure
+{:recovery    <keyword>   ;; REQUIRED — one of :no-recovery, :replaced-with-default,
+                          ;; :skipped, :warned-and-replaced, :logged-and-skipped, :ignored
+ :replacement <value>     ;; OPTIONAL — only honoured when :recovery is :replaced-with-default;
+                          ;; shape is category-specific (effect-map for :handler-exception, etc.)
+ :notes       <string>}   ;; OPTIONAL — free-form; surfaced under :tags :notes on the augmented trace
+```
+
+**Production survival (rf2-hqbeh).** Unlike the rest of the trace surface, `:on-error` is NOT gated by `re-frame.interop/debug-enabled?` — it rides the same always-on error-emit substrate as `register-error-emit-listener!`. Registered policy fns fire on production handler exceptions; the substrate covers `:rf.error/handler-exception` today (the primary production-monitoring case). Each frame has at most one `:on-error` handler; re-registering the frame replaces the policy.
+
+**Composition rubric** — pick one, both, or neither:
+
+| Need | Surface | Why |
+|---|---|---|
+| In-app recovery (rollback, substitute, halt) | `:on-error` | Runs synchronously in the dispatch cascade; its return drives the runtime's next step. |
+| Off-box shipping (Sentry / Datadog) | `register-error-emit-listener!` | Cascade-independent; one bad listener cannot affect the policy fn (or vice versa). |
+| Both | Register both | The substrate fans out from one emission site; independent failure domains. The `:on-error` fn MAY return `nil` to forward-and-defer (per the [Spec 009 §Composition with libraries](../../../../spec/009-Instrumentation.md#error-handler-policy-on-error-per-frame) idiom) — letting the listener ship to the monitor while the runtime applies its default recovery. |
+
+A policy fn that throws does NOT recursively invoke itself — the runtime emits `:rf.error/on-error-policy-exception` and falls back to the category default. Listener exceptions are caught the same way (sibling listeners still run).
+
 ## Triple-gate registration pattern
 
 The substrate is always-on; **registration sites** should belt-and-braces gate on explicit config + `goog.DEBUG=false` + a credential probe, so an accidental dev-bundle deploy with prod config doesn't quietly ship records to your back-end.
