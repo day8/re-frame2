@@ -692,8 +692,14 @@
 ;; ships in day8/re-frame2-ssr; the producing fn is looked up through
 ;; the late-bind hook table so core never statically requires
 ;; re-frame.ssr. The fn-form delegate is `rf-ssr/-reg-error-projector`.
+;;
+;; The local `-reg-error-projector` def below is `^:private` (per the
+;; leading-dash convention — rf2-ubeyt). The JVM macro emits
+;; `rf-ssr/-reg-error-projector` directly so it never depends on the
+;; local alias being visible at the user's compile site. The CLJS branch
+;; (line below) reuses the private alias within this namespace.
 
-(def -reg-error-projector rf-ssr/-reg-error-projector)
+(def ^:private -reg-error-projector rf-ssr/-reg-error-projector)
 
 #?(:clj
    (defmacro reg-error-projector
@@ -709,7 +715,7 @@
      call site."
      [& args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
-                       `(-reg-error-projector ~@args))))
+                       `(rf-ssr/-reg-error-projector ~@args))))
 
 #?(:cljs
    (def reg-error-projector -reg-error-projector))
