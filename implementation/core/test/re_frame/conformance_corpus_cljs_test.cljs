@@ -233,7 +233,7 @@
   ;; 3. Reset id-allocators so the routing / machine fixtures see
   ;;    deterministic counters.
   (routing/reset-counters!)
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   ;; 4. Drop the in-flight HTTP request registry between fixtures.
   (http-managed/clear-all-in-flight!)
   ;; 5. Dispose the currently-installed adapter (if any) and re-install

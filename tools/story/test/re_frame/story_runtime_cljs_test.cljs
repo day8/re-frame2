@@ -48,7 +48,7 @@
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
                 (get-in db [:rf/machines machine-id])))
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!))

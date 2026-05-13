@@ -138,7 +138,7 @@
 (def after-schedule-fx      timer/after-schedule-fx)
 (def after-cancel-fx        timer/after-cancel-fx)
 
-(defn reset-counters!
+(defn reset-timers!
   "Cancel every in-flight `:after` timer the runtime is currently tracking.
 
   Per rf2-gr8q the per-process `spawn-counter` atom is gone — declarative-
@@ -149,14 +149,7 @@
   snapshot/restore + frame reset) clears the app-db; per-fixture snapshot
   input in the conformance harness is hand-built fresh on each call. The
   only remaining per-process state this fn resets is the wall-clock timer
-  table in `re-frame.machines.timer`.
-
-  The fn name (and the `:machines/reset-counters!` late-bind hook key)
-  is kept for back-compat with the test-support fixture and the small
-  set of test namespaces that call it directly. Conceptually the name
-  is now slightly stale — \"reset wall-clock timers\" would be more
-  accurate — but renaming would churn the fixture surface; the
-  semantics-preserving rename is deferred."
+  table in `re-frame.machines.timer`."
   []
   (timer/cancel-all-timers!))
 
@@ -247,7 +240,7 @@
 (late-bind/set-fn! :machines/machines               machines)
 (late-bind/set-fn! :machines/machine-meta           machine-meta)
 (late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
-(late-bind/set-fn! :machines/reset-counters!        reset-counters!)
+(late-bind/set-fn! :machines/reset-timers!          reset-timers!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 (late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)

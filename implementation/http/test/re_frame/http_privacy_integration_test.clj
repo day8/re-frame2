@@ -32,7 +32,7 @@
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
   (require 're-frame.http-managed :reload)
-  ((requiring-resolve 're-frame.machines/reset-counters!))
+  ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   (privacy/clear-sensitive-headers!)
   (privacy/clear-sensitive-query-params!)

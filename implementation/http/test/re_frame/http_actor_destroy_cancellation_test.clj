@@ -48,7 +48,7 @@
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
   (require 're-frame.http-managed :reload)
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (http-managed/clear-all-in-flight!)
   (t))
 

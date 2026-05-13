@@ -184,9 +184,9 @@
    {:key         :machines/machine-by-system-id
     :producer-ns 're-frame.machines
     :description "Look up a live machine instance by its system id."}
-   {:key         :machines/reset-counters!
+   {:key         :machines/reset-timers!
     :producer-ns 're-frame.machines
-    :description "Reset the machine spawn-counter (test isolation)."}
+    :description "Cancel in-flight `:after` wall-clock timers (test isolation)."}
    {:key         :machines/spawn-fx
     :producer-ns 're-frame.machines
     :description "Effect handler for :rf.machine/spawn."}

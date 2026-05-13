@@ -43,7 +43,7 @@
      (trace/clear-trace-cbs!)
      (rf/init! plain-atom/adapter)
      (require 're-frame.machines :reload)
-     (machines/reset-counters!)
+     (machines/reset-timers!)
      (test-fn)))
 
 #?(:clj  (use-fixtures :each reset-runtime)

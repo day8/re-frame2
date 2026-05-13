@@ -10,7 +10,7 @@
   pure / deterministic but the allocator was a side effect: a second
   identical call returned different spawn-ids (`:worker#2` vs the first
   call's `:worker#1`). The conformance corpus only worked because the
-  per-fixture `reset-counters!` zeroed the atom between fixtures.
+  per-fixture reset zeroed the atom between fixtures.
 
   Post-rf2-gr8q the counter lives inside the snapshot at
   `:rf/spawn-counter` (a per-machine-id integer map); each spawn bumps

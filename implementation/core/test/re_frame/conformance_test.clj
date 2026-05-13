@@ -204,7 +204,7 @@
   ;; are stable across runs (the routing/machine fixtures assert against
   ;; literal "nav-1" / "nav-2" / ":http/post#1" strings).
   ((requiring-resolve 're-frame.routing/reset-counters!))
-  ((requiring-resolve 're-frame.machines/reset-counters!))
+  ((requiring-resolve 're-frame.machines/reset-timers!))
   ;; Spec 014 — drop the in-flight request registry between fixtures.
   ((requiring-resolve 're-frame.http-managed/clear-all-in-flight!)))
 

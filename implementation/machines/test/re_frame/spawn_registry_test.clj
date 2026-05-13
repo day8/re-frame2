@@ -50,7 +50,7 @@
   ;; `:rf.machine/destroy` reserved fxs, and the late-bind hook table get
   ;; reinstalled after `clear-all!` wiped them.
   (require 're-frame.machines :reload)
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (test-fn))
 
 (use-fixtures :each reset-runtime)

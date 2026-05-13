@@ -40,7 +40,7 @@
   (reset! frame/frames {})
   (rf/init! plain-atom/adapter)
   (require 're-frame.machines :reload)
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (test-fn))
 
 (use-fixtures :each reset-runtime)

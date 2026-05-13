@@ -28,7 +28,7 @@
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
                 (get-in db [:rf/machines machine-id])))
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (loaders/clear-watchers!)
   (reset! assertions/warnings-accumulator          {})
   (reset! assertions/emitted-fx-accumulator        {})
