@@ -66,6 +66,53 @@
       (is (= :preserved (:other db))
           "keys outside the path are preserved"))))
 
+(deftest path-interceptor-uses-reserved-namespace
+  (testing "the path interceptor stashes its db-stack under :rf/path-stack
+            (reserved namespace per Spec Conventions §Reserved namespaces).
+            Regression for rf2-mn0qc."
+    (let [seen-keys (atom nil)]
+      ;; A spy interceptor sandwiched between `path` and the handler runs
+      ;; AFTER path's :before, so the context it sees must carry the stash
+      ;; under :rf/path-stack — not the bare :path-stack.
+      (rf/reg-event-db :path-ns/init (fn [_ _] {:foo {:bar 10}}))
+      (rf/reg-event-db :path-ns/inc
+                       [(rf/path :foo :bar)
+                        (interceptor/->interceptor
+                         :id     :path-ns/spy
+                         :before (fn [ctx]
+                                   (reset! seen-keys (set (keys ctx)))
+                                   ctx))]
+                       inc)
+      (rf/dispatch-sync [:path-ns/init])
+      (rf/dispatch-sync [:path-ns/inc])
+      (is (contains? @seen-keys :rf/path-stack)
+          "path interceptor stashes its stack under the reserved :rf/path-stack key")
+      (is (not (contains? @seen-keys :path-stack))
+          "the bare :path-stack key must NOT appear (reserved-namespace contract)")
+      (is (= 11 (get-in (rf/get-frame-db :rf/default) [:foo :bar]))
+          "the rename did not break the path interceptor's splice-back behaviour"))))
+
+(deftest path-interceptor-nesting
+  (testing "nested (path ...) interceptors compose correctly — the LIFO
+            stack semantics of :rf/path-stack mean an inner path's :after
+            restores the outer slice and the outer :after splices back into
+            the full app-db. Pins the stack semantics independent of the
+            slot-key rename (rf2-mn0qc)."
+    (rf/reg-event-db :path-nest/init (fn [_ _] {:a {:b {:c 7} :sib :keep}}))
+    (rf/reg-event-db :path-nest/inc
+                     ;; The outer `path` focuses to {:b {:c 7} :sib :keep};
+                     ;; the inner `path` focuses to 7. The handler returns 8.
+                     [(rf/path :a)
+                      (rf/path :b :c)]
+                     (fn [slice _] (inc slice)))
+    (rf/dispatch-sync [:path-nest/init])
+    (rf/dispatch-sync [:path-nest/inc])
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (= 8 (get-in db [:a :b :c]))
+          "inner+outer path splice the inner slice back through both levels")
+      (is (= :keep (get-in db [:a :sib]))
+          "siblings under the outer focus are preserved"))))
+
 ;; ---- unwrap ---------------------------------------------------------------
 
 (deftest unwrap-interceptor

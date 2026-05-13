@@ -32,13 +32,15 @@
       (fn [ctx]
         (-> ctx
             ;; Stash the original db on a stack (supports nested path
-            ;; interceptors).
-            (update :path-stack (fnil conj []) (:db (:coeffects ctx)))
+            ;; interceptors). Reserved-namespace slot per Spec
+            ;; Conventions §Reserved namespaces — framework keys on the
+            ;; interceptor context belong under :rf/...
+            (update :rf/path-stack (fnil conj []) (:db (:coeffects ctx)))
             (assoc-in [:coeffects :db]
                       (get-in (:db (:coeffects ctx)) path-vec))))
       :after
       (fn [ctx]
-        (let [stack       (:path-stack ctx [])
+        (let [stack       (:rf/path-stack ctx [])
               original-db (peek stack)
               new-stack   (pop stack)
               ;; The handler may or may not have produced a new :db;
@@ -46,7 +48,7 @@
               new-slice   (or (get-in ctx [:effects :db])
                               (get-in ctx [:coeffects :db]))]
           (-> ctx
-              (assoc :path-stack new-stack)
+              (assoc :rf/path-stack new-stack)
               (assoc-in [:effects :db]
                         (assoc-in original-db path-vec new-slice))))))))
 
