@@ -35,7 +35,15 @@
   grey pending). The chrome widget at the foot of the sidebar
   aggregates those outcomes across every `:test`-tagged variant and
   exposes a 'Run all' button that drives `run-variant` over each in
-  sequence."
+  sequence.
+
+  Tag-as-badge affordance (rf2-nwiwr, SB9 badges-addon parity per
+  spec/005 §v1.1 ship list): each variant row renders the variant's
+  `:tags` as a row of small colour-coded badges to the right of the
+  variant id. The palette keys on the canonical seven tags (`:dev`,
+  `:docs`, `:test`, `:screenshot`, `:experimental`, `:internal`,
+  `:agent`); unknown tags fall back to a neutral grey. The badges are
+  inert (the filter row owns interaction) — purely a scan affordance."
   (:require [re-frame.story.runtime  :as runtime]
             [re-frame.story.async    :as async]
             [re-frame.story.ui.state :as state]))
@@ -164,7 +172,31 @@
                   :gap             "4px"}
    :watch-btn-on {:background "#1f4d3f"
                   :color      "#4ec9b0"
-                  :border     "1px solid #4ec9b0"}})
+                  :border     "1px solid #4ec9b0"}
+   ;; rf2-nwiwr — tag-as-badge affordance on variant rows.
+   :tag-badges   {:display     "inline-flex"
+                  :flex-wrap   "wrap"
+                  :gap         "3px"
+                  :margin-left "4px"}
+   :tag-badge    {:padding       "0 5px"
+                  :background    "#37373d"
+                  :color         "#cccccc"
+                  :border-radius "8px"
+                  :font-family   "monospace"
+                  :font-size     "9px"
+                  :line-height   "14px"
+                  :user-select   "none"
+                  :flex-shrink   "0"}
+   ;; Per-tag palette — keys on the canonical seven from
+   ;; spec/007 §Inclusion tags; unknown tags fall through to
+   ;; the neutral :tag-badge above.
+   :tag-badge-dev          {:background "#264f78" :color "#9cdcfe"}
+   :tag-badge-docs         {:background "#3a3a52" :color "#c586c0"}
+   :tag-badge-test         {:background "#1f4d3f" :color "#4ec9b0"}
+   :tag-badge-screenshot   {:background "#3a3a1f" :color "#dcdcaa"}
+   :tag-badge-experimental {:background "#553a1f" :color "#ce9178"}
+   :tag-badge-internal     {:background "#3a1f1f" :color "#f48771"}
+   :tag-badge-agent        {:background "#1f3a3a" :color "#4ec9b0"}})
 
 ;; ---- pure: collect tags from registered variants ------------------------
 
@@ -202,6 +234,33 @@
     :pending "tests not yet run"
     "tests not yet run"))
 
+;; ---- pure: per-tag badge styling (rf2-nwiwr) ----------------------------
+
+(def tag->badge-style-key
+  "Pure data → data: map a tag keyword to the per-tag styles map key
+  that supplies its colour-coded palette. Keys on the seven canonical
+  tags from spec/007 §Inclusion tags; unknown tags map to `nil` and
+  fall through to the neutral `:tag-badge` style.
+
+  Public so the JVM + CLJS test corpus can exercise the projection
+  without booting Reagent."
+  {:dev          :tag-badge-dev
+   :docs         :tag-badge-docs
+   :test         :tag-badge-test
+   :screenshot   :tag-badge-screenshot
+   :experimental :tag-badge-experimental
+   :internal     :tag-badge-internal
+   :agent        :tag-badge-agent})
+
+(defn sorted-tags
+  "Pure data → data: deterministic ordering for a variant's tag set.
+  Stable display order matters for visual scanning across rows; sorting
+  on `name` keeps the canonical seven in a predictable line-up."
+  [tags]
+  (->> (or tags #{})
+       (sort-by name)
+       vec))
+
 ;; ---- components ----------------------------------------------------------
 
 (defn- tag-filter-row
@@ -238,8 +297,31 @@
             :aria-label  label
             :title       label}]))
 
+(defn tag-badges
+  "Render the variant's `:tags` set as a row of small colour-coded
+  pills, inline to the right of the variant id. Each badge carries a
+  `data-tag` attribute keyed on the tag's `name` so test corpora can
+  locate it without walking style maps. Returns `nil` (no container)
+  when the variant has no tags — keeps the row layout tight.
+
+  Public so the test corpus can render and inspect the hiccup directly."
+  [tags]
+  (let [ordered (sorted-tags tags)]
+    (when (seq ordered)
+      [:span {:style       (:tag-badges styles)
+              :data-test   "story-sidebar-tag-badges"}
+       (for [tag ordered]
+         (let [k     (tag->badge-style-key tag)
+               extra (when k (k styles))]
+           ^{:key tag}
+           [:span {:style     (merge (:tag-badge styles) extra)
+                   :data-test "story-sidebar-tag-badge"
+                   :data-tag  (name tag)
+                   :title     (str tag)}
+            (name tag)]))])))
+
 (defn- variant-row
-  [variant-id selected? testable? status]
+  [variant-id selected? testable? status tags]
   [:div {:style       (merge (:variant-row styles)
                              (when selected? (:variant-row-active styles)))
          :data-test   "story-sidebar-variant-row"
@@ -247,7 +329,8 @@
          :on-click    (fn [_] (state/swap-state!
                                 state/select-variant variant-id))}
    (when testable? [status-dot status])
-   [:span (str "/" (name variant-id))]])
+   [:span (str "/" (name variant-id))]
+   [tag-badges tags]])
 
 (defn- story-block
   "Render one story header + its variants. `entry` shape is
@@ -257,11 +340,12 @@
   [:div
    [:div {:style (:story-row styles)}
     (str (or story-id "(no story)"))]
-   (for [[vid _body] variants]
+   (for [[vid body] variants]
      (let [testable? (contains? testable-set vid)
-           status    (or (get-in test-runs [vid :status]) :pending)]
+           status    (or (get-in test-runs [vid :status]) :pending)
+           tags      (:tags body)]
        ^{:key vid}
-       [variant-row vid (= vid selected-variant) testable? status]))])
+       [variant-row vid (= vid selected-variant) testable? status tags]))])
 
 (defn- workspace-row
   [workspace-id selected?]
