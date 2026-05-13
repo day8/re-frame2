@@ -46,9 +46,7 @@
   (frame/ensure-default-frame!)
   (machines/reset-timers!)
   (loaders/clear-watchers!)
-  (reset! assertions/warnings-accumulator          {})
-  (reset! assertions/emitted-fx-accumulator        {})
-  (reset! assertions/dispatched-events-accumulator {})
+  (reset! assertions/trace-accumulators {})
   ;; Always re-fire the Story registrations so each test starts with
   ;; a freshly-resolved registry (clears any leftover stories from
   ;; previous tests and ensures the lifecycle machine is freshly
