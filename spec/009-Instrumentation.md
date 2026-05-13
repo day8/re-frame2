@@ -1158,10 +1158,6 @@ Tracing is the connective tissue between the runtime and every tool that observe
 
 In dev, `interop/debug-enabled?` is true, so the emit body runs even when no listeners are registered: the runtime allocates the event map, pushes it to the retain-N ring buffer, and walks the (empty) listener registry. The ring-buffer push is the floor cost. Tools that want maximum dev-loop throughput can `(rf/configure :trace-buffer {:depth 0})` to disable the ring buffer; the synchronous-delivery path still works and the user-listener fan-out remains zero-cost when no listeners are attached.
 
-### Privacy / sensitive data in traces
-
-Trace events contain dispatched event vectors, which may include user input (passwords, PII). Tools that ship traces (e.g., to monitoring services) must redact. Recommendation: provide a `:sensitive?` tag that handlers can set; a `with-redacted` interceptor pattern that strips sensitive args before emit.
-
 ## Resolved decisions
 
 ### Listener ordering
@@ -1181,3 +1177,132 @@ Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per
 ### Trace event for app-db changes
 
 `:db` mutations happen inside `do-fx`. The runtime emits a separate `:event/db-changed` trace event on every dispatch whose handler returned a new db value. Tools that want before/after pairs read the `:rf/epoch-record`'s `:db-before` / `:db-after` slots, which the runtime captures atomically across the cascade rather than per-event.
+
+### Privacy / sensitive data in traces
+
+Trace events carry dispatched event vectors, handler return values, and (under [§Trace event for app-db changes](#trace-event-for-app-db-changes)) `app-db` snapshots — any of which may contain user input that should not leave the developer's machine: passwords, auth tokens, payment details, PII captured from form fields. Tools that ship traces off-box (error-monitor forwarders per [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), remote dev dashboards, the Causa-MCP / pair2 servers per [Tool-Pair.md](Tool-Pair.md)) must not emit that data verbatim.
+
+The contract is **two cooperating pieces**: a per-registration declarative flag (`:sensitive?`) that tools route on, and an opt-in redaction interceptor (`with-redacted`) that overwrites named keys in flight. Apps that only need filter-out semantics declare `:sensitive?` on the affected registrations and stop; apps that need keys redacted *within* a still-emitted event reach for `with-redacted`. The two compose — a registration carrying both `:sensitive?` and `with-redacted` emits redacted-payload traces tagged `:sensitive? true`.
+
+#### The `:sensitive?` registration metadata key
+
+`:sensitive?` is an optional **boolean** key on the `:rf/registration-metadata` map (per [Spec 001 §Registration grammar](001-Registration.md#registration-grammar) and [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata)). Every `reg-*` kind accepts it; the conventional use sites are `reg-event-*` (event handlers whose event vectors carry user input) and `reg-sub` (subscriptions whose return values flow user input into views).
+
+```clojure
+(rf/reg-event-fx :auth/sign-in
+  {:doc        "Verify credentials and start a session."
+   :sensitive? true                                 ;; this handler's event vector and return carry secrets
+   :spec       [:cat [:= :auth/sign-in] :string :string]}
+  (fn handler-auth-sign-in [{:keys [db]} [_ username password]]
+    {:db (assoc db :auth/pending? true)
+     :fx [[:rf.http/managed {:url "/auth" :method :post :body {:u username :p password}}]]}))
+```
+
+Semantics:
+
+- The registrar copies the `:sensitive?` value from the registration metadata into the registry slot's stored meta. Tools query it via `(rf/handler-meta kind id)` and see `:sensitive? true` on every registration that opted in.
+- At trace-emit time, when a handler with `:sensitive? true` is in scope (per [§`:rf.trace/trigger-handler` — naming the in-scope handler](#rftracetrigger-handler--naming-the-in-scope-handler)), the runtime MUST stamp `:sensitive? true` at the top level of every trace event emitted within that handler's scope. The stamp rides alongside `:source` / `:recovery` (other top-level hoists) and is independent of `:tags`. `:sensitive?` is hoisted to top-level, not `:tags`, so a single keyword read on the event tells the consumer to filter — no nested lookup.
+- A trace event whose `:rf.trace/trigger-handler` is not in scope (registration-time emits, outermost-dispatch lookup failures) carries no `:sensitive?` stamp. Consumers treat absent as `false`.
+- When a cascade chains handlers (event handler → fx handler → subsequent event handler), each handler's scope contributes its own `:sensitive?` reading; the stamp on a given trace event reflects the **innermost in-scope handler's** flag at emit time. Tools that want "every trace event in a sensitive cascade" group by `:dispatch-id` and OR-reduce the per-event `:sensitive?` field — the runtime does not transitively widen the flag across handler boundaries.
+- `:sensitive?` is **declarative**; setting it does NOT by itself redact any payload. The handler's event vector, return value, and the resulting `:event/db-changed` `:tags :app-db-before` / `:app-db-after` slots ride the trace stream unchanged. Tools downstream of the trace surface (the on-box error-monitor forwarder, the off-box pair2 server, dev panels) MUST consult `:sensitive?` and apply tool-side policy — drop, redact, summarise, or filter — before any data leaves the trust boundary.
+
+The default policies that ship with the framework's published listener integrations (the Sentry / Honeybadger forwarders documented at [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), the pair2 server per [Tool-Pair.md](Tool-Pair.md)) MUST suppress events carrying `:sensitive? true` by default. Apps that want them shipped opt in explicitly per integration; the conservative default protects apps that opt into a published integration without reading its source.
+
+#### The `with-redacted` interceptor
+
+`with-redacted` is a framework-supplied interceptor (re-exported from `re-frame.core`) that overwrites named keys in the event vector's payload map AND in the resulting `:db` / `:event` slots of every trace event emitted within the handler's scope. It is the **in-place redaction** complement to `:sensitive?`'s filter-out semantic — apps that want to keep emitting structured traces for sensitive handlers (so error-monitor dashboards still see the event taxonomy, the cascade, the exception class) but with the secret payloads scrubbed reach for `with-redacted`.
+
+Signature:
+
+```clojure
+(rf/with-redacted paths)
+;; -> an interceptor that, when present in an event handler's positional chain,
+;;    redacts the named paths in the event vector AND in the dispatched-event /
+;;    db-changed trace events emitted by the surrounding cascade.
+;;
+;; Arguments:
+;;   paths — a vector of get-in-style key paths into the event vector's payload
+;;           map (the conventional one-payload-map second element). Each path is
+;;           itself a vector; the value at every named path is replaced with the
+;;           sentinel keyword :rf/redacted before the runtime emits the
+;;           :event/dispatched trace and before any :tags :event slot is built.
+;;
+;; Returns: an interceptor map suitable for inclusion in a reg-event-* chain.
+```
+
+Worked example:
+
+```clojure
+(rf/reg-event-fx :auth/sign-in
+  {:doc "Verify credentials and start a session." :sensitive? true}
+  [(rf/with-redacted [[:password] [:totp-code]])]      ;; positional interceptor chain
+  (fn handler-auth-sign-in [{:keys [db]} [_ {:keys [username password totp-code] :as payload}]]
+    ...))
+
+;; A dispatch like (rf/dispatch [:auth/sign-in {:username "ada" :password "shhh" :totp-code "123456"}])
+;; produces an :event/dispatched trace event whose :tags :event is:
+;;
+;;   [:auth/sign-in {:username "ada" :password :rf/redacted :totp-code :rf/redacted}]
+```
+
+Behaviour:
+
+- **Redaction target.** `with-redacted` overwrites the named keys with the sentinel keyword `:rf/redacted` (a reserved keyword — apps MUST NOT use it as a legitimate payload value). The runtime never carries the original value past the interceptor's `:before` stage; the handler body itself sees the **unredacted** payload via the regular `:event` cofx slot (handlers need the real value to do their work — `with-redacted` redacts what the trace surface sees, not what the handler sees).
+- **What gets redacted.** The interceptor's `:before` stage redacts every named path in:
+  1. The `:event/dispatched` trace event's `:tags :event` payload.
+  2. The event handler's `:rf.trace/trigger-handler` cofx-slot view of the event (so any downstream emit that copies the event vector picks up the redacted form).
+  3. The `:event/db-changed` trace event's `:tags :app-db-before` and `:tags :app-db-after` slots, when the corresponding paths exist in `app-db` (the interceptor consults the same path vector against the db).
+  4. Any `:rf.error/handler-exception` `:tags :event` slot the runtime emits for a throw from this handler.
+- **Paths are vectors of keys.** `with-redacted` walks `get-in` semantics. The conventional event-vector shape is `[event-id payload-map]` (per [Conventions §Unwrap interceptor](Conventions.md)); paths address keys inside the payload map. Implementations are free to extend the vocabulary to accept richer path forms (e.g. wildcards, predicate-paths) — the v1 contract is the literal-keys form documented above.
+- **Sentinel keyword.** `:rf/redacted` is the framework-reserved redaction sentinel. The keyword namespace `:rf/` is the framework's reserved-keyword space (per [Conventions](Conventions.md)) so the sentinel cannot collide with an app-defined value. Consumers wanting "was this redacted?" check for the sentinel; `:sensitive?` at the top level is the orthogonal "did the registration declare itself sensitive?" axis.
+- **Composition with `:sensitive?`.** A handler carrying both `:sensitive? true` in its metadata-map and `[(rf/with-redacted [...])]` in its positional interceptor chain emits trace events that are BOTH stamped `:sensitive? true` AND carry redacted payloads. The two are independent — `:sensitive?` is the filter-out signal for listeners; `with-redacted` is the in-place scrub. The conservative recommended pattern for new sensitive handlers is to declare both: `:sensitive?` covers the case where a future listener forgets to redact, and `with-redacted` covers the case where a listener bypasses the filter and ships the event anyway.
+- **Composition with the rest of the interceptor chain.** `with-redacted` is an ordinary interceptor — it threads through `:before` / `:after` like any other and composes with `path`, `enrich`, `inject-cofx`, and user-defined interceptors. The redaction step runs in `:before` so all downstream emits see the redacted form; the handler body sees the original `:event` via the regular cofx slot.
+
+#### Trace-event field: `:sensitive?` at the top level
+
+The `:rf/trace-event` schema (per [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md#rftrace-event)) gains an optional top-level `:sensitive?` boolean. Tools branch on it directly:
+
+```clojure
+(rf/register-trace-cb!
+  :my-app/remote-shipper
+  (fn [trace-event]
+    (when-not (:sensitive? trace-event)              ;; default off-box-ship policy
+      (ship-to-remote-dashboard! trace-event))))
+```
+
+Filter-shape integration: `(rf/trace-buffer {:sensitive? false})` returns only the non-sensitive events from the ring buffer. The filter vocabulary at [§Filter vocabulary](#filter-vocabulary) gains one row:
+
+| Key | Type | Semantics |
+|---|---|---|
+| `:sensitive?` | boolean | Match the top-level `:sensitive?` field. Pass `false` to exclude sensitive events; pass `true` to select only sensitive events. Absent ⇒ no constraint. |
+
+#### Listener filtering semantics
+
+Listeners installed via `register-trace-cb!` and `register-epoch-cb!` (per [§The listener API](#the-listener-api)) receive **every** trace event regardless of `:sensitive?` — the flag is a payload axis the listener inspects, not a delivery gate. Two reasons: (1) on-box developer tooling (10x, the trace panel, the in-process ring buffer) needs to see sensitive traces during local dev; (2) routing the filter into the runtime would force every consumer to opt in to seeing sensitive data and complicate the elision contract. Filtering lives in the **listener body**, not in the framework's dispatch path.
+
+Framework-published listener integrations MUST default to suppressing `:sensitive? true` events:
+
+- The Sentry / Honeybadger forwarder samples at [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc) wrap their `register-trace-cb!` body in `(when-not (:sensitive? trace-event) ...)` by default. Apps that want the events shipped (rare; only when the monitor is itself the trust boundary, e.g. a self-hosted Sentry inside the same VPN) opt in by removing the guard.
+- The pair2 server (per [Tool-Pair.md §How AI tools attach](Tool-Pair.md#how-ai-tools-attach)) MUST drop or redact `:sensitive? true` events before forwarding to the AI surface. The default policy is **drop**; apps that want sensitive cascades visible to the pair tool configure the policy explicitly.
+- The Causa-MCP server (per [Tool-Pair.md](Tool-Pair.md)) MUST default-drop `:sensitive? true` events from the cascade graph it materialises.
+
+User-side listeners (in-app recorders, dev panels, custom forwarders) have no framework-imposed policy — they receive every event and decide on a per-app basis. The recommended discipline is identical: gate any off-box egress on `(when-not (:sensitive? trace-event) …)`.
+
+#### Production-elision behaviour
+
+The `:sensitive?` mechanism is **dev-time only** — both pieces of it ride the trace surface and elide with it:
+
+- The trace surface's `:advanced` + `goog.DEBUG=false` build elides `emit!` entirely (per [§Production builds](#production-builds-zero-overhead-zero-code)). No trace event is allocated, no listener body runs, no `:sensitive?` stamp is built. The privacy mechanism is moot because there is no trace to privacy-protect.
+- The `with-redacted` interceptor itself is a regular interceptor map — it ships in production builds (it sits in the event handler's positional chain, not behind the trace gate). However, its only side-effects are *building the redacted shape for the trace emit and substituting the redacted event into downstream cofx slots*. With the trace surface elided, the substitution still runs (the handler still sees the substituted `:event` cofx) but no emit consumes it. Apps may safely leave `with-redacted` in the positional chain across dev and production builds — the redaction is correct in both, and in production the only observable effect is that the handler sees the redacted payload via the cofx slot (the unredacted payload still rides the `:before` stage and is available via the regular event-vector access path for the handler body itself).
+- The `:sensitive?` registration-metadata key is **NOT elided** — it sits on the registry's stored meta and surfaces through `(handler-meta kind id)` in dev and production alike. Production tools that query the registrar (e.g., for diagnostic dumps) see the flag without depending on the trace surface.
+- The elision-probe verifier (per [§Production-elision verification](#production-elision-verification)) gains one sentinel: the string fragment `":rf/redacted"` (the sentinel keyword) MUST be absent from the production bundle when no source-file declares it as a literal outside an elided branch. (Apps that use `with-redacted` declare it in their handler chains; the literal survives elision in those source-file slots — the verifier checks the *framework* surface, not user code.)
+
+A new error category accompanies the contract:
+
+| `:operation` / category | Meaning | Category-specific `:tags` |
+|---|---|---|
+| `:rf.warning/sensitive-without-redaction` | A registration carries `:sensitive? true` but its positional interceptor chain has no `with-redacted` interceptor. Emitted at registration time per `(kind, id)` pair (suppression cache reset across frame destruction). Advisory: the registration's events will be filtered by listener default-drop policy, but the in-buffer / on-box traces still carry the raw payload. The fix is to add `with-redacted` to the chain when the app wants both filter-out and in-place scrub semantics. Recovery: `:warned-and-replaced` — registration proceeds, but with the warning emitted | `:reg-fn` (e.g. `'reg-event-fx`), `:id`, `:reason` |
+
+The default-recovery row in the [§Default behaviour by category](#default-behaviour-by-category) table gains a corresponding entry: `:rf.warning/sensitive-without-redaction` → `:warned-and-replaced` — the warning fires; registration is unchanged.
+
+Trace events emitted under `:rf.warning/sensitive-without-redaction` ride the warning channel like every other `:rf.warning/*`: `:op-type :warning`, structured `:tags`, surfaced through `register-trace-cb!`. Tools that want a pre-flight sweep of an app's registrations consult `(rf/handlers :event)` filtered on `(:sensitive? (rf/handler-meta :event id))` and cross-check against the positional chain inspection (`(:interceptors (rf/handler-meta :event id))`).
