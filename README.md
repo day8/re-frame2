@@ -3,7 +3,6 @@
 > *This, milord, is my family's axe. We have owned it for almost nine hundred years, see. Of course, sometimes it needed a new blade. And sometimes it has required a new handle, new designs on the metalwork, a little refreshing of the ornamentation ... but is this not the nine hundred-year-old axe of my family? And because it has changed gently over time, it is still a pretty good axe, y'know. Pretty good.*
 >
 > — Terry Pratchett, *The Fifth Elephant* — reflecting on identity, flow, and derived values (aka [the Ship of Theseus](https://en.wikipedia.org/wiki/Ship_of_Theseus))
->
 
 re-frame2 is the same axe as [before](https://github.com/day8/re-frame), but made from different bits and with new ornamentation.
 
@@ -48,34 +47,36 @@ re-frame rejects that. Instead, events update centralised state. Subscriptions d
 
 re-frame2's predictable computational pipeline has a single, deeply integrated trace bus. 
 
-Result: your application is the ultimate surveillance state. With the ClojureScript implementation, you even can get even trace form-by-form (think statement-by-statement), but not by default. 
+Result: your application is the ultimate surveillance state. With the ClojureScript implementation, you can even get trace form-by-form (think statement-by-statement), but not by default.
 
 Every tool attaches to that trace bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Pair-programmer AI tooling can interact with your running system. Same with tests, stories. They all consume the same surface.
 
+### Novelty, bah humbug!
+
+Who cares about novelty? I just want a feature-rich, excellent, productive framework!
+
+Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimensions:
+
+  - **[Causa](https://day8.github.io/re-frame2/guide/15-devtools-and-pair-tools/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and I believe it.
+  - **[re-frame-pair](https://day8.github.io/re-frame2/guide/15-devtools-and-pair-tools/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
+  - **[Story](https://day8.github.io/re-frame2/guide/21-stories/)** — a Storybook-class component playground. Parity with [Storybook 9](https://storybook.js.org/), [Histoire](https://histoire.dev/), and [Ladle](https://ladle.dev/) on the chrome shape, *plus* differentiators those tools can't easily reach: EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls (Malli walks generate the args editor automatically), per-variant frame isolation (no state leaks between scenarios), machine-state visualisation, a time-travel scrubber linked to the trace stream, and Test Codegen (record canvas interactions as a `:play` body — Storybook 9's killer feature, with Story's EDN-first form making the captured output cleaner).
+  - **[Routing](https://day8.github.io/re-frame2/guide/17-routing/)** — URL-driven navigation with frame-aware semantics. Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes are possible because frames are a thing. Same handler runs server- and client-side.
+  - **[SSR](https://day8.github.io/re-frame2/guide/11-server-side/)** — server-side rendering and hydration that doesn't require a different mental model. Pure hiccup → HTML emitter, JVM-runnable (no React-on-the-server needed). Per-request frame lifecycle. Hydration-mismatch detection with structured error projection. `:rf/hydrate` is an event like any other.
+  - **[State Machines](https://day8.github.io/re-frame2/guide/08-state-machines/)** — near-parity with [XState](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same six-step pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, `:after`, `:always`, declarative `:invoke`, spawn-and-join, actor model, `:tags` query layer. We skip XState's history states in favour of snapshot-as-value capture — a strict superset for any codebase already using re-frame2's revertibility.
+  - **[Flows](https://day8.github.io/re-frame2/guide/18-from-re-frame-v1/#flows--the-replacement-for-on-changes)** — registered, runtime-toggleable derived-computation declarations that recompute only when inputs change. Reactive without the framework gymnastics. The v2 incarnation of v1's `on-changes` interceptor, but registered globally and toggleable as data rather than scattered across event handlers.
+  - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
+  - **[Managed HTTP](https://day8.github.io/re-frame2/guide/10-doing-http-requests/)** — getting HTTP right is a hassle, so most apps half-arse it. With re-frame2 you have exactly the right tools to do it properly: request retry, abort, encode/decode pipeline, in-flight registry, per-frame interceptors, frame-aware reply addressing, an eight-category failure taxonomy under `:rf.http/*`. Same shape applies to websockets.
+  - **[Nine States of UI](https://day8.github.io/re-frame2/guide/08-state-machines/#parallel-regions)** — pair perfect HTTP hygiene with perfect UI-state hygiene. Nine canonical states — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done` — every loading/error/empty/cardinality UI passes through. Modelled as one parallel state machine with three regions, so Forms + Managed HTTP + Machines compose to render each state explicitly. And then combine this with **Story**: every state becomes its own variant — render it, review it, lock it in with visual regression, hand it to your AI for design feedback. No more "what should this look like while it's loading and there's stale data and a soft-failure?" — the matrix is locked, and every cell is on a wall.
 
 ### The core
 
-These are the surfaces every re-frame2 app uses, more or less by default:
+The surfaces every re-frame2 app uses:
 
-- **State management** — central, immutable app state. One source of truth per frame, no exceptions.
-- **Isolated computational frames** — multiple independent runtimes in one app, each with its own data store, dispatch queue, and registry. Embedded widgets, tenant isolation, multi-pane shells, whatever you need. One app, several disjoint state domains.
-- **Frame-scoped revertibility** — pointer-swap state revert. Time-travel and undo at zero copy cost, because the state was immutable to begin with and the runtime just holds onto the old pointer.
-- **Events + effects** — events drive transitions; effects are data, not callbacks. You return a description of what should happen; the runtime does it. Effects compose, effects are testable, effects are observable, effects are stubbable.
-- **Subscriptions** — pure derived values with explicit dependency tracking and recompute suppression. Computed-once, fanned-out, with the bookkeeping handled for you.
-- **State machines** — FSMs for auth flows, multi-step forms, HTTP connections, websockets, etc. State machines are everywhere but usually not formalised like they should be. And, of course, we like them because they are a lovely simple computational model — and the simpler the computational model, the better.
-
-
-### Batteries included
-
-Opt in:
-
-- **Tracing deeply integrated** — as previously described. 
-- **Routing** — URL-driven navigation with frame-aware semantics. Per-pane routes are possible because frames are a thing.
-- **Validation / schemas** — Malli-backed boundary checks, opt-in, production-elidable. You pay for what you turn on.
-- **Flows** — derived computation graphs that recompute only on input change. Reactive without the gymnastics.
-- **Managed HTTP** — request retry, abort, encode/decode, in-flight registry, per-frame interceptors. The stuff you keep rewriting badly.
-- **Server-side rendering** — hiccup → HTML, hydration round-trip, error projection. SSR that doesn't require a different mental model.
-- **Time-travel / debugging** — every event leaves an epoch; restore any prior state.
+- **State management** — central, immutable app state. One source of truth per frame.
+- **Isolated computational frames** — multiple independent runtimes in one app, each with its own data store, dispatch queue, and registry. Embedded widgets, tenant isolation, multi-pane shells.
+- **Frame-scoped revertibility** — pointer-swap state revert. Time-travel and undo at zero copy cost.
+- **Events + effects** — events drive transitions; effects are data, not callbacks. Composable, testable, observable, stubbable.
+- **Subscriptions** — pure derived values with explicit dependency tracking and recompute suppression. Computed-once, fanned-out, bookkeeping handled.
 
 ## Reference implementation
 
