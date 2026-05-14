@@ -126,6 +126,11 @@
     ;; the runtime emits the :rf.flow/* lifecycle events. Claimed so
     ;; `flow-lifecycle-emits-traces.edn` runs on CLJS too (rf2-efjs6).
     :flow/trace
+    ;; Spec 013 §Frame-scoping — same flow-id against two frames yields
+    ;; two independent definitions; clear-flow is frame-local; sibling
+    ;; frames' flows do not walk on cross-frame dispatches. Claimed so
+    ;; `flow-frame-scoped.edn` runs on CLJS too (rf2-29ovh).
+    :flow/frame-scoped
     :rf.http/managed})
 
 (def claimed-spec-versions
