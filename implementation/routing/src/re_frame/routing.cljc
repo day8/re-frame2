@@ -183,6 +183,56 @@
 
 (defonce ^:private reg-counter (atom 0))
 
+;; ---- pre-sorted route table -----------------------------------------------
+;;
+;; Per Spec 012 §Route ranking algorithm match-url picks the highest-rank
+;; route whose pattern matches the URL. The naive implementation walks the
+;; full `(registrar/handlers :route)` map per call, allocates a `keep` seq,
+;; and sorts on every navigation. For a N-route app every navigation reads
+;; every route's metadata.
+;;
+;; The cache holds a vector of `[id meta]` pairs sorted by `:rf.route/rank`
+;; descending. `match-url` iterates in pre-sorted order and short-circuits
+;; on the first pattern that matches — that IS the highest-rank winner.
+;; `reg-route` rebuilds the cache on every registration, and a registrar
+;; replacement-hook (rf2-9ihwx) invalidates the cache on hot-reload of any
+;; route entry (whose `:kind` matches `:route`).
+
+(defonce ^:private route-table-cache
+  ;; {:source-id <identity of the registrar's :route map at build time>
+  ;;  :pairs    <vector of [id meta] pairs sorted by rank descending>}
+  ;; nil ⇒ never built. Stale-check compares :source-id against the
+  ;; current registrar map identity so clear-all! / clear-kind! / any
+  ;; out-of-band mutation invalidates without an explicit hook.
+  (atom nil))
+
+(defn- rebuild-route-table-cache!
+  "Read the current `:route` kind from the registrar, sort descending by
+  rank, and replace the cache. Returns the new pairs vector."
+  []
+  (let [source (registrar/handlers :route)
+        pairs  (->> source
+                    (sort-by (fn [[_id meta]]
+                               (or (:rf.route/rank meta) [0 0 0 0 0 0]))
+                             #(compare %2 %1))
+                    vec)]
+    (reset! route-table-cache {:source-id source :pairs pairs})
+    pairs))
+
+(defn- route-table
+  "Return the cached pre-sorted route table, rebuilding when the
+  underlying registrar map changes identity (Spec 002 §The public
+  registrar query API — `handlers` returns a snapshot map, so identity
+  equality is a safe invalidation signal — register! / clear-kind! /
+  clear-all! all swap the underlying ref, so the snapshot identity
+  changes on every mutation)."
+  []
+  (let [cache  @route-table-cache
+        source (registrar/handlers :route)]
+    (if (and cache (identical? source (:source-id cache)))
+      (:pairs cache)
+      (rebuild-route-table-cache!))))
+
 (declare compile-pattern)
 
 (defn reg-route
@@ -216,6 +266,9 @@
         (trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
                      {:route-id id :shadowed shadowed})))
     (registrar/register! :route id meta')
+    ;; Cache invalidation is automatic — the registrar's `:route` map
+    ;; gets a new identity on every register!, and `route-table` checks
+    ;; identity equality before reusing the cached pairs vector.
     id))
 
 ;; ---- path-pattern compilation ---------------------------------------------
@@ -350,7 +403,13 @@
   string values are coerced per key type. :query-defaults populate
   absent keys. The URL's '#fragment' portion (per Spec 012 §Fragments)
   is parsed off the front and surfaced as :fragment (string or nil);
-  fragments do not participate in route matching."
+  fragments do not participate in route matching.
+
+  Performance (rf2-9ihwx): walks the pre-sorted route-table cache
+  (rebuilt on reg-route / registrar replacement-hook) and short-circuits
+  on the first matching pattern — that is the highest-rank winner by
+  construction. Avoids the per-call `keep + sort-by + first` allocation
+  pattern."
   [url]
   ;; Split off the fragment first (per Spec 012 §Fragments — fragments
   ;; do not participate in route matching); then strip query string for
@@ -367,41 +426,36 @@
                                         (keyword (url-decode k))
                                         (if v (url-decode v) ""))))
                              (array-map)
-                             (clojure.string/split query-str #"&")))
-        ;; Find every route whose pattern matches; sort by rank descending
-        ;; (Spec 012 §Route ranking algorithm); the highest-ranked wins.
-        candidates
-        (keep
-          (fn [[id meta]]
-            ;; Use the pre-compiled pattern from registration; fall back
-            ;; to ad-hoc compile only if metadata didn't carry one
-            ;; (defensive — shouldn't happen).
-            (when-let [compiled (or (:rf.route/compiled meta)
-                                    (some-> (:path meta) compile-pattern))]
-              (when-let [params (match-against compiled path)]
-                (let [schema     (:query meta)
-                      defaults   (:query-defaults meta {})
-                      coerced    (when raw-query
-                                   (reduce-kv
-                                     (fn [m k v]
-                                       (assoc m k (coerce-query-value schema k v)))
-                                     (array-map)
-                                     raw-query))
-                      with-defaults (reduce-kv
-                                      (fn [m k v]
-                                        (if (contains? m k) m (assoc m k v)))
-                                      (or coerced (array-map))
-                                      defaults)]
-                  {:route-id           id
-                   :rank               (or (:rf.route/rank meta)
-                                           [0 0 0 0 0 0])
-                   :params             params
-                   :query              with-defaults
-                   :fragment           fragment
-                   :validation-failed? false}))))
-          (registrar/handlers :route))
-        winner (->> candidates (sort-by :rank #(compare %2 %1)) first)]
-    (when winner (dissoc winner :rank))))
+                             (clojure.string/split query-str #"&")))]
+    ;; Iterate the pre-sorted table; the first pattern that matches is the
+    ;; highest-rank winner (Spec 012 §Route ranking algorithm). `reduce` with
+    ;; `reduced` short-circuits on the first hit. nil ⇒ no route matched.
+    (reduce
+      (fn [_ [id meta]]
+        (when-let [compiled (or (:rf.route/compiled meta)
+                                (some-> (:path meta) compile-pattern))]
+          (when-let [params (match-against compiled path)]
+            (let [schema        (:query meta)
+                  defaults      (:query-defaults meta {})
+                  coerced       (when raw-query
+                                  (reduce-kv
+                                    (fn [m k v]
+                                      (assoc m k (coerce-query-value schema k v)))
+                                    (array-map)
+                                    raw-query))
+                  with-defaults (reduce-kv
+                                  (fn [m k v]
+                                    (if (contains? m k) m (assoc m k v)))
+                                  (or coerced (array-map))
+                                  defaults)]
+              (reduced
+                {:route-id           id
+                 :params             params
+                 :query              with-defaults
+                 :fragment           fragment
+                 :validation-failed? false})))))
+      nil
+      (route-table))))
 
 (defn- collect-param-names-in-group
   "Walk a pattern starting at `start` (just past the opening '{'), return
