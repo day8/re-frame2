@@ -89,6 +89,71 @@
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
     (rf/clear-flow :no-such-flow)))
 
+(deftest clear-flow-nested-path-before-first-compute-does-not-write-nil-parent
+  ;; Regression for rf2-q25os Repro 1. When a flow with a nested `:path`
+  ;; (e.g. `[:step-2 :result]`) is cleared BEFORE any drain has run the
+  ;; flow's output, the parent slot `:step-2` doesn't exist in app-db.
+  ;; Pre-fix, the naïve `(update-in cur [:step-2] dissoc :result)`
+  ;; returned `(dissoc nil :result) ⇒ nil`, producing `{:step-2 nil}` — a
+  ;; spurious nil parent. The robust path (`dissoc-in-safe`) leaves
+  ;; app-db unchanged when the parent was never materialised.
+  (testing "clear-flow on nested-path flow before first compute leaves app-db unchanged"
+    (rf/reg-flow {:id     :pending
+                  :inputs [[:n]]
+                  :output (fn [_] "never-runs")
+                  :path   [:step-2 :result]})
+    (let [db-before (rf/get-frame-db :rf/default)]
+      (rf/clear-flow :pending)
+      (let [db-after (rf/get-frame-db :rf/default)]
+        (is (= db-before db-after)
+            "app-db is unchanged when clearing a never-materialised nested-path flow")
+        (is (not (contains? db-after :step-2))
+            "no spurious `:step-2 nil` parent was created")))))
+
+(deftest clear-flow-non-map-intermediate-is-noop
+  ;; Regression for rf2-q25os Repro 2. When an intermediate path step
+  ;; holds a non-map value (e.g. someone wrote a scalar at `:step-2`
+  ;; before the flow's output ever materialised), pre-fix
+  ;; `(update-in cur [:step-2] dissoc :result)` called `(dissoc 1 :result)`
+  ;; and threw `ClassCastException`. The robust path treats this as a
+  ;; no-op — the flow's `:path` never materialised, so there's nothing
+  ;; to clear.
+  (testing "clear-flow on a flow whose intermediate path step holds a scalar is a no-op (no throw)"
+    (rf/reg-event-db :seed-scalar (fn [_ _] {:step-2 1 :foo 3 :bar 4}))
+    (rf/reg-flow {:id     :pending
+                  :inputs [[:foo]]
+                  :output (fn [_] "never-stored-because-:step-2-is-a-scalar")
+                  :path   [:step-2 :result]})
+    (rf/dispatch-sync [:seed-scalar])
+    ;; At this point the flow tried to write at `[:step-2 :result]` —
+    ;; `assoc-in` on a scalar parent actually replaces the scalar with a
+    ;; map. So the flow's first drain materialises the path, and a
+    ;; subsequent clear would hit the normal path. To exercise the
+    ;; never-materialised non-map-intermediate case directly, we reset
+    ;; last-inputs and re-seed AFTER reg-flow but BEFORE any drain.
+    (when-let [li-var (resolve 're-frame.flows/last-inputs)]
+      (reset! (deref li-var) {}))
+    (let [db-before (rf/get-frame-db :rf/default)]
+      ;; Stamp a non-map at the parent slot via direct app-db write so
+      ;; the next clear hits the non-map-intermediate branch.
+      (rf/reg-event-db :stamp-non-map (fn [db _] (assoc db :step-2 1)))
+      (rf/dispatch-sync [:stamp-non-map])
+      ;; Re-register the flow so the per-frame registry has the entry
+      ;; (re-stamping app-db dropped the flow's output via the value-
+      ;; equal check path).
+      (rf/reg-flow {:id     :pending
+                    :inputs [[:foo]]
+                    :output (fn [_] "never-stored")
+                    :path   [:step-2 :result]})
+      ;; Clear must NOT throw, and must leave the scalar parent intact.
+      (is (nil? (rf/clear-flow :pending))
+          "clear-flow returns nil (no throw) when the intermediate is a non-map")
+      (is (= 1 (:step-2 (rf/get-frame-db :rf/default)))
+          ":step-2 is preserved as its scalar value — clear-flow did not corrupt it")
+      ;; Sanity: siblings untouched.
+      (is (= 3 (:foo (rf/get-frame-db :rf/default))))
+      (is (= 4 (:bar (rf/get-frame-db :rf/default)))))))
+
 (deftest clear-flow-handles-single-element-path
   (testing "rf2-aqt7: clear-flow with a single-element :path dissocs the top-level key"
     ;; The repro from rf2-aqt7: a flow whose :path is a one-element vector

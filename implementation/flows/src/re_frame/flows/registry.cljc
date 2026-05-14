@@ -202,9 +202,48 @@
                    :frame   frame-id})
      flow-id)))
 
+(defn- dissoc-in-safe
+  "Like `dissoc-in` over `(butlast path) → (last path)` but robust against
+  the two unmaterialised-output failure modes flagged by audit rf2-q25os:
+
+  - **Unmaterialised parent.** When a flow with `:path [:step-2 :result]`
+    is cleared BEFORE its first drain, the parent slot `:step-2` may not
+    exist. The naïve `(update-in cur [:step-2] dissoc :result)` returns
+    `(dissoc nil :result)` ⇒ `nil`, producing `{:step-2 nil}` — a
+    spurious nil parent. Detect this case and leave `cur` unchanged.
+  - **Non-map intermediate.** When an intermediate path step holds a
+    non-map value (a scalar already wrote past the flow's planned path),
+    the naïve `update-in` calls `(dissoc 1 :result)` and throws
+    `ClassCastException`. Treat this as a no-op — the flow's `:path`
+    never materialised, so there's nothing to clear.
+
+  Single-element paths and non-vector paths are handled by the caller's
+  earlier branches; this helper is only called for `(>= (count path) 2)`."
+  [cur path]
+  (let [parent-path (vec (butlast path))
+        leaf        (last path)
+        parent      (get-in cur parent-path ::missing)]
+    (cond
+      ;; Parent was never materialised — leave cur as-is. Per audit
+      ;; rf2-q25os Repro 1: registering a nested-path flow then clearing
+      ;; before any drain would write `{<parent> nil}` otherwise.
+      (or (= ::missing parent) (nil? parent)) cur
+      ;; Parent is non-map (scalar / vector / set) — there's no
+      ;; meaningful "dissoc this leaf" on a non-map intermediate. Per
+      ;; audit rf2-q25os Repro 2: throwing ClassCastException for a
+      ;; cleanup operation is poor manners; leave the value untouched
+      ;; (it's not OUR flow's output anyway).
+      (not (map? parent)) cur
+      :else (update-in cur parent-path dissoc leaf))))
+
 (defn clear-flow
   "Deregister a flow from a frame; dissoc its output path from that
-  frame's app-db (only that frame). Frame defaults to (current-frame)."
+  frame's app-db (only that frame). Frame defaults to (current-frame).
+
+  Per audit rf2-q25os: the nested-path dissoc is robust against the
+  output path never having been materialised (no spurious nil parent
+  created) and against a non-map intermediate (no ClassCastException
+  thrown) — see `dissoc-in-safe` above."
   ([id] (clear-flow id {}))
   ([id {:keys [frame] :as _opts}]
    (let [frame-id (or frame (frame/current-frame))]
@@ -218,14 +257,16 @@
                  ;; path falls into (assoc {} nil (apply f val args)),
                  ;; producing {... nil nil}. Special-case length 1 so
                  ;; the leaf is dissoc'd directly.
+                 ;;
+                 ;; The (>= 2) branch routes through `dissoc-in-safe`
+                 ;; which handles the unmaterialised-parent / non-map-
+                 ;; intermediate cases without writing nil parents or
+                 ;; throwing (per audit rf2-q25os).
                  new-db (cond
                           (not (vector? path))         (dissoc cur path)
                           (empty? path)                cur
                           (= 1 (count path))           (dissoc cur (first path))
-                          :else                        (update-in cur
-                                                                  (vec (butlast path))
-                                                                  dissoc
-                                                                  (last path)))]
+                          :else                        (dissoc-in-safe cur path))]
              (adapter/replace-container! container new-db)))
          (swap! flows update frame-id dissoc id)
          ;; `last-inputs` is shaped {flow-id {frame-id inputs}} — clear
