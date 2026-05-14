@@ -2202,7 +2202,12 @@ Per-frame epoch snapshot, recorded on each drain-completion in dev builds. Used 
    [:event-id      :keyword]                                                ;; the event that triggered the cascade
    [:trigger-event [:vector :any]]                                          ;; the full event vector
    [:db-before     :any]                                                    ;; app-db before the cascade
-   [:db-after      :any]                                                    ;; app-db after drain settled
+   [:db-after      :any]                                                    ;; app-db the runtime settled to (see :outcome)
+   [:outcome       [:enum :ok                                               ;; (rf2-v0jwt) drain reached empty queue cleanly
+                          :halted-depth                                     ;; drain-depth limit tripped; atomic rollback
+                          :halted-destroy                                   ;; frame destroyed mid-drain
+                          :halted-handler-exception]]                       ;; reserved — current impl does not halt the drain on handler-exception, see §Outcomes below
+   [:halt-reason   {:optional true} :any]                                   ;; structured descriptor of the halt (operation + key tags), absent on :ok
    [:schema-digest {:optional true} [:maybe :string]]                       ;; (rf2-0z1z) digest of the frame's app-schema set at record time, per [010 §Schema digest](010-Schemas.md#schema-digest); nil on hosts without a runtime schema layer
    [:trace-events  {:optional true} [:vector :any]]                         ;; the cascade's trace events (raw)
    [:sub-runs      {:optional true} [:vector
@@ -2234,6 +2239,21 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 - `:schema-digest` (rf2-0z1z) — the canonical wire form (per [010 §Schema digest](010-Schemas.md#schema-digest)) of the frame's app-schema set at the moment this epoch was recorded. Pinned per-epoch so `restore-epoch`'s `:rf.epoch/restore-schema-mismatch` trace can carry both the **recorded** digest and the frame's **current** digest, letting pair tools attribute restore failures to schema drift. `nil` on hosts that ship no runtime schema layer (the slot is optional and tolerated absent).
 
 `:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs. The structured slots have the same per-epoch-storage tradeoff and may likewise be elided for older epochs in the ring buffer.
+
+#### Outcomes (rf2-v0jwt)
+
+The runtime commits an epoch record on every drain boundary — both clean settles and halted drains. `:outcome` discriminates so devtools (Causa, re-frame-pair2) can render failing cascades with the partial-information shape they actually carry.
+
+| `:outcome` | When the runtime commits | `:db-before` | `:db-after` |
+|---|---|---|---|
+| `:ok` | Drain reached an empty queue cleanly. The traditional record. | Pre-cascade snapshot. | Post-cascade snapshot. |
+| `:halted-depth` | Drain hit the configured depth limit; the runtime performed an atomic rollback per [Spec 002 §Run-to-completion §Rules rule 3](002-Frames.md#run-to-completion). | Pre-cascade snapshot. | Equal to `:db-before` (the rolled-back state). |
+| `:halted-destroy` | A handler called `destroy-frame!` on its own frame mid-cascade; the drain interrupts and drops remaining queued events per [Spec 002 §Edge cases worth pinning §Frame disposal mid-drain](002-Frames.md). | Pre-cascade snapshot. | The state at destroy-time — the partial cascade's writes survive in the recorded value, but the frame is gone so the live container can no longer be read. |
+| `:halted-handler-exception` | **Reserved.** Spec 010 §Per-step recovery line 140 describes "cascade halts" on handler exception, but the reference runtime currently routes through the interceptor chain's error-capture seam: the failing handler's `:db` / `:fx` / flows do **not** apply (the chain caught the exception before `:effects` were populated), but the drain itself continues with the next queued event. No record carries this outcome under today's CLJS reference. Held for a future runtime path that aborts the drain on handler exception. | — | — |
+
+`:halt-reason` is a small structured map describing the halt — `{:operation <error-op> :tags <selected-tags>}` — sufficient for devtools to render a one-line summary without correlating against the raw trace stream. The slot is absent on `:ok` records and on the `:halted-destroy` path when no error trace is associated (a destroy is a deliberate lifecycle event, not an error).
+
+**Restore semantics.** `restore-epoch` refuses non-`:ok` records, emitting `:rf.epoch/restore-non-ok-record` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)). The "time-travel never lands you in a misleading state" invariant is preserved — halted records exist for devtools introspection, not as restore targets. Listeners (`register-epoch-cb!`) receive every record regardless of `:outcome`.
 
 ### `:rf/fixture-file`
 
