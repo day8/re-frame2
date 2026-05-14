@@ -190,21 +190,3 @@
   any-redacted? flag (e.g. inside a generic tag-walker)."
   [url-str sensitive?]
   (first (redact-url-query-string url-str sensitive?)))
-
-(defn query-denylist-hit?
-  "Return true iff `url-str` carries a query-string param whose name is
-  on the merged query-param denylist. The denylist-alone hit is itself
-  a signal that the request carries an auth secret (rf2-2p8wr) — the
-  `prepare-emit-*` composers use this to stamp `:sensitive?` even when
-  the originating handler was not declared sensitive."
-  [url-str]
-  (and (string? url-str)
-       (let [[_ q-and-f] (split-url-on-query url-str)
-             [q _]       (split-query-on-fragment q-and-f)]
-         (and (not (str/blank? q))
-              (boolean
-                (some (fn [pair]
-                        (let [eq-idx (str/index-of pair "=")
-                              pname  (if eq-idx (subs pair 0 eq-idx) pair)]
-                          (sensitive-query-param? pname)))
-                      (str/split q #"&")))))))
