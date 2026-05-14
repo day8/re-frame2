@@ -485,13 +485,13 @@ This recommendation is normative-soft: ports that ship a different default-absen
 
 ### Locked rules
 
-- **One validator fn per frame** is in effect at any time. Last-write-wins on re-registration; tools warn if the source coords differ between registrations (same form re-register is benign hot-reload).
+- **One validator fn per process** is in effect at any time. Last-write-wins on re-registration. The validator is _for the schema language_, not per-app-instance — Malli, Zod, or a custom validator is a process-global choice.
 - **The validator fn is pure** — same `(schema, value)` returns the same result. Implementations may memoise but tests must not depend on memoisation.
 - **The validator fn must be production-elidable** alongside the host's debug-enabled flag (`re-frame.interop/debug-enabled?` on CLJS; the equivalent on other ports) — calls to it disappear in prod builds (subject to the boundary-validation override per [§Production builds](#production-builds)).
 - **Schema digests** ([§Schema digest](#schema-digest)) are computed from the schema **values** as serialised by the registered validator's `schema-print` companion fn (see [§Schema digest](#schema-digest)) — not from the validator. Two ports using different validators against the same schema-language-EDN-form produce the same digest iff their `schema-print` fns produce identical bytes; two ports using *different* schema languages produce different digests by construction.
 - **`nil` validator means no validation, not "every value fails"**. Setting validator to nil is the documented opt-out — every `validate-*!` site short-circuits to `true` (pass). The schemas mandate stays unchanged at the framework level (apps still attach `:spec` and `reg-app-schema`); only the runtime check is disabled.
 
-What the extension point does NOT cover: a *mix* of validators within one frame. The runtime resolves one validator and uses it for every `:spec` in the frame; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
+What the extension point does NOT cover: a *mix* of validators in one process. The runtime resolves one validator and uses it for every `:spec` everywhere; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
 
 ### Opting in to Malli validation on CLJS (rf2-t0hq)
 
