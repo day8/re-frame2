@@ -72,27 +72,32 @@ test harnesses, and Settings UIs.
 ;; Programmatically swap the theme (useful for editor-driven palette sync).
 ```
 
-### `day8.re-frame2-causa.panels`
+### `day8.re-frame2-causa.panels.*`
 
-Each panel exports its `Panel` component for embedding (per
-[`008-Embedding-Contract.md`](./008-Embedding-Contract.md)):
+Each panel exports its `*-view` component for embedding (per
+[`008-Embedding-Contract.md`](./008-Embedding-Contract.md)). The
+embedding contract names the public symbol `Panel`; the present
+impl exports under `*-view`. Promoting to a capital-`Panel` alias
+is the open decision tracked under the embedding-facade bead — the
+canonical symbol list as of today is:
 
 ```clojure
-day8.re-frame2-causa.panels.event-detail/Panel
-day8.re-frame2-causa.panels.causality/Panel
-day8.re-frame2-causa.panels.causality-strip/Panel
-day8.re-frame2-causa.panels.event-log/Panel
-day8.re-frame2-causa.panels.app-db/Panel
-day8.re-frame2-causa.panels.subscriptions/Panel
-day8.re-frame2-causa.panels.effects/Panel
-day8.re-frame2-causa.panels.trace/Panel
-day8.re-frame2-causa.panels.machine/Panel
-day8.re-frame2-causa.panels.flow/Panel
-day8.re-frame2-causa.panels.performance/Panel
-day8.re-frame2-causa.panels.schema-timeline/Panel
-day8.re-frame2-causa.panels.issues/Panel
-day8.re-frame2-causa.panels.hydration/Panel
-day8.re-frame2-causa.panels.routing/Panel
+day8.re-frame2-causa.panels.event-detail/event-detail-view
+day8.re-frame2-causa.panels.causality-graph/causality-graph-view
+day8.re-frame2-causa.panels.time-travel/time-travel-view
+day8.re-frame2-causa.panels.app-db-diff/app-db-diff-view
+day8.re-frame2-causa.panels.subscriptions/subscriptions-view
+day8.re-frame2-causa.panels.effects/effects-view
+day8.re-frame2-causa.panels.trace/trace-view
+day8.re-frame2-causa.panels.machine-inspector/machine-inspector-view
+day8.re-frame2-causa.panels.flows/flows-view
+day8.re-frame2-causa.panels.routes/routes-view
+day8.re-frame2-causa.panels.performance/performance-view
+day8.re-frame2-causa.panels.schema-violation-timeline/schema-violation-timeline-view
+day8.re-frame2-causa.panels.issues-ribbon/issues-ribbon-view
+day8.re-frame2-causa.panels.hydration-debugger/hydration-debugger-view
+day8.re-frame2-causa.panels.mcp-server/mcp-server-view
+day8.re-frame2-causa.panels.ai-co-pilot/ai-co-pilot-view
 ```
 
 Each accepts the props map specified in
