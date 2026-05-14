@@ -196,7 +196,9 @@
   ;; Reference epoch's lower-level entry points directly so the ns is
   ;; not pruned even before DCE looks at the gated bodies.
   (epoch/clear-history!)
-  (epoch/clear-frame-history! :rf/default)
+  ;; rf2-sh5g6: clear-frame-history! is `defn-` (test-only seam); the
+  ;; un-scoped `clear-history!` above already pins the namespace for
+  ;; the elision walker.
   (epoch/clear-epoch-cbs!)
   (let [_cfg (epoch/current-config)]
     nil)

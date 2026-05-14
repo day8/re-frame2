@@ -108,8 +108,14 @@
   (reset! histories {})
   nil)
 
-(defn clear-frame-history!
-  "Drop every recorded epoch for the named frame."
+(defn- clear-frame-history!
+  "Drop every recorded epoch for the named frame. Per rf2-sh5g6: no
+  late-bind hook is published for this; the fn is invoked only from
+  the in-artefact test pin (via the `#'epoch/clear-frame-history!`
+  var). The test fixture uses the unscoped `clear-history!`
+  hook so scoped clearing is not on the integration critical path —
+  marking `defn-` keeps the surface area of the epoch public API
+  tight without losing the pinned-seam test."
   [frame-id]
   (swap! histories dissoc frame-id)
   nil)
