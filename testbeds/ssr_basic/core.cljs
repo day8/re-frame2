@@ -59,7 +59,10 @@
 
 (defn- ev->js
   "Project a trace event into a Playwright-friendly JS shape — only the
-  fields the spec.cjs assertions need, stringified where useful."
+  fields the spec.cjs assertions read against. `:recovery` is hoisted
+  to the top level of the trace envelope (per Spec 009 §Error event
+  shape — `re-frame.trace/build-event`'s recovery-hoist branch); the
+  others ride in `:tags`."
   [ev]
   (let [t (:tags ev)]
     (clj->js
@@ -69,7 +72,8 @@
         (:client-hash t) (assoc :client-hash (:client-hash t))
         (:failing-id t)  (assoc :failing-id (str (:failing-id t)))
         (:check t)       (assoc :check (str (:check t)))
-        (:recovery t)    (assoc :recovery (str (:recovery t)))))))
+        ;; `:recovery` is hoisted onto the top-level envelope.
+        (:recovery ev)   (assoc :recovery (str (:recovery ev)))))))
 
 (defn install-trace-listener! []
   ;; HOT PATH — wire the trace bus to a window-side mirror so a
