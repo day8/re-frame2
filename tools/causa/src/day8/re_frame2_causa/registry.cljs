@@ -2,145 +2,36 @@
   "Causa's framework registrations — events, subs, fxs under the
   `:rf.causa/*` namespace prefix.
 
-  ## Why the namespace prefix matters (rf2-tijr Option C)
+  ## Namespace prefix is the collision contract
 
-  Per rf2-tijr the registrar is process-global; Causa's registrations
-  share the registry with the host app. The `:rf.causa/*` prefix is the
+  The registrar is process-global; Causa's registrations share the
+  registry with the host app. The `:rf.causa/*` prefix is the
   collision-avoidance contract: Causa never registers under a
   non-`:rf.causa/*` keyword, so a host registering `:user/login` and
   Causa registering `:rf.causa/buffer-cleared` cannot stamp on each
   other.
 
-  ## Why the registrations target the `:rf/causa` frame
+  ## Registrations target the `:rf/causa` frame
 
-  Per rf2-tijr Option C the panel's state lives in a frame named
-  `:rf/causa` — a sibling of the host's `:rf/default`. Subscribers /
-  dispatchers wrapped inside `[rf/frame-provider {:frame :rf/causa}
-  ...]` resolve to that frame; a Causa view subscribing to
-  `:rf.causa/trace-buffer` reads `:rf/causa`'s app-db, not the host's.
+  The panel's state lives in a frame named `:rf/causa` — a sibling of
+  the host's `:rf/default`. Subscribers / dispatchers wrapped inside
+  `[rf/frame-provider {:frame :rf/causa} ...]` resolve to that frame;
+  a Causa view subscribing to `:rf.causa/trace-buffer` reads
+  `:rf/causa`'s app-db, not the host's. Prefix prevents id collision;
+  frame-provider prevents db reads/writes from leaking into the host.
 
-  Even though the registrar is process-global, each registered handler
-  operates *against the active frame's db* — so the registry namespace
-  prefix and the frame isolation work together: prefix prevents id
-  collision, frame-provider prevents db reads/writes from leaking into
-  the host.
+  ## Catalogue
 
-  ## Phase 2 scope (rf2-op3bz)
-
-  Phase 1 (rf2-n6x4q) shipped only `:rf.causa/trace-buffer`. Phase 2
-  adds the event-detail panel's wiring:
-
-    - `:rf.causa/selected-panel`           sub — current panel-id
-    - `:rf.causa/select-panel`             event-db — set current panel
-    - `:rf.causa/selected-dispatch-id`     sub — focused cascade
-    - `:rf.causa/event-detail`             sub — projected cascade
-    - `:rf.causa/select-dispatch-id`       event-db — set focused
-    - `:rf.causa/clear-selected-dispatch-id` event-db — clear focus
-
-  ## Phase 3 scope (rf2-t53ze) — Time Travel panel
-
-  Adds the scrubber's wiring against the framework's epoch-history
-  surface. The panel's :selected-epoch-id holds the *view* selection
-  (per spec §The passive-scrubbing rule — scrubbing rebases panels;
-  rewind is opt-in). :pinned-snapshots is the per-frame pin store
-  (per spec §Pinned snapshots, Lock 4 session-scoped).
-
-    - `:rf.causa/epoch-history`            sub — :rf.causa/target-frame's history
-    - `:rf.causa/selected-epoch-id`        sub — view's selected epoch
-    - `:rf.causa/pinned-snapshots`         sub — vector of chip states
-    - `:rf.causa/time-travel`              sub — composite for the panel
-    - `:rf.causa/select-epoch`             event-db — set view selection (passive)
-    - `:rf.causa/clear-selected-epoch`     event-db — drop view selection
-    - `:rf.causa/pin-current`              event — eager-copy a pin
-    - `:rf.causa/unpin`                    event-db — drop a pin
-    - `:rf.causa/rename-pin`               event-db — rewrite a pin's :label
-    - `:rf.causa/reset-to-epoch`           event-fx — restore-epoch via fx
-    - `:rf.causa/reset-to-pinned`          event-fx — reset-frame-db! via fx
-
-  Two effects route the framework writes — `:rf.causa.fx/restore-epoch`
-  and `:rf.causa.fx/reset-frame-db!`. They are reg-fx'd thin
-  delegations to `rf/restore-epoch` / `rf/reset-frame-db!`. The
-  indirection lets test fixtures stub the writes and assert the
-  correct framework call site is reached (Reset to pinned uses
-  reset-frame-db!, not restore-epoch, per spec §Why reset-frame-db!
-  not restore-epoch).
-
-  ## Phase 4 scope (rf2-4rqs1) — Causality Graph panel
-
-  Reuses the Phase 2 / Phase 3 surface (trace-buffer, selected-
-  dispatch-id, selected-epoch-id) and adds one composite sub that
-  projects + lays out the graph data the panel consumes:
-
-    - `:rf.causa/causality-graph-data` sub — composite
-
-  No new events are required: the graph reuses
-  `:rf.causa/select-dispatch-id` (shared with the event-detail hero
-  per spec §10 Lock 7) and `:rf.causa/clear-selected-epoch` for the
-  cascade-filter affordance.
-
-  ## Phase 5 scope (rf2-jps1o) — App-DB Diff panel
-
-  Slice-centric app-db inspector. Reads the host frame's `app-db`
-  via `rf/get-frame-db` + the target-frame's epoch-history; produces
-  the `[op path before after]` diff triples the view consumes.
-
-  Subs:
-
-    - `:rf.causa/target-frame-db`          sub — host frame's app-db
-    - `:rf.causa/selected-epoch-diff`      sub — composite over
-                                              :rf.causa/selected-
-                                              epoch-id +
-                                              :rf.causa/epoch-history
-    - `:rf.causa/pinned-slices-store`      sub — per-frame slice pins
-    - `:rf.causa/pinned-slices`            sub — live derefs for
-                                              the current target-frame
-    - `:rf.causa/focused-slice-path`       sub — 'Show me when' focus
-    - `:rf.causa/show-me-when-this-changed-result`
-                                           sub — composite
-    - `:rf.causa/app-db-diff`              sub — composite for the view
-
-  Events:
-
-    - `:rf.causa/pin-slice`                event-db
-    - `:rf.causa/unpin-slice`              event-db
-    - `:rf.causa/reorder-pinned-slices`    event-db
-    - `:rf.causa/focus-slice-path`         event-db
-    - `:rf.causa/clear-slice-focus`        event-db
-    - `:rf.causa/copy-value-to-clipboard`  event-fx
-    - `:rf.causa/copy-path-to-clipboard`   event-fx
-
-  Effect:
-
-    - `:rf.causa.fx/copy-to-clipboard`     fx — writes via the
-                                              browser clipboard API
-                                              (no-op on non-browser
-                                              targets)
-
-  ## Phase 5+ scope (rf2-r9f9u) — Machine Inspector panel
-
-  Folds `(rf/machines)` + the live `:rf/machine` snapshots + the
-  trace-buffer's `:rf.machine/transition` slice into the data shape
-  the panel renders.
-
-  Subs:
-
-    - `:rf.causa/registered-machines`        sub — vector of ids
-    - `:rf.causa/machine-snapshots`          sub — {id snapshot}
-    - `:rf.causa/selected-machine-id`        sub — picker focus
-    - `:rf.causa/machine-inspector-data`     sub — composite
-
-  Events:
-
-    - `:rf.causa/select-machine-id`          event-db
-    - `:rf.causa/clear-machine-selection`    event-db
-    - `:rf.causa/set-registered-machines-override-for-test` event-db
-    - `:rf.causa/set-machine-snapshots-override-for-test`   event-db
-
-  No new fxs — the panel is read-only at v1 (share-affordance,
-  source-coord jumps live in `tools/machines-viz/` per Spec 003
-  §Embedding posture and require its impl to land first).
-
-  Subsequent panel beads add their own per-panel events / subs / fxs."
+  The registrar wires the full Causa surface: trace-buffer, selected-
+  panel / dispatch-id, the event-detail / causality-graph / time-
+  travel / app-db-diff / machine-inspector / schema-violation-timeline
+  / hydration-debugger / issues-ribbon / effects / flows / routes /
+  subscriptions / trace / mcp-server / performance / co-pilot
+  composites, and the small mutating event-db / event-fx surface that
+  drives the pins, scrubbing, slice focus, clipboard copy, restore-
+  epoch and reset-frame-db! effects. See the inline section markers
+  below — and the per-panel `*-helpers` namespaces for the data
+  primitives the composites consume."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.config :as config]
@@ -191,20 +82,11 @@
 ;; is process-global, not per-frame — every Causa shell mounted across
 ;; any frame should see the same trace stream. The sub thunks the
 ;; pure-data accessor so reactive contexts get a fresh read on every
-;; recompute.
-;;
-;; History (rf2-iw5ym → rf2-e9s81): rf2-iw5ym briefly mirrored the
-;; buffer into Causa's app-db at `:trace-buffer` so the sub would
-;; re-fire IMMEDIATELY on every push. That path proved untenable —
-;; `:rf/causa` is not registered at preload time (no substrate
-;; adapter installed yet) and chain-resolving to `:rf/default`
-;; consumed drain-depth headroom on every emitted trace event AND
-;; polluted the host's app-db with `:trace-buffer` noise. rf2-e9s81
-;; reverts to the pre-iw5ym shape (sub thunks the atom; layer-1 re-
-;; fires on the host's next dispatch, picking up whatever the trace-
-;; cb has accumulated). See `trace_bus.cljc` §Reactivity for the
-;; trade-off and the wider refactor that would re-introduce
-;; immediate-update reactivity without the layering hazard.
+;; recompute; layer-1 re-fires on the host's next dispatch and picks
+;; up whatever the trace-cb has accumulated. See `trace_bus.cljc`
+;; §Reactivity for the trade-off and the refactor path that would
+;; re-introduce immediate-update reactivity without the layering
+;; hazard.
 (defonce ^:private registered?
   ;; Idempotency sentinel. Re-loading the namespace (shadow-cljs
   ;; `:after-load`) must not re-register the sub (would harmlessly
@@ -688,14 +570,6 @@
         (if frame-id
           (update db :suppressed-counters dissoc (or frame-id :global))
           (dissoc db :suppressed-counters))))
-
-    ;; Per rf2-e9s81 (supersedes rf2-iw5ym):
-    ;; `:rf.causa/note-trace-event` / `:rf.causa/clear-trace-buffer`
-    ;; / `:rf.causa/sync-trace-buffer` were removed when the trace-
-    ;; buffer reactive surface reverted to the pre-iw5ym shape (sub
-    ;; thunks the atom; layer-1 re-fires on the host's next dispatch).
-    ;; See `trace_bus.cljc` §Reactivity for the trade-off + the
-    ;; planned wider refactor.
 
     (rf/reg-event-db :rf.causa/select-dispatch-id
       (fn [db [_ dispatch-id]]

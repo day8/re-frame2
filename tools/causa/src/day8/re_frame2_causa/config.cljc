@@ -138,7 +138,7 @@
 ;; `:sensitive?` is rarely set on those, but we keep the bucket so a
 ;; count is never lost).
 ;;
-;; Per rf2-0vxdn the counter is also mirrored into Causa's app-db at
+;; The counter is also mirrored into Causa's app-db at
 ;; `[:rf/causa db :suppressed-counters]` via dispatch (CLJS-only) so
 ;; the `:rf.causa/suppressed-sensitive-count` sub fires on the
 ;; standard reactive write path — the `[● REDACTED N]` indicator
@@ -162,32 +162,27 @@
   `suppress-sensitive?` returned true. `frame-id` may be `nil` /
   absent — those count under `:global`.
 
-  Per rf2-0vxdn: in CLJS, also dispatches
-  `:rf.causa/note-sensitive-suppressed` so the bottom-rail's
-  `[● REDACTED N]` indicator updates IMMEDIATELY via the reactive
-  sub-graph (the event handler updates the active frame's app-db
-  `:suppressed-counters` slot; the sub reads off the same db). The
-  atom-bump stays as the JVM-runnable data primitive
-  (`sensitive_trace` CLJC tests assert it directly); the dispatch
-  is the reactive surface for CLJS.
+  In CLJS, also dispatches `:rf.causa/note-sensitive-suppressed`
+  so the bottom-rail's `[● REDACTED N]` indicator updates
+  IMMEDIATELY via the reactive sub-graph (the event handler updates
+  the active frame's app-db `:suppressed-counters` slot; the sub
+  reads off the same db). The atom-bump stays as the JVM-runnable
+  data primitive (CLJC tests assert it directly); the dispatch is
+  the reactive surface for CLJS.
 
-  Per rf2-higwg: the dispatch follows the active frame chain rather
-  than binding to `:rf/causa` explicitly. The shell's bottom-rail
-  is a plain Reagent fn (not `reg-view`-registered) so its
-  subscribe resolves through the chain to `:rf/default` — the
-  framework emits the `:rf.warning/plain-fn-under-non-default-
-  frame-once` warning on first render but the routing falls
-  through cleanly. Pairing the dispatch's write target with the
-  read's read target (both chain-resolved) keeps the indicator
-  reactive without requiring an explicit `reg-frame :rf/causa` at
-  preload time (which would fail — `reg-frame` needs a substrate
-  adapter installed via `rf/init!`, and the preload runs at
-  ns-load time before that).
+  The dispatch follows the active frame chain rather than binding
+  to `:rf/causa` explicitly. The shell's bottom-rail is a plain
+  Reagent fn (not `reg-view`-registered) so its subscribe resolves
+  through the chain to `:rf/default`. Pairing the dispatch's write
+  target with the read's read target (both chain-resolved) keeps
+  the indicator reactive without requiring an explicit `reg-frame
+  :rf/causa` at preload time (which would fail — `reg-frame` needs
+  a substrate adapter installed via `rf/init!`, and the preload
+  runs at ns-load time before that).
 
   Guarded on `:rf/default`'s existence so JVM / pre-`init!` callers
-  (`sensitive_trace_cljs_test`'s fixture has no frames registered)
-  bump the atom without emitting an `:rf.error/frame-destroyed`
-  trace into the bus."
+  (test fixtures with no frames registered) bump the atom without
+  emitting an `:rf.error/frame-destroyed` trace into the bus."
   [frame-id]
   (let [k (or frame-id :global)]
     (swap! suppressed-counters update k (fnil inc 0)))
@@ -213,10 +208,9 @@
   With a `frame-id`, clears just that bucket. Called from
   `trace-bus/clear-buffer!` and from test fixtures.
 
-  Per rf2-0vxdn: in CLJS, also dispatches
-  `:rf.causa/reset-suppressed-counters` into `:rf/causa` so the
-  reactive copy in Causa's app-db drops in lockstep with the atom.
-  Guarded on the frame existing — `reset-suppressed-count!` is
+  In CLJS, also dispatches `:rf.causa/reset-suppressed-counters`
+  into `:rf/causa` so the reactive copy in Causa's app-db drops in
+  lockstep with the atom. Guarded on the frame existing — this is
   called from test fixtures before any frame is registered."
   ([]
    (reset! suppressed-counters {})
