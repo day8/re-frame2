@@ -397,6 +397,14 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 | `group-cascades` | Fn | `(group-cascades events)` → vector of cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. Pure data; JVM-runnable. Re-exported from `re-frame.trace.projection` (see [009 §Cascade projection](009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket)). | v1 (dev-only) | 009 |
 | `domino-bucket` | Fn | `(domino-bucket trace-event)` → `#{:event :handler :fx :effect :sub :render :other}`. Classifies a raw trace event into the six-domino slot used by `group-cascades`. Pure data. | v1 (dev-only) | 009 |
 
+### Trace-emission opt-out (per-handler metadata)
+
+Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag (rf2-qsjda). When set, the runtime suppresses **every** trace emission and event-emit record within the handler's scope — the handler runs invisibly to the trace surface, the event-emit substrate, and (transitively) the epoch buffer. Used by framework-internal bookkeeping handlers (Causa, Story, pair2-mcp, story-mcp, causa-mcp) that would otherwise saturate the trace stream. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) the `:rf.trace/*` namespace is framework-owned.
+
+| Metadata key | Where | Value | Default | Effect |
+|---|---|---|---|---|
+| `:rf.trace/no-emit?` | `reg-event-db` / `reg-event-fx` / `reg-event-ctx` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. Per [009 §Trace-emission opt-out](009-Instrumentation.md#trace-emission-opt-out-rftraceno-emit-event-meta). |
+
 ### Epoch history (per Tool-Pair)
 
 Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used by pair-shaped tools for time-travel and post-mortem analysis. **Production builds elide entirely.**
