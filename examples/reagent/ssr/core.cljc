@@ -165,14 +165,15 @@
     [:div.page
      [:h1 "Recent articles"]
      [:button.toggle-bodies
-      {:on-click #(dispatch [:articles/toggle-bodies])}
+      {:data-testid "toggle-bodies"
+       :on-click #(dispatch [:articles/toggle-bodies])}
       (if show-bodies? "Hide bodies" "Show bodies")]
      (if (seq arts)
-       (into [:ul]
+       (into [:ul {:data-testid "articles-list"}]
              (for [{:keys [id title body]} arts]
                ^{:key id}
                [:li [:h3 title]
-                (when show-bodies? [:p.body body])]))
+                (when show-bodies? [:p.body {:data-testid "article-body"} body])]))
        [:p "No articles."])]))
 
 (rf/reg-view ^{:rf/id :app/root} root-view []

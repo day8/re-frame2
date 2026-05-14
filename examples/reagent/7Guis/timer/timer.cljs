@@ -140,7 +140,7 @@
        [:div.fill {:style {:width  (str progress "%")
                            :height "20px"
                            :background "#4a9"}}]]]
-     [:div.row [:label seconds " s"]]
+     [:div.row [:label {:data-testid "timer-elapsed"} seconds " s"]]
      [:div.row
       [:label "Duration: "]
       [:input {:type      "range"
@@ -156,7 +156,8 @@
       ;; before the next scheduled :timer/tick can fire. With async dispatch
       ;; the post-Reset DOM commit could lag the next tick (and the test's
       ;; 50ms poll), causing the brief 0.0 window to be missed.
-      [:button {:on-click #(rf/dispatch-sync [:timer/reset])} "Reset"]]]))
+      [:button {:data-testid "timer-reset"
+                :on-click #(rf/dispatch-sync [:timer/reset])} "Reset"]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (scheduling-light; we don't drive real time, just verify

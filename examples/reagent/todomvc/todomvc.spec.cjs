@@ -14,33 +14,24 @@
 
 const {
   expectAttribute,
+  expectCount,
   expectInputValue,
   expectTextContains,
   expectTextEquals,
+  waitForValue,
 } = require('../../scripts/spec-helpers.cjs');
 
-async function expectCount(locator, expected, timeoutMs = 5000) {
-  const start = Date.now();
-  let last = null;
-  while (Date.now() - start < timeoutMs) {
-    last = await locator.count();
-    if (last === expected) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`expected count ${expected} but got ${last} within ${timeoutMs}ms`);
-}
-
 async function expectFocusedNewTodo(page, timeoutMs = 5000) {
-  const start = Date.now();
-  let focused = false;
-  while (Date.now() - start < timeoutMs) {
-    focused = await page.evaluate(
-      () => document.activeElement && document.activeElement.classList.contains('new-todo'),
-    );
-    if (focused) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error('expected the .new-todo input to be focused');
+  await waitForValue(
+    () =>
+      page.evaluate(
+        () =>
+          document.activeElement &&
+          document.activeElement.classList.contains('new-todo'),
+      ),
+    (focused) => !!focused,
+    { timeoutMs, description: '.new-todo input to be focused' },
+  );
 }
 
 async function readTodos(page) {

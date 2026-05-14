@@ -20,7 +20,11 @@
  *     backoff fires.
  */
 
-const { expectVisible, expectTextContains } = require('../../scripts/spec-helpers.cjs');
+const {
+  expectVisible,
+  expectTextContains,
+  waitForValue,
+} = require('../../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'pattern-websocket — connection machine demo',
@@ -95,22 +99,14 @@ module.exports = {
     // Polled because the cascade re-enters :active synchronously but
     // :bump-retry runs as the :ws/closed action — its commit goes
     // through the dispatch queue.
-    {
-      const start = Date.now();
-      let attemptsAfter = attemptsBefore;
-      while (Date.now() - start < 5000) {
-        attemptsAfter = parseInt(
-          (await attemptsCounter.textContent()) || '0',
-          10,
-        );
-        if (attemptsAfter > attemptsBefore) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      if (!(attemptsAfter > attemptsBefore)) {
-        throw new Error(
-          `expected reconnect-attempts to advance past ${attemptsBefore}, got ${attemptsAfter}`,
-        );
-      }
-    }
+    await waitForValue(
+      async () =>
+        parseInt((await attemptsCounter.textContent()) || '0', 10),
+      (n) => n > attemptsBefore,
+      {
+        timeoutMs: 5000,
+        description: `reconnect-attempts to advance past ${attemptsBefore}`,
+      },
+    );
   },
 };

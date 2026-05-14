@@ -21,6 +21,7 @@
  */
 
 const {
+  expectCount,
   expectTextContains,
   expectVisible,
 } = require('../../scripts/spec-helpers.cjs');
@@ -33,33 +34,29 @@ module.exports = {
     await expectVisible(heading, 10000);
     await expectTextContains(heading, 'Recent articles', 5000);
 
+    // Anchor on data-testid (rf2-i0j1x).
+    const articlesList = page.getByTestId('articles-list');
+    const bodies = page.getByTestId('article-body');
+    const toggle = page.getByTestId('toggle-bodies');
+
     // The pre-rendered article titles are present from the static HTML.
-    await expectTextContains(page.locator('ul'), 'Article A', 5000);
-    await expectTextContains(page.locator('ul'), 'Article B', 5000);
+    await expectTextContains(articlesList, 'Article A', 5000);
+    await expectTextContains(articlesList, 'Article B', 5000);
 
     // Bodies are visible by default.
-    await expectVisible(page.locator('p.body').first(), 5000);
+    await expectVisible(bodies.first(), 5000);
 
     // Clicking the toggle goes through the real dispatch / re-render
     // path on the now-hydrated client. After click, the bodies are
     // gone but the titles remain — proves the client took over.
-    const toggle = page.locator('button.toggle-bodies');
     await expectVisible(toggle, 5000);
     await toggle.click();
     // Poll until the body paragraphs are detached — Reagent unmounts
     // them when (when show-bodies? ...) goes false.
-    const start = Date.now();
-    while (Date.now() - start < 5000) {
-      const count = await page.locator('p.body').count();
-      if (count === 0) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    if ((await page.locator('p.body').count()) !== 0) {
-      throw new Error('clicking "Hide bodies" did not remove p.body elements');
-    }
+    await expectCount(bodies, 0, 5000);
 
     // Titles remain — hydrated app-db still holds the articles.
-    await expectTextContains(page.locator('ul'), 'Article A', 2000);
-    await expectTextContains(page.locator('ul'), 'Article B', 2000);
+    await expectTextContains(articlesList, 'Article A', 2000);
+    await expectTextContains(articlesList, 'Article B', 2000);
   },
 };

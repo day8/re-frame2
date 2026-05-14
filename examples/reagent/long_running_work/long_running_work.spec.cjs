@@ -27,8 +27,13 @@
  * machine ↔ React ↔ browser-clock wiring.
  */
 
-const { expectTextEquals, expectTextContains, expectVisible, waitForStableValue } =
-  require('../../scripts/spec-helpers.cjs');
+const {
+  expectTextEquals,
+  expectTextContains,
+  expectVisible,
+  waitForStableValue,
+  waitForValue,
+} = require('../../scripts/spec-helpers.cjs');
 
 async function readProgressDone(page) {
   const label = page.locator('[data-testid="progress-label"]');
@@ -61,18 +66,11 @@ module.exports = {
     // Wait for visible progress — at 50ms / item, the bar should
     // tick past 1 within a couple of hundred ms. We poll until the
     // counter goes above zero or time out.
-    const start = Date.now();
-    let progress;
-    while (Date.now() - start < 5000) {
-      progress = await readProgressDone(page);
-      if (progress.done > 0) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    if (!progress || progress.done <= 0) {
-      throw new Error(
-        `expected progress to advance past 0 within 5s; got ${progress && progress.done}/${progress && progress.total}`,
-      );
-    }
+    await waitForValue(
+      () => readProgressDone(page),
+      (p) => p.done > 0,
+      { timeoutMs: 5000, description: 'progress.done > 0' },
+    );
 
     // --- Cancel mid-flight: workers stop, state → :cancelled ------------------
     await page.getByTestId('cancel').click();
@@ -126,14 +124,11 @@ module.exports = {
     await page.getByTestId('start').click();
     await expectTextEquals(stateValue, 'working');
     // Wait for visible progress.
-    {
-      const t0 = Date.now();
-      while (Date.now() - t0 < 5000) {
-        const p = await readProgressDone(page);
-        if (p.done > 0) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
-    }
+    await waitForValue(
+      () => readProgressDone(page),
+      (p) => p.done > 0,
+      { timeoutMs: 5000, description: 'progress.done > 0 (post-restart)' },
+    );
     await page.getByTestId('toggle-bench').click();
     // The bench is unmounted; its DOM is gone. Click Show to
     // re-mount, and assert the machine is in :cancelled — i.e. the

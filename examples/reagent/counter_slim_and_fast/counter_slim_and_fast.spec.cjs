@@ -28,7 +28,8 @@ module.exports = {
   name: 'counter-slim-and-fast',
   url: '/counter-slim-and-fast/',
   run: async (page) => {
-    const span = page.locator('span').first();
+    // Anchor on data-testid (rf2-i0j1x).
+    const span = page.getByTestId('counter-value');
     await expectTextEquals(span, '5', 10000);
 
     await page.getByRole('button', { name: '+' }).click();

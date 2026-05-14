@@ -36,25 +36,31 @@
             locked? @(rf/has-tag? :auth.login/flow :auth/locked)
             err     @(subscribe [:auth.login/error])]
         [:form.login-form
-         {:on-submit (fn [e]
+         {:data-testid "login-form"
+          :on-submit (fn [e]
                        (.preventDefault e)
                        (when-not (or busy? locked?)
                          (dispatch [:auth.login/flow
                                     [:auth.login/submit @state]])))}
          [:input  {:type        "email"
                    :placeholder "Email"
+                   :data-testid "login-email"
                    :disabled    (or busy? locked?)
                    :on-change   #(swap! state assoc :email (.. % -target -value))}]
          [:input  {:type        "password"
                    :placeholder "Password"
+                   :data-testid "login-password"
                    :disabled    (or busy? locked?)
                    :on-change   #(swap! state assoc :password (.. % -target -value))}]
-         [:button {:type "submit" :disabled (or busy? locked?)}
+         [:button {:type "submit"
+                   :data-testid "login-submit"
+                   :disabled (or busy? locked?)}
           (if busy? "Signing in…" "Sign in")]
          (when (and err (not locked?))
            [:div.error-row
             [:p.error err]
             [:button {:type "button"
+                      :data-testid "login-dismiss"
                       :on-click #(dispatch [:auth.login/flow
                                              [:auth.login/dismiss]])}
              "Dismiss"]])]))))
@@ -66,12 +72,13 @@
   (let [state @(subscribe [:auth.login/state])]
     [:div.banner
      [:span "State: "]
-     [:strong.state {:data-state (when state (name state))}
+     [:strong.state {:data-testid "state-banner"
+                     :data-state (when state (name state))}
       (if state (name state) "(uninitialised)")]]))
 
 (reg-view ^{:doc "Locked-out terminal panel."}
           locked-panel []
-  [:div.locked
+  [:div.locked {:data-testid "locked-panel"}
    [:h2 "Account locked"]
    [:p "Three failed attempts. Contact support to unlock."]])
 

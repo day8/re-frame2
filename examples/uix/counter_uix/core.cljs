@@ -55,7 +55,7 @@
         dispatch (rf/dispatcher)]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/dec])} "-")
-       ($ :span {:style #js {:margin "0 1em"}} count)
+       ($ :span {:style #js {:margin "0 1em"} :data-testid "counter-value"} count)
        ($ :button {:on-click #(dispatch [:counter/inc])} "+"))))
 
 (defui counter-app []

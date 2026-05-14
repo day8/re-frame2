@@ -58,6 +58,50 @@ async function expectAttribute(locator, attr, expected, timeoutMs = 5000) {
   );
 }
 
+async function expectCount(locator, expected, timeoutMs = 5000) {
+  const start = Date.now();
+  let last = null;
+  while (Date.now() - start < timeoutMs) {
+    last = await locator.count();
+    if (last === expected) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(
+    `expected count ${expected} but got ${last} within ${timeoutMs}ms`,
+  );
+}
+
+/*
+ * Poll `readFn` until it returns a value satisfying `predicate`, then
+ * return that value. Use this in preference to hand-rolled
+ * `while (Date.now() - start < N) { await new Promise(r => setTimeout(r, 50)); }`
+ * loops in specs — same poll-until-condition shape, single source of truth
+ * for the interval / timeout / error message.
+ *
+ * Options:
+ *   intervalMs (default 50)   — gap between reads.
+ *   timeoutMs  (default 5000) — bail with throw if predicate never holds.
+ *   description (default "value satisfying predicate") — context for the
+ *     error message ("expected <description> within <timeout>ms, last=<value>").
+ */
+async function waitForValue(readFn, predicate, options = {}) {
+  const {
+    intervalMs = 50,
+    timeoutMs = 5000,
+    description = 'value satisfying predicate',
+  } = options;
+  const start = Date.now();
+  let last;
+  while (Date.now() - start < timeoutMs) {
+    last = await readFn();
+    if (predicate(last)) return last;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(
+    `waitForValue: expected ${description} within ${timeoutMs}ms (last=${JSON.stringify(last)})`,
+  );
+}
+
 /*
  * Poll `readFn` until `samples` consecutive reads agree, then return the
  * stable value. This replaces fixed-duration sleeps in specs that need to
@@ -105,5 +149,7 @@ module.exports = {
   expectInputValue,
   expectVisible,
   expectAttribute,
+  expectCount,
   waitForStableValue,
+  waitForValue,
 };

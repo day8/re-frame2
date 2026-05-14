@@ -18,8 +18,9 @@ module.exports = {
   name: 'counter',
   url: '/counter/',
   run: async (page) => {
-    // The counter renders one <span> between the - and + buttons holding the count.
-    const span = page.locator('span').first();
+    // Anchor on data-testid (rf2-i0j1x) — survives sibling DOM
+    // changes that would otherwise break `span.first()`.
+    const span = page.getByTestId('counter-value');
     await expectTextEquals(span, '5', 10000);
 
     await page.getByRole('button', { name: '+' }).click();
