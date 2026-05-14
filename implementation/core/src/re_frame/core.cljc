@@ -7,22 +7,21 @@
 
   Topology — this ns is a thin façade:
 
-    - Optional-artefact wrappers (rf2-hoiu) live in `re-frame.core-
-      <feature>` sibling namespaces (`flows`, `routing`, `schemas`,
-      `machines`, `ssr`, `epoch`, `http`); each looks up its target
-      fn through the late-bind hook table so requiring this ns does
-      NOT pull the feature artefacts.
-    - Macro-helper code is factored (per rf2-4rnui) into three
-      siblings — `core-reg-macros`, `core-call-site-macros`,
-      `core-reg-view-macro` — keeping each leaf under the rf2-zkca8
-      250-LoC ceiling. The user-facing `defmacro`s themselves stay in
-      THIS ns (so `rf/reg-event-db` etc. resolve alias-qualified per
-      Clojure's standard `ns-alias/Var` lookup); each is a one-line
-      shell that delegates to the sibling-ns expansion helper.
+    - Optional-artefact wrappers live in `re-frame.core-<feature>`
+      sibling namespaces (`flows`, `routing`, `schemas`, `machines`,
+      `ssr`, `epoch`, `http`); each looks up its target fn through the
+      late-bind hook table so requiring this ns does NOT pull the
+      feature artefacts.
+    - Macro-helper code is factored into three siblings —
+      `core-reg-macros`, `core-call-site-macros`, `core-reg-view-macro`.
+      The user-facing `defmacro`s themselves stay in THIS ns (so
+      `rf/reg-event-db` etc. resolve alias-qualified per Clojure's
+      standard `ns-alias/Var` lookup); each is a one-line shell that
+      delegates to its sibling-ns expansion helper.
 
-  File-naming uses the flat dash-form (`core_X.cljc`, per rf2-2vbm):
-  CLJS `goog.provide` for `re-frame.core` overwrites its parent
-  object, which would wipe a previously-loaded `re-frame.core.X`."
+  File-naming uses the flat dash-form (`core_X.cljc`): CLJS
+  `goog.provide` for `re-frame.core` overwrites its parent object,
+  which would wipe a previously-loaded `re-frame.core.X`."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.router :as router]
@@ -50,7 +49,7 @@
             [re-frame.core-ssr      :as rf-ssr]
             [re-frame.core-epoch    :as rf-epoch]
             [re-frame.core-http     :as rf-http]
-            ;; Macro-helper carve-out (rf2-4rnui).
+            ;; Macro-helper carve-out.
             [re-frame.core-reg-macros        :as rm
              #?@(:cljs [:include-macros true])]
             [re-frame.core-call-site-macros  :as csm]
@@ -100,12 +99,10 @@
      (def reg-machine*    rf-machines/reg-machine*)))
 
 ;; ---- reg-* macros (JVM-only; CLJS sees them via :require-macros) --------
-;;
-;; Each `defreg-macro` form below expands (per rf2-bd6zl) to a
-;; `defmacro` IN THIS ns — so `rf/reg-event-db` resolves alias-
-;; qualified per Clojure's `ns-alias/Var` lookup. The expansion
-;; captures source-coords at the user's call site and splices args
-;; through to the fully-qualified delegate fn.
+;; Each `defreg-macro` form below expands to a `defmacro` IN THIS ns —
+;; so `rf/reg-event-db` resolves alias-qualified per Clojure's
+;; `ns-alias/Var` lookup. The expansion captures source-coords at the
+;; user's call site and splices args through to the delegate fn.
 
 #?(:clj
    (do
@@ -154,35 +151,32 @@
 
      (rm/defreg-macro reg-flow rf-flows/reg-flow
        "Register a flow. Captures source-coords (Spec 001) at this
-       call site. Implementation ships in `day8/re-frame2-flows`
-       (rf2-tfw3); apps must add the artefact and require
-       `re-frame.flows` at boot. See `re-frame.core-flows/reg-flow`
-       for the full signature.")
+       call site. Implementation ships in `day8/re-frame2-flows`; apps
+       must add the artefact and require `re-frame.flows` at boot. See
+       `re-frame.core-flows/reg-flow` for the full signature.")
 
      (rm/defreg-macro reg-route rf-routing/reg-route
        "Register a route under `id`. `metadata` is a map keyed at
        minimum on `:path` (URL pattern, Spec 012 §Pattern syntax).
        Captures source-coords (Spec 001) at this call site.
-       Implementation ships in `day8/re-frame2-routing` (rf2-k682);
-       apps must add the artefact and require `re-frame.routing` at
-       boot. See `re-frame.core-routing/reg-route` for the full
-       signature."
+       Implementation ships in `day8/re-frame2-routing`; apps must add
+       the artefact and require `re-frame.routing` at boot. See
+       `re-frame.core-routing/reg-route` for the full signature."
        {:arglists '([id metadata])})
 
      (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped
        per Spec 010). Captures source-coords (Spec 001) at this call
-       site. Implementation ships in `day8/re-frame2-schemas`
-       (rf2-p7va). See `re-frame.core-schemas/reg-app-schema` for the
-       full signature."
+       site. Implementation ships in `day8/re-frame2-schemas`. See
+       `re-frame.core-schemas/reg-app-schema` for the full signature."
        {:arglists '([path schema] [path schema opts])})
 
      (rm/defreg-macro reg-app-schemas rf-schemas/reg-app-schemas
        "Bulk-register a `{path -> schema}` map against the active frame
        (or the `:frame` opt). Plural form of `reg-app-schema`. Captures
        source-coords (Spec 001) at this call site. Implementation ships
-       in `day8/re-frame2-schemas` (rf2-p7va). See
-       `re-frame.core-schemas/reg-app-schemas` for the full signature."
+       in `day8/re-frame2-schemas`. See `re-frame.core-schemas/reg-app-
+       schemas` for the full signature."
        {:arglists '([path->schema] [path->schema opts])})
 
      (rm/defreg-macro reg-error-projector rf-ssr/-reg-error-projector
@@ -206,8 +200,8 @@
      (Spec 001) at this call site plus a per-element coord index under
      `:rf.machine/source-coords` (Spec 005 §Source-coord stamping;
      dev-only — DCE'd under `goog.DEBUG=false`). Implementation ships
-     in `day8/re-frame2-machines` (rf2-xbtj). For runtime registration
-     use `reg-machine*`."
+     in `day8/re-frame2-machines`. For runtime registration use
+     `reg-machine*`."
      [machine-id machine]
      (rm/expand-reg-machine (meta &form)
                             (symbol (str (ns-name *ns*)))
@@ -215,7 +209,7 @@
                             machine-id
                             machine)))
 
-;; ---- public helpers re-exported for test access (rf2-4rnui) -------------
+;; ---- public helpers re-exported for test access ------------------------
 ;;
 ;; Re-exposed because pre-split tests reach `re-frame.core/expand-reg-
 ;; view` and `re-frame.core/parse-reg-view-args` directly. Preserved as
@@ -279,7 +273,7 @@
      (def reg-error-projector -reg-error-projector)
      (def reg-head            -reg-head)))
 
-;; ---- SSR re-exports (Spec 011, rf2-uo7v) ---------------------------------
+;; ---- SSR re-exports (Spec 011) ------------------------------------------
 
 (def render-to-string rf-ssr/render-to-string)
 (def render-tree-hash rf-ssr/render-tree-hash)
@@ -312,10 +306,9 @@
 (def clear-subscription-cache! subs/clear-subscription-cache!)
 
 ;; ---- dispatch and subscribe ----------------------------------------------
-;;
-;; Per rf2-ts1a — each surface ships as a macro + `*`-fn pair (Q1=C).
-;; The macros expand to `re-frame.core/dispatch*` / `subscribe*` etc.,
-;; so those defs must live here.
+;; Each surface ships as a macro + `*`-fn pair. The macros expand to
+;; `re-frame.core/dispatch*` / `subscribe*` etc., so those defs must
+;; live here.
 
 (def dispatch*       router/dispatch!)
 (def dispatch-sync*  router/dispatch-sync!)
@@ -341,8 +334,8 @@
    (defmacro dispatch
      "Enqueue `event-vec` on the target frame's router; returns nil
      immediately, BEFORE the handler runs. Captures call-site coords
-     (rf2-ts1a) for error-trace attribution. For HoF / programmatic use
-     call `dispatch*`. Per Spec 002 §Routing."
+     for error-trace attribution. For HoF / programmatic use call
+     `dispatch*`. Per Spec 002 §Routing."
      ([event-vec]
       (csm/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                event-vec nil))
@@ -355,8 +348,8 @@
      "Run `event-vec` end-to-end synchronously; the router drains to
      fixed point. For tests / REPL / bootstrap only — never call from
      inside a running event handler (raises `:rf.error/dispatch-sync-
-     in-handler`). Captures call-site coords (rf2-ts1a). For HoF /
-     programmatic use call `dispatch-sync*`. Per Spec 002 §dispatch-sync."
+     in-handler`). Captures call-site coords. For HoF / programmatic
+     use call `dispatch-sync*`. Per Spec 002 §dispatch-sync."
      ([event-vec]
       (csm/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                     event-vec nil))
@@ -370,8 +363,8 @@
      output for `query-v` (`[sub-id & args]`); deref to read. 2-arity
      targets an explicit frame, otherwise resolves via `current-frame`.
      Use `subscribe-value` for a one-shot read; use `subscribe*` for
-     HoF / programmatic callers. Captures call-site coords (rf2-ts1a).
-     Per Spec 006 §Lookup algorithm."
+     HoF / programmatic callers. Captures call-site coords. Per Spec
+     006 §Lookup algorithm."
      ([query-v]
       (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                 nil query-v))
@@ -385,9 +378,9 @@
      Builds a `:before`-only interceptor that runs the cofx registered
      under `cofx-id` and merges its result into the handler's
      `:coeffects`. 2-arity `(inject-cofx :id value)` passes a per-call
-     value. Captures call-site coords (rf2-ts1a). For HoF / programmatic
-     use call `inject-cofx*`. See `re-frame.cofx/inject-cofx` for the
-     full signature."
+     value. Captures call-site coords. For HoF / programmatic use call
+     `inject-cofx*`. See `re-frame.cofx/inject-cofx` for the full
+     signature."
      ([cofx-id]
       (csm/build-inject-cofx-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                   cofx-id nil))
@@ -396,12 +389,9 @@
                                   cofx-id value))))
 
 ;; ---- frame-aware closures (runtime side) ---------------------------------
-;;
-;; Per rf2-d4sf the public `current-frame` exposes the 3-tier resolution
-;; chain (dynamic var → React context → `:rf/default`) at every user-
-;; facing surface that flows through `(dispatcher)` / `(subscriber)` /
-;; `bound-fn`. The chain is single-sourced through
-;; `frame/resolve-current-frame` (rf2-jj8xf).
+;; `current-frame` exposes the 3-tier resolution chain (dynamic var →
+;; React context → `:rf/default`); single-sourced through
+;; `frame/resolve-current-frame`.
 
 (defn current-frame
   "Return the active frame at the call site. Resolution chain: dynamic
@@ -467,7 +457,7 @@
    (defmacro with-managed-request-stubs
      "Install stubs, run body, uninstall. `stubs` is
      `{[method url] {:reply <:ok|:failure>}}`. Implementation ships in
-     `day8/re-frame2-http` (rf2-5kpd). Per Spec 014 §Testing."
+     `day8/re-frame2-http`. Per Spec 014 §Testing."
      [stubs & body]
      `(re-frame.core/with-managed-request-stubs* ~stubs (fn [] ~@body))))
 
@@ -487,10 +477,9 @@
 (def route-link  rf-routing/route-link)
 
 ;; ---- machine helpers ------------------------------------------------------
-;;
 ;; Plain-fn `reg-machine*` for code-gen pipelines / conformance corpus
 ;; registering without a literal spec form. Per Spec 005 §reg-machine vs
-;; reg-machine* (rf2-8bp3).
+;; reg-machine*.
 
 #?(:clj
    (def reg-machine* rf-machines/reg-machine*))
@@ -628,13 +617,12 @@
                   (cond-> {:where    'rf/init!
                            :expected "adapter spec map"
                            :recovery :no-recovery
-                           :reason   "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}
+                           :reason   "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter)."}
                     (some? received) (assoc :received received)))))
 
 (defn init!
   "Idempotent boot — installs a substrate adapter and ensures the
-  `:rf/default` frame exists. Pass the adapter spec map directly (no
-  default-adapter registry; rf2-agql):
+  `:rf/default` frame exists. Pass the adapter spec map directly:
     (require '[re-frame.adapter.reagent :as reagent])
     (rf/init! reagent/adapter)
   Non-map / nil raises `:rf.error/no-adapter-specified`. Per Spec 006
