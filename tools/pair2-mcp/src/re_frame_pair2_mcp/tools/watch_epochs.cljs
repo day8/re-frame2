@@ -27,7 +27,7 @@
 
 (defn watch-epochs-tool [conn raw-args]
   (let [build-id  (wire/arg-build raw-args)
-        frame     (some-> (wire/arg raw-args :frame) keyword)
+        frame     (wire/arg-keyword raw-args :frame)
         since-id  (wire/arg raw-args :since-id)
         incl?     (args/parse-bool-arg raw-args :include-sensitive?)
         mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))

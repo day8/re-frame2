@@ -42,7 +42,7 @@
 
 (defn subscription-info-tool [conn args]
   (let [build-id (wire/arg-build args)
-        topic    (some-> (wire/arg args :topic) keyword)
+        topic    (wire/arg-keyword args :topic)
         sub-id   (wire/arg args :sub-id)
         form     (ef/emit
                    (ef/rt-let ['r    (ef/rt-call 'subscription-info)

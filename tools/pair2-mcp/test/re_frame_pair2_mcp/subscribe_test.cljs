@@ -11,7 +11,8 @@
             [cljs.reader]
             [applied-science.js-interop :as j]
             [re-frame-pair2-mcp.tools.args :as args]
-            [re-frame-pair2-mcp.tools.eval-form :as ef]))
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
+            [re-frame-pair2-mcp.tools.subscribe :as sub]))
 
 ;; The MCP-arg filter parser lives in
 ;; `re-frame-pair2-mcp.tools.args/parse-filter-arg`. Tests pin the
@@ -294,3 +295,118 @@
     (is (zero? (:dropped-events sub)))
     (is (zero? (:dropped-bytes sub)))
     (is (nil?  (:overflow-reason sub)))))
+
+;; ---------------------------------------------------------------------------
+;; merge-drain — pure state update for the streaming-loop accumulators
+;; (rf2-c0h8p). The fn lives in `tools/subscribe.cljs`; it's the
+;; single source of truth for how a drain's contributions fold into
+;; the rolling per-stream state map.
+;;
+;; The poll loop's emit-gate uses `drain-produced-output?` to decide
+;; whether to ship a `notifications/progress` tick — the predicate is
+;; pinned here too so a future change to "what counts as a tick"
+;; surfaces on both the merge-state and emit-gate sides as a single
+;; failing test.
+;; ---------------------------------------------------------------------------
+
+(def ^:private zero-state
+  "Same shape as `subscribe/initial-state` — locally redeclared so the
+  test pins the contract independently of a future rename / restructure
+  of the source-side default. A mismatch here is a meaningful contract
+  drift, not a parallel-fixture lie."
+  {:tick              0
+   :delivered         0
+   :dropped-events    0
+   :dropped-bytes     0
+   :overflow-reason   nil
+   :dropped-sensitive 0
+   :elided-large      0})
+
+(defn- drain
+  "Construct a drain-delta map. Defaults all counters to zero / nil so
+  tests only need to set the slots they care about."
+  [overrides]
+  (merge {:n 0 :ev-dropped 0 :by-dropped 0
+          :ov-reason nil :dropped 0 :tick-elided 0}
+         overrides))
+
+(deftest drain-produced-output?-kept-events
+  ;; Kept events ⇒ tick.
+  (is (true? (sub/drain-produced-output? (drain {:n 3})))))
+
+(deftest drain-produced-output?-only-overflow-drops
+  ;; Overflow drops alone ⇒ tick (the client still wants to see the drop).
+  (is (true? (sub/drain-produced-output? (drain {:ev-dropped 5})))))
+
+(deftest drain-produced-output?-empty-drain
+  ;; No kept events, no overflow drops ⇒ no tick.
+  (is (false? (sub/drain-produced-output? (drain {})))))
+
+(deftest drain-produced-output?-only-sensitive-drop
+  ;; A sensitive-strip alone (with no kept events) is NOT a tick — the
+  ;; runtime had nothing to ship the client. The indicator surfaces on
+  ;; the final summary, not on a no-content tick.
+  (is (false? (sub/drain-produced-output? (drain {:dropped 4})))))
+
+(deftest drain-produced-output?-only-tick-elided
+  ;; Elision count alone (no kept events, no overflow) ⇒ no tick. The
+  ;; count piggybacks on real ticks; an empty drain shouldn't ship.
+  (is (false? (sub/drain-produced-output? (drain {:tick-elided 7})))))
+
+(deftest merge-drain-empty-drain-is-identity
+  ;; The accumulator must not move when nothing changed — drives the
+  ;; `cond->` correctness on the no-tick branch.
+  (is (= zero-state (sub/merge-drain zero-state (drain {})))))
+
+(deftest merge-drain-counts-tick-on-kept-events
+  (let [s' (sub/merge-drain zero-state (drain {:n 4}))]
+    (is (= 1 (:tick s')))
+    (is (= 4 (:delivered s')))))
+
+(deftest merge-drain-counts-tick-on-overflow-only
+  ;; Overflow-only drain still increments tick (no `:delivered` move).
+  (let [s' (sub/merge-drain zero-state (drain {:ev-dropped 6 :by-dropped 100
+                                               :ov-reason :max-buffered-events}))]
+    (is (= 1 (:tick s')))
+    (is (zero? (:delivered s')))
+    (is (= 6   (:dropped-events s')))
+    (is (= 100 (:dropped-bytes s')))
+    (is (= :max-buffered-events (:overflow-reason s')))))
+
+(deftest merge-drain-accumulates-across-drains
+  ;; Two drains: the first counts a tick, the second another. Counters
+  ;; accumulate monotonically; tick counter increments per ticking drain.
+  (let [s1 (sub/merge-drain zero-state (drain {:n 2 :dropped 1}))
+        s2 (sub/merge-drain s1         (drain {:n 3 :tick-elided 4}))]
+    (is (= 2 (:tick s2)))
+    (is (= 5 (:delivered s2)))
+    (is (= 1 (:dropped-sensitive s2)))
+    (is (= 4 (:elided-large s2)))))
+
+(deftest merge-drain-no-tick-when-only-sensitive-dropped
+  ;; Sensitive strip drops events; the drain is empty by the time we
+  ;; merge it. Tick must NOT increment — the contract is "the client
+  ;; sees a tick iff kept events OR overflow drops". A sensitive-only
+  ;; drain has nothing to ship.
+  (let [s' (sub/merge-drain zero-state (drain {:dropped 3}))]
+    (is (zero? (:tick s')))
+    (is (zero? (:delivered s')))
+    (is (= 3   (:dropped-sensitive s')))))
+
+(deftest merge-drain-overflow-reason-latches-last
+  ;; If multiple drains report different overflow-reasons, the most
+  ;; recent wins — the runtime evicts oldest-first and the latest
+  ;; reason is the one currently in force.
+  (let [s1 (sub/merge-drain zero-state (drain {:ev-dropped 1
+                                               :ov-reason :max-buffered-events}))
+        s2 (sub/merge-drain s1         (drain {:by-dropped 100
+                                               :ev-dropped 1
+                                               :ov-reason :max-buffered-bytes}))]
+    (is (= :max-buffered-bytes (:overflow-reason s2)))))
+
+(deftest merge-drain-elided-large-accumulates
+  ;; Indicator slot: each ticking drain's `:tick-elided` adds to the
+  ;; rolling `:elided-large` total which surfaces on the final summary.
+  (let [s1 (sub/merge-drain zero-state (drain {:n 1 :tick-elided 2}))
+        s2 (sub/merge-drain s1         (drain {:n 1 :tick-elided 3}))]
+    (is (= 5 (:elided-large s2)))))

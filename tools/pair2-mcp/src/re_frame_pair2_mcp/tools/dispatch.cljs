@@ -11,7 +11,7 @@
         build-id     (wire/arg-build args)
         sync?        (boolean (wire/arg args :sync))
         trace?       (boolean (wire/arg args :trace))
-        frame        (some-> (wire/arg args :frame) keyword)
+        frame        (wire/arg-keyword args :frame)
         fx-overrides (when-let [o (wire/arg args :fx-overrides)] (js->clj o :keywordize-keys true))]
     (cond
       (or (nil? event-str) (str/blank? event-str))

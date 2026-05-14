@@ -94,16 +94,16 @@
 
 (defn- precheck-step
   "Step 0 — rf2-36xod cheap-hash short-circuit. For precheck-eligible
-  tools (cache enabled AND tool registers a precheck-frame), fetches
+  tools (cache enabled AND tool registers a precheck-target), fetches
   the runtime-side hash via one bencode round-trip and consults the
   cache. On a hit, writes the marker to `:result` (which trips
   subsequent steps' `:short-circuit?` predicates). On a miss, records
   the fetched hash in `:precheck-hash` so `apply-cache` can attach
   it to the future entry."
   [{:keys [conn name args cache-opts] :as ctx}]
-  (if-let [frame (and (:enabled? cache-opts)
-                      (precheck/precheck-frame name args))]
-    (-> (precheck/fetch-precheck-hash conn args frame)
+  (if-let [target (and (:enabled? cache-opts)
+                       (precheck/precheck-target name args))]
+    (-> (precheck/fetch-precheck-hash conn args target)
         (.then (fn [h]
                  (assoc ctx
                    :precheck-hash h
