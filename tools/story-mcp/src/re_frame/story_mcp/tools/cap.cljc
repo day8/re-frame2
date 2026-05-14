@@ -1,5 +1,6 @@
 (ns re-frame.story-mcp.tools.cap
-  "Dispatcher + wire-boundary token-budget cap (rf2-rvyzy / rf2-zavp5).
+  "Dispatcher + wire-boundary token-budget cap (rf2-rvyzy / rf2-zavp5 /
+  rf2-eyelu).
 
   Per `spec/Cross-Cutting-Designs.md §3 Token budgets` every MCP
   `tools/call` response is bounded at ~5,000 tokens by default. The cap
@@ -7,8 +8,19 @@
   each handler — that keeps tool bodies free of token-accounting noise
   and pins one cross-MCP shape. When the serialised response would
   exceed the cap, the payload is replaced with a structured
-  `{:rf.mcp/overflow {...}}` marker emitted via
-  `re-frame.mcp-base.overflow/overflow-payload`.
+  `{:rf.mcp/overflow {...}}` marker.
+
+  ## Pipeline ownership
+
+  The cap-enforcement ALGORITHM lives in `re-frame.mcp-base.cap`
+  (rf2-eyelu) — token-summing across `:text` slots, comparing against
+  the per-call cap, and building the overflow result. This ns supplies
+  the per-server specialisation:
+
+  - `result-io` reifies `mcp-base.cap/ResultIO` over the story-mcp
+    result shape (`{:content [...] :structuredContent ...}` CLJ maps).
+  - `overflow-hints` is the local hint table — the per-tool next-step
+    prose stays here because the surfaces are domain-specific.
 
   Sized via `overflow/token-estimate` (the `(quot (count s) 4)` rule
   aligned with Anthropic's character→token rule-of-thumb). The cap is
@@ -19,7 +31,8 @@
   cap, `0` disables (escape hatch when the caller has already
   paginated), absent ⇒ default. Lives on every tool's input schema
   via `registry/with-max-tokens`."
-  (:require [re-frame.mcp-base.overflow :as overflow]
+  (:require [re-frame.mcp-base.cap :as base-cap]
+            [re-frame.mcp-base.overflow :as overflow]
             [re-frame.story-mcp.tools.helpers :as h]
             [re-frame.story-mcp.tools.registry :as registry]))
 
@@ -38,66 +51,17 @@
    "read-failures"     "Failure log is large — assertions accumulator may be deep; clear with a fresh `run-variant`, or raise `max-tokens` (0 disables)."
    "record-as-variant" "Captured event stream is large — shorten `:duration-ms`, or raise `max-tokens` (0 disables)."})
 
-(defn- max-tokens-arg
-  "Resolve the per-call cap from MCP arguments. Returns an integer cap
-  in tokens, or `nil` when the cap is disabled (`:max-tokens 0`).
-  Defaults to `overflow/default-max-tokens` when absent or not a number."
-  [arguments]
-  (let [raw (get arguments :max-tokens)]
-    (cond
-      (nil? raw)                  overflow/default-max-tokens
-      (and (integer? raw) (zero? raw)) nil
-      (integer? raw)              raw
-      :else                       overflow/default-max-tokens)))
-
-(defn sum-text-tokens
-  "Sum `token-estimate` across every `:text` slot in the
-  `{:content [{:type \"text\" :text ...} ...]}` result. The serialised
-  response's wire size is dominated by these slots; the JSON envelope
-  is bounded and ignored."
-  [result]
-  (transduce (comp (map :text)
-                   (filter string?)
-                   (map overflow/token-estimate))
-             +
-             0
-             (:content result)))
-
-(defn- overflow-result
-  "Build a fresh result carrying the overflow marker, mirroring
-  pair2-mcp's `overflow-result`. Drops the over-budget payload entirely
-  and emits the structured marker as the sole `:text` slot.
-
-  The overflow marker is itself the response — `:isError` is NOT set
-  (an over-budget success is a signal to retry with narrower args, not
-  a tool-execution failure)."
-  [tool-name token-count cap]
-  (let [marker (overflow/overflow-payload
-                 {:tool        tool-name
-                  :token-count token-count
-                  :cap         cap
-                  :hint        (get overflow-hints tool-name)})]
-    {:content          [{:type "text" :text (h/pr-edn marker)}]
-     :structuredContent marker}))
-
-(defn- apply-cap
-  "Wire-boundary cap enforcement. Returns either `result` unchanged
-  (under the cap, or cap disabled via `:max-tokens 0`) or a fresh
-  result carrying the overflow marker.
-
-  Cap is cumulative across every `:text` slot in `:content`. Mirrors
-  pair2-mcp's `apply-cap` — the same `:truncate-with-marker` strategy
-  is the only one wired today; future strategies (path-slicing, lazy
-  summary) slot in here without touching tool bodies."
-  [result tool-name cap]
-  (cond
-    (nil? cap)        result
-    (nil? result)     result
-    :else
-    (let [tokens (sum-text-tokens result)]
-      (if (<= tokens cap)
-        result
-        (overflow-result tool-name tokens cap)))))
+(def ^:private result-io
+  "ResultIO reify over story-mcp's CLJ-map result shape. The
+  `:structuredContent` slot mirrors the wire conventions docs (an
+  agent client that prefers JSON data reads it directly without
+  re-parsing the text)."
+  (reify base-cap/ResultIO
+    (content-texts [_ result]
+      (map :text (:content result)))
+    (build-overflow-result [_ marker _original]
+      {:content          [{:type "text" :text (h/pr-edn marker)}]
+       :structuredContent marker})))
 
 (defn invoke-tool
   "Invoke `tool-name` with `arguments` (a map of keyword-keyed args).
@@ -107,11 +71,11 @@
   ## Wire-boundary pipeline
 
   1. Dispatch the handler with `arguments`.
-  2. `apply-cap` (rf2-rvyzy / rf2-zavp5) — when the serialised response
-     exceeds the per-call cap (`:max-tokens` arg, default
-     `overflow/default-max-tokens`, `0` disables), the payload is
-     replaced with a structured `{:rf.mcp/overflow ...}` marker. Per
-     `spec/Cross-Cutting-Designs.md §3 Token budgets`.
+  2. `base-cap/apply-cap` (rf2-rvyzy / rf2-zavp5 / rf2-eyelu) — when
+     the serialised response exceeds the per-call cap (`:max-tokens`
+     arg, default `overflow/default-max-tokens`, `0` disables), the
+     payload is replaced with a structured `{:rf.mcp/overflow ...}`
+     marker. Per `spec/Cross-Cutting-Designs.md §3 Token budgets`.
 
   Catches any throw from the handler and returns it as a tool-execution
   error (`isError: true`) per MCP §Error Handling — handlers SHOULD
@@ -121,7 +85,7 @@
   [tool-name arguments]
   (when-let [t (registry/tool-by-name tool-name)]
     (let [args   (or arguments {})
-          cap    (max-tokens-arg args)
+          cap    (base-cap/max-tokens (get args :max-tokens))
           result (try
                    ((:handler t) args)
                    (catch Throwable e
@@ -129,4 +93,7 @@
                                      {:tool      tool-name
                                       :exception (.getName (class e))
                                       :data      (ex-data e)})))]
-      (apply-cap result tool-name cap))))
+      (base-cap/apply-cap result-io result
+                          {:tool tool-name
+                           :cap  cap
+                           :hint (get overflow-hints tool-name)}))))

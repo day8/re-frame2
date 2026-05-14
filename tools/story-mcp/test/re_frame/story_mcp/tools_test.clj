@@ -9,6 +9,7 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.mcp-base.cap :as base-cap]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]
             [re-frame.story :as story]
@@ -19,6 +20,19 @@
             [re-frame.story-mcp.tools.cap :as cap]
             [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]))
+
+;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
+;; cap-honours-default test to sum tokens without reaching into cap's
+;; private result-io reify. Mirrors the runtime IO instance in
+;; `re-frame.story-mcp.tools.cap/result-io` (rf2-eyelu) so a drift on
+;; the consumer's content-shape would be caught by the assertion
+;; sitting on this mirror.
+(def ^:private test-io
+  (reify base-cap/ResultIO
+    (content-texts [_ result] (map :text (:content result)))
+    (build-overflow-result [_ marker _]
+      {:content [{:type "text" :text (pr-str marker)}]
+       :structuredContent marker})))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -882,7 +896,7 @@
     ;; A tiny payload like `list-tags` is well under 5K tokens; verify
     ;; the cap does not trip on routine reads.
     (let [r (cap/invoke-tool "list-tags" {})
-          tokens (#'cap/sum-text-tokens r)]
+          tokens (base-cap/sum-text-tokens test-io r)]
       (is (not (overflow-marker? r)))
       (is (< tokens overflow/default-max-tokens)))))
 

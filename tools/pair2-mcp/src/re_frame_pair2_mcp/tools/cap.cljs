@@ -1,5 +1,5 @@
 (ns re-frame-pair2-mcp.tools.cap
-  "Wire-boundary token-budget cap (rf2-rvyzy).
+  "Wire-boundary token-budget cap (rf2-rvyzy / rf2-eyelu).
 
   Per `spec/Principles.md` §\"Tight token budget per response\", every
   MCP `tools/call` response is bounded at ~5,000 tokens by default.
@@ -8,6 +8,21 @@
   a structured `{:rf.mcp/overflow {...}}` marker and emits that
   instead. Silent truncation is unacceptable — it corrupts the agent's
   conversation without telling the agent.
+
+  ## Pipeline ownership
+
+  The cap-enforcement ALGORITHM lives in `re-frame.mcp-base.cap`
+  (rf2-eyelu) — token-summing across `:text` slots, comparing against
+  the per-call cap, and building the overflow result. This ns supplies
+  the per-server specialisation:
+
+  - `result-io` reifies `mcp-base.cap/ResultIO` over pair2-mcp's
+    `#js {:content #js [...]}` shape (JS-native, npm MCP SDK).
+  - `overflow-hints` is the local hint table — the per-tool next-step
+    prose stays here because the surfaces are domain-specific.
+  - `max-tokens-arg` is the JS-side adapter that lifts the
+    `\"max-tokens\"` slot off the args object before delegating to the
+    base resolver.
 
   Design notes:
 
@@ -21,16 +36,18 @@
   - **Per-call override**: every tool accepts a `max-tokens` arg —
     integer cap, `0` disables (escape hatch for callers that have
     already paginated). Default `5000`.
-  - **Pluggable strategy**: `apply-cap` dispatches on a strategy
-    keyword. Today only `:truncate-with-marker` is implemented —
-    replace the payload with the overflow marker. Future strategies
-    (path-slicing rf2-tygdv, lazy summary rf2-u2029, diff encoding
-    rf2-rl7y, etc.) compose here without rebuilding the wrapper.
+  - **Pluggable strategy**: `base-cap/apply-cap` dispatches on a
+    strategy keyword. Today only `:truncate-with-marker` is
+    implemented — replace the payload with the overflow marker.
+    Future strategies (path-slicing rf2-tygdv, lazy summary
+    rf2-u2029, diff encoding rf2-rl7y, etc.) compose in the base
+    without rebuilding the wrapper here.
   - **Centralised**: applied as the final step in `invoke`. Per-tool
     functions are untouched; they emit the same shapes they always
     did. The wire-cap is a property of the egress boundary, not of
     each tool's internals."
   (:require [applied-science.js-interop :as j]
+            [re-frame.mcp-base.cap :as base-cap]
             [re-frame.mcp-base.overflow :as base-overflow]))
 
 ;; `default-max-tokens` and `token-estimate` come from
@@ -47,14 +64,14 @@
 (defn max-tokens-arg
   "Resolve the per-call cap from MCP args. Returns the integer cap in
   tokens, or `nil` when the cap is disabled (caller passed `0`).
-  Defaults to `default-max-tokens` when absent or not a number."
+  Defaults to `default-max-tokens` when absent or not a number.
+
+  Reads the JS-side `\"max-tokens\"` slot off the args object, then
+  delegates the coercion to `base-cap/max-tokens` (the cross-MCP
+  resolver)."
   [args]
   (let [raw (when args (j/get args "max-tokens"))]
-    (cond
-      (or (nil? raw) (undefined? raw)) default-max-tokens
-      (and (number? raw) (zero? raw))  nil
-      (number? raw)                    (long raw)
-      :else                            default-max-tokens)))
+    (base-cap/max-tokens (when (and (not (undefined? raw)) (some? raw)) raw))))
 
 (def overflow-hints
   "Tool-specific next-step hints for the overflow marker. Generic
@@ -73,68 +90,53 @@
 ;; touching the every-call-site `get overflow-hints` usage.
 (def overflow-hint-fallback base-overflow/overflow-hint-fallback)
 
-(defn overflow-payload
-  "Build the structured overflow marker. Shape lives in
-  `re-frame.mcp-base.overflow/overflow-payload` (rf2-vw4sq); per-tool
-  hint table stays local."
-  [{:keys [tool token-count cap]}]
-  (base-overflow/overflow-payload
-    {:tool        tool
-     :token-count token-count
-     :cap         cap
-     :hint        (get overflow-hints tool overflow-hint-fallback)}))
+(def ^:private result-io
+  "ResultIO reify over pair2-mcp's `#js {:content #js [...]}` shape
+  (npm MCP SDK). Reads `:text` slots via `js-interop` and builds the
+  overflow result with the same JS shape so the SDK can serialise it
+  as a `tools/call` reply unchanged."
+  (reify base-cap/ResultIO
+    (content-texts [_ result]
+      (let [content (j/get result :content)
+            n       (if (array? content) (.-length content) 0)]
+        ;; Lazy seq over the JS array's :text slots. `apply-cap`
+        ;; transduces with a `(filter string?)` upstream, so any
+        ;; missing slot passes through as nil and is dropped.
+        (loop [i 0 acc (transient [])]
+          (if (< i n)
+            (let [item (aget content i)
+                  text (when item (j/get item :text))]
+              (recur (inc i) (conj! acc text)))
+            (persistent! acc)))))
+    (build-overflow-result [_ marker _original]
+      #js {:content #js [#js {:type "text"
+                              :text (pr-str marker)}]})))
 
 (defn sum-text-tokens
   "Sum `token-estimate` across every `:text` slot in the MCP
   `{:content [{:type \"text\" :text ...} ...]}` result. The
   serialised response's wire size is dominated by these slots; the
-  JSON envelope is bounded and ignored."
-  [result-js]
-  (let [content (j/get result-js :content)
-        n      (if (array? content) (.-length content) 0)]
-    (loop [i 0 sum 0]
-      (if (< i n)
-        (let [item (aget content i)
-              text (when item (j/get item :text))
-              t    (if (string? text) (token-estimate text) 0)]
-          (recur (inc i) (+ sum t)))
-        sum))))
+  JSON envelope is bounded and ignored.
 
-(defn overflow-result
-  "Build a fresh MCP result carrying the overflow marker, preserving
-  the `:isError` flag of the original result (an over-budget error
-  stays an error; an over-budget success becomes a non-error overflow
-  signal — the marker is itself a structured response)."
-  [tool token-count cap]
-  #js {:content #js [#js {:type "text"
-                          :text (pr-str (overflow-payload
-                                          {:tool        tool
-                                           :token-count token-count
-                                           :cap         cap}))}]})
+  Delegates to `base-cap/sum-text-tokens` against pair2-mcp's
+  JS-shape `result-io`."
+  [result-js]
+  (base-cap/sum-text-tokens result-io result-js))
 
 (defn apply-cap
   "Wire-boundary cap enforcement. Returns either `result-js` unchanged
   (when under the cap or cap disabled) or a fresh result carrying the
   overflow marker.
 
-  Pluggable on `strategy`:
-  - `:truncate-with-marker` (default, today the only option): drop
-    the payload, emit `{:rf.mcp/overflow ...}` instead.
+  Pluggable on `strategy` — see `base-cap/apply-cap`. Today only
+  `:truncate-with-marker` is wired; unknown strategies degrade safely.
 
-  Future strategies — path-slicing (rf2-tygdv), lazy summary
-  (rf2-u2029), diff encoding (rf2-rl7y) — slot in here without
-  touching per-tool functions or the `invoke` glue."
+  Adds pair2-mcp's `overflow-hints` table lookup before delegating to
+  `base-cap/apply-cap`."
   [result-js {:keys [tool cap strategy]
               :or   {strategy :truncate-with-marker}}]
-  (cond
-    (nil? cap)        result-js
-    (nil? result-js)  result-js
-    :else
-    (let [tokens (sum-text-tokens result-js)]
-      (if (<= tokens cap)
-        result-js
-        (case strategy
-          :truncate-with-marker
-          (overflow-result tool tokens cap)
-          ;; Unknown strategy: degrade safely.
-          (overflow-result tool tokens cap))))))
+  (base-cap/apply-cap result-io result-js
+                      {:tool     tool
+                       :cap      cap
+                       :hint     (get overflow-hints tool)
+                       :strategy strategy}))
