@@ -159,19 +159,20 @@
 (late-bind/set-fn! :schemas/set-schema-explainer! set-schema-explainer!)
 (late-bind/set-fn! :schemas/set-schema-printer!   set-schema-printer!)
 
-;; Elision-walker hooks (rf2-nwv63 / rf2-v9tw2) — published so
-;; re-frame.core's downstream registry-population code can hydrate
-;; `[:rf/elision :declarations]` at boot / on reg-app-schema without
-;; statically depending on the schemas artefact.
-(late-bind/set-fn! :schemas/extract-large-paths-from-schema extract-large-paths-from-schema)
-(late-bind/set-fn! :schemas/frame-elision-declarations      frame-elision-declarations)
-(late-bind/set-fn! :schemas/populate-elision-declarations   populate-elision-declarations)
-
-;; Sensitive-paths walker (rf2-kj51z / rf2-c1l4d).
+;; Schema-walker hooks consumed by `re-frame.elision` to feed the
+;; unified `[:rf/elision]` registry without statically depending on the
+;; schemas artefact. Per rf2-ynnq0 Option A — schemas owns the deep
+;; walker; the elision artefact owns the app-db write. The Path D impl
+;; (rf2-w3n5u) wires `re-frame.elision/populate-elision-from-schemas!`
+;; to consume these two hooks. The five sibling feeders that previously
+;; sat alongside (`:schemas/frame-elision-declarations`,
+;; `:schemas/populate-elision-declarations`, `:schemas/schema-has-
+;; sensitive?`, `:schemas/frame-sensitive-declarations`,
+;; `:schemas/populate-sensitive-declarations`) were deleted per
+;; rf2-5q7r0 — they had zero consumers in tree, and Option A makes the
+;; per-slot extract-* hooks the single surface elision needs.
+(late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
 (late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
-(late-bind/set-fn! :schemas/schema-has-sensitive?               schema-has-sensitive?)
-(late-bind/set-fn! :schemas/frame-sensitive-declarations        frame-sensitive-declarations)
-(late-bind/set-fn! :schemas/populate-sensitive-declarations     populate-sensitive-declarations)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; reset-runtime-fixture).
