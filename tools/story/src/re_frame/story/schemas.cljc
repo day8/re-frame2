@@ -209,8 +209,11 @@
 
 (def SubstrateSet
   "Subset of the recognised substrate ids. The framework supplies the
-  closed set; Story validates membership."
-  [:set [:enum :reagent :uix :helix :reagent-slim]])
+  closed set; Story validates membership. `:reagent-slim` is reserved
+  for future use — it is not yet on the canonical substrate enum (the
+  renderer hasn't shipped). See spec/000-Vision + the rf2-tb0ga
+  cleanup."
+  [:set [:enum :reagent :uix :helix]])
 
 (def PlatformSet
   "Subset of `#{:server :client}` per spec/007 `:platforms`."

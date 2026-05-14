@@ -217,7 +217,7 @@ bridge if needed). Stage 3 picks one and locks it.
 
 ```clojure
 (rf/variant-substrates variant-id)
-;; => #{:reagent :uix :helix :reagent-slim}  (or a subset, per :substrates on variant/story)
+;; => #{:reagent :uix :helix}  (or a subset, per :substrates on variant/story)
 ```
 
 The story tool's multi-substrate pane iterates this set, rendering

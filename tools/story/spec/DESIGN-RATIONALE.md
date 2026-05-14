@@ -33,10 +33,11 @@ tools per the Storybook MCP Dev / Docs / Testing toolset split. See
 ### §inline-substrate-failures — render inline
 
 **Decision.** A variant may declare `:substrates #{:reagent :uix
-:helix :reagent-slim}` (subset, default = the host frame's adapter);
-when Story renders the variant against multiple substrates the
-failure for each is rendered **inline** with the variant pane — not
-auto-skipped.
+:helix}` (subset, default = the host frame's adapter); when Story
+renders the variant against multiple substrates the failure for each
+is rendered **inline** with the variant pane — not auto-skipped.
+`:reagent-slim` is reserved for future addition once the renderer
+ships; until then it is not on the canonical substrate enum.
 
 **Rationale.** Substrate-portability gaps are the entire point of
 multi-substrate rendering. Hiding failures hides the bugs Story
