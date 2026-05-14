@@ -22,7 +22,7 @@
         filtered (if (seq tags)
                    (into {}
                          (filter (fn [[_id body]]
-                                   (some tags (:tags body #{}))))
+                                   (seq (set/intersection tags (set (:tags body))))))
                          stories)
                    stories)
         payload  {:stories (vec (for [[sid body] filtered]

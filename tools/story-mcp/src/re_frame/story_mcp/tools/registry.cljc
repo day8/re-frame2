@@ -68,9 +68,16 @@
            :typicalTokens typicalTokens})
         tool-registry))
 
+(def ^:private tool-by-name-index
+  "Pre-computed `name → descriptor` map so `tool-by-name` is O(1)
+  instead of the linear scan over `tool-registry`. The registry shape
+  is frozen at load time (`tool-registry` is a `def`), so the index
+  is similarly stable."
+  (into {} (map (juxt :name identity)) tool-registry))
+
 (defn tool-by-name
   "Look up a tool's registry entry by string name. Returns nil if no
   such tool — the caller (server dispatcher) turns that into a
   protocol-level method-not-found error."
   [tool-name]
-  (some (fn [t] (when (= tool-name (:name t)) t)) tool-registry))
+  (get tool-by-name-index tool-name))
