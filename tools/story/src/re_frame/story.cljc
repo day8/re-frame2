@@ -140,7 +140,7 @@
 
      The body must be 100% EDN-round-trippable. Decorator closures live at
      the decorator's *registration site* (see `reg-decorator`), not here.
-     Per IMPL-SPEC §2.6 and Phase-2 §5.1 #10.
+     Per IMPL-SPEC §2.6.
 
      `:extends` resolution happens at registration time — see
      `re-frame.story.extends/resolve-extends`."
@@ -254,10 +254,10 @@
      `:rf.error/unknown-tag`.
 
      **`:axis`** — optional keyword classifier. The sidebar tag-filter UI
-     groups registered tags by `:axis` into collapsible facet rows
-     (rf2-v05qb SB9 parity). Tags registered without `:axis` render in a
-     trailing un-grouped facet row. Query the axis grouping via
-     `tags-by-axis` / `tags-without-axis`.
+     groups registered tags by `:axis` into collapsible facet rows.
+     Tags registered without `:axis` render in a trailing un-grouped
+     facet row. Query the axis grouping via `tags-by-axis` /
+     `tags-without-axis`.
 
      **`:default-filter`** — `:include` (default) | `:exclude`. When
      `:exclude`, the sidebar pre-excludes variants carrying this tag at
@@ -266,8 +266,7 @@
      `tags-default-excluded`.
 
      `!`-prefix removal-syntax (e.g. `:!dev`) on a variant `:tags` set
-     resolves at registration time against the inherited set — see
-     Phase-2 §5.1 #11."
+     resolves at registration time against the inherited set."
      [id metadata]
      (macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
@@ -283,7 +282,7 @@
 
   Mirror of the spec/001 §Public registrar query API for Story's
   side-table. The Story registry is logically a peer of the framework
-  registrar — see IMPL-SPEC §1.1 + bd rf2-7ho2 for the design rationale."
+  registrar — see IMPL-SPEC §1.1 for the design rationale."
   [kind]
   (registrar/handlers kind))
 
@@ -316,8 +315,8 @@
 
 (defn variants-with-tags
   "Per IMPL-SPEC §3.2 — return the set of variant ids whose `:tags`
-  intersects `query-tags`. Stage 5 (assertions/play) leans on this; Stage
-  4 (render shell) leans on this to compose the sidebar tree."
+  intersects `query-tags`. Used by the assertion / play surface and by
+  the render shell's sidebar tree composition."
   [query-tags]
   (registrar/variants-with-tags query-tags))
 
@@ -336,8 +335,8 @@
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
   body's `:axis` equals `axis-kw` (e.g. `:status` / `:role` / `:team` /
   `:feature`). The sidebar tag-filter UI uses this to group registered
-  tags into collapsible facet rows (rf2-v05qb SB9 parity). Returns the
-  empty set if no tag carries that axis."
+  tags into collapsible facet rows. Returns the empty set if no tag
+  carries that axis."
   [axis-kw]
   (registrar/tags-by-axis axis-kw))
 
@@ -392,9 +391,8 @@
 
 (def ^:private canonical-installers
   "Ordered vector of installer fns invoked by `install-canonical-vocabulary!`.
-  Each takes zero args and is idempotent. The CLJS-only Stage 6 surfaces
-  (multi-substrate Reagent default + the v1.0 panel set) gate on the
-  reader so the JVM classpath stays Reagent-free."
+  Each takes zero args and is idempotent. The CLJS-only surfaces gate
+  on the reader so the JVM classpath stays Reagent-free."
   [registrar/install-canonical-tags!
    loaders/install!
    loaders/install-mirror-writer!
@@ -436,19 +434,17 @@
 
   `{:global-args {...}}` — replace the global args map.
 
-  `{:editor <kw>}` — 'Open in editor' preference per rf2-evgf5. One of
-  `:vscode` (default) / `:cursor` / `:idea` / `{:custom \"<template>\"}`.
-  Drives the `vscode://` / `cursor://` / `idea://` URI scheme the
-  source-coord open-button affordances emit. See
-  `re-frame.source-coords.editor-uri/editor-uri` for the per-editor URI
-  grammar.
+  `{:editor <kw>}` — 'Open in editor' preference. One of `:vscode`
+  (default) / `:cursor` / `:idea` / `{:custom \"<template>\"}`. Drives
+  the `vscode://` / `cursor://` / `idea://` URI scheme the source-coord
+  open-button affordances emit. See
+  `re-frame.source-coords.editor-uri/editor-uri` for the grammar.
 
   `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
-  true` trace events per Spec 009 §Privacy (rf2-bclgj). Defaults to
-  `false` — Story's trace, actions, recorder, and play-assertion
-  listeners drop sensitive events and the UI surfaces a `[● REDACTED]`
-  hint. Set to `true` while debugging redaction policy to see the raw
-  cascade.
+  true` trace events per Spec 009 §Privacy. Defaults to `false` —
+  Story's trace, actions, recorder, and play-assertion listeners drop
+  sensitive events and the UI surfaces a `[● REDACTED]` hint. Set to
+  `true` while debugging redaction policy to see the raw cascade.
 
   Unrecognised keys are accepted (for forward compat) but ignored."
   [{:keys [global-args editor]
@@ -480,20 +476,11 @@
   [kind id]
   (registrar/unregister! kind id))
 
-;; ---- Stage 3 stubs (run-variant family) ---------------------------------
-;;
-;; These are deliberately stubbed at Stage 2 — the bead is the authoring
-;; surface only. Stage 3 (rf2-von3) replaces these bodies with the
-;; four-phase lifecycle. The signatures are locked at IMPL-SPEC §3.2 so
-;; downstream code can be written against them today.
+;; ---- variant->edn / workspace->edn --------------------------------------
 
 (defn variant->edn
   "Per IMPL-SPEC §3.2 — return the canonical-form serialised body of
-  the registered variant. At Stage 2 this is the side-table body
-  verbatim; the canonicalisation (sorted keys, deterministic vector
-  order) for snapshot-identity is Stage 3's call.
-
-  Returns nil when the variant is unregistered."
+  the registered variant, or nil when unregistered."
   [variant-id]
   (handler-meta :variant variant-id))
 
@@ -503,10 +490,6 @@
   (handler-meta :workspace workspace-id))
 
 ;; ---- run-variant / reset-variant / snapshot-identity --------------------
-;;
-;; STAGE 3 (rf2-von3): the four-phase lifecycle. These call into
-;; `re-frame.story.runtime`. Each returns a promise (CLJS) or
-;; CompletableFuture (JVM); see `re-frame.story.async` for the shape.
 
 (defn run-variant
   "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
@@ -517,17 +500,16 @@
     :active-modes    coll of registered mode ids; deep-merged into args
     :cell-overrides  runtime arg overrides (controls panel)
     :substrate       active substrate (`:reagent`, `:uix`, ...)
-    :render?         when truthy, Stage 4's UI shell renders into
-                     `:rendered-hiccup`. Stage 3 leaves the slot nil.
-    :assertions      Stage 5's hook. Stage 3 accepts the slot but
-                     leaves the runtime semantics to Stage 5.
+    :render?         when truthy, the UI shell renders into
+                     `:rendered-hiccup`.
+    :assertions      assertions hook.
 
   Result map:
 
       {:frame           <variant-id>
        :app-db          {...}
        :assertions      [...]
-       :rendered-hiccup nil           ; Stage 4
+       :rendered-hiccup ...
        :elapsed-ms      <ms>
        :snapshot        {:variant-id ... :content-hash \"...\"}
        :decorators      {:hiccup [...] :frame-setup [...] :fx-override [...]
@@ -567,8 +549,8 @@
   (frames/destroy! variant-id))
 
 (defn variant-frames
-  "Return every registered variant frame id. Stage 4's UI shell uses
-  this to lay out the active variant pane."
+  "Return every registered variant frame id. The UI shell uses this to
+  lay out the active variant pane."
   []
   (frames/variant-frames))
 
@@ -584,7 +566,7 @@
   [variant-id]
   (loaders/current-state variant-id))
 
-;; ---- Stage 5 (rf2-h8et) public assertion + play helpers ------------------
+;; ---- public assertion + play helpers ------------------------------------
 
 (defn assertions-passing?
   "Per IMPL-SPEC §3.5 + spec/007 §Story-as-test duality — true iff
@@ -641,7 +623,7 @@
                       [:rf.assert/effect-emitted :http]]})"
   fx-stubs/force-fx-stub-id)
 
-;; ---- Stage 6 (rf2-zhwd) public SOTA-feature surface ---------------------
+;; ---- public SOTA-feature surface ----------------------------------------
 
 (def layout-debug-measure-id
   "Per IMPL-SPEC §2.8.6 — the registered decorator id for the
@@ -716,7 +698,7 @@
   ([variant-id]       (decorators/resolve-decorators variant-id))
   ([variant-id opts]  (decorators/resolve-decorators variant-id opts)))
 
-;; ---- rf2-8wgpm: static-mode? probe --------------------------------------
+;; ---- static-mode? probe -------------------------------------------------
 
 (defn static-mode?
   "Per tools/story/spec/013-Static-Build.md — return true iff Story is
@@ -739,12 +721,9 @@
   assertions+play + sota-features) is present."
   :sota-features)
 
-;; ---- Stage 4 (rf2-ekai) UI shell mount / unmount surface ----------------
-;;
-;; Per IMPL-SPEC §4 + §8.4 the shell entry points are CLJS-only —
-;; mounting a Reagent shell at a DOM node has no JVM equivalent. The
-;; functions are conditionalised on the reader so JVM consumers can
-;; require `re-frame.story` without pulling Reagent / DOM symbols.
+;; ---- UI shell mount / unmount surface (CLJS-only) -----------------------
+;; The functions are reader-conditionalised so JVM consumers can require
+;; `re-frame.story` without pulling Reagent / DOM symbols (IMPL-SPEC §8.4).
 
 #?(:cljs
    (defn mount-shell!
@@ -762,9 +741,7 @@
 
      Production CLJS builds (`re-frame.story.config/enabled?` false)
      short-circuit before any DOM call and return nil. See IMPL-SPEC
-     §6.3 for the elision contract.
-
-     Stage 4 (rf2-ekai)."
+     §6.3 for the elision contract."
      [dom-node]
      (ui-shell/mount-shell! dom-node)))
 
@@ -782,11 +759,9 @@
      []
      (ui-shell/active-shell)))
 
-;; ---- rf2-5fc15 — Test Codegen recorder public surface --------------------
-;;
-;; Per bead rf2-5fc15 the recorder captures canvas-dispatched events as
-;; a `:play` body. Exposing the entry points here lets tests, MCP
-;; tooling, and headless integrations drive recording programmatically
+;; ---- Test Codegen recorder public surface -------------------------------
+;; The recorder captures canvas-dispatched events as a `:play` body so
+;; tests, MCP tooling, and headless integrations can drive recording
 ;; without going through the toolbar UI.
 
 (defn start-recording!
