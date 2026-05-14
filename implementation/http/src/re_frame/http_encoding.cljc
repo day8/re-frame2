@@ -10,14 +10,23 @@
 
   - URL / query-string encoding: `url-encode`, `params->query`,
     `merge-params`.
-  - Request body encoding: `realise-body`, `encode-body` (handles
+  - Request body encoding: `encode-body` (handles
     `:request-content-type` :json / :form / :text / explicit string,
-    plus heuristics for raw Clojure colls).
+    plus heuristics for raw Clojure colls; the single thunk-realisation
+    site is inlined into `run-attempt!` per rf2-sz4n0).
   - `:accept` normalisation: `run-accept` (and the inline default).
-  - Failure shape: `failure-map`.
   - Reply addressing: `resolve-origin-event`, `build-reply-event`,
     `dispatch-reply-via-late-bind!`.
   - Backoff: `compute-backoff-ms`.
+
+  Per rf2-sz4n0 (round-2 http audit, findings 1.1, 1.2): two thin
+  one-liner helpers from the earlier split — `failure-map` (just
+  `(assoc tags :kind kind)`) and `realise-body` (just `(if (fn? body)
+  (body) body)`) — were inlined into their call sites. The earlier
+  shape required readers to trace into the helper to confirm it was a
+  plain `assoc` / `if`; the inline form reads as ordinary Clojure with
+  no behaviour loss. The third audit-flagged closure, `default-accept-
+  fn`, is folded into `run-accept` (see the docstring on `run-accept`).
 
   The response-side decode pipeline (`content-type-of`, `sniff-decoder`,
   `malli-decode`, `decode-response-body`) lives in `re-frame.http-
@@ -58,12 +67,6 @@
     url))
 
 ;; ---- body encoding --------------------------------------------------------
-
-(defn realise-body
-  "Per Spec 014 §Body encoding: if `:body` is a thunk, invoke it. Each
-  attempt re-invokes the thunk to obtain a fresh handle."
-  [body]
-  (if (fn? body) (body) body))
 
 (defn- form-encode-body
   "URL-encoded form body from a Clojure map."
@@ -114,14 +117,6 @@
     (if (and (>= status 200) (< status 300))
       {:ok decoded}
       {:failure {:kind :http-status :status status :body decoded}})))
-
-;; ---- failure shape --------------------------------------------------------
-
-(defn failure-map
-  "Build a failure map of the canonical shape per Spec 014 §Failure
-  categories: `{:kind <:rf.http/...> ...kind-tags...}`."
-  [kind tags]
-  (assoc tags :kind kind))
 
 ;; ---- reply addressing -----------------------------------------------------
 

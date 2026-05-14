@@ -105,20 +105,20 @@
      (let [data (when (.-data err) (ex-data err))]
        (cond
          (:rf.http/timeout? data)
-         (encoding/failure-map :rf.http/timeout
-                               {:elapsed-ms (:elapsed-ms data)
-                                :limit-ms   (:limit-ms data)})
+         {:kind       :rf.http/timeout
+          :elapsed-ms (:elapsed-ms data)
+          :limit-ms   (:limit-ms data)}
 
          (or (= "AbortError" (.-name err))
              (:rf.http/aborted? data))
-         (encoding/failure-map :rf.http/aborted
-                               {:request-id (:request-id data)
-                                :reason     (or (:reason data) :user)})
+         {:kind       :rf.http/aborted
+          :request-id (:request-id data)
+          :reason     (or (:reason data) :user)}
 
          :else
-         (encoding/failure-map :rf.http/transport
-                               {:message (or (.-message err) (str err))
-                                :cause   err})))))
+         {:kind    :rf.http/transport
+          :message (or (.-message err) (str err))
+          :cause   err}))))
 
 ;; ---- platform transport: JVM java.net.http.HttpClient ---------------------
 
@@ -191,14 +191,14 @@
        (cond
          (or (instance? java.net.http.HttpTimeoutException cause)
              (and msg (str/includes? (str/lower-case msg) "timed out")))
-         (encoding/failure-map :rf.http/timeout {:elapsed-ms nil :limit-ms nil :message msg})
+         {:kind :rf.http/timeout :elapsed-ms nil :limit-ms nil :message msg}
 
          (or (instance? java.util.concurrent.CancellationException cause)
              (and msg (str/includes? (str/lower-case msg) "abort")))
-         (encoding/failure-map :rf.http/aborted {:reason :user :message msg})
+         {:kind :rf.http/aborted :reason :user :message msg}
 
          :else
-         (encoding/failure-map :rf.http/transport {:message msg :cause cls})))))
+         {:kind :rf.http/transport :message msg :cause cls}))))
 
 ;; ---- per-row CLJS-only-key tracing on JVM ---------------------------------
 
@@ -254,10 +254,10 @@
     (dispatch-reply! (assoc ctx
                             :kind :failure
                             :reply-payload {:kind    :failure
-                                            :failure (encoding/failure-map :rf.http/accept-failure
-                                                                           {:detail     (:failure accepted)
-                                                                            :decoded    (:decoded ctx)
-                                                                            :request-id (:request-id ctx)})}))))
+                                            :failure {:kind       :rf.http/accept-failure
+                                                      :detail     (:failure accepted)
+                                                      :decoded    (:decoded ctx)
+                                                      :request-id (:request-id ctx)}}))))
 
 (defn- finalise-failure!
   "Final-failure dispatch (after retries exhausted or non-retriable).
@@ -363,19 +363,19 @@
     (cond
       (and (>= status 400) (< status 500))
       (maybe-retry! ctx
-                    (encoding/failure-map :rf.http/http-4xx
-                                          {:status      status
-                                           :status-text status-text
-                                           :body        body-text
-                                           :headers     headers}))
+                    {:kind        :rf.http/http-4xx
+                     :status      status
+                     :status-text status-text
+                     :body        body-text
+                     :headers     headers})
 
       (>= status 500)
       (maybe-retry! ctx
-                    (encoding/failure-map :rf.http/http-5xx
-                                          {:status      status
-                                           :status-text status-text
-                                           :body        body-text
-                                           :headers     headers}))
+                    {:kind        :rf.http/http-5xx
+                     :status      status
+                     :status-text status-text
+                     :body        body-text
+                     :headers     headers})
 
       ok?
       (try
@@ -393,11 +393,11 @@
           (let [d (ex-data e)]
             (maybe-retry!
               ctx
-              (encoding/failure-map :rf.http/decode-failure
-                                    {:body-text                  body-text
-                                     :cause                      #?(:clj (.getMessage ^Throwable e)
-                                                                    :cljs (.-message e))
-                                     :schema-validation-failure? (boolean (:malli-error? d))})))))
+              {:kind                       :rf.http/decode-failure
+               :body-text                  body-text
+               :cause                      #?(:clj (.getMessage ^Throwable e)
+                                              :cljs (.-message e))
+               :schema-validation-failure? (boolean (:malli-error? d))}))))
 
       :else
       ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx that the
@@ -405,11 +405,11 @@
       ;; the raw body-text.
       (finalise-failure!
         ctx
-        (encoding/failure-map :rf.http/http-4xx
-                              {:status      status
-                               :status-text status-text
-                               :body        body-text
-                               :headers     headers})))))
+        {:kind        :rf.http/http-4xx
+         :status      status
+         :status-text status-text
+         :body        body-text
+         :headers     headers}))))
 
 (defn run-attempt!
   "Issue one HTTP attempt, then dispatch reply or retry. Platform-specific
@@ -421,8 +421,11 @@
   (let [{:keys [request timeout-ms request-id actor-id abort-signal]} ctx
         method   (or (:method request) :get)
         url      (encoding/merge-params (:url request) (:params request))
-        [enc-body ct] (encoding/encode-body (encoding/realise-body (:body request))
-                                            (:request-content-type request))
+        ;; rf2-sz4n0 — `:body` may be a thunk (Spec 014 §Body encoding); each
+        ;; attempt re-invokes it to obtain a fresh handle. Single call site,
+        ;; inlined per the audit.
+        body     (let [b (:body request)] (if (fn? b) (b) b))
+        [enc-body ct] (encoding/encode-body body (:request-content-type request))
         headers  (cond-> (or (:headers request) {})
                    (and ct (nil? (decode/content-type-of (:headers request))))
                    (assoc "Content-Type" ct))
@@ -445,18 +448,18 @@
                                        (.abort internal-controller (clj->js reason)))
                                      (finalise-failure!
                                        ctx-no-handle
-                                       (encoding/failure-map :rf.http/aborted
-                                                             {:request-id request-id
-                                                              :reason     reason
-                                                              :actor-id   actor-id}))
+                                       {:kind       :rf.http/aborted
+                                        :request-id request-id
+                                        :reason     reason
+                                        :actor-id   actor-id})
                                      (catch :default _ nil))
                                    :clj
                                    (finalise-failure!
                                      ctx-no-handle
-                                     (encoding/failure-map :rf.http/aborted
-                                                           {:request-id request-id
-                                                            :reason     reason
-                                                            :actor-id   actor-id}))))
+                                     {:kind       :rf.http/aborted
+                                      :request-id request-id
+                                      :reason     reason
+                                      :actor-id   actor-id})))
                     :url url
                     ;; rf2-bma05 — propagate the :sensitive? flag onto
                     ;; the in-flight handle so the actor-destroy abort
