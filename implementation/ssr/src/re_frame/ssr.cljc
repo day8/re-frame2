@@ -170,9 +170,37 @@ on the wire. Per Spec 011 §Cookie shape."
   {:doc       "Set :redirect on the response accumulator. Defaults
 :status to 302 if absent. Multiple writes emit
 :rf.warning/multiple-redirects (last-write-wins). Per Spec 011
-§Redirect precedence."
+§Redirect precedence.
+
+Caller-trusted :location — accepts arbitrary URL strings without
+allowlist or relative-only gating. For caller-untrusted location strings
+(e.g. a `?next=` URL param), use :rf.server/safe-redirect (below).
+Per rf2-zfm8v."
    :platforms #{:server}}
   response/redirect-fx)
+
+(fx/reg-fx :rf.server/safe-redirect
+  {:doc       "Set :redirect after a five-step validation gate (per
+Spec 011 §HTTP response contract §Standard fx). Mitigation for the
+open-redirect class — an attacker-controlled `?next=...` URL parameter
+cannot redirect off-origin when the app uses :rf.server/safe-redirect
+instead of :rf.server/redirect.
+
+Args:
+  {:location       \"/dashboard\"
+   :relative-only? true                                ;; reject hosts
+   :allow          [\"app.example.com\" \"alt.example.com\"]
+   :status         302}
+
+Validation order: (1) URL must parse — :rf.error/safe-redirect-invalid-url;
+(2) reject javascript:/data:/vbscript: schemes —
+:rf.error/safe-redirect-scheme-rejected; (3) :relative-only? + host —
+:rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation);
+(4) :allow allowlist mismatch — :rf.error/safe-redirect-host-disallowed
+(:reason :not-in-allowlist); (5) pass — set Location header. Per
+rf2-zfm8v (Mike decision, Option A, 2026-05-14)."
+   :platforms #{:server}}
+  response/safe-redirect-fx)
 
 ;; ---- :rf.server/request cofx ----------------------------------------------
 ;;

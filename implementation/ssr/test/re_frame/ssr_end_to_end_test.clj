@@ -1074,3 +1074,281 @@
       (is (= {:status 302 :location "/login"} (:redirect resp))
           "the redirect map itself is unchanged"))))
 
+;; ===========================================================================
+;; rf2-2brsn / parent rf2-zfm8v — :rf.server/safe-redirect (caller-untrusted)
+;; ===========================================================================
+;;
+;; Per rf2-zfm8v (Mike decision, Option A — ship safe-redirect-fx alongside
+;; redirect-fx, 2026-05-14) the runtime ships TWO redirect fxs:
+;;
+;; - :rf.server/redirect       — caller-trusted; arbitrary :location strings.
+;; - :rf.server/safe-redirect  — caller-untrusted; URL parse + scheme reject +
+;;                               :relative-only? / :allow allowlist gating.
+;;
+;; Mitigation for the open-redirect class (audit 2026-05-14 §P3.2): an
+;; attacker-controlled ?next=... URL parameter cannot redirect off-origin
+;; when the app uses :rf.server/safe-redirect.
+;;
+;; Validation order (each step emits its specific :rf.error/safe-redirect-*
+;; category — see Spec 009 §Error event catalogue):
+;;   1. URL must parse → :rf.error/safe-redirect-invalid-url
+;;   2. scheme ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
+;;   3. :relative-only? true + URL has host → :rf.error/safe-redirect-host-disallowed
+;;      (:reason :relative-only-violation)
+;;   4. :allow supplied + host ∉ allow → :rf.error/safe-redirect-host-disallowed
+;;      (:reason :not-in-allowlist)
+;;   5. pass → set Location header (same shape as redirect-fx).
+
+(defn- capture-safe-redirect-traces!
+  "Install a trace listener filtering only :rf.error/safe-redirect-* events
+  for the duration of `body-fn`. Returns the captured traces."
+  [body-fn]
+  (let [traces (atom [])
+        tag    (keyword (str "::safe-redirect-cap-" (gensym)))
+        prefix "rf.error"
+        match? (fn [op]
+                 (and (keyword? op)
+                      (= prefix (namespace op))
+                      (str/starts-with? (name op) "safe-redirect-")))]
+    (rf/register-trace-cb! tag
+                           (fn [ev]
+                             (when (match? (:operation ev))
+                               (swap! traces conj ev))))
+    (try (body-fn) @traces
+         (finally (rf/remove-trace-cb! tag)))))
+
+;; --- Step 1: URL parse failure --------------------------------------------
+
+(deftest safe-redirect-rejects-unparseable-url
+  (testing "rf2-2brsn step 1: a :location that cannot be parsed as a URL
+            → :rf.error/safe-redirect-invalid-url trace AND no :redirect
+            is set on the response (the fx is a no-op on rejection)"
+    (rf/reg-event-fx :sr/unparseable
+      (fn [_ _]
+        ;; A space-after-colon makes this URISyntax-invalid in java.net.URI
+        ;; (the colon makes it look like a scheme, but the space after is
+        ;; not a legal scheme-specific character).
+        {:fx [[:rf.server/safe-redirect
+               {:location "https://example.com/path with space"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/unparseable] {:frame f})))
+          resp   (get-response f)]
+      (is (= 1 (count (filter #(= :rf.error/safe-redirect-invalid-url
+                                  (:operation %)) traces)))
+          "exactly one :rf.error/safe-redirect-invalid-url trace fires")
+      (is (nil? (:redirect resp))
+          "rejection is a no-op — :redirect slot unchanged"))))
+
+;; --- Step 2: scheme rejection ---------------------------------------------
+
+(deftest safe-redirect-rejects-javascript-scheme
+  (testing "rf2-2brsn step 2: javascript: scheme → :rf.error/safe-redirect-scheme-rejected
+            (XSS vector — script execution on click of the redirect)"
+    (rf/reg-event-fx :sr/javascript
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "javascript:alert(1)"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/javascript] {:frame f})))
+          hits   (filter #(= :rf.error/safe-redirect-scheme-rejected
+                             (:operation %)) traces)]
+      (is (= 1 (count hits))
+          ":rf.error/safe-redirect-scheme-rejected fires exactly once")
+      (when (seq hits)
+        (is (= "javascript" (-> hits first :tags :scheme))
+            ":scheme tag names the rejected scheme"))
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))))
+
+(deftest safe-redirect-rejects-data-scheme
+  (testing "rf2-2brsn step 2: data: scheme rejected (data-URL phishing)"
+    (rf/reg-event-fx :sr/data
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "data:text/html,<script>alert(1)</script>"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/data] {:frame f})))]
+      (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
+                      (= "data" (-> % :tags :scheme)))
+                traces)
+          ":rf.error/safe-redirect-scheme-rejected fires with :scheme \"data\""))))
+
+(deftest safe-redirect-rejects-vbscript-scheme
+  (testing "rf2-2brsn step 2: vbscript: scheme rejected (IE-era VBScript exec)"
+    (rf/reg-event-fx :sr/vbscript
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "vbscript:msgbox(\"x\")"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/vbscript] {:frame f})))]
+      (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
+                      (= "vbscript" (-> % :tags :scheme)))
+                traces)
+          ":rf.error/safe-redirect-scheme-rejected fires with :scheme \"vbscript\""))))
+
+(deftest safe-redirect-scheme-rejection-is-case-insensitive
+  (testing "rf2-2brsn step 2: JavaScript: / DATA: / VBScript: all rejected
+            (case-insensitive scheme match per the lowercase-on-compare pattern)"
+    (doseq [hostile ["JavaScript:alert(1)" "DATA:text/html,evil" "VBScript:evil"]]
+      (rf/reg-event-fx :sr/probe-case
+        (fn [_ _]
+          {:fx [[:rf.server/safe-redirect {:location hostile}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-safe-redirect-traces!
+                     (fn [] (rf/dispatch-sync [:sr/probe-case] {:frame f})))]
+        (is (some #(= :rf.error/safe-redirect-scheme-rejected (:operation %))
+                  traces)
+            (str "case-folded scheme " (pr-str hostile) " rejected"))))))
+
+;; --- Step 3: :relative-only? gate -----------------------------------------
+
+(deftest safe-redirect-relative-only-rejects-absolute-url
+  (testing "rf2-2brsn step 3: :relative-only? true AND URL has host →
+            :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation)"
+    (rf/reg-event-fx :sr/abs-with-relative-only
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location       "https://evil.example.com/phish"
+                :relative-only? true}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/abs-with-relative-only] {:frame f})))
+          hits   (filter #(= :rf.error/safe-redirect-host-disallowed
+                             (:operation %)) traces)]
+      (is (= 1 (count hits))
+          ":rf.error/safe-redirect-host-disallowed fires exactly once")
+      (when (seq hits)
+        (let [ev (first hits)]
+          (is (= :relative-only-violation (-> ev :tags :reason))
+              ":reason discriminates the two host-disallowed modes")
+          (is (= "evil.example.com" (-> ev :tags :host))
+              ":host tag names the rejected host")))
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))))
+
+(deftest safe-redirect-relative-only-accepts-relative-path
+  (testing "rf2-2brsn step 3 happy path: :relative-only? true + relative URL →
+            redirect succeeds (no trace)"
+    (rf/reg-event-fx :sr/relative-ok
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location       "/dashboard"
+                :relative-only? true}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/relative-ok] {:frame f})))
+          resp   (get-response f)]
+      (is (empty? traces)
+          "no :rf.error/safe-redirect-* trace on a passing relative URL")
+      (is (= "/dashboard" (-> resp :redirect :location))
+          ":location lands on the response :redirect slot")
+      (is (= 302 (-> resp :redirect :status))
+          ":status defaults to 302"))))
+
+;; --- Step 4: :allow allowlist ---------------------------------------------
+
+(deftest safe-redirect-allowlist-rejects-off-allowlist-host
+  (testing "rf2-2brsn step 4: :allow supplied AND URL's host NOT in allow →
+            :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist)"
+    (rf/reg-event-fx :sr/not-in-allow
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "https://evil.example.com/phish"
+                :allow    ["app.example.com" "alt.example.com"]}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/not-in-allow] {:frame f})))
+          hits   (filter #(= :rf.error/safe-redirect-host-disallowed
+                             (:operation %)) traces)]
+      (is (= 1 (count hits))
+          ":rf.error/safe-redirect-host-disallowed fires exactly once")
+      (when (seq hits)
+        (let [ev (first hits)]
+          (is (= :not-in-allowlist (-> ev :tags :reason))
+              ":reason discriminates from the relative-only case")
+          (is (= "evil.example.com" (-> ev :tags :host))
+              ":host names the rejected host")
+          (is (= ["app.example.com" "alt.example.com"]
+                 (-> ev :tags :allow?))
+              ":allow? tag carries the allowlist for diagnostic clarity")))
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))))
+
+(deftest safe-redirect-allowlist-accepts-on-allowlist-host
+  (testing "rf2-2brsn step 4 happy path: host IN allowlist → redirect succeeds"
+    (rf/reg-event-fx :sr/in-allow
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "https://app.example.com/dashboard"
+                :allow    ["app.example.com" "alt.example.com"]}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/in-allow] {:frame f})))
+          resp   (get-response f)]
+      (is (empty? traces)
+          "no :rf.error/safe-redirect-* trace on a passing allowlist match")
+      (is (= "https://app.example.com/dashboard"
+             (-> resp :redirect :location))
+          ":location lands on the response :redirect slot"))))
+
+;; --- Validation order: parse runs before scheme runs before policy --------
+
+(deftest safe-redirect-validation-order-parse-precedes-scheme
+  (testing "rf2-2brsn: a fundamentally-unparseable URL surfaces the parse
+            error, NOT the scheme error (validation runs in order — see
+            Spec 009 §Error event catalogue)"
+    (rf/reg-event-fx :sr/order-parse-first
+      (fn [_ _]
+        ;; This is BOTH unparseable AND vaguely-javascript-shaped — the
+        ;; parser-fail must fire FIRST because step 1 runs before step 2.
+        {:fx [[:rf.server/safe-redirect
+               {:location "javascript: not a real url "}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/order-parse-first] {:frame f})))
+          ops    (mapv :operation traces)]
+      ;; Either the URL parses (and we get scheme-rejected) OR it doesn't
+      ;; (and we get invalid-url) — but in both cases exactly ONE
+      ;; :rf.error/safe-redirect-* trace fires; the gate short-circuits.
+      (is (= 1 (count ops))
+          (str "exactly one :rf.error/safe-redirect-* trace; saw: "
+               (pr-str ops))))))
+
+(deftest safe-redirect-empty-location-rejected-as-invalid-url
+  (testing "rf2-2brsn step 1: an empty / blank :location string is rejected
+            as :rf.error/safe-redirect-invalid-url — an empty redirect has
+            no defensible interpretation"
+    (rf/reg-event-fx :sr/empty
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect {:location ""}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/empty] {:frame f})))]
+      (is (some #(= :rf.error/safe-redirect-invalid-url (:operation %))
+                traces)
+          "empty :location → :rf.error/safe-redirect-invalid-url")
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))))
+
+;; --- CRLF defence-in-depth still holds ------------------------------------
+
+(deftest safe-redirect-also-rejects-crlf-injection
+  (testing "rf2-2brsn: the CRLF gate (rf2-hbty2) runs on safe-redirect too —
+            an attacker passing a CRLF-bearing location is presumably trying
+            both vectors. Same fx-boundary throw as redirect-fx; the throw
+            propagates as :rf.error/fx-handler-exception"
+    (rf/reg-event-fx :sr/crlf
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "/path\r\nSet-Cookie: stolen=1"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:sr/crlf] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/redirect-invalid-location
+        "safe-redirect with CRLF in :location"))))
+

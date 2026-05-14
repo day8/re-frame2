@@ -1,6 +1,7 @@
 (ns re-frame.ssr.response
-  "HTTP response accumulator + handler fns for the six `:rf.server/*`
-  server-side fxs. Per Spec 011 §HTTP response contract.
+  "HTTP response accumulator + handler fns for the seven `:rf.server/*`
+  server-side fxs (six original + `:rf.server/safe-redirect` per rf2-zfm8v).
+  Per Spec 011 §HTTP response contract.
 
   The runtime owns a per-request response accumulator in a
   framework-private side-channel atom keyed by frame-id — `response-slots`
@@ -59,7 +60,8 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace])
+  #?(:clj (:import [java.net URI URISyntaxException])))
 
 (defonce
   ^{:doc "Per-frame storage for the HTTP response accumulator. Keys are
@@ -272,7 +274,14 @@
   absent. Multiple writes emit `:rf.warning/multiple-redirects`
   (last-write-wins). Throws `:rf.error/redirect-invalid-location` on a
   location carrying CR/LF/NUL (rf2-hbty2) — a `?next=…` query-param
-  redirect would otherwise let an attacker forge headers."
+  redirect would otherwise let an attacker forge headers.
+
+  **Caller-trusted `:location`** — accepts arbitrary URL strings without
+  allowlist or relative-only gating. For caller-untrusted location
+  strings (e.g. a `?next=` URL param), use `:rf.server/safe-redirect`
+  (rf2-zfm8v) which parses the URL, rejects javascript:/data:/vbscript:
+  schemes, and supports `:relative-only?` / `:allow [...]` policies.
+  See Spec 011 §HTTP response contract §Standard fx."
   [{:keys [frame]} redirect-map]
   (let [;; Spec 011 accepts :location, :url, or :to.
         location  (or (:location redirect-map)
@@ -302,3 +311,208 @@
                       :final-redirect (last writes)
                       :frame          frame
                       :recovery       :warned-and-replaced})))))
+
+;; ---- :rf.server/safe-redirect (rf2-zfm8v) --------------------------------
+;;
+;; The caller-untrusted variant of :rf.server/redirect. Where redirect-fx
+;; accepts arbitrary :location strings, safe-redirect-fx parses the URL
+;; and runs a five-step gate before populating the :redirect slot:
+;;
+;;   1. URL must parse — :rf.error/safe-redirect-invalid-url on failure.
+;;   2. Reject javascript: / data: / vbscript: schemes (no safe redirect
+;;      interpretation; consistent with the rf2-vwcsq custom-editor
+;;      scheme-rejection policy) — :rf.error/safe-redirect-scheme-rejected.
+;;   3. :relative-only? true AND URL has a host →
+;;      :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation).
+;;   4. :allow [...] supplied AND URL's host not in allowlist →
+;;      :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist).
+;;   5. Pass — set Location header (same shape as redirect-fx).
+;;
+;; All four failure modes EMIT (via re-frame.trace) rather than THROW.
+;; Throwing would bubble out as :rf.error/fx-handler-exception and the
+;; programmer reading the trace would see a generic fx-handler-exception
+;; pointing at safe-redirect-fx rather than the specific category.
+;; Emit-and-no-op preserves the dispatch context — the cascade continues,
+;; the response's :redirect stays unchanged, and the programmer sees
+;; the specific :rf.error/safe-redirect-* category.
+;;
+;; Mitigation for the open-redirect class (security audit 2026-05-14
+;; §P3.2): an attacker-controlled ?next=... URL parameter cannot redirect
+;; off-origin when the app uses safe-redirect-fx instead of redirect-fx.
+
+(def ^:private rejected-schemes
+  "Closed set of schemes the safe-redirect-fx rejects outright. Per
+  rf2-zfm8v decision step 2 and rf2-vwcsq's custom-editor scheme policy."
+  #{"javascript" "data" "vbscript"})
+
+(def ^:private scheme-prefix-re
+  "Matches the scheme prefix of an absolute URL — `<scheme>:` where the
+  scheme is the conformant grammar from RFC 3986 §3.1 (alpha + alphanum
+  / `+` / `-` / `.`). Used pre-parse so rejected schemes whose
+  scheme-specific part is not URI-valid (e.g. `data:text/html,<script>`
+  with illegal `<` in the opaque part) still surface as scheme-rejected
+  rather than as parse failures. Per rf2-zfm8v validation order."
+  #"^\s*([A-Za-z][A-Za-z0-9+\-.]*):")
+
+(defn- detect-scheme
+  "Cheap pre-parse scheme detection. Returns the lowercased scheme
+  string (e.g. \"javascript\") if `loc` begins with `<scheme>:`, else
+  nil. Used to short-circuit the rejected-schemes check before URI
+  parsing — `data:text/html,<script>` is a security-relevant input
+  whose body fails java.net.URI parsing but whose scheme should still
+  be the visible failure mode."
+  [loc]
+  (when (string? loc)
+    (when-some [m (re-find scheme-prefix-re loc)]
+      (clojure.string/lower-case (second m)))))
+
+(defn- parse-url-safely
+  "Parse `loc` as a URL. Returns the parsed URI on success, nil on a
+  parse failure (caller emits the trace). Empty / blank strings count
+  as unparseable — a redirect to an empty location has no defensible
+  interpretation."
+  [loc]
+  #?(:clj
+     (when (and (string? loc) (not (clojure.string/blank? loc)))
+       (try
+         (URI. ^String loc)
+         (catch URISyntaxException _ nil)
+         (catch NullPointerException _ nil)
+         (catch IllegalArgumentException _ nil)))
+     :cljs
+     ;; Server-side fx (:platforms #{:server}) — the CLJS branch exists
+     ;; only so this .cljc compiles; the fx is silently no-op'd by
+     ;; :rf.fx/skipped-on-platform on client builds. Per Spec 011
+     ;; §Effect handling on the server.
+     nil))
+
+(defn- emit-safe-redirect-error!
+  "Emit a structured :rf.error/safe-redirect-* trace and return nil so
+  the fx body can `(or (emit-...) ...)` to a no-op."
+  [operation tags]
+  (trace/emit-error! operation
+                     (merge {:recovery :no-recovery} tags))
+  nil)
+
+(defn safe-redirect-fx
+  "Handler fn for `:rf.server/safe-redirect`. The caller-untrusted variant
+  of `redirect-fx` — validates `:location` against a five-step gate
+  (parse → scheme → relative-only → allowlist → pass) before populating
+  the response accumulator's `:redirect` slot.
+
+  Args map:
+
+    {:location       \"/dashboard\"      ;; or full URL
+     :relative-only? true                  ;; reject any URL with a host
+     :allow          [\"app.example.com\" \"alt.example.com\"]  ;; host allowlist
+     :status         302}                  ;; defaults 302 if absent
+
+  Validation order (per Spec 009 §Error event catalogue):
+
+    1. URL parses → :rf.error/safe-redirect-invalid-url on failure
+    2. scheme ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
+    3. :relative-only? true + URL has host → :rf.error/safe-redirect-host-disallowed
+       (:reason :relative-only-violation)
+    4. :allow supplied + host ∉ allow → :rf.error/safe-redirect-host-disallowed
+       (:reason :not-in-allowlist)
+    5. Pass → set :redirect (same shape as :rf.server/redirect)
+
+  Mitigation for the open-redirect class (audit 2026-05-14 §P3.2):
+  an attacker-controlled ?next=... URL parameter cannot redirect
+  off-origin when the app uses safe-redirect-fx.
+
+  Per rf2-zfm8v (Mike decision, Option A — ship safe-redirect-fx
+  alongside redirect-fx, 2026-05-14)."
+  [{:keys [frame]} {:keys [location relative-only? allow status]
+                    :as redirect-map}]
+  ;; Run the CR/LF/NUL gate first — same defence-in-depth as the
+  ;; caller-trusted redirect-fx (rf2-hbty2). A safe-redirect caller
+  ;; passing a CRLF-bearing location is presumably trying both vectors;
+  ;; reject at the same fx boundary the trusted variant uses.
+  (validate-redirect-location! location)
+
+  ;; Validation order per rf2-zfm8v / Spec 009 §Error event catalogue.
+  ;;
+  ;; Scheme rejection (step 2) runs BEFORE URL parse (step 1) for the
+  ;; rejected-schemes set because schemes like `data:text/html,<script>`
+  ;; carry illegal characters in their opaque part that java.net.URI
+  ;; rejects at parse time. The security-relevant signal — "this scheme
+  ;; is dangerous" — must surface as :rf.error/safe-redirect-scheme-rejected
+  ;; rather than getting swallowed by :rf.error/safe-redirect-invalid-url.
+  ;; A simple `<scheme>:` prefix match is enough to identify the rejected
+  ;; schemes; the URI parser is still the source of truth for everything
+  ;; else (host extraction, allowlist matching).
+  (let [pre-scheme (detect-scheme location)]
+    (if (and pre-scheme (rejected-schemes pre-scheme))
+      (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
+                                 {:frame    frame
+                                  :location location
+                                  :scheme   pre-scheme})
+      (let [uri (parse-url-safely location)]
+        (cond
+          ;; Step 1: parse failure
+          (nil? uri)
+          (emit-safe-redirect-error! :rf.error/safe-redirect-invalid-url
+                                     {:frame    frame
+                                      :location location
+                                      :reason   "URL did not parse"})
+
+          :else
+          (let [scheme #?(:clj (.getScheme ^URI uri) :cljs nil)
+                host   #?(:clj (.getHost   ^URI uri) :cljs nil)]
+            (cond
+              ;; Step 2: scheme rejection (post-parse path — covers
+              ;; schemes whose body DID parse cleanly, e.g.
+              ;; `javascript:foo` without parens).
+              (and scheme (rejected-schemes (clojure.string/lower-case scheme)))
+              (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
+                                         {:frame    frame
+                                          :location location
+                                          :scheme   scheme})
+
+              ;; Step 3: :relative-only? gate
+              (and relative-only? host)
+              (emit-safe-redirect-error! :rf.error/safe-redirect-host-disallowed
+                                         {:frame    frame
+                                          :location location
+                                          :host     host
+                                          :reason   :relative-only-violation})
+
+              ;; Step 4: :allow [...] allowlist
+              (and (seq allow)
+                   host
+                   (not (contains? (set allow) host)))
+              (emit-safe-redirect-error! :rf.error/safe-redirect-host-disallowed
+                                         {:frame    frame
+                                          :location location
+                                          :host     host
+                                          :reason   :not-in-allowlist
+                                          :allow?   (vec allow)})
+
+              ;; Step 5: pass — populate :redirect, mirror redirect-fx's
+              ;; status-flow-through behaviour. Strip :allow / :relative-only?
+              ;; from the persisted shape — they're policy inputs, not part
+              ;; of the wire redirect.
+              :else
+              (let [final-status (or status 302)
+                    normalised   (-> redirect-map
+                                     (dissoc :allow :relative-only?)
+                                     (assoc :status   final-status
+                                            :location location))
+                    resp         (swap-response!
+                                   frame
+                                   (fn [r]
+                                     (-> r
+                                         (update redirect-writes-key
+                                                 (fnil conj []) normalised)
+                                         (assoc :redirect normalised)
+                                         ;; Spec 011 §Redirect precedence step 1:
+                                         ;; status flows through.
+                                         (assoc :status final-status))))]
+                (when (and resp (> (count (get resp redirect-writes-key)) 1))
+                  (let [writes (get resp redirect-writes-key)]
+                    (trace/emit! :warning :rf.warning/multiple-redirects
+                                 {:writes         writes
+                                  :final-redirect (last writes)
+                                  :frame          frame
+                                  :recovery       :warned-and-replaced})))))))))))
