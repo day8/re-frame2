@@ -79,43 +79,17 @@
   today; when impl lands, a follow-up bead extends this test to
   grep `tools/causa-mcp/src/` and add live-emission fixtures if
   their shape diverges from the spec snippets."
-  (:require [clojure.java.io :as io]
-            [clojure.string  :as str]
+  (:require [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
             [malli.core      :as m]
-            [malli.error     :as me]))
+            [malli.error     :as me]
+            [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
-;; Locate the repo root from the test's classpath. The test runs from
-;; `tools/mcp-conformance/wire-vocab/`; the repo root is three levels
-;; up. We resolve it from `*file*` at load time so the test is
-;; CWD-agnostic (CI runs the test-runner from various locations).
+;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
+;; (rf2-113ti). Shared across the three conformance test namespaces in
+;; this artefact.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private repo-root
-  "Absolute path to the repo root, derived from this file's location.
-  `wire_vocab_test.clj` lives at
-  `tools/mcp-conformance/wire-vocab/test/re_frame/mcp_conformance/`.
-  Walk up six levels to reach the repo root."
-  (let [this-file (io/file (.getPath (io/resource "re_frame/mcp_conformance/wire_vocab_test.clj")))]
-    (-> this-file
-        .getParentFile                                      ; .../mcp_conformance/
-        .getParentFile                                      ; .../re_frame/
-        .getParentFile                                      ; .../test/
-        .getParentFile                                      ; .../wire-vocab/
-        .getParentFile                                      ; .../mcp-conformance/
-        .getParentFile                                      ; .../tools/
-        .getParentFile                                      ; <repo-root>
-        .getAbsolutePath)))
-
-(defn- read-source
-  "Slurp a source file inside the repo. `rel-path` is a string path
-  segment relative to the repo root, using `/` as the separator. The
-  test fails loudly (via `slurp`'s default IOException) if the path
-  doesn't resolve — that's the right signal: a source file under
-  conformance was moved or removed."
-  [rel-path]
-  (slurp (io/file repo-root rel-path)))
 
 (defn- strip-comments-and-strings
   "Return `src` with Clojure line comments (`;` to EOL) and string
@@ -558,7 +532,7 @@
             (str "No source files registered for " server
                  " — extend `server-source-files`."))
         (is (some (fn [rel]
-                    (str/includes? (read-source rel) literal))
+                    (str/includes? (fx/read-source rel) literal))
                   files)
             (str "Literal " literal " missing from " server
                  " sources: " files))))))
@@ -573,7 +547,7 @@
           variant       (near-miss-variants key)
           rel           files]
     (testing (str server " — " rel " — near-miss " variant)
-      (is (not (str/includes? (read-source rel) variant))
+      (is (not (str/includes? (fx/read-source rel) variant))
           (str "Found near-miss variant " variant " for " key
                " in " server "/" rel
                " — this is a vocabulary-drift bug. The canonical "
@@ -587,14 +561,12 @@
 ;; surfaces here.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private known-servers #{:pair2-mcp :story-mcp :causa-mcp})
-
 (deftest server-references-are-all-known
   (doseq [{:keys [key servers]} canonical-markers]
     (testing (str "marker " key " — :servers values")
-      (is (every? known-servers servers)
+      (is (every? fx/known-servers servers)
           (str "Unknown server in :servers for " key ": "
-               (remove known-servers servers))))))
+               (remove fx/known-servers servers))))))
 
 (deftest story-mcp-still-emits-zero-cross-mcp-markers
   ;; Self-documenting tripwire: the day story-mcp adopts ANY of the
@@ -624,7 +596,7 @@
     (doseq [{:keys [key]} canonical-markers
             rel           story-files]
       (testing (str "story-mcp source " rel " — " key " absence")
-        (let [stripped (strip-comments-and-strings (read-source rel))]
+        (let [stripped (strip-comments-and-strings (fx/read-source rel))]
           (is (not (str/includes? stripped (marker-key->literal key)))
               (str key " literal found in " rel
                    " (in code, after stripping comments/docstrings).\n"
@@ -732,7 +704,7 @@
     (is (seq files)
         "No source files registered for pair2-mcp envelope emit sites.")
     (doseq [rel files]
-      (let [src (read-source rel)]
+      (let [src (fx/read-source rel)]
         (testing (str "pair2-mcp " rel " — :dropped-sensitive literal")
           (is (str/includes? src ":dropped-sensitive")
               (str ":dropped-sensitive literal missing from " rel)))
@@ -762,7 +734,7 @@
     (doseq [rel  story-files
             slot slots]
       (testing (str "story-mcp source " rel " — " slot " absence")
-        (is (not (str/includes? (read-source rel) slot))
+        (is (not (str/includes? (fx/read-source rel) slot))
             (str slot " literal found in " rel
                  ".\nIf story-mcp now walks a tree-typed payload, "
                  "the OTHER envelope slot MUST land in the same commit "
