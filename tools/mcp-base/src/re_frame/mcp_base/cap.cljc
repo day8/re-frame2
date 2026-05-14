@@ -1,0 +1,192 @@
+(ns re-frame.mcp-base.cap
+  "Wire-boundary token-budget cap pipeline (rf2-rvyzy / rf2-eyelu).
+
+  Per `spec/Principles.md` §\"Tight token budget per response\", every
+  MCP `tools/call` response is bounded at ~5,000 tokens by default. When
+  the serialised response would exceed the cap, the wrapper replaces the
+  payload with a structured `{:rf.mcp/overflow {...}}` marker and emits
+  that instead. Silent truncation is unacceptable — it corrupts the
+  agent's conversation without telling the agent.
+
+  ## What this ns owns
+
+  `re-frame.mcp-base.overflow` owns the SHAPE of the overflow marker
+  (the `{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens
+  … :tool … :hint …}}` map). This ns owns the ALGORITHM that drives the
+  marker into a result:
+
+  1. Sum the cumulative `token-estimate` across every `:text` slot in
+     the result's `:content` vector.
+  2. Compare against the per-call cap (`:max-tokens` MCP arg, default
+     `overflow/default-max-tokens`, `0` disables).
+  3. Under-budget responses pass through unchanged; over-budget
+     responses are replaced with a fresh result carrying the marker.
+
+  Until rf2-eyelu this pipeline was duplicated near-identically in
+  pair2-mcp (CLJS, `#js {:content #js [...]}`-shaped results) and
+  story-mcp (CLJ, `{:content [...] :structuredContent ...}`-shaped
+  results). The only structural difference between the two
+  implementations was the SHAPE of the result map and the platform-
+  appropriate accessor used to read its `:text` slots. The algorithm
+  itself was a single design.
+
+  ## Per-server specialisation hook — the `ResultIO` protocol
+
+  Each consumer reifies `ResultIO` with two methods:
+
+  - `(content-texts io result)` ⇒ seq of strings, the `:text`-slot
+    values inside `result`'s content vector. The platform-specific
+    accessor (`:text` / `j/get :text`) lives behind this method.
+  - `(build-overflow-result io marker original-result)` ⇒ a fresh
+    result, shaped per the consumer's wire convention, carrying
+    `marker` as its sole content payload.
+
+  The hint table (`{tool-name hint-string}`) stays consumer-side — the
+  per-tool next-step prose is domain-specific. The cap value, token
+  rule, and marker shape are cross-MCP conventions and stay here.
+
+  ## Pluggable strategy
+
+  Today only `:truncate-with-marker` is wired — drop the payload, emit
+  the overflow marker. Future strategies (path-slicing rf2-tygdv, lazy
+  summary rf2-u2029, diff encoding rf2-rl7y) compose here without
+  rebuilding the per-consumer wrapper. Unknown strategies degrade
+  safely to `:truncate-with-marker` rather than throwing — the
+  wire-egress posture is to ALWAYS bound the response, never to ship
+  the over-budget payload.
+
+  ## Cross-platform
+
+  Pure CLJC. The `ResultIO` protocol resolves identically into the
+  JVM (story-mcp / causa-mcp) and CLJS (pair2-mcp) — `defprotocol`
+  reads the same way on both sides. mcp-base stays free of
+  platform-specific deps (`js-interop`, JVM reflection, etc); those
+  live in the consumer's IO instance."
+  (:require [re-frame.mcp-base.overflow :as overflow]))
+
+;; ---------------------------------------------------------------------------
+;; ResultIO — the per-server specialisation hook.
+;; ---------------------------------------------------------------------------
+
+(defprotocol ResultIO
+  "Per-consumer accessors over the MCP `tools/call` result shape. Each
+  MCP server (pair2-mcp, story-mcp, causa-mcp) reifies this protocol
+  once over its native result shape — `#js {:content #js [...]}` for
+  pair2-mcp's npm-SDK JS objects, `{:content [...]}` CLJ maps for
+  story-mcp / causa-mcp. The cap pipeline is then algorithm-only and
+  shape-agnostic."
+
+  (content-texts [_io result]
+    "Return a seq of strings, the `:text`-slot values from every entry
+    in `result`'s content vector. Non-string `:text` slots and entries
+    without a `:text` slot are skipped. Implementations stay nil-safe:
+    a nil `result` or empty content yields an empty seq.")
+
+  (build-overflow-result [_io marker original-result]
+    "Build a fresh result of the consumer's native shape carrying
+    `marker` as its sole content payload. `marker` is the
+    `{:rf.mcp/overflow {...}}` map built by
+    `overflow/overflow-payload`. `original-result` is provided for
+    implementations that need to preserve sibling slots (e.g.
+    `:isError` flags); the default-shape consumer ignores it. The
+    returned result MUST itself be under any reasonable cap — the
+    marker is a small fixed-shape payload, so this falls out
+    naturally."))
+
+;; ---------------------------------------------------------------------------
+;; max-tokens — per-call cap resolver.
+;; ---------------------------------------------------------------------------
+
+(defn max-tokens
+  "Resolve the per-call cap from an ALREADY-EXTRACTED raw value.
+  Returns the integer cap in tokens, `nil` when the cap is disabled
+  (caller passed `0`), or `overflow/default-max-tokens` when absent or
+  not a number.
+
+  Each consumer extracts the raw value from its platform-specific args
+  object — pair2-mcp uses `(j/get args \"max-tokens\")` against a JS
+  object; story-mcp uses `(get args :max-tokens)` against a CLJ map —
+  and feeds the result here. The coercion rules (zero disables,
+  non-number falls back to default) are the cross-MCP convention.
+
+  ## Disambiguation
+
+  - `nil` return ⇒ caller disabled the cap (`max-tokens 0`).
+    `apply-cap` skips enforcement entirely.
+  - `default-max-tokens` (5000) return ⇒ caller didn't supply a value
+    OR supplied an unrecognised value. The default applies.
+  - positive integer return ⇒ caller supplied a custom cap."
+  [raw]
+  (cond
+    (nil? raw)                       overflow/default-max-tokens
+    (and (number? raw) (zero? raw))  nil
+    (number? raw)                    (long raw)
+    :else                            overflow/default-max-tokens))
+
+;; ---------------------------------------------------------------------------
+;; sum-text-tokens — cumulative token count across the result's :text slots.
+;; ---------------------------------------------------------------------------
+
+(defn sum-text-tokens
+  "Sum `overflow/token-estimate` across every `:text` slot in `result`'s
+  content vector, accessed via `io`. The serialised response's wire size
+  is dominated by these slots; the JSON envelope is bounded and ignored.
+
+  Multi-part responses share one cumulative budget rather than per-key
+  — a single oversize slot or an aggregate of many small slots both
+  trip the cap."
+  [io result]
+  (transduce (comp (filter string?)
+                   (map overflow/token-estimate))
+             +
+             0
+             (content-texts io result)))
+
+;; ---------------------------------------------------------------------------
+;; apply-cap — the wire-boundary enforcement entry point.
+;; ---------------------------------------------------------------------------
+
+(defn apply-cap
+  "Wire-boundary cap enforcement. Returns either `result` unchanged
+  (when under the cap or cap disabled via `:max-tokens 0`) or a fresh
+  result carrying the overflow marker, built via
+  `build-overflow-result` against `io`.
+
+  `opts` keys:
+
+    :tool     — string tool name carried in the marker for the agent's
+                pattern match.
+    :cap      — integer cap in tokens, or `nil` to disable. Usually the
+                output of `max-tokens` against the consumer's
+                `:max-tokens` arg.
+    :hint     — string next-step hint embedded in the marker. The
+                consumer's per-tool hint table resolves this from
+                `tool`; absent ⇒ `overflow/overflow-hint-fallback`.
+    :strategy — `:truncate-with-marker` (default; today the only
+                wired option). Unknown values degrade safely to the
+                default — never throw, never ship the over-budget
+                payload.
+
+  Future strategies (path-slicing, lazy summary, diff encoding) slot
+  in here without touching the per-consumer wrapper or per-tool
+  handler."
+  [io result {:keys [tool cap hint strategy]
+              :or   {strategy :truncate-with-marker}}]
+  (cond
+    (nil? cap)    result
+    (nil? result) result
+    :else
+    (let [tokens (sum-text-tokens io result)]
+      (if (<= tokens cap)
+        result
+        (let [marker (overflow/overflow-payload
+                       {:tool        tool
+                        :token-count tokens
+                        :cap         cap
+                        :hint        hint})]
+          ;; Unknown strategy: degrade safely to truncate-with-marker.
+          ;; The pluggable shape is preserved so a future strategy can
+          ;; branch here without touching consumers.
+          (case strategy
+            :truncate-with-marker (build-overflow-result io marker result)
+            (build-overflow-result io marker result)))))))
