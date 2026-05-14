@@ -228,3 +228,65 @@
         ;; either the same actor-id or nil after the user's destroy).
         (is (nil? (get-in db [:rf/machines :worker/proc#1]))
             "the spawned actor is gone")))))
+
+;; ---- (5) spawned actor's snapshot carries :rf/spawn-counter + :meta -------
+;;
+;; Per rf2-fgqs4 the unified build-initial-snapshot helper seeds
+;; :rf/spawn-counter {} and propagates :meta on every snapshot it
+;; builds — including spawned actors. Before rf2-fgqs4 the spawn path
+;; called a stripped-down builder that omitted both keys; the runtime
+;; then fell back to the defensive (fnil inc 0) backstop and the
+;; spawned child's :meta was dropped.
+
+(deftest spawned-actor-snapshot-carries-spawn-counter
+  (testing "a spawned actor's initial snapshot has :rf/spawn-counter {}"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :states  {:idle    {:on {:start :working}}
+                            :working {:invoke {:machine-id :worker/sc}}}}]
+      (rf/reg-machine :worker/sc child)
+      (rf/reg-machine :sup/sc parent)
+      (rf/dispatch-sync [:sup/sc [:start]])
+      (let [spawned-id (get-in (frame-db) [:rf/spawned :sup/sc [:working]])
+            snap       (get-in (frame-db) [:rf/machines spawned-id])]
+        (is (= {} (:rf/spawn-counter snap))
+            "spawned actor's initial snapshot seeds :rf/spawn-counter to {}")))))
+
+(deftest spawned-actor-snapshot-propagates-meta
+  (testing ":meta declared on the child spec flows through to the spawned snapshot"
+    (let [child  {:initial :running
+                  :data    {}
+                  :meta    {:foo :bar :version 7}
+                  :states  {:running {}}}
+          parent {:initial :idle
+                  :states  {:idle    {:on {:start :working}}
+                            :working {:invoke {:machine-id :worker/meta}}}}]
+      (rf/reg-machine :worker/meta child)
+      (rf/reg-machine :sup/meta parent)
+      (rf/dispatch-sync [:sup/meta [:start]])
+      (let [spawned-id (get-in (frame-db) [:rf/spawned :sup/meta [:working]])
+            snap       (get-in (frame-db) [:rf/machines spawned-id])]
+        (is (= {:foo :bar :version 7} (:meta snap))
+            "spec-declared :meta is propagated to the spawned actor's snapshot")))))
+
+(deftest grandchild-spawn-allocates-from-childs-snapshot-counter
+  (testing "a grandchild's id allocates from the child's :rf/spawn-counter, not the defensive fnil-inc backstop"
+    (let [grandchild {:initial :running :data {} :states {:running {}}}
+          child      {:initial :booting
+                      :states  {:booting {:invoke {:machine-id :grand/proc}}}}
+          parent     {:initial :idle
+                      :states  {:idle    {:on {:start :working}}
+                                :working {:invoke {:machine-id :child/wraps}}}}]
+      (rf/reg-machine :grand/proc grandchild)
+      (rf/reg-machine :child/wraps child)
+      (rf/reg-machine :sup/cascade parent)
+      (rf/dispatch-sync [:sup/cascade [:start]])
+      (let [child-id      (get-in (frame-db) [:rf/spawned :sup/cascade [:working]])
+            grandchild-id (get-in (frame-db) [:rf/spawned child-id [:booting]])
+            child-snap    (get-in (frame-db) [:rf/machines child-id])]
+        (is (= :child/wraps#1 child-id)
+            "child's id from parent's allocator")
+        (is (= :grand/proc#1 grandchild-id)
+            "grandchild's id allocated as <machine-id>#1 — deterministic form, NOT the fnil-inc backstop")
+        (is (= {:grand/proc 1} (:rf/spawn-counter child-snap))
+            "child's :rf/spawn-counter bumped on grandchild spawn")))))
