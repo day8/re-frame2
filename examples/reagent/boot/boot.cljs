@@ -44,7 +44,7 @@
    that needs to thread loaded data into the parent is: each child
    writes its result into a known app-db slice, the parent reads
    that slice on the join-resolved transition. This keeps the
-   loaded data in app-db throughout — inspectable in re-frame-10x
+   loaded data in app-db throughout — inspectable in pair-tools
    and snapshottable for SSR hydration.
 
    Trigger boot once at app start via `[:app/boot [:rf/start]]`. The
@@ -313,7 +313,7 @@
                (assoc :routes (:routes staging))
                ;; Mirror the loaded values into the boot machine's
                ;; :data slice so the snapshot is self-describing
-               ;; for SSR / tools / re-frame-10x inspection.
+               ;; for SSR / tools / pair-tools inspection.
                (update-in [:rf/machines :app/boot :data] assoc
                           :config (:config staging)
                           :flags  (:flags staging)
