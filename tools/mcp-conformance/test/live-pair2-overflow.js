@@ -315,7 +315,19 @@ runWithWatchdog(
     clientName: 'mcp-conformance-pair2-live-overflow',
     transportSpec: {
       command: process.execPath,
-      args: [SERVER],
+      // `--allow-eval` opts the spawned pair2-mcp server into the
+      // eval-cljs tool, which is default-OFF in published builds per
+      // rf2-cxx5s (cascade from rf2-czv3p). Without the flag,
+      // eval-cljs returns `{:ok? false :reason :rf.error/eval-cljs-disabled}`
+      // with `isError: true` before ever reaching nREPL — which means
+      // the wire-cap path can't be exercised because no payload is
+      // produced. This live-overflow harness's *whole purpose* is to
+      // trip the cap on a real eval response, so it must opt in. The
+      // default-OFF security contract is pinned by the unit fixture
+      // `:eval-cljs/disabled-default` in tools/pair2-mcp's conformance
+      // corpus — that's the right layer for the gate; here we want the
+      // post-gate logical path.
+      args: [SERVER, '--allow-eval'],
       cwd: os.tmpdir(),
       env: { ...process.env },
     },
