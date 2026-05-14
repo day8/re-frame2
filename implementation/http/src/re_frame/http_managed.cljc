@@ -277,20 +277,18 @@
 ;; namespace because the http artefact is optional (apps that don't
 ;; issue any managed-HTTP requests don't carry it). Publish entry
 ;; points through the late-bind hook registry; consumers look the fns
-;; up at call time. See re-frame.late-bind.
+;; up at call time. The contracts live in each sub-namespace's
+;; docstring (see e.g. `registry/abort-on-actor-destroy`,
+;; `middleware/reg-http-interceptor`); the listing below is alphabetical
+;; for scan-ability.
 
+(late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
+(late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
+(late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)
+(late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
 (late-bind/set-fn! :http/install-managed-request-stubs!   install-managed-request-stubs!)
+(late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)
+(late-bind/set-fn! :http/register-managed-machine!        machine-wrapper/register-managed-machine!)
 (late-bind/set-fn! :http/uninstall-managed-request-stubs! uninstall-managed-request-stubs!)
 (late-bind/set-fn! :http/with-managed-request-stubs*      with-managed-request-stubs*)
-(late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)
-;; rf2-6y3q — per-frame request-side interceptor chain (Spec 014 §Middleware).
-(late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)
-(late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
-(late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
-;; rf2-wvkn — :invoke cancellation cascade (Spec 014 §Abort on actor destroy).
-(late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
-;; rf2-ijm7 — register the machine-shape wrapper (skipped silently if
-;; the machines artefact isn't on the classpath; the fx surface is
-;; unaffected either way).
-(late-bind/set-fn! :http/register-managed-machine!        machine-wrapper/register-managed-machine!)
 (machine-wrapper/register-managed-machine!)
