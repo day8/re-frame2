@@ -23,7 +23,7 @@ surfaces. It must not add:
 - New effect substrates.
 - New component substrates.
 
-The twelve ops route through the existing `re-frame-pair2.runtime`
+The fourteen ops route through the existing `re-frame-pair2.runtime`
 namespace via `cljs-eval`. Nothing new is registered against the
 framework; nothing new is introduced into a consumer app's runtime.
 
@@ -89,7 +89,7 @@ Concretely:
   shadow-cljs `:devtools :preloads`; a missing marker resolves to a
   structured `:reason :runtime-not-preloaded` error with the setup
   hint, no cljs-eval inject fallback (rf2-7dvg).
-- The runtime contract is the shape of the twelve ops, not a specific
+- The runtime contract is the shape of the fourteen ops, not a specific
   framework version.
 
 A project that adopts a non-default build id, a custom nREPL port,
@@ -121,11 +121,12 @@ transition. Existing skill docs and runbooks that reference the
 shims keep working; nothing breaks because the MCP server shipped.
 
 The op vocabulary overlaps cleanly: the bash shims cover six of the
-twelve canonical pair2 ops (`discover-app`, `eval-cljs`, `dispatch`,
+fourteen canonical pair2 ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
 and arg shapes — only the transport differs. The MCP-only additions
 (`snapshot`, `get-path`, the streaming triad
-`subscribe` / `unsubscribe` / `subscription-info`, and
+`subscribe` / `unsubscribe` / `subscription-info`, the
+registrar-introspection pair `handler-meta` / `registry-list`, and
 `get-pair2-instructions`) have no shim equivalent. This is what makes
 the back-compat tractable: the overlap is contract-identical; the
 plumbing underneath is different.
@@ -920,19 +921,23 @@ triplet pins are `get-` / `list-` / `read-` / `discover-` /
 mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
-Pair2-mcp's ten current tools (`discover-app`, `eval-cljs`,
+Pair2-mcp's fourteen current tools (`discover-app`, `eval-cljs`,
 `dispatch`, `tail-build`, `snapshot`, `trace-window`, `watch-epochs`,
-`get-path`, `subscribe`, `unsubscribe`) are all conformant; new tools
-land against an existing verb, or via a Lock entry in
-[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) plus an extension
-to the canonical table.
+`get-path`, `subscribe`, `unsubscribe`, `subscription-info`,
+`handler-meta`, `registry-list`, `get-pair2-instructions`) are all
+conformant against existing verbs (or accepted exceptions —
+`subscription-info` is a bare-noun read flagged by NAMING.md's audit
+table; the conformant cross-server peer is causa-mcp's
+`list-subscriptions`). New tools land against an existing verb, or
+via a Lock entry in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)
+plus an extension to the canonical table.
 
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
 
 - **Regularity over cleverness** — one obvious way to do a thing.
-  The twelve op names and shapes are stable.
+  The fourteen op names and shapes are stable.
 - **Named things over anonymous things** — every op has a stable
   name; every reason keyword in an `:ok? false` response is stable.
 - **Public query surfaces** — pair2-mcp reads only what the
