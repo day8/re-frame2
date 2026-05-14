@@ -23,7 +23,8 @@
             [re-frame.machines.lifecycle-fx.join :as join]
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.result :as result]
+            [re-frame.machines.result :as result
+             #?@(:cljs [:include-macros true])]
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
@@ -190,8 +191,8 @@
     (let [r (parallel/apply-initial-entry-cascade (:machine ctx) (:snapshot ctx))]
       (if (result/fail? r)
         r
-        (result/ok (dissoc (::result/snap r) :rf/bootstrap-pending?)
-                   (::result/fx r))))
+        (result/with-ok [snap fx] r
+          (result/ok (dissoc snap :rf/bootstrap-pending?) fx))))
     (result/ok (:snapshot ctx) [])))
 
 (defn- run-step
@@ -215,30 +216,30 @@
   only when every region's leaf is `:final?`. The pure-transition
   surface stays free of runtime-only metadata."
   [ctx step-result boot-fx]
-  (let [{next-snapshot ::result/snap fx ::result/fx} step-result
-        {:keys [machine machine-id frame-id db path snapshot inner-event]} ctx
-        merged-fx (vec (concat boot-fx fx))
-        finished? (or (and (not (parallel/parallel? machine))
-                           (transition/final-on-leaf? machine (:state next-snapshot)))
-                      (finalize/all-regions-final? machine (:state next-snapshot)))
-        new-db    (assoc-in db path next-snapshot)]
-    (trace/emit! :machine :rf.machine/transition
-                 {:machine-id machine-id
-                  :event      inner-event
-                  :before     snapshot
-                  :after      next-snapshot})
-    (when (not= snapshot next-snapshot)
-      (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
+  (result/with-ok [next-snapshot fx] step-result
+    (let [{:keys [machine machine-id frame-id db path snapshot inner-event]} ctx
+          merged-fx (vec (concat boot-fx fx))
+          finished? (or (and (not (parallel/parallel? machine))
+                             (transition/final-on-leaf? machine (:state next-snapshot)))
+                        (finalize/all-regions-final? machine (:state next-snapshot)))
+          new-db    (assoc-in db path next-snapshot)]
+      (trace/emit! :machine :rf.machine/transition
                    {:machine-id machine-id
-                    :path       path
+                    :event      inner-event
                     :before     snapshot
-                    :after      next-snapshot
-                    :frame      frame-id}))
-    (if finished?
-      (finalize/finalize-machine machine machine-id frame-id
-                                 new-db next-snapshot inner-event merged-fx)
-      {:db new-db
-       :fx merged-fx})))
+                    :after      next-snapshot})
+      (when (not= snapshot next-snapshot)
+        (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
+                     {:machine-id machine-id
+                      :path       path
+                      :before     snapshot
+                      :after      next-snapshot
+                      :frame      frame-id}))
+      (if finished?
+        (finalize/finalize-machine machine machine-id frame-id
+                                   new-db next-snapshot inner-event merged-fx)
+        {:db new-db
+         :fx merged-fx}))))
 
 (defn create-machine-handler
   "Returns a function suitable for registration with `reg-event-fx`.
@@ -291,17 +292,16 @@
             (if (result/fail? boot-result)
               (trace-action-failure! (:machine-id ctx) [:rf.machine/bootstrap]
                                      (:frame-id ctx)
-                                     (::result/info boot-result)
+                                     (result/info boot-result)
                                      "Machine initial-entry action threw.")
-              (let [post-boot-snap (::result/snap boot-result)
-                    boot-fx        (::result/fx boot-result)
-                    step-result    (run-step ctx post-boot-snap)]
-                (if (result/fail? step-result)
-                  (trace-action-failure! (:machine-id ctx) (:inner-event ctx)
-                                         (:frame-id ctx)
-                                         (::result/info step-result)
-                                         "Machine action threw.")
-                  (commit-or-finalize ctx step-result boot-fx))))))))))
+              (result/with-ok [post-boot-snap boot-fx] boot-result
+                (let [step-result (run-step ctx post-boot-snap)]
+                  (if (result/fail? step-result)
+                    (trace-action-failure! (:machine-id ctx) (:inner-event ctx)
+                                           (:frame-id ctx)
+                                           (result/info step-result)
+                                           "Machine action threw.")
+                    (commit-or-finalize ctx step-result boot-fx)))))))))))
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 

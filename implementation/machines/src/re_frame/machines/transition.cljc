@@ -20,7 +20,8 @@
   (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
             [re-frame.machines.path-walk :as path-walk]
-            [re-frame.machines.result :as result]
+            [re-frame.machines.result :as result
+             #?@(:cljs [:include-macros true])]
             [re-frame.trace :as trace]))
 
 (defn- chase-ref
@@ -472,15 +473,15 @@
   (reduce
     (fn [acc aref]
       (if aref
-        (let [{::result/keys [snap fx]} acc
-              r (run-action machine snap aref event)]
-          (if (result/fail? r)
-            (reduced r)
-            (let [new-data (cond-> (:data snap)
-                             (contains? r :data) (merge (:data r)))
-                  new-snap (assoc snap :data new-data)
-                  new-fx   (vec (concat fx (or (:fx r) [])))]
-              (result/ok new-snap new-fx))))
+        (result/with-ok [snap fx] acc
+          (let [r (run-action machine snap aref event)]
+            (if (result/fail? r)
+              (reduced r)
+              (let [new-data (cond-> (:data snap)
+                               (contains? r :data) (merge (:data r)))
+                    new-snap (assoc snap :data new-data)
+                    new-fx   (vec (concat fx (or (:fx r) [])))]
+                (result/ok new-snap new-fx)))))
         acc))
     (result/ok snap [])
     action-refs))
@@ -700,7 +701,7 @@
                                  :invoke-id  invoke-id})]
     (if (result/fail? spawn-r)
       (reduced spawn-r)
-      (let [spawn-fx (::result/fx spawn-r)
+      (let [spawn-fx (result/fx spawn-r)
             s'       (apply-on-spawn machine s-alloc inv id)]
         [s' (into acc-fx spawn-fx)]))))
 
@@ -770,7 +771,7 @@
                                 :child-id   (:id child)})]
               (if (result/fail? r)
                 (reduced r)
-                (into acc (::result/fx r)))))
+                (into acc (result/fx r)))))
           []
           children-with-ids)]
     (if (result/fail? spawn-fxs-r)
@@ -993,27 +994,27 @@
       (result/fail-with cascade-r {:decl-path  (:decl-path cascade)
                                    :transition transition
                                    :state-path (:src-path cascade)})
-      (let [{snap-after ::result/snap fx ::result/fx} cascade-r
-            snap-final      (commit-snapshot machine snapshot snap-after cascade)
-            parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
-            after-fx        (build-after-fx machine (:entered-pairs cascade)
-                                            (:internal? cascade) snap-final)
-            after-cancel-fx (build-after-cancel-fx parent-id (:exited-pairs cascade)
-                                                   (:internal? cascade))
-            destroy-fx      (build-destroy-fx parent-id (:exited-pairs cascade)
-                                              (:internal? cascade))
-            spawn-r         (run-spawn-phase machine event snap-final cascade)]
-        (if (result/fail? spawn-r)
-          (result/fail-with spawn-r {:decl-path  (:decl-path cascade)
-                                     :transition transition
-                                     :state-path (:src-path cascade)})
-          (let [{snap-after-spawns ::result/snap spawn-fx ::result/fx} spawn-r
-                all-fx (vec (concat fx
-                                    (or after-cancel-fx [])
-                                    (or destroy-fx [])
-                                    spawn-fx
-                                    (or after-fx [])))]
-            (result/ok snap-after-spawns all-fx)))))))
+      (result/with-ok [snap-after fx] cascade-r
+        (let [snap-final      (commit-snapshot machine snapshot snap-after cascade)
+              parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
+              after-fx        (build-after-fx machine (:entered-pairs cascade)
+                                              (:internal? cascade) snap-final)
+              after-cancel-fx (build-after-cancel-fx parent-id (:exited-pairs cascade)
+                                                     (:internal? cascade))
+              destroy-fx      (build-destroy-fx parent-id (:exited-pairs cascade)
+                                                (:internal? cascade))
+              spawn-r         (run-spawn-phase machine event snap-final cascade)]
+          (if (result/fail? spawn-r)
+            (result/fail-with spawn-r {:decl-path  (:decl-path cascade)
+                                       :transition transition
+                                       :state-path (:src-path cascade)})
+            (result/with-ok [snap-after-spawns spawn-fx] spawn-r
+              (let [all-fx (vec (concat fx
+                                        (or after-cancel-fx [])
+                                        (or destroy-fx [])
+                                        spawn-fx
+                                        (or after-fx [])))]
+                (result/ok snap-after-spawns all-fx)))))))))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
@@ -1080,7 +1081,7 @@
           (let [step-result (machine-transition-single machine snap args)]
             (if (result/fail? step-result)
               step-result
-              (let [{snap2 ::result/snap fx2 ::result/fx} step-result]
+              (result/with-ok [snap2 fx2] step-result
                 (recur (concat fx2 rest-pending)
                        accum
                        snap2
@@ -1156,47 +1157,47 @@
           (result/ok snapshot []))]
     (if (result/fail? result-after-event)
       result-after-event
-      (let [{snap-after-event ::result/snap fx-after-event ::result/fx} result-after-event
-            raised (drain-raises machine snap-after-event fx-after-event raise-limit)]
-        (if (result/fail? raised)
-          raised
-          (let [{snap-after-raise ::result/snap fx-after-raise ::result/fx} raised]
-            ;; Step 4: :always microstep loop. Track visited state-paths so that,
-            ;; on depth-limit abort, we can report the path AND fully roll back to
-            ;; the original input snapshot — the macrostep is atomic per Spec 005.
-            (loop [snap    snap-after-raise
-                   fx      fx-after-raise
-                   depth   0
-                   visited [(:state snap-after-raise)]]
-              (cond
-                (>= depth always-limit)
-                (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                       {:machine-id (:id machine)
-                                        :depth      depth
-                                        :path       visited
-                                        :recovery   :no-recovery})
-                    (result/ok snapshot []))
+      (result/with-ok [snap-after-event fx-after-event] result-after-event
+        (let [raised (drain-raises machine snap-after-event fx-after-event raise-limit)]
+          (if (result/fail? raised)
+            raised
+            (result/with-ok [snap-after-raise fx-after-raise] raised
+              ;; Step 4: :always microstep loop. Track visited state-paths so that,
+              ;; on depth-limit abort, we can report the path AND fully roll back to
+              ;; the original input snapshot — the macrostep is atomic per Spec 005.
+              (loop [snap    snap-after-raise
+                     fx      fx-after-raise
+                     depth   0
+                     visited [(:state snap-after-raise)]]
+                (cond
+                  (>= depth always-limit)
+                  (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
+                                         {:machine-id (:id machine)
+                                          :depth      depth
+                                          :path       visited
+                                          :recovery   :no-recovery})
+                      (result/ok snapshot []))
 
-                :else
-                (let [snap-path (state-path (:state snap))
-                      always-m  (pick-always-transition machine snap-path snap)]
-                  (if (nil? always-m)
-                    ;; Macrostep fixed-point reached. Recompute the
-                    ;; active-configuration tag union on the committed snapshot
-                    ;; AFTER the new state is settled but BEFORE traces fire
-                    ;; (so the outer handler's `:rf.machine/transition` trace
-                    ;; carries the new tag set).
-                    (result/ok (commit-tags machine snap) fx)
-                    (let [step-result (apply-transition-once machine snap nil
-                                                              (:transition always-m))]
-                      (if (result/fail? step-result)
-                        step-result
-                        (let [{snap2 ::result/snap fx2 ::result/fx} step-result
-                              raised2 (drain-raises machine snap2 fx2 raise-limit)]
-                          (if (result/fail? raised2)
-                            raised2
-                            (let [{snap3 ::result/snap fx3 ::result/fx} raised2]
-                              (recur snap3
-                                     (vec (concat fx fx3))
-                                     (inc depth)
-                                     (conj visited (:state snap3))))))))))))))))))
+                  :else
+                  (let [snap-path (state-path (:state snap))
+                        always-m  (pick-always-transition machine snap-path snap)]
+                    (if (nil? always-m)
+                      ;; Macrostep fixed-point reached. Recompute the
+                      ;; active-configuration tag union on the committed snapshot
+                      ;; AFTER the new state is settled but BEFORE traces fire
+                      ;; (so the outer handler's `:rf.machine/transition` trace
+                      ;; carries the new tag set).
+                      (result/ok (commit-tags machine snap) fx)
+                      (let [step-result (apply-transition-once machine snap nil
+                                                                (:transition always-m))]
+                        (if (result/fail? step-result)
+                          step-result
+                          (result/with-ok [snap2 fx2] step-result
+                            (let [raised2 (drain-raises machine snap2 fx2 raise-limit)]
+                              (if (result/fail? raised2)
+                                raised2
+                                (result/with-ok [snap3 fx3] raised2
+                                  (recur snap3
+                                         (vec (concat fx fx3))
+                                         (inc depth)
+                                         (conj visited (:state snap3))))))))))))))))))))
