@@ -49,17 +49,18 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; :int over a non-integer string falls back to the raw string (the
-  ;; permissive coerce-query-value behaviour). The fixture documents
-  ;; this rather than requiring a hard validation failure — Spec 010
-  ;; layered validation is an enhancement; the current contract is
-  ;; "pass-through on parse failure".
+  ;; :int over a non-integer string: coerce-query-value passes through
+  ;; on parse failure; rf2-ug2m1 layered validation then catches the
+  ;; mismatch against the route's :query schema and surfaces
+  ;; :validation-failed? true with a :validation-error explanation.
+  ;; Apps that want a soft fallback unregister the validator (Spec 010
+  ;; §Non-Malli validators) or register a coerce-and-fix schema.
   {:call :match-url :url "/articles?q=z&page=not-a-number"
    :expect {:route-id :route/articles
             :params   {}
             :query    {:q "z" :page "not-a-number"}
             :fragment nil
-            :validation-failed? false}}
+            :validation-failed? true}}
 
   ;; route-url's 3-arity emits the query string in input order.
   {:call :route-url :route-id :route/articles :params {}

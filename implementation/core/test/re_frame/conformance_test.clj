@@ -707,7 +707,13 @@
   [call & [fixture-machines]]
   (case (:call call)
     :match-url
-    (let [actual (rf/match-url (:url call))
+    ;; Per Spec 012 §Bidirectional URL ↔ params the match-url result
+    ;; map carries an implementation-specific :validation-error
+    ;; explanation alongside :validation-failed? — explanation shape
+    ;; varies by validator (Spec 010 §Non-Malli validators), so the
+    ;; conformance comparator dissocs it before equality. The
+    ;; :validation-failed? flag is the normative bit.
+    (let [actual (some-> (rf/match-url (:url call)) (dissoc :validation-error))
           expect (:expect call)]
       {:passed? (= expect actual)
        :detail  (when (not= expect actual)
