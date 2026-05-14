@@ -55,12 +55,13 @@
     `:passed? true` (used by Stage 5's `run-variant` test entry, and by
     consumer tests via the public `assertions-passing?`).
   - `canonical-assertion-ids` — the set of registered event ids."
-  (:require [re-frame.core            :as rf]
-            [re-frame.interop         :as interop]
-            [re-frame.subs            :as subs]
-            [re-frame.story.config    :as config]
-            [re-frame.story.registrar :as registrar]
-            [malli.core               :as malli]))
+  (:require [re-frame.core             :as rf]
+            [re-frame.interop          :as interop]
+            [re-frame.subs             :as subs]
+            [re-frame.story.config     :as config]
+            [re-frame.story.predicates :as pred]
+            [re-frame.story.registrar  :as registrar]
+            [malli.core                :as malli]))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-frame trace-bus accumulators (warnings + emitted fx + dispatched)
@@ -503,11 +504,10 @@
 ;; Assertion-event detection (used by the play-runner)
 ;; ---------------------------------------------------------------------------
 
-(defn assertion-event?
+(def assertion-event?
   "True iff `event` is a `:rf.assert/*` form. Used by the play-runner
   to distinguish 'real' dispatches from assertions so the dispatched-
-  events accumulator can skip recording assertion events themselves."
-  [event]
-  (let [id (when (sequential? event) (first event))]
-    (and (keyword? id)
-         (= "rf.assert" (namespace id)))))
+  events accumulator can skip recording assertion events themselves.
+
+  Aliased from `re-frame.story.predicates` (the canonical leaf ns)."
+  pred/assertion-event?)

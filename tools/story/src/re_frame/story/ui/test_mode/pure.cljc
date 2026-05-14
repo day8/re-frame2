@@ -13,31 +13,18 @@
 
   Everything in this namespace is `.cljc` so it runs unchanged on both
   the JVM (for the test corpus) and CLJS (consumed by `view.cljs`)."
-  (:require [re-frame.story.registrar :as registrar]))
+  (:require [re-frame.story.predicates :as pred]
+            [re-frame.story.registrar  :as registrar]))
 
-;; ---- assertion-event? (mirrored from re-frame.story.assertions) ---------
+;; ---- aliases on the leaf predicates ns ----------------------------------
 ;;
-;; Mirrored here as a pure helper so the step-through scrubber's pure-data
-;; layer doesn't have to pull `re-frame.story.assertions` (CLJS-leaning
-;; coupling — it `:require`s `re-frame.core`). The shape is the canonical
-;; one: `:rf.assert/*` events.
+;; `assertion-event?` + `parent-story-id` both live canonically in
+;; `re-frame.story.predicates` (a pure leaf ns the rest of Story consumes
+;; without cycle risk). Aliased here so internal call sites stay textually
+;; identical and external test fixtures keep their qualified shape.
 
-(defn- assertion-event?
-  "True iff `event` is a `:rf.assert/*` form."
-  [event]
-  (let [id (when (sequential? event) (first event))]
-    (and (keyword? id)
-         (= "rf.assert" (namespace id)))))
-
-;; ---- pure: parent-story-id ----------------------------------------------
-
-(defn parent-story-id
-  "Mirror of the helper in `re-frame.story.ui.docs/parent-story-id` so
-  this namespace doesn't have to require the docs ns just for one
-  data fn. Keep the surface area minimal."
-  [variant-id]
-  (when (and (keyword? variant-id) (namespace variant-id))
-    (keyword (namespace variant-id))))
+(def ^:private assertion-event? pred/assertion-event?)
+(def parent-story-id            pred/parent-story-id)
 
 ;; ---- pure: variant-has-tests? -------------------------------------------
 

@@ -79,6 +79,7 @@
   - `insert-assertion!`       — impure entrypoint for the picker UI."
   (:require [clojure.string :as str]
             [re-frame.story.config :as config]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]
             [re-frame.trace :as trace]))
 
@@ -95,11 +96,11 @@
   "True iff `ns-str` is a Story-internal namespace whose events should
   not appear in a recorded `:play` body."
   [ns-str]
-  (or (= "rf.assert" ns-str)
-      (= "rf.story" ns-str)
-      (and (string? ns-str)
-           (or (str/starts-with? ns-str "re-frame.story")
-               (str/starts-with? ns-str "rf.story.")))))
+  (and (string? ns-str)
+       (or (= pred/reserved-assertion-ns ns-str)   ; "rf.assert"
+           (= "rf.story" ns-str)
+           (str/starts-with? ns-str "re-frame.story")
+           (str/starts-with? ns-str "rf.story."))))
 
 (defn recordable-event?
   "True iff `event` (a re-frame event vector) is one the recorder should
@@ -297,9 +298,7 @@
   (cond-> state
     (and (:recording? state)
          (vector? event)
-         (seq event)
-         (keyword? (first event))
-         (= "rf.assert" (namespace (first event))))
+         (pred/assertion-event? event))
     (update :events (fnil conj []) (vec event))))
 
 (def initial-state
