@@ -28,8 +28,8 @@
 
   story-mcp does NOT currently emit any of these markers — it operates
   on small, structured story/variant metadata and stays under the
-  wire-cap by construction. The story-mcp `tools.cljc` namespaces its
-  own vocabulary under `:rf.story/*`, `:rf.assert/*`, `:rf.error/*`
+  wire-cap by construction. The story-mcp `tools/*.cljc` files namespace
+  their own vocabulary under `:rf.story/*`, `:rf.assert/*`, `:rf.error/*`
   per its own spec. The vocabulary becomes relevant on story-mcp the
   day a tool starts returning bulk runtime state; until then the
   conformance gate guards the *contract*: when story-mcp adopts a
@@ -606,13 +606,21 @@
   ;;
   ;; Comment- and docstring-only mentions are stripped before the
   ;; check (via `strip-comments-and-strings`). story-mcp re-uses
-  ;; mcp-base's overflow / elision machinery; its tools.cljc
-  ;; documents `:rf.mcp/overflow` and `:rf.size/large-elided` in
+  ;; mcp-base's overflow / elision machinery; its `tools/*.cljc` files
+  ;; document `:rf.mcp/overflow` and `:rf.size/large-elided` in
   ;; docstrings without inline-emitting either. Documentation is not
   ;; an emission — this tripwire fires only on bare-code occurrences
   ;; (rf2-xx42k).
-  (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/tools.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"]]
+  (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]]
     (doseq [{:keys [key]} canonical-markers
             rel           story-files]
       (testing (str "story-mcp source " rel " — " key " absence")
@@ -740,8 +748,16 @@
   ;; `run-variant`), both envelope slots MUST land together. This
   ;; tripwire flips RED on the FIRST adoption so the reviewer can't
   ;; merge half the parity.
-  (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/tools.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"]
+  (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]
         slots       [":dropped-sensitive" ":elided-large"]]
     (doseq [rel  story-files
             slot slots]

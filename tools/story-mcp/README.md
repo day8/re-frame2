@@ -81,8 +81,17 @@ tools/story-mcp/
 └── src/re_frame/story_mcp/
     ├── config.cljc                               ; protocol-version + allow-writes? gate
     ├── protocol.cljc                             ; JSON-RPC envelope + frame I/O
-    ├── tools.cljc                                ; 16 tool implementations + registry
-    └── server.cljc                               ; dispatcher + -main + run-loop
+    ├── server.cljc                               ; dispatcher + -main + run-loop
+    └── tools/                                    ; tool implementations (rf2-3ukix split)
+        ├── cap.cljc                              ; invoke-tool dispatcher + token-cap egress
+        ├── registry.cljc                         ; tool-registry + descriptors + by-name
+        ├── helpers.cljc                          ; result builders, args coercers, scrubbers
+        ├── schemas.cljc                          ; recurring JSON-schema fragments
+        ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
+        ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-assertions, variant->edn
+        ├── testing.cljc                          ; run-variant, snapshot-identity, run-a11y, read-failures
+        ├── write.cljc                            ; gated: register-variant, unregister-variant
+        └── recorder.cljc                         ; gated: record-as-variant
 └── test/re_frame/story_mcp/
     ├── protocol_test.clj                         ; wire-format coverage
     └── tools_test.clj                            ; per-tool semantics + dispatcher + run-loop

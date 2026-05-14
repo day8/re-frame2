@@ -10,7 +10,9 @@
   validate the JSON-RPC envelope shape, hand off to a handler, serialise
   the response, write a line. The handler logic itself (`tools/list`,
   `tools/call`, etc.) lives in `re-frame.story-mcp.server`; the tool
-  implementations live in `re-frame.story-mcp.tools`.
+  implementations live under `re-frame.story-mcp.tools.*` (`tools.cap`,
+  `tools.registry`, `tools.dev`, `tools.docs`, `tools.testing`,
+  `tools.write`, `tools.recorder`, `tools.helpers`, `tools.schemas`).
 
   ## JSON-RPC error codes
 
