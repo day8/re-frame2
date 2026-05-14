@@ -19,7 +19,7 @@
  * default counter spec.
  */
 
-const { expectTextEquals } = require('../../scripts/spec-helpers.cjs');
+const { expectTextEquals } = require('../../../../examples/scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'counter-perf',

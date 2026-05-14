@@ -352,7 +352,7 @@ views).
 ## Test surface
 
 The Playwright spec
-`examples/reagent/counter_with_stories/counter_with_stories.spec.cjs`
+`tools/story/testbeds/counter_with_stories/counter_with_stories.spec.cjs`
 gains a `section 5: toolbar` block exercising:
 
 - The strip renders above the three-pane layout.

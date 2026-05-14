@@ -50,7 +50,7 @@ Both slots are opt-in. The seven canonical tags register without `:axis` or `:de
 
 ## Canonical mini-example
 
-Distilled from `examples/reagent/counter_with_stories/stories.cljs` — every key shape in one variant per slot.
+Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — every key shape in one variant per slot.
 
 ```clojure
 (ns app.stories.counter
@@ -156,7 +156,7 @@ The dev shell's Test pane and recorder ship ergonomic affordances that consume w
 - Authoring grammar in full (every key, every slot) → `SKILL-REDIRECT.md` → *EP — Stories (007)*.
 - Schema-derivation pipeline reference (every collection operator, default-element seeding, path-aware write contract) → `tools/story/spec/001-Authoring.md` §Schema-derivation pipeline.
 - Args precedence + four-phase lifecycle full detail → `tools/story/spec/002-Runtime.md` §Args resolution precedence, §Four-phase lifecycle.
-- Worked example, every macro at least once → `examples/reagent/counter_with_stories/`.
+- Worked example, every macro at least once → `tools/story/testbeds/counter_with_stories/`.
 - The seven `:rf.assert/*` events, semantics + source-stamping → `SKILL-REDIRECT.md` → *EP — Stories (007)* §Assertions.
 - Render shell, panel placement, multi-substrate pane → `SKILL-REDIRECT.md` → *Guide — Stories*.
 - Test Codegen (record canvas interactions as `:play`) → `story-recorder.md` (sibling leaf).
@@ -165,4 +165,4 @@ The dev shell's Test pane and recorder ship ergonomic affordances that consume w
 
 ---
 
-*Derived from `tools/story/` (artefact source) and `examples/reagent/counter_with_stories/` @ main `89bd9c3`. Re-verify after Story-macro grammar changes or new `:rf.assert/*` events.*
+*Derived from `tools/story/` (artefact source) and `tools/story/testbeds/counter_with_stories/` @ main `89bd9c3`. Re-verify after Story-macro grammar changes or new `:rf.assert/*` events.*

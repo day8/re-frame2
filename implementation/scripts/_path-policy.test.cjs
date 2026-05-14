@@ -136,8 +136,8 @@ it("the opt-in env var doesn't fire on 'false' / '0' / unset", () => {
 });
 
 it('accepts paths under multiple allowed roots', () => {
-  // STORY_BUILD_INDEX_HTML default policy: under <repo>/examples OR
-  // <repo>/implementation.
+  // STORY_BUILD_INDEX_HTML default policy (rf2-p8f2s): under <repo>/examples,
+  // <repo>/tools, OR <repo>/implementation.
   const examplesPath = path.join(REPO_ROOT, 'examples', 'reagent', 'foo.html');
   const result1 = enforcePolicy('STORY_BUILD_INDEX_HTML', examplesPath, {
     allowedRoots: DEFAULT_HTML_ROOTS,
@@ -149,6 +149,19 @@ it('accepts paths under multiple allowed roots', () => {
     allowedRoots: DEFAULT_HTML_ROOTS,
   });
   assert.strictEqual(result2, path.resolve(implPath));
+
+  const toolsPath = path.join(
+    REPO_ROOT,
+    'tools',
+    'story',
+    'testbeds',
+    'counter_with_stories',
+    'story_static.index.html',
+  );
+  const result3 = enforcePolicy('STORY_BUILD_INDEX_HTML', toolsPath, {
+    allowedRoots: DEFAULT_HTML_ROOTS,
+  });
+  assert.strictEqual(result3, path.resolve(toolsPath));
 });
 
 if (failed > 0) {

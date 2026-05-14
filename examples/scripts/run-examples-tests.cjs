@@ -52,29 +52,47 @@ const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] 
 
 const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
 // __dirname is <repo>/examples/scripts; the example tree sits at
-// <repo>/examples (one level up).
-const EXAMPLES_ROOT = path.resolve(__dirname, '..');
+// <repo>/examples (one level up). rf2-p8f2s broadened discovery to
+// include tool-owned testbeds under <repo>/tools/<tool>/testbeds/ and
+// the top-level <repo>/testbeds/ (Tier 1+ shared framework-behavior
+// surfaces, future).
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const SPEC_ROOTS = [
+  path.join(REPO_ROOT, 'examples'),
+  path.join(REPO_ROOT, 'tools'),
+  path.join(REPO_ROOT, 'testbeds'),
+];
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 
-// Specs live alongside the example they exercise, two or three levels
-// under examples/ — e.g. examples/reagent/counter/counter.spec.cjs, or
-// examples/reagent/7Guis/<name>/<name>.spec.cjs for the per-example
-// 7GUIs sub-folders. Walk the tree and pick up every *.spec.cjs we find.
-function listSpecFiles(root) {
-  if (!fs.existsSync(root)) {
-    console.error(`Examples root does not exist: ${root}`);
-    return [];
-  }
+// Specs live alongside the example or testbed they exercise. Under
+// examples/ they sit two or three levels deep with file shape
+// `<name>.spec.cjs` (e.g. examples/reagent/counter/counter.spec.cjs).
+// Under tools/<tool>/testbeds/<scenario>/ the convention (rf2-p8f2s) is
+// the unprefixed `spec.cjs` — one spec per scenario directory, no name
+// repetition. Walk every root and pick up any file matching either
+// `*.spec.cjs` (legacy / examples convention) or exactly `spec.cjs`
+// (testbed convention).
+function isSpecFile(name) {
+  return name === 'spec.cjs' || name.endsWith('.spec.cjs');
+}
+
+function listSpecFiles(roots) {
   const out = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop();
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(full);
-      } else if (entry.isFile() && entry.name.endsWith('.spec.cjs')) {
-        out.push(full);
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;       // testbeds/ is optional
+    const stack = [root];
+    while (stack.length > 0) {
+      const dir = stack.pop();
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          // Skip node_modules dirs that may sit under tools/ in the
+          // future (none today, but the walker should be defensive).
+          if (entry.name === 'node_modules') continue;
+          stack.push(full);
+        } else if (entry.isFile() && isSpecFile(entry.name)) {
+          out.push(full);
+        }
       }
     }
   }
@@ -93,9 +111,9 @@ function withTimeout(promise, ms, label) {
 }
 
 (async () => {
-  const specFiles = listSpecFiles(EXAMPLES_ROOT);
+  const specFiles = listSpecFiles(SPEC_ROOTS);
   if (specFiles.length === 0) {
-    console.error(`No specs found under ${EXAMPLES_ROOT}`);
+    console.error(`No specs found under ${SPEC_ROOTS.join(', ')}`);
     process.exit(1);
   }
 

@@ -27,7 +27,7 @@
 const {
   expectTextEquals,
   expectVisible,
-} = require('../../scripts/spec-helpers.cjs');
+} = require('../../../../examples/scripts/spec-helpers.cjs');
 
 /* ------------------------------------------------------------------
  * Helpers — Story-shell selectors are stable across versions because

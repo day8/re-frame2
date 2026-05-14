@@ -131,7 +131,7 @@ tests can pivot on it.
 | Trace-panel derefs + cascade-row highlight rendering                 | `tools/story/src/re_frame/story/ui/trace.cljs`                |
 | Shell teardown (drop selection on variant unmount)                   | `tools/story/src/re_frame/story/ui/shell.cljs`                |
 | JVM unit tests for the pure helpers                                  | `tools/story/test/re_frame/story_scrubber_xref_test.clj`      |
-| Browser smoke                                                        | `examples/reagent/counter_with_stories/counter_with_stories.spec.cjs` §11b |
+| Browser smoke                                                        | `tools/story/testbeds/counter_with_stories/counter_with_stories.spec.cjs` §11b |
 
 The `.cljc` split keeps the cross-reference predicates JVM-testable —
 per the standing `feedback_jvm_interop_must_work.md` rule — while the

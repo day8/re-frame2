@@ -132,7 +132,7 @@ the landmark navigator.
 
 ## Test surface
 
-The Playwright spec `examples/reagent/counter_with_stories/
+The Playwright spec `tools/story/testbeds/counter_with_stories/
 counter_with_stories.spec.cjs` exercises the primitive end-to-end
 (section 3b): asserts the three chips render, that each click flips
 `aria-selected`, that the matching placeholder renders below the

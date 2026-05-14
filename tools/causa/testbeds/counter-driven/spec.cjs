@@ -38,7 +38,7 @@
  *      dispatch workaround is required).
  */
 
-const { expectTextEquals, expectVisible } = require('../../scripts/spec-helpers.cjs');
+const { expectTextEquals, expectVisible } = require('../../../../examples/scripts/spec-helpers.cjs');
 
 const SHELL_TESTID = 'rf-causa-shell';
 const REDACTED_TESTID = 'rf-causa-redacted-indicator';

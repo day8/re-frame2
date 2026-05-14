@@ -111,7 +111,7 @@ The script:
 
 1. Runs `shadow-cljs release story-static/counter-with-stories`.
 2. Stages
-   `examples/reagent/counter_with_stories/story_static.index.html` as
+   `tools/story/testbeds/counter_with_stories/story_static.index.html` as
    `index.html` next to the compiled `main.js`.
 3. Writes a small `manifest.json` next to the bundle declaring the
    build target, the source HTML, the active closure-defines, and the
@@ -125,14 +125,15 @@ own static-export build:
 |---|---|---|
 | `STORY_BUILD_TARGET` | `story-static/counter-with-stories` | shadow-cljs build id |
 | `STORY_BUILD_OUTPUT_DIR` | `implementation/out/<target>/` | output directory |
-| `STORY_BUILD_INDEX_HTML` | `examples/reagent/counter_with_stories/story_static.index.html` | HTML to stage |
+| `STORY_BUILD_INDEX_HTML` | `tools/story/testbeds/counter_with_stories/story_static.index.html` | HTML to stage |
 
 These are **CI-internal knobs**, not a stable public configuration
 surface — re-frame2 reserves the right to rename / drop them between
 releases. Per rf2-21rfv (pragmatic stance, 2026-05-14): path-policy
 constrains `STORY_BUILD_OUTPUT_DIR` to `implementation/out/` and
-`STORY_BUILD_INDEX_HTML` to `<repo>/implementation/` or
-`<repo>/examples/`. Out-of-tree paths require the explicit opt-in
+`STORY_BUILD_INDEX_HTML` to `<repo>/implementation/`, `<repo>/examples/`,
+or `<repo>/tools/` (rf2-p8f2s — tool-owned testbeds). Out-of-tree paths
+require the explicit opt-in
 `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1`. The check is a safety net
 against accidents (env unset / mistyped path turning a build into a
 `rm -rf` outside the repo), not a hardened sandbox — devs running this
@@ -265,8 +266,8 @@ A consumer publishing their own app's playground:
 - [`010-Toolbar.md`](010-Toolbar.md) §URL deep-link — the
   share-URL mechanism `:story-static` consumers rely on for
   deep-linking variants without a per-variant HTML file.
-- [`examples/reagent/counter_with_stories/`](../../../examples/reagent/counter_with_stories/)
-  — the canonical worked example.
+- [`tools/story/testbeds/counter_with_stories/`](../testbeds/counter_with_stories/)
+  — the canonical worked example / testbed (rf2-p8f2s).
 - [`implementation/scripts/story-build.cjs`](../../../implementation/scripts/story-build.cjs)
   — the build driver.
 - [`implementation/scripts/check-story-static.cjs`](../../../implementation/scripts/check-story-static.cjs)
