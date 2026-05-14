@@ -759,6 +759,57 @@
              (:params parsed))
           "the slug round-trips through route-url → match-url"))))
 
+;; ---- rf2-wbvme: malformed percent-encoding fails closed ------------------
+;;
+;; Per Spec 012 §Routing failure semantics. `URLDecoder/decode` (JVM) and
+;; `decodeURIComponent` (CLJS) throw on malformed `%` sequences. Hostile
+;; URLs, partner integrations with broken escaping, and back-button to a
+;; malformed link must produce a route-miss (404 path), never a request-
+;; handler crash. `match-against` returns nil for malformed path captures;
+;; `match-url` drops the offending query pair (lenient — preserves the
+;; rest of a routable URL when one bad pair appears).
+;;
+;; The reproducer from the security audit: `(routing/match-url "/search?x=%")`
+;; previously threw `IllegalArgumentException` on JVM.
+
+(deftest match-url-malformed-percent-in-path-is-route-miss
+  (testing "a bare `%` in the path returns nil (route-miss), does not throw"
+    (rf/reg-route :route/articles {:path "/articles/:slug"})
+    (is (nil? (routing/match-url "/articles/%"))
+        "/articles/% is a route-miss, not an exception")
+    (is (nil? (routing/match-url "/articles/x%a"))
+        "/articles/x%a (incomplete pair) is a route-miss")
+    (is (nil? (routing/match-url "/articles/x%XX"))
+        "/articles/x%XX (non-hex pair) is a route-miss"))
+  (testing "bare-`%` URL with no path-pattern match also returns nil"
+    ;; No route registered; even a malformed URL must not throw.
+    (is (nil? (routing/match-url "/%"))
+        "/% with no matching route is a route-miss, not an exception")))
+
+(deftest match-url-malformed-percent-in-query-drops-pair
+  (testing "malformed %-encoding in a query VALUE drops just that pair —
+            the route still matches, other pairs survive"
+    (rf/reg-route :route/search {:path "/search"})
+    (let [m (routing/match-url "/search?x=%")]
+      (is (some? m) "the route still matches — the malformed pair is dropped")
+      (is (= :route/search (:route-id m)))
+      (is (= {} (:query m))
+          "the malformed `x=%` pair is dropped from :query"))
+    (let [m (routing/match-url "/search?good=1&bad=%&also=2")]
+      (is (some? m) "the route still matches")
+      (is (= {:good "1" :also "2"} (:query m))
+          "the bad pair is dropped; good neighbours survive")))
+  (testing "malformed %-encoding in a query KEY drops just that pair"
+    (rf/reg-route :route/search2 {:path "/search2"})
+    (let [m (routing/match-url "/search2?%=v")]
+      (is (some? m) "the route still matches")
+      (is (= {} (:query m))
+          "the malformed `%=v` pair (bad key) is dropped"))
+    (let [m (routing/match-url "/search2?ok=1&%=bad&also=2")]
+      (is (some? m) "the route still matches")
+      (is (= {:ok "1" :also "2"} (:query m))
+          "the bad-key pair is dropped; good neighbours survive"))))
+
 ;; ---- rf2-070jt: match-url :fragment + route-url 4-arity round-trip --------
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params and §Fragments §Programmatic

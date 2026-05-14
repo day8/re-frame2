@@ -44,6 +44,23 @@
   #?(:clj  (java.net.URLDecoder/decode (str s) "UTF-8")
      :cljs (js/decodeURIComponent (str s))))
 
+(defn- safe-url-decode
+  "Wrap `url-decode` in try/catch; returns nil (sentinel for malformed
+  `%`) on decode failure.
+
+  Per Spec 012 §Routing failure semantics (rf2-wbvme): both
+  `URLDecoder/decode` (JVM) and `decodeURIComponent` (CLJS) throw on
+  malformed percent-encoded sequences (`%`, `%a`, `%XX`, …). Hostile
+  URLs, partner integrations with broken escaping, or back-button to a
+  malformed link must produce a **route-miss** (404 path), never a
+  request-handler crash. Callers translate the nil sentinel into the
+  appropriate miss semantics — `match-against` returns nil for the
+  whole match, `match-url` drops the offending query pair (lenient —
+  preserves the rest of a routable URL when one bad query pair appears)."
+  [s]
+  (try (url-decode s)
+       (catch #?(:clj Throwable :cljs :default) _ nil)))
+
 ;; ---- registration ---------------------------------------------------------
 
 (defn- segment-end
@@ -283,14 +300,23 @@
 
 (defn- match-against
   "Try to match url against the route's compiled pattern. Returns the
-  params map (with %-decoded values) on success, nil on miss."
+  params map (with %-decoded values) on success, nil on miss.
+
+  Per Spec 012 §Routing failure semantics (rf2-wbvme): if any captured
+  group is malformed percent-encoding (`safe-url-decode` returns nil
+  for a non-nil group), the URL fails closed as a route-miss rather
+  than throwing through the call site."
   [compiled url]
   (let [{:keys [regex names]} compiled
         m (re-matches regex url)]
     (when m
-      (let [groups (if (sequential? m) (rest m) [])]
-        (zipmap (map keyword names)
-                (map (fn [g] (when g (url-decode g))) groups))))))
+      (let [groups  (if (sequential? m) (rest m) [])
+            decoded (map (fn [g] (when g (safe-url-decode g))) groups)]
+        ;; A nil entry for a non-nil group means malformed %-encoding —
+        ;; treat as no-match (route-miss, never throw).
+        (when (every? (fn [[g d]] (or (nil? g) (some? d)))
+                      (map vector groups decoded))
+          (zipmap (map keyword names) decoded))))))
 
 (def ^:const default-max-decoded-keys
   "Default cap on the number of unique query-string keys a single URL
@@ -544,15 +570,26 @@
               (reduce
                 (fn [m pair]
                   (let [[k v] (clojure.string/split pair #"=" 2)
-                        kstr  (url-decode k)
-                        m'    (assoc m kstr (if v (url-decode v) ""))]
-                    (when (> (count m') default-max-decoded-keys)
-                      (throw (ex-info ":rf.error/route-too-many-keys"
-                                      {:kind   :rf.error/route-too-many-keys
-                                       :url    url
-                                       :limit  default-max-decoded-keys
-                                       :count  (count m')})))
-                    m'))
+                        ;; Per Spec 012 §Routing failure semantics
+                        ;; (rf2-wbvme): malformed %-encoding in a query
+                        ;; key or value drops the pair (lenient —
+                        ;; preserves the rest of a routable URL when one
+                        ;; bad pair appears). nil sentinel comes from
+                        ;; `safe-url-decode`; the empty-value branch
+                        ;; (`v` is nil → "") is distinct from a malformed
+                        ;; value and must not be conflated.
+                        kstr  (safe-url-decode k)
+                        vstr  (if v (safe-url-decode v) "")]
+                    (if (or (nil? kstr) (nil? vstr))
+                      m
+                      (let [m' (assoc m kstr vstr)]
+                        (when (> (count m') default-max-decoded-keys)
+                          (throw (ex-info ":rf.error/route-too-many-keys"
+                                          {:kind   :rf.error/route-too-many-keys
+                                           :url    url
+                                           :limit  default-max-decoded-keys
+                                           :count  (count m')})))
+                        m'))))
                 (array-map)
                 pairs))))]
     ;; Iterate the pre-sorted table; the first pattern that matches is the
