@@ -86,13 +86,25 @@
                                             :schema-digest schema-digest
                                             :payload-keys  payload-keys})
         payload-edn (pr-str payload)
-        ;; rf2-4dra9: resolve the active route's :head (or
-        ;; default-head fallback) and pass the rendered fragment as
-        ;; the :head opt. Callers that supplied an explicit :head opt
-        ;; take precedence — they chose to bypass route-driven head
-        ;; resolution.
-        head-html   (or (:head opts) (lifecycle/resolve-head-html frame-id))
-        shell-opts  (assoc opts :head head-html)
+        ;; rf2-4dra9 / rf2-h2ujj: resolve the active route's :head
+        ;; (or default-head fallback). The head fragment goes through
+        ;; the shell as the :head opt; the :html-attrs / :body-attrs
+        ;; bags ride alongside so the shell can stamp them on <html>
+        ;; / <body> per Spec 011 §Default flow step 4.
+        ;;
+        ;; Callers that supplied an explicit :head string take
+        ;; precedence — they chose to bypass route-driven head
+        ;; resolution, and an explicit string carries no attr-bag
+        ;; sidechannel (an explicit head opt is the escape hatch for
+        ;; bespoke fragments).
+        {:keys [head-html html-attrs body-attrs]}
+        (if (:head opts)
+          {:head-html (:head opts) :html-attrs nil :body-attrs nil}
+          (lifecycle/resolve-head frame-id))
+        shell-opts  (assoc opts
+                           :head        head-html
+                           :html-attrs  html-attrs
+                           :body-attrs  body-attrs)
         html        (html-shell body-html payload-edn shell-opts)
         ;; Ensure Content-Type is set; the SSR runtime defaults
         ;; [:rf/response :headers] to include content-type so this is
