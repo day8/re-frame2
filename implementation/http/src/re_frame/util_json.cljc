@@ -142,17 +142,23 @@
                      :else     (read-keyword-tok p))))]
          (first (read-val (skip-ws 0)))))))
 
+;; Memoised Cheshire resolves (per rf2-tja2y). Cheshire's vars never
+;; rebind at runtime; resolving once per JVM is enough. The CLJS path
+;; uses the browser's `JSON` builtin and never needs a resolve.
+#?(:clj (defonce ^:private cheshire-generate-string (delay (try (requiring-resolve 'cheshire.core/generate-string)
+                                                                (catch Throwable _ nil)))))
+#?(:clj (defonce ^:private cheshire-parse-string    (delay (try (requiring-resolve 'cheshire.core/parse-string)
+                                                                (catch Throwable _ nil)))))
+
 (defn json-stringify
   "Clojure value → JSON string. JVM uses Cheshire if available, else
   falls back to `pr-str` (good enough for the request-body shapes
   `:rf.http/managed` emits — primarily Clojure maps and vectors that
   print as legal JSON-ish edn). CLJS uses `js/JSON.stringify`."
   [v]
-  #?(:clj  (let [write (try (requiring-resolve 'cheshire.core/generate-string)
-                            (catch Throwable _ nil))]
-             (if write
-               (write v)
-               (pr-str v)))
+  #?(:clj  (if-let [write @cheshire-generate-string]
+             (write v)
+             (pr-str v))
      :cljs (js/JSON.stringify (clj->js v))))
 
 (defn json-parse
@@ -161,11 +167,9 @@
   Clojure reader above. On CLJS uses `js/JSON.parse` +
   `js->clj :keywordize-keys true`."
   [s]
-  #?(:clj  (let [read (try (requiring-resolve 'cheshire.core/parse-string)
-                           (catch Throwable _ nil))]
-             (cond
-               read       (read s true)
-               (string? s) (try (json-read* s)
-                                (catch Throwable _ s))
-               :else      s))
+  #?(:clj  (cond
+             (some? @cheshire-parse-string) (@cheshire-parse-string s true)
+             (string? s)                    (try (json-read* s)
+                                                 (catch Throwable _ s))
+             :else                          s)
      :cljs (js->clj (js/JSON.parse s) :keywordize-keys true)))

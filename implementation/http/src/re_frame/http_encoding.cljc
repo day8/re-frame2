@@ -134,34 +134,44 @@
       (and ct (str/starts-with? ct "text/"))         :text
       :else                                          :blob)))
 
+;; Memoised resolves (per rf2-tja2y). The Malli vars never rebind at
+;; runtime; resolving once per JVM / once per CLJS runtime is enough,
+;; and the deref asymmetry (JVM `requiring-resolve` returns a Var,
+;; CLJS `resolve` returns the value directly) is normalised here so
+;; the call site is platform-uniform per rf2-exycf.
+;;
+;; On CLJS `resolve` is the compile-time analyzer affordance — these
+;; delays evaluate once at first call; subsequent decodes share the
+;; cached fn.
+
+(defn- resolve-fn
+  "Resolve `sym` to its var-deref'd function value (or nil if absent).
+  Threading the `#?(:clj :cljs)` here lets callers use the returned
+  value uniformly without further reader conditionals."
+  [sym]
+  #?(:clj  (try (some-> (requiring-resolve sym) deref)
+                (catch Throwable _ nil))
+     :cljs (try (some-> (resolve sym))
+                (catch :default _ nil))))
+
+(defonce ^:private malli-decode-fn      (delay (resolve-fn 'malli.core/decode)))
+(defonce ^:private malli-transformer-fn (delay (resolve-fn 'malli.transform/json-transformer)))
+(defonce ^:private malli-validate-fn    (delay (resolve-fn 'malli.core/validate)))
+
 (defn- malli-decode
   "Run a Malli schema's `decode` over `value`, falling back to plain
   validate-or-throw if the transformer pipeline is unavailable. Throws
   on failure so the caller can classify as `:rf.http/decode-failure`."
   [schema value]
-  (let [decode #?(:clj  (try (requiring-resolve 'malli.core/decode)
-                             (catch Throwable _ nil))
-                  :cljs (try (resolve 'malli.core/decode)
-                             (catch :default _ nil)))
-        transformer #?(:clj  (try (requiring-resolve 'malli.transform/json-transformer)
-                                  (catch Throwable _ nil))
-                       :cljs (try (resolve 'malli.transform/json-transformer)
-                                  (catch :default _ nil)))
-        validate #?(:clj  (try (requiring-resolve 'malli.core/validate)
-                               (catch Throwable _ nil))
-                    :cljs (try (resolve 'malli.core/validate)
-                               (catch :default _ nil)))
-        decoded (cond
-                  (and decode transformer)
-                  #?(:clj  ((deref decode) schema value ((deref transformer)))
-                     :cljs (decode schema value (transformer)))
-                  decode
-                  #?(:clj  ((deref decode) schema value nil)
-                     :cljs (decode schema value nil))
-                  :else value)]
+  (let [decode      @malli-decode-fn
+        transformer @malli-transformer-fn
+        validate    @malli-validate-fn
+        decoded     (cond
+                      (and decode transformer) (decode schema value (transformer))
+                      decode                   (decode schema value nil)
+                      :else                    value)]
     (when validate
-      (when-not #?(:clj  ((deref validate) schema decoded)
-                   :cljs (validate schema decoded))
+      (when-not (validate schema decoded)
         (throw (ex-info "schema validation failed"
                         {:schema schema :value decoded :malli-error? true}))))
     decoded))
