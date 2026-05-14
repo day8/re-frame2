@@ -296,7 +296,10 @@
   skipped. Defaults to true when the schemas namespace hasn't been
   loaded."
   [event-id event handler-meta]
-  (if-let [validate! (late-bind/get-fn :schemas/validate-event!)]
+  ;; Sticky hook (rf2-f72pd) — `:schemas/validate-event!` is published
+  ;; once at re-frame.schemas load and never withdrawn in production;
+  ;; this fires per-dispatch.
+  (if-let [validate! (late-bind/get-fn-cached :schemas/validate-event!)]
     (try (validate! event-id event handler-meta)
          (catch #?(:clj Throwable :cljs :default) _ true))
     true))
@@ -416,7 +419,8 @@
   actual app-db state from the rest of the cascade. Real schema
   failures route through the in-band false return."
   [db-after event-id frame]
-  (if-let [validate (late-bind/get-fn :schemas/validate-app-db!)]
+  ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
+  (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-db!)]
     (try
       ;; nil-coerce: pre-rf2-6m0se the fn returned nil on success.
       ;; Treat nil as true (don't roll back) so a hosted port that
@@ -516,7 +520,8 @@
   §Failure semantics rule 3 + §rationale (line 202) state the
   cascade halts at a failing flow."
   [frame event event-id start-ms]
-  (if-let [flows-fn (late-bind/get-fn :flows/run-flows!)]
+  ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
+  (if-let [flows-fn (late-bind/get-fn-cached :flows/run-flows!)]
     (try
       (flows-fn frame)
       true
@@ -760,7 +765,9 @@
                 :event    event
                 :frame    frame
                 :phase    :run-end})
-  (when-let [emit-event! (late-bind/get-fn :event-emit/dispatch-on-event)]
+  ;; Sticky hook (rf2-f72pd) — always-on per-event observability fan-out
+  ;; per rf2-rirbq; survives `:advanced` + `goog.DEBUG=false`.
+  (when-let [emit-event! (late-bind/get-fn-cached :event-emit/dispatch-on-event)]
     (let [end-ms     (interop/now-ms)
           elapsed-ms (long (max 0 (- end-ms start-ms)))]
       (emit-event! event
@@ -914,7 +921,7 @@
                         :rollback?  true
                         :recovery   :no-recovery})
     (swap! router assoc :queue interop/empty-queue :scheduled? false)
-    (when-let [settle! (late-bind/get-fn :epoch/settle!)]
+    (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
       ;; :db-after equals :db-before — atomic rollback semantics. The
       ;; record carries the cascade's :trace-events / :sub-runs /
       ;; :renders / :effects up to the halt point so devtools can
@@ -933,7 +940,7 @@
   enqueue-after-empty-check race that motivated this bead."
   [frame-id _router db-before depth]
   (when (pos? depth)
-    (when-let [settle! (late-bind/get-fn :epoch/settle!)]
+    (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
       (let [db-after (frame/frame-app-db-value frame-id)]
         (settle! frame-id db-before db-after)))))
 
@@ -1032,7 +1039,7 @@
     (trace/emit! :frame :rf.frame/drain-interrupted
                  {:frame         frame-id
                   :dropped-count dropped})
-    (when-let [settle! (late-bind/get-fn :epoch/settle!)]
+    (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
       (settle! frame-id db-before db-after :halted-destroy halt-reason))))
 
 (defn- run-one-pass!

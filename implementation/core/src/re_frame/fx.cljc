@@ -195,7 +195,10 @@
    ;; `:fx-overrides` / `:interceptor-overrides` / `:trace-id` /
    ;; `:origin` / `:source`.
    (fn [frame-id parent-envelope args]
-     (when-let [f (late-bind/get-fn :router/dispatch!)]
+     ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once
+     ;; at re-frame.router load and never withdrawn; this fires per
+     ;; `:dispatch` fx invocation.
+     (when-let [f (late-bind/get-fn-cached :router/dispatch!)]
        (f args (child-dispatch-opts frame-id parent-envelope))))
 
    :dispatch-later
@@ -207,7 +210,9 @@
      (let [opts (child-dispatch-opts frame-id parent-envelope)]
        (interop/set-timeout!
          (fn []
-           (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+           ;; Sticky hook (rf2-f72pd) — same as above; the timer
+           ;; callback fires per scheduled :dispatch-later.
+           (when-let [dispatch! (late-bind/get-fn-cached :router/dispatch!)]
              (dispatch! event opts)))
          ms)))
 
@@ -416,8 +421,11 @@
               (let [msg  #?(:clj (.getMessage ^Throwable e)
                             :cljs (.-message e))
                     time (interop/now-ms)]
+                ;; Sticky hook (rf2-f72pd) — always-on per-error
+                ;; observability fan-out per rf2-bacs4; survives
+                ;; `:advanced` + `goog.DEBUG=false`.
                 (when-let [dispatch-on-error!
-                           (late-bind/get-fn :error-emit/dispatch-on-error)]
+                           (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
                   (dispatch-on-error!
                     category
                     origin-event
@@ -472,7 +480,8 @@
         ;; `validate-fx!` itself emits the `:rf.error/schema-validation-
         ;; failure :where :fx-args` trace; this caller only honours the
         ;; boolean.
-        (let [validate-fx! (late-bind/get-fn :schemas/validate-fx!)
+        ;; Sticky hook (rf2-f72pd) — fires per-fx invocation.
+        (let [validate-fx! (late-bind/get-fn-cached :schemas/validate-fx!)
               fx-ok?       (if (and validate-fx! (:spec meta))
                              (try
                                (validate-fx! fx-id origin-event-id args meta)

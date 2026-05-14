@@ -91,7 +91,7 @@
 ;; `:trace/emit!` (re-frame.trace depends on re-frame.registrar, so
 ;; `:require` would cycle). `:trace/emit!` is published once at
 ;; re-frame.trace load and never withdrawn, so the resolution is sticky
-;; — the cache below memoises it.
+;; — `late-bind/get-fn-cached` memoises it (rf2-f72pd).
 ;;
 ;; Each call site keeps its OUTERMOST `(when interop/debug-enabled? ...)`
 ;; gate. That gate is the load-bearing condition Closure constant-folds
@@ -101,17 +101,16 @@
 ;; literals reachable from the unconditional helper call and defeat the
 ;; elision-probe sentinels.
 
-(defonce ^:private emit!-cache (atom nil))
-
 (defn- emit!
   "Invoke `:trace/emit!` with the `:registry` op-type, memoising the
-  late-bind resolution. Callers MUST wrap invocations in
-  `(when interop/debug-enabled? ...)` so Closure DCE elides the call
-  and its literal args under `:advanced + goog.DEBUG=false`."
+  late-bind resolution through `late-bind/get-fn-cached` (rf2-f72pd —
+  this fn previously held its own per-key `emit!-cache` atom; that
+  pattern is now generalised in `re-frame.late-bind`). Callers MUST
+  wrap invocations in `(when interop/debug-enabled? ...)` so Closure
+  DCE elides the call and its literal args under `:advanced +
+  goog.DEBUG=false`."
   [operation tags]
-  (when-let [f (or @emit!-cache
-                   (when-let [resolved (late-bind/get-fn :trace/emit!)]
-                     (reset! emit!-cache resolved)))]
+  (when-let [f (late-bind/get-fn-cached :trace/emit!)]
     (f :registry operation tags)))
 
 (defn register!

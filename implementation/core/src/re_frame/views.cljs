@@ -110,7 +110,10 @@
   itself rides."
   [render-key]
   (when interop/debug-enabled?
-    (when-let [emit! (late-bind/get-fn :trace/emit!)]
+    ;; Sticky hook (rf2-f72pd) — `:trace/emit!` is published once at
+    ;; re-frame.trace load and never withdrawn; this fires per render
+    ;; under dev builds.
+    (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
       (emit! :view :view/render
              {:render-key render-key
               :frame      (provider/current-frame)}))))

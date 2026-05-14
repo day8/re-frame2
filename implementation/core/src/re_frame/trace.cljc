@@ -320,7 +320,10 @@
   NOT wipe the internal capture path. Per Tool-Pair §Time-travel and
   Spec 009 §`register-epoch-cb!`."
   [event]
-  (when-let [capture (late-bind/get-fn :epoch/capture-event)]
+  ;; Sticky hook (rf2-f72pd) — `:epoch/capture-event` is published once
+  ;; at re-frame.epoch load and never withdrawn; this fires on every
+  ;; trace emit during a cascade.
+  (when-let [capture (late-bind/get-fn-cached :epoch/capture-event)]
     (try
       (capture event)
       (catch #?(:clj Throwable :cljs :default) _ nil))))

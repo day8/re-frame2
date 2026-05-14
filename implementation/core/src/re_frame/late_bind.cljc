@@ -27,19 +27,93 @@
   hooks
   (atom {}))
 
+;; ---- sticky resolution cache (rf2-f72pd) ----------------------------------
+;;
+;; `get-fn-cached` is a sticky variant of `get-fn` for hooks that are
+;; published once at boot and never withdrawn in production
+;; (`:schemas/validate-*!`, `:flows/run-flows!`, `:epoch/settle!`,
+;; `:epoch/capture-event`, `:event-emit/dispatch-on-event`,
+;; `:router/dispatch!`, …). These run on every dispatch — the dispatch
+;; cascade reads ~6+ keys per event, so a 100-event cascade was 600+
+;; identical atom-derefs of `hooks` plus 600+ identical map lookups.
+;;
+;; The cache memoises the resolution: first hit reads `hooks`, populates
+;; `fn-cache`, and returns; subsequent hits read `fn-cache` directly. On
+;; the JVM the gain is bounded (atom-deref is JIT-friendly); on V8 the
+;; relevant pressure is megamorphic-IC busting at the `@hooks` site,
+;; which the per-key dedicated slot avoids.
+;;
+;; Invariant: `set-fn!` and `chain-fn!` invalidate the slot for the key
+;; they re-publish. Production registers each hook once at boot and
+;; never again — cache hits 100%. Dev hot-reload of an artefact
+;; re-registers — the next cached lookup re-resolves through `hooks`,
+;; identical to today's behaviour. The pattern mirrors
+;; `re-frame.registrar/emit!-cache` (which memoised `:trace/emit!`
+;; under the same logic before this generalised mechanism existed).
+
+(defonce ^:private fn-cache
+  ;; hook-key → resolved-fn. Distinct from `hooks` so the cache slot
+  ;; semantics are clean: only positive resolutions are cached, and
+  ;; `set-fn!` / `chain-fn!` clear the slot atomically. Nil resolutions
+  ;; (key not yet published) fall through to the `hooks` lookup every
+  ;; call so a deferred publication is visible the next dispatch.
+  (atom {}))
+
+(defn invalidate-cache!
+  "Drop the cached resolution for `hook-key`. Called from `set-fn!` and
+  `chain-fn!` so the next `get-fn-cached` re-resolves through `hooks`.
+  Public so test fixtures and dev-time refresh tooling can force a
+  re-resolve."
+  [hook-key]
+  (swap! fn-cache dissoc hook-key)
+  nil)
+
 (defn set-fn!
   "Register a fn under hook-key. The producing namespace calls this at
-  the bottom of its file; consumers look it up via `get-fn`."
+  the bottom of its file; consumers look it up via `get-fn` (one-shot)
+  or `get-fn-cached` (sticky / hot-path).
+
+  Invalidates the sticky resolution cache for `hook-key` so any
+  previously-cached resolution is dropped — the next `get-fn-cached`
+  call re-resolves through `hooks`. This guarantees hot-reload of an
+  artefact swaps the resolved fn on the very next dispatch."
   [hook-key f]
   (swap! hooks assoc hook-key f)
+  (invalidate-cache! hook-key)
   nil)
 
 (defn get-fn
   "Return the fn registered under hook-key, or nil if no producer has
   registered it yet. Callers MUST handle the nil case (the common
-  pattern is `(when-let [f (late-bind/get-fn ...)] (f args))`)."
+  pattern is `(when-let [f (late-bind/get-fn ...)] (f args))`).
+
+  Use `get-fn-cached` instead at hot-path call sites that read the
+  same key on every dispatch — `get-fn` re-derefs `hooks` and re-walks
+  the map every call; `get-fn-cached` memoises the resolution."
   [hook-key]
   (get @hooks hook-key))
+
+(defn get-fn-cached
+  "Sticky variant of `get-fn` (rf2-f72pd) — memoises the resolved fn
+  for `hook-key` so subsequent calls read a per-key atom slot rather
+  than re-deref'ing the global `hooks` map.
+
+  Returns the resolved fn, or nil when no producer has published the
+  key yet. Nil resolutions are NOT cached — a deferred publication is
+  visible on the next call.
+
+  The cache is invalidated on `set-fn!` / `chain-fn!` for the key, so
+  dev-time hot-reload of an artefact re-resolves on the next dispatch.
+  Use at hot-path call sites — every dispatch reads
+  `:schemas/validate-event!`, `:schemas/validate-app-db!`,
+  `:flows/run-flows!`, `:epoch/settle!`, `:epoch/capture-event`,
+  `:event-emit/dispatch-on-event`, `:router/dispatch!` — so a
+  100-event cascade resolved each ~100 times before this cache."
+  [hook-key]
+  (or (get @fn-cache hook-key)
+      (when-let [resolved (get @hooks hook-key)]
+        (swap! fn-cache assoc hook-key resolved)
+        resolved)))
 
 (defn chain-fn!
   "Wire `step-fn` into the chained hook under `hook-key` so calling the
