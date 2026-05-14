@@ -211,8 +211,9 @@ can't drift across consumers.
 | `parse-boolean` | bools, strings (`"true"`/`"false"`/`"1"`/`"0"`/`"yes"`/`"no"`/`"y"`/`"n"`/`"on"`/`"off"`, case-insensitive), keywords (`:true`/`:false`), nil | boolean | Unrecognised → `default`. Call-sites wrap to bake the default. |
 | `parse-positive-int` | ints, parsable strings | positive int or `default` | Strictly positive; zero falls to `default`. |
 | `parse-non-negative-int` | ints, parsable strings | non-negative int or `default` | Zero allowed. |
-| `parse-keyword` | keywords, strings (leading `:` optional), nil | keyword or `default` | The `:` prefix is stripped on string input. |
-| `parse-mode` | enum-shaped strings / keywords | one of an allowed set, otherwise `default` | Bakes an `allowed-modes` set; rejected values fall to `default`. |
+| `parse-keyword` | keywords, strings (leading `:` optional), nil | keyword or `nil` | The `:` prefix is stripped on string input. **Caveat (rf2-ih7g4)**: this fn INTERNS — use only for registry-backed ids whose value is checked against a bounded set at the lookup site. For finite option sets, prefer `safe-keyword`. |
+| `safe-keyword` | keywords, strings, nil | keyword from `allowed` set, or `nil` | Bounded-allowlist gate — NEVER interns a fresh keyword on rejection. The right primitive for finite option sets and any input that doesn't go straight to a registry lookup with a bounded known set. Per rf2-ih7g4. |
+| `parse-mode` | enum-shaped strings / keywords | one of an allowed set, otherwise `default` | Bakes an `allowed-modes` set; rejected values fall to `default`. Routes through `safe-keyword` so unrecognised input never interns (rf2-ih7g4). |
 
 The rejection posture (default-suppress vs default-allow) is named
 at the call-site by passing the appropriate `default` — the parser
