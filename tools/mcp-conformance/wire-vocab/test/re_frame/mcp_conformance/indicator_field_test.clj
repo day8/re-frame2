@@ -351,6 +351,18 @@
            sort))))
 
 (deftest no-inline-indicator-slot-emit-outside-the-helper
+  ;; The grep is applied AFTER `fx/strip-comments-and-strings` neuters
+  ;; docstring / comment / descriptor-string mentions — descriptor
+  ;; descriptions ship the slot names as user-visible documentation
+  ;; (e.g. `"Dropped count surfaces as `:dropped-sensitive` ..."` in
+  ;; `descriptors_data.cljs`), and tool-source docstrings cross-link the
+  ;; helper they delegate to (e.g. `subscribe_emit.cljs`'s
+  ;; `final-summary` docstring names both slots while the actual emit
+  ;; goes through `wire/with-indicators`). Those are documentation, not
+  ;; emissions; the strip-then-grep posture catches real inline emits
+  ;; (`(assoc envelope :dropped-sensitive N)`) while letting prose
+  ;; through. Same posture as the wire-vocab gate's source-text pin
+  ;; (rf2-vj8y3).
   (let [slot-literals [":dropped-sensitive" ":elided-large"]
         srcs          (pair2-mcp-source-files)]
     (is (seq srcs)
@@ -359,14 +371,16 @@
             slot slot-literals
             :when (not (contains? inline-emit-whitelist rel))]
       (testing (str rel " — must not inline " slot)
-        (let [src (fx/read-source rel)]
-          (is (not (str/includes? src slot))
+        (let [src      (fx/read-source rel)
+              stripped (fx/strip-comments-and-strings src)]
+          (is (not (str/includes? stripped slot))
               (str "Inline `" slot "` literal found in " rel
-                   ".\nEvery emit MUST go through `wire/with-indicators` "
+                   " (in code, AFTER stripping comments/docstrings/strings).\n"
+                   "Every emit MUST go through `wire/with-indicators` "
                    "(per Conventions:154 / Spec 009:1411). If this file "
-                   "is a legitimate exception (docstring, internal state-"
-                   "atom name), add it to `inline-emit-whitelist` with "
-                   "a justification.")))))))
+                   "is a legitimate exception (a destructuring binding "
+                   "reading internal state, an internal state-atom name), "
+                   "add it to `inline-emit-whitelist` with a justification.")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-server tripwire — story-mcp / causa-mcp posture.

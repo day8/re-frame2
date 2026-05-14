@@ -124,7 +124,13 @@
     :servers  #{:pair2-mcp :story-mcp :causa-mcp}
     :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/sensitive.cljs"
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"]
-               :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/sensitive.cljc"
+               ;; story-mcp's `:include-sensitive?` parsing lives in
+               ;; `helpers.cljc` (rf2-73wuj — the cross-MCP `args/parse-
+               ;; boolean` reader) and the slot schema lives in
+               ;; `schemas.cljc` (`include-sensitive-schema` injector).
+               ;; No `sensitive.cljc` (the path was a stale guess from
+               ;; the pair2-mcp shape that doesn't apply to story-mcp).
+               :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]
                :causa-mcp ["tools/causa-mcp/spec/Principles.md"
                            "tools/causa-mcp/spec/004-Wire-Pipeline.md"]}
@@ -134,8 +140,15 @@
    {:slot     :max-tokens
     :role     :override-integer
     :servers  #{:pair2-mcp :story-mcp :causa-mcp}
-    :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"
-                           "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/cap.cljs"]
+    :sources  {;; pair2-mcp surfaces the slot as the Clojure keyword
+               ;; `:max-tokens` in the descriptor-splice helper
+               ;; (`descriptors.cljs/with-budget-knob`) and reads the
+               ;; JS-side `"max-tokens"` string off the args object in
+               ;; `cap.cljs/max-tokens-arg`. The keyword form is the
+               ;; canonical literal — the descriptor splice IS what
+               ;; pins the wire-side name agents see in `tools/list`.
+               :pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"
+                           "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]
                :causa-mcp ["tools/causa-mcp/spec/Principles.md"
@@ -343,8 +356,11 @@
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/cap.cljs"
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/elision.cljs"]
-         :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/sensitive.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
+         ;; story-mcp's `:include-sensitive?` parsing / schema lives in
+         ;; `helpers.cljc` + `schemas.cljc` (no `sensitive.cljc` —
+         ;; that's pair2-mcp's shape). The other entries below are the
+         ;; full tools/ surface, covered for near-miss-variant defence.
+         :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
