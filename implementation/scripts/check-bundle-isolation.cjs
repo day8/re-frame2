@@ -42,8 +42,8 @@
 
 'use strict';
 
-const fs   = require('fs');
 const path = require('path');
+const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -217,28 +217,11 @@ const ARTEFACTS = [
 
 // ----- helpers ---------------------------------------------------------------
 
-function readAllJs(dir) {
-  // Concatenate every *.js file under dir into a single blob. shadow-cljs
-  // :browser :advanced may split the runtime across files (cljs_base, the
-  // module's own file); a global grep is the right shape for the isolation
-  // contract.
-  if (!fs.existsSync(dir)) {
-    return null;
-  }
-  const out = [];
-  const walk = (d) => {
-    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      const full = path.join(d, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.js')) {
-        out.push(fs.readFileSync(full, 'utf8'));
-      }
-    }
-  };
-  walk(dir);
-  return out.join('\n');
-}
+// Bundle reading is shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). The helper reads
+// only top-level *.js — the release artefact — so a stale dev-build
+// `cljs-runtime/` subdir from a prior `shadow-cljs compile` doesn't
+// get grep-ed alongside.
 
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -291,7 +274,7 @@ function main() {
   console.log('=== Bundle isolation: counter example (rf2-51x5) ===');
 
   const bundleDir = path.join(ROOT, 'out', 'examples', 'counter');
-  const blob = readAllJs(bundleDir);
+  const blob = readReleaseBlob(bundleDir);
 
   if (blob == null) {
     console.error(`[bundle-isolation] bundle path missing — ${bundleDir}`);
