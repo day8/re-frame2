@@ -140,7 +140,25 @@
    ;; ../test-quiet/src/re_frame/test_quiet/shadow_node.cljs and is
    ;; on the classpath via the source-paths list below.
    :main      re-frame.test-quiet.shadow-node/main
-   :compiler-options {:warnings {:redef false}}}
+   ;; rf2-ls3wn — disable externs inference (and therefore the
+   ;; :infer-warning class) in the test build. The cljs.test reporter is
+   ;; silent-on-success (rf2-try1x, PR #1079) but the test classpath
+   ;; spans every artefact + every testbed + every tool's source tree,
+   ;; so unrelated externs-inference noise (~16 lines per warning, ~32
+   ;; warnings on a green run ≈ 500 lines) drowns the green-run signal.
+   ;;
+   ;; Shadow defaults `:infer-externs :auto`, which root-binds
+   ;; `(:infer-warning ana/*cljs-warnings*)` to true for every
+   ;; non-from-jar source — overriding any `:warnings {:infer-warning
+   ;; false}` we'd set here (see shadow/build/compiler.clj). The only
+   ;; way to fully silence the class is `:infer-externs false`.
+   ;;
+   ;; Externs inference stays ON for the production :browser builds
+   ;; (where it catches real :advanced extern bugs); the :node-test
+   ;; build runs un-minified on Node so externs aren't relevant, and
+   ;; test code is allowed to be less type-disciplined.
+   :compiler-options {:warnings      {:redef false}
+                      :infer-externs false}}
 
   :browser-test
   {:target    :browser-test
