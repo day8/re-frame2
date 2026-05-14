@@ -270,6 +270,35 @@
          (is (some? btn))
          (is (true? (get (second btn) :disabled)))))))
 
+;; ---- rf2-dtj61: 3-arity threads precomputed variant-ids ----------------
+
+#?(:cljs
+   (deftest widget-3-arity-uses-supplied-variant-ids
+     (testing "the 3-arity overload uses the caller's supplied variant-ids
+               instead of re-deriving from the registry — passes a
+               restricted subset and asserts the headline counts reflect
+               only that subset"
+       (story/reg-variant :story.x/a {:tags #{:test} :events []
+                                      :play [[:rf.assert/path-equals [:c] 0]]})
+       (story/reg-variant :story.x/b {:tags #{:test} :events []
+                                      :play [[:rf.assert/path-equals [:c] 0]]})
+       (story/reg-variant :story.x/c {:tags #{:test} :events []
+                                      :play [[:rf.assert/path-equals [:c] 0]]})
+       ;; Supply a 1-variant subset. The registry has three; the widget
+       ;; should report total=1 because we threaded a 1-element seq, not
+       ;; the full registry-derived set.
+       (let [tree     (sidebar/test-widget (state/get-state)
+                                           (state/registry-snapshot)
+                                           [:story.x/a])
+             headline (first (find-by-data-test tree
+                                                "story-test-widget-headline"))]
+         (is (some? headline))
+         ;; "Tests" headline reads "Tests" with a 1/1 or pending split;
+         ;; the load-bearing assertion is that 3 variants did NOT land —
+         ;; we did NOT see "0/3" or "0/2".
+         (is (not (re-find #"/3" (nth headline 2))))
+         (is (not (re-find #"/2" (nth headline 2))))))))
+
 ;; ---- regression: per-variant cell-overrides threading (rf2-zq6sn) -------
 
 #?(:cljs
