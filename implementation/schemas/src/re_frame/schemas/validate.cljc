@@ -92,12 +92,24 @@
   "Replace value-bearing slots in a tags map with the `:rf/redacted`
   sentinel. Per Spec 010 §`:sensitive?` — privacy in schema-validation
   error traces. Stamps `:sensitive? true` so consumers filter
-  correctly. Idempotent — safe to call on an already-redacted map."
+  correctly. Idempotent — safe to call on an already-redacted map.
+
+  The four redacted slots (`:value`, `:received`, `:explain`,
+  `:fx-args`) are the canonical set per the Spec 010 §`:sensitive?`
+  redaction-shape list. `:fx-args` is the per-surface doubled-id
+  name carried only on `:where :fx-args` emissions; the
+  `contains?` guard makes the clause a no-op on the other three
+  meta-bearing surfaces (event / cofx / sub-return) whose tag maps
+  don't carry the slot. Per rf2-nijom this replaces the previous
+  fx-only `extra-redact` lambda — the redaction is now symmetric
+  with the other value-bearing slots, and the schema lists them
+  canonically."
   [tags]
   (cond-> tags
     (contains? tags :value)    (assoc :value     redacted-sentinel)
     (contains? tags :received) (assoc :received  redacted-sentinel)
     (contains? tags :explain)  (assoc :explain   redacted-sentinel)
+    (contains? tags :fx-args)  (assoc :fx-args   redacted-sentinel)
     true                       (assoc :sensitive? true)))
 
 (defn- common-prefix
@@ -197,10 +209,6 @@
     - `build-base-tags`  `(fn [schema explanation] -> map)` — produces
                      the per-fn tag map (`:where`, `:reason`, etc.)
                      EXCLUDING any sensitivity stamping.
-    - `extra-redact` `(fn [tags] -> tags)` or `nil` — additional
-                     redaction step applied AFTER `redact-tags` when
-                     `sensitive?` resolves true. Used by validate-fx!
-                     to scrub the doubled `:fx-args` slot.
 
   Reachability: every call-site lives inside the outermost
   `(if interop/debug-enabled? ...)` gate of its public wrapper.
@@ -211,8 +219,15 @@
   Per rf2-1o6ax the registered validator-fn is deref'd ONCE at the
   gate and invoked directly — `validator/run-validator` would deref
   the same atom a second time on every pass, which is wasted work
-  on a path that runs per-event / per-cofx / per-fx / per-sub-return."
-  [meta value meta-sensitive? walk-schema? build-base-tags extra-redact]
+  on a path that runs per-event / per-cofx / per-fx / per-sub-return.
+
+  Per rf2-nijom this primitive no longer carries an `extra-redact`
+  escape hatch — the four canonical redacted slots
+  (`:value`, `:received`, `:explain`, `:fx-args`) all live on the
+  central `redact-tags` cond->. The fx-args clause is a no-op on
+  the other three surfaces (their base-tags don't contain the
+  slot), so a single redactor covers every meta-bearing emit site."
+  [meta value meta-sensitive? walk-schema? build-base-tags]
   (if-let [vf @validator/validator-fn]
     (if-let [schema (:spec meta)]
       (if (vf schema value)
@@ -222,9 +237,7 @@
                               (and walk-schema?
                                    (walker/schema-has-sensitive? schema)))
               base-tags   (build-base-tags schema explanation)
-              tags        (cond-> base-tags
-                            sensitive?                    redact-tags
-                            (and sensitive? extra-redact) extra-redact)]
+              tags        (cond-> base-tags sensitive? redact-tags)]
           (trace/emit-error! :rf.error/schema-validation-failure tags)
           false))
       true)
@@ -394,8 +407,7 @@
          :reason     (reason-string "Event " event-id
                                     " payload failed schema "
                                     schema event)
-         :recovery   :no-recovery})
-      nil)
+         :recovery   :no-recovery}))
     true))
 
 (defn validate-sub-return!
@@ -424,8 +436,7 @@
          :reason     (reason-string "Subscription " sub-id
                                     " return value failed schema "
                                     schema value)
-         :recovery   :replaced-with-default})
-      nil)
+         :recovery   :replaced-with-default}))
     true))
 
 (defn validate-cofx!
@@ -454,8 +465,7 @@
          :reason     (reason-string "Coeffect " cofx-id
                                     " injected value failed schema "
                                     schema value)
-         :recovery   :no-recovery})
-      nil)
+         :recovery   :no-recovery}))
     true))
 
 (defn validate-fx!
@@ -467,9 +477,11 @@
   continue to run, and downstream queued events still drain. Returns
   true/false per the `run-validation` contract.
 
-  The doubled `:fx-args` slot in the emitted tags is scrubbed via
-  `run-validation`'s extra-redact step so the redaction is symmetric
-  with the cofx/event surfaces (which don't carry a doubled-id slot)."
+  Per rf2-nijom the per-surface `:fx-args` slot is redacted by the
+  central `redact-tags` cond->; the lambda escape hatch that used to
+  do this here is gone, and Spec 010 §`:sensitive?` now lists
+  `:fx-args` alongside `:value` / `:received` / `:explain` as the
+  canonical redacted slots."
   [fx-id event-id args fx-meta]
   (if interop/debug-enabled?
     (run-validation
@@ -490,14 +502,7 @@
                                             " args failed schema "
                                             schema args)
                  :recovery   :skipped}
-          event-id (assoc :event-id event-id)))
-      ;; Extra-redact: the doubled `:fx-args` slot isn't covered by
-      ;; the generic `redact-tags` (which only knows `:value` /
-      ;; `:received` / `:explain` — the value-bearing slots Spec 010
-      ;; §`:sensitive?` blesses). Scrub `:fx-args` here so the
-      ;; redaction is symmetric across all four meta-bearing
-      ;; validate-*! surfaces.
-      (fn [tags] (assoc tags :fx-args redacted-sentinel)))
+          event-id (assoc :event-id event-id))))
     true))
 
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
