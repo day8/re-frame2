@@ -506,6 +506,32 @@
   (testing "the public probe (re-frame.story/static-mode?) reflects the flag"
     (is (false? (re-frame.story/static-mode?)))))
 
+;; ---- registrar mutation tick (rf2-zrswb) ----------------------------
+
+(deftest mutation-tick-bumps-on-every-write
+  (testing "every reg-* / unregister! / clear-* call bumps the tick;
+            consumers caching registry-derived work key off this counter"
+    (let [t0 (registrar/current-mutation-tick)]
+      (story/reg-story :story.ui.tick {:doc "tick test"})
+      (is (> (registrar/current-mutation-tick) t0))
+      (let [t1 (registrar/current-mutation-tick)]
+        (story/reg-variant :story.ui.tick/v {:events [[:init]]})
+        (is (> (registrar/current-mutation-tick) t1))
+        (let [t2 (registrar/current-mutation-tick)]
+          (registrar/unregister! :variant :story.ui.tick/v)
+          (is (> (registrar/current-mutation-tick) t2))
+          (let [t3 (registrar/current-mutation-tick)]
+            (registrar/clear-kind! :variant)
+            (is (> (registrar/current-mutation-tick) t3))))))))
+
+(deftest mutation-tick-is-monotonic
+  (testing "the tick only ever advances — never resets to a smaller value"
+    (let [t0 (registrar/current-mutation-tick)]
+      (dotimes [i 5]
+        (story/reg-variant (keyword (str "story.tick.mono/v" i))
+                           {:events [[:init]]}))
+      (is (>= (registrar/current-mutation-tick) (+ t0 5))))))
+
 ;; ---- Stage 6 contract check -----------------------------------------
 
 (deftest stage-marker
