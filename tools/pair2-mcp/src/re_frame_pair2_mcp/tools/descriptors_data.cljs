@@ -364,17 +364,21 @@
                      "— `where is :user/login registered?`, `what does sub "
                      ":current-user look like?`, `which file owns the :navigate "
                      "fx?`. Supported kinds: event, sub, fx, cofx, view, frame, "
-                     "machine. The `machine` kind routes through "
-                     "(rf/machine-meta id) (Spec 005 §Querying machines); the "
-                     "other six route through (rf/handler-meta kind id). "
-                     "Returns `{:ok? true :kind k :id i ...meta...}` on a hit "
-                     "or `{:ok? false :reason :not-registered :kind k :id i}` "
-                     "when no slot matches.")
+                     "route, flow, head, error-projector, machine — the closed "
+                     "v1 registrar set (per Spec 001 §Registry model) minus "
+                     "`:app-schema` (intentionally empty registrar slot — its "
+                     "metadata lives in the schemas artefact's per-frame side-"
+                     "table, queried via `rf/app-schemas` instead). The "
+                     "`machine` kind routes through (rf/machine-meta id) (Spec "
+                     "005 §Querying machines); the other kinds route through "
+                     "(rf/handler-meta kind id). Returns `{:ok? true :kind k "
+                     ":id i ...meta...}` on a hit or `{:ok? false :reason "
+                     ":not-registered :kind k :id i}` when no slot matches.")
    :typicalTokens 400
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, machine."
-                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "machine"]}
+                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine."
+                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "machine"]}
                               :id   {:type "string"
                                      :description (str "EDN-encoded id, e.g. \":user/login\". For "
                                                        "composite-key subs, pass the vector form "
@@ -389,17 +393,21 @@
                      "surface — agents call this first to find out what's "
                      "registered, then `handler-meta` to drill into a specific "
                      "id. Supported kinds: event, sub, fx, cofx, view, frame, "
-                     "machine. The `machine` kind lists every event handler "
-                     "flagged `:rf/machine? true` via (rf/machines); the other "
-                     "six lift the id vector off the registrar's per-kind map. "
-                     "Returns `{:ok? true :kind k :ids [...] :count n}`. The "
-                     "id vector is sorted (string / keyword / symbol ordering) "
+                     "route, flow, head, error-projector, machine — the closed "
+                     "v1 registrar set (per Spec 001 §Registry model) minus "
+                     "`:app-schema` (intentionally empty registrar slot — use "
+                     "`rf/app-schemas` for schema enumeration). The `machine` "
+                     "kind lists every event handler flagged `:rf/machine? "
+                     "true` via (rf/machines); the other kinds lift the id "
+                     "vector off the registrar's per-kind map. Returns "
+                     "`{:ok? true :kind k :ids [...] :count n}`. The id "
+                     "vector is sorted (string / keyword / symbol ordering) "
                      "so the list shape is stable across calls.")
    :typicalTokens 800
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, machine."
-                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "machine"]}
+                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine."
+                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "machine"]}
                               :build {:type "string"}}
                  :required ["kind"]
                  :additionalProperties false}})

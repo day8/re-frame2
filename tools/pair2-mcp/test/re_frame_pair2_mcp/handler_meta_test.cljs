@@ -64,7 +64,8 @@
             "kind + id are both required")
         (is (contains? properties :kind))
         (is (contains? properties :id))
-        (is (= #{"event" "sub" "fx" "cofx" "view" "frame" "machine"}
+        (is (= #{"event" "sub" "fx" "cofx" "view" "frame"
+                 "route" "flow" "head" "error-projector" "machine"}
                (set (:enum (:kind properties))))
             "kind enum lists every supported kind")))))
 
@@ -89,7 +90,8 @@
         (is (= #{"kind"} (set required))
             "kind is the only required arg")
         (is (contains? properties :kind))
-        (is (= #{"event" "sub" "fx" "cofx" "view" "frame" "machine"}
+        (is (= #{"event" "sub" "fx" "cofx" "view" "frame"
+                 "route" "flow" "head" "error-projector" "machine"}
                (set (:enum (:kind properties)))))))))
 
 (deftest registry-list-descriptor-surfaces-on-tools-list
