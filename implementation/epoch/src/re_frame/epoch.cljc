@@ -739,9 +739,11 @@
 
           :else
           (let [db-target (:db-after epoch)]
-            (cond
+            ;; Each helper is called once and its result bound, so the
+            ;; failure path walks the recorded db / schema set / machine
+            ;; map exactly once per check (rf2-081zk).
+            (if-let [failing-paths (seq (failing-paths-for frame-id db-target))]
               ;; (4) Schema mismatch?
-              (not (schema-validate-ok? frame-id db-target))
               ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
               ;; the trace carries both the digest pinned on the
               ;; epoch record (recorded) and the current frame's
@@ -753,27 +755,25 @@
                 :epoch-id               epoch-id
                 :schema-digest-recorded (:schema-digest epoch)
                 :schema-digest-current  (current-schema-digest frame-id)
-                :failing-paths          (failing-paths-for frame-id db-target)}]
+                :failing-paths          (vec failing-paths)}]
 
-              ;; (5) Missing handler referenced from db?
-              (seq (missing-references db-target))
-              [:fail :rf.epoch/restore-missing-handler
-               {:frame    frame-id
-                :epoch-id epoch-id
-                :missing  (missing-references db-target)}]
+              (if-let [missing (seq (missing-references db-target))]
+                ;; (5) Missing handler referenced from db?
+                [:fail :rf.epoch/restore-missing-handler
+                 {:frame    frame-id
+                  :epoch-id epoch-id
+                  :missing  (vec missing)}]
 
-              ;; (6) Machine snapshot version drift?
-              (some? (machine-version-mismatch db-target))
-              (let [{:keys [machine-id recorded current]} (machine-version-mismatch db-target)]
-                [:fail :rf.epoch/restore-version-mismatch
-                 {:frame            frame-id
-                  :epoch-id         epoch-id
-                  :machine-id       machine-id
-                  :version-recorded recorded
-                  :version-current  current}])
+                (if-let [{:keys [machine-id recorded current]} (machine-version-mismatch db-target)]
+                  ;; (6) Machine snapshot version drift?
+                  [:fail :rf.epoch/restore-version-mismatch
+                   {:frame            frame-id
+                    :epoch-id         epoch-id
+                    :machine-id       machine-id
+                    :version-recorded recorded
+                    :version-current  current}]
 
-              :else
-              [:ok epoch])))))))
+                  [:ok epoch])))))))))
 
 (defn- perform-restore!
   "Carry out the actual `app-db` rewind once preconditions have passed.
