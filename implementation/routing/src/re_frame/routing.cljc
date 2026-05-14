@@ -86,28 +86,23 @@
 
 (defn- segment-end
   "Scan forward from index `j` in `pattern` (length `n`) until a
-  segment-boundary char (/, {, }, ?) is hit; return the index of that
-  boundary (or `n` if none). Pure helper shared by every pattern walker
-  in this namespace — replaces the four near-identical inline loops."
-  [^String pattern n j]
-  (loop [m j]
-    (cond
-      (>= m n) m
-      (let [c (.charAt pattern m)]
-        (or (= c \/) (= c \{) (= c \}) (= c \?))) m
-      :else (recur (inc m)))))
-
-(defn- segment-end-no-?
-  "Same as segment-end but treats only /, {, } as boundaries (no ?).
-  Used by pattern-shape's :else branch which classifies static segments
-  — those don't terminate at ?."
-  [^String pattern n j]
-  (loop [m j]
-    (cond
-      (>= m n) m
-      (let [c (.charAt pattern m)]
-        (or (= c \/) (= c \{) (= c \}))) m
-      :else (recur (inc m)))))
+  segment-boundary char is hit; return the index of that boundary (or
+  `n` if none). The boundary set is always {/, {, }}; the 4-arity
+  additionally treats `?` as a boundary when `?-boundary?` is truthy.
+  Pure helper shared by every pattern walker in this namespace —
+  replaces the four near-identical inline loops. The 3-arity (defaults
+  `?-boundary?` to true) suits param / splat scanners and compile-pattern;
+  pattern-shape's static-segment :else branch passes false so a `?`
+  inside a static segment doesn't truncate the static run."
+  ([^String pattern n j] (segment-end pattern n j true))
+  ([^String pattern n j ?-boundary?]
+   (loop [m j]
+     (cond
+       (>= m n) m
+       (let [c (.charAt pattern m)]
+         (or (= c \/) (= c \{) (= c \})
+             (and ?-boundary? (= c \?)))) m
+       :else (recur (inc m))))))
 
 (defn- pattern-shape
   "Walk a path pattern and tally segment shapes used by the rank tuple.
@@ -154,7 +149,7 @@
                            (recur (inc i) depth seen)
 
                            :else
-                           (recur (segment-end-no-? pattern n (inc i))
+                           (recur (segment-end pattern n (inc i) false)
                                   depth
                                   (cond-> seen
                                     (zero? depth) (-> (update :static inc)
@@ -447,88 +442,88 @@
   ([route-id path-params query-params] (route-url route-id path-params query-params nil))
   ([route-id path-params query-params fragment]
    (let [meta    (registrar/lookup :route route-id)
-         pattern (:path meta)
-         _ (when (nil? pattern)
-             (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
-         n     (count pattern)
-         ;; Inner loop emits the body of an optional group whose params
-         ;; are all present. State threads as (loop [i parts]); returns
-         ;; [next-i parts'] when the group's '}' (and optional '?') is
-         ;; consumed.
-         emit-group
-         (fn emit-group [i parts]
-           (loop [i     i
-                  parts parts]
-             (let [c2 (.charAt ^String pattern i)]
-               (cond
-                 (= c2 \})
-                 (let [k (inc i)]
-                   [(if (and (< k n) (= \? (.charAt ^String pattern k))) (inc k) k)
-                    parts])
+         pattern (:path meta)]
+     (when (nil? pattern)
+       (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
+     (let [n     (count pattern)
+           ;; Inner loop emits the body of an optional group whose params
+           ;; are all present. State threads as (loop [i parts]); returns
+           ;; [next-i parts'] when the group's '}' (and optional '?') is
+           ;; consumed.
+           emit-group
+           (fn emit-group [i parts]
+             (loop [i     i
+                    parts parts]
+               (let [c2 (.charAt ^String pattern i)]
+                 (cond
+                   (= c2 \})
+                   (let [k (inc i)]
+                     [(if (and (< k n) (= \? (.charAt ^String pattern k))) (inc k) k)
+                      parts])
 
-                 (= c2 \:)
-                 (let [start (inc i)
-                       end   (segment-end pattern n start)
-                       k     (keyword (subs pattern start end))]
-                   (recur end (conj parts (url-encode (get path-params k)))))
+                   (= c2 \:)
+                   (let [start (inc i)
+                         end   (segment-end pattern n start)
+                         k     (keyword (subs pattern start end))]
+                     (recur end (conj parts (url-encode (get path-params k)))))
 
-                 (= c2 \*)
-                 (let [start (inc i)
-                       end   (segment-end pattern n start)
-                       k     (keyword (subs pattern start end))]
-                   (recur end (conj parts (url-encode-splat (get path-params k)))))
+                   (= c2 \*)
+                   (let [start (inc i)
+                         end   (segment-end pattern n start)
+                         k     (keyword (subs pattern start end))]
+                     (recur end (conj parts (url-encode-splat (get path-params k)))))
 
-                 :else
-                 (recur (inc i) (conj parts (str c2)))))))
-         parts
-         (loop [i     0
-                parts []]
-           (if-not (< i n)
-             parts
-             (let [ch (.charAt ^String pattern i)]
-               (cond
-                 (= ch \{)
-                 (let [[after-end inner-names] (collect-param-names-in-group pattern (inc i))
-                       all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
-                   (if all-present?
-                     (let [[i' parts'] (emit-group (inc i) parts)]
-                       (recur i' parts'))
-                     (recur after-end parts)))
+                   :else
+                   (recur (inc i) (conj parts (str c2)))))))
+           parts
+           (loop [i     0
+                  parts []]
+             (if-not (< i n)
+               parts
+               (let [ch (.charAt ^String pattern i)]
+                 (cond
+                   (= ch \{)
+                   (let [[after-end inner-names] (collect-param-names-in-group pattern (inc i))
+                         all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
+                     (if all-present?
+                       (let [[i' parts'] (emit-group (inc i) parts)]
+                         (recur i' parts'))
+                       (recur after-end parts)))
 
-                 (= ch \:)
-                 (let [start (inc i)
-                       end   (segment-end pattern n start)
-                       k     (keyword (subs pattern start end))
-                       v     (or (get path-params k)
-                                 (throw (ex-info ":rf.error/missing-route-param"
-                                                 {:param k :route-id route-id})))]
-                   (recur end (conj parts (url-encode v))))
+                   (= ch \:)
+                   (let [start (inc i)
+                         end   (segment-end pattern n start)
+                         k     (keyword (subs pattern start end))
+                         v     (or (get path-params k)
+                                   (throw (ex-info ":rf.error/missing-route-param"
+                                                   {:param k :route-id route-id})))]
+                     (recur end (conj parts (url-encode v))))
 
-                 (= ch \*)
-                 (let [start (inc i)
-                       end   (segment-end pattern n start)
-                       k     (keyword (subs pattern start end))
-                       v     (or (get path-params k)
-                                 (throw (ex-info ":rf.error/missing-route-param"
-                                                 {:param k :route-id route-id})))]
-                   (recur end (conj parts (url-encode-splat v))))
+                   (= ch \*)
+                   (let [start (inc i)
+                         end   (segment-end pattern n start)
+                         k     (keyword (subs pattern start end))
+                         v     (or (get path-params k)
+                                   (throw (ex-info ":rf.error/missing-route-param"
+                                                   {:param k :route-id route-id})))]
+                     (recur end (conj parts (url-encode-splat v))))
 
-                 :else
-                 (recur (inc i) (conj parts (str ch)))))))
-         path-out (apply str parts)
-         qs (when (seq query-params)
-              (str "?"
-                   (clojure.string/join "&"
-                     (map (fn [[k v]]
-                            (str (url-encode (name k)) "="
-                                 (url-encode v)))
-                          query-params))))
-         ;; Per Spec 012 §Fragments §Programmatic navigation with
-         ;; fragments: the 4-arity emits `#fragment` when non-nil and
-         ;; non-empty. Empty-string fragments collapse to no fragment.
-         frag (when (and fragment (not= "" fragment))
-                (str "#" fragment))]
-     (str path-out qs frag))))
+                   :else
+                   (recur (inc i) (conj parts (str ch)))))))
+           path-out (apply str parts)
+           qs (when (seq query-params)
+                (str "?"
+                     (clojure.string/join "&"
+                       (map (fn [[k v]]
+                              (str (url-encode (name k)) "="
+                                   (url-encode v)))
+                            query-params))))
+           ;; Per Spec 012 §Fragments §Programmatic navigation with
+           ;; fragments: the 4-arity emits `#fragment` when non-nil and
+           ;; non-empty. Empty-string fragments collapse to no fragment.
+           frag (when (and fragment (not= "" fragment))
+                  (str "#" fragment))]
+       (str path-out qs frag)))))
 
 ;; ---- standard handlers ----------------------------------------------------
 
@@ -540,6 +535,22 @@
 ;; per-frame (each frame's :rf/route slice is independent and the URL it
 ;; remembers is its own). The map lives in app-db at
 ;; [:rf.route/scroll-positions]; helpers below work against a db value.
+;;
+;; LRU cap: the map is bounded so a long session over many URLs (SPAs that
+;; deep-link through ids — `/articles/:id`, `/users/:id`) can't grow it
+;; unboundedly. Recency is tracked under [:rf.route/scroll-positions-order];
+;; on each save the url is appended (or re-promoted) to the tail and any
+;; head entries beyond `scroll-positions-cap` are evicted from both the
+;; order vector and the position map. Tools and migrations that inspect
+;; [:rf.route/scroll-positions <url>] still see the raw [x y]; the order
+;; key is an internal LRU anchor.
+
+(def ^:private scroll-positions-cap
+  "Soft upper bound on tracked URLs in the per-frame scroll-positions map.
+  Sized for typical SPA navigation depth — large enough that real
+  Back-button restoration hits saved positions, small enough that the
+  per-frame app-db slice stays bounded over long sessions."
+  50)
 
 (defn lookup-scroll-position
   "Return the saved [x y] for url in this frame's app-db, or nil if none."
@@ -550,9 +561,22 @@
   "Pure: return db with the scroll position for url recorded under
   [:rf.route/scroll-positions url]. Used inside :db effect maps so
   scroll positions live under the frame boundary (Spec 012 §Multi-frame
-  routing)."
+  routing). The map is LRU-capped at `scroll-positions-cap` entries —
+  re-saving an existing url promotes it to most-recent; new saves past
+  the cap evict the least-recently-used entry."
   [db url xy]
-  (assoc-in db [:rf.route/scroll-positions url] xy))
+  (let [order   (or (:rf.route/scroll-positions-order db) [])
+        order'  (-> (filterv #(not= url %) order)
+                    (conj url))
+        over    (- (count order') scroll-positions-cap)
+        dropped (when (pos? over) (subvec order' 0 over))
+        order'' (if (pos? over) (subvec order' over) order')
+        positions  (as-> (or (:rf.route/scroll-positions db) {}) m
+                     (if dropped (apply dissoc m dropped) m)
+                     (assoc m url xy))]
+    (assoc db
+           :rf.route/scroll-positions       positions
+           :rf.route/scroll-positions-order order'')))
 
 (defn- route-descriptor
   "Build the {:id :params :query} descriptor used by :rf.nav/scroll's
@@ -1141,18 +1165,18 @@ unknown strategies as :preserve (no-op)."}
        (into [:a attrs] children))))
 
 (defn route-link-render-ssr
-   "JVM render fn for `:route/link`. Renders the `<a href=...>` shell
-   without the click-interception logic — server-side rendering has no
-   DOM events to intercept, so the anchor is emitted as-is and clicks
-   on the hydrated page run the CLJS render fn's on-click path. Per
-   Spec 011 the render tree is the contract; this is the JVM half of
-   that contract for the `:route/link` view."
-   [{:keys [to params query fragment] :as props} & children]
-   (let [url   (route-url to (or params {}) (or query {}) fragment)
-         attrs (-> props
-                   (dissoc :to :params :query :fragment :on-click)
-                   (assoc :href url))]
-     (into [:a attrs] children)))
+  "JVM render fn for `:route/link`. Renders the `<a href=...>` shell
+  without the click-interception logic — server-side rendering has no
+  DOM events to intercept, so the anchor is emitted as-is and clicks
+  on the hydrated page run the CLJS render fn's on-click path. Per
+  Spec 011 the render tree is the contract; this is the JVM half of
+  that contract for the `:route/link` view."
+  [{:keys [to params query fragment] :as props} & children]
+  (let [url   (route-url to (or params {}) (or query {}) fragment)
+        attrs (-> props
+                  (dissoc :to :params :query :fragment :on-click)
+                  (assoc :href url))]
+    (into [:a attrs] children)))
 
 #?(:cljs
    (def route-link

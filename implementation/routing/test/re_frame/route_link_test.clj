@@ -38,7 +38,7 @@
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ((requiring-resolve 're-frame.routing/reset-counters!))
+  (routing/reset-counters!)
   (test-fn))
 
 (use-fixtures :each reset-runtime)

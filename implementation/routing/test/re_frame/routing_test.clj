@@ -56,7 +56,7 @@
   ;; ns-load; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ((requiring-resolve 're-frame.routing/reset-counters!))
+  (routing/reset-counters!)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -477,6 +477,48 @@
     (let [db1 (routing/save-scroll-position {} "/x" [5 50])]
       (is (= [5 50] (get-in db1 [:rf.route/scroll-positions "/x"]))
           "the saved [x y] lives at [:rf.route/scroll-positions <url>] in the db"))))
+
+;; ---- rf2-z2k4k: LRU cap on scroll-positions -------------------------------
+;;
+;; Per audit A12: long sessions deep-linking through `/articles/:id`-style
+;; routes can grow [:rf.route/scroll-positions] unboundedly. The map is
+;; LRU-bounded at `routing/scroll-positions-cap` (50). Re-saving a known
+;; url promotes it to most-recent; saves past the cap evict the LRU entry.
+
+(deftest scroll-position-lru-eviction-past-cap
+  (testing "save-scroll-position evicts the least-recently-used url
+            once the cap is exceeded; the cap is a soft upper bound, not
+            a strict per-call limit"
+    ;; Hammer 60 distinct urls. Cap is 50, so the first 10 should be gone
+    ;; and the last 50 should remain — in insertion order.
+    (let [db (reduce (fn [db i] (routing/save-scroll-position db (str "/u" i) [i i]))
+                     {}
+                     (range 60))
+          positions (:rf.route/scroll-positions db)]
+      (is (= 50 (count positions))
+          "exactly 50 entries remain — the cap holds")
+      (is (every? nil? (map #(routing/lookup-scroll-position db (str "/u" %))
+                            (range 10)))
+          "the first 10 (LRU) urls are evicted")
+      (is (every? some? (map #(routing/lookup-scroll-position db (str "/u" %))
+                             (range 10 60)))
+          "the most-recently-saved 50 urls all survive")))
+
+  (testing "re-saving an existing url promotes it to most-recent — it survives
+            an eviction wave that would otherwise drop it"
+    ;; Insert 50 urls (fills cap). Promote /u0 by re-saving. Insert one more.
+    ;; /u1 (now the LRU) should evict; /u0 should survive.
+    (let [db0 (reduce (fn [db i] (routing/save-scroll-position db (str "/u" i) [i i]))
+                      {}
+                      (range 50))
+          db1 (routing/save-scroll-position db0 "/u0" [999 999])  ;; promote
+          db2 (routing/save-scroll-position db1 "/u50" [50 50])]  ;; force evict
+      (is (= [999 999] (routing/lookup-scroll-position db2 "/u0"))
+          "the re-saved url survives and carries its new value")
+      (is (nil? (routing/lookup-scroll-position db2 "/u1"))
+          "/u1 — the new LRU after the promotion — was evicted instead")
+      (is (= 50 (count (:rf.route/scroll-positions db2)))
+          "cap is still 50"))))
 
 ;; ---- rf2-hra3: route-url missing-required-param raises clear error -------
 ;;
