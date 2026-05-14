@@ -49,6 +49,13 @@
   ;; (rf/configure :epoch-history {...}) extensions don't break the shape.
   (atom {:depth default-depth}))
 
+(defn- non-neg-int?
+  "True for non-negative integer values; nil and non-numeric values
+  fail. Mirrors the validation `re-frame.trace/configure-trace-buffer!`
+  applies at its own config boundary."
+  [x]
+  (and (integer? x) (not (neg? x))))
+
 (defn configure!
   "Update the epoch-history configuration. Supported keys:
 
@@ -71,10 +78,24 @@
 
   Absent / nil `:trace-events-keep` keeps every record's
   `:trace-events` slot (the default, pre-rf2-iegsz behaviour);
-  the cap kicks in only when explicitly configured."
+  the cap kicks in only when explicitly configured.
+
+  Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: both keys are validated
+  at the boundary. A `:depth` or `:trace-events-keep` that isn't a
+  non-negative integer is silently dropped from `opts` rather than
+  stored — a `nil` or non-numeric value would otherwise survive
+  configuration and explode at the next `record!` call when `pos?` /
+  `nat-int?` runs on the stored value. Validation mirrors the
+  pattern `re-frame.trace/configure-trace-buffer!` applies at its
+  own config boundary."
   [opts]
   (when (map? opts)
-    (swap! config merge (select-keys opts [:depth :trace-events-keep])))
+    (let [picked (select-keys opts [:depth :trace-events-keep])
+          valid  (into {}
+                       (filter (fn [[_ v]] (non-neg-int? v)))
+                       picked)]
+      (when (seq valid)
+        (swap! config merge valid))))
   nil)
 
 (defn current-config
