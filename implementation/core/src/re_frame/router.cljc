@@ -217,19 +217,39 @@
                     :reason       reason
                     :recovery     :no-recovery}))))
 
+(def ^:private empty-fx-overrides
+  "Shared sentinel returned by `apply-overrides` on the no-override hot
+  path. Reused across every override-free dispatch so the cascade
+  doesn't churn a fresh empty map per event."
+  {})
+
+(def ^:private empty-extra-interceptors
+  "Shared sentinel for the no-extra-interceptors hot path."
+  [])
+
 (defn- apply-overrides
   "Per Spec 002 §Per-frame and per-call overrides: per-frame and per-call
-  override maps merge with per-call winning. Returns the effective
-  interceptor list and fx-overrides map for this dispatch."
+  override maps merge with per-call winning. Returns
+  `{:fx-overrides :extra-interceptors}` for this dispatch.
+
+  HOT PATH: fires on every dispatch. The dominant production path is
+  override-free — most apps neither set per-frame `:fx-overrides` /
+  `:interceptors` in their `reg-frame` config nor pass per-call
+  `:fx-overrides` in the dispatch envelope. On that path we
+  short-circuit to shared empty sentinels rather than `merge`-ing
+  empty maps and `vec`-ing an empty `concat`."
   [envelope frame-record]
   (let [frame-cfg            (:config frame-record)
         per-call-fx          (:fx-overrides envelope)
-        per-frame-fx         (:fx-overrides frame-cfg {})
-        per-call-interceptors  (:interceptor-overrides envelope)
-        per-frame-interceptors (:interceptor-overrides frame-cfg {})]
-    {:fx-overrides           (merge per-frame-fx per-call-fx)
-     :interceptor-overrides  (merge per-frame-interceptors per-call-interceptors)
-     :extra-interceptors     (vec (concat (:interceptors frame-cfg [])))}))
+        per-frame-fx         (:fx-overrides frame-cfg)
+        frame-interceptors   (:interceptors frame-cfg)]
+    (if (and (nil? per-call-fx)
+             (nil? per-frame-fx)
+             (nil? frame-interceptors))
+      {:fx-overrides       empty-fx-overrides
+       :extra-interceptors empty-extra-interceptors}
+      {:fx-overrides       (merge per-frame-fx per-call-fx)
+       :extra-interceptors (vec frame-interceptors)})))
 
 (defn- validate-event!
   "Per Spec 010 §Validation order step 1 (rf2-jwm4): validate the
@@ -502,10 +522,19 @@
   "Build the effective interceptor chain and initial context for a
   resolved handler. Merges per-frame + per-call overrides (Spec 002
   §Per-frame and per-call overrides) and threads them through the
-  initial cofx map. Returns `{:full-chain :initial-ctx :fx-overrides}`."
+  initial cofx map. Returns `{:full-chain :initial-ctx :fx-overrides}`.
+
+  HOT PATH: fires on every dispatch. On the override-free path (no
+  per-frame / per-call `:fx-overrides`, no per-frame `:interceptors`),
+  `apply-overrides` returns shared empty sentinels and we reuse the
+  handler's own `:interceptors` vector directly rather than
+  `concat`-ing an empty extra-interceptors prefix and re-`vec`-ing
+  the result."
   [envelope frame frame-record handler-meta]
   (let [{:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
-        full-chain  (vec (concat extra-interceptors (:interceptors handler-meta)))
+        full-chain  (if (seq extra-interceptors)
+                      (vec (concat extra-interceptors (:interceptors handler-meta)))
+                      (:interceptors handler-meta))
         initial-ctx (assemble-initial-ctx envelope frame frame-record fx-overrides)]
     {:full-chain   full-chain
      :initial-ctx  initial-ctx
