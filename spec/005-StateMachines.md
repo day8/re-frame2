@@ -1732,6 +1732,82 @@ Symmetry between singleton and spawned:
 
 Both are event handlers. Both addressable by `dispatch`. Both visible to `(handlers :event)`. Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`.
 
+### Spawn lifecycle — ordering (rf2-k0qb3)
+
+The spawn surface is composite: `:on-spawn`, `:rf.machine/spawn`, the synthetic `[:rf.machine/spawned]`, `:start`, and the spawned actor's initial-`:entry` cascade all participate. The individual pieces are spec'd in their own subsections; this section enumerates the **strict ordering** between them — what fires when, against what context, between the moment a parent state with `:invoke` is entered and the moment the spawned child processes its first user event.
+
+Two distinct "spawn" surfaces, easy to conflate:
+
+- **`:on-spawn` — advisory action on the parent's `:data`.** Declared inside the parent's `:invoke` / `:invoke-all` spec (or on a hand-emitted `:rf.machine/spawn`). Runs **inside the transition reducer at allocate-time** against the parent's `:data` with the freshly-allocated spawned-id — `(fn [parent-data spawned-id] new-parent-data)`. NOT a child-side event. Per rf2-t07u, advisory only: the runtime tracks the id in the spawn-registry at `[:rf/spawned <parent-id> <invoke-id>]` regardless.
+- **`[:rf.machine/spawned]` — synthetic event dispatched into the new child.** Emitted by the `:rf.machine/spawn` fx handler **only when the spawn args omit `:start`**, so generic child machines have a kick-off event to handle. Reaches the child as its first event, ahead of the initial-`:entry` cascade only in resolution order — see step 6 below. Per [§Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](#synthetic-rfmachinespawned-on-spawn-rf2-ijm7).
+
+#### Ordering — singleton parent invoking a child
+
+For a parent state with `:invoke {:machine-id :child …}` (or for a hand-emitted `:rf.machine/spawn` from an action), the runtime fires the following steps in order. Steps 1–4 happen inside the **parent's** drain; steps 5–8 happen inside the **child's** drain (a separate event-handler boundary).
+
+1. **Parent enters the `:invoke`-bearing state.** The transition's entry cascade reaches the state-node; the desugared `:rf.invoke/spawn-<state>` action (per [§Desugaring rules](#desugaring-rules)) is appended to the cascade's action queue.
+2. **`:on-spawn` runs against the parent's `:data`.** The pure spawn-id allocator picks the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the parent's snapshot root; the `:on-spawn` callback (when declared) folds the new id into `:data` via `(fn [parent-data id] new-parent-data)`. This step is **purely a `:data` update** — no fx is emitted by `:on-spawn` itself.
+3. **`:rf.machine/spawn` fx is emitted** into the parent transition's `:fx` vector with the allocated spawned-id, the resolved child `:data`, and (for declarative `:invoke`) the stamped `:rf/parent-id` / `:rf/invoke-id` keys.
+4. **Parent's drain commits.** The parent's post-action snapshot is written to `[:rf/machines <parent-id>]` and the `:fx` vector drains through the fx pipeline. Up to this point the child does NOT exist as an event handler.
+5. **`:rf.machine/spawn` fx handler runs.** The child's spec is resolved (registered `:machine-id` or inline `:definition`); `synthesise-initial-snapshot` produces the child's initial snapshot with `:rf/bootstrap-pending? true`, the runtime-stamped `:data` keys (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id` — per [§Runtime stamps](#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7)), and the user-supplied initial `:data` merged on top; the snapshot is installed at `[:rf/machines <spawned-id>]`; the child's event handler is registered at the spawned-id. The runtime spawn-registry slot at `[:rf/spawned <parent-id> <invoke-id>]` is written for the declarative-`:invoke` case.
+6. **Child's first event is dispatched** — `[<spawned-id> <:start arg>]` when the spawn args carried `:start`, otherwise the synthetic `[<spawned-id> [:rf.machine/spawned]]` (per rf2-ijm7). The two paths are mutually exclusive; the child receives exactly one of the two as its first event, never both.
+7. **Child's initial-entry cascade fires** (per [§Initial-state `:entry` fires on machine bootstrap (rf2-0z73)](#initial-state-entry-fires-on-machine-bootstrap-rf2-0z73)). For a flat child the single initial state's `:entry` runs; for a compound child every `:entry` along the initial chain runs shallowest-first. This cascade runs **before** the first event's `:on` lookup, so `:entry`-emitted `:fx` is concatenated ahead of the first event's transition fx. `:rf/bootstrap-pending?` is cleared by the same drain.
+8. **Child processes the first event.** The event vector arrived in step 6 is now resolved through the child's `:on` map (deepest-wins per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). For the synthetic `[:rf.machine/spawned]` path with no matching handler this resolves as a benign no-op (`:rf.warning/machine-unhandled-event` is NOT emitted for `:rf.machine/spawned` — it's the canonical kick-off shape).
+
+The same skeleton applies to `:invoke-all`'s N children (per [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all)) with steps 2–5 fanning out once per child and a single join-bookkeeping write at `[:rf/spawned <parent-id> <invoke-all-id>]`.
+
+#### Worked walkthrough
+
+```clojure
+;; Parent
+{:authenticating
+ {:invoke {:machine-id :auth-flow
+           :data       (fn [snap _] {:credentials (-> snap :data :form)})
+           :on-spawn   (fn [d id] (assoc d :auth-actor id))}
+  :on     {:auth/succeeded :authenticated
+           :auth/failed    :idle}}}
+
+;; Child (registered separately)
+(rf/reg-machine :auth-flow
+  {:initial :running
+   :data    {}
+   :states {:running {:entry :fire-request
+                      :on    {:server-ok {:target :done}}}
+            :done    {:final? true :output-key :token}}
+   :actions {:fire-request (fn [data _] {:fx [[:http/post …]]})}})
+```
+
+Trace of a `[:submit]` event landing on the parent in `:idle`:
+
+1. Parent transitions `:idle → :authenticating`. Entry cascade reaches `:authenticating`.
+2. Allocator picks `:auth-flow#0`; `:on-spawn` writes `{:auth-actor :auth-flow#0}` into the parent's `:data`.
+3. Parent's `:fx` accumulates `[:rf.machine/spawn {:machine-id :auth-flow :rf/parent-id :login :rf/invoke-id [:authenticating] …}]`.
+4. Parent commits — `[:rf/machines :login]` updated; the spawn fx drains.
+5. Spawn fx synthesises `:auth-flow#0`'s initial snapshot at `[:rf/machines :auth-flow#0]` with `:state :running`, `:data {:rf/self-id :auth-flow#0 :rf/parent-id :login :rf/invoke-id [:authenticating] :credentials …}`, `:rf/bootstrap-pending? true`; the spawn-registry slot at `[:rf/spawned :login [:authenticating]]` is written to `:auth-flow#0`.
+6. Spawn-args lacked `:start`, so the synthetic `[:auth-flow#0 [:rf.machine/spawned]]` is dispatched.
+7. The child's drain runs the initial-entry cascade: `:running`'s `:entry :fire-request` action emits the HTTP fx. `:rf/bootstrap-pending?` clears.
+8. `[:rf.machine/spawned]` resolves through `:running`'s `:on` map — no match, no-op (no warning).
+
+The contract on the trace stream — every step above corresponds to a distinct externally-observable event:
+
+| Step | Trace |
+|---|---|
+| 1 | `:rf.machine/transition` (parent) |
+| 2 | (no separate trace — `:on-spawn` runs inside the transition reducer) |
+| 3 | (the fx is in the parent's `:fx` vector, visible as `:rf/fx` once the drain emits it) |
+| 4 | `:rf.machine.lifecycle/commit` (parent) |
+| 5 | `:rf.machine.lifecycle/spawned` (child) — per [009](009-Instrumentation.md) |
+| 6 | `:rf/event` (the synthetic kick-off) |
+| 7 | `:rf.machine.lifecycle/bootstrap` (child) + per-action traces |
+| 8 | `:rf.machine.event/unhandled-no-op` (the `:rf.machine/spawned` resolution, suppressed warning) |
+
+#### Why this matters
+
+The ordering is what lets two patterns compose without surprises:
+
+- **Initial-entry `:entry` actions can read the runtime-stamped `:data` keys.** Per step 5, the spawn-fx writes `:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id` into the child's `:data` BEFORE step 7 fires the `:entry` cascade — so an `:entry` action can `(get data :rf/parent-id)` to address its parent without the parent having to thread the id through any other mechanism.
+- **`:start` is for handing the child a one-shot event payload.** When the child needs a specific first event (e.g. `[:begin "/some/url"]`), the parent supplies `:start`; when the child knows its job from initial `:data` alone, the parent omits `:start` and the synthetic `[:rf.machine/spawned]` is just a benign kick-off — the real work happens inside the initial-`:entry` cascade. New code prefers `:entry` over `:on :rf.machine/spawned` (per the rf2-0z73 note in the synthetic-event subsection).
+
 ### Spawning from inside an action (the common case)
 
 ```clojure
