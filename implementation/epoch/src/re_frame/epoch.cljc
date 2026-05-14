@@ -120,6 +120,14 @@
 ;; to the back; the front evicts when the buffer exceeds the configured
 ;; depth.
 
+;; Forward-declare `capture-buffers` (the in-flight per-frame trace
+;; capture, defonce'd in the per-cascade capture section below) so
+;; `clear-history!` can wipe it in lockstep with the ring buffer.
+;; Per rf2-v0jwt: fixtures that sequence runs need a fresh capture
+;; state per fixture; a stale buffer from a previous fixture would
+;; otherwise be harvested into the next fixture's first cascade.
+(declare capture-buffers)
+
 (defonce ^:private histories
   (atom {}))
 
@@ -189,9 +197,20 @@
   (or (get @histories frame-id) []))
 
 (defn clear-history!
-  "Drop every recorded epoch for every frame. Test fixtures use this."
+  "Drop every recorded epoch for every frame. Test fixtures use this.
+
+  Per rf2-v0jwt: also drops any in-flight per-frame capture buffer.
+  Conformance / unit-test fixtures that sequence runs need a fresh
+  capture state per fixture so the halted-cascade record commits
+  observe THIS fixture's drain only — a buffer left over from a
+  previous fixture's mid-flight emit (e.g. a `:frame/created` event
+  whose drain didn't fire `harvest-buffer!`) would otherwise be
+  picked up by the next fixture's first cascade."
   []
   (reset! histories {})
+  ;; Forward-declared at the top of the file; the defonce lands in
+  ;; the per-cascade capture section further down.
+  (reset! capture-buffers {})
   nil)
 
 (defn- clear-frame-history!
@@ -298,27 +317,36 @@
           ;; are isolated. Continue notifying.
           nil)))))
 
-;; Forward-declare `capture-buffers` for `on-frame-destroyed!` below.
-;; The defonce lands in the per-cascade capture section further down
-;; (kept there because every other consumer — `buffer-event!`,
-;; `harvest-buffer!`, `capture-event!` — co-locates with the defonce).
-;; The destroy hook also needs to clear stragglers (rf2-zzper), but the
-;; destroy-hook section reads more clearly here alongside
-;; `observed-frames-by-cb` cleanup, so we forward-declare rather than
-;; re-ordering the whole capture section.
-(declare capture-buffers)
+;; Forward-declare `build-record` for `on-frame-destroyed!` below;
+;; the `defn-` lands in the record-assembly section. Per rf2-v0jwt
+;; the destroy hook must commit a `:halted-destroy` partial record
+;; before clearing the in-flight capture buffer, so it needs visibility
+;; into the record builder. `capture-buffers` is already forward-
+;; declared above (for `clear-history!`'s lockstep wipe).
+(declare build-record)
 
 (defn on-frame-destroyed!
-  "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
+  "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
+  and rf2-v0jwt §Outcomes (`:halted-destroy`):
 
-    1. Emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb whose
+    1. Mid-drain destroy detection — if `capture-buffers[frame-id]`
+       holds buffered events at destroy time, this is a mid-drain
+       destroy (the handler that called `destroy-frame!` was running
+       inside the drain; its trace events were captured into the
+       in-flight buffer). Notify epoch listeners with a partial
+       `:halted-destroy` record carrying the cascade's traces. The
+       record is NOT appended to the ring buffer — step 3 wipes the
+       ring buffer for the destroyed frame regardless. Devtools that
+       care about destroyed cascades receive the record via the
+       listener fan-out before the ring buffer is dropped.
+    2. Emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb whose
        observed-frames set contains `frame-id`, then drop `frame-id`
        from each cb's entry so a re-registration of a same-keyed frame
        re-arms the silencing trace for a future destroy.
-    2. Drop the destroyed frame's per-frame ring buffer so subsequent
+    3. Drop the destroyed frame's per-frame ring buffer so subsequent
        `(rf/epoch-history frame-id)` calls return the empty vector
        (the read-empty shape the contract commits to).
-    3. Drop any in-flight capture buffer entry for `frame-id`
+    4. Drop any in-flight capture buffer entry for `frame-id`
        (rf2-zzper) so a mid-drain destroy can't leak its pre-destroy
        events into the first cascade of the next same-keyed frame.
 
@@ -330,6 +358,38 @@
   absent."
   [frame-id]
   (when interop/debug-enabled?
+    ;; Step 1: mid-drain destroy detection. The capture-buffer holds
+    ;; every emit tagged with this frame, including non-cascade emits
+    ;; that fire OUTSIDE a drain (e.g. `:frame/created` at reg-frame
+    ;; time). Distinguish a real mid-drain destroy from
+    ;; registration-time tagalongs by gating on the presence of an
+    ;; `:event/run-start` emit — that is the canonical "a cascade
+    ;; started inside this drain" signal. When present, commit a
+    ;; partial `:halted-destroy` record so devtools (Causa,
+    ;; re-frame-pair2) receive the cascade context for the destroyed-
+    ;; mid-drain case. We can't read the frame's container here
+    ;; (destroy-frame!'s step 6 already dissoc'd the frame record);
+    ;; the partial record's `:db-before` / `:db-after` slots are nil
+    ;; — the schema allows `:any`, and consumers tolerate the absent
+    ;; state given `:outcome :halted-destroy` signals the destroy
+    ;; context. The record is delivered to listeners only — the ring
+    ;; buffer gets wiped in step 3.
+    (let [buffered-events  (get @capture-buffers frame-id)
+          in-cascade?      (some (fn [ev]
+                                   (and (= :event (:op-type ev))
+                                        (= :event (:operation ev))
+                                        (= :run-start (-> ev :tags :phase))))
+                                 buffered-events)]
+      (when in-cascade?
+        (let [record (build-record frame-id nil nil buffered-events
+                                   :halted-destroy
+                                   {:operation :rf.frame/destroyed-mid-drain})]
+          (trace/emit! :rf.epoch :rf.epoch/snapshotted
+                       {:frame    frame-id
+                        :epoch-id (:epoch-id record)
+                        :event-id (:event-id record)
+                        :outcome  :halted-destroy})
+          (notify-listeners! record))))
     (let [silenced-cbs (->> @observed-frames-by-cb
                             (keep (fn [[cb-id frames]]
                                     (when (contains? frames frame-id) cb-id)))
@@ -344,17 +404,12 @@
     ;; by reg-frame, so the ring buffer for the new same-keyed frame
     ;; starts empty per Spec 002 §reset-frame.)
     (swap! histories dissoc frame-id)
-    ;; Per rf2-zzper: also drop any in-flight capture buffer. The
-    ;; router's `discard-buffer!` call handles the cascade-abort path
-    ;; for routine drains, but a destroy that races a mid-flight
-    ;; drain (e.g. a hot-reload firing while the drain has buffered
-    ;; events but has not yet settled) would otherwise leave a stale
-    ;; partial buffer hanging on `frame-id`. The next cascade that
-    ;; registers a same-keyed frame would then harvest those
-    ;; pre-destroy events as belonging to its first record — a silent
-    ;; cross-contamination from the destroyed frame's previous life.
-    ;; Drop the buffer entry here as a belt-and-braces guarantee
-    ;; symmetric to the ring-buffer drop above.
+    ;; Per rf2-zzper: also drop any in-flight capture buffer. A
+    ;; mid-drain destroy that surfaces a halted record above leaves
+    ;; the buffer behind (the partial-record commit doesn't harvest);
+    ;; explicitly clear here so the next cascade against a same-keyed
+    ;; frame starts from an empty buffer. Symmetric to the ring-buffer
+    ;; drop above.
     (swap! capture-buffers dissoc frame-id)))
 
 ;; ---- per-cascade trace capture --------------------------------------------
@@ -418,6 +473,7 @@
     :rf.epoch/restore-missing-handler
     :rf.epoch/restore-version-mismatch
     :rf.epoch/restore-during-drain
+    :rf.epoch/restore-non-ok-record
     ;; reset-frame-db! success + its two failure modes (Tool-Pair §Pair-
     ;; tool writes, rf2-zq55). All three fire after the synthetic record
     ;; has been built and the cascade-buffer (if any) has been harvested.
@@ -600,64 +656,109 @@
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn- build-record
-  [frame-id db-before db-after events]
-  (let [{:keys [event-id event]} (find-trigger-event events)]
-    {:epoch-id      (next-epoch-id)
-     :frame         frame-id
-     :committed-at  (interop/now-ms)
-     :event-id      event-id
-     :trigger-event event
-     :db-before     db-before
-     :db-after      db-after
-     ;; Per Spec 010 §Schema digest — pinned at record time so a later
-     ;; restore can compare 'recorded vs current' digests in the
-     ;; :rf.epoch/restore-schema-mismatch trace tags. Optional per
-     ;; Spec-Schemas §:rf/epoch-record (a host without a schema layer
-     ;; produces nil; consumers tolerate the absent slot).
-     :schema-digest (current-schema-digest frame-id)
-     :trace-events  events
-     :sub-runs      (project-sub-runs events)
-     :renders       (project-renders events)
-     :effects       (project-effects events)}))
+  ([frame-id db-before db-after events]
+   (build-record frame-id db-before db-after events :ok nil))
+  ([frame-id db-before db-after events outcome halt-reason]
+   ;; Per rf2-v0jwt §Outcomes — :outcome is required and pins the
+   ;; drain-boundary outcome (:ok / :halted-depth / :halted-destroy /
+   ;; :halted-handler-exception); :halt-reason is a structured
+   ;; descriptor populated on halt paths, absent on :ok. The schema
+   ;; in Spec-Schemas §:rf/epoch-record is the canonical pin.
+   (let [{:keys [event-id event]} (find-trigger-event events)]
+     (cond-> {:epoch-id      (next-epoch-id)
+              :frame         frame-id
+              :committed-at  (interop/now-ms)
+              :event-id      event-id
+              :trigger-event event
+              :db-before     db-before
+              :db-after      db-after
+              :outcome       outcome
+              ;; Per Spec 010 §Schema digest — pinned at record time so a later
+              ;; restore can compare 'recorded vs current' digests in the
+              ;; :rf.epoch/restore-schema-mismatch trace tags. Optional per
+              ;; Spec-Schemas §:rf/epoch-record (a host without a schema layer
+              ;; produces nil; consumers tolerate the absent slot).
+              :schema-digest (current-schema-digest frame-id)
+              :trace-events  events
+              :sub-runs      (project-sub-runs events)
+              :renders       (project-renders events)
+              :effects       (project-effects events)}
+       halt-reason (assoc :halt-reason halt-reason)))))
 
 ;; ---- drain-settle hook ----------------------------------------------------
 
 (defn settle!
-  "Hook called by the router when a drain reaches an empty queue. Per
-  Tool-Pair §Time-travel: 'every drain-settle (queue empty) appends an
-  epoch-record. Atomic; partial drains don't record.'
+  "Hook called by the router on every drain boundary — clean settle AND
+  halts. Per Tool-Pair §Time-travel and rf2-v0jwt §Outcomes.
+
+  Arities:
+    (settle! frame-id db-before db-after)
+      Clean drain-settle. `:outcome` is `:ok`. Equivalent to passing
+      `:ok` as `outcome` explicitly. Skips recording when the captured
+      buffer is empty (a truly empty cascade — likely a rejected
+      dispatch — is degenerate and would emit a misleading record).
+    (settle! frame-id db-before db-after outcome halt-reason)
+      Drain-boundary commit with explicit outcome. `outcome` is one of
+      `:ok` / `:halted-depth` / `:halted-destroy` /
+      `:halted-handler-exception`; `halt-reason` is a structured
+      descriptor populated on halt paths (nil on `:ok`). For halt
+      outcomes the record is committed even when the captured buffer
+      is empty — devtools want the cascade context surfaced regardless,
+      and the absent `:event-id` / `:trigger-event` slots on an
+      empty-buffer halt are tolerated by the open-map schema (the
+      `find-trigger-event` walk returns nil → those slots are nil).
 
   `db-before` is the app-db value snapshotted before the cascade began;
-  `db-after` is the value after the drain settled. The captured trace
-  buffer is harvested here and projected into the record."
-  [frame-id db-before db-after]
-  (when interop/debug-enabled?
-    (let [events (harvest-buffer! frame-id)]
-      ;; A truly empty cascade (no events captured for this frame) is
-      ;; a degenerate case — likely a rejected dispatch. Skip recording
-      ;; rather than emit a misleading record.
-      (when (seq events)
-        (let [record (build-record frame-id db-before db-after events)]
-          (record! record)
-          (trace/emit! :rf.epoch :rf.epoch/snapshotted
-                       {:frame    frame-id
-                        :epoch-id (:epoch-id record)
-                        :event-id (:event-id record)})
-          (notify-listeners! record))))))
+  `db-after` is the value the runtime settled to — equal to `db-before`
+  for atomic-rollback halts (`:halted-depth`), the live container value
+  for the destroy path (`:halted-destroy`), the post-drain value for
+  `:ok`. The captured trace buffer is harvested here and projected into
+  the record.
+
+  Emits `:rf.epoch/snapshotted` with a `:outcome` tag so trace listeners
+  can discriminate clean from halted boundaries without inspecting the
+  epoch-history vector. Listeners (`register-epoch-cb!`) receive every
+  record regardless of outcome."
+  ([frame-id db-before db-after]
+   (settle! frame-id db-before db-after :ok nil))
+  ([frame-id db-before db-after outcome halt-reason]
+   (when interop/debug-enabled?
+     (let [events (harvest-buffer! frame-id)]
+       ;; Empty-buffer policy (consistent across outcomes): an empty
+       ;; capture buffer means no cascade context was recorded for
+       ;; this frame — skip emission rather than commit a record with
+       ;; no :event-id / :trigger-event. For halt outcomes, the
+       ;; cooperating seam (e.g. on-frame-destroyed harvesting events
+       ;; in the mid-drain-destroy path) emits the partial record;
+       ;; this seam fires when a router-only halt path (e.g. depth-
+       ;; exceeded with an in-flight cascade) holds the events.
+       (when (seq events)
+         (let [record (build-record frame-id db-before db-after
+                                    events outcome halt-reason)]
+           (record! record)
+           (trace/emit! :rf.epoch :rf.epoch/snapshotted
+                        {:frame    frame-id
+                         :epoch-id (:epoch-id record)
+                         :event-id (:event-id record)
+                         :outcome  outcome})
+           (notify-listeners! record)))))))
 
 (defn- discard-buffer!
-  "Drop the in-flight capture buffer for frame-id. Used when a drain
-  is aborted (e.g. depth-exceeded, frame destroyed mid-drain) to
-  avoid leaking a partial buffer into the next cascade. No record
-  is committed.
+  "Drop the in-flight capture buffer for frame-id WITHOUT committing a
+  record. Used by routes that intentionally suppress the cascade
+  surface (e.g. the rf2-zzper destroy hook's belt-and-braces buffer
+  clear, where on-frame-destroyed runs before the drain loop's halt
+  path observes the destroy).
 
-  Per rf2-hul9q: the only consumer is `router.cljc`'s drain-abort
-  path via the `:epoch/discard-buffer!` late-bind hook (see the
-  registration at the foot of this namespace). The fn itself takes
-  no direct callers, so the visibility stays `defn-` to keep the
-  late-bind seam the sole public access path — matches the
-  `capture-event!` pattern used elsewhere in this ns for hook-only
-  producers."
+  Per rf2-hul9q: the only consumer is the late-bind seam, surfaced
+  through `:epoch/discard-buffer!`. The fn itself takes no direct
+  callers, so the visibility stays `defn-` to keep the late-bind
+  seam the sole public access path.
+
+  Per rf2-v0jwt: the router's halt paths no longer route through this
+  hook — they call `settle!` with a halt outcome so a `:halted-*`
+  epoch record is committed. `discard-buffer!` remains for the
+  destroy-hook belt-and-braces path."
   [frame-id]
   (when interop/debug-enabled?
     (harvest-buffer! frame-id))
@@ -847,7 +948,7 @@
       :frame frame-id}]))
 
 (defn- check-restore-preconditions!
-  "Validate the six documented preconditions for restoring `frame-id`
+  "Validate the seven documented preconditions for restoring `frame-id`
   to `epoch-id`. Returns:
 
     [:ok epoch]  — all checks passed; `epoch` is the resolved history
@@ -885,6 +986,19 @@
            {:frame        frame-id
             :epoch-id     epoch-id
             :history-size (count history)}]
+
+          ;; (3a) Halted-cascade target? Per rf2-v0jwt: an epoch whose
+          ;; :outcome is not :ok records partial state the cascade
+          ;; never settled to, so it is not a valid restore target.
+          ;; Refuse before the schema / handler / version checks so
+          ;; the failure surfaces with the actual halt context, not
+          ;; a downstream consequence of the partial db.
+          (not= :ok (get epoch :outcome :ok))
+          [:fail :rf.epoch/restore-non-ok-record
+           {:frame       frame-id
+            :epoch-id    epoch-id
+            :outcome     (:outcome epoch)
+            :halt-reason (:halt-reason epoch)}]
 
           :else
           (let [db-target (:db-after epoch)]
@@ -947,6 +1061,10 @@
     :rf.error/no-such-handler          (kind :frame) — frame not registered
     :rf.epoch/restore-during-drain     — called while drain is in flight
     :rf.epoch/restore-unknown-epoch    — epoch-id not in current history
+    :rf.epoch/restore-non-ok-record    — target epoch's :outcome is not :ok
+                                         (per rf2-v0jwt — halted-cascade
+                                         records carry partial state and
+                                         are not valid restore targets)
     :rf.epoch/restore-schema-mismatch  — db-after no longer validates
     :rf.epoch/restore-missing-handler  — referenced registration absent
     :rf.epoch/restore-version-mismatch — machine snapshot version drift
