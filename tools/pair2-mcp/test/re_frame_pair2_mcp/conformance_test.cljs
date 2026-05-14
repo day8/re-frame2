@@ -1,5 +1,5 @@
 (ns re-frame-pair2-mcp.conformance-test
-  "Per rf2-xkxbv (audit rf2-7hie3 §TE3). Drives the twelve-tool catalogue
+  "Per rf2-xkxbv (audit rf2-7hie3 §TE3). Drives the pair2-mcp tool catalogue
   through `tools/invoke` against a stub `conn` and asserts the recorded
   wire-shape EDN — the artefact's contract suite, sibling to:
 
@@ -242,7 +242,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def corpus
-  "Inline conformance corpus for pair2-mcp's twelve-tool catalogue.
+  "Inline conformance corpus for pair2-mcp's tool catalogue.
 
   Coverage matrix today (rf2-xkxbv, rf2-fnpqg):
 
@@ -582,7 +582,7 @@
 ;;
 ;; Why one deftest, not one per fixture: matches the framework-side
 ;; runners (`ssr-conformance-test`, `machines-conformance-test`); the
-;; corpus is a unit of coverage, not twelve units. Failure reports name
+;; corpus is a unit of coverage, not N units. Failure reports name
 ;; each failing fixture by `:fixture/id` so a CI failure is
 ;; self-locating without forcing the runner to declare N `deftest`s
 ;; that would expand at compile time as the corpus grows.

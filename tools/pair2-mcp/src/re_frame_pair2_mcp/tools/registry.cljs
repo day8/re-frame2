@@ -67,6 +67,7 @@
             [re-frame-pair2-mcp.tools.subscribe :as subscribe]
             [re-frame-pair2-mcp.tools.unsubscribe :as unsubscribe]
             [re-frame-pair2-mcp.tools.subscription-info :as subscription-info]
+            [re-frame-pair2-mcp.tools.handler-meta :as handler-meta]
             [re-frame-pair2-mcp.tools.get-pair2-instructions :as get-pair2-instructions]
             [re-frame-pair2-mcp.tools.descriptors-data :as data]))
 
@@ -87,8 +88,9 @@
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. Eleven of the twelve
-  registered tools ignore `extra` (only `subscribe` consults it);
+  3-arity convention `(fn [conn args _extra])`. Thirteen of the
+  fourteen registered tools ignore `extra` (only `subscribe`
+  consults it);
   this adapter collapses the verbatim `(fn [conn args _extra]
   (per-tool-fn conn args))` boilerplate at the call sites.
 
@@ -109,17 +111,16 @@
 ;; ---------------------------------------------------------------------------
 
 (def tools
-  "The twelve-tool catalogue. Single source of truth for the
+  "The fourteen-tool catalogue. Single source of truth for the
   `tools/list` descriptors, the `tools/call` dispatcher, and the
   per-tool cache opt-in. See ns docstring for the entry shape.
 
   Each `:handler` is a thin late-binding wrapper around the per-tool
-  fn — `ignoring-extra` for the eleven tools that ignore `extra`, or
-  an inline `(fn [conn args extra] ...)` for `subscribe` (the
-  twelfth tool, which uses `extra` for its progress-callback
-  plumbing). Both shapes resolve the underlying fn per-call so test
-  seams that `set!` the var (rf2-nogok) take effect on the next
-  dispatch."
+  fn — `ignoring-extra` for the thirteen tools that ignore `extra`,
+  or an inline `(fn [conn args extra] ...)` for `subscribe` (which
+  uses `extra` for its progress-callback plumbing). Both shapes
+  resolve the underlying fn per-call so test seams that `set!` the
+  var (rf2-nogok) take effect on the next dispatch."
   [{:name       "discover-app"
     :handler    (ignoring-extra #(discover-app/discover-app %1 %2))
     :cacheable? true
@@ -164,6 +165,14 @@
     :handler    (ignoring-extra #(subscription-info/subscription-info-tool %1 %2))
     :cacheable? false
     :descriptor data/subscription-info}
+   {:name       "handler-meta"
+    :handler    (ignoring-extra #(handler-meta/handler-meta-tool %1 %2))
+    :cacheable? true
+    :descriptor data/handler-meta}
+   {:name       "registry-list"
+    :handler    (ignoring-extra #(handler-meta/registry-list-tool %1 %2))
+    :cacheable? true
+    :descriptor data/registry-list}
    {:name       "get-pair2-instructions"
     :handler    (ignoring-extra #(get-pair2-instructions/get-pair2-instructions-tool %1 %2))
     :cacheable? true

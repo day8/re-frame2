@@ -351,6 +351,59 @@
                               :build  {:type "string"}}
                  :additionalProperties false}})
 
+(def handler-meta
+  {:name "handler-meta"
+   :description (str "Return the registration-metadata map for a registered "
+                     "handler — source-coord (file/line/column/ns), :doc, :tags, "
+                     "and any custom slots emitted by the reg-* macro. The wire "
+                     "pipeline (rf2-cibp8) decorates the :source-coord map with "
+                     "an :rf.source/uri string the AI host renders as a "
+                     "clickable jump-to-editor link. "
+                     "Use this when you know an id and want to find its "
+                     "definition without a wide-authority eval-cljs round-trip "
+                     "— `where is :user/login registered?`, `what does sub "
+                     ":current-user look like?`, `which file owns the :navigate "
+                     "fx?`. Supported kinds: event, sub, fx, cofx, view, frame, "
+                     "machine. The `machine` kind routes through "
+                     "(rf/machine-meta id) (Spec 005 §Querying machines); the "
+                     "other six route through (rf/handler-meta kind id). "
+                     "Returns `{:ok? true :kind k :id i ...meta...}` on a hit "
+                     "or `{:ok? false :reason :not-registered :kind k :id i}` "
+                     "when no slot matches.")
+   :typicalTokens 400
+   :inputSchema {:type "object"
+                 :properties {:kind {:type "string"
+                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, machine."
+                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "machine"]}
+                              :id   {:type "string"
+                                     :description (str "EDN-encoded id, e.g. \":user/login\". For "
+                                                       "composite-key subs, pass the vector form "
+                                                       "as a string, e.g. \"[:rf/composite :x]\".")}
+                              :build {:type "string"}}
+                 :required ["kind" "id"]
+                 :additionalProperties false}})
+
+(def registry-list
+  {:name "registry-list"
+   :description (str "Return every registered id under a kind. The discovery "
+                     "surface — agents call this first to find out what's "
+                     "registered, then `handler-meta` to drill into a specific "
+                     "id. Supported kinds: event, sub, fx, cofx, view, frame, "
+                     "machine. The `machine` kind lists every event handler "
+                     "flagged `:rf/machine? true` via (rf/machines); the other "
+                     "six lift the id vector off the registrar's per-kind map. "
+                     "Returns `{:ok? true :kind k :ids [...] :count n}`. The "
+                     "id vector is sorted (string / keyword / symbol ordering) "
+                     "so the list shape is stable across calls.")
+   :typicalTokens 800
+   :inputSchema {:type "object"
+                 :properties {:kind {:type "string"
+                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, machine."
+                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "machine"]}
+                              :build {:type "string"}}
+                 :required ["kind"]
+                 :additionalProperties false}})
+
 (def get-pair2-instructions
   {:name "get-pair2-instructions"
    :description (str "Return the pair2-mcp agent-onboarding text (rf2-fnpqg): tool catalogue, EDN posture, "
