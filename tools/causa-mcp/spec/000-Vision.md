@@ -236,24 +236,20 @@ The defining property of Causa-MCP — and a first-class
 differentiator against generalist agent surfaces like Chrome
 DevTools MCP's `evaluate_script` — is that **every dispatch,
 every `reset-frame-db`, every `restore-epoch` issued through this
-server is tagged `:origin :causa-mcp` on the trace bus**. The
-agent driving the server leaves an audit trail; its mutations
-are filterable, separable from the user's, and distinguishable
-from `:app` / `:pair` / `:story` / `:test` mutations in the same
-session.
+server is tagged `:origin :causa-mcp` on the trace bus**. Chrome's
+`evaluate_script` is untagged; an agent that hand-rolls
+`js/window.dispatch(...)` is indistinguishable in the trace from
+a real user click. Causa-MCP's tag inversion makes the
+post-incident question "what did the agent do?" answerable via a
+single filter.
 
-Chrome's `evaluate_script` is untagged: an agent that hand-rolls
-`js/window.dispatch(...)` is **indistinguishable** in the trace
-from a real user click. Causa-MCP's tag inversion
-(`:origin :causa-mcp` by default; opt out at your peril) means a
-post-incident audit can ask "what did the agent do?" and get a
-complete, filterable answer via
-`get-trace-buffer {:filter {:origin :causa-mcp}}`.
-
-The origin tagging is **the convention**, not a suggestion —
-captured as a load-bearing principle in
-[`Principles.md`](./Principles.md) and locked in
-[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
+The discipline (default-on, per-call opt-out, scope, the full
+`:app` / `:pair` / `:causa-mcp` / `:story` / `:test` vocabulary,
+worked trace-filter examples) lives in
+[`Principles.md` §"Origin tagging is the convention, not a
+suggestion"](./Principles.md#origin-tagging-is-the-convention-not-a-suggestion);
+the lock is
+[`DESIGN-RATIONALE.md` Lock #4](./DESIGN-RATIONALE.md#lock-4--origin-tagging-is-the-convention).
 
 ## Relationship to Causa
 
@@ -340,12 +336,12 @@ Captured as Lock #1 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 
 ## Why a server, not an IDE plugin
 
-MCP is the agent-host's contract for tool integration. By
-implementing MCP over stdio, this artefact works with **every**
-MCP-capable host (Claude Code, Cursor, Copilot, etc.) without
-per-host plumbing.
-
-Captured as Lock #2 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
+MCP is the agent-host's contract for tool integration — one
+stdio JSON-RPC server works with every MCP-capable host (Claude
+Code, Cursor, Copilot, etc.) without per-host plumbing. The
+tie-breaker and the rejected alternatives live at
+[`Principles.md` §"MCP, not an IDE plugin"](./Principles.md#mcp-not-an-ide-plugin);
+captured as Lock #2 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 
 ## Status
 
