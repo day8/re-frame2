@@ -8,6 +8,10 @@ The good news: there's exactly one primitive (`->interceptor`), one shape (a map
 
 ## The sandwich
 
+<p align="center"><img src="../images/guide/interceptors.png" alt="The interceptor pipeline: a chain of :before functions runs on the way in, the handler runs in the middle, and the chain of :after functions runs on the way out — in reverse order." width="700"></p>
+
+*The interceptor pipeline (ported from v1).* `:before` functions stack on the way in; the handler runs in the middle; `:after` functions unwind on the way out in reverse declaration order. Per-frame interceptors are new in re-frame2 — every frame can carry its own pipeline — but the per-interceptor `:before` / `:after` shape and the reverse-order unwind are unchanged.
+
 A handler does one thing: takes the current state plus an event, produces a new state plus effects. That's the meat.
 
 An **interceptor** wraps a handler from the outside. Each interceptor is a pair of functions — `:before`, which runs *on the way in*, and `:after`, which runs *on the way out*. The handler is the filling. Each interceptor is a pair of bread slices: one slice goes on top, one on bottom, before and after the meat.
