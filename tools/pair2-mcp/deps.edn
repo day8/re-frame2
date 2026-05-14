@@ -69,7 +69,12 @@
          ;; Clojars release that matches the alive 2026 codebase
          ;; (project.clj declares 0.2.2 but the master HEAD is past it).
          day8/de-dupe              {:git/url "https://github.com/day8/de-dupe.git"
-                                    :git/sha "a2be701ddf42d94218116eda9e9ca822cef035bc"}}
+                                    :git/sha "a2be701ddf42d94218116eda9e9ca822cef035bc"}
+         ;; rf2-try1x — silent-on-success reporter. Lives on the
+         ;; production classpath so shadow-cljs's `:server-test` build
+         ;; picks up `re-frame.test-quiet.shadow-node`. The artefact is
+         ;; test-only and never published.
+         day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}}
 
  :aliases
  {:test {:extra-paths ["test"]

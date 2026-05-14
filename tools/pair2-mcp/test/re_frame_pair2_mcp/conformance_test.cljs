@@ -578,17 +578,14 @@
               (let [all     @results
                     passed  (filter :passed? all)
                     failed  (remove :passed? all)]
-                (println)
-                (println "pair2-mcp conformance corpus:")
-                (println "  total: " (count all))
-                (println "  passed:" (count passed))
-                (println "  failed:" (count failed))
-                (when (seq passed)
-                  (println)
-                  (println "Passing:")
-                  (doseq [p passed]
-                    (println "  " (:fixture-id p))))
+                ;; Silent-on-success (rf2-try1x): summary prints only
+                ;; on failure.
                 (when (seq failed)
+                  (println)
+                  (println "pair2-mcp conformance corpus:")
+                  (println "  total: " (count all))
+                  (println "  passed:" (count passed))
+                  (println "  failed:" (count failed))
                   (println)
                   (println "Failures:")
                   (doseq [f failed]

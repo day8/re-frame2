@@ -68,9 +68,11 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {io.github.cognitect-labs/test-runner
+         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+                       day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
+                       io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Clojars deploy. Mirrors implementation/adapters/reagent/deps.edn
   ;; — the release workflow rewrites :local/root → :mvn/version before

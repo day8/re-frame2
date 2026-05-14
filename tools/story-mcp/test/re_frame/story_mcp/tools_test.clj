@@ -977,8 +977,14 @@
     (let [in-text (str "{this is garbage\n"
                        "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}\n")
           reader (java.io.BufferedReader. (java.io.StringReader. in-text))
-          sw     (java.io.StringWriter.)]
-      (server/run-loop! reader sw)
+          sw     (java.io.StringWriter.)
+          ;; Silent-on-success (rf2-try1x): the server logs the parse
+          ;; error to *err* per MCP stdio rules; capture it into a
+          ;; throwaway buffer so the green test run stays at the
+          ;; canonical 3-line shape.
+          err    (java.io.StringWriter.)]
+      (binding [*err* err]
+        (server/run-loop! reader sw))
       (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
             frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
         (is (= 2 (count frames)))

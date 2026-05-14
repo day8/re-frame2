@@ -261,10 +261,10 @@
                 (is true "`clojure -P` succeeded — alpha artefacts are publicly resolvable")
 
                 (re-find #"Could not find artifact day8(:|/)re-frame2" out)
-                (println (str "  [skip] `clojure -P` cannot find day8/re-frame2 " substrate
-                              " coords on Clojars — this is expected until an alpha "
-                              "publish lands. Static shape checks above still cover "
-                              "the template contract."))
+                ;; Silent-on-success (rf2-try1x): the expected-pre-alpha
+                ;; case is a no-op. Static shape checks above still cover
+                ;; the template contract.
+                nil
 
                 :else
                 (is (zero? exit)
