@@ -140,8 +140,8 @@
 
 (defn decorate
   "Walk `tree`, splicing `:rf.source/uri` onto every map that carries
-  a `:source-coord` slot with a usable `:file`. Returns the decorated
-  tree.
+  a `:source-coord` sub-map or is itself a flat-key source-coord
+  carrier. Returns the decorated tree.
 
   `editor` follows the `editor-uri/editor-uri` vocabulary — `:vscode`
   / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <template>}`.
@@ -151,8 +151,15 @@
   [tree editor]
   (cond
     (map? tree)
+    ;; `:source-coord` values are terminal coord-data carriers — preserve
+    ;; them verbatim instead of recursing in (which would otherwise hit
+    ;; `decorate-map`'s flat-carrier branch and splice a URI onto the
+    ;; coord sub-map itself, double-decorating).
     (let [stepped (reduce-kv
-                    (fn [acc k v] (assoc acc k (decorate v editor)))
+                    (fn [acc k v]
+                      (assoc acc k (if (= k :source-coord)
+                                     v
+                                     (decorate v editor))))
                     {}
                     tree)]
       (decorate-map stepped editor))
