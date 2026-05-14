@@ -180,6 +180,47 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // Epoch (rf2-lt4e — Tool-Pair §Time-travel surface, the seventh
+  // per-feature split per rf2-5vjj Strategy B). Counter imports
+  // zero epoch symbols — the `day8/re-frame2-epoch` artefact must
+  // DCE entirely when the consuming app doesn't `:require`
+  // `re-frame.epoch`. Core's public re-exports (`rf/epoch-history`,
+  // `rf/restore-epoch`, …) look the producing fns up through the
+  // late-bind hook table at call time; a non-zero internal-sentinel
+  // hit here means the epoch namespace got dragged in (most likely
+  // a stray `:require` in a core/* ns). The trace-op keywords below
+  // are emitted from epoch.cljc's function bodies as keyword data
+  // and survive `:advanced` regardless of whether `interop/debug-
+  // enabled?` gates the emission callsite (the keyword name is
+  // referenced at the gate test, not only inside the gated body).
+  {
+    name: 'epoch',
+    internalSentinels: [
+      // epoch.cljc — on-frame-destroyed! emits this per silenced cb.
+      { source: 're-frame.epoch on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
+        sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
+      // epoch.cljc — reset-frame-db! success trace.
+      { source: 're-frame.epoch reset-frame-db! (rf.epoch/db-replaced)',
+        sentinel: 'rf.epoch/db-replaced' },
+      // epoch.cljc — reset-frame-db! drain-in-flight rejection.
+      { source: 're-frame.epoch reset-frame-db! (rf.epoch/reset-frame-db-during-drain)',
+        sentinel: 'rf.epoch/reset-frame-db-during-drain' },
+      // epoch.cljc — reset-frame-db! schema-mismatch rejection.
+      { source: 're-frame.epoch reset-frame-db! (rf.epoch/reset-frame-db-schema-mismatch)',
+        sentinel: 'rf.epoch/reset-frame-db-schema-mismatch' },
+    ],
+    // One consumer-side string: `epoch/settle!` — the late-bind hook
+    // key the router calls into at drain-empty (router.cljc). Core
+    // publishes the call site so the epoch artefact can populate the
+    // hook at ns-load time; when the artefact is absent the lookup
+    // returns nil and the call is a no-op. Sibling `:epoch/*` hook
+    // keys (epoch-history, restore-epoch, …) get DCE'd in counter
+    // because their wrappers in core_epoch.cljc are unreachable from
+    // the example's entry points.
+    consumerAllowList: /epoch\/settle!/g,
+    expectedAllowListHits: 1,
+  },
+
   // Story Stage 8 (rf2-c9mm) per IMPL-SPEC §6.5. The plain
   // examples/counter bundle imports zero Story symbols — the
   // tools/story/ jar must DCE entirely when the consuming app
