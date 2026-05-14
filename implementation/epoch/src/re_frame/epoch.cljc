@@ -257,11 +257,11 @@
 ;; Forward-declare `capture-buffers` for `on-frame-destroyed!` below.
 ;; The defonce lands in the per-cascade capture section further down
 ;; (kept there because every other consumer — `buffer-event!`,
-;; `harvest-buffer!`, `in-flight-buffer`, `capture-event!` — co-locates
-;; with the defonce). The destroy hook also needs to clear stragglers
-;; (rf2-zzper), but the destroy-hook section reads more clearly here
-;; alongside `observed-frames-by-cb` cleanup, so we forward-declare
-;; rather than re-ordering the whole capture section.
+;; `harvest-buffer!`, `capture-event!` — co-locates with the defonce).
+;; The destroy hook also needs to clear stragglers (rf2-zzper), but the
+;; destroy-hook section reads more clearly here alongside
+;; `observed-frames-by-cb` cleanup, so we forward-declare rather than
+;; re-ordering the whole capture section.
 (declare capture-buffers)
 
 (defn on-frame-destroyed!
@@ -336,11 +336,6 @@
   (let [b (get @capture-buffers frame-id [])]
     (swap! capture-buffers dissoc frame-id)
     b))
-
-(defn- in-flight-buffer
-  "Return the in-flight capture buffer for frame-id, or empty vector."
-  [frame-id]
-  (get @capture-buffers frame-id []))
 
 ;; Operations this namespace itself emits with a `:frame` tag, all of
 ;; which fire OUTSIDE a cascade (the drain has either not started, or
@@ -609,8 +604,8 @@
   registration at the foot of this namespace). The fn itself takes
   no direct callers, so the visibility stays `defn-` to keep the
   late-bind seam the sole public access path — matches the
-  `capture-event!` and `in-flight-buffer` pattern used elsewhere
-  in this ns for hook-only producers."
+  `capture-event!` pattern used elsewhere in this ns for hook-only
+  producers."
   [frame-id]
   (when interop/debug-enabled?
     (harvest-buffer! frame-id))
@@ -1037,7 +1032,6 @@
 
 (late-bind/set-fn! :epoch/settle!             settle!)
 (late-bind/set-fn! :epoch/discard-buffer!     discard-buffer!)
-(late-bind/set-fn! :epoch/in-flight-buffer    in-flight-buffer)
 (late-bind/set-fn! :epoch/capture-event       capture-event!)
 (late-bind/set-fn! :epoch/epoch-history       epoch-history)
 (late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
