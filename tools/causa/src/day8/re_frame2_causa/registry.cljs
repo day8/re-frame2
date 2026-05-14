@@ -218,7 +218,7 @@
       :<- [:rf.causa/pin-store]
       :<- [:rf.causa/target-frame]
       (fn [[pin-store target-frame] _query]
-        (tt-helpers/pins-for-frame pin-store target-frame)))
+        (tt-helpers/epoch-pins-for-frame pin-store target-frame)))
 
     ;; Composite for the panel — one read produces every slot the
     ;; view needs. Mirrors the Phase-2 `:rf.causa/event-detail`

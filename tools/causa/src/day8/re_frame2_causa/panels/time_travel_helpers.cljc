@@ -201,10 +201,16 @@
                       pin))
                   (or pins [])))))
 
-(defn pins-for-frame
-  "Return the pin vector for `frame-id`, or `[]` when none. Pure-data
-  accessor — useful both for tests and for the sub-projection that
-  flattens the per-frame map into the view's flat chip list."
+(defn epoch-pins-for-frame
+  "Return the epoch-pin vector for `frame-id`, or `[]` when none. The
+  per-frame pin store holds time-travel epoch pins — 4-tuples of
+  `{:epoch-id :frame-db :dispatch-id :label}`. Sibling helper
+  `app-db-diff-helpers/slice-pins-for-frame` returns the per-frame
+  slice-path pin vector for the App-DB-Diff panel; both helpers
+  destructure a different `store` shape so they aren't
+  interchangeable. Pure-data accessor — useful both for tests and for
+  the sub-projection that flattens the per-frame map into the view's
+  flat chip list."
   [store frame-id]
   (vec (get store frame-id [])))
 

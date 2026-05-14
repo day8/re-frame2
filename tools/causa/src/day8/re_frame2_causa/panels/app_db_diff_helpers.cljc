@@ -215,10 +215,14 @@
 
 ;; ---- pin store -----------------------------------------------------------
 
-(defn pins-for-frame
-  "Return the pin vector for `frame-id` in `store`, or `[]` when none.
-  The pin store is `{frame-id [path-1 path-2 ...]}`. Vector order is
-  the user's drag-reorder order."
+(defn slice-pins-for-frame
+  "Return the slice-path pin vector for `frame-id` in `store`, or `[]`
+  when none. The slice-pin store is `{frame-id [path-1 path-2 ...]}`;
+  vector order is the user's drag-reorder order. Sibling helper
+  `time-travel-helpers/epoch-pins-for-frame` returns the per-frame
+  epoch-pin vector for the Time-Travel scrubber; both helpers
+  destructure a different `store` shape so they aren't
+  interchangeable."
   [store frame-id]
   (vec (get store frame-id [])))
 
@@ -262,7 +266,7 @@
   Pure data → data. JVM-runnable."
   [store frame-id db]
   (mapv (fn [path] {:path path :value (get-in db path)})
-        (pins-for-frame store frame-id)))
+        (slice-pins-for-frame store frame-id)))
 
 ;; ---- 'Show me when this changed' walker ---------------------------------
 
