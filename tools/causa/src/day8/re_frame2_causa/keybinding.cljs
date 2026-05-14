@@ -32,25 +32,28 @@
   ;; means the value survives shadow-cljs `:after-load` reloads.
   (atom false))
 
+(defn- ctrl-shift-key?
+  "True when `event` is a Ctrl+Shift keydown (no Meta, no Alt) whose
+  key payload satisfies `match?`, a `(fn [key code] truthy)` predicate
+  over `KeyboardEvent.key` and `KeyboardEvent.code`. Factored so new
+  global shortcuts can drop in without re-stating the modifier checks."
+  [event match?]
+  (let [^js e event]
+    (and (.-ctrlKey e)
+         (.-shiftKey e)
+         (not (.-metaKey e))
+         (not (.-altKey e))
+         (match? (.-key e) (.-code e)))))
+
 (defn- causa-toggle-key?
   "True when `event` is a Ctrl+Shift+C keydown. Checks the C key via
   both `key` (\"C\" / \"c\") and `code` (\"KeyC\"); some IME-active
   contexts only populate `code`."
   [event]
-  (let [^js e event
-        k         (.-key e)
-        code      (.-code e)
-        ctrl?     (.-ctrlKey e)
-        shift?    (.-shiftKey e)
-        meta?     (.-metaKey e)
-        alt?      (.-altKey e)]
-    (and ctrl?
-         shift?
-         (not meta?)
-         (not alt?)
-         (or (= "C" k)
-             (= "c" k)
-             (= "KeyC" code)))))
+  (ctrl-shift-key?
+    event
+    (fn [k code]
+      (or (= "C" k) (= "c" k) (= "KeyC" code)))))
 
 (defn- copilot-toggle-key?
   "True when `event` is a Ctrl+Shift+/ keydown. Per spec/009-AI-
@@ -58,20 +61,10 @@
   (\"/\" / \"?\") and `code` (\"Slash\") — the Shift modifier shifts
   the printable character on most layouts."
   [event]
-  (let [^js e event
-        k         (.-key e)
-        code      (.-code e)
-        ctrl?     (.-ctrlKey e)
-        shift?    (.-shiftKey e)
-        meta?     (.-metaKey e)
-        alt?      (.-altKey e)]
-    (and ctrl?
-         shift?
-         (not meta?)
-         (not alt?)
-         (or (= "/" k)
-             (= "?" k)
-             (= "Slash" code)))))
+  (ctrl-shift-key?
+    event
+    (fn [k code]
+      (or (= "/" k) (= "?" k) (= "Slash" code)))))
 
 (defn- handle-keydown [^js event]
   (cond
