@@ -266,7 +266,7 @@
     :description "Register the machine-shape wrapper for managed HTTP requests."}
 
    ;; ---- re-frame.subs --------------------------------------------------------
-   {:key         :subs/subscribe-value
+   {:key         :subs/subscribe-once
     :producer-ns 're-frame.subs
     :description "Subscribe and immediately deref (snapshot value, no reaction)."}
 

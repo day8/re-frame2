@@ -84,7 +84,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 | Add Malli schemas on `app-db` paths and on event payloads | **O-3** | Pull `day8/re-frame2-schemas`; register via `reg-app-schema`. Boundary-only — don't schema-fence every internal key. |
 | Lift a namespaced sub-tree of `app-db` into its own frame | **O-4** | Use `reg-frame :feature-name`; existing `:rf/default`-targeted events stay where they are. Multi-instance enabler. |
 | Update fx handlers to binary form `(fn [m _] ...)` | O-5 | Promoted to M-51; now a required mechanical rewrite, not opt-in. |
-| Future-proof code that introspected Reagent-reaction subscription return types | **O-6** | Drop type checks; use `(rf/subscribe-value [...])` if you need the value outside a reactive context. |
+| Future-proof code that introspected Reagent-reaction subscription return types | **O-6** | Drop type checks; use `(rf/subscribe-once [...])` if you need the value outside a reactive context. |
 | `:dispatch-n` to `:fx` | O-7 | Absorbed into M-8 (no longer opt-in). |
 | Adopt the Spec 012 routing surface | **O-8** | If you have a third-party router (reitit/secretary/bidi), this is the move-to-`reg-route` rewrite. Pairs with M-14. |
 | Adopt `:system-id` named-machine addressing | **O-9** | Spec 005 addressing. Useful for multi-instance machines. |

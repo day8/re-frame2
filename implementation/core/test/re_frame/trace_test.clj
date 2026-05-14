@@ -171,11 +171,11 @@
         :<- [:no-such/input]
         (fn [v _] v))
       (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/subscribe-value :test/main [:unresolved])
+      (rf/subscribe-once :test/main [:unresolved])
 
       ;; ---- :rf.error/sub-exception ----------------------------------------
       (rf/reg-sub :throwing-sub (fn [_db _] (throw (ex-info "sub-boom" {}))))
-      (rf/subscribe-value :test/main [:throwing-sub])
+      (rf/subscribe-once :test/main [:throwing-sub])
 
       ;; ---- :rf.error/dispatch-sync-in-handler -----------------------------
       (rf/reg-event-fx :nested-sync
@@ -186,7 +186,7 @@
 
       ;; ---- :rf.error/frame-destroyed --------------------------------------
       ;; Subscribe against a frame that doesn't exist.
-      (rf/subscribe-value :no/such/frame [:n])
+      (rf/subscribe-once :no/such/frame [:n])
 
       ;; ---- :rf.error/drain-depth-exceeded ---------------------------------
       ;; A handler that re-dispatches itself; the drain bound (default 100)

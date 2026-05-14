@@ -52,17 +52,17 @@
 
       (rf/dispatch-sync [:rf/url-changed "/helix/articles/intro"] {:frame f})
       (is (= :route.helix/article
-             (rf/subscribe-value f [:rf.helix.route/id]))
+             (rf/subscribe-once f [:rf.helix.route/id]))
           ":rf.route/id sub resolves under the Helix adapter")
       (is (= {:id "intro"}
-             (rf/subscribe-value f [:rf.helix.route/params]))
+             (rf/subscribe-once f [:rf.helix.route/params]))
           ":rf.route/params sub resolves under the Helix adapter")
       (is (true? (:article-loaded? (rf/get-frame-db f)))
           ":on-match's [:helix/article-load] dispatched and ran")
 
       (rf/dispatch-sync [:rf/url-changed "/helix/articles/welcome"] {:frame f})
       (is (= {:id "welcome"}
-             (rf/subscribe-value f [:rf.helix.route/params]))
+             (rf/subscribe-once f [:rf.helix.route/params]))
           "new params land in the slice on subsequent navigation")
       (is (some? (get-in (rf/get-frame-db f) [:rf/route :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
@@ -85,8 +85,8 @@
       (rf/dispatch-sync [:rf/url-changed "/helix2/articles/intro"]
                         {:frame right})
 
-      (let [left-route  (rf/subscribe-value left  [:rf.helix2/route])
-            right-route (rf/subscribe-value right [:rf.helix2/route])]
+      (let [left-route  (rf/subscribe-once left  [:rf.helix2/route])
+            right-route (rf/subscribe-once right [:rf.helix2/route])]
         (is (= :route.helix2/articles (:id left-route))
             "left frame's :rf/route is :route.helix2/articles")
         (is (= :route.helix2/article  (:id right-route))
@@ -98,8 +98,8 @@
 
       (rf/dispatch-sync [:rf/url-changed "/helix2/"] {:frame left})
       (is (= :route.helix2/home
-             (:id (rf/subscribe-value left [:rf.helix2/route])))
+             (:id (rf/subscribe-once left [:rf.helix2/route])))
           "left re-navigated to :route.helix2/home")
       (is (= :route.helix2/article
-             (:id (rf/subscribe-value right [:rf.helix2/route])))
+             (:id (rf/subscribe-once right [:rf.helix2/route])))
           "right is unaffected by left's navigation"))))

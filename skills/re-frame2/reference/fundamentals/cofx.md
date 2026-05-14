@@ -69,7 +69,7 @@ Pure handlers are testable, replayable (for re-frame-pair2 epoch restore), and s
 
 ## Reading a sub from a handler — wrap as cofx
 
-A handler that needs a sub's current value **must not** call `(rf/subscribe ...)` (or `rf/subscribe-value`) from inside its body. Subscriptions are a view-layer concern; reading one implicitly from a handler breaks per-handler purity — the same `[coeffects event]` pair would no longer fully determine the handler's output, and `subscribe` would silently establish a reaction in whatever evaluation context the drain loop happened to be in.
+A handler that needs a sub's current value **must not** call `(rf/subscribe ...)` (or `rf/subscribe-once`) from inside its body. Subscriptions are a view-layer concern; reading one implicitly from a handler breaks per-handler purity — the same `[coeffects event]` pair would no longer fully determine the handler's output, and `subscribe` would silently establish a reaction in whatever evaluation context the drain loop happened to be in.
 
 The canonical shape is to wrap the sub read as a cofx and inject it. The cofx handler is the one place the impure read lives; the event handler stays a function of its coeffects map.
 
@@ -79,7 +79,7 @@ The canonical shape is to wrap the sub read as a cofx and inject it. The cofx ha
   {:doc "Inject the value of the [:user/current] sub into coeffects."}
   (fn [ctx]
     (assoc-in ctx [:coeffects :user/current]
-              (rf/subscribe-value [:user/current]))))
+              (rf/subscribe-once [:user/current]))))
 
 ;; Inject and destructure like any other cofx.
 (rf/reg-event-fx :order/place
@@ -91,13 +91,13 @@ The canonical shape is to wrap the sub read as a cofx and inject it. The cofx ha
 
 Two notes on the cofx body:
 
-- **`rf/subscribe-value` is the right primitive** — it materialises, derefs, and unsubscribes in one call, so the cofx leaves no reaction behind. `@(rf/subscribe ...)` inside the cofx would also work but leaks the reaction until GC.
+- **`rf/subscribe-once` is the right primitive** — it materialises, derefs, and unsubscribes in one call, so the cofx leaves no reaction behind. `@(rf/subscribe ...)` inside the cofx would also work but leaks the reaction until GC.
 - **Parameterise with the 2-arg form.** If the sub takes args (`[:order/by-id 42]`), register the cofx binary and pass the args through `inject-cofx`:
 
 ```clojure
 (rf/reg-cofx :sub/value
   (fn [ctx query-v]
-    (assoc-in ctx [:coeffects :sub/value] (rf/subscribe-value query-v))))
+    (assoc-in ctx [:coeffects :sub/value] (rf/subscribe-once query-v))))
 
 ;; Used:
 (rf/reg-event-fx :order/cancel

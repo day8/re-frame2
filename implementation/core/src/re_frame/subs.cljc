@@ -119,7 +119,7 @@
         (fn [name _]
           (clojure.string/join (map first (clojure.string/split name #\"\\s+\")))))
 
-  See also: `subscribe` (reactive form), `subscribe-value` (one-shot
+  See also: `subscribe` (reactive form), `subscribe-once` (one-shot
   read), `compute-sub` (pure compute against a db value), `clear-sub`."
   [id & args]
   (let [{:keys [meta handler-fn input-signals]} (parse-reg-sub-args id args)]
@@ -485,7 +485,7 @@
              (:reaction entry))
            (compute-and-cache! frame-id query-v)))))))
 
-(defn subscribe-value
+(defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then
   unsubscribes — does NOT retain a reference on the cache entry and
   does NOT register the caller for reactive re-render.
@@ -504,7 +504,7 @@
   observable lifetime).
 
   See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`."
-  ([query-v] (subscribe-value (frame/resolve-current-frame) query-v))
+  ([query-v] (subscribe-once (frame/resolve-current-frame) query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
          v        (when reaction @reaction)]
@@ -596,7 +596,7 @@
                      call only. `{:grace 0}` forces synchronous
                      disposal on the 1→0 transition; useful for
                      callers that want their unsubscribe observable
-                     in the same tick (e.g. `subscribe-value`'s
+                     in the same tick (e.g. `subscribe-once`'s
                      internal teardown). When `:grace` is absent,
                      the configured per-runtime grace-period is used.
 
@@ -836,8 +836,8 @@
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; re-frame.routing needs to call subscribe-value but cannot `:require`
+;; re-frame.routing needs to call subscribe-once but cannot `:require`
 ;; this namespace without a cyclic load order. Publish entry point
 ;; through the late-bind hook registry. See re-frame.late-bind.
 
-(late-bind/set-fn! :subs/subscribe-value subscribe-value)
+(late-bind/set-fn! :subs/subscribe-once subscribe-once)

@@ -349,7 +349,7 @@
 
     (rf/reg-view* :pages/greeting
                   (fn []
-                    (let [t (rf/subscribe-value [:title])]
+                    (let [t (rf/subscribe-once [:title])]
                       [:div.page
                        [:h1 t]
                        [:p "Bytes-on-wire e2e proof."]])))

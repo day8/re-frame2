@@ -1185,7 +1185,7 @@
   diagnostic-but-recoverable cases — each emits a warning so tooling
   and the dev console can surface the misconfiguration:
 
-    - `:subs/subscribe-value` late-bind is unset (consumer opted out of
+    - `:subs/subscribe-once` late-bind is unset (consumer opted out of
       the subs artefact — the runtime has no way to evaluate the sub);
     - the sub returns `nil` (registration likely typo'd the sub-id, or
       the sub fn forgot to return a value);
@@ -1193,8 +1193,8 @@
       polarity wrong; we err on letting the nav through and warn)."
   [frame route-meta]
   (if-let [sub-id (:can-leave route-meta)]
-    (if-let [subscribe-value (late-bind/get-fn :subs/subscribe-value)]
-      (let [v (subscribe-value frame [sub-id])]
+    (if-let [subscribe-once (late-bind/get-fn :subs/subscribe-once)]
+      (let [v (subscribe-once frame [sub-id])]
         (cond
           (false? v) false
           (true?  v) true

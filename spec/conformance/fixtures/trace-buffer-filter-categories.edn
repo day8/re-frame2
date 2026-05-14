@@ -78,7 +78,7 @@
                 :handler-id :counter/will-throw}}
 
    ;; :rf.sub/* category — sub computation. The runner's :sub-values
-   ;; check below invokes rf/subscribe-value, which the runtime
+   ;; check below invokes rf/subscribe-once, which the runtime
    ;; instruments with a :sub/run emit (Spec 009 §:sub/run trace event,
    ;; rf2-i7eb). The :op-type is :sub/run; trace-buffer's
    ;; `{:op-type :sub/run}` filter selects on that.

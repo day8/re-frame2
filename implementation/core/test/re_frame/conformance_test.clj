@@ -1000,7 +1000,7 @@
                 (let [[frame-id qv] (resolve-sub query-v)]
                   {:query    query-v
                    :expected expected-val
-                   :actual   (rf/subscribe-value frame-id qv)})))
+                   :actual   (rf/subscribe-once frame-id qv)})))
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))
             ;; rf2-v0jwt — :epoch-records — assert against the named frame's
             ;; recorded :rf/epoch-record ring. Each entry is a partial-shape

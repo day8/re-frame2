@@ -656,14 +656,14 @@
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :n*2   :<- [:n] (fn [n _] (* 2 (or n 0))))
 
-    ;; Force a sub-run inside a handler (subscribe-value emits :sub/run
+    ;; Force a sub-run inside a handler (subscribe-once emits :sub/run
     ;; from compute-sub when no cache exists for the query, AND from the
     ;; reactive path when a fresh subscription materialises). Either
     ;; way, the cascade contains :sub/run traces.
     (rf/reg-event-fx :read-sub
       (fn [_ _]
         ;; Read both subs to exercise layer-1 and layer-2.
-        (let [_v (rf/subscribe-value :test/main [:n*2])]
+        (let [_v (rf/subscribe-once :test/main [:n*2])]
           {})))
 
     (rf/dispatch-sync [:seed]      {:frame :test/main})
@@ -956,13 +956,13 @@
 ;;
 ;; These tests pin that downstream contract on the JVM with the plain-atom
 ;; adapter. The plain-atom adapter recomputes derived values on every deref
-;; (no cache), so subscribe-value before/after restore is a clean read of
+;; (no cache), so subscribe-once before/after restore is a clean read of
 ;; the post-restore container. The CLJS Reagent counterpart in
 ;; runtime_cljs_test.cljs covers the reactive-graph case where a held
 ;; reaction must observe the rewound value.
 
-(deftest restore-rewinds-subscriptions-via-subscribe-value
-  (testing "after restore-epoch, subscribe-value reflects the restored db
+(deftest restore-rewinds-subscriptions-via-subscribe-once
+  (testing "after restore-epoch, subscribe-once reflects the restored db
   for both layer-1 and layer-2 subs (no manual cache invalidation)."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -975,16 +975,16 @@
     (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=2
     (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=3
 
-    (is (= 3 (rf/subscribe-value :test/main [:n])))
-    (is (= 6 (rf/subscribe-value :test/main [:n*2])))
+    (is (= 3 (rf/subscribe-once :test/main [:n])))
+    (is (= 6 (rf/subscribe-once :test/main [:n*2])))
 
     (let [history (rf/epoch-history :test/main)
           ;; Pick the epoch where :n landed at 1 (second :inc dispatch).
           target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)]
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
-      (is (= 1 (rf/subscribe-value :test/main [:n]))
+      (is (= 1 (rf/subscribe-once :test/main [:n]))
           "layer-1 sub now sees the restored value (no manual invalidation)")
-      (is (= 2 (rf/subscribe-value :test/main [:n*2]))
+      (is (= 2 (rf/subscribe-once :test/main [:n*2]))
           "layer-2 sub recomputes against the restored input"))))
 
 (deftest restore-rewinds-pinned-reaction
@@ -1032,9 +1032,9 @@
           ;; The epoch where A's n landed at 1 (first :inc).
           a-target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) a-history)]
       (is (true? (rf/restore-epoch :frame/a (:epoch-id a-target))))
-      (is (= 1   (rf/subscribe-value :frame/a [:n]))
+      (is (= 1   (rf/subscribe-once :frame/a [:n]))
           "frame A's sub sees the rewound value")
-      (is (= 101 (rf/subscribe-value :frame/b [:n]))
+      (is (= 101 (rf/subscribe-once :frame/b [:n]))
           "frame B's sub is unchanged by the cross-frame restore")
       (is (= 101 (:n (rf/get-frame-db :frame/b)))
           "frame B's app-db is unchanged"))))
@@ -1058,7 +1058,7 @@
           target-eid (:epoch-id target)]
       (is (true? (rf/restore-epoch :test/main target-eid)) "first restore ok")
       (let [db-after-1 (rf/get-frame-db :test/main)
-            sub-1      (rf/subscribe-value :test/main [:n])]
+            sub-1      (rf/subscribe-once :test/main [:n])]
         (is (= {:n 1} db-after-1))
         (is (= 1     sub-1))
 
@@ -1066,7 +1066,7 @@
         (is (true? (rf/restore-epoch :test/main target-eid)) "second restore ok")
         (is (= db-after-1 (rf/get-frame-db :test/main))
             "app-db unchanged across the second restore")
-        (is (= sub-1 (rf/subscribe-value :test/main [:n]))
+        (is (= sub-1 (rf/subscribe-once :test/main [:n]))
             "sub value unchanged across the second restore")))))
 
 (deftest restore-rewinds-flow-output-in-app-db
@@ -1147,7 +1147,7 @@
 
     (rf/dispatch-sync [:go-home]               {:frame :test/main})
     (rf/dispatch-sync [:go-article "intro"]    {:frame :test/main})
-    (is (= :route/article (rf/subscribe-value :test/main [:current-route])))
+    (is (= :route/article (rf/subscribe-once :test/main [:current-route])))
 
     (let [history (rf/epoch-history :test/main)
           ;; The epoch whose db-after carries :route/home in :rf/route :id.
@@ -1159,7 +1159,7 @@
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
       (is (= :route/home (get-in (rf/get-frame-db :test/main) [:rf/route :id]))
           "the :rf/route slice is rewound by restore")
-      (is (= :route/home (rf/subscribe-value :test/main [:current-route]))
+      (is (= :route/home (rf/subscribe-once :test/main [:current-route]))
           "a sub keyed on :rf/route returns the restored value"))))
 
 ;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
@@ -1350,13 +1350,13 @@
     (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (= 0 (rf/subscribe-value :test/main [:n])))
-    (is (= 0 (rf/subscribe-value :test/main [:n*2])))
+    (is (= 0 (rf/subscribe-once :test/main [:n])))
+    (is (= 0 (rf/subscribe-once :test/main [:n*2])))
 
     (rf/reset-frame-db! :test/main {:n 21})
-    (is (= 21 (rf/subscribe-value :test/main [:n]))
+    (is (= 21 (rf/subscribe-once :test/main [:n]))
         "layer-1 sub returns the post-reset value")
-    (is (= 42 (rf/subscribe-value :test/main [:n*2]))
+    (is (= 42 (rf/subscribe-once :test/main [:n*2]))
         "derived sub re-computes against the post-reset value")))
 
 (deftest reset-frame-db!-raises-when-epoch-artefact-missing

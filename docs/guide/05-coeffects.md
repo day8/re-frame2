@@ -213,13 +213,13 @@ Read a value out of `localStorage` by key. TodoMVC's `:todo.storage/todos` cofx 
 
 ## Reading a sub from a handler
 
-Sooner or later you'll write a handler that needs a sub's current value. An order-placement event wants to stamp the order with the currently-logged-in user; an "apply discount" event wants to read the cart total computed by `[:cart/total]`. The wrong move — and the one the reflex reaches for — is to call `rf/subscribe` (or its one-shot sibling `rf/subscribe-value`) directly from inside the handler body:
+Sooner or later you'll write a handler that needs a sub's current value. An order-placement event wants to stamp the order with the currently-logged-in user; an "apply discount" event wants to read the cart total computed by `[:cart/total]`. The wrong move — and the one the reflex reaches for — is to call `rf/subscribe` (or its one-shot sibling `rf/subscribe-once`) directly from inside the handler body:
 
 ```clojure
 ;; Don't do this
 (rf/reg-event-fx :order/place
   (fn [{:keys [db]} [_ order]]
-    (let [current (rf/subscribe-value [:user/current])]   ;; ← implicit read
+    (let [current (rf/subscribe-once [:user/current])]   ;; ← implicit read
       {:db (assoc-in db [:orders (:id order)]
                      (assoc order :placed-by current))})))
 ```
@@ -233,7 +233,7 @@ The fix is the same one we used for `:now` and `:new-id` — wrap the impure rea
   {:doc "Inject the value of the [:user/current] sub into coeffects."}
   (fn [ctx]
     (assoc-in ctx [:coeffects :user/current]
-              (rf/subscribe-value [:user/current]))))
+              (rf/subscribe-once [:user/current]))))
 
 (rf/reg-event-fx :order/place
   [(rf/inject-cofx :user/current)]
@@ -242,7 +242,7 @@ The fix is the same one we used for `:now` and `:new-id` — wrap the impure rea
                    (assoc order :placed-by current))}))
 ```
 
-Now the handler is back to being a pure function of `db`, `user/current`, and the event. The single impure operation — materialising a reaction, derefing it, unsubscribing — is quarantined inside the cofx handler. `rf/subscribe-value` is the right primitive here: it does that whole three-step dance in one call, so the cofx leaves no live reaction behind. (Using `@(rf/subscribe ...)` would also produce the right value but leak the reaction until GC; for one-shot reads at injection time, prefer `subscribe-value`.)
+Now the handler is back to being a pure function of `db`, `user/current`, and the event. The single impure operation — materialising a reaction, derefing it, unsubscribing — is quarantined inside the cofx handler. `rf/subscribe-once` is the right primitive here: it does that whole three-step dance in one call, so the cofx leaves no live reaction behind. (Using `@(rf/subscribe ...)` would also produce the right value but leak the reaction until GC; for one-shot reads at injection time, prefer `subscribe-once`.)
 
 When the sub takes arguments, parameterise the cofx with the binary form from earlier in the chapter:
 
@@ -250,7 +250,7 @@ When the sub takes arguments, parameterise the cofx with the binary form from ea
 (rf/reg-cofx :sub/value
   (fn [ctx query-v]
     (assoc-in ctx [:coeffects :sub/value]
-              (rf/subscribe-value query-v))))
+              (rf/subscribe-once query-v))))
 
 ;; One generic cofx; the call site picks the sub:
 (rf/reg-event-fx :order/cancel

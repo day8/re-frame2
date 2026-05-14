@@ -190,7 +190,7 @@
 
   (rf/reg-view* :pages/articles
     (fn []
-      (let [arts (rf/subscribe-value [:articles])]
+      (let [arts (rf/subscribe-once [:articles])]
         [:div.page
          [:h1 "Articles"]
          (into [:ul]

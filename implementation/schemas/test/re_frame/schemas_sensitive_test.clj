@@ -355,10 +355,10 @@
       (rf/register-trace-cb! ::sr (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:secrets/init])
       ;; First subscribe materialises; well-typed.
-      (rf/subscribe-value [:secrets])
+      (rf/subscribe-once [:secrets])
       (rf/dispatch-sync [:secrets/break])
       ;; Resubscribe; malformed return — fails.
-      (rf/subscribe-value [:secrets])
+      (rf/subscribe-once [:secrets])
       (rf/remove-trace-cb! ::sr)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
@@ -396,10 +396,10 @@
       (rf/register-trace-cb! ::qv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:tokens/init])
       ;; Well-typed return on the first call — no validation failure.
-      (rf/subscribe-value [:token-for "user-42-token"])
+      (rf/subscribe-once [:token-for "user-42-token"])
       (rf/dispatch-sync [:tokens/break])
       ;; Malformed return on the second call — fires the sub-return failure.
-      (rf/subscribe-value [:token-for "user-42-token"])
+      (rf/subscribe-once [:token-for "user-42-token"])
       (rf/remove-trace-cb! ::qv)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)
@@ -430,9 +430,9 @@
     (let [traces (atom [])]
       (rf/register-trace-cb! ::plain (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:widgets/init])
-      (rf/subscribe-value [:widget :w1])
+      (rf/subscribe-once [:widget :w1])
       (rf/dispatch-sync [:widgets/break])
-      (rf/subscribe-value [:widget :w1])
+      (rf/subscribe-once [:widget :w1])
       (rf/remove-trace-cb! ::plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]

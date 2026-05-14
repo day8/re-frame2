@@ -56,8 +56,8 @@
     (rf/reg-sub :items     (fn [db _] (:items db)))
     (rf/reg-sub :item-sum  :<- [:items] (fn [items _] (reduce + items)))
     (rf/dispatch-sync [:seed])
-    (is (= [10 20 30] (rf/subscribe-value [:items])))
-    (is (= 60         (rf/subscribe-value [:item-sum])))))
+    (is (= [10 20 30] (rf/subscribe-once [:items])))
+    (is (= 60         (rf/subscribe-once [:item-sum])))))
 
 ;; ---- with-frame macro -------------------------------------------------------
 
@@ -192,9 +192,9 @@
     (rf/dispatch-sync [:counter/init 100] {:frame :right})
     (rf/dispatch-sync [:counter/inc] {:frame :left})
     (rf/dispatch-sync [:counter/inc] {:frame :left})
-    (is (= 12  (rf/subscribe-value :left  [:count])))
-    (is (= 100 (rf/subscribe-value :right [:count])))
-    (is (nil?  (rf/subscribe-value :rf/default [:count])))))
+    (is (= 12  (rf/subscribe-once :left  [:count])))
+    (is (= 100 (rf/subscribe-once :right [:count])))
+    (is (nil?  (rf/subscribe-once :rf/default [:count])))))
 
 ;; ---- reactivity -----------------------------------------------------------
 ;; Reagent reactions auto-update on input change. Plain-atom can't show this
@@ -221,16 +221,16 @@
 ;; re-registered subs on every adapter, including Reagent's.
 
 (deftest sub-hot-reload-cljs
-  (testing "re-registering a sub flips the next subscribe-value to the new body"
+  (testing "re-registering a sub flips the next subscribe-once to the new body"
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/reg-sub :answer (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
-    (is (= 7 (rf/subscribe-value [:answer])))
-    ;; Force-pin so the cache slot survives the subscribe-value
+    (is (= 7 (rf/subscribe-once [:answer])))
+    ;; Force-pin so the cache slot survives the subscribe-once
     ;; auto-unsubscribe.
     (let [_pin (rf/subscribe [:answer])]
       (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
-      (is (= 70 (rf/subscribe-value [:answer]))
+      (is (= 70 (rf/subscribe-once [:answer]))
           "the new sub body is in effect after re-registration")
       (rf/unsubscribe [:answer]))))
 
@@ -286,7 +286,7 @@
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
       (rf/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
-      (let [v (rf/subscribe-value [:items-count])]
+      (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
       (rf/remove-trace-cb! ::sub-err)
@@ -316,7 +316,7 @@
     (rf/reg-sub :items (fn [db _] (:items db)))
     (rf/reg-view ^{:rf/id :pages/list} pages-list []
       [:ul
-       (for [it (rf/subscribe-value [:items])]
+       (for [it (rf/subscribe-once [:items])]
          ^{:key it} [:li it])])
     (rf/dispatch-sync [:seed])
     (let [html (rf/render-to-string [:pages/list] {:emit-hash? true})]
@@ -683,7 +683,7 @@
 ;; the rewound value through Reagent's reactive graph, exactly as
 ;; it does for a normal event commit.
 ;;
-;; The JVM-side epoch_test.clj covers subscribe-value / pinned-reaction
+;; The JVM-side epoch_test.clj covers subscribe-once / pinned-reaction
 ;; semantics under the plain-atom adapter (every deref recomputes,
 ;; so observable equivalence is straightforward). This test pins the
 ;; same contract under the Reagent reactive substrate where the
