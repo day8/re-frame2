@@ -22,8 +22,10 @@
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [helix.core :refer-macros [$ defnc]]
             [helix.dom  :as d]
+            [helix.hooks :as helix-hooks]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.subs :as subs]
             [re-frame.adapter.helix :as helix-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -59,6 +61,33 @@
         v (helix-adapter/use-subscribe target
                                        [:rf.helix-use-subscribe-test/m])]
     (d/div (str "m=" v))))
+
+;; ---- rf2-mwft2 regression probes ------------------------------------------
+;; A parent that owns a tick state (used to force re-renders) plus a child
+;; that reads a fixed query-v via use-subscribe. The literal `[:rf.helix-mwft2/p]`
+;; vector evaluates to a fresh JS object each render — *exactly* the shape
+;; the bug-without-fix walks into. The parent stashes its set-tick fn into
+;; a side-channel atom so the test can drive forced re-renders from outside.
+
+(def ^:private mwft2-set-tick      (atom nil))
+
+(defnc ProbeMwft2Child []
+  (let [v (helix-adapter/use-subscribe :rf.helix-mwft2/probe-frame
+                                       [:rf.helix-mwft2/p])]
+    (d/div (str "p=" v))))
+
+(defnc ProbeMwft2Parent []
+  (let [[tick set-tick] (helix-hooks/use-state 0)]
+    (helix-hooks/use-effect
+      ;; React state-setters have stable identity across renders so an
+      ;; empty deps vec is correct — matches React's "set-state setter is
+      ;; stable" guarantee. The effect runs once on mount to stash the
+      ;; setter for the test driver.
+      []
+      (reset! mwft2-set-tick set-tick)
+      (fn cleanup [] nil))
+    (d/div {:data-tick tick}
+           ($ ProbeMwft2Child))))
 
 ;; ---- browser gate ---------------------------------------------------------
 
@@ -213,3 +242,179 @@
                     "post-unmount ref-count is zero (or entry already dropped) — rf2-7g959 cleanup fired")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
+
+;; ---- 2-arg form: explicit frame-id wins over context (rf2-y0db2) ----------
+;;
+;; The 2-arg form `(use-subscribe frame-kw query-v)` is documented to
+;; bypass the React-context tier and read from the named frame's
+;; app-db directly. Although the existing Probe defnc above uses the
+;; 2-arg form, no deftest explicitly pinned that two different
+;; frame-ids in the SAME render tree (no surrounding provider) see
+;; distinct values. Parity with UIx's `use-subscribe-2-arg-pins-
+;; explicit-frame` (rf2-rcgsc).
+
+(def ^:private probe-2arg-a-observed (atom []))
+(def ^:private probe-2arg-b-observed (atom []))
+
+(defnc Probe2ArgA []
+  (let [v (helix-adapter/use-subscribe :rf.helix-rcgsc/tenant-a
+                                       [:rf.helix-rcgsc/n])]
+    (swap! probe-2arg-a-observed conj v)
+    (d/div (str "a=" v))))
+
+(defnc Probe2ArgB []
+  (let [v (helix-adapter/use-subscribe :rf.helix-rcgsc/tenant-b
+                                       [:rf.helix-rcgsc/n])]
+    (swap! probe-2arg-b-observed conj v)
+    (d/div (str "b=" v))))
+
+(deftest use-subscribe-2-arg-pins-explicit-frame
+  (testing "rf2-y0db2 (parity with UIx rf2-rcgsc): use-subscribe's 2-arg
+            form `(use-subscribe frame-kw query-v)` reads from the named
+            frame's app-db, bypassing the React-context tier. Two
+            probes pinning two different frames in the same render
+            tree must see each frame's distinct seed value."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (do
+            (enable-react-act-env!)
+            (reset! probe-2arg-a-observed [])
+            (reset! probe-2arg-b-observed [])
+            (rf/reg-frame :rf.helix-rcgsc/tenant-a {:doc "tenant-a"})
+            (rf/reg-frame :rf.helix-rcgsc/tenant-b {:doc "tenant-b"})
+            (rf/reg-event-db :rf.helix-rcgsc/seed (fn [_ [_ n]] {:n n}))
+            (rf/dispatch-sync [:rf.helix-rcgsc/seed 10] {:frame :rf.helix-rcgsc/tenant-a})
+            (rf/dispatch-sync [:rf.helix-rcgsc/seed 100] {:frame :rf.helix-rcgsc/tenant-b})
+            (rf/reg-sub :rf.helix-rcgsc/n (fn [db _] (:n db)))
+            (let [mount-node (make-mount-node!)
+                  root       (react-dom-client/createRoot mount-node)]
+              (try
+                (act-fn (fn []
+                          (.render root
+                            ($ :div
+                              ($ Probe2ArgA)
+                              ($ Probe2ArgB)))))
+                (is (some #{10} @probe-2arg-a-observed)
+                    "Probe2ArgA observed tenant-a's value (10) via explicit frame-pin")
+                (is (some #{100} @probe-2arg-b-observed)
+                    "Probe2ArgB observed tenant-b's value (100) via explicit frame-pin")
+                (is (not (some #{100} @probe-2arg-a-observed))
+                    "tenant-a probe did NOT leak tenant-b's value")
+                (is (not (some #{10} @probe-2arg-b-observed))
+                    "tenant-b probe did NOT leak tenant-a's value")
+                (finally
+                  (try (.unmount root) (catch :default _ nil)))))))))))
+
+;; ---- stable structural-equality deps key (rf2-mwft2) ----------------------
+;;
+;; Pre-rf2-mwft2, `use-subscribe-2` passed the CLJS query-v vector
+;; directly into useMemo / useCallback / useEffect deps arrays.
+;; CLJS persistent vectors are =-equal across renders for the same
+;; literal but produce a *fresh JS object* per render, so React's
+;; Object.is deps comparison fired every render — useMemo re-ran
+;; `subs/subscribe` (cache-hit ref-count churn), useEffect tore down
+;; and rebuilt subscribe/unsubscribe pairs.
+;;
+;; With the fix the deps element is JS-ref-stable across renders
+;; (useRef + = compare), so a stable-literal query-v causes exactly
+;; one subs/subscribe call across N forced re-renders, and the
+;; useEffect cleanup fires only on unmount. Parity with UIx's
+;; `use-subscribe-stable-deps-key` (rf2-mwft2).
+
+(deftest use-subscribe-stable-deps-key
+  (testing "rf2-mwft2 (parity with UIx): stable-literal query-v across N
+            re-renders ⇒ one subs/subscribe call"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+      (let [target :rf.helix-mwft2/probe-frame
+            act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (do
+            (enable-react-act-env!)
+            (reset! mwft2-set-tick nil)
+            (rf/reg-frame target {:doc "rf2-mwft2 Helix probe frame"})
+            (rf/reg-event-db :rf.helix-mwft2/seed (fn [_ _] {:p 0}))
+            (rf/dispatch-sync [:rf.helix-mwft2/seed] {:frame target})
+            (rf/reg-sub :rf.helix-mwft2/p (fn [db _] (:p db)))
+            (let [subscribe-calls   (atom 0)
+                  unsubscribe-calls (atom 0)
+                  real-subscribe    subs/subscribe
+                  real-unsubscribe  subs/unsubscribe
+                  cache-key-v       [:rf.helix-mwft2/p]
+                  cache             (:sub-cache (frame/frame target))
+                  mount-node        (make-mount-node!)
+                  root              (react-dom-client/createRoot mount-node)]
+              ;; Spies preserve the multi-arity shape of subs/subscribe
+              ;; (`[query-v]` and `[frame-id query-v]`) so spine call
+              ;; sites that bind the arity-2 invoke-slot resolve. A bare
+              ;; `[& args]` variadic spy compiles only the variadic
+              ;; slot and trips `…cljs$core$IFn$_invoke$arity$2 is not
+              ;; a function` at the spine's `subs/subscribe` call.
+              ;;
+              ;; `unsubscribe`'s 1- and 2-arity bodies recur into the
+              ;; 3-arity through the Var — so without bypassing, a single
+              ;; logical unsubscribe would trip the spy twice (once on
+              ;; entry, once on the recursive 3-arity tail). Each spy
+              ;; arity therefore calls the 3-arity REAL directly,
+              ;; resolving the canonical default-arg shape itself instead
+              ;; of routing back through the Var.
+              (with-redefs [subs/subscribe
+                            (fn spy-subscribe
+                              ([query-v]
+                               (swap! subscribe-calls inc)
+                               (real-subscribe (frame/resolve-current-frame) query-v))
+                              ([frame-id query-v]
+                               (swap! subscribe-calls inc)
+                               (real-subscribe frame-id query-v)))
+                            subs/unsubscribe
+                            (fn spy-unsubscribe
+                              ([query-v]
+                               (swap! unsubscribe-calls inc)
+                               (real-unsubscribe (frame/resolve-current-frame)
+                                                 query-v nil))
+                              ([frame-id query-v]
+                               (swap! unsubscribe-calls inc)
+                               (real-unsubscribe frame-id query-v nil))
+                              ([frame-id query-v opts]
+                               (swap! unsubscribe-calls inc)
+                               (real-unsubscribe frame-id query-v opts)))]
+                (try
+                  ;; Mount the probe — one subs/subscribe for the
+                  ;; useMemo factory.
+                  (act-fn (fn [] (.render root ($ ProbeMwft2Parent))))
+                  (let [mounted-subs @subscribe-calls]
+                    (is (= 1 mounted-subs)
+                        "mount triggered exactly one subs/subscribe call")
+                    (is (zero? @unsubscribe-calls)
+                        "no subs/unsubscribe fires during initial mount")
+                    ;; Force five re-renders by bumping the parent's
+                    ;; tick state. Each parent render also re-renders
+                    ;; the child probe with a freshly-allocated CLJS
+                    ;; vector for [:rf.helix-mwft2/p] — without the fix
+                    ;; the deps mismatch would re-run useMemo (extra
+                    ;; subs/subscribe) and useEffect (extra
+                    ;; subs/unsubscribe) each render.
+                    (dotimes [_ 5]
+                      (act-fn (fn [] (when-let [set-tick @mwft2-set-tick]
+                                       (set-tick inc)))))
+                    (is (= 1 @subscribe-calls)
+                        "subs/subscribe still called only once after 5 re-renders (no per-render churn)")
+                    (is (zero? @unsubscribe-calls)
+                        "subs/unsubscribe never fired across re-renders — useEffect cleanup is unmount-only")
+                    (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                        "sub-cache ref-count remains pinned at 1 across re-renders"))
+                  ;; Unmount must fire exactly one unsubscribe — the
+                  ;; rf2-7g959 cleanup pairing must survive the
+                  ;; rf2-mwft2 rewrite.
+                  (act-fn (fn [] (.unmount root)))
+                  (is (= 1 @unsubscribe-calls)
+                      "unmount fired exactly one subs/unsubscribe (rf2-7g959 cleanup survives the rf2-mwft2 rewrite)")
+                  (is (or (nil? (get @cache cache-key-v))
+                          (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                      "post-unmount cache entry dropped or ref-count at zero")
+                  (finally
+                    (try (.unmount root) (catch :default _ nil))))))))))))
