@@ -30,6 +30,7 @@
    :expect {:route-id :route/articles
             :params   {}
             :query    {:q "clojure" :page 3 :tag :lang :draft? true}
+            :fragment nil
             :validation-failed? false}}
 
   ;; :boolean false coerces from the literal "false".
@@ -37,6 +38,7 @@
    :expect {:route-id :route/articles
             :params   {}
             :query    {:q "x" :draft? false :page 1}
+            :fragment nil
             :validation-failed? false}}
 
   ;; :query-defaults populate when the key is absent.
@@ -44,6 +46,7 @@
    :expect {:route-id :route/articles
             :params   {}
             :query    {:q "y" :page 1}
+            :fragment nil
             :validation-failed? false}}
 
   ;; :int over a non-integer string falls back to the raw string (the
@@ -55,6 +58,7 @@
    :expect {:route-id :route/articles
             :params   {}
             :query    {:q "z" :page "not-a-number"}
+            :fragment nil
             :validation-failed? false}}
 
   ;; route-url's 3-arity emits the query string in input order.

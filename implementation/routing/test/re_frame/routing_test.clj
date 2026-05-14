@@ -536,3 +536,137 @@
       (is (= {:slug slug}
              (:params parsed))
           "the slug round-trips through route-url → match-url"))))
+
+;; ---- rf2-070jt: match-url :fragment + route-url 4-arity round-trip --------
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params and §Fragments §Programmatic
+;; navigation with fragments. match-url surfaces the URL's `#fragment`
+;; portion on its result map; route-url's 4-arity rebuilds the URL with
+;; the fragment appended. The two are inverses: a URL parsed with
+;; match-url and rebuilt with route-url's 4-arity recovers the original
+;; (modulo route-id resolution).
+
+(deftest match-url-returns-fragment-from-url
+  (testing "match-url surfaces the URL's `#fragment` as :fragment"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (let [m (routing/match-url "/docs/routing#scroll-restoration")]
+      (is (some? m) "the route matches")
+      (is (= :route/docs (:route-id m)))
+      (is (= {:page "routing"} (:params m))
+          "path params parsed as usual; fragment did not pollute :page")
+      (is (= "scroll-restoration" (:fragment m))
+          ":fragment carries the URL's #fragment portion"))))
+
+(deftest match-url-fragment-absent-is-nil
+  (testing "URLs without a #fragment yield :fragment nil"
+    (rf/reg-route :route/home {:path "/home"})
+    (let [m (routing/match-url "/home")]
+      (is (some? m))
+      (is (nil? (:fragment m))
+          "absent #fragment → :fragment nil"))))
+
+(deftest match-url-fragment-with-query
+  (testing ":fragment is independent of the query string"
+    (rf/reg-route :route/search {:path "/search"})
+    (let [m (routing/match-url "/search?q=clojure#results")]
+      (is (some? m))
+      (is (= {:q "clojure"} (:query m))
+          "query parsed without the fragment polluting it")
+      (is (= "results" (:fragment m))
+          "fragment captured after the query string"))))
+
+(deftest match-url-empty-fragment
+  (testing "a bare trailing '#' yields :fragment \"\""
+    (rf/reg-route :route/page {:path "/page"})
+    (let [m (routing/match-url "/page#")]
+      (is (some? m))
+      (is (= "" (:fragment m))
+          "URL ending with bare '#' yields empty-string fragment"))))
+
+(deftest match-url-no-rank-in-result
+  (testing "match-url result does NOT carry the internal :rank key"
+    (rf/reg-route :route/home {:path "/"})
+    (let [m (routing/match-url "/")]
+      (is (some? m))
+      (is (not (contains? m :rank))
+          ":rank is internal routing-table state; not part of the
+          documented match-url result shape"))))
+
+(deftest route-url-4-arity-appends-fragment
+  (testing "the 4-arity form appends `#fragment` when non-nil and non-empty"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (is (= "/docs/routing#scroll-restoration"
+           (routing/route-url :route/docs {:page "routing"} {} "scroll-restoration"))
+        "fragment is appended after the path")
+    (is (= "/docs/routing?lang=en#scroll-restoration"
+           (routing/route-url :route/docs {:page "routing"} {:lang "en"} "scroll-restoration"))
+        "fragment is appended after the query string"))
+
+  (testing "nil and empty-string fragments are not appended"
+    (rf/reg-route :route/docs2 {:path "/docs/:page"})
+    (is (= "/docs/routing"
+           (routing/route-url :route/docs2 {:page "routing"} {} nil))
+        "nil fragment → no `#` suffix")
+    (is (= "/docs/routing"
+           (routing/route-url :route/docs2 {:page "routing"} {} ""))
+        "empty-string fragment → no `#` suffix"))
+
+  (testing "the 3-arity form delegates to the 4-arity with fragment nil"
+    (rf/reg-route :route/docs3 {:path "/docs/:page"})
+    (is (= "/docs/routing"
+           (routing/route-url :route/docs3 {:page "routing"} {}))
+        "3-arity produces the same URL as 4-arity with nil fragment"))
+
+  (testing "the 2-arity form delegates the same way"
+    (rf/reg-route :route/docs4 {:path "/docs/:page"})
+    (is (= "/docs/routing"
+           (routing/route-url :route/docs4 {:page "routing"}))
+        "2-arity → no query, no fragment")))
+
+(deftest match-url-route-url-round-trip-with-fragment
+  (testing "URL → match-url → route-url 4-arity → URL recovers the original
+            (the full bidirectional contract including #fragment)"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (let [original "/docs/routing?lang=en#scroll-restoration"
+          parsed   (routing/match-url original)
+          rebuilt  (routing/route-url (:route-id parsed)
+                                      (:params parsed)
+                                      (:query parsed)
+                                      (:fragment parsed))]
+      (is (= :route/docs (:route-id parsed)))
+      (is (= {:page "routing"} (:params parsed)))
+      (is (= {:lang "en"}      (:query parsed)))
+      (is (= "scroll-restoration" (:fragment parsed)))
+      (is (= original rebuilt)
+          "the rebuilt URL equals the original — fragment round-trips"))))
+
+(deftest navigate-pushes-url-with-fragment
+  (testing ":rf.route/navigate with :fragment opt pushes the URL with #fragment appended"
+    ;; Per Spec 012 §Fragments §Programmatic navigation with fragments:
+    ;; `[:rf.route/navigate :route/docs {:page "routing"} {:fragment "x"}]`
+    ;; pushes "/docs/routing#x" via :rf.nav/push-url. The 4-arity route-url
+    ;; is the canonical builder; the navigate handler routes opts → 4-arity.
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/navigate
+                         :route/docs
+                         {:page "routing"}
+                         {:fragment "scroll-restoration"}])
+      (is (= ["/docs/routing#scroll-restoration"] @pushed)
+          ":rf.nav/push-url received the URL WITH the appended #fragment"))))
+
+(deftest navigate-url-form-preserves-fragment
+  (testing ":rf.route/navigate with URL-string target preserves the URL's
+            embedded #fragment in the pushed URL"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/navigate
+                         {:url "/docs/routing#scroll-restoration"}])
+      (is (= ["/docs/routing#scroll-restoration"] @pushed)
+          "fragment in the URL-string target round-trips through the push"))))
