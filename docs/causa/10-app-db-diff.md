@@ -1,8 +1,10 @@
 # 10. App-DB diff
 
-`app-db` is a value. Two epochs are two values. The diff is the difference between them.
+You just dispatched `:checkout/start` on the cart-total testbed and half the tree moved. The Event-detail panel's mini-diff is the right size for "one leaf changed" — what you want now is the *whole* delta, slice by slice, with the un-touched 90% of the tree out of the way. App-DB panel is what you escalate to.
 
-The App-DB panel renders the diff of the **current epoch** (the one selected in Event detail or the time-travel scrubber) — `:db-before` and `:db-after`, slice-aware.
+`app-db` is a value. Two epochs are two values. The diff is the difference between them — and on the cart-total epoch where `:checkout/items` got populated and `:cart/items` got emptied, the diff is two paths and four values. Not a 200-line tree dump.
+
+The panel renders the diff of the **current epoch** (the one selected in Event detail or the time-travel scrubber) — `:db-before` and `:db-after`, slice-aware.
 
 ![App-DB diff for a cascade](../images/causa/10-app-db-diff.png)
 
@@ -51,7 +53,7 @@ Three patterns the diff handles distinctively:
 
 ## When you'd open it
 
-- "I just dispatched something — did `app-db` change?" — Event detail's mini-diff is enough for one-leaf updates; the App-DB panel is what you escalate to for "this cascade rewrote half the tree, and I want to see exactly which half."
+- "This cascade rewrote half the tree, and I want to see exactly which half." — the framing case from the opener; the App-DB panel is what Event detail's mini-diff escalates into.
 - "I think a sub is stale, but `app-db` says the value's right." — pin both the slot and the sub's recompute marker; watch them tick together.
 - "I want a session-long watch on `:auth/state`." — pin it; the panel paints it on every epoch.
 
