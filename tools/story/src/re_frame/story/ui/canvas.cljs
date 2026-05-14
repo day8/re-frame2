@@ -270,8 +270,19 @@
            ;; standard `rf/frame-provider` uses Reagent's `:>` interop
            ;; which calls `(name kw)` on prop values and drops the
            ;; namespace before React sees it.
+           ;;
+           ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on the
+           ;; immediate wrapper around the user-authored decorated view
+           ;; so the a11y panel (ui/a11y.cljs) can scope axe-core's
+           ;; scan to ONLY the variant's rendered tree — excluding the
+           ;; surrounding Story chrome (title bar, share button, open-
+           ;; in-editor chip, panels, sidebar, toolbar). Without this
+           ;; marker axe-core's `run()` against `document.body` flags
+           ;; Story's own UI as the source of violations, which is
+           ;; wrong: Story chrome a11y is Story's concern, not the
+           ;; variant author's.
            [frame-provider-ns-safe {:frame variant-id}
-            [:div
+            [:div {:data-rf-story-variant-root (pr-str variant-id)}
              (safe-decorated-view
                [resolved-view eff-args]
                (:hiccup decorator-pack)

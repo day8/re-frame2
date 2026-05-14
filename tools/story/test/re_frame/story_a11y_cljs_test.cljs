@@ -60,3 +60,41 @@
   (testing "the violations stylesheet is a non-empty CSS string"
     (is (string? a11y/violations-stylesheet))
     (is (pos? (count a11y/violations-stylesheet)))))
+
+;; ---- rf2-qgms1: variant-root scoping ------------------------------------
+
+(deftest variant-root-selector-targets-data-attribute
+  (testing "variant-root-selector returns a CSS attribute selector keyed on the variant id"
+    (let [sel (a11y/variant-root-selector :story.counter/loaded)]
+      (is (string? sel))
+      ;; Must use the data attribute the canvas / workspace stamp.
+      (is (re-find #"data-rf-story-variant-root=" sel))
+      ;; pr-str of a namespaced keyword includes the leading colon.
+      (is (re-find #":story.counter/loaded" sel))
+      ;; Closing-bracket selector form so `querySelector` accepts it.
+      (is (.startsWith sel "[data-rf-story-variant-root="))
+      (is (.endsWith   sel "]")))))
+
+(deftest variant-root-selector-distinct-per-variant
+  (testing "different variant-ids yield distinct selectors"
+    (is (not= (a11y/variant-root-selector :story.counter/loaded)
+              (a11y/variant-root-selector :story.counter/clicked-three-times)))))
+
+(deftest run-axe-handles-no-variant-root
+  (testing "run-axe! sets :no-root state when no variant root resolves
+            — the default arity uses find-variant-root which returns nil
+            outside a browser DOM (node-runtime test env), so calling
+            run-axe! with just the frame-id must short-circuit cleanly
+            and surface a :no-root status to the panel."
+    (let [frame-id :story.never-mounted/x
+          ;; Mute the warn so test output stays clean.
+          orig-warn js/console.warn]
+      (set! js/console.warn (fn [& _] nil))
+      (try
+        (let [p (a11y/run-axe! frame-id)]
+          (is (some? p) "run-axe! returns a Promise even on the no-root path")
+          (is (= :no-root (get @a11y/run-state frame-id))
+              "run-state for an unmounted variant must be :no-root, NOT :running or :done — surfacing that the scan was not run against the wrong tree"))
+        (finally
+          (set! js/console.warn orig-warn)
+          (a11y/drop-frame-state! frame-id))))))

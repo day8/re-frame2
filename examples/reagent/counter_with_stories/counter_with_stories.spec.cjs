@@ -1124,30 +1124,62 @@ module.exports = {
     //
     // The a11y panel exposes a "run" button. Clicking it kicks off the
     // axe-core lazy-load + scan. The panel's status line transitions
-    // from "click run to scan the rendered output" to "fetching
-    // axe-core…" → "scanning…" → "N violation(s) found". We don't
-    // assert which violations land (varies by environment); we assert
-    // that the run was kicked off — the status text changes away from
-    // the idle copy.
+    // from the idle copy ("click run to scan the variant …") through
+    // "fetching axe-core…" / "scanning…" / "N violation(s) found in
+    // variant". We don't assert which violations land (varies by
+    // environment); we assert that the run was kicked off — the status
+    // text changes away from the idle copy.
+    //
+    // Per rf2-qgms1: axe-core MUST scan only the variant's tree, NOT
+    // Story's surrounding chrome (sidebar, toolbar, panels, title bar).
+    // The fix stamps `data-rf-story-variant-root` on the wrapper around
+    // the user-authored decorated view; `run-axe!` finds that node via
+    // querySelector and passes it as axe-core's `context` arg. We
+    // assert that (a) the variant root exists in the DOM, and (b) any
+    // violation overlays land INSIDE the variant root — never on Story
+    // chrome nodes.
     //
     // The panel is registered under :rf.story.panel/a11y with title
     // "a11y" rendered in the panel-head. Its run button has accessible
     // name "run" (transitions to "re-run" / "retry" after a scan).
+
+    // 12a. Variant-root marker is present before any scan kicks off —
+    // canvas.cljs / workspace.cljc stamp it whenever a variant is
+    // mounted. Without this marker the a11y panel would default to
+    // scanning the whole document body (the original rf2-qgms1 bug).
+    const variantRoots = page.locator(
+      '[data-rf-story-variant-root=":story.counter/loaded"]',
+    );
+    {
+      const start = Date.now();
+      let n = 0;
+      while (Date.now() - start < 5000) {
+        n = await variantRoots.count();
+        if (n >= 1) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (n < 1) {
+        throw new Error(
+          'rf2-qgms1: expected [data-rf-story-variant-root=":story.counter/loaded"] to be stamped on the mounted variant wrapper',
+        );
+      }
+    }
+
     const runBtn = aside.getByRole('button', { name: /^(run|re-run|retry)$/i }).first();
     await runBtn.waitFor({ state: 'visible', timeout: 5000 });
     await runBtn.click();
 
-    // The status copy starts as "click run to scan the rendered output"
-    // and transitions through "fetching axe-core…" / "scanning…" /
-    // "N violation(s) found". We poll for the transition off the idle
-    // copy — if the status remains "click run …" the click was
-    // ineffective.
+    // The status copy starts as the idle string ("click run to scan
+    // the variant …") and transitions through "fetching axe-core…"
+    // / "scanning…" / "N violation(s) found in variant". We poll for
+    // the transition off the idle copy — if the status remains the
+    // idle copy the click was ineffective.
     {
       const start = Date.now();
       let stillIdle = true;
       while (Date.now() - start < 15000) {
         stillIdle = await aside
-          .getByText(/click run to scan the rendered output/i)
+          .getByText(/click run to scan the variant/i)
           .first()
           .isVisible()
           .catch(() => false);
@@ -1157,6 +1189,41 @@ module.exports = {
       if (stillIdle) {
         throw new Error('a11y panel run did not transition off idle status');
       }
+    }
+
+    // 12b. rf2-qgms1: any `[data-rf-a11y-violation]` overlay decoration
+    // MUST land INSIDE the variant root, never on a Story-chrome node
+    // (sidebar, toolbar, panel, shell button). The overlay is the
+    // user-visible projection of axe-core's violations — if axe-core
+    // had been called with `document.body` as context (the old bug),
+    // chrome nodes like the sidebar's tag-filter chips or the
+    // toolbar's mode chips would frequently pick up the overlay
+    // attribute. Asserting "every overlay is inside a variant root"
+    // is equivalent to asserting "the scan was correctly scoped".
+    //
+    // Wait briefly for any decoration to land (axe-core's scan is
+    // async; on offline CI it may resolve to :error with zero
+    // violations, in which case the loop's zero-decorations is still
+    // a passing assertion — no false-positive overlays = correct
+    // scoping by trivial vacuity).
+    await new Promise((r) => setTimeout(r, 250));
+    const leakedDecorations = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll('[data-rf-a11y-violation]'));
+      // An overlay node "leaks" iff none of its ancestors carry the
+      // `data-rf-story-variant-root` attribute.
+      const leaked = all.filter((el) => !el.closest('[data-rf-story-variant-root]'));
+      return leaked.map((el) => ({
+        tag: el.tagName,
+        cls: el.className && el.className.toString ? el.className.toString() : '',
+        text: (el.textContent || '').slice(0, 80),
+      }));
+    });
+    if (leakedDecorations.length > 0) {
+      throw new Error(
+        `rf2-qgms1: ${leakedDecorations.length} a11y overlay(s) leaked onto Story chrome — ` +
+          `axe-core scan should be scoped to [data-rf-story-variant-root], not document.body. ` +
+          `Leaked nodes: ${JSON.stringify(leakedDecorations).slice(0, 400)}`,
+      );
     }
 
     // ====================================================================

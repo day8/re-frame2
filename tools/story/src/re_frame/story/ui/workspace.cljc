@@ -236,8 +236,12 @@
               ;; on prop values and drops the namespace before React
               ;; sees it; `canvas/frame-provider-ns-safe` bypasses that
               ;; via a direct `React.createElement` call.
+              ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on
+              ;; the immediate wrapper around the decorated view (same
+              ;; reason as canvas.cljs) so the a11y panel can scope
+              ;; axe-core to ONLY the variant's rendered tree.
               [canvas/frame-provider-ns-safe {:frame variant-id}
-               [:div
+               [:div {:data-rf-story-variant-root (pr-str variant-id)}
                 (canvas/safe-decorated-view
                   [resolved-view eff-args]
                   (:hiccup decorator-pack)
