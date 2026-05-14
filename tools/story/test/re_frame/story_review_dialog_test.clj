@@ -21,6 +21,7 @@
     `parse-and-set-draft-id`) — JVM-testable in isolation; the CLJS
     adapter swaps a Reagent ratom around them."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]))
 
 ;; ---- parse-variant-id-string ---------------------------------------------
@@ -188,15 +189,15 @@
 
 (deftest indent-after-shape
   (testing "indent-after returns a newline followed by N spaces matching prefix width"
-    (is (= "\n" (review-dialog/indent-after "")))
-    (is (= "\n " (review-dialog/indent-after "x")))
-    (is (= "\n     " (review-dialog/indent-after "12345")))))
+    (is (= "\n" (pred/indent-after "")))
+    (is (= "\n " (pred/indent-after "x")))
+    (is (= "\n     " (pred/indent-after "12345")))))
 
 (deftest indent-after-aligns-recorder-play-body
   (testing "the indent lines events up under the first item of `:play [` on the previous line"
     (let [prefix      "   :play ["
           first-line  (str prefix "[:counter/inc]")
-          cont-indent (review-dialog/indent-after prefix)
+          cont-indent (pred/indent-after prefix)
           full        (str first-line cont-indent "[:counter/dec]")
           lines       (clojure.string/split full #"\n")
           ;; column of the first event char on line 1 = (count prefix)
@@ -214,7 +215,7 @@
   (testing "the indent lines kv pairs up under the first kv of `:args {` on the previous line"
     (let [prefix      "   :args {"
           first-line  (str prefix ":a 1")
-          cont-indent (review-dialog/indent-after prefix)
+          cont-indent (pred/indent-after prefix)
           full        (str first-line cont-indent ":b 2")
           lines       (clojure.string/split full #"\n")
           line1-first-kv-col (count prefix)
@@ -225,9 +226,9 @@
 
 (deftest indent-after-pure-and-deterministic
   (testing "the helper is pure — same input → same output"
-    (is (= (review-dialog/indent-after "   :play [")
-           (review-dialog/indent-after "   :play [")))
+    (is (= (pred/indent-after "   :play [")
+           (pred/indent-after "   :play [")))
     ;; And the recorder + save-variant prefixes collapse to the same width
     ;; (both keys are 4 chars; both bodies indent 3 + key + space + bracket = 10)
-    (is (= (review-dialog/indent-after "   :play [")
-           (review-dialog/indent-after "   :args {")))))
+    (is (= (pred/indent-after "   :play [")
+           (pred/indent-after "   :args {")))))

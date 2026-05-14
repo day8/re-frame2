@@ -41,6 +41,7 @@
             [re-frame.core                  :as rf]
             [re-frame.story.args            :as args]
             [re-frame.story.config          :as config]
+            [re-frame.story.predicates      :as pred]
             [re-frame.story.review-dialog   :as review-dialog]
             [re-frame.story.ui.state        :as state]))
 
@@ -83,7 +84,7 @@
   "Pretty-print an args map as a multi-line EDN form. Each top-level
   key/value pair renders on its own line, aligned directly under the
   opening `{` of `:args {`. Empty maps render as `{}`. Uses the shared
-  `review-dialog/indent-after` helper so the continuation indent stays
+  `predicates/indent-after` helper so the continuation indent stays
   in lockstep with the recorder's `gen-play-snippet`."
   [m]
   (if (empty? m)
@@ -91,7 +92,7 @@
     (str "{"
          (->> (sort-by (fn [[k _]] (str k)) m)
               (map (fn [[k v]] (str (pr-str k) " " (pr-str v))))
-              (str/join (review-dialog/indent-after "   :args {")))
+              (str/join (pred/indent-after "   :args {")))
          "}")))
 
 (defn gen-variant-snippet
