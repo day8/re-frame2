@@ -35,7 +35,7 @@ When the cap trips, the request fails as a normal `:rf.http/decode-failure` repl
 
 Your `:on-failure` handler sees the structured shape; the request didn't complete; no keyword slots were committed. The first line of defense — if you can — is to use `:decode :text` for endpoints whose response you don't need as a keyword-keyed map; the cap is the second line, for the JSON cases where you do.
 
-The full normative description sits at [014-HTTPRequests.md §Keyword-interning cap](../../spec/014-HTTPRequests.md) and [Security.md §DoS by input](../../spec/Security.md#dos-by-input).
+The full normative description sits at [014-HTTPRequests.md §Keyword-interning cap](../../../spec/014-HTTPRequests.md) and [Security.md §DoS by input](../../../spec/Security.md#dos-by-input).
 
 ## Slow-loris defense — `:timeout-ms` default 30000
 
@@ -59,7 +59,7 @@ The opt-outs are explicit. You either pass `:timeout-ms nil` or `:timeout-ms 0`:
 
 Two values mean opt-out, both deliberate-looking, because "the caller meant to" should be visible to a reviewer. If you don't write `:timeout-ms`, you get 30000. If you write it as a small positive integer (`5000` for "I expect this to be quick"), you get that. The only way to remove the timeout entirely is to type `nil` or `0` — and a reviewer who sees that line knows the call-site author signed off on unbounded wall-clock.
 
-See [014-HTTPRequests.md §`:timeout-ms` security defaults](../../spec/014-HTTPRequests.md) and [Security.md §DoS by input](../../spec/Security.md#dos-by-input).
+See [014-HTTPRequests.md §`:timeout-ms` security defaults](../../../spec/014-HTTPRequests.md) and [Security.md §DoS by input](../../../spec/Security.md#dos-by-input).
 
 ## CRLF fail-fast on response-shape fx
 
@@ -93,7 +93,7 @@ A few decisions are worth pointing at, because they're deliberate:
 
 - **Structural URL check on redirects, in addition to CRLF.** `:rf.server/redirect` also rejects malformed-URL inputs at the same site, so a `:rf.error/redirect-invalid-location` surfaces both the CRLF case and the "this isn't a URL" case under one error category.
 
-The full normative description lives at [Security.md §CRLF injection at HTTP-response boundaries](../../spec/Security.md#crlf-injection-at-http-response-boundaries) and [011-SSR.md §Standard fx](../../spec/011-SSR.md).
+The full normative description lives at [Security.md §CRLF injection at HTTP-response boundaries](../../../spec/Security.md#crlf-injection-at-http-response-boundaries) and [011-SSR.md §Standard fx](../../../spec/011-SSR.md).
 
 ## What you don't have to do
 
@@ -106,6 +106,6 @@ The same posture extends to the JSON cap and the timeout: you don't write `(try 
 - [Chapter 10 — Doing HTTP requests](../10-doing-http-requests.md) — the managed-HTTP narrative; this page is the defensive layer underneath.
 - [Chapter 11 — The server side](../11-server-side.md) — the response-shape fx; this page covers their CRLF check.
 - [Chapter 14 — Errors](../14-errors.md) — `:on-error` policies and per-category recovery.
-- [Security.md](../../spec/Security.md) — the threat model + defense catalogue. The eventual pattern/impl split (rf2-1g6cj) may rename this doc; the content moves with it.
-- [014-HTTPRequests.md](../../spec/014-HTTPRequests.md) — normative spec for managed-HTTP, including the keyword cap and the timeout default.
-- [011-SSR.md](../../spec/011-SSR.md) — normative spec for SSR response-shape fx, including the CRLF check site.
+- [Security.md](../../../spec/Security.md) — the threat model + defense catalogue. The eventual pattern/impl split (rf2-1g6cj) may rename this doc; the content moves with it.
+- [014-HTTPRequests.md](../../../spec/014-HTTPRequests.md) — normative spec for managed-HTTP, including the keyword cap and the timeout default.
+- [011-SSR.md](../../../spec/011-SSR.md) — normative spec for SSR response-shape fx, including the CRLF check site.

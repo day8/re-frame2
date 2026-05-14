@@ -80,7 +80,7 @@ The three policies that make sense for this specific category:
 
 The default (no `:on-error` registered for the category) is `:log`. The frame stays alive; the next event will drain normally.
 
-See [014's `:rf.error/drain-depth-exceeded` row](../../spec/009-Instrumentation.md) and [Chapter 14 §Frame-scoped error policy](../14-errors.md) for the broader `:on-error` story.
+See [014's `:rf.error/drain-depth-exceeded` row](../../../spec/009-Instrumentation.md) and [Chapter 14 §Frame-scoped error policy](../14-errors.md) for the broader `:on-error` story.
 
 ## Tuning checklist
 
@@ -103,6 +103,6 @@ Inside a state machine, `:always` (eventless transitions) and `:raise` (action-s
 - [Chapter 06a — Frames](../06a-frames.md) — `:drain-depth` as a frame-metadata key.
 - [Chapter 14 — Errors](../14-errors.md) — the full `:on-error` story.
 - [Chapter 15 — Tooling](../15-devtools-and-pair-tools.md) — the trace surface that lets you observe drain depth in legitimate cascades.
-- [Spec 002 — Frames §Drain loop](../../spec/002-Frames.md) — the normative description of the depth-limited drain and the atomic rollback.
-- [Security.md §DoS by input](../../spec/Security.md#dos-by-input) — drain-depth as one of the bounded-resource defenses.
+- [Spec 002 — Frames §Drain loop](../../../spec/002-Frames.md) — the normative description of the depth-limited drain and the atomic rollback.
+- [Security.md §DoS by input](../../../spec/Security.md#dos-by-input) — drain-depth as one of the bounded-resource defenses.
 - [§06 — Machine substrate features](06-state-machine-substrate-features.md) — `:always`-depth and `:raise`-depth.

@@ -75,7 +75,7 @@ Rationale: the loop either fires repeatedly to depth-exceeded (if the guard stay
 
 A self-targeting `:always` with a *different* guard — used as a re-entry on a changed condition — is permitted. Only the same-guard same-target case is rejected.
 
-For the full normative grammar see [005 §Eventless `:always` transitions](../../spec/005-StateMachines.md).
+For the full normative grammar see [005 §Eventless `:always` transitions](../../../spec/005-StateMachines.md).
 
 ## `:after` — delayed transitions
 
@@ -119,13 +119,13 @@ If `:loaded` arrives before 30 s, the machine transitions to `:ready` and the ti
 
 You don't need to write cancellation logic. The framework uses an **epoch counter** stamped into the machine's `:data` to detect stale timers — every state exit increments the counter, every scheduled timer carries the epoch at scheduling time, and the receiving handler validates the carried epoch against the current one. A mismatch silently drops the timer and emits `:rf.machine.timer/stale-after` for observability.
 
-The pattern is general: any async-shaped feature that re-enters a state can use epoch-based stale detection rather than imperative cancel APIs. See [Pattern-StaleDetection.md](../../spec/Pattern-StaleDetection.md) for the cross-cutting form; routing's navigation tokens ([ch.17a](../17a-routing-reference.md)) use the same shape.
+The pattern is general: any async-shaped feature that re-enters a state can use epoch-based stale detection rather than imperative cancel APIs. See [Pattern-StaleDetection.md](../../../spec/Pattern-StaleDetection.md) for the cross-cutting form; routing's navigation tokens ([ch.17a](../17a-routing-reference.md)) use the same shape.
 
 ### SSR no-op
 
 `:after` no-ops in SSR mode. Entry actions don't schedule timers; the synthetic timer-elapsed event is never emitted. The server renders the current `:state` statically; the client hydrates that state and timers begin from hydration. This is the same kind of substrate-aware behaviour as `:rf.http/managed` — the framework picks the right thing per platform.
 
-For the full grammar see [005 §Delayed `:after` transitions](../../spec/005-StateMachines.md).
+For the full grammar see [005 §Delayed `:after` transitions](../../../spec/005-StateMachines.md).
 
 ## `:invoke` — declarative child actors
 
@@ -185,9 +185,9 @@ The runtime sees the second form; you wrote the first. Same machine.
   :on     {:auth/succeeded :authenticated}}}
 ```
 
-When the 30 s `:after` fires, the parent's exit cascade destroys the `:auth-flow` child (which itself cascades any in-flight `:rf.http/managed` aborts — see [Cancellation cascade](../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts)). The timer is anchored to the parent state's entry, not to any HTTP attempt; the child's internal retries can't outlive the parent's deadline.
+When the 30 s `:after` fires, the parent's exit cascade destroys the `:auth-flow` child (which itself cascades any in-flight `:rf.http/managed` aborts — see [Cancellation cascade](../../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts)). The timer is anchored to the parent state's entry, not to any HTTP attempt; the child's internal retries can't outlive the parent's deadline.
 
-For the full description of `:invoke`'s desugaring, composition with `:entry` / `:exit`, hierarchical composition, error categories, see [005 §Declarative `:invoke`](../../spec/005-StateMachines.md).
+For the full description of `:invoke`'s desugaring, composition with `:entry` / `:exit`, hierarchical composition, error categories, see [005 §Declarative `:invoke`](../../../spec/005-StateMachines.md).
 
 ## `:invoke-all` — spawn-and-join
 
@@ -234,7 +234,7 @@ Apps that want non-cancelling joins (analytics fan-out where each child is indep
 
 It isn't an "everything happens at once" primitive — children spawn in source order, but each child runs as its own actor with its own drain. The "parallelism" is logical-actor-parallelism, not OS-thread-parallelism. (CLJS is single-threaded; JVM SSR may execute multiple actors on multiple threads, but the contract is "the runtime coordinates the join.")
 
-For the full description see [005 §Spawn-and-join via `:invoke-all`](../../spec/005-StateMachines.md).
+For the full description see [005 §Spawn-and-join via `:invoke-all`](../../../spec/005-StateMachines.md).
 
 ## `:final?` / `:on-done` / `:output-key` — terminal states
 
@@ -284,7 +284,7 @@ A *singleton* machine (registered top-level, no parent `:invoke`) reaching `:fin
 
 A leaf inside one region of a parallel-region machine may declare `:final? true`; the meaning is "**this region** has reached its final state." That region halts; sibling regions continue. The parent machine as a whole is `:final?` only when EVERY region's active state is `:final?` — at which point the auto-destroy and `:on-done` cascade fires as usual.
 
-For the full normative description see [005 §Final states](../../spec/005-StateMachines.md).
+For the full normative description see [005 §Final states](../../../spec/005-StateMachines.md).
 
 ## Parallel regions — orthogonal axes of one feature
 
@@ -315,7 +315,7 @@ Three regions run **simultaneously** from one machine. Each region has its own s
 
 ### When to reach for parallel regions
 
-Use them when the **regions are orthogonal axes of one feature** — different axes of "what is this page doing right now?" that should compose freely. The motivating case is the Nine States pattern ([Pattern-NineStates](../../spec/Pattern-NineStates.md)): a page-level convention whose render decisions slice across (data cardinality × form validity × mode).
+Use them when the **regions are orthogonal axes of one feature** — different axes of "what is this page doing right now?" that should compose freely. The motivating case is the Nine States pattern ([Pattern-NineStates](../../../spec/Pattern-NineStates.md)): a page-level convention whose render decisions slice across (data cardinality × form validity × mode).
 
 If your regions are conceptually **independent features that don't share data**, the right answer is *N separate machines* — separate `[:rf/machines <id>]` entries coordinated via cross-actor dispatch. Both patterns ship; choose by domain shape.
 
@@ -325,7 +325,7 @@ If your regions are conceptually **independent features that don't share data**,
 
 `:always` cascades similarly fire per region; tags compose by union across active states.
 
-For the full normative description see [005 §Parallel regions](../../spec/005-StateMachines.md).
+For the full normative description see [005 §Parallel regions](../../../spec/005-StateMachines.md).
 
 ## What lives in `:data`, what the runtime owns
 
@@ -340,13 +340,13 @@ A few `:rf/*` keys appear inside a machine's `:data` slot. These are runtime-own
 | `:rf/invoke-id` | The `:invoke`-bearing state's prefix-path (used to address the spawn-registry slot) |
 | `:rf/invoke-all-id` / `:rf/invoke-all-child-id` | `:invoke-all` analogues |
 
-These slots are documented at [Conventions.md §Reserved snapshot-internal keys](../../spec/Conventions.md#reserved-snapshot-internal-keys-machine-runtime). Their persistence behaviour is also documented there (some survive `pr-str` / SSR hydration; some are transient).
+These slots are documented at [Conventions.md §Reserved snapshot-internal keys](../../../spec/Conventions.md#reserved-snapshot-internal-keys-machine-runtime). Their persistence behaviour is also documented there (some survive `pr-str` / SSR hydration; some are transient).
 
 ## Cross-references
 
 - [Chapter 08 — State machines](../08-state-machines.md) — the basic state-machine narrative; this page is its substrate-feature deep-dive.
-- [Spec 005 — State Machines](../../spec/005-StateMachines.md) — the normative description for every key on this page.
-- [Pattern-NineStates.md](../../spec/Pattern-NineStates.md) — the page-level pattern that motivated parallel regions.
-- [Pattern-StaleDetection.md](../../spec/Pattern-StaleDetection.md) — the cross-cutting epoch-counter pattern that `:after` shares with routing's nav tokens.
+- [Spec 005 — State Machines](../../../spec/005-StateMachines.md) — the normative description for every key on this page.
+- [Pattern-NineStates.md](../../../spec/Pattern-NineStates.md) — the page-level pattern that motivated parallel regions.
+- [Pattern-StaleDetection.md](../../../spec/Pattern-StaleDetection.md) — the cross-cutting epoch-counter pattern that `:after` shares with routing's nav tokens.
 - [§04 — Drain depth and error recovery](04-drain-depth-and-error-recovery.md) — the outer drain's depth ceiling. `:always`-depth and `:raise`-depth ceilings live inside machines; they compose with the outer ceiling.
-- [Cancellation cascade](../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — what happens to in-flight HTTP requests when a spawned actor is destroyed.
+- [Cancellation cascade](../../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — what happens to in-flight HTTP requests when a spawned actor is destroyed.

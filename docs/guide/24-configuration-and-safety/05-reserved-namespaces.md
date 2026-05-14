@@ -4,7 +4,7 @@
 
 re-frame2 reserves a single root keyword namespace for framework-owned ids: `:rf/*`. Every framework runtime id — events, fx, cofx, subs, app-db keys, trace operations, error categories, warnings, machine lifecycle events, route events, navigation fx, SSR advisories, MCP wire markers, **everything** — lives under `:rf/*` or one of its sub-namespaces. This page is the human-readable catalogue. The linter checks this list; the migration agent checks this list; new Spec areas extend it by additive change. User code MUST NOT register handlers, fx, subs, or frames under `:rf/*`.
 
-The normative catalogue lives at [Conventions.md §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned). This page is the guide-side narrative — the same names, in the same order, with one-line "what each one is for" so you can scan rather than read.
+The normative catalogue lives at [Conventions.md §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned). This page is the guide-side narrative — the same names, in the same order, with one-line "what each one is for" so you can scan rather than read.
 
 ## Why one root
 
@@ -88,7 +88,7 @@ The two **library-owned** prefixes that live *adjacent to* the framework's `:rf.
 | `:story.<...>` | post-v1 stories library | Story ids (`:story.auth.login-form`) and variant ids |
 | `:Workspace.<...>` | post-v1 stories library | Workspace ids |
 
-These prefixes are **library-owned, not framework-reserved** — they're canonical when the library is loaded; they don't violate the single-root invariant. Their normative catalogue lives at [Conventions.md §Library-owned prefixes](../../spec/Conventions.md#library-owned-prefixes).
+These prefixes are **library-owned, not framework-reserved** — they're canonical when the library is loaded; they don't violate the single-root invariant. Their normative catalogue lives at [Conventions.md §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes).
 
 ### 3. Trace-event `:operation` vocabulary is open
 
@@ -120,9 +120,9 @@ If you've registered a handler under a name that looks like a future framework r
 
 ## Cross-references
 
-- [Conventions.md §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) — the normative catalogue.
-- [Conventions.md §Reserved fx-ids](../../spec/Conventions.md#reserved-fx-ids) — the unqualified reserved fx-id set (`:dispatch`, `:dispatch-later`, `:raise`, `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.size/declare-large`, `:rf.size/clear`).
-- [Conventions.md §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys) — `:rf/machines`, `:rf/system-ids`, `:rf/spawned`, `:rf/route`, `:rf/pending-navigation`, `:rf/elision`.
-- [Conventions.md §Reserved state-node keys](../../spec/Conventions.md#reserved-state-node-keys-machine-transition-tables) — the machine transition-table state-node keys (`:on`, `:entry`, `:exit`, `:meta`, `:states`, `:always`, `:after`, `:invoke`, `:invoke-all`).
+- [Conventions.md §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned) — the normative catalogue.
+- [Conventions.md §Reserved fx-ids](../../../spec/Conventions.md#reserved-fx-ids) — the unqualified reserved fx-id set (`:dispatch`, `:dispatch-later`, `:raise`, `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.size/declare-large`, `:rf.size/clear`).
+- [Conventions.md §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys) — `:rf/machines`, `:rf/system-ids`, `:rf/spawned`, `:rf/route`, `:rf/pending-navigation`, `:rf/elision`.
+- [Conventions.md §Reserved state-node keys](../../../spec/Conventions.md#reserved-state-node-keys-machine-transition-tables) — the machine transition-table state-node keys (`:on`, `:entry`, `:exit`, `:meta`, `:states`, `:always`, `:after`, `:invoke`, `:invoke-all`).
 - [Chapter 14 — Errors](../14-errors.md) — the `:rf.error/*` taxonomy in narrative form.
-- [Spec 009 §Error event catalogue](../../spec/009-Instrumentation.md) — the complete `:rf.error/*` + `:rf.warning/*` enumeration.
+- [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md) — the complete `:rf.error/*` + `:rf.warning/*` enumeration.

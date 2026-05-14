@@ -89,6 +89,14 @@ nav:
       - "22 — Production observability": guide/22-trace-to-datadog.md
       - "23a — Privacy: keeping secrets out of traces": guide/23a-privacy-secrets.md
       - "23b — Large blobs: keeping the wire small": guide/23b-large-blobs.md
+    - "24 — Configuration and safety primitives":
+      - Overview: guide/24-configuration-and-safety/index.md
+      - "24.01 — Framework configuration": guide/24-configuration-and-safety/01-framework-config.md
+      - "24.02 — HTTP safety primitives": guide/24-configuration-and-safety/02-http-safety.md
+      - "24.03 — Redirects and editor URIs": guide/24-configuration-and-safety/03-redirect-and-editor-uris.md
+      - "24.04 — Drain depth and error recovery": guide/24-configuration-and-safety/04-drain-depth-and-error-recovery.md
+      - "24.05 — Reserved namespaces": guide/24-configuration-and-safety/05-reserved-namespaces.md
+      - "24.06 — State-machine substrate features": guide/24-configuration-and-safety/06-state-machine-substrate-features.md
 
   - Skills:
     - Overview: skills/index.md
