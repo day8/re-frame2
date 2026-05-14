@@ -135,7 +135,7 @@ extension** to pair2-mcp / story-mcp.
 ## Single source of truth for tool counts
 
 Each per-server spec carries its catalogue count in prose ("the 19 tools",
-"the twelve tools"). Past drift episodes (story-mcp shipped both "16 tools"
+"the fourteen tools"). Past drift episodes (story-mcp shipped both "16 tools"
 and "17 tools" across five docs after `list-subscriptions` was added; the
 audit that surfaced it had to grep across `tools/story-mcp/` to find every
 mention) trace to one root cause: **the count is repeated, not extracted**.
