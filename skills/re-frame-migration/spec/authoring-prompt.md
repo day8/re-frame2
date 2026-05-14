@@ -49,7 +49,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *4. Apply rules in order (M-0 first, then walk).*
 > *5. JVM interop is in scope; don't silently CLJS-only the project.*
 > *6. Single-import contract for user code: `(:require [re-frame.core :as rf])`.*
-> *7. If a rule is ambiguous, file a `bd create` bead — don't edit `spec/MIGRATION.md` inline.*
+> *7. If a rule is ambiguous, file a GitHub issue against `day8/re-frame2` — don't edit `spec/MIGRATION.md` inline. (`bd` is monorepo-internal and never invoked from a published skill — `skills/README.md` baseline.)*
 > *8. Don't invent migration rules.*
 >
 > *Locks to preserve verbatim:*

@@ -61,7 +61,7 @@ Produced at the end of each EP's implementation session. The session began with 
   - <path/to/file.ext> — <one-line description>
 - **Tests:** <unit tests landed alongside the EP — pass/fail count>.
 - **Conformance fixtures exercised:** <list of capability tags the EP gates; pass/fail count>.
-- **Spec gaps filed (beads):** <list of `bd` ids filed during this EP; one line each>.
+- **Spec gaps filed (issues):** <list of `day8/re-frame2` issue numbers filed during this EP; one line each>.
 - **Decision-record revisions:** <list any Phase 1 decisions that needed revision; new locks>.
 - **Carry-over to next EP:** <anything intentional left out — partial implementation, deferred edge cases>.
 
@@ -124,7 +124,7 @@ The port follows `spec/` at corpus commit <corpus-commit-hash> in https://github
 
 - **One report per session.** Don't fragment a Phase 1 wrap-up across multiple files; don't write a v1 completion report before gate 2 passes.
 - **Cite commits and corpus hashes.** Both shift; pinning them is what makes the report reproducible.
-- **Don't bury spec gaps in narrative.** Every `bd create` filed during the work goes in the bullet list — not in prose. The bead id is the contract surface.
+- **Don't bury spec gaps in narrative.** Every GitHub issue filed against `day8/re-frame2` during the work goes in the bullet list — not in prose. The issue number is the contract surface.
 - **Don't run the engineer's builds for them.** The agent reports observed conformance scores (when the engineer ran the harness); it doesn't run the harness unbidden. Per the standing rule from the skill design: "running tests is general software practice, not skill-specific."
 
 ## What the reports are for

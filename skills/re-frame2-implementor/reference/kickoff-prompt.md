@@ -27,11 +27,11 @@ Steps:
 >
 > *Standing rules for this port:*
 >
-> *- The spec at `<path-to-re-frame2>/spec/` is the contract. The CLJS reference at `<path-to-re-frame2>/implementation/` is one realisation — never normative. When the spec and the reference disagree, the spec wins; file a `bd create` bead against the re-frame2 repo.*
+> *- The spec at `<path-to-re-frame2>/spec/` is the contract. The CLJS reference at `<path-to-re-frame2>/implementation/` is one realisation — never normative. When the spec and the reference disagree, the spec wins; file a GitHub issue against `day8/re-frame2`.*
 > *- Substrate-agnostic phrasing. Do not assume "hiccup", "Reagent", or "keyword" universally; use "render-tree", "reactive container", "identity primitive" per the host's choice from my Phase 1 record.*
 > *- No core.async. Async effects schedule via the host's native primitives (Promise, setTimeout, asyncio, tokio, whatever); cross-frame work is serialised per frame via the run-to-completion drain.*
 > *- JVM-runnability for the test surface. `compute-sub` and `machine-transition` analogues must be callable from a non-substrate harness.*
-> *- If you hit a spec gap — a missing surface, an inconsistency, an undocumented decision — `bd create` a bead in the re-frame2 repo and reference it in my port's `DECISIONS.md`. Do not silently extrapolate from the CLJS reference.*
+> *- If you hit a spec gap — a missing surface, an inconsistency, an undocumented decision — file a GitHub issue against `day8/re-frame2` (use `gh issue create --repo day8/re-frame2 --body "$(cat /tmp/spec-gap.md)"` — body via stdin/here-doc, never inline interpolation). Announce the cross-repo filing first so I can Ctrl-C or steer. Reference the resulting issue in my port's `DECISIONS.md`. Do not silently extrapolate from the CLJS reference.*
 > *- I run my own builds and tests; you do not run them for me. Run the conformance harness against my port when I ask, and report the score.*
 >
 > *Begin with Phase 1.*
@@ -55,6 +55,6 @@ The skill description triggers on a wide range of "porting re-frame2" phrasings,
 - Locks the workflow shape the first time, so the session doesn't drift mid-implementation.
 - Makes the "Phase 1 before Phase 2" rule explicit upfront — the session can't skip ahead to coding.
 - Frames the spec as the contract and the reference impl as one example — so the session doesn't mistake the CLJS choices for pattern requirements.
-- Names the standing rules (substrate-agnostic phrasing, no core.async, JVM-runnability, bead-files-not-silent-extrapolation) so they're in the session's context from the first turn.
+- Names the standing rules (substrate-agnostic phrasing, no core.async, JVM-runnability, GH-issue-files-not-silent-extrapolation, cross-repo-announce-before-filing) so they're in the session's context from the first turn.
 
 The prompt is short (under 500 words) so the engineer doesn't lose anything by pasting it verbatim, but rigid enough that a fresh session executing it walks the implementation the same way every time.

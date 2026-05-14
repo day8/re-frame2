@@ -83,7 +83,7 @@ Per Mike's standing memory rule "Findings is local-only" — any exploration of 
 - Live-runtime inspection of the running v2 app — that's `re-frame-pair2`.
 - Greenfield project bootstrap — that's `re-frame2-setup`.
 - Authoring opt-in modernisations except when the author explicitly asks.
-- Editing `spec/MIGRATION.md` — gaps file `bd create` beads; the skill never patches MIGRATION.md inline.
+- Editing `spec/MIGRATION.md` — gaps file GitHub issues against `day8/re-frame2`; the skill never patches MIGRATION.md inline. (`bd` is monorepo-internal and never invoked from a published skill — see `skills/README.md` baseline.)
 
 ## 5. File structure (locked)
 
