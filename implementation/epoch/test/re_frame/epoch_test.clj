@@ -2012,6 +2012,67 @@
       (is (= [:seed 1 2 3] (:trigger-event record))
           ":trigger-event is the full event vector — payload preserved"))))
 
+;; ---- rf2-7kxxx: find-trigger-event must not synthesise [eid] when
+;; ---- :event tag is absent on the fallback arm ----------------------------
+;;
+;; Per audit r3 §F2: the fallback arm of `find-trigger-event` previously
+;; synthesised `[eid]` as `:event` when the buffered event carried an
+;; `:event-id` tag but no `:event` tag. That misrepresents an event that
+;; originally carried payload (e.g. `[:foo "bar" 42]`) as a payload-less
+;; event. Post-fix: the fallback returns `:event nil` when the tag is
+;; absent, and (per rf2-kl5p1) `build-record` then omits the
+;; `:trigger-event` slot entirely. No silent fabrication; consumers
+;; rendering 'what triggered this cascade' either see the real event
+;; vector or none at all.
+
+(deftest find-trigger-event-fallback-does-not-synthesise-event-vector
+  (testing "find-trigger-event's fallback arm — :event-id tag present,
+            :event tag absent — returns :event nil rather than fabricating
+            [eid]; the calling build-record then omits :trigger-event"
+    (let [tag-less-fallback [{:op-type   :event
+                              :operation :event
+                              :tags      {:frame    :test/main
+                                          :event-id :foo}}]
+          trigger           (#'epoch/find-trigger-event tag-less-fallback)]
+      (is (= :foo (:event-id trigger))
+          ":event-id is recovered from the fallback arm")
+      (is (nil? (:event trigger))
+          ":event is NOT synthesised as [:foo] — the slot is nil so
+           build-record can decide not to emit a fabricated
+           :trigger-event"))
+
+    ;; Build-record consumes the fallback's nil :event via its conditional
+    ;; cond-> (rf2-kl5p1) and emits no :trigger-event slot.
+    (rf/reg-frame :test/main {})
+    (let [tag-less-events [{:op-type   :event
+                            :operation :event
+                            :tags      {:frame    :test/main
+                                        :event-id :foo}}]
+          record          (#'epoch/build-record
+                            :test/main nil nil tag-less-events
+                            :halted-destroy
+                            {:operation :rf.frame/destroyed-mid-drain})]
+      (is (= :foo (:event-id record))
+          ":event-id lands on the record from the fallback arm")
+      (is (not (contains? record :trigger-event))
+          ":trigger-event is absent — no synthesised vector survives
+           into the record"))))
+
+(deftest find-trigger-event-fallback-preserves-payload-when-event-tag-present
+  (testing "find-trigger-event's fallback arm preserves the full event
+            vector when the buffered event DOES carry an :event tag —
+            the rf2-7kxxx fix must not strip payload from the
+            non-degenerate fallback path"
+    (let [events  [{:op-type   :event
+                    :operation :event
+                    :tags      {:frame    :test/main
+                                :event-id :foo
+                                :event    [:foo "bar" 42]}}]
+          trigger (#'epoch/find-trigger-event events)]
+      (is (= :foo (:event-id trigger)))
+      (is (= [:foo "bar" 42] (:event trigger))
+          "the full event vector survives — payload is preserved"))))
+
 ;; ---- rf2-eo4pr: record-observation! guards its swap -----------------------
 ;;
 ;; `notify-listeners!` invokes `record-observation!` once per listener per
