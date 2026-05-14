@@ -29,11 +29,14 @@
 ;; ## Bundle isolation
 ;;
 ;; Per tools/README.md the dependency arrow flows tool → implementation
-;; (and never the reverse). This artefact has no `:local/root` dep on
-;; `implementation/` because it does not :require any re-frame2 source:
-;; it terminates the agent host's stdio channel and bridges to a
-;; separately-running re-frame app's nREPL socket. The runtime injection
-;; (`runtime.cljs`) ships from the pair2 skill, not from here.
+;; (and never the reverse). This artefact carries a thin `:local/root`
+;; dep on `implementation/core` (rf2-cibp8) so the wire-pipeline's
+;; source-URI decorator can `:require` the pure-data
+;; `re-frame.source-coords.editor-uri` ns. Nothing else from
+;; implementation/core is consumed by the server bundle — the require
+;; graph is shallow (editor-uri → clojure.string only). The runtime
+;; injection (`runtime.cljs`) still ships from the pair2 skill, not
+;; from here.
 ;;
 ;; ## Tests
 ;;
@@ -58,6 +61,13 @@
          ;; default-suppress filter, the path-keyed diff-encode, and
          ;; the overflow-marker shape. Per rf2-vw4sq.
          day8/re-frame2-mcp-base  {:local/root "../mcp-base"}
+
+         ;; implementation/core (rf2-cibp8) — pulled in for the pure-
+         ;; data `re-frame.source-coords.editor-uri` ns the wire-
+         ;; pipeline's source-URI decorator composes over. The require
+         ;; graph from editor-uri is shallow (clojure.string only); no
+         ;; Reagent / re-frame runtime classes land in the node bundle.
+         day8/re-frame2           {:local/root "../../implementation/core"}
 
          ;; day8/de-dupe — structural dedup of persistent data structures
          ;; (rf2-obpa9). The library substitutes repeated subtrees with
