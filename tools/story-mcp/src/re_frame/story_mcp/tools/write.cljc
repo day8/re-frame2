@@ -10,9 +10,9 @@
   The third write-surface tool, `record-as-variant` (the recorder
   bridge, rf2-luhdu), lives in `re-frame.story-mcp.tools.recorder` —
   it has enough body to warrant its own ns under the rf2-zkca8
-  leaf-size ceiling. The registry (`tools.registry/tool-registry`)
-  concatenates `recorder/descriptor` after `write/descriptors` so
-  IMPL-SPEC §7.3 order survives the file split."
+  leaf-size ceiling. That ns exposes its own `descriptors` vec which
+  `tools.registry/tool-registry` concatenates after `write/descriptors`
+  so IMPL-SPEC §7.3 order survives the file split."
   (:require [clojure.edn :as edn]
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
