@@ -1352,3 +1352,205 @@
         traces :rf.error/redirect-invalid-location
         "safe-redirect with CRLF in :location"))))
 
+;; ===========================================================================
+;; rf2-z7gor — tag-name injection (emit) + header-name / cookie field
+;; validation (response) — security audit 2026-05-14 §P2
+;;
+;; Companion gates to the rf2-hbty2 header-value gate:
+;;   1. parse-tag-name handed the keyword's leading fragment straight to
+;;      `<...>` emission with no grammar check; a hostile keyword like
+;;      `(keyword "img src=x onerror=alert(1)")` bypassed the attribute
+;;      validator entirely. Validate the tag-name against the HTML5/SVG/
+;;      MathML element-name grammar and fail-fast on misuse.
+;;   2. set-header / append-header validated VALUES (rf2-hbty2) but
+;;      accepted any :name; set-cookie / delete-cookie stored the whole
+;;      cookie map verbatim. Validate header names against the RFC 7230
+;;      §3.2.6 token grammar and cookie fields against RFC 6265 §4.1.1
+;;      + the CR/LF/NUL ban — at the fx boundary so non-ring host
+;;      adapters get the same safety.
+;; ===========================================================================
+
+(deftest ssr-render-rejects-hostile-tag-keywords
+  (testing "rf2-z7gor — a keyword carrying attribute-like injection in the
+            tag component is rejected by :rf.error/invalid-tag-name. The
+            two documented reproductions from the bead."
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
+          (rf/render-to-string [(keyword "img src=x onerror=alert(1)")] {}))
+        "img-with-event-handler injection rejected")
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
+          (rf/render-to-string [(keyword "div> <script") "x"] {}))
+        "tag-break-into-script injection rejected"))
+
+  (testing "rf2-z7gor — whitespace, separators, CTLs, empty all rejected"
+    (doseq [hostile [(keyword " ")
+                     (keyword "a b")
+                     (keyword "tag\rname")
+                     (keyword "tag\nname")
+                     (keyword "")
+                     (keyword "1-leading-digit")
+                     (keyword "<script>")]]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
+            (rf/render-to-string [hostile] {}))
+          (str "hostile tag-name " (pr-str hostile))))))
+
+(deftest ssr-render-accepts-legit-tag-keywords
+  (testing "rf2-z7gor — regression guard: HTML / SVG / MathML / custom
+            element names + the :tag#id.cls sugar all still flow"
+    (is (= "<div>x</div>"
+           (rf/render-to-string [:div "x"] {})))
+    (is (= "<my-component></my-component>"
+           (rf/render-to-string [:my-component] {})))
+    (is (= "<svg></svg>"
+           (rf/render-to-string [:svg] {})))
+    (is (= "<foreignObject>a</foreignObject>"
+           (rf/render-to-string [:foreignObject "a"] {}))
+        "SVG camelCase element names still parse")
+    (is (= "<div id=\"main\" class=\"col-12 bold\">x</div>"
+           (rf/render-to-string [:div#main.col-12.bold "x"] {}))
+        ":tag#id.cls sugar still parses (validator runs on the tag fragment)")
+    (is (= "<p>a</p><p>b</p>"
+           (rf/render-to-string [:<> [:p "a"] [:p "b"]] {}))
+        ":<> fragment renders children with no wrapper")))
+
+(deftest ssr-set-header-rejects-invalid-name
+  (testing "rf2-z7gor — :rf.server/set-header with CRLF in :name surfaces
+            :rf.error/header-invalid-name (sister gate to rf2-hbty2's
+            header-value gate)"
+    (rf/reg-event-fx :hdr/crlf-in-name
+      (fn [_ _]
+        {:fx [[:rf.server/set-header
+               {:name  "X-Test\r\nSet-Cookie: evil=1"
+                :value "ok"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:hdr/crlf-in-name] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/header-invalid-name
+        "set-header with CRLF in :name")))
+
+  (testing "rf2-z7gor — separators / whitespace / empty all rejected"
+    (doseq [hostile ["Bad: Name" "Bad Name" "" "with(parens)"
+                     (str "nul" (char 0) "bad")]]
+      (rf/reg-event-fx :hdr/probe-name
+        (fn [_ _]
+          {:fx [[:rf.server/set-header {:name hostile :value "ok"}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:hdr/probe-name] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/header-invalid-name
+          (str "hostile header name " (pr-str hostile)))))))
+
+(deftest ssr-append-header-rejects-invalid-name
+  (testing "rf2-z7gor — :rf.server/append-header with CRLF in :name surfaces
+            :rf.error/header-invalid-name (same gate as set-header)"
+    (rf/reg-event-fx :hdr/append-crlf-name
+      (fn [_ _]
+        {:fx [[:rf.server/append-header
+               {:name  "X-Audit\r\nSet-Cookie: forged=1"
+                :value "ok"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:hdr/append-crlf-name] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/header-invalid-name
+        "append-header with CRLF in :name"))))
+
+(deftest ssr-set-cookie-rejects-invalid-fields
+  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :name surfaces
+            :rf.error/cookie-invalid-name (RFC 6265 §4.1.1 token grammar)"
+    (rf/reg-event-fx :ck/crlf-in-name
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie
+               {:name  "session\r\nSet-Cookie: stolen=1"
+                :value "abc"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:ck/crlf-in-name] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/cookie-invalid-name
+        "set-cookie with CRLF in :name")))
+
+  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :value surfaces
+            :rf.error/cookie-invalid-value"
+    (rf/reg-event-fx :ck/crlf-in-value
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie
+               {:name  "session"
+                :value "abc\r\nSet-Cookie: stolen=1"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:ck/crlf-in-value] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/cookie-invalid-value
+        "set-cookie with CRLF in :value")))
+
+  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :path surfaces
+            :rf.error/cookie-invalid-path"
+    (rf/reg-event-fx :ck/crlf-in-path
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie
+               {:name  "session"
+                :value "abc"
+                :path  "/\r\nSet-Cookie: stolen=1"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:ck/crlf-in-path] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/cookie-invalid-path
+        "set-cookie with CRLF in :path")))
+
+  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :domain surfaces
+            :rf.error/cookie-invalid-domain"
+    (rf/reg-event-fx :ck/crlf-in-domain
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie
+               {:name   "session"
+                :value  "abc"
+                :domain "example.com\r\nSet-Cookie: stolen=1"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:ck/crlf-in-domain] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/cookie-invalid-domain
+        "set-cookie with CRLF in :domain"))))
+
+(deftest ssr-delete-cookie-rejects-invalid-fields
+  (testing "rf2-z7gor — :rf.server/delete-cookie runs the same validators
+            as set-cookie (it's sugar over set-cookie)"
+    (rf/reg-event-fx :ck/del-crlf-path
+      (fn [_ _]
+        {:fx [[:rf.server/delete-cookie
+               {:name "session" :path "/admin\r\nbad"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:ck/del-crlf-path] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/cookie-invalid-path
+        "delete-cookie with CRLF in :path"))))
+
+(deftest ssr-clean-names-still-accepted
+  (testing "rf2-z7gor — regression guard: legitimate header names + cookie
+            field shapes still flow"
+    (rf/reg-event-fx :clean/all
+      (fn [_ _]
+        {:fx [[:rf.server/set-header  {:name "Cache-Control"
+                                       :value "no-cache"}]
+              [:rf.server/set-header  {:name "X-Forwarded-For"
+                                       :value "1.2.3.4"}]
+              [:rf.server/set-cookie  {:name    "session"
+                                       :value   "abc123"
+                                       :path    "/"
+                                       :domain  "example.com"}]
+              [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
+    (let [f (rf/make-frame {:platform :server :on-create [:clean/all]})
+          resp (get-response f)]
+      (is (some (fn [[k _]] (= "Cache-Control"   k)) (:headers resp)))
+      (is (some (fn [[k _]] (= "X-Forwarded-For" k)) (:headers resp)))
+      (is (= 2 (count (:cookies resp))))
+      (is (= "session" (-> resp :cookies first :name)))
+      (is (= "stale"   (-> resp :cookies second :name))))))
+
