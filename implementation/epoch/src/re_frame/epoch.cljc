@@ -166,8 +166,21 @@
   nil)
 
 (defn- record-observation! [cb-id frame-id]
+  ;; Guard the swap on the already-observed case. `notify-listeners!`
+  ;; calls this once per listener per drain-settle, and for the common
+  ;; case (a long-lived listener observing the same frame on every
+  ;; cascade) the cb's observed-frames set already contains frame-id —
+  ;; an unconditional `swap!` fires every atom watcher for ZERO
+  ;; semantic change. Read once, fast-path return when the membership
+  ;; already holds; otherwise CAS through the swap.
   (when frame-id
-    (swap! observed-frames-by-cb update cb-id (fnil conj #{}) frame-id)))
+    (let [current @observed-frames-by-cb]
+      (when-not (contains? (get current cb-id) frame-id)
+        (swap! observed-frames-by-cb
+               (fn [m]
+                 (if (contains? (get m cb-id) frame-id)
+                   m
+                   (update m cb-id (fnil conj #{}) frame-id))))))))
 
 (defn- notify-listeners! [record]
   (let [frame-id (:frame record)]
