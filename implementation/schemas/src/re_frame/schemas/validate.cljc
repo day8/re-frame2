@@ -71,6 +71,8 @@
             [re-frame.schemas.walker :as walker]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:private redacted-sentinel
   "The `:rf/redacted` privacy sentinel emitted by validation traces
   for slots matching the `:sensitive?` predicate. Per Spec 009

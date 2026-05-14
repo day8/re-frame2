@@ -43,6 +43,8 @@
   `:rf/app-schema-meta`. Future per-slot annotations (Spec-Schemas
   reserves additional slots) compose as one-line registrations.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:private name-bearing-ops
   "Schema ops whose children carry name slots (the first element of a
   child entry is the slot's app-db key)."

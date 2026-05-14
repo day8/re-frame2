@@ -24,6 +24,8 @@
   (:require [re-frame.frame :as frame]
             [re-frame.source-coords :as source-coords]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defonce
   ^{:doc "frame-id → path → schema-meta. Per-frame so a story or test
           fixture's reg-app-schema does not bleed into the default

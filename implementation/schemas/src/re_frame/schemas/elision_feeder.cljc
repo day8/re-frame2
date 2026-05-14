@@ -25,6 +25,8 @@
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.walker :as walker]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- frame-declarations
   "Aggregate `extract-fn` across every schema registered against
   `frame-id`, returning a `{path declaration}` map."

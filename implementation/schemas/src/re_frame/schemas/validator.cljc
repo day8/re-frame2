@@ -50,6 +50,8 @@
   loaded the default fns soft-pass per Spec 010 §Recommended soft-pass."
   (:require [re-frame.late-bind :as late-bind]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- default-malli-validate
   "The default validator — delegates to `malli.core/validate` via the
   late-bind hook `:schemas/malli-validate` published by
