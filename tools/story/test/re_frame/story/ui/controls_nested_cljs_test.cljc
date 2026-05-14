@@ -176,6 +176,40 @@
          ;; :items vector value → :repeater
          (is (= :repeater (-> t :items :widget)))))))
 
+;; ---- rf2-wb4y3: 2-arity threads precomputed eff-args ---------------------
+
+#?(:cljs
+   (deftest resolve-argtypes-2-arity-threads-eff-args
+     (testing "the 2-arity overload uses the supplied eff-args instead of
+               re-resolving — passes a fabricated args map and asserts the
+               fallback-inference reflects that shape (not the registered
+               variant args)"
+       (story/reg-variant :story.nest/v4
+         {:args   {:registered "x"}
+          :events []})
+       ;; Supply a different eff-args map. The variant has no schema and
+       ;; no argtypes, so the fallback inference walks the supplied map's
+       ;; value shapes — :supplied should appear in the result, :registered
+       ;; should NOT (proving the supplied map was used, not the variant's
+       ;; own).
+       (let [t (controls/resolve-argtypes :story.nest/v4
+                                          {:supplied "y" :n 42})]
+         (is (contains? t :supplied))
+         (is (contains? t :n))
+         (is (not (contains? t :registered)))
+         (is (= :text   (-> t :supplied :widget)))
+         (is (= :number (-> t :n :widget)))))))
+
+#?(:cljs
+   (deftest resolve-argtypes-1-arity-still-resolves-internally
+     (testing "the 1-arity overload still works for non-render callers
+               (tests, docs, etc.) — it calls args/resolve-args itself"
+       (story/reg-variant :story.nest/v5
+         {:args   {:title "hi"}
+          :events []})
+       (let [t (controls/resolve-argtypes :story.nest/v5)]
+         (is (= :text (-> t :title :widget)))))))
+
 ;; ---- JVM + CLJS: path-aware set-cell-override ---------------------------
 
 (deftest set-cell-override-scalar-wrapper
