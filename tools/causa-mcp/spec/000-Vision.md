@@ -143,8 +143,7 @@ root.
 
 ## MCP catalogue summary
 
-Eighteen tools across five bands — Inspection (9) / Mutation (3)
-/ Streaming (3) / Escape hatch (1) / Meta (2) — per the
+Eighteen tools across five bands per the
 [canonical counts in `README.md`](./README.md#canonical-counts).
 
 **The band enumeration with tool names, signatures, return

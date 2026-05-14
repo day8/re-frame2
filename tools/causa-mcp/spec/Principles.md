@@ -232,8 +232,9 @@ Same posture as pair2-mcp.
 
 ## Read-mostly catalogue; mutate via the in-panel-equivalent gates
 
-The eighteen tools split 9 read / 3 mutate / 3 stream / 1 escape
-hatch / 2 meta. The mutating tools (`restore-epoch`,
+The catalogue is read-mostly — see
+[`README.md` §Canonical counts](./README.md#canonical-counts) for
+the band split. The mutating tools (`restore-epoch`,
 `reset-frame-db`, `dispatch`) mirror the in-panel right-click
 affordances the human user already has — Causa-MCP doesn't
 introduce a *new* mutation surface, it gives the agent the same
