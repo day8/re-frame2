@@ -30,13 +30,14 @@ So the recorder is one filter on the existing emit stream, scoped to the recordi
 
 `gen-play-snippet` opts: `:variant-id` (required keyword id), `:doc` (optional docstring), `:extends` (variant id to inherit `:component` / `:args` / `:decorators` from), `:alias` (form alias, default `story`). The returned string is `read-string`-able and round-trips through the registrar.
 
-## Three filter layers
+## Four filter layers
 
-The trace-bus callback short-circuits unless a recording is in flight, so it's free to leave installed. When recording, three filters apply (in order):
+The trace-bus callback short-circuits unless a recording is in flight, so it's free to leave installed. When recording, four filters apply (in order):
 
 1. **Op-type** — only `:event/dispatched` emissions qualify (`:fx`, `:sub`, `:view`, `:cofx` traffic is dropped).
 2. **Frame scope** — emission `:frame` must match the recording's target variant. Typing in another canvas while a recording is active is dropped.
 3. **Event vocabulary** — `:rf.assert/*` events and Story-internal helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Recorded `:play` bodies capture user intent; assertions get added by hand afterwards.
+4. **Sensitivity** — events whose handler is registered `:sensitive? true` (auth, 2FA, password change, API-key rotation) replace the event vector with the placeholder `[:rf/redacted]` instead of riding the raw payload into the snippet. The temporal position survives; the secret never lands in `:play` source. See the next section for details and the authoring rule.
 
 ## Sensitive events — record-but-redact
 
@@ -96,6 +97,10 @@ Paste into the stories namespace. Done.
 ## MCP — `record-as-variant`
 
 The story-mcp `record-as-variant` tool calls the same public surface through the Tool-Pair bridge: `start-recording!` → drive interactions (programmatic dispatches or human-in-canvas) → `stop-recording!` → `gen-play-snippet` → snippet returned as the tool's structured output. See `story-mcp-loop.md` for the agent self-healing loop that uses this.
+
+**The MCP path inherits the same four-filter pipeline, including layer 4 (sensitivity).** `record-as-variant` does not — and must not — bypass `:sensitive?` redaction: the tool's structured output is shipped over an MCP transport to an agent process, which is a wire boundary, so sensitive payloads must never appear in the returned `:play` body. The tool also never accepts a `:trace/show-sensitive? true` override at call time. If a recording session captured any sensitive events, the response carries the same `[:rf/redacted]` placeholders the in-canvas overlay shows, plus a metadata count of redactions for the agent to surface to the human.
+
+Authoring rule for tools that consume `gen-play-snippet` output (or call `record-as-variant` directly): treat any `[:rf/redacted]` slot as a non-reproducible step. Do not auto-commit a `:play` body containing `[:rf/redacted]` into source control; either ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording to avoid the sensitive step. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) §Story recorder for the rf2-hdadz normative contract.
 
 ## Deeper material
 

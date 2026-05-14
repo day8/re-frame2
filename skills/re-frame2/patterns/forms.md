@@ -24,6 +24,44 @@ Two non-obvious rules:
 1. **`:_form` is the reserved key inside `:errors`** for form-level errors (cross-field validation, server-returned "credentials invalid"). Always visible whenever present — does not gate on `:touched` or `:submit-attempted?`. Field ids must not collide with `:_form`.
 2. **`:errors` vs `:submit-error`**: structured field errors → `:errors`; unstructured transport failures (network down, 500 with no body, timeout) → `:submit-error`. Same `:status :error`; different render path.
 
+## Auth / secret-bearing forms (load-bearing — read for any login / signup / 2FA / password-change shape)
+
+Password, TOTP, recovery-code, and similar secret fields are a **different lifecycle** to the everyday text input. The slice shape above does not change, but four extra disciplines apply:
+
+1. **Mark the submit handler `:sensitive? true` and scrub the payload with `(rf/with-redacted ...)`.** This is the single normative privacy seam — it drops trace/listener emissions and replaces the recorded payload with `:rf/redacted`. The handler body still sees the real value via the unredacted `:event` coeffect. See [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md) — the canonical worked example there is `:auth/login-submitted`.
+2. **Do not copy a secret field into `:submitted`.** The `:dirty?` sub compares `:draft` against `:submitted`; persisting a password into `:submitted` keeps the secret in app-db longer than the form needs it. Either omit the secret from the `:submitted` mirror (the `:dirty?` sub falls back to comparing against defaults, which is fine for auth forms — re-submitting a login *should* feel "dirty" again), or clear the secret out of `:submitted` after the request resolves.
+3. **Clear secret fields out of `:draft` after submit.** Once the request is in flight, the secret has done its job — `assoc-in [:auth :login :draft :password] nil` in the `:submitting` transition (or the `:submit-success` / `:submit-error` handlers). Don't leave a credential sitting in app-db waiting for the next snapshot, recorder capture, or pair-tooling inspection.
+4. **Do not include the secret in `:errors`.** Server-side rejection ("password incorrect") lands under the reserved `:_form` key with a non-revealing message; the offending value never echoes back.
+
+Worked auth example — minimal diff from the slice form above:
+
+```clojure
+(rf/reg-event-fx :form.login/submit
+  {:sensitive? true}                                            ;; gate trace/listener fan-out
+  [(rf/with-redacted [[:draft :password]])]                     ;; scrub draft.password in every downstream emit
+  (fn [{:keys [db]} _]
+    (let [draft  (get-in db [:auth :login :draft])
+          errors (validate-against LoginForm draft)
+          db'    (assoc-in db [:auth :login :submit-attempted?] true)]
+      (if (empty? errors)
+        {:db (-> db'
+                 (assoc-in [:auth :login :status]              :submitting)
+                 (assoc-in [:auth :login :errors]              {})
+                 (assoc-in [:auth :login :submit-error]        nil)
+                 ;; Clear the password out of :draft on submit — handler still
+                 ;; has it via :event coeffect; app-db drops it.
+                 (assoc-in [:auth :login :draft :password]     nil))
+         :fx [[:rf.http/managed
+               {:request    {:method :post :url "/api/login" :body draft}
+                :on-success [:form.login/submit-success]
+                :on-failure [:form.login/submit-error]}]]}
+        {:db (assoc-in db' [:auth :login :errors] errors)}))))
+```
+
+For 2FA flows, the same shape applies to the TOTP / recovery-code field. The `[:auth :2fa-verify :draft :totp-code]` path is `:sensitive? true` + scrubbed + cleared after submit.
+
+This is a complement to, not a replacement for, the slice form above — apply the four disciplines only on auth / 2FA / password-change / API-key-rotation flows. Everyday forms (settings, article-editor, comments) keep the plain slice shape.
+
 ## Canonical declaration — slice form
 
 The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/reagent/realworld/auth.cljs` for the `:auth :login-form` and `:auth :register-form` slices, and in `examples/reagent/realworld/article_editor.cljs` and `comments.cljs`).
