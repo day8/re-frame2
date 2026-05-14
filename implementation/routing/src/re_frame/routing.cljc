@@ -957,6 +957,14 @@
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db frame]} [_ url]]
+    ;; Per Spec 012 §URL changes are events the slice carries the full
+    ;; seven-key shape `{:id :params :query :fragment :transition :error
+    ;; :nav-token}` on every URL-driven write — popstate, initial load,
+    ;; SSR. Pre-rf2-d60go this handler omitted :fragment (computed but
+    ;; never assoc'd) and :nav-token (never allocated), so the
+    ;; URL-driven path produced a slice that diverged in shape from the
+    ;; programmatic-nav path and the :rf/route-slice schema rejected
+    ;; the result.
     (let [m        (match-url url)
           fragment (:fragment m)]
       (when (nil? m)
@@ -978,6 +986,12 @@
             query        (or (:query m) {})
             route-meta   (registrar/lookup :route route-id)
             on-match-vec (vec (or (:on-match route-meta) []))
+            ;; Per Spec 012 §Multi-frame routing: nav-token allocation
+            ;; bumps the per-frame counter — both branches allocate a
+            ;; fresh token (an unmatched URL is still a navigation;
+            ;; the not-found page may have :on-match loaders of its
+            ;; own that need staleness suppression).
+            [db' token]  (alloc-nav-token db)
             ;; Per Spec 012 §Scroll restoration: popstate / initial / SSR
             ;; navigations default to :restore — the saved position trumps.
             to-route     (cond-> {:id route-id}
@@ -991,12 +1005,23 @@
                             :saved-pos (when (= :restore strategy)
                                          (lookup-scroll-position db url))
                             :fragment  fragment})]
-        {:db (assoc db :rf/route
+        ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
+        ;; when the unmatched-URL path resolves to :rf.route/not-found AND
+        ;; no such route is registered.
+        (when (and (nil? m) (nil? route-meta))
+          (trace/emit! :warning :rf.warning/no-not-found-route
+                       {:url url}))
+        (trace/emit! :event :rf.route.nav-token/allocated
+                     {:route-id  route-id
+                      :nav-token token})
+        {:db (assoc db' :rf/route
                     {:id         route-id
                      :params     params
                      :query      query
+                     :fragment   fragment
                      :transition (if (seq on-match-vec) :loading :idle)
-                     :error      nil})
+                     :error      nil
+                     :nav-token  token})
          :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                           (when scroll-fx [scroll-fx])))}))))
 
