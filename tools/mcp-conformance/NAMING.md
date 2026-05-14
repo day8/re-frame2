@@ -3,8 +3,8 @@
 Source: rf2-mzf1r.
 
 The re-frame2 MCP triplet — `tools/pair2-mcp/`, `tools/story-mcp/`,
-and `tools/causa-mcp/` (spec-only today) — exposes ~40 tools today,
-trending towards ~50 once causa-mcp's implementation lands. An agent
+and `tools/causa-mcp/` (spec-only today) — exposes ~50 tools today
+(14 + 19 + 18), trending upwards. An agent
 host with two or three servers attached at once sees the union as
 one surface. **The verb a tool uses is the first signal the agent
 parses**; verb drift across siblings makes that signal lossy
@@ -68,7 +68,7 @@ every README example, and every CI fixture. The convention is the lock
 for **new tools landing under causa-mcp's impl** and for **any future
 extension** to pair2-mcp / story-mcp.
 
-### Pair2-mcp (12 tools)
+### Pair2-mcp (14 tools)
 
 | Tool | Verb shape | Notes |
 |---|---|---|
@@ -82,6 +82,8 @@ extension** to pair2-mcp / story-mcp.
 | `get-path` | `get-` | Conformant. |
 | `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
 | `subscription-info` | bare-noun read | **Non-conformant** — bare-noun read of a streaming-subscription's status; see causa-mcp's `list-subscriptions` for the conformant cross-server pair. The current name predates the cross-MCP convention (rf2-zjz9q landed it before the rf2-3we2k Lock #12 picked the conformant verb). A future rename to `list-subscriptions` aligns the triplet; today the divergence is acknowledged. |
+| `handler-meta` | bare-noun read | Audit pending — added by rf2-cibp8 (PR #1107). Bare-noun read of a registered handler's registration-metadata map. Conformance against the bare-noun-exception clause needs a separate audit pass. |
+| `registry-list` | `<noun>-list` suffix | Audit pending — added by rf2-pctf8 (PR #1107). The `<things>-list` suffix shape is **flagged as rejected** in §"What's NOT a locked verb" above (a `list-<things>` prefix is the catalogued shape). The current name mirrors the runtime's `(rf/registry-list kind)` accessor; whether to grandfather the suffix shape or rename to `list-handlers` is a separate decision. |
 | `get-pair2-instructions` | `get-` | Conformant — single-record read of the agent-onboarding instructions blob (rf2-fnpqg). Mirrors story-mcp's `get-story-instructions`. |
 
 ### Story-mcp (19 tools)
