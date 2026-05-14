@@ -104,9 +104,9 @@
 
 (defwrapper reg-app-schemas
   "Bulk-register `{path -> schema}` against the active frame (or the
-  `:frame` opt). Per rf2-jzs9 — the plural form of `reg-app-schema`,
-  aimed at feature-modular apps (per Conventions §Feature-modularity
-  prefix convention).
+  `:frame` opt). The plural form of `reg-app-schema`, aimed at
+  feature-modular apps (per Conventions §Feature-modularity prefix
+  convention).
 
   Shape:
 

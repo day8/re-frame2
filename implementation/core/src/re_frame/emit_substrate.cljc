@@ -1,10 +1,8 @@
 (ns re-frame.emit-substrate
   "Parameterised always-on emit substrate. Backs `re-frame.event-emit`
-  (rf2-rirbq) and `re-frame.error-emit` (rf2-bacs4 / rf2-hqbeh) — both
-  ship a `register / unregister / clear / fan-out` registry with
-  identical structure but distinct record shapes and short-circuit
-  conditions. Factored per rf2-z5ffh (audit finding EE1/A4 of
-  rf2-spr6q).
+  and `re-frame.error-emit` — both ship a
+  `register / unregister / clear / fan-out` registry with identical
+  structure but distinct record shapes and short-circuit conditions.
 
   The substrate is always-on: no `goog.DEBUG` gating inside this
   namespace. Listener-REGISTRATION sites SHOULD use `goog.DEBUG=false`

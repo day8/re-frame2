@@ -12,14 +12,13 @@
   the machine's :guards / :actions map) and NOT registered as standalone
   kinds. The kinds set below is the closed v1 list.
 
-  Per rf2-0frdi the `:app-schema` kind is RESERVED but the registrar
-  slot is intentionally **empty** — `reg-app-schema` writes only to the
+  The `:app-schema` kind is RESERVED but the registrar slot is
+  intentionally **empty** — `reg-app-schema` writes only to the
   schemas artefact's own per-frame side-table (`schemas/schemas-by-
   frame`), which is the single source of truth. The kind keyword is
   preserved for the test-support `:clear-kinds` interface and for
   Spec 001 §Registry model continuity; tools introspecting app-db
-  schemas go through `schemas/app-schemas` / `schemas/app-schema-meta-at`
-  rather than `handlers :app-schema` / `handler-meta :app-schema`.
+  schemas go through `schemas/app-schemas` / `schemas/app-schema-meta-at`.
 
   ## Production elision
 

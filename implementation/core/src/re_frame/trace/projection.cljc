@@ -15,11 +15,11 @@
   consumers need above the raw stream for the common 'render this
   cascade as six dominoes' use case.
 
-  Per rf2-g6ih4 (cascade-wide `:dispatch-id`) the projection is robust
-  against events that the framework emits *inside* a drain even though
-  they aren't `:event/dispatched` — fx invocations, sub-runs, renders,
-  errors. Every such event now carries `:tags :dispatch-id` so the
-  group-by below assembles a complete cascade record.
+  The cascade-wide `:dispatch-id` makes the projection robust against
+  events the framework emits *inside* a drain even though they aren't
+  `:event/dispatched` — fx invocations, sub-runs, renders, errors.
+  Every such event carries `:tags :dispatch-id` so the group-by below
+  assembles a complete cascade record.
 
   ## Bucketing (per Spec 009 §`:op-type` vocabulary)
 

@@ -6,11 +6,10 @@
   no caching, no listeners. Trivially compliant with the revertibility
   contract because there is no state outside the atom.
 
-  Per rf2-agql (replaces rf2-84po) there is no default-adapter registry
-  and no ns-load side-effect. Consumers (JVM tests, headless SSR hosts,
-  any process that wants the plain-atom path on CLJS) call
-  `(rf/init! plain-atom/adapter)` explicitly. The `adapter` var below
-  is the public surface.")
+  There is no default-adapter registry and no ns-load side-effect.
+  Consumers (JVM tests, headless SSR hosts, any process that wants the
+  plain-atom path on CLJS) call `(rf/init! plain-atom/adapter)`
+  explicitly. The `adapter` var below is the public surface.")
 
 #?(:clj (set! *warn-on-reflection* true))
 

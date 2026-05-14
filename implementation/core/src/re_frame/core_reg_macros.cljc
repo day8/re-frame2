@@ -8,12 +8,12 @@
   the `with-coords-form` helper plus the `defreg-macro` macro-defining
   macro.
 
-  Carved out of `re-frame.core` per rf2-4rnui so the public namespace
-  stays under the 250-LoC leaf ceiling (rf2-zkca8). The user-facing
-  `defmacro reg-event-db` / `reg-sub` / `reg-flow` / … shells live in
-  `re-frame.core` itself (they MUST, so `rf/reg-event-db` resolves
-  alias-qualified per Clojure's standard `ns-alias/Var` lookup); each
-  shell is a one-line `(defreg-macro …)` form. The bulk LoC sits here.
+  Carved out of `re-frame.core` so the public namespace stays under
+  the 250-LoC leaf ceiling. The user-facing `defmacro reg-event-db` /
+  `reg-sub` / `reg-flow` / … shells live in `re-frame.core` itself
+  (they MUST, so `rf/reg-event-db` resolves alias-qualified per
+  Clojure's `ns-alias/Var` lookup); each shell is a one-line
+  `(defreg-macro …)` form. The bulk LoC sits here.
 
   rf2-xnym: the rationale for `(symbol (str (ns-name *ns*)))` rather
   than `(ns-name *ns*)` — in CLJS macro context the ns-symbol may
@@ -84,7 +84,7 @@
      "Emits a canonical `defmacro` for a `reg-*` surface. The emitted
      macro captures `(meta &form)` / `*file*` / `*ns*` and splices the
      consumer's args through to `delegate-sym` (a symbol that must
-     resolve in `re-frame.core`). Per rf2-bd6zl."
+     resolve in `re-frame.core`)."
      [macro-sym delegate-sym docstring & [attr-map]]
      (let [qualified (resolve-delegate-sym delegate-sym)]
        `(defmacro ~macro-sym

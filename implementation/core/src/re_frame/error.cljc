@@ -3,16 +3,14 @@
   primitives used by error / warning trace emit sites across core and
   the per-feature artefacts.
 
-  Per rf2-w4bby — extracts the byte-identical `type-of-value` helper
-  previously duplicated in `re-frame.spec` (core) and
-  `re-frame.schemas.validate` (schemas). Both call sites use it for
-  the same purpose: rendering a short type tag in the `:reason`
-  string of a `:rf.error/schema-validation-failure` trace event.
+  `type-of-value` renders a short type tag in the `:reason` string of
+  a `:rf.error/schema-validation-failure` trace event; consumed by
+  `re-frame.spec` and `re-frame.schemas.validate`.
 
   Lives in core because schemas depends on core (Spec 006 §Adapter
-  shipping convention as extended by rf2-p7va) — pushing the helper
-  down means the schemas-side validate.cljc can `:require` it without
-  inverting the dep direction. Apps that don't load the schemas
+  shipping convention) — pushing the helper down means the schemas-
+  side validate.cljc can `:require` it without inverting the dep
+  direction. Apps that don't load the schemas
   artefact still get the helper for free under `re-frame.spec`'s
   boundary-validation interceptor.
 

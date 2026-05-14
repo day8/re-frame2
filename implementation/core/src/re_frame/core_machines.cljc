@@ -60,7 +60,7 @@
   ([system-id]          :delegate)
   ([system-id frame-id] :delegate))
 
-;; ---- reg-machine* / reg-machine — bespoke per rf2-8bp3 -------------------
+;; ---- reg-machine* / reg-machine — bespoke -------------------------------
 ;;
 ;; Both surfaces share the late-bind throw via `reg-machine-impl` but stamp
 ;; their own `:where` symbol on the missing-artefact ex-info so the trace

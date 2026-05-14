@@ -1,32 +1,27 @@
 (ns re-frame.core-call-site-macros
-  "Helpers for the call-site-capturing macros — `dispatch`, `dispatch-
-  sync`, `subscribe`, `inject-cofx`. Per rf2-ts1a each user-facing
-  surface ships as a macro + `*`-fn pair (Q1=C: existing-name macro,
-  fn-form gets the `*` suffix; same convention as `reg-view` /
-  `reg-view*` and `reg-machine` / `reg-machine*` per Conventions
-  §`*`-suffix naming).
+  "Helpers for the call-site-capturing macros — `dispatch`,
+  `dispatch-sync`, `subscribe`, `inject-cofx`. Each user-facing surface
+  ships as a macro + `*`-fn pair (Conventions §`*`-suffix naming).
 
-  Carved out of `re-frame.core` per rf2-4rnui so the public namespace
-  stays under the 250-LoC leaf ceiling (rf2-zkca8). The user-facing
-  `defmacro dispatch` / `subscribe` / etc. shells live in
-  `re-frame.core` itself (they MUST, so `rf/dispatch` resolves alias-
-  qualified per Clojure's standard `ns-alias/Var` lookup); each shell
-  is a one-line call into the `build-…-form` plain fns here.
+  Carved out of `re-frame.core` so the public namespace stays under the
+  250-LoC leaf ceiling. The user-facing `defmacro dispatch` /
+  `subscribe` / etc. shells live in `re-frame.core` itself (they MUST,
+  so `rf/dispatch` resolves alias-qualified per Clojure's standard
+  `ns-alias/Var` lookup); each shell is a one-line call into a
+  `build-…-form` plain fn here.
 
   Each shell emits an `(if interop/debug-enabled? <stamping> <plain>)`
   branch around the matching `*`-fn call. Under `:advanced` +
   `goog.DEBUG=false` the closure compiler constant-folds the gate to
   false and the entire stamping branch — including the literal
-  `:rf.trace/call-site` map — DCEs. Per Q3=B dev-only elision.
+  `:rf.trace/call-site` map — DCEs.
 
   `emit-error!` reads `trace/*handler-scope*`'s `:call-site` slot and
-  attaches the value as `:rf.trace/call-site` (Q2=A flat sibling of
+  attaches the value as `:rf.trace/call-site` (a flat sibling of
   `:rf.trace/trigger-handler`) on the emitted event. The `coords-form`
   helper is reused from `re-frame.source-coords` so the literal map
   carries the same `{:ns :file :line :column}` shape as registration-
-  site coords (rf2-mdjp `:file` resolution rules apply identically).
-
-  File naming uses the flat dash-form (per rf2-2vbm)."
+  site coords."
   (:require [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))

@@ -151,11 +151,11 @@
    {:key         :schemas/extract-large-paths-from-schema
     :producer-ns 're-frame.schemas
     :design-bead "rf2-nwv63"
-    :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots. Consumed by re-frame.elision per rf2-ynnq0 Option A (rf2-w3n5u impl)."}
+    :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots. Consumed by re-frame.elision."}
    {:key         :schemas/extract-sensitive-paths-from-schema
     :producer-ns 're-frame.schemas
     :design-bead "rf2-kj51z"
-    :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true. Consumed by re-frame.elision per rf2-ynnq0 Option A (rf2-w3n5u impl)."}
+    :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true. Consumed by re-frame.elision."}
 
    ;; ---- re-frame.machines (rf2-xbtj / rf2-8bp3) ------------------------------
    {:key         :machines/reg-machine

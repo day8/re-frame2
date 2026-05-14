@@ -1,7 +1,7 @@
 (ns re-frame.event-emit
   "Always-on event-emit substrate for production observability
-  (Datadog, Sentry, Honeycomb, ...). Per rf2-rirbq / Spec 009
-  §What IS available in production §Event-emit listener.
+  (Datadog, Sentry, Honeycomb). Per Spec 009 §What IS available in
+  production §Event-emit listener.
 
   Survives `:advanced` + `goog.DEBUG=false`. Parallel to (not a
   fallback for) the dev-only trace surface. One record per processed
@@ -19,11 +19,11 @@
   belt-and-braces gate alongside an explicit config flag. The
   substrate proper carries no gate.
 
-  Per rf2-6hklf: if the event's registered handler-meta carries
-  `:sensitive? true`, the record is dropped entirely (listeners are
-  NOT invoked). Per rf2-qsjda: `:rf.trace/no-emit? true` likewise
-  drops the record — framework-internal bookkeeping handlers
-  (Causa/Story) are not user-domain observable signal."
+  If the event's registered handler-meta carries `:sensitive? true`,
+  the record is dropped entirely (listeners are NOT invoked).
+  `:rf.trace/no-emit? true` likewise drops — framework-internal
+  bookkeeping handlers (Causa, Story) are not user-domain observable
+  signal."
   (:require [re-frame.elision       :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.late-bind     :as late-bind]

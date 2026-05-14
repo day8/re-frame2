@@ -103,9 +103,9 @@
 
 ;; ---- compile-time constants -----------------------------------------------
 ;;
-;; Per rf2-vnjfg / rf2-0la4f (security audit): JVM/SSR/headless deployments
-;; need an explicit production gate, the JVM-side counterpart to CLJS
-;; `goog.DEBUG=false`. Without it, the always-dev posture keeps the trace
+;; JVM/SSR/headless deployments need an explicit production gate, the
+;; JVM-side counterpart to CLJS `goog.DEBUG=false`. Without it the
+;; always-dev posture keeps the trace
 ;; surface live in SSR (per-frame `:trace-cb` listeners, the 200-entry
 ;; retain-N ring buffer, registry trace emits, source-coord metadata) AND
 ;; keeps the epoch-history dev surfaces (`restore-epoch`, `reset-frame-db!`,
@@ -159,6 +159,5 @@
   `-Dre-frame.debug=false` or `RE_FRAME_DEBUG=false` (and the
   conventional false-y vocabulary: `0`, `no`, `off`, empty string).
   The JVM counterpart to CLJS `goog.DEBUG`. Read once at namespace
-  load — set the property / env var BEFORE `re-frame.interop` loads.
-  Per rf2-vnjfg / rf2-0la4f."
+  load — set the property / env var BEFORE `re-frame.interop` loads."
   (read-debug-flag))
