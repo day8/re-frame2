@@ -14,6 +14,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
+            [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -32,6 +33,10 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
+  ;; Per rf2-bacs4: the error-emit listener registry is a `defonce`
+  ;; atom that survives test re-runs. Clear before each test so a
+  ;; listener registered by one test doesn't leak into the next.
+  (error-emit/clear-error-emit-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
@@ -213,6 +218,126 @@
     (rf/dispatch-sync [:bump])
     (is (= 1 (count (by-op :rf.flow/failed)))
         "subsequent input change re-attempts and :rf.flow/failed fires again")))
+
+;; ---------------------------------------------------------------------------
+;; 5b. :rf.error/flow-eval-exception routes through the always-on
+;;     error-emit substrate (rf2-hrt5c — security audit follow-up).
+;;
+;; Pre-fix, `run-flows!` caught flow throws and called
+;; `trace/emit-error!` ONLY. In CLJS production builds, that path is
+;; DCE'd by `goog.DEBUG=false` — flow failures became silent to
+;; corpus-wide error listeners (Sentry / Honeybadger / Rollbar
+;; shippers registered via `register-error-emit-listener!`) and to
+;; the per-frame `:on-error` policy fn. The handler-exception path
+;; (`emit-handler-exception!`) had ALREADY been routed through the
+;; always-on substrate; flow-eval was asymmetric. This test pins the
+;; symmetric routing: a flow-eval throw must surface on the listener
+;; registry record in JVM dev AND survive prod elision in CLJS.
+;; ---------------------------------------------------------------------------
+
+(deftest flow-eval-exception-routes-through-error-emit-substrate
+  (testing "Per rf2-hrt5c: a flow whose :output throws fires a corpus-
+            wide error-emit listener record with `:error
+            :rf.error/flow-eval-exception` — fan-out runs through
+            `error-emit/dispatch-on-error!`, mirroring the handler-
+            exception path."
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :test/flow-eval-recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :init (fn [_ _] {:n 1}))
+      (rf/reg-flow {:id     :boom
+                    :inputs [[:n]]
+                    :output (fn [_] (throw (ex-info "flow boom" {:why :test})))
+                    :path   [:doomed]})
+      (rf/dispatch-sync [:init])
+      (is (= 1 (count @seen))
+          "exactly one substrate record fired for one flow-eval throw")
+      (let [r (first @seen)]
+        (is (= :rf.error/flow-eval-exception (:error r))
+            ":error names the flow-eval path")
+        (is (= [:init]        (:event r))
+            ":event is the in-flight dispatch envelope")
+        (is (= :init          (:event-id r))
+            ":event-id is the dispatched event id")
+        (is (= :rf/default    (:frame r))
+            ":frame is the draining frame")
+        (is (some? (:exception r))
+            ":exception is the thrown Throwable / ex-info")
+        (is (number? (:time r))
+            ":time is wall-clock millis")
+        (is (integer? (:elapsed-ms r))
+            ":elapsed-ms is integer (rf2-ph8pa contract — no float
+             leak from CLJS performance.now())")
+        (is (not (neg? (:elapsed-ms r)))
+            ":elapsed-ms is non-negative")
+        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms}
+               (set (keys r)))
+            "record carries ONLY the tight rf2-bacs4 keys")))))
+
+(deftest flow-eval-exception-fires-per-frame-on-error-policy
+  (testing "Per rf2-hrt5c: a flow whose :output throws ALSO fires the
+            per-frame `:on-error` policy fn through the substrate.
+            The structured error-event carries `:operation
+            :rf.error/flow-eval-exception` and `:where :flow-eval`
+            so policy fns can discriminate the flow-eval path from
+            the handler-exception path."
+    (let [policy-saw (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
+      (rf/reg-event-db :init (fn [_ _] {:n 1}))
+      (rf/reg-flow {:id     :boom
+                    :inputs [[:n]]
+                    :output (fn [_] (throw (ex-info "flow boom" {})))
+                    :path   [:doomed]})
+      (rf/dispatch-sync [:init])
+      (let [ev @policy-saw]
+        (is (some? ev) ":on-error policy fired for the flow-eval throw")
+        (is (= :rf.error/flow-eval-exception (:operation ev))
+            ":operation names the flow-eval-exception path")
+        (is (= :error (:op-type ev)))
+        (is (= :no-recovery (:recovery ev)))
+        (let [tags (:tags ev)]
+          (is (= :flow-eval (:where tags))
+              ":where :flow-eval distinguishes from :handler-exception")
+          (is (nil? (:handler-id tags))
+              ":handler-id nil — no handler ran; the throw came from
+               the post-commit flow walk")
+          (is (= :init       (:event-id tags)))
+          (is (= [:init]     (:event tags)))
+          (is (= :rf/default (:frame tags)))
+          (is (some? (:exception tags))))))))
+
+(deftest flow-eval-exception-trace-and-substrate-fire-together
+  (testing "Per rf2-hrt5c: the trace path is NOT replaced by the
+            substrate routing — both fire from one normative
+            emission site so dev-time `:rf.error/flow-eval-exception`
+            trace consumers (re-frame-10x, conformance recorders)
+            are unaffected by the substrate addition."
+    (let [trace-saw    (atom nil)
+          listener-saw (atom nil)]
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (reset! listener-saw record)))
+      (trace/register-trace-cb!
+        ::flow-eval-trace-recorder
+        (fn [ev]
+          (when (= :rf.error/flow-eval-exception (:operation ev))
+            (reset! trace-saw ev))))
+      (try
+        (rf/reg-event-db :init (fn [_ _] {:n 1}))
+        (rf/reg-flow {:id     :boom
+                      :inputs [[:n]]
+                      :output (fn [_] (throw (ex-info "boom" {})))
+                      :path   [:doomed]})
+        (rf/dispatch-sync [:init])
+        (is (some? @trace-saw)
+            "trace bus saw `:rf.error/flow-eval-exception` — dev path intact")
+        (is (some? @listener-saw)
+            "corpus-wide listener saw the record — always-on substrate path fired")
+        (is (= :rf.error/flow-eval-exception (:error @listener-saw)))
+        (finally
+          (trace/remove-trace-cb! ::flow-eval-trace-recorder))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. End-to-end sample: all five events fire across a typical lifecycle

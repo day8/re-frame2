@@ -481,14 +481,68 @@
 (defn- run-flows!
   "Per Spec 013 §Drain integration: run flows after :db commits and
   before :fx walks. Flow evaluation exceptions surface as
-  :rf.error/flow-eval-exception traces; the drain continues."
-  [frame event]
+  :rf.error/flow-eval-exception through BOTH the dev-only trace
+  surface AND the always-on error-emit substrate (per rf2-hrt5c — the
+  security-audit fix). The drain continues regardless.
+
+  Per rf2-hrt5c: pre-fix, `:rf.error/flow-eval-exception` rode the
+  trace path only. `trace/emit-error!` is gated by
+  `interop/debug-enabled?` and DCEs to a no-op under `:advanced` +
+  `goog.DEBUG=false` — so a CLJS production build silently swallowed
+  flow-eval throws (no `:on-error` policy fire, no corpus-wide
+  listener record for off-box monitors). This routing now mirrors the
+  handler-exception path (`emit-handler-exception!`) — both fan-out
+  paths fire from one normative emission site, the trace path
+  enriches dev consumers, and the substrate path survives prod
+  elision. There is no `:handler-id` (no handler ran — the throw
+  came from the post-commit flow walk); the `:where :flow-eval`
+  discriminator distinguishes this path from the handler-exception
+  one for policy fns that key on it."
+  [frame event event-id start-ms]
   (when-let [flows-fn (late-bind/get-fn :flows/run-flows!)]
     (try
       (flows-fn frame)
       (catch #?(:clj Throwable :cljs :default) e
-        (trace/emit-error! :rf.error/flow-eval-exception
-                           {:frame frame :event event :exception e})))))
+        (let [end-ms     (interop/now-ms)
+              ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an
+              ;; integer. Round once at the substrate boundary so the
+              ;; contract holds across the JVM long / CLJS float split
+              ;; from `interop/now-ms` (mirrors `emit-handler-exception!`).
+              elapsed-ms (long (max 0 (- end-ms start-ms)))
+              msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
+              tags       {:event-id          event-id
+                          :event             event
+                          :frame             frame
+                          :where             :flow-eval
+                          :handler-id        nil
+                          :exception         e
+                          :exception-message msg
+                          :reason            "Flow evaluation threw."
+                          :recovery          :no-recovery}]
+          ;; Always-on per rf2-bacs4 / rf2-hqbeh — fires in CLJS
+          ;; production builds where `trace/emit-error!` below is
+          ;; compile-time elided. The two fan-out paths (corpus-wide
+          ;; listener registry + per-frame `:on-error` policy) are
+          ;; independent and isolated; both see the
+          ;; `:rf.error/flow-eval-exception` record.
+          (error-emit/dispatch-on-error!
+            :rf.error/flow-eval-exception
+            event
+            event-id
+            frame
+            e
+            elapsed-ms
+            end-ms
+            {:operation :rf.error/flow-eval-exception
+             :op-type   :error
+             :tags      tags
+             :recovery  :no-recovery})
+          ;; Dev-side trace emission. Gated by `interop/debug-enabled?`
+          ;; inside `trace/emit-error!`; DCEs to a no-op in CLJS prod
+          ;; builds. Same payload shape as before the rf2-hrt5c fix —
+          ;; existing trace consumers are unaffected.
+          (trace/emit-error! :rf.error/flow-eval-exception
+                             {:frame frame :event event :exception e}))))))
 
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
@@ -634,7 +688,7 @@
     (when error
       (emit-handler-exception! error event-id event frame final-ctx start-ms))
     (when (commit-db-effect! effects event-id event frame final-ctx db-before)
-      (run-flows! frame event)
+      (run-flows! frame event event-id start-ms)
       (run-fx-effects! effects frame frame-record fx-overrides envelope))
     error))
 
