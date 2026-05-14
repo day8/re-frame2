@@ -4,6 +4,22 @@ Type A — per-call-site mechanical rewrites the agent applies without asking. C
 
 For the *why* of each rule, see [`MIGRATION.md`](../../../spec/MIGRATION.md). This leaf is a shape catalogue, not a rationale. For cross-cutting renames (keywords, interceptor lists, views, init, per-feature artefacts), see [`auto-cross-cutting.md`](auto-cross-cutting.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
 
+## Announce before each multi-file sweep
+
+Per SKILL.md Cardinal rule 9: before executing any Type A rewrite that will edit more than a single file, post a one-line announcement and pause. Example shape:
+
+```
+About to apply M-8 (fold top-level :dispatch / :dispatch-n / :dispatch-later
+into :fx). Matched 23 call sites across 14 files. Representative diff:
+
+  - {:db new-db :dispatch [:foo 1]}
+  + {:db new-db :fx [[:dispatch [:foo 1]]]}
+
+Ctrl-C now to abort or scope-limit; continuing in a moment.
+```
+
+Per-file confirmation is not required — the author has already invoked the migration. The announcement gives a real window to abort or scope-limit before dozens of files change at once.
+
 ## Contents
 
 - Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25, M-50, M-52)

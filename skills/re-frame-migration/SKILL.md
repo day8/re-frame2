@@ -46,6 +46,7 @@ Exit this skill when the project compiles, tests pass, and Type B items have bee
 6. **Single-import contract for new code.** Application namespaces require `[re-frame.core :as rf]`. Direct requires of `re-frame.db`, `.router`, `.subs`, `.events`, `.registrar`, or `.alpha` get rewritten or flagged per M-1 / M-23.
 7. **Ambiguous rule? File a bead — don't edit `MIGRATION.md` inline.** This skill consumes that doc.
 8. **Do not invent migration rules.** Leave the unmatched alone and flag for human review.
+9. **Warn before a mass file rewrite.** Migration is destructive — Type A rewrites edit the author's source in place. **Before touching any file**, the skill announces the upcoming sweep: the rule it's about to apply (e.g. *"M-8 — fold top-level `:dispatch` keys into `:fx`"*), the count of files matched, and a one- or two-line example of the diff shape on a representative call site. Then pause for the author to Ctrl-C or acknowledge. The author should always have a real window to abort or scope-limit before the edits land. Per-call-site approval is not required (trust the explicit invoker); the gate is the sweep-level announcement, not per-file confirmation.
 
 ## The migration workflow
 
@@ -106,6 +107,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - **Don't migrate plain-Reagent fns to `reg-view`** — that's O-2 (opt-in), never required. Plain Reagent fns work in v2 with a runtime warning only under non-default frames (M-11).
 - **Don't touch `re-frame-test` namespaces eagerly** — renamed to `re-frame.test-support` (M-25); apply as a mechanical pass. Don't rewrite test bodies unless they trip a separate rule.
 - **Don't claim "migrated" before the report is written** — the report is the contract.
+- **Don't sweep dozens of files without warning** — every Type A sweep that will touch more than a single file gets a one-line announcement first (rule id, file count, diff-shape example). The author can Ctrl-C; they cannot un-edit fifty files silently. See Cardinal rule 9.
 
 ---
 
