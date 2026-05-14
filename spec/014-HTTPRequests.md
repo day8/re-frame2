@@ -228,6 +228,16 @@ The cap applies to both the Cheshire path and the pure-Clojure fallback reader. 
 
 The cap is the SECOND line of defence; the FIRST line is `:request-content-type` / `:decode :text` for endpoints that don't need keywordization (`(get response "key")` works fine over string-keyed maps). For untrusted-origin JSON, prefer `:decode :text` + explicit parsing into a string-keyed map.
 
+> Cross-reference: see [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) and [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide posture this section grounds.
+
+### JSON decoder hardening (rf2-263km, rf2-dgsu1)
+
+The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire on the JVM; the host's native `JSON.parse` on the browser) rather than a hand-rolled reader. Per rf2-dgsu1: the project's hand-rolled JSON fallback was deleted in favour of the hardened dep; the framework does not own a parser it would have to keep hardened against malformed-input classes.
+
+Ports that ship a **hand-rolled** JSON / EDN reader (rather than depending on a hardened third-party parser) own the input-bounds contract directly. Per rf2-263km, the reader MUST bounds-check unicode-escape sequences (`\uXXXX`) and surface structured `:rf.error/malformed-json` with `:reason` slots (e.g., `:reason :truncated-unicode-escape`, `:reason :invalid-hex-digit`) rather than letting truncated or invalid escapes become opaque host errors.
+
+These contracts compose with the keyword-interning cap above: hardened parser → bounds-checks → cap on cardinality → caller-controllable per-request override. Per rf2-263km / rf2-dgsu1 and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing).
+
 ### `:timeout-ms` security defaults (rf2-it1cd)
 
 The fx applies a 30000 ms per-attempt wall-clock timeout when `:timeout-ms` is absent from the args map. This is a security default: a slow-loris upstream (compromised partner, hostile webhook recipient, stalled CDN edge) that never completes the response body would otherwise pin a `CompletableFuture` (JVM) / Fetch promise (CLJS) indefinitely; in a long-running JVM the in-flight registry fills with hung requests until the connection pool is exhausted. With the default in place, every attempt has a finite deadline.
@@ -360,6 +370,12 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 | `:rf.http/aborted` | The request was aborted via `:request-id` or `:abort-signal` | `:request-id` (if any), `:reason` (`:user` on the reply; `:request-id-superseded` is trace-only — see [§`:request-id` (internal)](#request-id-internal)) |
 
 The category vocabulary is **closed for v1** — additions require a Spec change. The `:rf.http/*` namespace makes these unambiguous wherever they leak: trace events, error projector, `:retry :on` sets, epoch records.
+
+#### CORS classification — heuristic emission (rf2-r40km)
+
+`:rf.http/cors` was specced as a distinct category from `:rf.http/transport` but went un-emitted for a release cycle: browsers opaque CORS rejections and the runtime classified every browser-side rejection as `:rf.http/transport`. Per rf2-r40km (Option a — heuristic emission), the CLJS reference now emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per rf2-r40km and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
+
+> Cross-reference: see [Security.md §What is explicitly out of scope](Security.md#what-is-explicitly-out-of-scope) — CORS itself is a host-platform concern; the framework classifies the rejection but does not configure CORS.
 
 ### Reply payload shape
 
