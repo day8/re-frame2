@@ -96,16 +96,45 @@ runWithWatchdog(
     }
     console.log('OK   tools/list -> ' + names.length + ' tools advertised:', names.join(', '));
 
-    // 2b. Spot-check that each advertised descriptor carries an
-    // inputSchema. A real MCP consumer reads this to know what
-    // arguments to pass. The SDK's ListToolsResultSchema does loose
-    // structural validation; we tighten it here.
+    // 2b. Tighten the inputSchema spot-check past "is an object"
+    // (rf2-i3ffz F-GAP-2). The SDK's ListToolsResultSchema already
+    // gates structural JSON-Schema-validity at the SDK layer; this
+    // step pins two cross-MCP-convention invariants the SDK doesn't
+    // model:
+    //
+    //   1. `type === 'object'` — every tool's input shape is a map
+    //      (per NAMING.md §"The verb table"; the catalogue carries
+    //      no scalar-input tools today).
+    //   2. `properties['max-tokens']` is present on every descriptor
+    //      — TOKEN-BUDGETS.md §"Per-call override slot" pins the
+    //      MUST: "The slot surfaces in tools/list on every tool
+    //      descriptor so clients discover it automatically." A
+    //      regression that drops `max-tokens` from a descriptor's
+    //      properties would silently break agent-host budget
+    //      negotiation; that bug now trips here.
     for (const t of listed.tools) {
       if (!t.inputSchema || typeof t.inputSchema !== 'object') {
         throw new Error('tool ' + t.name + ' has no inputSchema');
       }
+      if (t.inputSchema.type !== 'object') {
+        throw new Error(
+          'tool ' + t.name + " inputSchema.type MUST be 'object' (cross-MCP " +
+            "convention; NAMING.md catalogue surface); got: " +
+            JSON.stringify(t.inputSchema.type),
+        );
+      }
+      const props = t.inputSchema.properties || {};
+      if (!('max-tokens' in props)) {
+        throw new Error(
+          'tool ' + t.name + " inputSchema.properties MUST expose 'max-tokens' " +
+            '(TOKEN-BUDGETS.md §"Per-call override slot": every tool surfaces ' +
+            'the cap-override slot so clients discover it automatically).',
+        );
+      }
     }
-    console.log('OK   every tool descriptor carries an inputSchema');
+    console.log(
+      'OK   every tool descriptor carries inputSchema with type=object + max-tokens',
+    );
 
     // 3. Canonical workflow (degraded, since no nREPL is available):
     //    a. dispatch — proves the write-shaped tool routes through the

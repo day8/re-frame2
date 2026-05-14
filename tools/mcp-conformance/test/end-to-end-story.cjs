@@ -107,12 +107,33 @@ runWithWatchdog(
     }
     console.log('OK   tools/list -> ' + names.length + ' tools advertised');
 
+    // Tighten the inputSchema spot-check past "is an object" (rf2-i3ffz
+    // F-GAP-2). See `end-to-end-pair2.cjs` for the cross-MCP rationale:
+    //   - `type === 'object'` — every tool's input shape is a map.
+    //   - `properties['max-tokens']` — TOKEN-BUDGETS.md MUST.
     for (const t of listed.tools) {
       if (!t.inputSchema || typeof t.inputSchema !== 'object') {
         throw new Error('tool ' + t.name + ' has no inputSchema');
       }
+      if (t.inputSchema.type !== 'object') {
+        throw new Error(
+          'tool ' + t.name + " inputSchema.type MUST be 'object' (cross-MCP " +
+            "convention; NAMING.md catalogue surface); got: " +
+            JSON.stringify(t.inputSchema.type),
+        );
+      }
+      const props = t.inputSchema.properties || {};
+      if (!('max-tokens' in props)) {
+        throw new Error(
+          'tool ' + t.name + " inputSchema.properties MUST expose 'max-tokens' " +
+            '(TOKEN-BUDGETS.md §"Per-call override slot": every tool surfaces ' +
+            'the cap-override slot so clients discover it automatically).',
+        );
+      }
     }
-    console.log('OK   every tool descriptor carries an inputSchema');
+    console.log(
+      'OK   every tool descriptor carries inputSchema with type=object + max-tokens',
+    );
 
     // 3. register-variant — body as an EDN string so JSON's lack of
     // keyword support doesn't dilute the assertion (same approach as
