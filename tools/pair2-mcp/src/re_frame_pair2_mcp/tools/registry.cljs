@@ -115,9 +115,11 @@
 
   Each `:handler` is a thin late-binding wrapper around the per-tool
   fn — `ignoring-extra` for the eleven tools that ignore `extra`, or
-  an inline `(fn [conn args extra] ...)` for `subscribe`. Both shapes
-  resolve the underlying fn per-call so test seams that `set!` the
-  var (rf2-nogok) take effect on the next dispatch."
+  an inline `(fn [conn args extra] ...)` for `subscribe` (the
+  twelfth tool, which uses `extra` for its progress-callback
+  plumbing). Both shapes resolve the underlying fn per-call so test
+  seams that `set!` the var (rf2-nogok) take effect on the next
+  dispatch."
   [{:name       "discover-app"
     :handler    (ignoring-extra #(discover-app/discover-app %1 %2))
     :cacheable? true

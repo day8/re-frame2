@@ -11,7 +11,7 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the nine pair2
+via shadow-cljs to a single `.js` file) that exposes the twelve pair2
 ops as MCP tools. AI agents (Claude Code, Cursor, Copilot) launch it
 as a subprocess; one persistent nREPL socket is held for the lifetime
 of the session.

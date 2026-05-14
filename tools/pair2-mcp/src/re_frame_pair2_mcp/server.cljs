@@ -11,9 +11,12 @@
      is running — the first tool that needs the socket gets a
      structured error).
   2. `initialize`: standard MCP handshake.
-  3. `tools/list`: returns the nine tool descriptors (the seven
-     bash-shim ops plus the `snapshot` mega-op from rf2-x70e and the
-     `subscribe` / `unsubscribe` streaming pair from rf2-hq49).
+  3. `tools/list`: returns the twelve tool descriptors (the seven
+     bash-shim-overlap ops `discover-app` / `eval-cljs` / `dispatch` /
+     `trace-window` / `watch-epochs` / `tail-build` / `snapshot`, plus
+     `get-path` direct-read, the streaming triad `subscribe` /
+     `unsubscribe` / `subscription-info`, and the
+     `get-pair2-instructions` agent-onboarding tool).
   4. `tools/call`: dispatch to `tools.cljs`. Each call ensures the
      in-browser runtime is injected via the sentinel probe.
   5. stdin EOF: shut down cleanly.

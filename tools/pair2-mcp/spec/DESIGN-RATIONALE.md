@@ -278,11 +278,25 @@ decomposition; bounded surface) still holds — both amendments are
   `notifications/progress` mechanism. Push-mode replacement for the
   polling-shaped `watch-epochs`. No bash-shim equivalent.
 
-Net: pair2-mcp ships **nine ops** (`discover-app`, `eval-cljs`,
+Net: pair2-mcp ships **twelve ops** (`discover-app`, `eval-cljs`,
 `dispatch`, `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
-`subscribe`, `unsubscribe`). The bash shims ship six. The shim
+`get-path`, `subscribe`, `unsubscribe`, `subscription-info`,
+`get-pair2-instructions`). The bash shims ship six. The shim
 catalogue is a strict subset of the MCP catalogue, with identical
 names and arg shapes for every overlapping op.
+
+Post-Lock additions accumulated as follows:
+
+- **rf2-zjz9q** added `subscription-info` — the "what streams are
+  open?" diagnostic peer for the streaming pair, picked under the
+  bare-noun read shape (the cross-MCP `list-subscriptions` rename is
+  the future-conformant home per
+  [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
+  Story-mcp Lock #12 / rf2-3we2k).
+- **rf2-fnpqg** added `get-pair2-instructions` — the
+  agent-onboarding text blob read once at session start. Mirrors
+  story-mcp's `get-story-instructions` under the cross-MCP `get-`
+  verb.
 
 ---
 
@@ -370,14 +384,15 @@ changes.
   existing runbooks, skill docs, and personal workflows that
   reference them. The benefit of removal (less code) is small
   compared to the cost (someone's session breaking on a Tuesday).
-- **Overlapping op vocabulary.** Six of the nine MCP tools
+- **Overlapping op vocabulary.** Six of the twelve MCP tools
   (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
   `watch-epochs`, `tail-build`) mirror the six bash shims exactly,
-  with identical names and arg shapes. The remaining three
-  (`snapshot`, `subscribe`, `unsubscribe`) are MCP-only additions
-  per Lock #4's *Subsequent evolution* note — they have no shim
-  equivalent. Agents can mix calls in the same workflow during
-  transition — no all-or-nothing switch is required.
+  with identical names and arg shapes. The remaining six
+  (`snapshot`, `get-path`, `subscribe`, `unsubscribe`,
+  `subscription-info`, `get-pair2-instructions`) are MCP-only
+  additions per Lock #4's *Subsequent evolution* note — they have
+  no shim equivalent. Agents can mix calls in the same workflow
+  during transition — no all-or-nothing switch is required.
 - **MCP server isn't proven across the team yet.** Side-by-side
   shipping gives the MCP server time to accumulate trust before
   becoming the only path.
