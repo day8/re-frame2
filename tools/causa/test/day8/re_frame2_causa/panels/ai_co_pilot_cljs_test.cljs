@@ -499,3 +499,83 @@
     (is (nil? (registrar/handler :fx :rf.causa.copilot.fx/dispatch)))
     (is (some? (registrar/handler :fx :rf.causa.fx/llm-stream))
         "the one outbound effect — llm-stream — is registered")))
+
+;; ---- (11) rf2-qvz85 — input-text lives in app-db (reactive) -------------
+
+(deftest registry-installs-input-text-sub-and-event
+  (testing "the rf2-qvz85 fix routes the question-input text through
+            Causa's app-db so the rail re-renders on every keystroke
+            and the slash-popover picks up the partial command."
+    (registry/register-causa-handlers!)
+    (is (some? (registrar/handler :sub   :rf.causa/copilot-input-text)))
+    (is (some? (registrar/handler :event :rf.causa/copilot-set-input-text)))))
+
+(deftest input-text-defaults-empty
+  (registry/register-causa-handlers!)
+  (frame/reg-frame :rf/causa {})
+  (rf/with-frame :rf/causa
+    (is (= "" @(rf/subscribe [:rf.causa/copilot-input-text])))))
+
+(deftest input-text-set-event-writes-to-causa-frame
+  (testing ":rf.causa/copilot-set-input-text writes to the slot on
+            :rf/causa, NOT :rf/default — the keystroke event must not
+            leak into the host's app-db."
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/copilot-set-input-text "/exp"]))
+    (is (= "/exp" (:copilot-input-text (frame/frame-app-db-value :rf/causa))))
+    (is (nil?     (:copilot-input-text (frame/frame-app-db-value :rf/default))))))
+
+(deftest input-text-set-event-handles-nil
+  (registry/register-causa-handlers!)
+  (frame/reg-frame :rf/causa {})
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/copilot-set-input-text nil])
+    (is (= "" @(rf/subscribe [:rf.causa/copilot-input-text]))
+        "nil coerces to empty string")))
+
+(deftest input-row-renders-slash-popover-against-app-db-input
+  (testing "the input-row reads its `:value` and the slash-popover
+            renders against `:rf.causa/copilot-input-text`. With the
+            slot set to `/`, the popover surfaces every slash command;
+            with the slot set to empty, the popover is absent."
+    (registry/register-causa-handlers!)
+    (install-llm-capture-fx!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      ;; empty input → no popover
+      (rf/dispatch-sync [:rf.causa/copilot-set-input-text ""])
+      (let [tree (copilot/ai-co-pilot-rail)]
+        (is (nil? (find-by-testid tree "rf-causa-copilot-slash-popover"))
+            "empty input renders no popover"))
+      ;; bare `/` → full catalogue
+      (rf/dispatch-sync [:rf.causa/copilot-set-input-text "/"])
+      (let [tree (copilot/ai-co-pilot-rail)]
+        (is (some? (find-by-testid tree "rf-causa-copilot-slash-popover"))
+            "bare `/` surfaces the popover")
+        (is (<= 8 (count (find-all-by-testid-prefix
+                           tree "rf-causa-copilot-slash-")))
+            "every slash command renders a row (popover + 8 li rows)"))
+      ;; narrowed prefix → narrower row set
+      (rf/dispatch-sync [:rf.causa/copilot-set-input-text "/exp"])
+      (let [tree (copilot/ai-co-pilot-rail)]
+        (is (some? (find-by-testid tree "rf-causa-copilot-slash-explain"))
+            "`/exp` matches :explain")
+        (is (nil? (find-by-testid tree "rf-causa-copilot-slash-clear"))
+            "`/exp` does NOT match :clear")))))
+
+(deftest input-row-renders-current-input-as-value
+  (testing "the `<input>` element's :value is bound to the live slot —
+            a keystroke (dispatched via the set-input event) is
+            reflected on the next render."
+    (registry/register-causa-handlers!)
+    (install-llm-capture-fx!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/copilot-set-input-text "live-text"])
+      (let [tree    (copilot/ai-co-pilot-rail)
+            input-el (find-by-testid tree "rf-causa-copilot-input")
+            attrs    (second input-el)]
+        (is (= "live-text" (:value attrs))
+            ":value bound to the app-db slot")))))

@@ -388,3 +388,72 @@
             chip (find-by-testid tree "rf-causa-pin-chip-:e-old")]
         (is (some? chip)
             "detached chip is still rendered (per spec §Pins on the scrubber)")))))
+
+;; ---- (8) rf2-1barg — sync-epoch-history pumps the seed slot --------------
+
+(deftest sync-epoch-history-event-replaces-slot
+  (testing ":rf.causa/sync-epoch-history wholesale-overwrites the slot.
+            Dispatched from mount.cljs/open! on first Ctrl+Shift+C so
+            host dispatches that landed before Causa opened still surface
+            in the panel — without this event the pre-mount records
+            would be stranded in the framework's ring buffer with no
+            reactive path into Causa's app-db."
+    (registry/register-causa-handlers!)
+    (install-capture-fx!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa/sync-epoch-history
+         [(mk-record :e-1 {:counter 6} 1)
+          (mk-record :e-2 {:counter 7} 2)]])
+      (let [history (:history @(rf/subscribe [:rf.causa/time-travel]))]
+        (is (= 2 (count history)))
+        (is (= :e-1 (:epoch-id (first history))))
+        (is (= :e-2 (:epoch-id (second history))))))))
+
+(deftest sync-epoch-history-event-handles-nil-and-empty
+  (testing ":rf.causa/sync-epoch-history is defensive against the empty
+            and nil seed (epoch artefact absent / fresh-boot windows)"
+    (registry/register-causa-handlers!)
+    (install-capture-fx!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/sync-epoch-history nil])
+      (is (= [] (:history @(rf/subscribe [:rf.causa/time-travel]))))
+      (rf/dispatch-sync [:rf.causa/sync-epoch-history []])
+      (is (= [] (:history @(rf/subscribe [:rf.causa/time-travel])))))))
+
+;; ---- (9) rf2-1barg — pin-label input lives in app-db (reactive) ----------
+
+(deftest time-travel-label-input-routes-through-app-db
+  (testing ":rf.causa/time-travel-set-label-input writes to the slot
+            and the sub reads it back. Pre-rf2-1barg this lived in a
+            `defonce` plain atom; the view never re-rendered on
+            keystrokes because plain atoms aren't a substrate-reactive
+            primitive."
+    (registry/register-causa-handlers!)
+    (install-capture-fx!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (is (= "" @(rf/subscribe [:rf.causa/time-travel-label-input]))
+          "default empty")
+      (rf/dispatch-sync [:rf.causa/time-travel-set-label-input "checkpoint"])
+      (is (= "checkpoint" @(rf/subscribe [:rf.causa/time-travel-label-input])))
+      (rf/dispatch-sync [:rf.causa/time-travel-set-label-input ""])
+      (is (= "" @(rf/subscribe [:rf.causa/time-travel-label-input]))))))
+
+(deftest time-travel-label-input-surfaces-in-composite
+  (testing "the composite :rf.causa/time-travel sub carries the
+            :label-input slot so the actions-row reads it via a single
+            reactive read (the row's `<input>` value is bound to the
+            composite's :label-input)."
+    (registry/register-causa-handlers!)
+    (register-seed-event!)
+    (install-capture-fx!)
+    (frame/reg-frame :rf/causa {})
+    (seed-history! [(mk-record :e-1 {} 1)])
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/time-travel-set-label-input "label-1"])
+      (let [data @(rf/subscribe [:rf.causa/time-travel])]
+        (is (= "label-1" (:label-input data))
+            "composite surfaces label-input")))))
