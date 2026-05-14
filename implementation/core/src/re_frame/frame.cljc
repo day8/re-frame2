@@ -286,6 +286,17 @@
 ;; helper names ARE the step list. Order matters — see destroy-frame!'s
 ;; docstring and Spec 002 §Destroy.
 
+(defn- safe-call-hook!
+  "Fire a late-bound cleanup hook by key. No-op when the hook is unbound
+  (the owning artefact isn't loaded); exceptions from the hook fn are
+  swallowed so one bad cleanup hook can't block the rest of teardown.
+  Every destroy-time cleanup hook in this ns funnels through here so the
+  late-bind + best-effort policy is single-sourced."
+  [hook-key & args]
+  (when-let [f (late-bind/get-fn hook-key)]
+    (try (apply f args)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
+
 (defn- fire-on-destroy-event!
   "Step 1. Fire the user-supplied :on-destroy event before any lifecycle
   mutation, so handlers still observe an alive frame. No-op when the
@@ -377,9 +388,7 @@
   frame. Late-bound through the hook table so core never statically
   requires the epoch artefact."
   [id]
-  (when-let [on-destroyed (late-bind/get-fn :epoch/on-frame-destroyed)]
-    (try (on-destroyed id)
-         (catch #?(:clj Throwable :cljs :default) _ nil))))
+  (safe-call-hook! :epoch/on-frame-destroyed id))
 
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
@@ -440,11 +449,9 @@
     ;; sensitive-without-redaction warning suppression cache so a
     ;; re-registration after frame teardown (test fixtures, hot
     ;; reload that destroys and re-creates the frame) re-emits the
-    ;; warning if still mis-configured. Late-bound through the hook
-    ;; table; no-op when re-frame.privacy hasn't been loaded.
-    (when-let [clear-cache! (late-bind/get-fn :privacy/clear-suppression-cache!)]
-      (try (clear-cache!)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; warning if still mis-configured. No-op when re-frame.privacy
+    ;; hasn't been loaded.
+    (safe-call-hook! :privacy/clear-suppression-cache!)
     ;; Per rf2-fcj33 / Spec 011 §Per-request frame teardown contract:
     ;; clear the SSR side-channel atoms (pending-error-traces +
     ;; request-slots) for the destroyed frame. Both live outside app-db
@@ -452,21 +459,17 @@
     ;; app-db clobber race; the request slot keeps host-controlled
     ;; data out of the hydration payload). Neither is otherwise cleared
     ;; by destroy-frame's app-db / sub-cache teardown, so under SSR
-    ;; load each request would leak one entry in each atom. Late-bound
-    ;; through the hook table; no-op when re-frame.ssr is absent.
-    (when-let [ssr-cleanup! (late-bind/get-fn :ssr/on-frame-destroyed)]
-      (try (ssr-cleanup! id)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; load each request would leak one entry in each atom. No-op when
+    ;; re-frame.ssr is absent.
+    (safe-call-hook! :ssr/on-frame-destroyed id)
     ;; Per rf2-ysa94 / Spec 005 §Delayed `:after` transitions: clear the
     ;; machines artefact's frame-scoped `:after` timer table for the
     ;; destroyed frame. The table is partitioned per frame; without this
     ;; hook the destroyed frame's inner-table would linger as dead
     ;; bookkeeping and any in-flight host-clock handles would survive
-    ;; teardown. Late-bound through the hook table — no-op when
-    ;; re-frame.machines is absent (the artefact is optional).
-    (when-let [machines-cleanup! (late-bind/get-fn :machines/on-frame-destroyed!)]
-      (try (machines-cleanup! id)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; teardown. No-op when re-frame.machines is absent (the artefact
+    ;; is optional).
+    (safe-call-hook! :machines/on-frame-destroyed! id)
     (emit-frame-destroyed-trace! id)
     (dissoc-frame! id)
     (unregister-frame! id)
