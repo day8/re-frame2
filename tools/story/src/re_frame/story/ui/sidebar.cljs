@@ -176,15 +176,18 @@
   with un-axis-grouped tags trailing in an `OTHER` row).
 
   Active chips highlight; the AND-across / OR-within rule lives in
-  `state/variant-tag-match?`."
-  [variants tag-filter]
+  `state/variant-tag-match?`.
+
+  `tag->axis` is computed once at the sidebar top and threaded in;
+  per rf2-0z8e2 we previously walked the tag registrar twice per
+  render (once here, once at the top for the variant filter)."
+  [variants tag-filter tag->axis]
   (let [all-tags (collect-tags variants)]
     (if (empty? all-tags)
       [:div {:style (:tag-row styles)}
        [:span {:style (:empty styles)} "no tags"]]
-      (let [tag->axis (registrar/tag->axis-index)
-            by-axis   (state/group-tags-by-axis all-tags tag->axis)
-            axes      (state/ordered-axes by-axis)]
+      (let [by-axis (state/group-tags-by-axis all-tags tag->axis)
+            axes    (state/ordered-axes by-axis)]
         [:div {:style       (:tag-row styles)
                :data-test   "story-sidebar-tag-filter"}
          (for [axis axes]
@@ -477,7 +480,7 @@
            :tab-index  "0"}
      [:div {:style (:tree styles)}
       [:div {:style (:header styles)} "Stories"]
-      [tag-filter-row (:variants registry) tag-filter]
+      [tag-filter-row (:variants registry) tag-filter tag->axis]
       (if (empty? grouped)
         [:div {:style (:empty styles)}
          (if (empty? (:variants registry))
