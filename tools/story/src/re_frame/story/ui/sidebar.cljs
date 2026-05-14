@@ -305,17 +305,25 @@
   Per rf2-z1h0f the widget also carries an eye-icon watch-mode toggle
   beneath the count chips. When on, the shell auto-re-runs testable
   variants whose snapshot-identity drifted since the last observation
-  (the detection signal is wired in `re-frame.story.ui.shell`)."
-  [shell registry]
-  (let [variant-ids (state/testable-variant-ids (:variants registry))
-        summary     (state/test-summary shell variant-ids)
-        {:keys [total passed failed running pending all-green?]} summary
-        any-run?    (pos? running)
-        watch-on?   (state/test-watch-mode? shell)
-        headline    (cond
-                      (zero? total)  "Tests"
-                      all-green?     (str "Tests · ✓ " passed)
-                      :else          (str "Tests · " passed "/" total))]
+  (the detection signal is wired in `re-frame.story.ui.shell`).
+
+  HOT PATH (rf2-dtj61): `testable-variant-ids` is the seq the parent
+  sidebar already derives for its per-variant status dots. Callers
+  may thread the precomputed seq through as `variant-ids` to avoid a
+  second registry walk; the no-arg form keeps the canonical surface
+  for tests and standalone consumers."
+  ([shell registry]
+   (test-widget shell registry (state/testable-variant-ids
+                                 (:variants registry))))
+  ([shell _registry variant-ids]
+   (let [summary     (state/test-summary shell variant-ids)
+         {:keys [total passed failed running pending all-green?]} summary
+         any-run?    (pos? running)
+         watch-on?   (state/test-watch-mode? shell)
+         headline    (cond
+                       (zero? total)  "Tests"
+                       all-green?     (str "Tests · ✓ " passed)
+                       :else          (str "Tests · " passed "/" total))]
     [:div {:style     (:widget styles)
            :data-test "story-test-widget"}
      [:div {:style (:widget-h styles)
@@ -367,7 +375,7 @@
            :on-click      (fn [_]
                             (state/swap-state! state/set-test-watch-mode
                                                (not watch-on?)))}
-          (if watch-on? "● watching" "○ watch")]]])]))
+          (if watch-on? "● watching" "○ watch")]]])])))
 
 (defn sidebar
   "Top-level sidebar component. Reads the registry snapshot + shell
@@ -381,18 +389,26 @@
   variant status dots (rendered inside each variant row when the
   variant is `:test`-tagged + `:play`-bearing) and the chrome-level
   test widget at the foot. Both read from `[:tests :runs]`; the widget
-  drives `run-variant` over the testable set on click."
+  drives `run-variant` over the testable set on click.
+
+  HOT PATH (rf2-dtj61): every shell-state ratom change re-renders this
+  component, which re-walks the registry to build the view model. We
+  compute `testable-variant-ids` ONCE here — both the per-row
+  `testable?` check (set membership) and the chrome-level `test-widget`
+  share the same derivation. Deeper memoisation keyed on
+  `(registrar-tick, tag-filter)` can wait until corpus size justifies."
   []
-  (let [shell         @state/shell-state-atom
-        registry      (state/registry-snapshot)
-        tag-filter    (:tag-filter shell)
-        sel-variant   (:selected-variant shell)
-        sel-ws        (:selected-workspace shell)
-        visible       (state/filter-variants (:variants registry) tag-filter)
-        grouped       (state/group-variants-by-story visible)
-        workspaces    (:workspaces registry)
-        test-runs     (get-in shell [:tests :runs])
-        testable-set  (set (state/testable-variant-ids (:variants registry)))]
+  (let [shell           @state/shell-state-atom
+        registry        (state/registry-snapshot)
+        tag-filter      (:tag-filter shell)
+        sel-variant     (:selected-variant shell)
+        sel-ws          (:selected-workspace shell)
+        visible         (state/filter-variants (:variants registry) tag-filter)
+        grouped         (state/group-variants-by-story visible)
+        workspaces      (:workspaces registry)
+        test-runs       (get-in shell [:tests :runs])
+        testable-vec    (state/testable-variant-ids (:variants registry))
+        testable-set    (set testable-vec)]
     [:nav {:style      (:wrap styles)
            :aria-label "Stories and workspaces"
            :tab-index  "0"}
@@ -413,4 +429,4 @@
          (for [[wid _body] (sort-by key workspaces)]
            ^{:key wid}
            [workspace-row wid (= wid sel-ws)])])]
-     [test-widget shell registry]]))
+     [test-widget shell registry testable-vec]]))
