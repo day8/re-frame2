@@ -227,7 +227,7 @@
       {:db (assoc db :status :running :tick-count 0 :input 0)
        :fx (vec (for [i (range 1 (inc total))]
                   [:dispatch-later
-                   {:ms (* i tick-ms) :dispatch [::tick]}]))})))
+                   {:ms (* i tick-ms) :event [::tick]}]))})))
 
 (rf/reg-event-fx ::reset
   (fn [_ctx _ev]
