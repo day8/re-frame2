@@ -43,10 +43,12 @@
   ;; :after timers, partitioned per frame.
   ;;
   ;; Outer shape: {<frame-id> {<inner-key> <entry>}}.
-  ;; Inner key:   [<parent-id> <invoke-id-vec> <delay-key>] — multiple
-  ;;              delays per :after map have their own slot, and parallel-
-  ;;              region machines partition further on the region-prefixed
-  ;;              invoke-id.
+  ;; Inner key:   {:parent <parent-id> :invoke <invoke-id-vec>
+  ;;               :delay <delay-key>} — multiple delays per :after map
+  ;;              have their own slot, and parallel-region machines
+  ;;              partition further on the region-prefixed invoke-id.
+  ;;              Per rf2-gwznv the key is a map rather than a positional
+  ;;              tuple — readers no longer have to remember slot order.
   ;; Entry value:
   ;;   {:handle <opaque host-clock handle>
   ;;    :reaction <subscription reaction or nil>
@@ -74,10 +76,20 @@
   (atom {}))
 
 (defn- after-timer-key
-  "Inner-table key — frame-id is the OUTER key into `after-timers` and is
-  intentionally absent from this tuple."
+  "Inner-table key — frame-id is the OUTER key into `after-timers` and
+  is intentionally absent from this map.
+
+  Per rf2-gwznv the key is a `{:parent ... :invoke ... :delay ...}`
+  map rather than a positional tuple — readers no longer have to
+  remember slot order, and the scan in `after-cancel-fx` reads
+  `(:parent k)` / `(:invoke k)` rather than `(nth k 0)` / `(nth k 1)`.
+  The key is opaque to callers (used only as a `get-in` index into
+  `after-timers`'s inner map); the change is invisible outside this
+  file."
   [parent-id invoke-id delay-key]
-  [parent-id (vec invoke-id) delay-key])
+  {:parent parent-id
+   :invoke (vec invoke-id)
+   :delay  delay-key})
 
 (defn- classify-delay-source [delay-key]
   (cond
@@ -141,8 +153,7 @@
   Idempotent — a second call against the same `[frame-id k]` is a no-op."
   [frame-id k]
   (when-let [entry (get-in @after-timers [frame-id k])]
-    (let [[_ _ delay-key] k]
-      (release-entry-resources! frame-id entry delay-key))
+    (release-entry-resources! frame-id entry (:delay k))
     ;; Drop the inner-table entry; drop the outer-table entry if this was
     ;; the frame's last live timer so a frame that briefly held timers
     ;; doesn't leave a stale empty map behind.
@@ -319,17 +330,18 @@
   zombie watchers and releases timer slots promptly.
 
   Per rf2-ysa94 the scan is now bounded by the active frame's inner
-  table — siblings' timers in other frames are no longer walked. The
-  inner key is `[parent-id invoke-id-vec delay-key]`, so the only
-  cross-key axis we still iterate is `delay-key` (one entry per :after
-  map entry on the bearing state node — typically 1-3 entries)."
+  table — siblings' timers in other frames are no longer walked. Per
+  rf2-gwznv the inner key is `{:parent ... :invoke ... :delay ...}`,
+  so the only cross-key axis we still iterate is `:delay` (one entry
+  per :after map entry on the bearing state node — typically 1-3
+  entries)."
   [{:keys [frame]} args]
   (let [frame-id  (or frame :rf/default)
         parent-id (:rf/parent-id args)
         invoke-id (vec (:rf/invoke-id args))]
     (doseq [[k _entry] (get @after-timers frame-id)
-            :when (and (= parent-id (nth k 0))
-                       (= invoke-id (nth k 1)))]
+            :when (and (= parent-id (:parent k))
+                       (= invoke-id (:invoke k)))]
       (cancel-after-timer-entry! frame-id k))
     nil))
 
@@ -346,11 +358,9 @@
   ([]
    (doseq [[frame-id inner] @after-timers
            [k entry] inner]
-     (let [[_ _ delay-key] k]
-       (release-entry-resources! frame-id entry delay-key)))
+     (release-entry-resources! frame-id entry (:delay k)))
    (reset! after-timers {}))
   ([frame-id]
    (doseq [[k entry] (get @after-timers frame-id)]
-     (let [[_ _ delay-key] k]
-       (release-entry-resources! frame-id entry delay-key)))
+     (release-entry-resources! frame-id entry (:delay k)))
    (swap! after-timers dissoc frame-id)))
