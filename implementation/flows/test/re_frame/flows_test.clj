@@ -884,6 +884,55 @@
         "right's :compute still active — 7 * 100 = 700")))
 
 ;; ---------------------------------------------------------------------------
+;; 9a. invalidate-flow-on-replace! is frame-scoped (rf2-jfpf3 regression)
+;;
+;; Spec 013 §Re-registration scopes the invalidation to
+;; `[frame-id flow-id]`. Pre-fix, the replacement hook wiped every
+;; frame's row under the flow id. A re-registration on frame `:left`
+;; cleared `:right`'s last-inputs row too, causing unnecessary
+;; recompute on `:right`'s next drain and weakening frame isolation.
+;; ---------------------------------------------------------------------------
+
+(deftest hot-reload-on-one-frame-does-not-invalidate-sibling-frames-last-inputs
+  (testing "Per rf2-jfpf3: re-register :shared on :left; :right's last-inputs row survives"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    ;; Register :shared against both frames with the same shape.
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 (or n 0)))
+                  :path   [:result]}
+                 {:frame :right})
+    ;; Drive a drain on each frame so both have last-inputs rows.
+    (rf/dispatch-sync [:seed 5] {:frame :left})
+    (rf/dispatch-sync [:seed 5] {:frame :right})
+    (let [li-var (resolve 're-frame.flows/last-inputs)
+          li     (deref li-var)]
+      (is (some? (get-in @li [:shared :left]))
+          "before re-registration: :left's last-inputs row is populated")
+      (is (some? (get-in @li [:shared :right]))
+          "before re-registration: :right's last-inputs row is populated"))
+    ;; Re-register :shared on :left with a NEW body — should invalidate
+    ;; :left's row ONLY.
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 7 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    (let [li-var (resolve 're-frame.flows/last-inputs)
+          li     (deref li-var)]
+      (is (nil? (get-in @li [:shared :left]))
+          "after re-registration on :left: :left's last-inputs row was dropped (re-evaluate on next drain)")
+      (is (some? (get-in @li [:shared :right]))
+          ":right's last-inputs row is PRESERVED — re-registration on :left did not invalidate :right (rf2-jfpf3)"))))
+
+;; ---------------------------------------------------------------------------
 ;; 9b. :flow registrar slot carries last-registered frame's metadata
 ;;     (Spec 013 §Frame-scoping line 105) — rf2-twi6k.
 ;;

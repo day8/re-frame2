@@ -403,13 +403,26 @@
 ;; inputs would silently keep serving the previous result.
 
 (defn- invalidate-flow-on-replace!
-  [{:keys [kind id]}]
+  [{:keys [kind id now]}]
   (when (= kind :flow)
-    ;; O(1) dissoc — `last-inputs`'s outer key is `flow-id`, so a single
-    ;; `dissoc` drops every per-frame entry for the replaced flow at
-    ;; once. The prior shape `{[frame-id flow-id] inputs}` required an
-    ;; O(N) walk filtering by inner-key match.
-    (swap! last-inputs dissoc id)))
+    ;; Per rf2-jfpf3: Spec 013 §Re-registration scopes the invalidation
+    ;; to `[frame-id flow-id]`, NOT every frame holding the flow id.
+    ;; Pre-fix, a re-registration on frame `:left` wiped
+    ;; `last-inputs[id]` entirely — `:right`'s row for the same id
+    ;; recomputed unnecessarily on its next drain, weakening frame
+    ;; isolation and wasting work under multi-frame setups (per-tenant
+    ;; SSR, pair-tool replays). The registrar replacement-hook payload
+    ;; carries `:now` (the new metadata) with `:frame` stamped at
+    ;; `reg-flow`-time (registry.cljc:189-191); read the frame from
+    ;; there and dissoc only that frame's row. Drop the whole flow-id
+    ;; key when no frame still holds an entry — keeps the map tidy.
+    (let [frame-id (:frame now)]
+      (swap! last-inputs
+             (fn [m]
+               (let [m' (update m id dissoc frame-id)]
+                 (if (empty? (get m' id))
+                   (dissoc m' id)
+                   m')))))))
 
 (defonce ^:private _hot-reload-hook
   ;; `defonce` only needs the side-effect to fire once at namespace
