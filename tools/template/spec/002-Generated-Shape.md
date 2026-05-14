@@ -18,6 +18,8 @@ my-app/
 ├── .editorconfig             2-space, LF, trim trailing, final newline
 ├── .clj-kondo/
 │   └── config.edn            empty default; lint rules slot in here
+├── .cljfmt.edn               cljfmt formatter config — `clojure -M:cljfmt check` / `fix`
+├── .lefthook.yml             pre-commit format + lint hook (see lefthook.dev/installation)
 ├── resources/public/
 │   ├── index.html            host page; loads /js/main.js + /css/app.css
 │   └── css/app.css           three-rule plain stylesheet
@@ -80,6 +82,8 @@ tools/template/
         │   ├── editorconfig              ; emitted as .editorconfig
         │   ├── clj-kondo/
         │   │   └── config.edn            ; emitted under .clj-kondo/
+        │   ├── cljfmt.edn                ; emitted as .cljfmt.edn
+        │   ├── lefthook.yml              ; emitted as .lefthook.yml
         │   ├── events.cljs
         │   ├── events_test.cljs
         │   ├── subs.cljs
