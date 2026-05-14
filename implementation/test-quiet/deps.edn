@@ -1,0 +1,38 @@
+;; day8/re-frame2-test-quiet — test-runtime quiet-reporter artefact
+;; (rf2-try1x).
+;;
+;; A tiny, test-only library that overrides `clojure.test/report` (JVM)
+;; and `cljs.test/report` (CLJS) so a green run of any test alias in the
+;; repository emits only the 3-line summary:
+;;
+;;     Ran N tests containing M assertions.
+;;     0 failures, 0 errors.
+;;
+;; Failures are unchanged — a failing namespace's banner + the failure
+;; lines + the failure stack reach stdout exactly as before.
+;;
+;; Wired into every per-artefact `:test` alias by replacing
+;; `:main-opts ["-m" "cognitect.test-runner"]` with
+;; `:main-opts ["-m" "re-frame.test-quiet.runner"]` and adding this
+;; artefact as a `:local/root` extra-dep.  The shadow-cljs `:node-test`
+;; build (top-level `implementation/shadow-cljs.edn`) wires the matching
+;; CLJS side via `:main re-frame.test-quiet.shadow-node/main`.
+;;
+;; Not a published artefact — test-only.  Lives under `implementation/`
+;; so it shares the per-artefact deps.edn / shadow-cljs.edn layout
+;; rather than being smuggled into core or another consumer-facing
+;; package.
+{:paths ["src"]
+ :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
+         org.clojure/clojurescript {:mvn/version "1.12.145"}
+         io.github.cognitect-labs/test-runner
+         {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+
+ :aliases
+ {;; Self-test alias — drives the stdout-line-count pin
+  ;; (`re-frame.test-quiet-pin-test`) plus the trivial known-green
+  ;; sub-suite the pin exercises.  Uses the quiet runner like every
+  ;; other artefact so the pin is verified against the same code
+  ;; path agents read.
+  :test {:extra-paths ["test"]
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
