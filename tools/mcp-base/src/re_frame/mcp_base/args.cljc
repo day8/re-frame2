@@ -36,6 +36,34 @@
                          :else default))
     :else            default))
 
+(defn- parse-int*
+  "Shared helper for `parse-positive-int` / `parse-non-negative-int`.
+  `floor` is the lower clamp (1 for positive, 0 for non-negative); the
+  three input arms (int / number / string + try/catch) are identical
+  across both call sites."
+  [raw default floor]
+  (cond
+    (nil? raw)
+    default
+
+    (integer? raw)
+    (max floor (long raw))
+
+    (number? raw)
+    (max floor (long raw))
+
+    (string? raw)
+    #?(:clj (try
+              (max floor (Long/parseLong (str/trim raw)))
+              (catch NumberFormatException _ default))
+       :cljs (let [n (js/parseInt raw 10)]
+               (if (and (number? n) (not (js/isNaN n)))
+                 (max floor (long n))
+                 default)))
+
+    :else
+    default))
+
 (defn parse-positive-int
   "Normalise a possibly-string MCP arg into a positive integer. Accepts
   ints (passed through, clamped to ≥1), strings (parsed; non-numeric
@@ -45,54 +73,13 @@
   The `default` is the convention's documented cap (e.g. 50 for cursor
   pagination, 5000 for token caps)."
   [raw default]
-  (cond
-    (nil? raw)
-    default
-
-    (integer? raw)
-    (max 1 (long raw))
-
-    (number? raw)
-    (let [n (long raw)]
-      (if (zero? n) 1 (max 1 n)))
-
-    (string? raw)
-    #?(:clj (try
-              (max 1 (Long/parseLong (str/trim raw)))
-              (catch NumberFormatException _ default))
-       :cljs (let [n (js/parseInt raw 10)]
-               (if (and (number? n) (not (js/isNaN n)))
-                 (max 1 (long n))
-                 default)))
-
-    :else
-    default))
+  (parse-int* raw default 1))
 
 (defn parse-non-negative-int
   "Like `parse-positive-int` but admits zero (useful when zero means
   \"disabled\" — e.g. max-tokens=0 disables the cap)."
   [raw default]
-  (cond
-    (nil? raw)
-    default
-
-    (integer? raw)
-    (max 0 (long raw))
-
-    (number? raw)
-    (max 0 (long raw))
-
-    (string? raw)
-    #?(:clj (try
-              (max 0 (Long/parseLong (str/trim raw)))
-              (catch NumberFormatException _ default))
-       :cljs (let [n (js/parseInt raw 10)]
-               (if (and (number? n) (not (js/isNaN n)))
-                 (max 0 (long n))
-                 default)))
-
-    :else
-    default))
+  (parse-int* raw default 0))
 
 (defn parse-keyword
   "Read a keyword from an agent-supplied argument. MCP arguments
