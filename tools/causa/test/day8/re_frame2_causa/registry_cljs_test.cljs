@@ -220,7 +220,12 @@
 (def ^:private all-fx-names
   [:rf.causa.fx/copy-to-clipboard
    :rf.causa.fx/reset-frame-db!
-   :rf.causa.fx/restore-epoch])
+   :rf.causa.fx/restore-epoch
+   ;; rf2-g5q8d — cross-panel open-in-editor side-effect. Lives under
+   ;; the editor-generic `:rf.editor/*` prefix rather than `:rf.causa.fx/*`
+   ;; because the rf2-cm93v allowlist seam is editor-related, not
+   ;; Causa-specific.
+   :rf.editor/open])
 
 ;; ---- (1) smoke: every registered name resolves -------------------------
 
@@ -246,7 +251,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 65 subs + 64 events + 3 fxs"
+  (testing "registry holds exactly 65 subs + 64 events + 4 fxs"
     (is (= 65 (count all-sub-names)))
     ;; 64 events = 60 baseline + rf2-13bx9's :rf.causa/set-target-frame
     ;; (companion to time-travel's :rf.causa/target-frame sub; consumed
@@ -256,7 +261,12 @@
     ;; that keep `:trace-buffer` on `:rf/causa`'s app-db in lockstep
     ;; with the trace-bus atom.
     (is (= 64 (count all-event-names)))
-    (is (= 3  (count all-fx-names)))))
+    ;; 4 fxs = 3 baseline (`:rf.causa.fx/copy-to-clipboard`,
+    ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`)
+    ;; + rf2-g5q8d's `:rf.editor/open` (cross-panel open-in-editor
+    ;; launcher; lives under the editor-generic prefix because the
+    ;; rf2-cm93v allowlist is editor-related, not Causa-specific).
+    (is (= 4  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
   (testing "calling register-causa-handlers! twice is a no-op (same handler instance)"
@@ -945,13 +955,33 @@
       (rf/dispatch-sync [:rf.causa/dismiss-pin-overflow-toast])
       (is (nil? (:pin-overflow-toast (frame/frame-app-db-value :rf/causa)))))))
 
-(deftest event-open-in-editor-records-coord
-  (testing ":rf.causa/open-in-editor stores the last attempted coord"
+(deftest event-open-in-editor-routes-through-editor-fx
+  (testing "rf2-g5q8d — `:rf.causa/open-in-editor` is now a reg-event-fx
+            that resolves the coord through the rf2-cm93v allowlist and
+            fires `:rf.editor/open`. It does NOT write to app-db (the
+            click is pure navigation; the prior stub's
+            `:last-open-in-editor-coord` slot is gone). Detailed
+            contract assertions live in `open_in_editor_cljs_test.cljs`;
+            here we pin the registry-level shape only."
     (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/open-in-editor "file://foo.cljs:10:5"])
-      (is (= "file://foo.cljs:10:5"
-             (:last-open-in-editor-coord (frame/frame-app-db-value :rf/causa)))))))
+    (let [captured (atom [])]
+      ;; Replace the open fx with a capture stub (same pattern as the
+      ;; time-travel reg-fx tests above).
+      (rf/reg-fx :rf.editor/open
+        (fn [_ctx args] (swap! captured conj args)))
+      (rf/with-frame :rf/causa
+        (rf/dispatch-sync [:rf.causa/open-in-editor
+                           {:file "src/x.cljs" :line 10 :column 5}])
+        (is (= 1 (count @captured))
+            "the event-fx emits exactly one :rf.editor/open fx")
+        (is (= "vscode://file/src/x.cljs:10:5"
+               (:uri (first @captured)))
+            "the fx carries the resolved URI")
+        (is (nil? (:last-open-in-editor-coord
+                    (frame/frame-app-db-value :rf/causa)))
+            "Causa's app-db is NOT written — the stub's
+             `:last-open-in-editor-coord` slot is intentionally
+             gone (rf2-g5q8d)")))))
 
 ;; ---- (5) test-only override events --------------------------------------
 

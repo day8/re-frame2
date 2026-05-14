@@ -554,11 +554,10 @@
         (dissoc db :hydration-reroot-path)
         (assoc db :hydration-reroot-path (vec path)))))
 
-  ;; Open-in-editor stub. The full handler lives in
-  ;; `open-in-editor.cljs` (rf2-evgf5); this event-db is a thin
-  ;; record-the-attempt so the panel can surface a UX cue when the
-  ;; user clicks a source-coord. The actual editor jump runs via
-  ;; the open-in-editor module's effect when wired.
-  (rf/reg-event-db :rf.causa/open-in-editor
-    (fn [db [_ coord]]
-      (assoc db :last-open-in-editor-coord coord))))
+  ;; `:rf.causa/open-in-editor` lives in
+  ;; `day8.re-frame2-causa.open-in-editor/install!` (rf2-g5q8d) — the
+  ;; cross-panel dispatch shape used by trace, issues-ribbon,
+  ;; mcp-server, and this panel routes through the shared event-fx +
+  ;; `:rf.editor/open` fx pair so every click resolves through the
+  ;; same rf2-cm93v allowlist seam.
+  )
