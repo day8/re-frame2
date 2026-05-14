@@ -335,6 +335,25 @@ The metadata map accepted by `reg-error-projector` (per [011 §Server error proj
     ]])
 ```
 
+#### `:rf/http-interceptor-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Unlike the other per-kind shapes, HTTP interceptors are stored in a **per-frame side-table** (keyed by `:frame`) rather than in the global registrar — the registrar slot for `:http-interceptor` is intentionally absent. The schema describes the shape of each slot in that side-table.
+
+```clojure
+(def HttpInterceptorMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:id      :keyword]                                                    ;; required, addressable for clear
+    [:before  fn?]                                                         ;; required, request-side transform: (fn [ctx] ctx')
+    [:frame   :keyword]                                                    ;; runtime-stamped from user-supplied :frame or :rf/default
+    ]])
+```
+
+`:id`, `:before`, and `:frame` are the interceptor-specific slots; the base `RegistrationMetadata` keys (`:doc`, `:spec`, `:tags`, `:sensitive?`, `:ns` / `:line` / `:column` / `:file`) flow through additively — source-coords are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` only) and is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
+
 The route-shape — `:rf/route-metadata` — is defined separately further below in this catalogue (it predates this per-kind grouping). It composes with `:rf/registration-metadata` the same way the kinds above do; per [§`:rf/route-metadata`](#rfroute-metadata).
 
 ### `:rf/source-coord-meta`

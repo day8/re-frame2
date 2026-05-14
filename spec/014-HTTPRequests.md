@@ -539,12 +539,13 @@ Per [rf2-6y3q](#) — apps repeatedly want to apply a transform to every outgoin
 
 ### Shape
 
-The interceptor shape matches re-frame2's event-handler interceptor idiom — each interceptor is a map `{:id <kw> :before (fn [ctx] ctx')}` — so authors reuse what they already know.
+The interceptor shape matches re-frame2's event-handler interceptor idiom — each interceptor is a map `{:id <kw> :before (fn [ctx] ctx')}` — so authors reuse what they already know. The map composes with `:rf/registration-metadata` (per [Spec-Schemas §`:rf/http-interceptor-meta`](Spec-Schemas.md#rfhttp-interceptor-meta)): `:doc` / `:tags` / `:spec` / `:sensitive?` ride alongside the interceptor-specific keys, and source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured at the call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference).
 
 ```clojure
 (rf/reg-http-interceptor
   {:frame  :rf/default
    :id     :auth-header
+   :doc    "Stamp Bearer <token> on every outgoing request."
    :before (fn [ctx]
              (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
                (cond-> ctx

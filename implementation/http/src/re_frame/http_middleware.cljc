@@ -27,13 +27,16 @@
   dispatched from frame B."
   (:require [re-frame.http-privacy :as privacy]
             [re-frame.interop      :as interop]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace        :as trace]))
 
 (defonce
-  ^{:doc "frame-id → vector of {:id :before} interceptor maps. Per-frame
-  so each frame's HTTP middleware chain is isolated. Order is
-  registration-order; clearing an id and re-registering re-appends to
-  the end."}
+  ^{:doc "frame-id → vector of `:rf/http-interceptor-meta` slots — each a map
+  carrying `:id`, `:before`, and the captured registration-metadata
+  (`:doc`, `:spec`, `:tags`, `:sensitive?`, flat source-coord keys
+  `:ns`/`:line`/`:column`/`:file`). Per-frame so each frame's HTTP
+  middleware chain is isolated. Order is registration-order; clearing an
+  id and re-registering re-appends to the end."}
   interceptors
   (atom {}))
 
@@ -49,13 +52,24 @@
 
   The interceptor map shape is:
 
-    {:frame  <frame-id>            ;; default :rf/default
-     :id     <keyword>              ;; required, addressable for clear
-     :before (fn [ctx] ctx')}       ;; required, request-side transform
+    {:frame      <frame-id>            ;; default :rf/default
+     :id         <keyword>             ;; required, addressable for clear
+     :before     (fn [ctx] ctx')       ;; required, request-side transform
+     :doc        <string>              ;; optional, per :rf/registration-metadata
+     :tags       <set-of-keywords>     ;; optional
+     :spec       <schema>              ;; optional
+     :sensitive? <boolean>}            ;; optional, per Spec 009 §Privacy
 
   `ctx` carries `:request` (the request map), `:args` (the full
   `:rf.http/managed` args), `:frame` (the frame-id), and `:event` (the
   originating event vector). The fn returns a (possibly-modified) ctx.
+
+  Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured
+  at the `rf/reg-http-interceptor` call site by the JVM-emitted macro in
+  `re-frame.core` (per Spec 001 §Source-coordinate capture). The stored
+  slot conforms to `:rf/http-interceptor-meta` (Spec-Schemas) — base
+  `:rf/registration-metadata` plus the interceptor-specific `:id`,
+  `:before`, and `:frame` keys.
 
   Re-registering an id replaces the slot in place (keeping registration
   order). Order is preserved across replace; first registration wins
@@ -74,9 +88,12 @@
                      :recovery :no-recovery
                      :received interceptor
                      :reason   "interceptor must be a map with :id (keyword) and :before (fn)"})))
-  (let [frame-id (or frame :rf/default)
-        slot     (cond-> {:id id}
-                   before (assoc :before before))]
+  (let [frame-id  (or frame :rf/default)
+        user-meta (dissoc interceptor :frame :id :before)
+        slot      (assoc (source-coords/merge-coords user-meta)
+                         :id     id
+                         :before before
+                         :frame  frame-id)]
     (swap! interceptors update frame-id
            (fn [chain]
              (let [chain (or chain [])
