@@ -27,7 +27,7 @@ Each step has a story-mcp tool. The loop terminates when `run-variant` returns `
 
 ## Tool catalogue — by step
 
-Per `tools/story-mcp/spec/002-Tool-Registry.md`, sixteen tools across four categories. The seven that participate in the loop:
+Per `tools/story-mcp/spec/002-Tool-Registry.md`, nineteen tools across four categories. The seven that participate in the loop:
 
 | Step | Tool | Category | What it does |
 |---|---|---|---|
