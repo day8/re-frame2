@@ -79,29 +79,14 @@
   (:require [clojure.java.io :as io]
             [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
-            [malli.core      :as m]))
+            [malli.core      :as m]
+            [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
-;; Repo-root resolution. Same pattern as the sibling tests: derive from
-;; `*file*` so the test is CWD-agnostic (CI runs the test-runner from
-;; various locations).
+;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
+;; (rf2-113ti). `io` is still required for the `causa-mcp-impl-still-absent`
+;; directory probe below.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private repo-root
-  "Absolute path to the repo root, derived from this file's location."
-  (let [this-file (io/file (.getPath (io/resource "re_frame/mcp_conformance/slot_name_test.clj")))]
-    (-> this-file
-        .getParentFile                                      ; .../mcp_conformance/
-        .getParentFile                                      ; .../re_frame/
-        .getParentFile                                      ; .../test/
-        .getParentFile                                      ; .../wire-vocab/
-        .getParentFile                                      ; .../mcp-conformance/
-        .getParentFile                                      ; .../tools/
-        .getParentFile                                      ; <repo-root>
-        .getAbsolutePath)))
-
-(defn- read-source [rel-path]
-  (slurp (io/file repo-root rel-path)))
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical slot-name table. The single source of truth — every cross-
@@ -336,7 +321,7 @@
                  " under slot " slot
                  " — extend `canonical-slots` :sources map."))
         (is (some (fn [rel]
-                    (str/includes? (read-source rel) literal))
+                    (str/includes? (fx/read-source rel) literal))
                   files)
             (str "Slot literal " literal " missing from " server
                  " sources: " files
@@ -376,7 +361,7 @@
             rel                files
             :when              (seq files)]
       (testing (str server " — " rel " — near-miss " variant " for " slot)
-        (let [src    (read-source rel)
+        (let [src    (fx/read-source rel)
               pat    (variant-regex variant)]
           (is (not (re-find pat src))
               (str "Found near-miss variant " variant " for slot " slot
@@ -406,7 +391,7 @@
         causa-files (:sources causa-entry)
         literal     (slot-literal causa-slot)]
     (is (some (fn [rel]
-                (str/includes? (read-source rel) literal))
+                (str/includes? (fx/read-source rel) literal))
               causa-files)
         (str "Canonical slot " literal " for elision opt-out missing "
              "from causa-mcp spec sources " causa-files
@@ -420,7 +405,7 @@
           pair2-files (:sources pair2-entry)
           pair2-lit   (slot-literal pair2-slot)]
       (is (some (fn [rel]
-                  (str/includes? (read-source rel) pair2-lit))
+                  (str/includes? (fx/read-source rel) pair2-lit))
                 pair2-files)
           (str "pair2-mcp's divergent spelling " pair2-lit
                " missing from " pair2-files
@@ -437,7 +422,7 @@
     (doseq [rel causa-files]
       (testing (str "causa-mcp source " rel " must not adopt pair2-mcp's "
                     pair2-lit)
-        (is (not (str/includes? (read-source rel) pair2-lit))
+        (is (not (str/includes? (fx/read-source rel) pair2-lit))
             (str "causa-mcp source " rel " now contains the pair2-mcp "
                  "divergent slot " pair2-lit
                  ". If the cross-MCP convention is moving from "
@@ -450,7 +435,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest mcp-base-vocab-pins-the-canonical-slot-keywords
-  (let [src (read-source mcp-base-vocab-source)]
+  (let [src (fx/read-source mcp-base-vocab-source)]
     (doseq [literal mcp-base-vocab-literals]
       (testing (str "mcp-base/vocab.cljc pins literal " literal)
         (is (str/includes? src literal)
@@ -469,7 +454,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest causa-mcp-impl-still-absent
-  (let [src-dir (io/file repo-root "tools/causa-mcp/src")]
+  (let [src-dir (io/file fx/repo-root "tools/causa-mcp/src")]
     (is (or (not (.exists src-dir))
             (empty? (filter #(.isFile ^java.io.File %) (file-seq src-dir))))
         (str "tools/causa-mcp/src/ now contains source files. "
@@ -485,17 +470,15 @@
 ;; three known servers. Typos surface here.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private known-servers #{:pair2-mcp :story-mcp :causa-mcp})
-
 (deftest server-references-are-all-known
   (doseq [{:keys [slot servers]} canonical-slots]
     (testing (str "slot " slot " — :servers values")
-      (is (every? known-servers servers)
+      (is (every? fx/known-servers servers)
           (str "Unknown server in :servers for " slot ": "
-               (remove known-servers servers)))))
+               (remove fx/known-servers servers)))))
   (doseq [server (keys (:servers elision-arg-divergence))]
     (testing (str "elision-arg-divergence — :servers key " server)
-      (is (contains? known-servers server)
+      (is (contains? fx/known-servers server)
           (str "Unknown server in elision-arg-divergence: " server)))))
 
 ;; ---------------------------------------------------------------------------

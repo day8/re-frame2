@@ -54,28 +54,14 @@
   (:require [clojure.java.io :as io]
             [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
-            [malli.core      :as m]))
+            [malli.core      :as m]
+            [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
-;; Repo-root resolution. Same pattern as `wire_vocab_test.clj`: derive
-;; from `*file*` so the test is CWD-agnostic.
+;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
+;; (rf2-113ti). `io` is still required below for the `pair2-mcp-source-files`
+;; walker and the `causa-mcp-impl-still-absent` directory probe.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private repo-root
-  "Absolute path to the repo root, derived from this file's location."
-  (let [this-file (io/file (.getPath (io/resource "re_frame/mcp_conformance/indicator_field_test.clj")))]
-    (-> this-file
-        .getParentFile                                      ; .../mcp_conformance/
-        .getParentFile                                      ; .../re_frame/
-        .getParentFile                                      ; .../test/
-        .getParentFile                                      ; .../wire-vocab/
-        .getParentFile                                      ; .../mcp-conformance/
-        .getParentFile                                      ; .../tools/
-        .getParentFile                                      ; <repo-root>
-        .getAbsolutePath)))
-
-(defn- read-source [rel-path]
-  (slurp (io/file repo-root rel-path)))
 
 ;; ---------------------------------------------------------------------------
 ;; Contract — the canonical envelope-slot vocabulary.
@@ -263,7 +249,7 @@
 (deftest every-tree-walking-tool-routes-through-the-helper
   (doseq [[tool rel] tree-walking-tool-sources]
     (testing (str "tool " tool " — wire/with-indicators call-site in " rel)
-      (let [src (read-source rel)]
+      (let [src (fx/read-source rel)]
         (is (str/includes? src "wire/with-indicators")
             (str "Tool " tool " at " rel
                  " does not route its envelope through `wire/with-indicators`. "
@@ -280,7 +266,7 @@
   ;; counts on the streaming path while still showing them on the
   ;; final summary — invisible to single-payload conformance.
   (let [rel "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe_emit.cljs"
-        src (read-source rel)
+        src (fx/read-source rel)
         n   (count (re-seq #"wire/with-indicators" src))]
     (is (>= n 2)
         (str "Expected `subscribe-emit` to call `wire/with-indicators` "
@@ -301,7 +287,7 @@
   "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs")
 
 (deftest helper-source-shape-matches-simulation
-  (let [src (read-source helper-source-rel)]
+  (let [src (fx/read-source helper-source-rel)]
     (testing "helper defines `with-indicators`"
       (is (str/includes? src "(defn with-indicators")
           (str "`with-indicators` defn missing from " helper-source-rel)))
@@ -352,7 +338,7 @@
   "Walk `tools/pair2-mcp/src/` and return every `.cljs` file as a
   repo-relative path string."
   []
-  (let [src-root (io/file repo-root "tools/pair2-mcp/src")]
+  (let [src-root (io/file fx/repo-root "tools/pair2-mcp/src")]
     (when (.isDirectory src-root)
       (->> (file-seq src-root)
            (filter #(and (.isFile ^java.io.File %)
@@ -360,7 +346,7 @@
            (map (fn [^java.io.File f]
                   (-> (.getAbsolutePath f)
                       (str/replace "\\" "/")
-                      (str/replace (str/replace repo-root "\\" "/") "")
+                      (str/replace (str/replace fx/repo-root "\\" "/") "")
                       (subs 1))))                                ;; strip leading "/"
            sort))))
 
@@ -373,7 +359,7 @@
             slot slot-literals
             :when (not (contains? inline-emit-whitelist rel))]
       (testing (str rel " — must not inline " slot)
-        (let [src (read-source rel)]
+        (let [src (fx/read-source rel)]
           (is (not (str/includes? src slot))
               (str "Inline `" slot "` literal found in " rel
                    ".\nEvery emit MUST go through `wire/with-indicators` "
@@ -403,7 +389,7 @@
   ;; Sanity tripwire. causa-mcp's `src/` is empty today (spec-only).
   ;; When it lands, this test fails and the reviewer extends the
   ;; tree-walking-tool catalogue with causa entries.
-  (let [src-dir (io/file repo-root "tools/causa-mcp/src")]
+  (let [src-dir (io/file fx/repo-root "tools/causa-mcp/src")]
     (is (or (not (.exists src-dir))
             (empty? (filter #(.isFile ^java.io.File %) (file-seq src-dir))))
         (str "tools/causa-mcp/src/ now contains source files. "
