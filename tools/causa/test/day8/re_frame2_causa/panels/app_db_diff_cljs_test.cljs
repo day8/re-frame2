@@ -210,6 +210,69 @@
                  diff)
               ":e-2's diff selected, not :e-3's"))))))
 
+;; ---- (3b) per-:epoch-id diff cache (rf2-qvaa0) --------------------------
+
+(deftest selected-epoch-diff-cache-hits-on-repeat-deref
+  (testing "the diff is computed once per :epoch-id — second deref of
+            the same selection returns identical?-equal triples (the
+            cache short-circuit, not just =-equal)"
+    (let [hist [(mk-record :e-1 [:counter/inc]
+                           {:counter 0} {:counter 1})]]
+      (seed-causa! {:counter 1} hist)
+      (rf/with-frame :rf/causa
+        (let [first-call  @(rf/subscribe [:rf.causa/selected-epoch-diff])
+              second-call @(rf/subscribe [:rf.causa/selected-epoch-diff])]
+          (is (= first-call second-call))
+          (is (identical? first-call second-call)
+              "second deref returns the cached object — no recompute"))))))
+
+(deftest selected-epoch-diff-cache-evicts-aged-out-epochs
+  (testing "epoch-ids no longer in the history get pruned from the
+            cache — the cache cannot grow past the history depth"
+    (let [hist-a [(mk-record :e-1 [:a] {} {:n 1})]
+          hist-b [(mk-record :e-2 [:b] {} {:n 2})
+                  (mk-record :e-3 [:c] {:n 2} {:n 3})]]
+      (seed-causa! {:n 1} hist-a)
+      (rf/with-frame :rf/causa
+        ;; Warm the cache with :e-1's diff.
+        @(rf/subscribe [:rf.causa/selected-epoch-diff])
+        ;; Rotate the history — :e-1 ages out, :e-2/:e-3 take its place.
+        (rf/dispatch-sync [:rf.causa-test/seed-history hist-b])
+        ;; Read the new newest-epoch diff. The cache must prune :e-1
+        ;; (no longer in history) on this read.
+        (let [diff @(rf/subscribe [:rf.causa/selected-epoch-diff])]
+          (is (= [{:op :modified :path [:n] :before 2 :after 3}]
+                 diff)
+              "newest-epoch (:e-3) diff is fresh; :e-1's entry is gone"))))))
+
+(deftest selected-epoch-diff-cache-distinguishes-distinct-epochs
+  (testing "different :epoch-id selections each get their own cached diff"
+    (let [hist [(mk-record :e-1 [:a] {} {:counter 0})
+                (mk-record :e-2 [:counter/inc]
+                           {:counter 0} {:counter 1})
+                (mk-record :e-3 [:counter/inc]
+                           {:counter 1} {:counter 2})]]
+      (seed-causa! {:counter 2} hist)
+      (rf/with-frame :rf/causa
+        (rf/dispatch-sync [:rf.causa/select-epoch :e-2])
+        (let [diff-e2 @(rf/subscribe [:rf.causa/selected-epoch-diff])]
+          (rf/dispatch-sync [:rf.causa/select-epoch :e-3])
+          (let [diff-e3 @(rf/subscribe [:rf.causa/selected-epoch-diff])]
+            (is (not= diff-e2 diff-e3)
+                "different selections produce different diffs")
+            (is (= [{:op :modified :path [:counter] :before 0 :after 1}]
+                   diff-e2))
+            (is (= [{:op :modified :path [:counter] :before 1 :after 2}]
+                   diff-e3))))
+        ;; Returning to :e-2 still gets its cached triples (identical?
+        ;; to the first read — proves the cache survives the cross-
+        ;; selection roundtrip).
+        (rf/dispatch-sync [:rf.causa/select-epoch :e-2])
+        (let [diff-e2-second @(rf/subscribe [:rf.causa/selected-epoch-diff])
+              diff-e2-third  @(rf/subscribe [:rf.causa/selected-epoch-diff])]
+          (is (identical? diff-e2-second diff-e2-third)
+              "the cache survives selection changes"))))))
+
 ;; ---- (4) reserved-keys segregation at the composite level ---------------
 
 (deftest app-db-diff-segregates-reserved-keys
