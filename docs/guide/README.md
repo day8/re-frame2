@@ -1,5 +1,7 @@
 # The re-frame2 Guide
 
+<p align="center"><img src="../images/guide/Dominoes.jpg" alt="A line of physical dominoes mid-fall — the visual metaphor for the six-domino cascade re-frame uses." width="700"></p>
+
 This is the human-facing guide for the ClojureScript reference implementation.
 
 ## Overview
