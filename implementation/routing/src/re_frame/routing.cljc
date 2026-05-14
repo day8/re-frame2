@@ -683,6 +683,29 @@
        saved-pos (assoc :saved-pos saved-pos)
        fragment  (assoc :fragment  fragment))]))
 
+;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
+;; counters live under the frame boundary — each frame has its own
+;; epoch space at [:rf.route/nav-token-counter] and
+;; [:rf.route/pending-nav-counter]. Allocators are pure: they take a
+;; db value, return [db' allocated-id-string]. Callers thread the new
+;; db through the :db effect map alongside their other writes.
+
+(defn- alloc-nav-token
+  "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
+  counter at [:rf.route/nav-token-counter]."
+  [db]
+  (let [n (inc (or (:rf.route/nav-token-counter db) 0))]
+    [(assoc db :rf.route/nav-token-counter n)
+     (str "nav-" n)]))
+
+(defn- alloc-pending-nav-id
+  "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
+  counter at [:rf.route/pending-nav-counter]."
+  [db]
+  (let [n (inc (or (:rf.route/pending-nav-counter db) 0))]
+    [(assoc db :rf.route/pending-nav-counter n)
+     (str "pn-" n)]))
+
 (events/reg-event-fx :rf.route/navigate
   (fn [{:keys [db]} [_ target params opts]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
@@ -691,6 +714,16 @@
     ;; :fragment "y"}`), or — for URL-string targets — embedded in the
     ;; URL itself; match-url surfaces the latter. Opts/target-map win
     ;; over a URL-embedded fragment.
+    ;;
+    ;; Per Spec 012 §Navigation tokens — stale-result suppression and
+    ;; §The :rf/route slice the slice ALWAYS carries :fragment and a
+    ;; freshly-allocated :nav-token, and the runtime emits
+    ;; :rf.route.nav-token/allocated as the cascade begins. Pre-fix
+    ;; this handler omitted :fragment + :nav-token from the slice write
+    ;; and never emitted the allocation trace, so the programmatic
+    ;; navigation path diverged from the URL-driven path (rf2-d60go's
+    ;; mirror finding) and async loaders had no token to thread through
+    ;; stale-suppression.
     (let [{:keys [route-id path-params query-params matched-fragment]}
           (cond
             (keyword? target)
@@ -714,6 +747,10 @@
                     [:rf.nav/replace-url url]
                     [:rf.nav/push-url    url])
           on-match-vec (vec (or (:on-match route-meta) []))
+          ;; Per Spec 012 §Multi-frame routing nav-token allocation bumps
+          ;; the per-frame counter; thread the new db through the slice
+          ;; write below.
+          [db' token] (alloc-nav-token db)
           ;; Per Spec 012 §Scroll restoration: forward navigation defaults
           ;; to :top. Resolve the strategy from opts → route-meta → default.
           to-route    (cond-> {:id route-id}
@@ -729,38 +766,20 @@
                          :saved-pos (when (= :restore strategy)
                                       (lookup-scroll-position db url))
                          :fragment  fragment})]
-      {:db (assoc db :rf/route
+      (trace/emit! :event :rf.route.nav-token/allocated
+                   {:route-id  route-id
+                    :nav-token token})
+      {:db (assoc db' :rf/route
                   {:id         route-id
                    :params     path-params
                    :query      query-params
+                   :fragment   fragment
                    :transition (if (seq on-match-vec) :loading :idle)
-                   :error      nil})
+                   :error      nil
+                   :nav-token  token})
        :fx (vec (concat [push-fx]
                         (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                         (when scroll-fx [scroll-fx])))})))
-
-;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
-;; counters live under the frame boundary — each frame has its own
-;; epoch space at [:rf.route/nav-token-counter] and
-;; [:rf.route/pending-nav-counter]. Allocators are pure: they take a
-;; db value, return [db' allocated-id-string]. Callers thread the new
-;; db through the :db effect map alongside their other writes.
-
-(defn- alloc-nav-token
-  "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
-  counter at [:rf.route/nav-token-counter]."
-  [db]
-  (let [n (inc (or (:rf.route/nav-token-counter db) 0))]
-    [(assoc db :rf.route/nav-token-counter n)
-     (str "nav-" n)]))
-
-(defn- alloc-pending-nav-id
-  "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
-  counter at [:rf.route/pending-nav-counter]."
-  [db]
-  (let [n (inc (or (:rf.route/pending-nav-counter db) 0))]
-    [(assoc db :rf.route/pending-nav-counter n)
-     (str "pn-" n)]))
 
 (defn reset-counters!
   "Reset the route-registration counter to zero. Test-time helper so

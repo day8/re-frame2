@@ -825,6 +825,50 @@
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           "fragment in the URL-string target round-trips through the push"))))
 
+;; ---- rf2-zlr9k: :rf.route/navigate writes fragment + nav-token + trace --
+;;
+;; Per Spec 012 §Navigation is an event and §Navigation tokens programmatic
+;; navigation allocates a fresh nav-token, writes :fragment + :nav-token into
+;; the slice, and emits :rf.route.nav-token/allocated as the cascade begins.
+
+(deftest navigate-writes-fragment-and-nav-token
+  (testing ":rf.route/navigate writes :fragment + :nav-token into the slice
+            and emits :rf.route.nav-token/allocated"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::nav-token (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate
+                         :route/docs
+                         {:page "routing"}
+                         {:fragment "scroll-restoration"}])
+      (rf/remove-trace-cb! ::nav-token)
+      (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+        (is (= "scroll-restoration" (:fragment slice))
+            ":fragment is assoc'd into the slice (pre-fix: missing)")
+        (is (some? (:nav-token slice))
+            ":nav-token is allocated (pre-fix: missing)"))
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/allocated (:operation ev))
+                       (= :route/docs (-> ev :tags :route-id))))
+                @traces)
+          ":rf.route.nav-token/allocated trace fires (pre-fix: never)"))))
+
+(deftest navigate-no-fragment-still-allocates-nav-token
+  (testing ":rf.route/navigate without a :fragment opt still writes :nav-token"
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (nil? (:fragment slice))
+          ":fragment is nil when no opt supplied")
+      (is (some? (:nav-token slice))
+          ":nav-token is always allocated on navigation"))))
+
 ;; ---- rf2-d60go: :rf.route/handle-url-change writes the full slice shape -
 ;;
 ;; Per Spec 012 §The :rf/route slice and §URL changes are events the slice
