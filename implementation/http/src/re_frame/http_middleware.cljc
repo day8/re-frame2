@@ -157,8 +157,13 @@
             (let [out (before acc)]
               (if (map? out)
                 out
-                (throw (ex-info "interceptor :before did not return a ctx map"
-                                {:returned out}))))
+                ;; rf2-m32t9 — include the interceptor id in the cause
+                ;; string so a chain failure printed via the outer
+                ;; ex-info's :cause is locatable without reaching for
+                ;; ex-data. The :id key in ex-data is kept for
+                ;; programmatic consumers.
+                (throw (ex-info (str "interceptor " id " :before did not return a ctx map")
+                                {:id id :returned out}))))
             (catch #?(:clj Throwable :cljs :default) t
               (let [data (ex-info ":rf.error/http-interceptor-failed"
                                   {:where    'run-http-interceptor-chain!
