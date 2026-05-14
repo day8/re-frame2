@@ -766,18 +766,18 @@
   (let [resp (server/dispatch
                {:jsonrpc "2.0" :id 4 :method "tools/call"
                 :params {:name "unknown-tool" :arguments {}}})]
-    (is (= proto/code-method-not-found (-> resp :error :code))
+    (is (= vocab/code-method-not-found (-> resp :error :code))
         "an unknown tool yields a protocol-level method-not-found")))
 
 (deftest dispatch-malformed-envelope
   (testing "missing jsonrpc version yields invalid-request"
     (let [resp (server/dispatch {:method "tools/list" :id 5})]
-      (is (= proto/code-invalid-request (-> resp :error :code))))))
+      (is (= vocab/code-invalid-request (-> resp :error :code))))))
 
 (deftest dispatch-unknown-method
   (let [resp (server/dispatch
                {:jsonrpc "2.0" :id 6 :method "nope/whatever"})]
-    (is (= proto/code-method-not-found (-> resp :error :code)))
+    (is (= vocab/code-method-not-found (-> resp :error :code)))
     (is (re-find #"nope/whatever" (-> resp :error :message)))))
 
 (deftest dispatch-notification-no-response
@@ -827,7 +827,7 @@
       (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
             frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
         (is (= 2 (count frames)))
-        (is (= proto/code-parse-error (-> (nth frames 0) :error :code)))
+        (is (= vocab/code-parse-error (-> (nth frames 0) :error :code)))
         (is (= 9 (:id (nth frames 1))))))))
 
 ;; ---------------------------------------------------------------------------

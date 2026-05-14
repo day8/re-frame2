@@ -14,6 +14,7 @@
   separate (tools_test.clj covers those)."
   (:require [cheshire.core :as json]
             [clojure.test :refer [deftest is testing]]
+            [re-frame.mcp-base.vocab :as vocab]
             [re-frame.story-mcp.protocol :as proto]))
 
 ;; ---- envelope construction -----------------------------------------------
@@ -28,20 +29,20 @@
 
 (deftest error-envelope-shape
   (testing "error response carries jsonrpc/id/error"
-    (let [e (proto/error-response 42 proto/code-method-not-found "no such tool")]
+    (let [e (proto/error-response 42 vocab/code-method-not-found "no such tool")]
       (is (= "2.0" (:jsonrpc e)))
       (is (= 42 (:id e)))
-      (is (= proto/code-method-not-found (-> e :error :code)))
+      (is (= vocab/code-method-not-found (-> e :error :code)))
       (is (= "no such tool" (-> e :error :message)))
       (is (not (contains? (:error e) :data)))))
   (testing "error response carries optional :data"
-    (let [e (proto/error-response 1 proto/code-invalid-params "bad arg"
+    (let [e (proto/error-response 1 vocab/code-invalid-params "bad arg"
                                    {:offending "key"})]
       (is (= {:offending "key"} (-> e :error :data)))))
   (testing "id may be nil (parse-error before id is known)"
     (let [e (proto/parse-error)]
       (is (nil? (:id e)))
-      (is (= proto/code-parse-error (-> e :error :code))))))
+      (is (= vocab/code-parse-error (-> e :error :code))))))
 
 ;; ---- envelope validation -------------------------------------------------
 
@@ -105,9 +106,9 @@
       (is (= {:jsonrpc "2.0" :method "ping" :id 1} f)))))
 
 (deftest read-frame-eof-sentinel
-  (testing "EOF returns the protocol-namespaced ::eof keyword"
+  (testing "EOF returns proto/eof-sentinel"
     (let [r (reader-of "")]
-      (is (= :re-frame.story-mcp.protocol/eof (proto/read-frame r))))))
+      (is (= proto/eof-sentinel (proto/read-frame r))))))
 
 (deftest read-frame-propagates-parse-error
   (testing "malformed JSON throws (caller writes parse-error response)"
@@ -138,24 +139,24 @@
       (let [r (reader-of (.toString sw))]
         (is (= {:jsonrpc "2.0" :id 1 :result {}}     (proto/read-frame r)))
         (is (= {:jsonrpc "2.0" :id 2 :result {:n 7}} (proto/read-frame r)))
-        (is (= :re-frame.story-mcp.protocol/eof      (proto/read-frame r)))))))
+        (is (= proto/eof-sentinel                    (proto/read-frame r)))))))
 
 ;; ---- error-helpers --------------------------------------------------------
 
 (deftest method-not-found-includes-method-name
   (testing "method-not-found message names the offending method"
     (let [e (proto/method-not-found 9 "tools/quux")]
-      (is (= proto/code-method-not-found (-> e :error :code)))
+      (is (= vocab/code-method-not-found (-> e :error :code)))
       (is (re-find #"tools/quux" (-> e :error :message))))))
 
 (deftest invalid-params-renders-details
   (testing "invalid-params attaches detail string to message"
     (let [e (proto/invalid-params 5 "missing :variant-id")]
-      (is (= proto/code-invalid-params (-> e :error :code)))
+      (is (= vocab/code-invalid-params (-> e :error :code)))
       (is (re-find #"missing :variant-id" (-> e :error :message))))))
 
 (deftest internal-error-attaches-data
   (testing "internal-error optional :data lands on the error envelope"
     (let [e (proto/internal-error 3 "boom" {:trace "abc"})]
-      (is (= proto/code-internal-error (-> e :error :code)))
+      (is (= vocab/code-internal-error (-> e :error :code)))
       (is (= {:trace "abc"} (-> e :error :data))))))

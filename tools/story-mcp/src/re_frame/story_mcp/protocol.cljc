@@ -32,26 +32,22 @@
 
   ## Cross-MCP factoring (rf2-vw4sq)
 
-  The JSON-RPC error-code constants are re-exported from
-  `re-frame.mcp-base.vocab` — the cross-MCP shared vocabulary
-  artefact. The local names are retained as aliases so existing
-  callers don't need to touch their `:require` lists; the canonical
-  source of truth lives in the base."
+  The JSON-RPC error-code constants live in `re-frame.mcp-base.vocab`
+  — the cross-MCP shared vocabulary artefact. The internal use-sites
+  in this ns reach them through the `vocab` alias directly; callers
+  outside the ns should `:require [re-frame.mcp-base.vocab :as vocab]`
+  for the same source of truth (no parallel re-export here)."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [re-frame.mcp-base.vocab :as vocab]))
 
-;; ---- error codes ----------------------------------------------------------
-;;
-;; Re-exported from `re-frame.mcp-base.vocab` per rf2-vw4sq. The
-;; numeric values are pinned by JSON-RPC 2.0 §5.1; the alias layer
-;; ensures the triplet shares one definition.
+;; ---- sentinels -----------------------------------------------------------
 
-(def ^:const code-parse-error      vocab/code-parse-error)
-(def ^:const code-invalid-request  vocab/code-invalid-request)
-(def ^:const code-method-not-found vocab/code-method-not-found)
-(def ^:const code-invalid-params   vocab/code-invalid-params)
-(def ^:const code-internal-error   vocab/code-internal-error)
+(def eof-sentinel
+  "Returned by `read-frame` when the reader has closed. Consumers
+  should compare against this def rather than re-spell the
+  auto-namespaced `::eof` form across namespace boundaries."
+  ::eof)
 
 ;; ---- envelope construction -----------------------------------------------
 
@@ -147,7 +143,7 @@
   (loop []
     (let [line (.readLine reader)]
       (cond
-        (nil? line)                   ::eof
+        (nil? line)                   eof-sentinel
         (str/blank? line)             (recur)
         :else                         (parse-json line)))))
 
@@ -171,20 +167,27 @@
   "Build a parse-error response. `id` is `nil` because by definition we
   couldn't parse the request to extract one."
   []
-  (error-response nil code-parse-error "Parse error"))
+  (error-response nil vocab/code-parse-error "Parse error"))
+
+(defn invalid-request
+  "Build an invalid-request error for a syntactically-malformed envelope.
+  `id` may be `nil` when the envelope failed shape-validation before
+  the id could be extracted."
+  [id details]
+  (error-response id vocab/code-invalid-request details))
 
 (defn method-not-found
   "Build a method-not-found error for `method`. Used by the dispatcher
   when `(:method message)` doesn't match a registered handler — and by
   `tools/call` when the named tool isn't in the registry."
   [id method]
-  (error-response id code-method-not-found
+  (error-response id vocab/code-method-not-found
                   (str "Method not found: " method)))
 
 (defn invalid-params
   "Build an invalid-params error. `details` is human-readable."
   [id details]
-  (error-response id code-invalid-params
+  (error-response id vocab/code-invalid-params
                   (str "Invalid params: " details)))
 
 (defn internal-error
@@ -195,4 +198,4 @@
   ([id details]
    (internal-error id details nil))
   ([id details data]
-   (error-response id code-internal-error details data)))
+   (error-response id vocab/code-internal-error details data)))

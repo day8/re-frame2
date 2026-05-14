@@ -66,25 +66,14 @@
   reply with our supported version and let the client decide whether to
   disconnect per the spec's version-negotiation rule."
   [id _params]
-  (let [version config/protocol-version]
-    (proto/response id
-                    {:protocolVersion version
-                     :capabilities    {:tools {:listChanged false}}
-                     :serverInfo      {:name    config/server-name
-                                       :version (try
-                                                  ;; Read VERSION from the
-                                                  ;; project root. Best-effort:
-                                                  ;; if the file isn't on the
-                                                  ;; classpath (uberjar deploy),
-                                                  ;; fall back to "dev".
-                                                  (or (some-> (clojure.java.io/resource "VERSION")
-                                                              slurp
-                                                              str/trim)
-                                                      "dev")
-                                                  (catch Throwable _ "dev"))}
-                     :instructions    (str "Story MCP agent surface. Call `tools/list` for the registry, "
-                                           "then `tools/call` with the named tool + arguments. "
-                                           "See `get-story-instructions` for Story's authoring conventions.")})))
+  (proto/response id
+                  {:protocolVersion config/protocol-version
+                   :capabilities    {:tools {:listChanged false}}
+                   :serverInfo      {:name    config/server-name
+                                     :version (config/read-version)}
+                   :instructions    (str "Story MCP agent surface. Call `tools/list` for the registry, "
+                                         "then `tools/call` with the named tool + arguments. "
+                                         "See `get-story-instructions` for Story's authoring conventions.")}))
 
 ;; ---- tools/list -----------------------------------------------------------
 
@@ -136,13 +125,14 @@
   [message]
   (cond
     (not (proto/valid-envelope? message))
-    (proto/error-response (:id message) proto/code-invalid-request
-                          "Invalid JSON-RPC envelope")
+    (proto/invalid-request (:id message) "Invalid JSON-RPC envelope")
 
     ;; Notifications — no response. Per the spec a notification is a
-    ;; request without an `id`. We accept `notifications/initialized`
-    ;; explicitly (it's the canonical handshake completion); other
-    ;; notifications are silently dropped.
+    ;; request without an `id`. We accept the canonical handshake-
+    ;; completion notification (`notifications/initialized`) and any
+    ;; other notification silently — the absence of `:id` is the
+    ;; complete dispatch rule. No defensive arm needed in the
+    ;; method `case` below.
     (not (contains? message :id))
     nil
 
@@ -150,7 +140,6 @@
     (let [{:keys [id method params]} message]
       (case method
         "initialize"                     (handle-initialize id params)
-        "notifications/initialized"      nil  ; defensive: this is a notification, shouldn't hit here
         "tools/list"                     (handle-tools-list id params)
         "tools/call"                     (handle-tools-call id params)
         "ping"                           (handle-ping id params)
@@ -202,13 +191,12 @@
                         (log! "write of parse-error response failed:" (ex-message e2))))
                     ::recover))]
       (cond
-        ;; `proto/read-frame` returns ::proto/eof (the ::eof sentinel
-        ;; auto-namespaced to its source ns) when stdin closes. The
-        ;; loop exits.
-        (= :re-frame.story-mcp.protocol/eof frame) :eof
+        ;; `proto/read-frame` returns `proto/eof-sentinel` when stdin
+        ;; closes. The loop exits.
+        (= proto/eof-sentinel frame) :eof
         ;; Recovery from a parse-error: we already wrote the error
         ;; response; loop to the next frame.
-        (= ::recover frame)                        (recur)
+        (= ::recover frame)          (recur)
         :else
         (do
           (handle-frame! writer frame)
@@ -220,7 +208,16 @@
   "Parse CLI args. Minimal — no third-party CLI lib required at Stage
   7. Supported flags:
 
-  - `--allow-writes` (boolean) — open the write surface.
+  - `--allow-writes` — presence opens the write surface. There is no
+    `=true` / `=false` variant; a flag is either present or absent.
+    The earlier `--allow-writes=false` form was a footgun (an agent
+    host scripting it would expect the gate to close, but the parser
+    accepted-and-recorded `false` which then propagated through
+    `apply-config!` only when the absent default was already
+    `false`).
+
+  Unknown flags are logged and ignored — the MCP spec doesn't define
+  CLI conventions, so being permissive here is correct.
 
   Returns a config map."
   [argv]
@@ -228,11 +225,7 @@
          cfg  {}]
     (if-let [a (first args)]
       (case a
-        "--allow-writes"     (recur (rest args) (assoc cfg :allow-writes? true))
-        "--allow-writes=true" (recur (rest args) (assoc cfg :allow-writes? true))
-        "--allow-writes=false" (recur (rest args) (assoc cfg :allow-writes? false))
-        ;; Unknown flag — log and ignore. The MCP spec doesn't define
-        ;; CLI conventions, so being permissive here is correct.
+        "--allow-writes" (recur (rest args) (assoc cfg :allow-writes? true))
         (do (log! "unknown CLI flag:" a)
             (recur (rest args) cfg)))
       cfg)))
@@ -251,15 +244,24 @@
            " server=" config/server-name)
      cfg)))
 
+(defn run-stdio!
+  "Wire stdin / stdout to `run-loop!` and drive until EOF. Extracted
+  from `-main` so a test can exercise the full stdio assembly without
+  reflecting on private internals — but tests SHOULD prefer
+  `run-loop!` with in-memory streams; this helper is exposed for the
+  one assertion that wants to verify the stdin-as-default-reader
+  contract."
+  []
+  (let [reader (java.io.BufferedReader. (java.io.InputStreamReader. System/in "UTF-8"))
+        writer (java.io.OutputStreamWriter. System/out "UTF-8")]
+    (run-loop! reader writer)
+    (log! "stdin closed; exiting")))
+
 (defn -main
   "Entry point. Boots, then runs the stdio JSON-RPC loop until stdin
   closes. Per IMPL-SPEC §7.1 the agent host (Claude Code / Cursor /
   Copilot) launches this as a subprocess and terminates it by closing
   stdin (or SIGTERM after a timeout)."
   [& argv]
-  (let [cli-cfg (parse-args argv)]
-    (boot! cli-cfg)
-    (let [reader (java.io.BufferedReader. (java.io.InputStreamReader. System/in "UTF-8"))
-          writer (java.io.OutputStreamWriter. System/out "UTF-8")]
-      (run-loop! reader writer)
-      (log! "stdin closed; exiting"))))
+  (boot! (parse-args argv))
+  (run-stdio!))
