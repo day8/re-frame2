@@ -62,21 +62,47 @@
 (defn- read-edn [^java.io.File f]
   (edn/read-string (slurp f)))
 
-(defn- clojure-cli-available? []
-  (try
-    (let [pb (ProcessBuilder. ^java.util.List
-                              ["clojure" "--help"])]
-      (.redirectErrorStream pb true)
-      (let [p (.start pb)
-            ok? (.waitFor p)]
-        (zero? ok?)))
-    (catch Throwable _ false)))
+(def ^:private clojure-cli-available?
+  ;; Probe `clojure --help` once per JVM. The probe spawns a process
+  ;; and blocks on its exit code (~hundreds of ms on Windows where
+  ;; the `clojure` PowerShell shim re-launches a JVM); doing it per
+  ;; substrate inflated suite time noticeably.
+  (delay
+    (try
+      (let [pb (ProcessBuilder. ^java.util.List ["clojure" "--help"])]
+        (.redirectErrorStream pb true)
+        (let [p (.start pb)
+              ok? (.waitFor p)]
+          (zero? ok?)))
+      (catch Throwable _ false))))
+
+(def ^:private deps-resolve-enabled?
+  ;; The per-substrate `clojure -P` smoke is gated behind an opt-in
+  ;; env var. Rationale: the generated app pins re-frame2 to
+  ;; v0.0.1.alpha (see VERSION at the repo root). Until the alpha
+  ;; artefacts are actually published to Clojars, every `clojure -P`
+  ;; invocation fails with "Could not find artifact day8/re-frame2"
+  ;; and is treated as a known-skip — buying us nothing while costing
+  ;; the dominant share of suite wall-time (~2s × 3 substrates on a
+  ;; cold cache).
+  ;;
+  ;; Local fast loop:   default off — static shape checks above still
+  ;;                    cover the template contract.
+  ;; CI / release lane: set RF2_TEMPLATE_DEPS_RESOLVE=1 to re-enable.
+  ;;                    Once an alpha publish lands, the smoke flips
+  ;;                    from known-skip to a real signal automatically.
+  (delay
+    (= "1" (System/getenv "RF2_TEMPLATE_DEPS_RESOLVE"))))
 
 (defn- run-clojure-P
-  "Run `clojure -P` in the given directory. Returns {:exit n :out s} or
-   nil if the clojure CLI is unavailable."
+  "Run `clojure -P` in the given directory. Returns {:exit n :out s},
+   `:skipped` if the smoke is gated off, or nil if the clojure CLI is
+   unavailable."
   [^java.io.File dir]
-  (when (clojure-cli-available?)
+  (cond
+    (not @deps-resolve-enabled?) :skipped
+    (not @clojure-cli-available?) nil
+    :else
     (let [pb (ProcessBuilder. ^java.util.List ["clojure" "-P"])
           _  (.directory pb dir)
           _  (.redirectErrorStream pb true)
@@ -216,21 +242,34 @@
         ;; treat the "artefact not on Clojars" outcome as a known-skip
         ;; rather than a test failure; once an alpha publish lands,
         ;; the assertion below becomes a real signal automatically.
-        (when-let [{:keys [exit out]} (run-clojure-P root)]
+        ;;
+        ;; Gating: the smoke is opt-in via RF2_TEMPLATE_DEPS_RESOLVE=1
+        ;; (default off for the local fast loop). See `run-clojure-P`
+        ;; above for rationale.
+        (let [result (run-clojure-P root)]
           (cond
-            (zero? exit)
-            (is true "`clojure -P` succeeded — alpha artefacts are publicly resolvable")
+            (= :skipped result)
+            nil  ;; gated off — fast-loop path, static shape checks above cover the contract
 
-            (re-find #"Could not find artifact day8(:|/)re-frame2" out)
-            (println (str "  [skip] `clojure -P` cannot find day8/re-frame2 " substrate
-                          " coords on Clojars — this is expected until an alpha "
-                          "publish lands. Static shape checks above still cover "
-                          "the template contract."))
+            (nil? result)
+            nil  ;; clojure CLI unavailable on PATH — nothing to assert
 
             :else
-            (is (zero? exit)
-                (str "`clojure -P` exited " exit " for " substrate
-                     " generated app. Output:\n" out)))))
+            (let [{:keys [exit out]} result]
+              (cond
+                (zero? exit)
+                (is true "`clojure -P` succeeded — alpha artefacts are publicly resolvable")
+
+                (re-find #"Could not find artifact day8(:|/)re-frame2" out)
+                (println (str "  [skip] `clojure -P` cannot find day8/re-frame2 " substrate
+                              " coords on Clojars — this is expected until an alpha "
+                              "publish lands. Static shape checks above still cover "
+                              "the template contract."))
+
+                :else
+                (is (zero? exit)
+                    (str "`clojure -P` exited " exit " for " substrate
+                         " generated app. Output:\n" out)))))))
       (finally
         (delete-recursively tmp)))))
 

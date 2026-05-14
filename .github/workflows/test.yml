@@ -1185,8 +1185,14 @@ jobs:
       # The template's `re_frame2_test.clj` opportunistically invokes
       # `clojure -P` against generated deps.edn if `clojure` is on PATH
       # to confirm the deps parse — the setup-clojure step above ensures
-      # that probe runs.
+      # that probe runs. The probe is gated behind
+      # RF2_TEMPLATE_DEPS_RESOLVE=1 (default off for local fast loop,
+      # on for CI) so contributors aren't paying ~2s × 3 substrates on
+      # every local test run for a smoke that's a known-skip until the
+      # alpha artefacts land on Clojars.
       - name: Run JVM tests (tools/template artefact)
+        env:
+          RF2_TEMPLATE_DEPS_RESOLVE: "1"
         run: clojure -M:test
 
   node-test-tools-pair2-mcp:
