@@ -10,7 +10,7 @@
 
     1. The `canvas` panel-routing `case` — a 16-arm switch from
        `:rf.causa/selected-panel` to a per-panel view fn. A typo on
-       one arm silently routes to the `stub-panel` fallback. The
+       one arm silently routes to the `unknown-panel` fallback. The
        arm count + each arm's mapping is asserted here.
 
     2. The bottom-rail `[● REDACTED N]` indicator (rf2-azls9). The
@@ -212,22 +212,19 @@
           (is (= expected-fn (first rendered))
               (str "panel " panel-id " — first element is the expected view fn")))))))
 
-(deftest canvas-routes-unknown-panel-id-to-stub-panel
+(deftest canvas-routes-unknown-panel-id-to-fallback
   (testing "an unknown :rf.causa/selected-panel value falls through to
-            stub-panel (per spec/007-UX-IA.md §The default landing
-            view — every non-arm goes to the 'Coming soon' stub)"
+            the defensive `unknown-panel` branch (every sidebar entry
+            now routes to a live panel; the fallback only fires if a
+            host writes an unrecognised id via direct dispatch)"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (select-panel! :rf.causa.test/unknown-panel-id)
       (let [rendered (#'shell/canvas)]
-        ;; stub-panel is private — assert by its rendered hallmark.
         (is (vector? rendered) "canvas always returns a hiccup vector")
-        (is (re-find #"Coming soon"
-                     (text-nodes rendered))
-            "the stub-panel's 'Coming soon' copy is on screen")
         (is (re-find #"Unknown panel"
                      (text-nodes rendered))
-            "stub-panel uses the {:label \"Unknown panel\"} fallback")))))
+            "the fallback labels the selection as unknown")))))
 
 (deftest canvas-defaults-to-event-detail-when-selection-unset
   (testing "Lock 7 — :event-detail is the default landing panel.
