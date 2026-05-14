@@ -227,29 +227,63 @@
   "Shared sentinel for the no-extra-interceptors hot path."
   [])
 
+(def ^:private empty-icpt-overrides
+  "Shared sentinel for the no-interceptor-overrides hot path."
+  {})
+
 (defn- apply-overrides
   "Per Spec 002 §Per-frame and per-call overrides: per-frame and per-call
   override maps merge with per-call winning. Returns
-  `{:fx-overrides :extra-interceptors}` for this dispatch.
+  `{:fx-overrides :icpt-overrides :extra-interceptors}` for this dispatch.
 
   HOT PATH: fires on every dispatch. The dominant production path is
   override-free — most apps neither set per-frame `:fx-overrides` /
-  `:interceptors` in their `reg-frame` config nor pass per-call
-  `:fx-overrides` in the dispatch envelope. On that path we
-  short-circuit to shared empty sentinels rather than `merge`-ing
-  empty maps and `vec`-ing an empty `concat`."
+  `:interceptor-overrides` / `:interceptors` in their `reg-frame`
+  config nor pass per-call overrides in the dispatch envelope. On that
+  path we short-circuit to shared empty sentinels rather than `merge`-
+  ing empty maps and `vec`-ing an empty `concat`.
+
+  Per Spec 002 §`:interceptor-overrides` (lines 1108-1139): per-frame
+  and per-call interceptor-override maps merge with per-call winning,
+  same as `:fx-overrides`. The merged map is consumed by
+  `apply-icpt-overrides` in `prepare-handler-ctx` to substitute
+  interceptors in the chain by `:id`."
   [envelope frame-record]
   (let [frame-cfg            (:config frame-record)
         per-call-fx          (:fx-overrides envelope)
         per-frame-fx         (:fx-overrides frame-cfg)
+        per-call-icpt        (:interceptor-overrides envelope)
+        per-frame-icpt       (:interceptor-overrides frame-cfg)
         frame-interceptors   (:interceptors frame-cfg)]
     (if (and (nil? per-call-fx)
              (nil? per-frame-fx)
+             (nil? per-call-icpt)
+             (nil? per-frame-icpt)
              (nil? frame-interceptors))
       {:fx-overrides       empty-fx-overrides
+       :icpt-overrides     empty-icpt-overrides
        :extra-interceptors empty-extra-interceptors}
       {:fx-overrides       (merge per-frame-fx per-call-fx)
+       :icpt-overrides     (merge per-frame-icpt per-call-icpt)
        :extra-interceptors (vec frame-interceptors)})))
+
+(defn- apply-icpt-overrides
+  "Per Spec 002 §`:interceptor-overrides` (lines 1124-1130): walk
+  `chain` and substitute interceptors by `:id` against `overrides`.
+  Entries whose `:id` is a key in `overrides` are replaced by the
+  override's value; `nil`-valued overrides remove the interceptor from
+  the chain.
+
+  HOT PATH no-op: when `overrides` is empty the chain is returned
+  unchanged."
+  [chain overrides]
+  (if (empty? overrides)
+    chain
+    (->> chain
+         (mapv #(if (and (map? %) (contains? overrides (:id %)))
+                  (get overrides (:id %))
+                  %))
+         (filterv some?))))
 
 (defn- validate-event!
   "Per Spec 010 §Validation order step 1 (rf2-jwm4): validate the
@@ -532,18 +566,28 @@
   §Per-frame and per-call overrides) and threads them through the
   initial cofx map. Returns `{:full-chain :initial-ctx :fx-overrides}`.
 
+  Chain assembly order, per Spec 002:
+  1. Prepend per-frame `:interceptors` to the handler's own chain
+     (additive — §`:interceptors` — *add* interceptors).
+  2. Walk the assembled chain and apply `:interceptor-overrides`
+     (replace-by-`:id` per §`:interceptor-overrides` lines 1108-1139);
+     `nil`-valued overrides remove an interceptor from the chain.
+
   HOT PATH: fires on every dispatch. On the override-free path (no
-  per-frame / per-call `:fx-overrides`, no per-frame `:interceptors`),
+  per-frame / per-call `:fx-overrides`, no per-frame / per-call
+  `:interceptor-overrides`, no per-frame `:interceptors`),
   `apply-overrides` returns shared empty sentinels and we reuse the
-  handler's own `:interceptors` vector directly rather than
-  `concat`-ing an empty extra-interceptors prefix and re-`vec`-ing
-  the result."
+  handler's own `:interceptors` vector directly without `concat`-ing
+  an empty extra-interceptors prefix or walking the chain for
+  interceptor-overrides."
   [envelope frame frame-record handler-meta]
-  (let [{:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
-        full-chain  (if (seq extra-interceptors)
-                      (vec (concat extra-interceptors (:interceptors handler-meta)))
-                      (:interceptors handler-meta))
-        initial-ctx (assemble-initial-ctx envelope frame frame-record fx-overrides)]
+  (let [{:keys [extra-interceptors fx-overrides icpt-overrides]}
+        (apply-overrides envelope frame-record)
+        prepended-chain (if (seq extra-interceptors)
+                          (vec (concat extra-interceptors (:interceptors handler-meta)))
+                          (:interceptors handler-meta))
+        full-chain      (apply-icpt-overrides prepended-chain icpt-overrides)
+        initial-ctx     (assemble-initial-ctx envelope frame frame-record fx-overrides)]
     {:full-chain   full-chain
      :initial-ctx  initial-ctx
      :fx-overrides fx-overrides}))
