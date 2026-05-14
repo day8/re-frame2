@@ -72,27 +72,49 @@
   (is (zero? (args/parse-non-negative-int -5 5000))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-keyword
+;; fresh-keyword — positive-named intern for operator-gated write paths
+;; (rf2-xxtrz, the successor to the retired `parse-keyword`).
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-keyword-passes-through-keywords
-  (is (= :foo (args/parse-keyword :foo)))
-  (is (= :ns/foo (args/parse-keyword :ns/foo))))
+(deftest fresh-keyword-passes-through-keywords
+  (is (= :foo (args/fresh-keyword :foo)))
+  (is (= :ns/foo (args/fresh-keyword :ns/foo))))
 
-(deftest parse-keyword-nil-returns-nil
-  (is (nil? (args/parse-keyword nil))))
+(deftest fresh-keyword-nil-returns-nil
+  (is (nil? (args/fresh-keyword nil))))
 
-(deftest parse-keyword-strips-leading-colon
-  (is (= :foo (args/parse-keyword ":foo")))
-  (is (= :ns/foo (args/parse-keyword ":ns/foo"))))
+(deftest fresh-keyword-strips-leading-colon
+  (is (= :foo (args/fresh-keyword ":foo")))
+  (is (= :ns/foo (args/fresh-keyword ":ns/foo"))))
 
-(deftest parse-keyword-parses-namespaced
-  (is (= :rf.assert/path-equals (args/parse-keyword "rf.assert/path-equals")))
-  (is (= :rf.assert/path-equals (args/parse-keyword ":rf.assert/path-equals"))))
+(deftest fresh-keyword-parses-namespaced
+  (is (= :rf.assert/path-equals (args/fresh-keyword "rf.assert/path-equals")))
+  (is (= :rf.assert/path-equals (args/fresh-keyword ":rf.assert/path-equals"))))
 
-(deftest parse-keyword-blank-returns-nil
-  (is (nil? (args/parse-keyword "")))
-  (is (nil? (args/parse-keyword ":"))))
+(deftest fresh-keyword-blank-returns-nil
+  (is (nil? (args/fresh-keyword "")))
+  (is (nil? (args/fresh-keyword ":"))))
+
+(deftest fresh-keyword-rejects-non-string-non-keyword-input
+  ;; The contract is "agent-supplied id" — anything other than the two
+  ;; admitted shapes (string, keyword) returns nil rather than coercing.
+  (is (nil? (args/fresh-keyword 42)))
+  (is (nil? (args/fresh-keyword [:foo])))
+  (is (nil? (args/fresh-keyword {:k :v}))))
+
+(deftest fresh-keyword-interns-on-fresh-input
+  ;; The defining contract: `fresh-keyword` INTERNS by design (the call
+  ;; site is allocating a new identifier rather than resolving an
+  ;; existing one). Pin the intern so a future refactor that swaps the
+  ;; body for a `safe-keyword`-only path trips this gate before
+  ;; reaching the operator-gated write callers (story-mcp's
+  ;; register-variant, record-as-variant).
+  (let [novel-name "rf2-xxtrz-fresh-keyword-intern-pin"]
+    (is (nil? (find-keyword novel-name))
+        "precondition: the novel name is not in the keyword table")
+    (is (= (keyword novel-name) (args/fresh-keyword novel-name)))
+    (is (some? (find-keyword novel-name))
+        "fresh-keyword MUST intern — that's the entire point of the primitive")))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-mode
@@ -108,7 +130,7 @@
 
 (deftest parse-mode-strips-leading-colon
   ;; Regression pin (rf2-wnyy9 / round-2 F2): `parse-mode` must accept
-  ;; agent-supplied `":diff"` the same way `parse-keyword` accepts
+  ;; agent-supplied `":diff"` the same way the read path accepts
   ;; `":foo"`. Before the fix this silently default-fell-back — the
   ;; agent saw `:diff` returned but the value was the function's
   ;; default, not a recognised match.
@@ -172,10 +194,10 @@
 
 (deftest parse-mode-unknown-string-does-not-intern
   ;; Regression pin (rf2-ih7g4): `parse-mode` previously routed every
-  ;; string input through `parse-keyword` (which interns) and then
-  ;; membership-checked the result. With the fix, the membership check
-  ;; happens BEFORE intern. A rejected string MUST leave the keyword
-  ;; table untouched.
+  ;; string input through an interning helper and then membership-
+  ;; checked the result. With the fix, the membership check happens
+  ;; BEFORE intern. A rejected string MUST leave the keyword table
+  ;; untouched.
   (let [novel-name "rf2-ih7g4-parse-mode-novel-name-do-not-intern"]
     (is (nil? (find-keyword novel-name))
         "precondition: the novel name is not in the keyword table")

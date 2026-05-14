@@ -128,11 +128,11 @@
 ;; Bounded-allowlist keyword resolution (rf2-lqjbk)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The legacy `args/parse-keyword` INTERNS on the JVM — a caller streaming
-;; unique random strings as `:variant-id`s would slowly grow the JVM's
-;; never-shrinking keyword table. The mitigation is to resolve every
-;; agent-supplied keyword id against a bounded set BEFORE coercing it to
-;; a keyword, using `args/safe-keyword` (which routes through
+;; A naive `(keyword raw-agent-string)` INTERNS on the JVM — a caller
+;; streaming unique random strings as `:variant-id`s would slowly grow
+;; the JVM's never-shrinking keyword table. The mitigation is to resolve
+;; every agent-supplied keyword id against a bounded set BEFORE coercing
+;; it to a keyword, using `args/safe-keyword` (which routes through
 ;; `find-keyword` on the JVM — no intern outside the allowlist).
 ;;
 ;; For READ-side handlers (every tool in dev / docs / testing) the
@@ -144,7 +144,7 @@
 ;;
 ;; The WRITE-side handlers (`register-variant`) are the documented
 ;; exception: by design they extend the registry with a fresh keyword.
-;; Those callers intern via `args/parse-keyword` directly, bounded by
+;; Those callers intern via `args/fresh-keyword` directly, bounded by
 ;; the operator-gated `--allow-writes` flag (the registry itself is the
 ;; bounded set; the operator chose to open it).
 

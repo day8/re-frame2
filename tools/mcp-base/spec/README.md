@@ -41,7 +41,7 @@ per-namespace contract doc; the table below indexes them:
 | `vocab` | 228 | `:rf.mcp/*` + `:rf.size/*` marker keys + envelope slots + JSON-RPC error codes. | [`vocab.md`](vocab.md) |
 | `sensitive` | 117 | spec/009 §Privacy default-suppress filter (`sensitive-event?`, `strip-sensitive`, `scrub-snapshot`). | [`sensitive.md`](sensitive.md) |
 | `elision` | 60 | Wire-boundary `:rf.size/large-elided` walker (`count-elided-markers`, rf2-9fz64). | [`elision.md`](elision.md) |
-| `args` | 127 | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `parse-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
+| `args` | 127 | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
 | `diff-encode` | 286 | Path-keyed structural diff for epoch `:db-after` slots (rf2-1wdzp). | [`diff-encode.md`](diff-encode.md) |
 | `overflow` | 60 | Overflow-marker payload SHAPE builder + per-tool hint table (rf2-rvyzy). | [`overflow.md`](overflow.md) |
 | `cap` | 192 | Wire-boundary token-budget cap pipeline + `ResultIO` protocol (rf2-eyelu). | [`cap.md`](cap.md) |

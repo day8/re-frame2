@@ -81,13 +81,16 @@
    (`\"rf/default\"`) and EDN-shaped strings (`\":rf/default\"`) — strips
    a leading colon when present so callers can pass either form.
 
-   Delegates to `re-frame.mcp-base.args/parse-keyword` (rf2-vw4sq) so
+   Delegates to `re-frame.mcp-base.args/fresh-keyword` (rf2-xxtrz) so
    the slice-key / frame-key coercion is single-sourced across the
    pair2-mcp wire surface — same helper underpins both
    `parse-frames-arg` and the per-slice-mode key coercion in
-   `parse-modes-arg`."
+   `parse-modes-arg`. On CLJS keywords are not interned in the JVM
+   never-shrinking-table sense, so the intern-DoS concern that gates
+   `fresh-keyword` on the JVM side doesn't apply here; the call is
+   straight string-to-keyword coercion."
   [x]
-  (base-args/parse-keyword x))
+  (base-args/fresh-keyword x))
 
 (defn coerce-path-segment
   "Coerce one segment of a JS-array path argument.
@@ -200,7 +203,7 @@
   or keywords.
 
   Slice-key coercion delegates to `->frame-keyword` (which routes
-  through `re-frame.mcp-base.args/parse-keyword`); per-slice mode
+  through `re-frame.mcp-base.args/fresh-keyword`); per-slice mode
   coercion delegates to `re-frame.mcp-base.args/parse-mode` with a
   sentinel default so unrecognised values can be detected and
   dropped rather than coerced to the global default (rf2-vw4sq)."
