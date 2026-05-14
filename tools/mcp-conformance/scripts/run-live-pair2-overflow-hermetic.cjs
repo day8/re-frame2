@@ -591,18 +591,41 @@ async function main() {
     // No PATH walk is performed by cross-spawn for absolute paths
     // (see `which`'s separator short-circuit), so this stays
     // accident-safe.
-    const testRun = crossSpawn.sync(process.execPath, [LIVE_TEST], {
-      cwd: MCP_CONFORMANCE_ROOT,
-      stdio: 'inherit',
-      env: testEnv,
+    //
+    // Per rf2-i3ffz F-PERF-1: spawn ASYNC, not via `crossSpawn.sync`.
+    // The sync form synchronously blocks the event loop for the inner
+    // test's entire watchdog window — during which the
+    // `SIGINT`/`SIGTERM`/`SIGHUP` handlers wired above CANNOT fire (Node
+    // delivers signals only between event-loop iterations) and the
+    // outer `HERMETIC_TIMEOUT_MS` watchdog `setTimeout` CANNOT trip. A
+    // hang inside the inner test would wedge the orchestrator
+    // unresponsive for ~60s before any outer cleanup gets control.
+    // The async-spawn shape preserves signal responsiveness end-to-end.
+    const testStatus = await new Promise((resolve, reject) => {
+      const child = crossSpawn(process.execPath, [LIVE_TEST], {
+        cwd: MCP_CONFORMANCE_ROOT,
+        stdio: 'inherit',
+        env: testEnv,
+      });
+      child.on('error', reject);
+      child.on('exit', (code, signal) => {
+        // signal-terminated children report null exit codes; treat the
+        // signal as a non-zero status so the conformance gate fails
+        // loud rather than silently passing.
+        if (code === null) {
+          reject(new Error(`live-pair2-overflow.cjs killed by ${signal}`));
+          return;
+        }
+        resolve(code);
+      });
     });
-    if (testRun.status !== 0) {
+    if (testStatus !== 0) {
       // Surface the inner test's exit code verbatim so CI sees a
       // conformance failure as exit 1 (the test's own code) rather
       // than 2 (which we reserve for orchestration failures —
       // shadow-cljs didn't boot, runtime didn't preload, etc.).
-      const err = new Error(`live-pair2-overflow.cjs exited ${testRun.status}`);
-      err.exitCode = testRun.status;
+      const err = new Error(`live-pair2-overflow.cjs exited ${testStatus}`);
+      err.exitCode = testStatus;
       throw err;
     }
     log('PAIR2-MCP LIVE OVERFLOW HERMETIC CONFORMANCE GREEN');
