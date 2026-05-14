@@ -16,13 +16,21 @@
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
-            [re-frame-pair2-mcp.tools.elision :as elision]))
+            [re-frame-pair2-mcp.tools.elision :as elision]
+            [re-frame-pair2-mcp.tools.raw-state :as raw-state]))
 
 (defn snapshot-tool [conn raw-args]
   (let [build-id    (wire/arg-build raw-args)
         frames      (args/parse-frames-arg (wire/arg raw-args :frames))
         include     (args/parse-include-arg (wire/arg raw-args :include))
-        incl?       (args/parse-bool-arg raw-args :include-sensitive?)
+        ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces both
+        ;; `:include-sensitive?` to false AND `:elision` to true when
+        ;; OFF (the default). The per-call args are still parsed (so the
+        ;; response envelope reports the effective post-gate value), but
+        ;; the gate wins.
+        incl?       (if (raw-state/force-redact?)
+                      false
+                      (args/parse-bool-arg raw-args :include-sensitive?))
         path        (args/parse-path-arg (wire/arg raw-args :path))
         mode        (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         ;; Global lazy-summary mode (rf2-u2029): `:summary` (default)
@@ -32,7 +40,8 @@
         slice-mode  (args/parse-mode-arg (wire/arg raw-args :mode))
         slice-modes (args/parse-modes-arg (wire/arg raw-args :modes))
         dedup?      (args/parse-bool-arg raw-args :dedup)
-        elision?    (args/parse-bool-arg raw-args :elision)
+        elision?    (or (args/parse-bool-arg raw-args :elision)
+                        (raw-state/force-elision?))
         opts        {:frames frames :include include}
         ;; Eval form composition (rf2-urjnc + rf2-e35a5 + rf2-vflrg).
         ;; The snapshot composer returns a per-frame map; we wrap each
@@ -93,6 +102,7 @@
                             (ef/emit (ef/rt-call 'snapshot-state opts))
                             " :elided-count 0}"))))]
     (-> (probe/ensure-runtime! conn build-id)
+        (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [resp]
                  ;; New eval-form shape (rf2-e35a5): `{:value <snap>
