@@ -43,7 +43,7 @@ Every time an event finishes (successfully or with an error), the runtime invoke
 {:event       <vector>     ;; e.g. [:checkout/submit {:cart-id 42}]
  :event-id    <kw>         ;; the first element of :event
  :frame       <kw>         ;; e.g. :rf/default
- :time        <inst>       ;; (js/Date.) at dispatch start
+ :time        <millis>     ;; ms since epoch at dispatch start
  :outcome     :ok | :error ;; whether the handler threw
  :elapsed-ms  <int>}        ;; wall-clock duration in handler
 ```
@@ -61,7 +61,7 @@ Every time the runtime catches an error, the runtime invokes every registered er
  :event      <vector>      ;; the event that was being processed
  :event-id   <kw>
  :frame      <kw>
- :time       <inst>
+ :time       <millis>
  :exception  <ex-data>     ;; structured exception data — message, stack, ex-data slot
  :elapsed-ms <int>}
 ```
@@ -123,7 +123,7 @@ Each of the two record shapes maps cleanly:
                       (str "frame:" frame)
                       (str "outcome:" (name outcome))
                       (str "env:" (:env config))]
-   :date_happened    (quot (.getTime time) 1000)
+   :date_happened    (quot time 1000)
    :source_type_name "re-frame2"})
 
 (defn error-record->datadog [{:keys [error event-id event frame time exception elapsed-ms]}]
@@ -134,7 +134,7 @@ Each of the two record shapes maps cleanly:
                       (str "event_id:" event-id)
                       (str "frame:" frame)
                       (str "env:" (:env config))]
-   :date_happened    (quot (.getTime time) 1000)
+   :date_happened    (quot time 1000)
    :source_type_name "re-frame2"})
 ```
 
@@ -222,7 +222,7 @@ The opt-out is one key on the handler's registration meta:
   (fn [_ [_ {:keys [datadog-event] :as msg}]] ...))
 ```
 
-`:rf.trace/no-emit?` is a framework-level escape hatch designed for exactly this shape — handlers whose dispatches are framework-internal bookkeeping that should not re-enter observability consumers. The event-emit substrate honours the flag and drops the per-event record for opt-out handlers before any listener fan-out, so your shipper still runs (its `:db` change, its `:fx` walk, its HTTP POST), but the event-emit listener never sees the shipper's dispatch and the loop closes. The same flag suppresses the dev-only trace bus inside the handler — see [`spec/009-Instrumentation.md` §Trace-emission opt-out](../../spec/009-Instrumentation.md) for the full semantics.
+`:rf.trace/no-emit?` is a framework-level escape hatch designed for exactly this shape — handlers whose dispatches are framework-internal bookkeeping that should not re-enter observability consumers. The event-emit substrate honours the flag and drops the per-event record for opt-out handlers before any listener fan-out, so your shipper still runs (its `:db` change, its `:fx` walk, its HTTP POST), but the event-emit listener never sees the shipper's dispatch and the loop closes. The same flag suppresses the dev-only trace bus inside the handler.
 
 Apply the same meta to any other handler your listener might end up dispatching as part of the shipping pipeline (a batch flush handler, a back-off retry handler, anything that runs only because the listener fired). If a shipped record is the *only* reason a handler runs, that handler should opt out.
 
