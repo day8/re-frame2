@@ -42,6 +42,7 @@
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
             [re-frame.story.identity :as identity]
+            [re-frame.story.registrar :as registrar]
             [re-frame.story.runtime :as runtime]
             [re-frame.trace :as rf-trace]
             [re-frame.story.ui.actions :as actions]
@@ -104,8 +105,30 @@
 ;; `sidebar/watch-rerun!` for the variants whose hash drifted.
 ;;
 ;; Detection runs on the same 500ms cadence as the existing hot-reload
-;; poll — both polls share `setInterval` for v1; v2 will wire to the
-;; registrar's mutation trace for an event-driven re-resolve.
+;; poll — both polls share `setInterval` for v1.
+;;
+;; HOT PATH (rf2-zrswb): `compute-testable-content-hashes` runs every
+;; 500ms while watch mode is on. The naïve walk hashed every testable
+;; variant on every tick — pr-str of the canonical tuple per variant,
+;; cost O(V × variant-body-size). For a corpus of N testable variants
+;; the steady-state cost is dominated by serialisation that produces
+;; the same hash 99.9% of the time.
+;;
+;; The cache below keys on `[registrar-mutation-tick, active-modes,
+;; substrate]` — the three inputs that can perturb a snapshot-identity
+;; hash across two polls (registrar writes invalidate every variant
+;; entry; shell-state mode/substrate changes too). When the key matches
+;; the previous tick's key, we return the cached map — zero hashing
+;; work. When it drifts, we recompute the lot once and re-seed the
+;; cache.
+;;
+;; The `:cell-overrides` slot of shell-state is intentionally NOT in
+;; the cache key: `snapshot-identity`'s public surface drops it (only
+;; `:active-modes` and `:substrate` are threaded into the tuple), so
+;; per-cell control edits do not perturb the watch-mode signal.
+
+(defonce ^:private testable-hash-cache
+  (atom {:key nil :hashes nil}))
 
 (defn- compute-testable-content-hashes
   "Walk the registered testable variants and return a `{variant-id →
@@ -115,16 +138,30 @@
   schema-digest (per `re-frame.story.identity` §What's in the hash —
   spec/007 §Variant snapshot identity), so a change to any of those —
   including a decorator-only edit or a view schema change — produces a
-  fresh hash."
+  fresh hash.
+
+  HOT PATH (rf2-zrswb): registrar-driven cache short-circuits when
+  neither the side-table nor the relevant shell-state slots have
+  drifted since the last tick."
   []
-  (let [testable (state/testable-variant-ids (:variants (state/registry-snapshot)))
-        shell    (state/get-state)
-        opts     {:active-modes (:active-modes shell)
-                  :substrate    (:substrate shell)}]
-    (into {}
-          (map (fn [vid]
-                 [vid (:content-hash (identity/snapshot-identity vid opts))]))
-          testable)))
+  (let [shell  (state/get-state)
+        modes  (:active-modes shell)
+        subs   (:substrate shell)
+        tick   (registrar/current-mutation-tick)
+        key    [tick modes subs]
+        cached @testable-hash-cache]
+    (if (= key (:key cached))
+      (:hashes cached)
+      (let [testable (state/testable-variant-ids
+                       (:variants (state/registry-snapshot)))
+            opts     {:active-modes modes :substrate subs}
+            hashes   (into {}
+                           (map (fn [vid]
+                                  [vid (:content-hash
+                                         (identity/snapshot-identity vid opts))]))
+                           testable)]
+        (reset! testable-hash-cache {:key key :hashes hashes})
+        hashes))))
 
 (defn detect-watch-drift!
   "When watch mode is on, compute the current testable-variant content

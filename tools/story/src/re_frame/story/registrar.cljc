@@ -114,22 +114,55 @@
   kind->id->body
   (atom (fresh-table)))
 
+;; ---- mutation tick (rf2-zrswb) -------------------------------------------
+;;
+;; Every write through the side-table bumps `mutation-tick`. Consumers that
+;; do expensive registry-derived work (e.g. the shell's watch-mode hot-loop
+;; in `re-frame.story.ui.shell/compute-testable-content-hashes`) can record
+;; the tick they last hashed against and short-circuit when nothing has
+;; changed. The tick is monotonic, per-process, atomic; cheap to read.
+;;
+;; Optionally we'd publish a richer mutation trace (per-kind / per-id);
+;; the simple counter is sufficient for v1 — the watch-mode poll only
+;; needs a `(tick-advanced? ?)` answer to decide whether to re-walk.
+
+(defonce
+  ^{:doc "Monotonic per-process mutation counter. Bumped by every write
+         on `kind->id->body` (reg-*!, unregister!, clear-kind!, clear-all!).
+         Public so downstream consumers can build registrar-driven caches."}
+  mutation-tick
+  (atom 0))
+
+(defn current-mutation-tick
+  "Return the current mutation tick. Use as a cheap dirty-bit alongside
+  a memoised registry-derived value: cache the value AND the tick;
+  recompute only when the tick has advanced."
+  []
+  @mutation-tick)
+
+(defn- bump-tick! []
+  (swap! mutation-tick inc)
+  nil)
+
 (defn clear-all!
   "Reset the side-table. Used by test fixtures."
   []
   (reset! kind->id->body (fresh-table))
+  (bump-tick!)
   nil)
 
 (defn clear-kind!
   "Remove every id under kind. Used by test fixtures and hot-reload."
   [kind]
   (swap! kind->id->body assoc kind {})
+  (bump-tick!)
   nil)
 
 (defn unregister!
   "Remove a single id under kind."
   [kind id]
   (swap! kind->id->body update kind dissoc id)
+  (bump-tick!)
   nil)
 
 ;; ---- query API (mirrors spec/001 public registrar query API) -------------
@@ -246,6 +279,7 @@
                  (->> (validate-shape! :story id)))
         _    (validate-tag-membership! id (:tags body))]
     (swap! kind->id->body assoc-in [:story id] body)
+    (bump-tick!)
     id))
 
 (defn reg-variant*
@@ -265,6 +299,7 @@
                      (->> (validate-shape! :variant id)))
         _        (validate-tag-membership! id (:tags body))]
     (swap! kind->id->body assoc-in [:variant id] body)
+    (bump-tick!)
     id))
 
 (defn reg-workspace*
@@ -275,6 +310,7 @@
                  merge-coords
                  (->> (validate-shape! :workspace id)))]
     (swap! kind->id->body assoc-in [:workspace id] body)
+    (bump-tick!)
     id))
 
 (defn reg-mode*
@@ -286,6 +322,7 @@
                  merge-coords
                  (->> (validate-shape! :mode id)))]
     (swap! kind->id->body assoc-in [:mode id] body)
+    (bump-tick!)
     id))
 
 (defn reg-story-panel*
@@ -297,6 +334,7 @@
                  merge-coords
                  (->> (validate-shape! :story-panel id)))]
     (swap! kind->id->body assoc-in [:story-panel id] body)
+    (bump-tick!)
     id))
 
 (defn reg-decorator*
@@ -310,6 +348,7 @@
                  merge-coords
                  (->> (validate-shape! :decorator id)))]
     (swap! kind->id->body assoc-in [:decorator id] body)
+    (bump-tick!)
     id))
 
 (defn reg-tag*
@@ -320,6 +359,7 @@
                  merge-coords
                  (->> (validate-shape! :tag id)))]
     (swap! kind->id->body assoc-in [:tag id] body)
+    (bump-tick!)
     id))
 
 ;; ---- canonical tag bootstrap ---------------------------------------------
