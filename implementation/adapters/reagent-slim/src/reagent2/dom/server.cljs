@@ -90,16 +90,15 @@
 ;; ---------------------------------------------------------------------------
 ;; Void tags + boolean attributes (HTML5)
 ;;
-;; Lifted from re-frame.ssr/void-elements (ssr.cljc:81-83). Per §8.4 +
-;; rf2-6phn: bundle isolation forbids `:require` of the SSR artefact, so
-;; duplicate the static set. HTML5's void-tag list is functionally
-;; frozen; the maintenance cost is zero.
+;; Void-tag set is `reagent2.impl.template/void-tags` — shared with the
+;; React-element path (both ship in the same artefact). Boolean-attr
+;; set stays local; HTML5's list is fixed (no maintenance burden) and
+;; SSR is the only consumer.
+;;
+;; Per §8.4 + rf2-6phn: bundle isolation forbids `:require` of the SSR
+;; artefact (re-frame.ssr lives in day8/re-frame2-ssr), so we don't
+;; share with that — only with the in-artefact template path.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private void-tags
-  "HTML5 elements that self-close and have no closing tag."
-  #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link"
-    "meta" "param" "source" "track" "wbr"})
 
 (def ^:private boolean-attrs
   "HTML5 boolean attributes (post-lowercase form): emit name only
@@ -301,7 +300,7 @@
         children-pos (if has-props 2 1)
         children     (when (< children-pos n)
                        (subvec argv children-pos))
-        void?        (contains? void-tags tag-str)
+        void?        (contains? template/void-tags tag-str)
         dangerous    (when (map? user-attrs)
                        (:dangerouslySetInnerHTML user-attrs))]
     (.append sb "<")
