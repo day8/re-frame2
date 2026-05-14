@@ -78,26 +78,9 @@
 
 ;; ---- re-exported public surface ------------------------------------------
 ;;
-;; Plain `def` aliases for the publicly-referenced ordinary fns / data
-;; surfaces. Each one is reached by external call sites through
-;; `re-frame.views/<name>`:
-;;
-;;   re-frame.adapter.reagent + runtime_cljs_test → frame-provider, build-frame-provider
-;;   late-bind hook table (:adapter/current-frame),
-;;     views-current-component-cljs-test          → current-frame
-;;   render_key_cljs_test, elision_probe          → mint-instance-token!
-;;   source_coord_parity_cljs_test                → #'format-source-coord
-;;   warn_once_fixture_isolation_cljs_test        → clear-warned-non-dom-roots!
-;;   late-bind hook table                         → maybe-warn-plain-fn-under-non-default-frame!,
-;;                                                  clear-plain-fn-warned-pairs!
-;;
-;; Keeping these as plain defs (rather than `:refer`-imported) makes
-;; `#'re-frame.views/<name>` resolve in this ns — the CLJS analyser
-;; tracks each `def` form's Var under the defining ns, so
-;; `:refer` does not surface a Var under the consuming ns. Functions are
-;; resolved by value, so a `def` alias works for invocation; only
-;; dynamic-var binding semantics force the `*render-key*` exception
-;; above.
+;; Plain `def` aliases (rather than `:refer`-imports) so
+;; `#'re-frame.views/<name>` resolves under this ns — `:refer` does
+;; not surface a Var under the consuming ns.
 
 (def frame-provider provider/frame-provider)
 (def build-frame-provider provider/build-frame-provider)
