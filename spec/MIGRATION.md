@@ -112,7 +112,7 @@ re-frame2's compatibility commitment covers `re-frame.core` only. Internal names
 |---|---|
 | `@re-frame.db/app-db` | `(rf/get-frame-db :rf/default)` — returns the current `app-db` value (a plain map). |
 | `(reset! re-frame.db/app-db v)` | Don't. If the user truly needs to bypass the event pipeline, replace with `(rf/dispatch-sync [::reset-app-db v])` and add a handler that does the reset. Flag this for human review — direct mutation is almost always a code smell. |
-| `re-frame.subs/clear-subscription-cache!` | `(rf/clear-subscription-cache! :rf/default)` (or whichever frame is intended) |
+| `re-frame.subs/clear-sub-cache!` | `(rf/clear-sub-cache! :rf/default)` (or whichever frame is intended) |
 | `re-frame.registrar/get-handler` | Use the public `(rf/get-handler kind id)` from `re-frame.core`. |
 | Any other private-namespace symbol | Look for a public equivalent in `re-frame.core`. If none, flag for human review with the specific call site and what it is trying to do. |
 
@@ -1882,7 +1882,7 @@ A future re-frame2.x or v3 may swap the substrate (UIx, Helix, headless). Code t
 **What to do** (only if explicitly asked, or if anticipating the substrate change):
 
 - The idiomatic `@(rf/subscribe [:foo])` pattern — keep it; it's already future-proof.
-- `dispose!` of a sub → use `(rf/clear-subscription-cache! ...)` if the goal is cache cleanup, or rely on automatic cleanup when the consuming component unmounts.
+- `dispose!` of a sub → use `(rf/clear-sub-cache! ...)` if the goal is cache cleanup, or rely on automatic cleanup when the consuming component unmounts.
 - Type checks (`reaction?`) → remove; the contract is "deref to read"; the underlying type is private.
 - If a use case can't be expressed via `re-frame.core`, flag the call site for human review.
 

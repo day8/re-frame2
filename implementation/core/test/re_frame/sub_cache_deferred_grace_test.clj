@@ -39,7 +39,7 @@
   Timing notes: tests below use *long* grace-periods (typically 60s)
   so the intermediate `:pending-dispose` state is deterministic — we
   trigger transitions by explicit action (re-register, resubscribe,
-  clear-subscription-cache!) rather than by waiting for the timer.
+  clear-sub-cache!) rather than by waiting for the timer.
   Where we DO need to observe natural timer-fire, the grace is small
   (~30ms) but we wait an order-of-magnitude longer (300ms+) so the
   ScheduledExecutorService has comfortable room."

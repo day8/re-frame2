@@ -52,7 +52,7 @@
 | `clear-flow` | Fn | `(clear-flow id)` / `(clear-flow id opts)` | v1 |
 | `destroy-frame` | Fn | `(destroy-frame frame-id)` | v1 |
 | `reset-frame` | Fn | `(reset-frame frame-id)` | v1 |
-| `clear-subscription-cache!` | Fn | `(clear-subscription-cache! frame-id?)` | v1 (preserved) |
+| `clear-sub-cache!` | Fn | `(clear-sub-cache! frame-id?)` | v1 (preserved) |
 
 ---
 

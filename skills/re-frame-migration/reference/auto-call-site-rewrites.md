@@ -51,7 +51,7 @@ See `reference/setup.md` for the per-build-tool detail. Applied once, in Phase 2
 @re-frame.db/app-db  → (rf/get-frame-db :rf/default)
 (reset! re-frame.db/app-db v) → flag (Type B — see M-15) — propose
                                  (rf/dispatch-sync [::reset-app-db v])
-(subs/clear-subscription-cache!) → (rf/clear-subscription-cache! :rf/default)
+(subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)
 (reg/get-handler kind id) → (rf/get-handler kind id)
 ```
 

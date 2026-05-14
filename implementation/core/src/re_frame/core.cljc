@@ -309,7 +309,7 @@
 (def clear-event events/clear-event)
 (def clear-sub   subs/clear-sub)
 (def clear-fx    fx/clear-fx)
-(def clear-subscription-cache! subs/clear-subscription-cache!)
+(def clear-sub-cache! subs/clear-sub-cache!)
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;

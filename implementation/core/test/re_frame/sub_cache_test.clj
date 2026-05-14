@@ -239,10 +239,10 @@
     (is (= 60000 (:grace-period-ms (subs/current-config)))
         "per-runtime grace-period-ms is unchanged — only THIS call was overridden")))
 
-;; ---- clear-subscription-cache! cancels pending timers ---------------------
+;; ---- clear-sub-cache! cancels pending timers ---------------------
 
 (deftest clear-subscription-cache-cancels-pending
-  (testing "clear-subscription-cache! cancels any pending grace-period timers"
+  (testing "clear-sub-cache! cancels any pending grace-period timers"
     (subs/configure! {:grace-period-ms 60000})  ;; long grace; we'll clear before it fires
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -252,7 +252,7 @@
     (rf/unsubscribe [:n])
     (is (pending-dispose? [:n]))
 
-    (rf/clear-subscription-cache! :rf/default)
+    (rf/clear-sub-cache! :rf/default)
     ;; The cache is empty — and the pending timer was cancelled.
     ;; Nothing observable to assert on the cancellation directly,
     ;; but the cache emptying without throwing covers the path.
@@ -333,16 +333,16 @@
 ;;
 ;; v2 preserves v1's contract: clear-sub removes the registration but
 ;; leaves cached reactions in place. Cache eviction is a separate
-;; concern, owned by clear-subscription-cache!, hot-reload (re-register)
+;; concern, owned by clear-sub-cache!, hot-reload (re-register)
 ;; and frame disposal. This split keeps clear-sub a pure registry op
 ;; (no per-frame side effects) and matches v1's documented behaviour
 ;; (per spec/API.md §Clearing registrations: clear-sub is "v1
 ;; (preserved)") and the v1 docstring's explicit caller-responsibility
 ;; note ("Depending on the usecase, it may be necessary to call
-;; clear-subscription-cache! afterwards").
+;; clear-sub-cache! afterwards").
 ;;
 ;; If you want both effects in one call: clear-sub then
-;; clear-subscription-cache! — or use re-registration if you have a
+;; clear-sub-cache! — or use re-registration if you have a
 ;; replacement body.
 
 (deftest clear-sub-id-leaves-cache-intact
@@ -359,7 +359,7 @@
     (rf/clear-sub :n)
     ;; Cache slot survives clear-sub — this is the documented v1 contract.
     (is (contains? (cache-keys) [:n])
-        "clear-sub leaves the cache slot in place; use clear-subscription-cache! to evict")
+        "clear-sub leaves the cache slot in place; use clear-sub-cache! to evict")
     (is (nil? (registrar/lookup :sub :n))
         "the registration is gone")
 
@@ -369,10 +369,10 @@
       (is (= 7 @r2)
           "cache hit serves the previously-derived value"))
 
-    ;; clear-subscription-cache! is the explicit follow-up that fully resets.
-    (rf/clear-subscription-cache! :rf/default)
+    ;; clear-sub-cache! is the explicit follow-up that fully resets.
+    (rf/clear-sub-cache! :rf/default)
     (is (empty? (cache-keys))
-        "clear-subscription-cache! is the cache-eviction half of the pair")))
+        "clear-sub-cache! is the cache-eviction half of the pair")))
 
 (deftest clear-sub-no-arg-leaves-cache-intact
   (testing "(clear-sub) clears every registration but leaves the cache untouched"
@@ -392,7 +392,7 @@
     (is (= {} (registrar/registrations :sub))
         "every :sub registration is gone")
 
-    (rf/clear-subscription-cache! :rf/default)
+    (rf/clear-sub-cache! :rf/default)
     (is (empty? (cache-keys)))))
 
 ;; ---- idempotent unsubscribe (rf2-zikr) ------------------------------------

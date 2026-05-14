@@ -141,7 +141,7 @@
   and test fixtures call this between rebuilds; production code rarely
   needs it.
 
-  Returns nil. See also: `reg-sub`, `clear-subscription-cache!`
+  Returns nil. See also: `reg-sub`, `clear-sub-cache!`
   (the runtime-cache counterpart)."
   ([] (registrar/clear-kind! :sub))
   ([id] (registrar/unregister! :sub id)))
@@ -573,7 +573,7 @@
                                   m)))]
     ;; The slot was evicted by THIS call iff it was present in `old` and
     ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
-    ;; replace! or clear-subscription-cache!) that won the CAS race would
+    ;; replace! or clear-sub-cache!) that won the CAS race would
     ;; have left the slot absent in `old` too, so we don't double-dispose.
     (when (and (contains? old k) (not (contains? new k)))
       (when-let [r (get-in old [k :reaction])]
@@ -728,7 +728,7 @@
   (do (registrar/add-replacement-hook! invalidate-sub-on-replace!)
       :installed))
 
-(defn clear-subscription-cache!
+(defn clear-sub-cache!
   "Dispose every cached entry in a frame's runtime sub-cache and clear
   the cache. Cancels any pending grace-period timers before disposing —
   a deferred disposal landing after this fn returned would close over
@@ -741,7 +741,7 @@
 
   Zero-arity targets `:rf/default`; one-arity targets the named frame.
   Returns nil. See also: `clear-sub` (registrar-side counterpart)."
-  ([] (clear-subscription-cache! :rf/default))
+  ([] (clear-sub-cache! :rf/default))
   ([frame-id]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (doseq [[_k entry] @cache]
