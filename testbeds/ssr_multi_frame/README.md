@@ -18,7 +18,7 @@ and dispatches `[:rf/hydrate slice]` against each frame.
 | `entries-count` | The `:log` frame's payload-seeded entry count (`2`). |
 | `hyd-A`, `hyd-B`, `hyd-log` | `true` once each frame's `:rf/hydration` metadata lands. |
 | `hash-A`, `hash-B`, `hash-log` | The payload-supplied `:rf/render-hash` per frame (`aaaa1111`, `bbbb2222`, `cccc3333`). |
-| `summary-{a,b,log}-hash` | Cross-frame readout via `rf/subscribe-value frame-id`. |
+| `summary-{a,b,log}-hash` | Cross-frame readout via `rf/subscribe-once frame-id`. |
 | `summary-all-distinct` | `true` iff the three per-frame `:server-hash` values are pairwise distinct — proves no cross-frame bleed. |
 | `inc-A`, `inc-B` | Per-frame post-hydration interactivity; clicking `inc-A` bumps `:counter/a`'s `:n` only — `:counter/b` and `:log` are untouched. |
 

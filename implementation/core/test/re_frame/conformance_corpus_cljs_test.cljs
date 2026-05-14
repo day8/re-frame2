@@ -880,7 +880,7 @@
                 (let [[frame-id qv] (resolve-sub query-v)]
                   {:query    query-v
                    :expected expected-val
-                   :actual   (rf/subscribe-value frame-id qv)})))
+                   :actual   (rf/subscribe-once frame-id qv)})))
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))
             actual-effects (effects-routed-from-traces @traces)
             expected-effects (when (contains? expect :effects-routed)

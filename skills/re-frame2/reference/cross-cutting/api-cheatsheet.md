@@ -29,7 +29,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/dispatch` | `(event)` / `(event opts)` — async queued |
 | `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point |
 | `rf/subscribe` | `(query-v)` / `(frame-id query-v)` → reaction |
-| `rf/subscribe-value` | `(query-v)` — one-shot: materialise + deref + unsubscribe |
+| `rf/subscribe-once` | `(query-v)` — one-shot: materialise + deref + unsubscribe |
 | `rf/unsubscribe` | `(query-v)` / `(frame-id query-v)` |
 | `rf/compute-sub` | `(query-v db)` — pure; bypass cache (preferred in tests) |
 | `rf/with-frame` | `(frame-id body)` / `([sym expr] body)` — bind active frame |

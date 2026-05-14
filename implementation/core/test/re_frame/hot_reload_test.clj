@@ -138,7 +138,7 @@
     ;; v1 of :answer is the identity over :n.
     (rf/reg-sub :answer (fn [db _] (:n db)))
     ;; Pin the cache slot in each frame by holding a reaction reference;
-    ;; subscribe-value would auto-unsubscribe and the slot would be evicted
+    ;; subscribe-once would auto-unsubscribe and the slot would be evicted
     ;; by ref-counting, masking the cache-cross-frame contract.
     (let [pin-left  (rf/subscribe :left  [:answer])
           pin-right (rf/subscribe :right [:answer])
@@ -159,9 +159,9 @@
       (is (not (contains? @right-cache [:answer]))
           "right frame's [:answer] cache slot was evicted")
       ;; Next subscribe in each frame builds a fresh reaction with the v2 body.
-      (is (= 300 (rf/subscribe-value :left  [:answer]))
+      (is (= 300 (rf/subscribe-once :left  [:answer]))
           "left frame's next subscribe uses v2 (3 * 100)")
-      (is (= 500 (rf/subscribe-value :right [:answer]))
+      (is (= 500 (rf/subscribe-once :right [:answer]))
           "right frame's next subscribe uses v2 (5 * 100)"))))
 
 ;; ---- (3) :frame re-register preserves snapshot ---------------------------

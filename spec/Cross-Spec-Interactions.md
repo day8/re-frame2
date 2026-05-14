@@ -42,7 +42,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 ### 2. Sub-cache hit inside a machine microstep
 
 - **Specs:** [005-StateMachines §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event), [006-ReactiveSubstrate §Subscription cache](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics).
-- **Scenario:** A machine action's body reads a subscription via `(rf/subscribe-value [...])` to make a routing decision.
+- **Scenario:** A machine action's body reads a subscription via `(rf/subscribe-once [...])` to make a routing decision.
 - **Behaviour:** Cache lookup succeeds and returns the value computed against the most recently committed `app-db` (which is the `app-db` *before* the current Level-3 cascade started, since the machine commits one snapshot at the end). Subs do not see the in-flight `:data` of the current cascade. Sub-cache invalidation fires once after the cascade's final commit, not after each microstep.
 - **Reason:** External observers see one macrostep per machine event (per [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event)). Subs are external observers. Letting subs observe in-flight data would expose the partial-snapshot view the macrostep contract specifically avoids.
 - **Status:** `Provisional` — fixture pending: `machine-microstep-subscribe.edn`.
@@ -52,7 +52,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Specs:** [005-StateMachines §Spawning](005-StateMachines.md#spawning--dynamic-actors), [006-ReactiveSubstrate §Adapter selection](006-ReactiveSubstrate.md#adapter-selection-at-boot).
 - **Scenario:** A `(rf/reg-frame :app {:on-create [:boot]})` fires `:boot` which spawns a machine — but boot order means the substrate adapter has not been installed yet.
 - **Behaviour:** `:on-create` events are queued on the frame's router but the drain does not start until the adapter is installed. Once `(rf/install-adapter! ...)` completes, the queue drains. Spawned machines therefore always run against an installed adapter.
-- **Reason:** A machine action that calls `(rf/subscribe-value ...)` must reach a working sub-cache, which requires the adapter. Deferring drain until adapter-ready is the simplest invariant.
+- **Reason:** A machine action that calls `(rf/subscribe-once ...)` must reach a working sub-cache, which requires the adapter. Deferring drain until adapter-ready is the simplest invariant.
 - **Status:** `Provisional` — fixture pending: `boot-order-adapter-ready.edn`.
 
 ## Machines × SSR

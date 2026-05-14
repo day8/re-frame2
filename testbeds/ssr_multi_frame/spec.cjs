@@ -68,9 +68,9 @@ module.exports = {
       5000,
     );
 
-    // ---- (3) cross-frame readout via subscribe-value frame-id ------
+    // ---- (3) cross-frame readout via subscribe-once frame-id ------
     //
-    // The hydration-summary block calls rf/subscribe-value with each
+    // The hydration-summary block calls rf/subscribe-once with each
     // frame-id explicitly, reading the SAME [:hydration] query
     // against three different frames. Each call resolves the
     // matching :server-hash → proves the per-frame sub cache is

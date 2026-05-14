@@ -270,10 +270,10 @@
       (rf/register-trace-cb! ::sr (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:items/init])
       ;; Well-typed: sub returns the vec.
-      (is (= ["a" "b" "c"] (rf/subscribe-value [:items])))
+      (is (= ["a" "b" "c"] (rf/subscribe-once [:items])))
       (rf/dispatch-sync [:items/break])
       ;; Malformed: sub yields nil per :replaced-with-default recovery.
-      (is (nil? (rf/subscribe-value [:items])))
+      (is (nil? (rf/subscribe-once [:items])))
       (rf/remove-trace-cb! ::sr)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))

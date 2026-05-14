@@ -52,17 +52,17 @@
 
       (rf/dispatch-sync [:rf/url-changed "/uix/articles/intro"] {:frame f})
       (is (= :route.uix/article
-             (rf/subscribe-value f [:rf.uix.route/id]))
+             (rf/subscribe-once f [:rf.uix.route/id]))
           ":rf.route/id sub resolves under the UIx adapter")
       (is (= {:id "intro"}
-             (rf/subscribe-value f [:rf.uix.route/params]))
+             (rf/subscribe-once f [:rf.uix.route/params]))
           ":rf.route/params sub resolves under the UIx adapter")
       (is (true? (:article-loaded? (rf/get-frame-db f)))
           ":on-match's [:uix/article-load] dispatched and ran")
 
       (rf/dispatch-sync [:rf/url-changed "/uix/articles/welcome"] {:frame f})
       (is (= {:id "welcome"}
-             (rf/subscribe-value f [:rf.uix.route/params]))
+             (rf/subscribe-once f [:rf.uix.route/params]))
           "new params land in the slice on subsequent navigation")
       (is (some? (get-in (rf/get-frame-db f) [:rf/route :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
@@ -85,8 +85,8 @@
       (rf/dispatch-sync [:rf/url-changed "/uix2/articles/intro"]
                         {:frame right})
 
-      (let [left-route  (rf/subscribe-value left  [:rf.uix2/route])
-            right-route (rf/subscribe-value right [:rf.uix2/route])]
+      (let [left-route  (rf/subscribe-once left  [:rf.uix2/route])
+            right-route (rf/subscribe-once right [:rf.uix2/route])]
         (is (= :route.uix2/articles (:id left-route))
             "left frame's :rf/route is :route.uix2/articles")
         (is (= :route.uix2/article  (:id right-route))
@@ -98,8 +98,8 @@
 
       (rf/dispatch-sync [:rf/url-changed "/uix2/"] {:frame left})
       (is (= :route.uix2/home
-             (:id (rf/subscribe-value left [:rf.uix2/route])))
+             (:id (rf/subscribe-once left [:rf.uix2/route])))
           "left re-navigated to :route.uix2/home")
       (is (= :route.uix2/article
-             (:id (rf/subscribe-value right [:rf.uix2/route])))
+             (:id (rf/subscribe-once right [:rf.uix2/route])))
           "right is unaffected by left's navigation"))))

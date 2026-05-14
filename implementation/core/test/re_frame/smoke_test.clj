@@ -102,13 +102,13 @@
     (is (nil? (rf/compute-sub [:no-such-sub] {})))))
 
 (deftest subscribe-handles-missing-frame
-  (testing "subscribe / subscribe-value against a missing frame don't throw"
+  (testing "subscribe / subscribe-once against a missing frame don't throw"
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::missing (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/subscribe :missing/frame [:n])) "subscribe returns nil")
-      (is (nil? (rf/subscribe-value :missing/frame [:n]))
-          "subscribe-value returns nil")
+      (is (nil? (rf/subscribe-once :missing/frame [:n]))
+          "subscribe-once returns nil")
       (rf/remove-trace-cb! ::missing)
       (is (some (fn [ev]
                   (and (= :rf.error/frame-destroyed (:operation ev))
@@ -136,7 +136,7 @@
       (is (= 7  @(sl [:n])) "left subscriber sees left's :n")
       (is (= 99 @(sr [:n])) "right subscriber sees right's :n")
       ;; And :rf/default is unaffected.
-      (is (nil? (rf/subscribe-value :rf/default [:n]))))))
+      (is (nil? (rf/subscribe-once :rf/default [:n]))))))
 
 (deftest dispatch-sync-in-handler-errors
   (testing "calling dispatch-sync from inside a handler raises a structured error"
@@ -343,8 +343,8 @@
     (rf/reg-sub :items     (fn [db _] (:items db)))
     (rf/reg-sub :item-count :<- [:items] (fn [items _] (count items)))
     (rf/dispatch-sync [:seed])
-    (is (= [1 2 3 4 5] (rf/subscribe-value :rf/default [:items])))
-    (is (= 5           (rf/subscribe-value :rf/default [:item-count])))))
+    (is (= [1 2 3 4 5] (rf/subscribe-once :rf/default [:items])))
+    (is (= 5           (rf/subscribe-once :rf/default [:item-count])))))
 
 ;; ---- machine ---------------------------------------------------------------
 ;;

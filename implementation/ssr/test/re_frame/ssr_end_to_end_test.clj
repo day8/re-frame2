@@ -107,7 +107,7 @@
     ;; preserve the explicit id rather than auto-derive.
     (rf/reg-view* :pages/articles
       (fn []
-        (let [arts (rf/subscribe-value [:articles])]
+        (let [arts (rf/subscribe-once [:articles])]
           [:div.page
            [:h1 "Recent articles"]
            [:ul
@@ -176,7 +176,7 @@
 
             ;; First client render — same view, same hydrated state, same
             ;; resolved tree, same hash. Resolve under the client frame so
-            ;; the subscribe-value reads the hydrated client app-db.
+            ;; the subscribe-once reads the hydrated client app-db.
             (let [client-hash-1 (rf/render-tree-hash
                                   (resolve-tree client-frame render-tree))
                   match-traces  (atom [])]
@@ -1618,7 +1618,7 @@
     ;; an explicit id rather than the defn-shape macro.
     (rf/reg-view* :pages/articles
       (fn []
-        (let [arts (rf/subscribe-value [:articles])]
+        (let [arts (rf/subscribe-once [:articles])]
           [:div.page
            [:h1 "Recent articles"]
            [:ul

@@ -316,7 +316,7 @@
                            :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
            final-db     (rf/get-frame-db f)
            ;; The root view's body invokes the articles-page render fn,
-           ;; which calls (rf/subscribe-value [:articles]). Both run
+           ;; which calls (rf/subscribe-once [:articles]). Both run
            ;; INSIDE render-to-string's tree walk; with-frame binds
            ;; *current-frame* across that walk so the sub reads from f
            ;; and not from :rf/default.

@@ -161,17 +161,17 @@
     (is (not (contains? (cache-keys) [:n]))
         "slot disposed synchronously")))
 
-;; ---- rf2-zmufj: subscribe-value teardown is synchronous -------------------
+;; ---- rf2-zmufj: subscribe-once teardown is synchronous -------------------
 ;;
-;; subscribe-value's internal unsubscribe runs with `{:grace 0}` so the
+;; subscribe-once's internal unsubscribe runs with `{:grace 0}` so the
 ;; one-shot read's whole lifetime — subscribe, deref, dispose — completes
 ;; in the calling tick. Pre-fix, even with the per-runtime grace-period
-;; set to 50ms, subscribe-value would schedule a deferred dispose timer
+;; set to 50ms, subscribe-once would schedule a deferred dispose timer
 ;; whose callback fired AFTER the caller had moved on, leaking dispose
 ;; side-effects past the call's observable lifetime.
 
-(deftest subscribe-value-disposes-synchronously
-  (testing "subscribe-value's teardown is synchronous regardless of the configured grace-period (rf2-zmufj)"
+(deftest subscribe-once-disposes-synchronously
+  (testing "subscribe-once's teardown is synchronous regardless of the configured grace-period (rf2-zmufj)"
     (subs/configure! {:grace-period-ms 60000})  ;; long grace; pre-fix this leaked
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -179,17 +179,17 @@
 
     ;; Pre-condition: no cache slot exists for [:n] yet.
     (is (not (contains? (cache-keys) [:n]))
-        "no cache slot before subscribe-value")
+        "no cache slot before subscribe-once")
 
-    ;; subscribe-value: builds the sub, derefs, and tears down. Per
+    ;; subscribe-once: builds the sub, derefs, and tears down. Per
     ;; rf2-zmufj the teardown is synchronous — when this returns, the
     ;; slot MUST already be evicted, with no pending-dispose handle.
-    (is (= 7 (rf/subscribe-value [:n])))
+    (is (= 7 (rf/subscribe-once [:n])))
     (is (not (contains? (cache-keys) [:n]))
-        "slot is disposed synchronously inside subscribe-value — no deferred timer")))
+        "slot is disposed synchronously inside subscribe-once — no deferred timer")))
 
-(deftest subscribe-value-respects-concurrent-subscriber
-  (testing "subscribe-value's :grace 0 teardown only disposes when it drove 1→0 (rf2-zmufj)"
+(deftest subscribe-once-respects-concurrent-subscriber
+  (testing "subscribe-once's :grace 0 teardown only disposes when it drove 1→0 (rf2-zmufj)"
     (subs/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -199,15 +199,15 @@
     (let [pin (rf/subscribe [:n])]
       (is (= 1 (entry-ref-count [:n])))
 
-      ;; subscribe-value runs: subscribe (ref-count → 2), deref,
+      ;; subscribe-once runs: subscribe (ref-count → 2), deref,
       ;; unsubscribe {:grace 0} (ref-count → 1). The decrement does NOT
       ;; drive 1→0 — the pinning subscribe is still live — so the slot
       ;; MUST survive untouched.
-      (is (= 7 (rf/subscribe-value [:n])))
+      (is (= 7 (rf/subscribe-once [:n])))
       (is (contains? (cache-keys) [:n])
           "slot survives — the pinning subscriber kept ref-count > 0")
       (is (= 1 (entry-ref-count [:n]))
-          "ref-count back to 1 after subscribe-value's paired inc/dec")
+          "ref-count back to 1 after subscribe-once's paired inc/dec")
       (is (not (pending-dispose? [:n]))
           "no dispose was scheduled — the {:grace 0} teardown only fires on 1→0")
 
@@ -742,7 +742,7 @@
     (rf/dispatch-sync [:seed])
     ;; v1 of :answer returns the value as-is.
     (rf/reg-sub :answer (fn [db _] (:n db)))
-    (is (= 7 (rf/subscribe-value [:answer])))
+    (is (= 7 (rf/subscribe-once [:answer])))
     ;; Force the cache to retain the entry by holding a ref via subscribe.
     (let [_pinned (rf/subscribe [:answer])
           traces  (atom [])]
@@ -750,8 +750,8 @@
       ;; Re-register with a transformed body.
       (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
       (rf/remove-trace-cb! ::hot-reload)
-      ;; After re-registration, the next subscribe-value sees the new fn.
-      (is (= 70 (rf/subscribe-value [:answer]))
+      ;; After re-registration, the next subscribe-once sees the new fn.
+      (is (= 70 (rf/subscribe-once [:answer]))
           "after re-registration the new sub body is used")
       (is (some (fn [ev]
                   (and (= :rf.registry/handler-replaced (:operation ev))

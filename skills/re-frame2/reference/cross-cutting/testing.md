@@ -101,7 +101,7 @@ Failure reports through `clojure.test/is` with both expected and actual, so the 
 
 These are value-form accessors — there is no `deref`. They work identically on JVM and CLJS.
 
-## Asserting subscriptions: `compute-sub` (preferred) and `subscribe-value`
+## Asserting subscriptions: `compute-sub` (preferred) and `subscribe-once`
 
 For a sub graph under test, **prefer `compute-sub`** — it runs the registered sub against a supplied db with no reactive cache involvement, so the test does not depend on prior subscribe state:
 
@@ -114,14 +114,14 @@ For a sub graph under test, **prefer `compute-sub`** — it runs the registered 
 
 `compute-sub` supports the `:<-` chain shape exactly like `subscribe` does and validates the return value against any `:spec` metadata on the sub.
 
-When the test is exercising the live cache (e.g. layer-2 sub on top of a real dispatch), use `subscribe-value`:
+When the test is exercising the live cache (e.g. layer-2 sub on top of a real dispatch), use `subscribe-once`:
 
 ```clojure
 (rf/dispatch-sync [:seed])
-(is (= 60 (rf/subscribe-value [:item-sum])))
+(is (= 60 (rf/subscribe-once [:item-sum])))
 ```
 
-`subscribe-value` materialises the reaction, reads `@`, and unsubscribes — one line, no leaked subscription. Prefer it over `@(rf/subscribe ...)` in tests.
+`subscribe-once` materialises the reaction, reads `@`, and unsubscribes — one line, no leaked subscription. Prefer it over `@(rf/subscribe ...)` in tests.
 
 ## Machine snapshots and tag queries
 
@@ -202,7 +202,7 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 - The ns uses `re-frame.test-support` and `re-frame.core` only — no reach into internal namespaces.
 - A `:each` `reset-runtime-fixture` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
-- Sub assertions go through `compute-sub` (preferred) or `subscribe-value`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
+- Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `sub-machine` / `has-tag?` or `(get-in db [:rf/machines id])` — not internal machine namespaces.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
 

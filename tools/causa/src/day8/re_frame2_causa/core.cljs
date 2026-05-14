@@ -130,7 +130,7 @@
   Reactive consumers subscribe to `:rf.causa/target-frame` directly."
   []
   (rf/with-frame :rf/causa
-    (rf/subscribe-value [:rf.causa/target-frame])))
+    (rf/subscribe-once [:rf.causa/target-frame])))
 
 (defn set-active-frame!
   "Set the active target frame for the Causa picker. Dispatches
@@ -157,7 +157,7 @@
   Reactive consumers subscribe to `:rf.causa/selected-panel` directly."
   []
   (rf/with-frame :rf/causa
-    (rf/subscribe-value [:rf.causa/selected-panel])))
+    (rf/subscribe-once [:rf.causa/selected-panel])))
 
 (defn set-active-panel!
   "Select a panel programmatically. Dispatches `:rf.causa/select-panel`

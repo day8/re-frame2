@@ -138,7 +138,7 @@
                      ;; Read a sub from inside the action — the machine
                      ;; cascade has not committed yet but the sub sees
                      ;; the *current* committed app-db.
-                     (reset! observed-by-action (rf/subscribe-value [:user-role]))
+                     (reset! observed-by-action (rf/subscribe-once [:user-role]))
                      nil)}}]
     (rf/reg-machine :auth/check machine)
     (rf/dispatch-sync [:auth/check [:go]])
@@ -1043,13 +1043,13 @@
   (rf/reg-event-db :seed (fn [_ _] {:n 7}))
   (rf/reg-sub :answer (fn [db _] (:n db)))
   (rf/dispatch-sync [:seed])
-  (is (= 7 (rf/subscribe-value [:answer]))
+  (is (= 7 (rf/subscribe-once [:answer]))
       "the v1 sub computes from app-db")
   (let [_pin (rf/subscribe [:answer])]
     ;; Re-register: replacement-hook fires, cache slot is disposed, the
     ;; next subscribe builds against the new body.
     (rf/reg-sub :answer (fn [db _] (* 100 (:n db))))
-    (is (= 700 (rf/subscribe-value [:answer]))
+    (is (= 700 (rf/subscribe-once [:answer]))
         "after re-registration the new sub body is in effect")
     (rf/unsubscribe [:answer])))
 

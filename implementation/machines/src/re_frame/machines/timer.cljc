@@ -103,7 +103,7 @@
 (defn- resolve-delay-ms
   "Resolve an :after map key to a positive-integer ms delay. For pos-int?
   literal: returns the value. For subscription vector: subscribes via the
-  late-bound subscribe-value hook and uses the resolved value. For fn:
+  late-bound subscribe-once hook and uses the resolved value. For fn:
   invokes (f snapshot) once.
 
   Returns [resolved-ms reaction-or-nil]. The reaction is non-nil only for

@@ -319,7 +319,7 @@
 
 (def dispatch*       router/dispatch!)
 (def dispatch-sync*  router/dispatch-sync!)
-(def subscribe-value subs/subscribe-value)
+(def subscribe-once subs/subscribe-once)
 (def unsubscribe     subs/unsubscribe)
 (def compute-sub     subs/compute-sub)
 
@@ -381,7 +381,7 @@
      "Return a reaction whose value is the registered sub's current
      output for `query-v` (`[sub-id & args]`); deref to read. 2-arity
      targets an explicit frame, otherwise resolves via `current-frame`.
-     Use `subscribe-value` for a one-shot read; use `subscribe*` for
+     Use `subscribe-once` for a one-shot read; use `subscribe*` for
      HoF / programmatic callers. Captures call-site coords (rf2-ts1a).
      Per Spec 006 §Lookup algorithm."
      ([query-v]

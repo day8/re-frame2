@@ -126,12 +126,12 @@
 (reg-view hydration-summary []
   ;; Cross-frame readout — proves each frame's :rf/hydration metadata
   ;; was written independently. We use the frame-explicit
-  ;; subscribe-value (2-arg form: `[frame-id query-v]`) so each call
+  ;; subscribe-once (2-arg form: `[frame-id query-v]`) so each call
   ;; resolves against the named frame's app-db, not the surrounding
   ;; `frame-provider`'s default.
-  (let [hyd-a (rf/subscribe-value frame-a   [:hydration])
-        hyd-b (rf/subscribe-value frame-b   [:hydration])
-        hyd-l (rf/subscribe-value frame-log [:hydration])]
+  (let [hyd-a (rf/subscribe-once frame-a   [:hydration])
+        hyd-b (rf/subscribe-once frame-b   [:hydration])
+        hyd-l (rf/subscribe-once frame-log [:hydration])]
     [:div {:data-testid "hydration-summary"
            :style {:border  "1px solid #aaa"
                    :padding "0.5em"
