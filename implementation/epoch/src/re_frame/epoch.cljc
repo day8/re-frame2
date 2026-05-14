@@ -936,26 +936,30 @@
 
 (defn- frame-exists-or-fail
   "Resolve `frame-id` to its `frame-record` or yield the canonical
-  no-such-handler precondition-failure tuple. Returns `[:ok
-  frame-record]` or `[:fail :rf.error/no-such-handler {:kind :frame
-  :frame frame-id}]`. Shared by every Tool-Pair / time-travel write
-  surface so the no-such-handler tag shape stays canonical."
+  no-such-handler precondition-failure result. Returns
+  `{:outcome :ok :frame-record <record>}` or
+  `{:outcome :fail :op :rf.error/no-such-handler
+    :tags {:kind :frame :frame frame-id}}`. Shared by every Tool-Pair /
+  time-travel write surface so the no-such-handler tag shape stays
+  canonical."
   [frame-id]
   (if-let [frame-record (frame/frame frame-id)]
-    [:ok frame-record]
-    [:fail :rf.error/no-such-handler
-     {:kind  :frame
-      :frame frame-id}]))
+    {:outcome :ok :frame-record frame-record}
+    {:outcome :fail
+     :op      :rf.error/no-such-handler
+     :tags    {:kind  :frame
+               :frame frame-id}}))
 
 (defn- check-restore-preconditions!
   "Validate the seven documented preconditions for restoring `frame-id`
-  to `epoch-id`. Returns:
+  to `epoch-id`. Returns a result map:
 
-    [:ok epoch]  — all checks passed; `epoch` is the resolved history
+    {:outcome :ok :epoch <epoch>}
+                 — all checks passed; `:epoch` is the resolved history
                    record whose `:db-after` is the restore target.
-    [:fail kw tags]
-                 — first failing check; `kw` is the trace operation
-                   the caller must emit, `tags` are its tags. No
+    {:outcome :fail :op <kw> :tags <map>}
+                 — first failing check; `:op` is the trace operation
+                   the caller must emit, `:tags` are its tags. No
                    trace events are emitted from inside this helper —
                    emission is the caller's job so the
                    precondition test stays a pure data check.
@@ -967,14 +971,15 @@
   (let [frame-result (frame-exists-or-fail frame-id)]
     (cond
       ;; (1) Frame registered?
-      (= :fail (first frame-result))
+      (= :fail (:outcome frame-result))
       frame-result
 
       ;; (2) In-flight drain?
-      (drain-in-flight? (second frame-result))
-      [:fail :rf.epoch/restore-during-drain
-       {:frame    frame-id
-        :epoch-id epoch-id}]
+      (drain-in-flight? (:frame-record frame-result))
+      {:outcome :fail
+       :op      :rf.epoch/restore-during-drain
+       :tags    {:frame    frame-id
+                 :epoch-id epoch-id}}
 
       :else
       (let [history (epoch-history frame-id)
@@ -982,10 +987,11 @@
         (cond
           ;; (3) Epoch present in current history?
           (nil? epoch)
-          [:fail :rf.epoch/restore-unknown-epoch
-           {:frame        frame-id
-            :epoch-id     epoch-id
-            :history-size (count history)}]
+          {:outcome :fail
+           :op      :rf.epoch/restore-unknown-epoch
+           :tags    {:frame        frame-id
+                     :epoch-id     epoch-id
+                     :history-size (count history)}}
 
           ;; (3a) Halted-cascade target? Per rf2-v0jwt: an epoch whose
           ;; :outcome is not :ok records partial state the cascade
@@ -994,11 +1000,12 @@
           ;; the failure surfaces with the actual halt context, not
           ;; a downstream consequence of the partial db.
           (not= :ok (get epoch :outcome :ok))
-          [:fail :rf.epoch/restore-non-ok-record
-           {:frame       frame-id
-            :epoch-id    epoch-id
-            :outcome     (:outcome epoch)
-            :halt-reason (:halt-reason epoch)}]
+          {:outcome :fail
+           :op      :rf.epoch/restore-non-ok-record
+           :tags    {:frame       frame-id
+                     :epoch-id    epoch-id
+                     :outcome     (:outcome epoch)
+                     :halt-reason (:halt-reason epoch)}}
 
           :else
           (let [db-target (:db-after epoch)]
@@ -1013,30 +1020,33 @@
               ;; live digest, so pair tools can pinpoint *what
               ;; changed* about the schema set, not merely *that*
               ;; it changed.
-              [:fail :rf.epoch/restore-schema-mismatch
-               {:frame                  frame-id
-                :epoch-id               epoch-id
-                :schema-digest-recorded (:schema-digest epoch)
-                :schema-digest-current  (current-schema-digest frame-id)
-                :failing-paths          (vec failing-paths)}]
+              {:outcome :fail
+               :op      :rf.epoch/restore-schema-mismatch
+               :tags    {:frame                  frame-id
+                         :epoch-id               epoch-id
+                         :schema-digest-recorded (:schema-digest epoch)
+                         :schema-digest-current  (current-schema-digest frame-id)
+                         :failing-paths          (vec failing-paths)}}
 
               (if-let [missing (seq (missing-references db-target))]
                 ;; (5) Missing handler referenced from db?
-                [:fail :rf.epoch/restore-missing-handler
-                 {:frame    frame-id
-                  :epoch-id epoch-id
-                  :missing  (vec missing)}]
+                {:outcome :fail
+                 :op      :rf.epoch/restore-missing-handler
+                 :tags    {:frame    frame-id
+                           :epoch-id epoch-id
+                           :missing  (vec missing)}}
 
                 (if-let [{:keys [machine-id recorded current]} (machine-version-mismatch db-target)]
                   ;; (6) Machine snapshot version drift?
-                  [:fail :rf.epoch/restore-version-mismatch
-                   {:frame            frame-id
-                    :epoch-id         epoch-id
-                    :machine-id       machine-id
-                    :version-recorded recorded
-                    :version-current  current}]
+                  {:outcome :fail
+                   :op      :rf.epoch/restore-version-mismatch
+                   :tags    {:frame            frame-id
+                             :epoch-id         epoch-id
+                             :machine-id       machine-id
+                             :version-recorded recorded
+                             :version-current  current}}
 
-                  [:ok epoch])))))))))
+                  {:outcome :ok :epoch epoch})))))))))
 
 (defn- perform-restore!
   "Carry out the actual `app-db` rewind once preconditions have passed.
@@ -1073,10 +1083,10 @@
   [frame-id epoch-id]
   (if-not interop/debug-enabled?
     false
-    (let [result (check-restore-preconditions! frame-id epoch-id)]
-      (case (first result)
-        :ok   (perform-restore! frame-id (second result))
-        :fail (do (emit-precondition-failure! (second result) (nth result 2))
+    (let [{:keys [outcome epoch op tags]} (check-restore-preconditions! frame-id epoch-id)]
+      (case outcome
+        :ok   (perform-restore! frame-id epoch)
+        :fail (do (emit-precondition-failure! op tags)
                   false)))))
 
 ;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
@@ -1106,30 +1116,32 @@
 
 (defn- check-reset-frame-db-preconditions!
   "Validate the three documented preconditions for `reset-frame-db!`.
-  Returns `[:ok]` when all checks pass, otherwise `[:fail kw tags]`
-  matching the precondition-failure shape of
-  `check-restore-preconditions!`. Pure data — no trace events emitted
-  from here; emission is the caller's job."
+  Returns `{:outcome :ok}` when all checks pass, otherwise
+  `{:outcome :fail :op <kw> :tags <map>}` matching the precondition-
+  failure shape of `check-restore-preconditions!`. Pure data — no
+  trace events emitted from here; emission is the caller's job."
   [frame-id new-db]
   (let [frame-result (frame-exists-or-fail frame-id)]
     (cond
       ;; (1) Frame registered?
-      (= :fail (first frame-result))
+      (= :fail (:outcome frame-result))
       frame-result
 
       ;; (2) In-flight drain?
-      (drain-in-flight? (second frame-result))
-      [:fail :rf.epoch/reset-frame-db-during-drain
-       {:frame frame-id}]
+      (drain-in-flight? (:frame-record frame-result))
+      {:outcome :fail
+       :op      :rf.epoch/reset-frame-db-during-drain
+       :tags    {:frame frame-id}}
 
       ;; (3) Schema mismatch?
       (not (schema-validate-ok? frame-id new-db))
-      [:fail :rf.epoch/reset-frame-db-schema-mismatch
-       {:frame         frame-id
-        :failing-paths (failing-paths-for frame-id new-db)}]
+      {:outcome :fail
+       :op      :rf.epoch/reset-frame-db-schema-mismatch
+       :tags    {:frame         frame-id
+                 :failing-paths (failing-paths-for frame-id new-db)}}
 
       :else
-      [:ok])))
+      {:outcome :ok})))
 
 (defn- perform-reset-frame-db!
   "Carry out the `app-db` replacement once preconditions have passed.
@@ -1174,10 +1186,10 @@
   [frame-id new-db]
   (if-not interop/debug-enabled?
     false
-    (let [result (check-reset-frame-db-preconditions! frame-id new-db)]
-      (case (first result)
+    (let [{:keys [outcome op tags]} (check-reset-frame-db-preconditions! frame-id new-db)]
+      (case outcome
         :ok   (perform-reset-frame-db! frame-id new-db)
-        :fail (do (emit-precondition-failure! (second result) (nth result 2))
+        :fail (do (emit-precondition-failure! op tags)
                   false)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
