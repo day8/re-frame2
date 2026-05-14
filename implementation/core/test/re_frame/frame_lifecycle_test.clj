@@ -351,8 +351,9 @@
             The just-completed event runs to completion (run-to-
             completion); only later queued events are dropped"
     (rf/reg-frame :drain-int/worker {:doc "rf2-68kok drain-interrupt frame"})
-    (let [ran (atom [])
-          traces (atom [])]
+    (let [ran           (atom [])
+          traces        (atom [])
+          captured-tick (atom [])]
       ;; Plain mutator — runs whenever the drain dequeues.
       (rf/reg-event-db :drain-int/tick
         (fn [db _]
@@ -372,23 +373,32 @@
           (frame/destroy-frame! :drain-int/worker)
           {}))
       (rf/register-trace-cb! ::drain-int (fn [ev] (swap! traces conj ev)))
-      ;; Sync-drain a sequence: two ticks, the self-destruct, then two
-      ;; more ticks. The first two ticks AND the self-destruct must run;
-      ;; the two trailing ticks must be dropped with one
-      ;; :rf.frame/drain-interrupted emitted.
+      ;; Pre-seed the queue with 4 plain async dispatches, then sync-
+      ;; drain the self-destruct AT THE FRONT — it runs first, destroys
+      ;; the frame, and the remaining 4 ticks (still queued) must be
+      ;; dropped, with exactly one :rf.frame/drain-interrupted emitted.
       ;;
-      ;; Note: the seed event of `dispatch-sync!` is the self-destruct;
-      ;; pre-seed the queue with the other events as plain async
-      ;; dispatches first. dispatch-sync's drain runs against the front-
-      ;; seeded queue and drains to settled (or interrupted).
-      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-      ;; Now sync-drain the self-destruct AT THE FRONT — it runs first,
-      ;; destroys the frame, and the remaining 4 ticks (still queued)
-      ;; must be dropped.
-      (rf/dispatch-sync [:drain-int/self-destruct] {:frame :drain-int/worker})
+      ;; Per rf2-68kok JVM-vs-CLJS race fix: the JVM `interop/next-tick`
+      ;; runs on a separate single-thread executor; without redef'ing it
+      ;; the async drain races the main thread and may drain the 4 ticks
+      ;; BEFORE `dispatch-sync` reaches the drain-lock — leaving an empty
+      ;; queue and yielding `:dropped-count 0`. CLJS `next-tick` is a
+      ;; microtask in the same JS task and cannot run until the test's
+      ;; synchronous stack unwinds, so the race is JVM-only. Capturing
+      ;; the scheduled drains via `with-redefs` makes the ordering
+      ;; deterministic on both platforms — by the time `dispatch-sync`
+      ;; runs, the 4 ticks are still in the queue and no async drainer
+      ;; has touched the drain-lock. The captured drains are discarded
+      ;; (the frame is destroyed before any of them would dequeue, and
+      ;; rf2-dpny says a drain on an already-destroyed frame is a silent
+      ;; no-op — the existing `destroy-from-different-thread-also-…`
+      ;; test pins that contract separately).
+      (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
+        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+        (rf/dispatch-sync [:drain-int/self-destruct] {:frame :drain-int/worker}))
       (rf/remove-trace-cb! ::drain-int)
 
       ;; The self-destruct ran first (dispatch-sync seeds at the front);
