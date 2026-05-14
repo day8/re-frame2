@@ -103,7 +103,14 @@
             [re-frame.ssr.ring.cookie :as cookie]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.shell :as shell]))
+            [re-frame.ssr.ring.shell :as shell]
+            ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR adapter. Loaded
+            ;; eagerly so `stream-handler` resolves at the façade. The
+            ;; streaming surface is the chunked-HTTP counterpart of
+            ;; `ssr-handler`; non-streaming consumers don't pay any
+            ;; per-request cost (the writer thread is only spawned on
+            ;; a `stream-handler` call site).
+            [re-frame.ssr.ring.streaming :as streaming]))
 
 (set! *warn-on-reflection* true)
 
@@ -114,6 +121,12 @@
 
 (def cookie->set-cookie-header cookie/cookie->set-cookie-header)
 (def default-html-shell        shell/default-html-shell)
+
+;; Streaming SSR surface (rf2-ojakd / rf2-olb64 (a)) — chunked-HTTP
+;; counterpart of `ssr-handler`. Per Spec 011 §Streaming SSR.
+(def stream-handler            streaming/stream-handler)
+(def default-streaming-prefix  streaming/default-streaming-prefix)
+(def default-streaming-suffix  streaming/default-streaming-suffix)
 
 ;; ---- handler defaults + caller-opt validation -----------------------------
 ;;
