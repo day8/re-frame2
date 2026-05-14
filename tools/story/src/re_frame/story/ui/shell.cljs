@@ -54,6 +54,7 @@
             [re-frame.story.ui.recorder :as recorder-ui]
             [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.scrubber :as scrubber]
+            [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.test-mode.view :as test-mode-view]
@@ -61,47 +62,9 @@
             [re-frame.story.ui.trace :as trace]
             [re-frame.story.ui.workspace :as workspace]))
 
-;; ---- styling -------------------------------------------------------------
-
-(def ^:private styles
-  {:root      {:display "flex"
-               :flex-direction "column"
-               :height "100vh"
-               :font-family "system-ui, sans-serif"
-               :background "#1e1e1e"
-               :color "#ddd"}
-   :body      {:display "flex"
-               :flex-direction "row"
-               :flex "1"
-               :min-height "0"
-               :overflow "hidden"}
-   :main      {:display "flex"
-               :flex-direction "column"
-               :flex "1"
-               :overflow "hidden"}
-   :right     {:width "320px"
-               :display "flex"
-               :flex-direction "column"
-               :border-left "1px solid #444"
-               :background "#252526"
-               :overflow "auto"}
-   :tab-bar   {:display "flex"
-               :background "#2d2d30"
-               :border-bottom "1px solid #444"
-               :font-family "monospace"
-               :font-size "11px"}
-   :tab       {:padding "6px 12px"
-               :cursor "pointer"
-               :color "#b0b0b0"
-               :border-right "1px solid #444"}
-   :tab-active {:color "white"
-                :background "#1e1e1e"
-                :border-bottom "1px solid #1e1e1e"
-                :margin-bottom "-1px"}
-   :help-slot {:position "fixed"
-               :top      "8px"
-               :right    "12px"
-               :z-index  1500}})
+;; Styles live in `re-frame.story.ui.shell-styles` (pure-data leaf,
+;; no Reagent dep). Required as `styles` above so the in-file call
+;; sites (`(:root styles)` etc.) stay textually identical.
 
 ;; ---- hot-reload trigger --------------------------------------------------
 
