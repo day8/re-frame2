@@ -567,7 +567,7 @@ The mechanisms above emit a small family of namespaced wire markers — replacem
 | `:rf.mcp/summary` | Lazy-summary mode (rf2-u2029) | `snapshot` replaces each `:summary`-mode rich slice. | `:type`, `:keys`, `:count`, `:bytes`. |
 | `:rf.mcp/dedup-table` | Structural dedup (rf2-obpa9) | Every epoch / events vector emitter wraps post-encoded payload. | `:de-dupe.cache/cache-0`, `:de-dupe.cache/cache-1`, … (flat). |
 | `:rf.mcp/diff-from` | Diff-encoded `:db-after` (rf2-1wdzp) | Each epoch's `:db-after` is replaced with an intra-record diff. | `:rf.mcp/diff-from`, `:patches`. |
-| `:rf.mcp/cache-hit` | Per-session response cache (rf2-3rt1f / rf2-36xod) | Wire-boundary cache replaces a byte-identical re-emit. | `:hash`, `:unchanged-since`, `:tool`, `:via` (`:result-hash` / `:precheck`), `:hint`. |
+| `:rf.mcp/cache-hit` | Per-session response cache (rf2-3rt1f / rf2-36xod) — keyed on app-db root identity; cache poisoning by mismatched session is structurally impossible (see [§Per-session app-db cache — cache-poisoning posture](#per-session-app-db-cache--cache-poisoning-posture-rf2-3rt1f)) | Wire-boundary cache replaces a byte-identical re-emit. | `:hash`, `:unchanged-since`, `:tool`, `:via` (`:result-hash` / `:precheck`), `:hint`. |
 | `:rf.size/large-elided` | Size-elision walker (rf2-urjnc, rf2-9fz64) | `rf/elide-wire-value` substitutes over-threshold leaves. | `:path`, `:bytes`, `:type`, `:reason`, `:hint`, `:handle` (`[:rf.elision/at <path>]`). |
 | `:rf.mcp/cursor-stale` | Cursor pagination (rf2-kbqq3) | `trace-window` / `watch-epochs` refuse a cursor whose `:epoch-id` aged out of the ring. | `:reason :rf.mcp/cursor-stale`, `:tool`, `:requested-id`, `:head-id`. |
 | `:rf/redacted` | Privacy walker (`with-redacted`, spec/009 §Privacy) | The framework-side redact walker replaces named keys at emit time. | Scalar sentinel (no map shape). |
@@ -612,6 +612,14 @@ The split is normative for every pair-shaped MCP server downstream of this Spec;
 Published MCP servers (pair2-mcp, story-mcp, causa-mcp, and downstream pair-shaped servers consuming this Spec) **MUST** bind to a loopback address (`127.0.0.1` / `[::1]` / equivalent) by default. Remote access is an **explicit launch-flag opt-in**. The default rules out casual cross-network reach for the surface that exposes `dispatch`, `restore-epoch`, direct-read tools, and (when explicitly enabled) eval-cljs — none of which is shaped for unauthenticated network-exposed use.
 
 The localhost-bind default composes with the eval-cljs launch-flag opt-in above: a stock install ships **eval-OFF + localhost-only**; remote eval requires *two* explicit opt-ins (network-bind + `--allow-eval`). Per rf2-hpkkx and [Security.md §MCP tool authority and isolation](Security.md#mcp-tool-authority-and-isolation).
+
+### Per-session app-db cache — cache-poisoning posture (rf2-3rt1f)
+
+The `:rf.mcp/cache-hit` wire marker (per the table in [§MCP-side wire-marker vocabulary](#mcp-side-wire-marker-vocabulary)) is emitted by a pair-shaped server's **per-session response cache** when an identical app-db root produces a byte-identical re-emit. The cache is keyed on the actual app-db root identity (a root hash or equivalent) — not on a session token, not on a client-supplied tag, not on a wall-clock window. Cache invalidation rests on identity equality: if the root hash changes, the entry is invalidated; if it does not change, the cached response is returned.
+
+The **security property** of this design is that **cache poisoning by mismatched session is structurally impossible**. A client cannot supply a hash that aliases a different session's app-db root because the hash is computed from the live app-db on the server side, not from client input; a stale session whose app-db has mutated does not hit the cache because the hash has changed. The cache is a token-budget optimisation, not a trust boundary — but the keying rules out the cache-poisoning class by construction.
+
+This composes with the **direct-read MUST** above ([§Direct-read privacy posture for `sub-cache` and `get-path`](#direct-read-privacy-posture-for-sub-cache-and-get-path)): a cache-hit re-emit is a re-emit of the **already-elided** response (because the cached response was the post-`rf/elide-wire-value` envelope), so a cache hit cannot regress the wire-egress posture. Per rf2-3rt1f / rf2-czv3p and [Security.md §MCP tool authority and isolation](Security.md#mcp-tool-authority-and-isolation).
 
 ## What pair-shaped tools NOT to ship as part of re-frame2
 
