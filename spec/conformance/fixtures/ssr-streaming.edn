@@ -1,0 +1,188 @@
+;; Conformance fixture: ssr/streaming
+;;
+;; Pins the wire-shape contract for `:rf/suspense-boundary` streaming
+;; SSR. Per Spec 011 §Streaming SSR (rf2-ojakd / rf2-olb64 (a)).
+;;
+;; Specs that meet: [011-SSR §Streaming SSR](../../011-SSR.md#streaming-ssr).
+;;
+;; Scenario: A server-side render of a tree carrying two
+;; `:rf/suspense-boundary` markers and one always-rendered subtree.
+;; The runtime walks the tree, emits the shell with two
+;; `<template …suspense-fallback>` placeholders, then drains each
+;; continuation (in registration FIFO order) emitting a
+;; `<template …suspense-resolved>` plus a
+;; `<script …suspense-hydrate type=application/edn>` per boundary,
+;; then flushes the canonical `__rf_payload` `<script>` chunk, then
+;; the closing shell suffix.
+;;
+;; Pin: the **wire-chunk ordering**, the four chunk shapes named on
+;; Spec 011 §Chunk-ordering contract, and the structural-hash on the
+;; final payload (so a downstream port's render-tree-hash stays in
+;; lockstep with the JVM reference).
+
+{:fixture/id           :ssr/streaming
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:ssr/render-to-string
+                         :ssr/suspense-boundary
+                         :ssr/hydration-payload
+                         :ssr/chunked-response}
+ :fixture/doc          "Pins :rf/suspense-boundary streaming wire shape: shell-with-template-fallbacks → N resolved-subtree chunks (FIFO over registration order, one <template …suspense-resolved> + one <script …suspense-hydrate>) → final __rf_payload <script> → closing shell suffix. Per Spec 011 §Streaming SSR (rf2-ojakd / rf2-olb64 (a))."
+
+ :fixture/registry
+ {:view {:streaming.test/article-list
+         {:doc "Always-rendered subtree — no suspense boundary."}
+         :streaming.test/comments-section
+         {:doc "Resolved-via-boundary subtree — comments list."}
+         :streaming.test/related
+         {:doc "Resolved-via-boundary subtree — related-articles list."}
+         :streaming.test/root
+         {:doc "Page root with two suspense boundaries and one inline view."}}}
+
+ :fixture/handlers
+ {:view {:streaming.test/article-list
+         [[:hiccup [:ul.articles
+                    [:li "Article A"]
+                    [:li "Article B"]]]]
+
+         :streaming.test/comments-section
+         [[:hiccup [:ul.comments
+                    [:li "First comment"]
+                    [:li "Nice piece"]]]]
+
+         :streaming.test/related
+         [[:hiccup [:ul.related
+                    [:li "Related X"]
+                    [:li "Related Y"]]]]
+
+         :streaming.test/root
+         [[:hiccup
+           [:main
+            [:h1 "News"]
+            [:streaming.test/article-list]
+            [:rf/suspense-boundary
+             {:id :streaming.test/comments
+              :fallback [:p.fallback "Loading comments…"]}
+             [:streaming.test/comments-section]]
+            [:rf/suspense-boundary
+             {:id :streaming.test/related
+              :fallback [:p.fallback "Loading related…"]}
+             [:streaming.test/related]]
+            [:footer "End"]]]]}}
+
+ :fixture/frame-config {:platform :server}
+
+ :fixture/calls
+ [;; Step 1 — shell walk. Pin the shell HTML's chunk shape: the static
+  ;; outer structure plus inline rendering of :streaming.test/article-list,
+  ;; with two <template … suspense-fallback> placeholders in document
+  ;; order at the suspense-boundary sites.
+  {:call   :ssr/streaming/render-shell
+   :input  [:streaming.test/root]
+   :expect
+   {:shell-html-includes
+    [;; outer shell content. View-root elements carry the Spec 006
+     ;; `data-rf2-source-coord="..."` annotation; the fixture pins the
+     ;; tag head only so ports without that annotation surface still
+     ;; match the structural shape.
+     "<main"
+     "<h1>News</h1>"
+     "<ul class=\"articles\""
+     "<li>Article A</li>"
+     "<li>Article B</li>"
+     ;; first boundary's fallback placeholder
+     "<template data-rf2-suspense-id=\":streaming.test/comments\" data-rf2-suspense-fallback=\"1\">"
+     "<p class=\"fallback\">Loading comments…</p>"
+     "</template>"
+     ;; second boundary's fallback placeholder
+     "<template data-rf2-suspense-id=\":streaming.test/related\" data-rf2-suspense-fallback=\"1\">"
+     "<p class=\"fallback\">Loading related…</p>"
+     "</template>"
+     "<footer>End</footer>"
+     "</main>"]
+    :continuations
+    [{:id :streaming.test/comments}
+     {:id :streaming.test/related}]}}
+
+  ;; Step 2 — drain continuation #1 (FIFO). Pin the resolved chunk
+  ;; shape: subtree rendered as HTML (with source-coord annotation on
+  ;; the view root per Spec 006). The fixture asserts head + content
+  ;; substrings rather than full-string equality so it is robust to
+  ;; the source-coord annotation's per-port surface variance.
+  {:call   :ssr/streaming/render-continuation
+   :input  {:id :streaming.test/comments
+            :subtree [:streaming.test/comments-section]}
+   :expect
+   {:html-includes ["<ul class=\"comments\""
+                    "<li>First comment</li>"
+                    "<li>Nice piece</li>"
+                    "</ul>"]
+    :failed? false}}
+
+  ;; Step 3 — drain continuation #2 (FIFO continues).
+  {:call   :ssr/streaming/render-continuation
+   :input  {:id :streaming.test/related
+            :subtree [:streaming.test/related]}
+   :expect
+   {:html-includes ["<ul class=\"related\""
+                    "<li>Related X</li>"
+                    "<li>Related Y</li>"
+                    "</ul>"]
+    :failed? false}}
+
+  ;; Step 4 — build the final canonical __rf_payload. Pin the four
+  ;; required keys' presence and the version stamp; the actual
+  ;; render-hash value is pinned by `:ssr/render-to-string` and the
+  ;; hash-parity fixture corpus.
+  {:call   :ssr/streaming/build-final-payload
+   :input  {:render-hash "00000000"          ;; placeholder; the implementation
+                                             ;; supplies the real FNV-1a hex here
+            :version 1}
+   :expect {:payload-keys #{:rf/version :rf/frame-id :rf/app-db :rf/render-hash}
+            :rf/version   1}}]
+
+ ;; Wire-order invariant. The host adapter MUST emit chunks in this order:
+ ;;   1. shell prefix + shell HTML
+ ;;   2. N resolved-subtree chunks (one <template>resolved</template>
+ ;;      + one optional <script …suspense-hydrate>application/edn</script>
+ ;;      per boundary), in FIFO over registration order
+ ;;   3. final __rf_payload <script>
+ ;;   4. shell suffix close
+ :fixture/wire-order
+ [;; chunk 1 — shell prefix + shell-html-with-template-fallbacks
+  {:kind :shell
+   :must-include ["<!DOCTYPE html>"
+                  "<html"
+                  "<body"
+                  "<div id=\"app\">"
+                  "data-rf2-suspense-fallback=\"1\""]}
+  ;; chunk 2..3 — resolved continuations (FIFO over registration order)
+  {:kind  :resolved
+   :ord   1
+   :id    :streaming.test/comments
+   :must-include ["data-rf2-suspense-resolved=\"1\""
+                  "First comment"]}
+  {:kind  :resolved
+   :ord   2
+   :id    :streaming.test/related
+   :must-include ["data-rf2-suspense-resolved=\"1\""
+                  "Related X"]}
+  ;; chunk 4 — final canonical __rf_payload
+  {:kind :final-payload
+   :must-include ["<script id=\"__rf_payload\""
+                  "type=\"application/edn\""
+                  ":rf/version"
+                  ":rf/render-hash"]}
+  ;; chunk 5 — shell suffix close
+  {:kind :close
+   :must-include ["</body>"
+                  "</html>"]}]
+
+ ;; Failure-mode invariant — pinned in a sibling fixture if needed;
+ ;; the primary fixture above pins the happy path. A continuation
+ ;; throw produces the same wire order but with the failed
+ ;; continuation's resolved-chunk carrying both
+ ;; `data-rf2-suspense-resolved="1"` AND
+ ;; `data-rf2-suspense-failed="1"`, the fallback hiccup rendered
+ ;; in its place, and NO hydrate-delta script (per Spec 011
+ ;; §Failure semantics — inline fallback).
+ }
