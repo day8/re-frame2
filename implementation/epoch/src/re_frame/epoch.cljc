@@ -437,9 +437,7 @@
   [events]
   (into []
         (comp
-          (filter (fn [ev]
-                    (or (= :render/run (:operation ev))
-                        (= :view/render (:operation ev)))))
+          (filter (fn [ev] (= :view/render (:operation ev))))
           (map (fn [ev]
                  (let [t (:tags ev)]
                    {:render-key   (or (:render-key t)
