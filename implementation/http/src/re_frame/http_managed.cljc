@@ -218,10 +218,15 @@
     nil))
 
 (defn- managed-abort-handler
-  "Public `:rf.http/managed-abort` fx. Args is the request-id (any value)."
+  "Public `:rf.http/managed-abort` fx. Args is the request-id (any value).
+
+  Per rf2-plngk the in-flight cleanup is owned by `finalise-failure!`
+  (the abort-fn closure calls into it). The earlier shape pre-cleared
+  the registry here AND inside `finalise-failure!`, doubling the
+  `swap!` traffic per abort. Now the single source of truth lives at
+  the failure-finalise site; this handler only fires the abort-fn."
   [_frame-ctx request-id]
   (when-let [handle (registry/lookup-in-flight request-id)]
-    (registry/clear-in-flight! request-id)
     (try ((:abort-fn handle) :user)
          (catch #?(:clj Throwable :cljs :default) _ nil)))
   nil)
