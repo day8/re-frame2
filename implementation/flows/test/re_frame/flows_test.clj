@@ -831,6 +831,47 @@
     (is (= 700 (:result (rf/get-frame-db :right)))
         "right's :compute still active — 7 * 100 = 700")))
 
+;; ---------------------------------------------------------------------------
+;; 9b. :flow registrar slot carries last-registered frame's metadata
+;;     (Spec 013 §Frame-scoping line 105) — rf2-twi6k.
+;;
+;; Spec 013 §Frame-scoping line 105 states: "the registrar slot carries
+;; the most-recently-registered frame's flow-map with `:frame frame-id`
+;; stamped into the metadata". The destroy-frame teardown tests
+;; (flows_destroy_frame_teardown_test.clj) exercise registrar prune
+;; behaviour, but the "last-registration-wins" invariant for the
+;; metadata's `:frame` slot was never pinned. A regression that flipped
+;; the registrar-write order (e.g. only-stamping-on-first-registration)
+;; would silently break Causa / re-frame-10x's per-flow frame
+;; attribution.
+;; ---------------------------------------------------------------------------
+
+(deftest registrar-slot-carries-last-registered-frame-metadata
+  (testing "the :flow registrar slot's metadata reflects the most-recently-registered frame (Spec 013 §Frame-scoping line 105)"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    ;; First registration against :left — metadata's :frame should be :left.
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    (is (= :left (:frame (registrar/lookup :flow :shared)))
+        ":left's metadata wins after first registration (the slot is empty before, so first-write wins)")
+    ;; Re-register against :right — metadata's :frame must now be :right.
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 (or n 0)))
+                  :path   [:result]}
+                 {:frame :right})
+    (is (= :right (:frame (registrar/lookup :flow :shared)))
+        ":right's metadata wins after second registration — last-registration-wins per Spec 013 line 105")
+    ;; Sanity: both frames still hold the flow in their per-frame registry.
+    (is (contains? (get @flows/flows :left)  :shared)
+        ":left still carries :shared in its per-frame registry")
+    (is (contains? (get @flows/flows :right) :shared)
+        ":right carries :shared in its per-frame registry too")))
+
 (deftest flow-hot-reload-invalidates-last-inputs
   (testing "re-registering a flow re-evaluates even when inputs are unchanged"
     (rf/reg-event-db :init   (fn [_ _] {:n 5}))
