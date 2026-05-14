@@ -50,11 +50,23 @@
 
   This is the load-bearing default-suppress filter per spec/009
   §Privacy. Apply it to any vector of trace-event-shaped maps before
-  the result crosses the MCP boundary into the agent surface."
+  the result crosses the MCP boundary into the agent surface.
+
+  ## Fast-path (rf2-0q30r)
+
+  The docstring promises identical-vector return when no events drop;
+  the implementation honours that by scanning first with `some` and
+  only allocating a `filterv` vector when at least one match exists.
+  Common-path cost: one linear `some` scan, zero allocation, identity
+  preserved on `events`. Drop-path cost: the same linear scan plus
+  the historical `filterv`/`count`/`count` pass — one extra walk on
+  the rare branch in exchange for zero extra cost on every common
+  call."
   [events include?]
   (cond
-    include?         [events 0]
-    (empty? events)  [events 0]
+    include?                       [events 0]
+    (empty? events)                [events 0]
+    (not (some sensitive-event? events)) [events 0]
     :else
     (let [kept (filterv (complement sensitive-event?) events)
           n    (- (count events) (count kept))]
