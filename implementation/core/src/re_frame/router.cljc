@@ -480,10 +480,18 @@
 
 (defn- run-flows!
   "Per Spec 013 §Drain integration: run flows after :db commits and
-  before :fx walks. Flow evaluation exceptions surface as
-  :rf.error/flow-eval-exception through BOTH the dev-only trace
-  surface AND the always-on error-emit substrate (per rf2-hrt5c — the
-  security-audit fix). The drain continues regardless.
+  before :fx walks. Returns `true` on success (including the no-flows-
+  artefact short-circuit) and `false` when a flow's `:output` threw.
+  Per Spec 013 §Failure semantics rule 3: the caller MUST halt the
+  cascade on `false` — downstream `:fx` does NOT run when a flow has
+  thrown (an `:fx` entry's side effects can rely on derived state the
+  failing flow was supposed to produce).
+
+  Flow evaluation exceptions surface as :rf.error/flow-eval-exception
+  through BOTH the dev-only trace surface AND the always-on error-emit
+  substrate (per rf2-hrt5c — the security-audit fix). The drain
+  continues with the NEXT event after the substrate emit; this drain's
+  `:fx` is skipped per rf2-fslx0.
 
   Per rf2-hrt5c: pre-fix, `:rf.error/flow-eval-exception` rode the
   trace path only. `trace/emit-error!` is gated by
@@ -497,11 +505,21 @@
   elision. There is no `:handler-id` (no handler ran — the throw
   came from the post-commit flow walk); the `:where :flow-eval`
   discriminator distinguishes this path from the handler-exception
-  one for policy fns that key on it."
+  one for policy fns that key on it.
+
+  Per rf2-fslx0: pre-fix this fn returned nil on both success and
+  failure paths, so `commit-and-flow!` had no signal to skip `:fx`
+  on flow throws. A handler emitting `[:dispatch [:react-to-area-
+  change]]` from `:fx` would fire the child dispatch even when the
+  source flow threw — child handler runs on stale derived state,
+  side effects (HTTP / navigation / analytics) escape. Spec 013
+  §Failure semantics rule 3 + §rationale (line 202) state the
+  cascade halts at a failing flow."
   [frame event event-id start-ms]
-  (when-let [flows-fn (late-bind/get-fn :flows/run-flows!)]
+  (if-let [flows-fn (late-bind/get-fn :flows/run-flows!)]
     (try
       (flows-fn frame)
+      true
       (catch #?(:clj Throwable :cljs :default) e
         (let [end-ms     (interop/now-ms)
               ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an
@@ -556,7 +574,13 @@
           ;; builds. Same payload shape as before the rf2-hrt5c fix —
           ;; existing trace consumers are unaffected.
           (trace/emit-error! :rf.error/flow-eval-exception
-                             {:frame frame :event event :exception e}))))))
+                             {:frame frame :event event :exception e})
+          ;; Per rf2-fslx0 — Spec 013 §Failure semantics rule 3:
+          ;; signal failure so `commit-and-flow!` skips `:fx`.
+          false)))
+    ;; No flows artefact loaded — short-circuit. Treat as success
+    ;; (apps without flows don't have this cascade-halt concern).
+    true))
 
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
@@ -702,8 +726,16 @@
     (when error
       (emit-handler-exception! error event-id event frame final-ctx start-ms))
     (when (commit-db-effect! effects event-id event frame final-ctx db-before)
-      (run-flows! frame event event-id start-ms)
-      (run-fx-effects! effects frame frame-record fx-overrides envelope))
+      ;; Per rf2-fslx0 — Spec 013 §Failure semantics rule 3: when a
+      ;; flow throws, halt the cascade. `run-flows!` returns false on
+      ;; flow throw (after fanning out
+      ;; `:rf.error/flow-eval-exception` through trace + error-emit
+      ;; substrate); `run-fx-effects!` then skips. Without this gate
+      ;; an `:fx [[:dispatch [:react-to-area-change]]]` would fire its
+      ;; child dispatch on stale derived state — side effects (HTTP /
+      ;; navigation / analytics) would escape.
+      (when (run-flows! frame event event-id start-ms)
+        (run-fx-effects! effects frame frame-record fx-overrides envelope)))
     error))
 
 (defn- emit-cascade-trailers!

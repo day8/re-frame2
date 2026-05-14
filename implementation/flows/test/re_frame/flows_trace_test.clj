@@ -656,6 +656,104 @@
         ":A's write landed a third time (7 → 11 → 110)")
     (is (not (contains? (rf/get-frame-db :rf/default) :b-out)))))
 
+;; ---------------------------------------------------------------------------
+;; 7d. :fx must not run after a flow throws (rf2-fslx0).
+;;
+;; Spec 013 §Failure semantics rule 3 + §rationale (line 202) state the
+;; cascade halts at a failing flow — downstream `:fx` does NOT run on
+;; the failing drain because the rationale for halting is "downstream
+;; `:fx` and tooling rely on to skip work that depended on a now-
+;; invalid derived state."
+;;
+;; Pre-fix, `router.run-flows!` caught + swallowed the throw and
+;; returned nil; control flowed on to `run-fx-effects!` regardless.
+;; A handler emitting `[:dispatch [:react-to-area-change]]` from `:fx`
+;; fired the child dispatch even when the source flow threw — child
+;; handler ran on stale derived state; side effects (HTTP, navigation,
+;; analytics) escaped.
+;;
+;; Post-fix: `run-flows!` returns truthy on success / falsey on flow
+;; throw. `commit-and-flow!` gates `run-fx-effects!` on the return.
+;; ---------------------------------------------------------------------------
+
+(deftest fx-does-not-run-after-flow-throws
+  (testing "Per rf2-fslx0: when a flow's :output throws, the handler's :fx is skipped"
+    (let [child-fired? (atom false)]
+      (rf/reg-event-db :init   (fn [_ _] {:n 1}))
+      (rf/reg-event-db :after-throw
+                       (fn [db _] (reset! child-fired? true) db))
+      (rf/reg-event-fx :run-with-throwing-flow
+                       (fn [_ _]
+                         {:db {:n 2}
+                          :fx [[:dispatch [:after-throw]]]}))
+      ;; Register a flow that throws. The flow runs AFTER :db commits
+      ;; and BEFORE :fx walks (per Spec 002 §`:fx` ordering); a throw
+      ;; halts the cascade so :after-throw must NOT dispatch.
+      (rf/reg-flow {:id     :boom
+                    :inputs [[:n]]
+                    :output (fn [_] (throw (ex-info "boom" {:why :test})))
+                    :path   [:doomed]})
+      ;; First drain: :init seeds :n; the flow throws but the cascade
+      ;; halts before any of :init's :fx would have run (and :init has
+      ;; none anyway). Drain the dispatch the test is actually
+      ;; interested in.
+      (rf/dispatch-sync [:init])
+      (reset! child-fired? false)
+      (rf/dispatch-sync [:run-with-throwing-flow])
+      (is (false? @child-fired?)
+          "`:after-throw` did NOT dispatch — :fx was skipped because the flow threw (rf2-fslx0)")
+      ;; :db commit still happened (rule 1 of Spec 013 §Failure
+      ;; semantics: prior successful writes are preserved); only :fx
+      ;; was skipped.
+      (is (= 2 (:n (rf/get-frame-db :rf/default)))
+          ":db commit landed (rule 1) — only the post-commit :fx walk was skipped"))))
+
+(deftest fx-after-successful-flow-still-runs
+  (testing "Per rf2-fslx0: when flows succeed, :fx still walks normally (negative control)"
+    (let [child-fired? (atom false)]
+      (rf/reg-event-db :init (fn [_ _] {:n 1}))
+      (rf/reg-event-db :after-ok
+                       (fn [db _] (reset! child-fired? true) db))
+      (rf/reg-event-fx :run-with-ok-flow
+                       (fn [_ _]
+                         {:db {:n 2}
+                          :fx [[:dispatch [:after-ok]]]}))
+      (rf/reg-flow {:id     :double
+                    :inputs [[:n]]
+                    :output (fn [n] (* 2 n))
+                    :path   [:doubled]})
+      (rf/dispatch-sync [:init])
+      (reset! child-fired? false)
+      (rf/dispatch-sync [:run-with-ok-flow])
+      (is (true? @child-fired?)
+          "`:after-ok` DID dispatch — :fx walked because the flow succeeded")
+      (is (= 4 (:doubled (rf/get-frame-db :rf/default)))
+          "flow output landed in app-db (sanity)"))))
+
+(deftest fx-skip-on-flow-throw-still-emits-error-substrate
+  (testing "Per rf2-fslx0 + rf2-hrt5c: when :fx is skipped on flow throw, the error substrate still fires"
+    ;; Pin that the cascade-halt does NOT short-circuit the error fan-
+    ;; out — ops monitors still see the failure record even though :fx
+    ;; was skipped.
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :test/fx-skip-recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-fx :run-with-throwing-flow
+                       (fn [_ _]
+                         {:db {:n 2}
+                          :fx [[:dispatch [:must-not-fire]]]}))
+      (rf/reg-event-db :must-not-fire (fn [db _] db))
+      (rf/reg-flow {:id     :boom
+                    :inputs [[:n]]
+                    :output (fn [_] (throw (ex-info "boom" {})))
+                    :path   [:doomed]})
+      (rf/dispatch-sync [:run-with-throwing-flow])
+      (is (>= (count @seen) 1)
+          "error-emit substrate fired — the cascade-halt does not silence the error fan-out")
+      (is (some #(= :rf.error/flow-eval-exception (:error %)) @seen)
+          "at least one substrate record carries :error :rf.error/flow-eval-exception"))))
+
 (deftest computed-trace-elision-no-op-when-no-declaration
   (testing "absent any declaration, :input-values and :result pass through unchanged"
     ;; Belt-and-braces against an over-eager rewrite — the walker must be
