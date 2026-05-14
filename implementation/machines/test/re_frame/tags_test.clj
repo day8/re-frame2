@@ -16,7 +16,8 @@
 
   These JVM tests pair with the conformance fixtures
   spec/conformance/fixtures/tags-{flat,compound,empty,round-trip}.edn.
-  The CLJS surface is exercised by re-frame.machines-cljs-test."
+  The CLJS surface is exercised by re-frame.machines-tags-cljs-test
+  (split out of the former monolithic re-frame.machines-cljs-test per rf2-3vps4)."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
