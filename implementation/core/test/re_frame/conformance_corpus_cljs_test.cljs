@@ -251,6 +251,12 @@
   (machines/reset-timers!)
   ;; 4. Drop the in-flight HTTP request registry between fixtures.
   (http-managed/clear-all-in-flight!)
+  ;; 4a. Spec 014 §Middleware (rf2-yhfgf) — drop the per-frame request-
+  ;;     side interceptor chain. The atom holding the chain is `defonce`
+  ;;     in `re-frame.http-middleware`; without an explicit clear, a
+  ;;     fixture that registers an interceptor leaks it into the next
+  ;;     fixture's chain walk.
+  (http-managed/clear-all-http-interceptors!)
   ;; 5. Dispose the currently-installed adapter (if any) and re-install
   ;;    plain-atom. `init!` is idempotent and creates the :rf/default
   ;;    frame; subsequent reg-frame calls for that id update in-place.
@@ -406,7 +412,12 @@
                           (concat (when (seq sub-meta) [sub-meta])
                                   (interleave (repeat :<-) inputs)
                                   [body])))))
-    ;; fx handlers (bodies + meta)
+    ;; fx handlers (bodies + meta).
+    ;;
+    ;; Per rf2-yhfgf — an id with NO body in :fixture/handlers but a meta
+    ;; in :fixture/registry is "declare the dependency, leave the framework
+    ;; registration alone": the harness DOES NOT overwrite the framework-
+    ;; shipped fx with a noop. Mirrors the JVM runner's contract.
     (let [adapter-helpers
           {:read-db!  (fn [frame-id]
                         (frame/frame-app-db-value frame-id))
@@ -419,10 +430,12 @@
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
       (doseq [id all-fx-ids]
-        (let [body    (get fx-bodies id [[:noop]])
-              meta    (get fx-registry id {})
-              handler (conformance/realise-fx-handler id body adapter-helpers)]
-          (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
+        (let [explicit-body (contains? fx-bodies id)
+              body          (get fx-bodies id [[:noop]])
+              meta          (get fx-registry id {})
+              handler       (conformance/realise-fx-handler id body adapter-helpers)]
+          (when explicit-body
+            (rf/reg-fx id (assoc meta :handler-fn handler) handler)))))
     ;; Flow registration is intentionally NOT done here — flows are
     ;; FRAME-SCOPED (per Spec 013), so the destroy-frame! call later in
     ;; `run-fixture` would wipe them via the rf2-wbtjn teardown hook.

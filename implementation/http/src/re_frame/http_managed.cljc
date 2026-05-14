@@ -148,6 +148,41 @@
            {:doc "Spec 014 — abort an in-flight :rf.http/managed by request-id."}
            handlers/managed-abort-handler)
 
+;; ---- middleware fx wrappers (rf2-yhfgf) -----------------------------------
+;;
+;; `reg-http-interceptor` / `clear-http-interceptor` are direct fn-call APIs
+;; — load-time registration of cross-cutting request transforms (Spec 014
+;; §Middleware, rf2-6y3q). Most apps register at app bootstrap and never
+;; call again. But the conformance corpus (Spec 011 §Conformance) is
+;; pure-data EDN, has no fn-call seam, and drives behaviour exclusively
+;; through `:fx` ops + `:fx-overrides`. The two fxs below let portable
+;; EDN fixtures register/clear interceptors via the same DSL channel they
+;; use for everything else — `[:fx [[:rf.fx/reg-http-interceptor {...}]]]`
+;; / `[:fx [[:rf.fx/clear-http-interceptor {...}]]]`.
+;;
+;; Args shapes mirror the fns 1:1:
+;;   :rf.fx/reg-http-interceptor   {:frame <id> :id <kw> :before <fn>}
+;;   :rf.fx/clear-http-interceptor {:frame <id> :id <kw>}
+;;
+;; Both fxs are dev+prod (`:platforms #{:client :server}`). Authors can
+;; register interceptors via an event-handler at boot, which is a clean
+;; alternative to the fn-call shape for codebases that prefer to drive
+;; bootstrap through the dispatch surface.
+
+(fx/reg-fx :rf.fx/reg-http-interceptor
+           {:doc "Spec 014 §Middleware (rf2-6y3q) — register a request-side
+                  interceptor as an fx. Args is the same `{:frame :id :before}`
+                  map `reg-http-interceptor` accepts."}
+           (fn [_ctx args]
+             (middleware/reg-http-interceptor args)))
+
+(fx/reg-fx :rf.fx/clear-http-interceptor
+           {:doc "Spec 014 §Middleware (rf2-6y3q) — clear a request-side
+                  interceptor by id as an fx. Args is `{:frame :id}`; `:frame`
+                  defaults to `:rf/default`."}
+           (fn [_ctx {:keys [frame id]}]
+             (middleware/clear-http-interceptor (or frame :rf/default) id)))
+
 ;; The two canned-stub fxs are gated on `interop/debug-enabled?` so they
 ;; elide in production. Per Spec 014 §Testing — "Don't ship the canned-
 ;; stub fxs as production-eligible". The gate applies on BOTH hosts: on

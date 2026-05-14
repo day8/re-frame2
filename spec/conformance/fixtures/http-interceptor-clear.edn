@@ -1,0 +1,99 @@
+;; Conformance fixture: rf.http.interceptor/clear
+;;
+;; Per Spec 014 §Middleware (rf2-6y3q) + rf2-yhfgf — `:rf.fx/clear-http-
+;; interceptor` unregisters an interceptor by id; subsequent requests
+;; run WITHOUT the interceptor's side effects. The runtime emits a
+;; `:rf.http.interceptor/cleared` trace at the clear site.
+;;
+;; The fixture sequence:
+;;   1. `:app/init` registers a `:before` interceptor whose body bumps
+;;      a counter via dispatch.
+;;   2. First `:article/load` fires the canned-success path; the chain
+;;      walks (rf2-yhfgf), the `:before` runs, the counter advances
+;;      to 1.
+;;   3. `:fixture/clear-interceptor` fires `:rf.fx/clear-http-interceptor`
+;;      and the registered slot is removed.
+;;   4. Second `:article/load` fires the canned-success path again; the
+;;      chain is empty (no interceptors registered), so the counter
+;;      STAYS at 1. This is the load-bearing assertion — clear actually
+;;      detaches the body, not just the registry slot.
+
+{:fixture/id           :rf.http.interceptor/clear
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/fx :core/trace
+                         :rf.http/managed}
+ :fixture/doc          "clear-http-interceptor via :rf.fx/clear-http-interceptor — after clearing, a subsequent canned-success request runs WITHOUT the cleared interceptor's body firing. Counter stays at 1 (one fire pre-clear, none post-clear). The :rf.http.interceptor/cleared trace fires at the clear site."
+
+ :fixture/registry
+ {:event {:app/init                  {:doc "Boot — register the interceptor."}
+          :article/load              {:doc "Issue the GET."}
+          :article/loaded            {:doc "Receive the canned-success payload."}
+          :fixture/clear-interceptor {:doc "Trigger :rf.fx/clear-http-interceptor."}
+          :fixture/interceptor-fired {:doc "Recorded by the :before's :dispatch op."}}
+  :sub   {:fire-count {:doc "How many times the :before fired."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-success {:platforms #{:client :server}}
+          :rf.fx/reg-http-interceptor     {:platforms #{:client :server}}
+          :rf.fx/clear-http-interceptor   {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:app/init
+   [[:fx [[:rf.fx/reg-http-interceptor
+           {:id     :counter
+            :before [[:dispatch [:fixture/interceptor-fired]]]}]]]]
+
+   :article/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :value      {:title "hello"}
+            :on-success [:article/loaded]}]]]]
+
+   :article/loaded
+   [[:set [:article] [:event-arg 1]]]
+
+   :fixture/clear-interceptor
+   [[:fx [[:rf.fx/clear-http-interceptor {:id :counter}]]]]
+
+   :fixture/interceptor-fired
+   [[:update [:fire-count] [:fn :inc]]]}
+
+  :sub
+  {:fire-count [[:get [:fire-count]]]}
+
+  ;; :rf.fx/reg-http-interceptor, :rf.fx/clear-http-interceptor, and
+  ;; :rf.http/managed-canned-success are intentionally NOT given
+  ;; fixture-DSL bodies — per the rf2-yhfgf harness rule, declaring an
+  ;; id in :fixture/registry :fx WITHOUT an explicit body in
+  ;; :fixture/handlers :fx leaves the framework registration in place.
+  :fx
+  {:rf.http/managed [[:noop]]}}
+
+ :fixture/frame-config
+ {:on-create    [:app/init]
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+
+ :fixture/dispatches
+ [[:article/load]
+  [:fixture/clear-interceptor]
+  [:article/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:article    {:kind  :success
+                :value {:title "hello"}}
+   :fire-count 1}
+
+  :sub-values
+  {[:fire-count] 1}
+
+  :trace-emissions
+  [{:operation :rf.http.interceptor/registered
+    :tags      {:frame :rf/default :id :counter}}
+   {:operation :event :tags {:event-id :article/load}}
+   {:operation :event :tags {:event-id :fixture/interceptor-fired}}
+   {:operation :event :tags {:event-id :fixture/clear-interceptor}}
+   {:operation :rf.http.interceptor/cleared
+    :tags      {:frame :rf/default :id :counter}}
+   {:operation :event :tags {:event-id :article/load}}]}}
