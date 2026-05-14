@@ -74,8 +74,16 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 18 | [From re-frame v1](18-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. The chapter is appendix-shaped — deps to bump, the migration skill to run, and the broad categories of breakage to expect. |
 | 19 | [Adapters](19-adapters.md) | You're choosing or wiring a view-layer substrate — Reagent, UIx, or Helix. Covers the substrate-agnostic story, the `init!` call shape, the three adapter packages, and the slim-Reagent option for ship-size builds. |
 | 21 | [Stories](21-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. |
-| 22 | [Trace forwarding to Datadog](22-trace-to-datadog.md) | You need observability on a running app — forward trace events to Datadog (or Honeycomb, Sentry, Mezmo, your in-house pipeline) via the trace bus, honouring `:sensitive?` and `:large?` elision through `rf/elide-wire-value`. Datadog-shaped; the recipe is generic. |
-| 23 | [Privacy and size elision](23-privacy-and-elision.md) | The writer-side companion to ch.22 — declaring `:sensitive?` (drop) and `:large?` (elide-with-fetch) at the source so the trace stream can ride the firehose without leaking credentials, PII, or 5MB blobs. One primary site (Malli schema-slot meta), one escape hatch (handler-meta `:sensitive?` for cross-cutting cases), the `rf/elide-wire-value` walker, and the HTTP header / query-string denylists. |
+
+### Useful patterns
+
+Concrete real-world recipes that aren't core to the mental model — production observability and the two-axis wire-elision story. Read them when you're shipping.
+
+| # | Chapter | When to read it |
+|---|---|---|
+| 22 | [Production observability](22-trace-to-datadog.md) | You need observability on a running app — forward trace events to Datadog (or Honeycomb, Sentry, Mezmo, your in-house pipeline) via the trace bus, honouring `:sensitive?` and `:large?` elision through `rf/elide-wire-value`. Datadog-shaped; the recipe is generic. |
+| 23a | [Privacy — keeping secrets out of traces](23a-privacy-secrets.md) | Credentials, tokens, PII — the `:sensitive?` half of the elision story. One primary site (Malli schema-slot meta), one escape hatch (handler-meta `:sensitive?`), the `rf/elide-wire-value` walker's drop path, and the HTTP header / query-string denylists. |
+| 23b | [Large blobs — keeping the wire small](23b-large-blobs.md) | 5MB payloads, file uploads, big collections — the `:large?` half of the elision story. Schema-slot meta, the `:rf.size/large-elided` marker, the opt-in fetch handle for consumers, and the dev-mode unschema'd-large-value warning. |
 
 ### Close-out
 

@@ -1,25 +1,20 @@
-# 23 — Privacy and size elision
-
-> **Path D preview.** This chapter is a docs-first preview of the [rf2-j40u7](https://github.com/day8/re-frame2) decision — *schema-first only* for privacy + size declarations. The six declaration sites enumerated in the original chapter collapse to two: per-slot Malli schema meta (the canonical truth) and handler-meta `:sensitive?` (the single escape hatch). Runtime auto-detect, `:rf.size/declare-large` fx, `rf/declare-large-path!` REPL form, and the user-facing `with-redacted` interceptor are all removed. The framework code follows in a separate impl bead; this chapter describes the world we're proposing.
+# 23a — Privacy: keeping secrets out of traces
 
 ## TL;DR
 
-You're shipping events and errors to a production observability service ([chapter 22](22-trace-to-datadog.md)), and you need to make sure credentials, PII, and giant payloads never go with them. This page shows how to declare which `app-db` slices are sensitive and which are too large to ship raw — and how the wire-boundary walker honours both.
+You're shipping events and errors to a production observability service ([chapter 22](22-trace-to-datadog.md)), and you need to make sure credentials, tokens, and PII never go with them. This page shows how to declare which `app-db` slices are **sensitive** and how the wire-boundary walker honours the declaration.
 
 One trace surface feeds every tool. That's the killer feature. It's also the killer threat: every event a user dispatches, every `:tags :event` payload, every `app-db` snapshot, every `:rf.http/*` request and response rides the same stream. If the stream goes off-box without privacy-honouring, the first sign-in form on the app leaks `password "shhh"` to every dev who attaches a listener, every Datadog dashboard, every Sentry queue, every pair-programming MCP server. The trace surface is built like a firehose because firehoses make great debuggers; firehoses make terrible auth-token loggers.
 
-This chapter is the **writer-side** companion to [chapter 22](22-trace-to-datadog.md). Chapter 22 shows you how to *consume* the privacy flags from a listener; this one shows you how to *declare* them from your app so the consumers have something to honour. The two halves close the loop.
+This chapter is the **writer-side** companion to [chapter 22](22-trace-to-datadog.md) for the privacy half. Chapter 22 shows you how to *consume* the privacy flags from a listener; this one shows you how to *declare* them from your app so the consumers have something to honour. The companion chapter [23b — Large blobs](23b-large-blobs.md) covers the matching size half. The two halves close the loop.
 
 You'll know:
 
-- The 2-axis design — sensitive (drop) vs large (elide-with-fetch) — and the composition rule.
+- What `:sensitive?` means and how it composes with `:large?` on the same slot.
 - The **one** primary declaration site (Malli schema-slot meta) and the **one** escape hatch (handler-meta `:sensitive?`).
-- What the unified `rf/elide-wire-value` walker does and when it fires.
+- What the `rf/elide-wire-value` walker does with sensitive values.
 - How HTTP coverage layers on top (header denylist, body redaction, URL query-string).
 - How schema-validation errors interact (sensitive paths in `:explain` traces).
-- How consumer-side flags compose with your writer-side declarations.
-
-The `:sensitive?` + `:large?` composition you'll meet below is **wire-elision over managed external effects**. Every framework-owned async surface (HTTP, WebSocket, state-machine `:invoke`, SSR per-request fxs, managed flows) routes its wire-bearing trace slots through the single shared `rf/elide-wire-value` walker. Surface-specific elision is prohibited; the walker is the one point of truth. This chapter is what you declare so that one walker has something to honour for every surface at once.
 
 ## Why the framework cares
 
@@ -29,41 +24,18 @@ The framework's answer is *not* "filter at the consumer". Consumers are written 
 
 ## One obvious way
 
-The earlier life of this chapter enumerated three declaration sites for each flag — six total — plus a "belt + braces" recommendation that nudged you to use *both* a handler-meta flag *and* an interceptor on the same handler. That was a confession that no single site was sufficient. Six sites for one decision is six chances to disagree with yourself.
+The earlier life of this chapter enumerated three declaration sites for the privacy flag — plus a "belt + braces" recommendation that nudged you to use *both* a handler-meta flag *and* an interceptor on the same handler. That was a confession that no single site was sufficient. Three sites for one decision is three chances to disagree with yourself.
 
 Pre-alpha lets us be strict. The Zen-of-Python rule — *there should be one — and preferably only one — obvious way to do it* — wins here. So this chapter has **one obvious way**: declare on the Malli schema. There is **one escape hatch** — handler-meta `:sensitive?` — for the genuinely cross-cutting case where the question "is this sensitive?" lives at the handler scope, not at any one slot. That's it.
 
 The asymmetry is intentional, and it tracks the underlying semantic asymmetry:
 
-- **Data-shape questions live on the schema.** "Is this value sensitive?" and "is this value large?" are questions about the *kind* of thing stored at a path. They're stable across every handler that ever touches the path — every write, every read, every cascade. The schema is where stable data-shape facts go.
+- **Data-shape questions live on the schema.** "Is this value sensitive?" is a question about the *kind* of thing stored at a path. It's stable across every handler that ever touches the path — every write, every read, every cascade. The schema is where stable data-shape facts go.
 - **Handler-scoped behavioural questions live on the handler.** "Does *this handler* read or write multiple slots whose individual schemas vary, in a way that makes the *handler* the right unit of sensitivity?" is a question about a specific code path, not a specific slot. That's what handler-meta `:sensitive?` is for, and it's rare — most handlers touch one slot kind and inherit its schema's verdict automatically.
-
-## The 2-axis design
-
-Two predicates. Same walker.
-
-| Axis | Question | Default placeholder | Wire effect |
-|---|---|---|---|
-| `:sensitive?` | "Does this value carry user input that must not leave the trust boundary?" | `:rf/redacted` keyword (or whole event dropped) | Filter-out for off-box ship; in-place scrub for in-app emit |
-| `:large?` | "Is this value too big to ride a 5K-token wire?" | `:rf.size/large-elided` marker with `:handle` for opt-in fetch | Marker substitutes for the value; consumer re-fetches via `get-path` |
-
-The walker — `rf/elide-wire-value` — consults both flags at every node it visits and substitutes the appropriate placeholder. One pass, two flags.
-
-**The composition rule is `sensitive drop wins`.** When a value matches both predicates (a 5 MB base64-encoded ID-card image stored under `[:auth :scanned-id]`), the value is dropped, not marker-substituted — because the marker itself carries `:path` and `:bytes`, which is structural information about the redacted slot. One value, two flags, deterministic precedence:
-
-```clojure
-(cond
-  (and sensitive? large?)  ::drop                  ; no marker; emit :sensitive? true
-  sensitive?               ::redact-or-drop        ; :rf/redacted sentinel
-  large?                   ::elide-with-marker     ; :rf.size/large-elided
-  :else                    ::pass-through)
-```
-
-Same composition rule binds the schema-validation emit-site (per [§Schema-validation errors](#schema-validation-errors) below) and every tool that calls the walker downstream.
 
 ## The one primary site — schema-slot meta
 
-Both flags live on the same surface: a Malli slot's per-slot props map. One keyword on one map, and every consumer of the trace stream honours it.
+Both elision flags live on the same surface: a Malli slot's per-slot props map. One keyword on one map, and every consumer of the trace stream honours it.
 
 ```clojure
 (rf/reg-app-schema
@@ -71,19 +43,16 @@ Both flags live on the same surface: a Malli slot's per-slot props map. One keyw
   [:map
    [:profile      [:map [:name :string] [:email :string]]]
    [:credit-card  {:sensitive? true}                              :string]    ;; redacted in traces
-   [:audit-log    {:large?     true :hint "Audit log entries"}    [:vector :map]]]) ;; elided in traces
+   [:audit-log    {:large?     true :hint "Audit log entries"}    [:vector :map]]]) ;; elided in traces (see ch.23b)
 ```
 
 That's the declaration. Nothing else.
 
-Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — pair2-mcp, Datadog shipper, Causa-MCP — sees the redacted / elided shape; the value never leaves the trust boundary.
+Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — pair2-mcp, Datadog shipper, Causa-MCP — sees the redacted shape; the value never leaves the trust boundary.
 
-What each flag does:
+What `:sensitive? true` does:
 
-- **`:sensitive? true`** — the value never appears in any trace, off-box ship, dev-panel render, or schema-validation error. At every wire emit, the slot's value is substituted with the `:rf/redacted` sentinel. The trace event also gets `:sensitive? true` stamped at the top level so off-box listeners can drop the whole event. **You do not need a separate interceptor**; the framework auto-installs the scrub for any handler that reads or writes a `:sensitive?` slot. The schema is the truth; the wiring is automatic.
-- **`:large? true`** — the value is replaced with the `:rf.size/large-elided` marker at every wire emit. The marker carries `:path`, `:bytes`, `:type`, `:hint`, and a `:handle` so consumers can opt-in-fetch the value if they need it. Tools like the on-box Story panel render the marker as `[● ELIDED 5.2MB]`; off-box shippers ship the marker, not the value.
-
-`:hint` is a free-form short string that rides on the marker. Pair it with `:large?` whenever the slot's purpose isn't obvious from the path — an agent or a dev-tool tooltip can see "Resume PDF preview blob" without fetching the 5 MB binary.
+The value never appears in any trace, off-box ship, dev-panel render, or schema-validation error. At every wire emit, the slot's value is substituted with the `:rf/redacted` sentinel. The trace event also gets `:sensitive? true` stamped at the top level so off-box listeners can drop the whole event. **You do not need a separate interceptor**; the framework auto-installs the scrub for any handler that reads or writes a `:sensitive?` slot. The schema is the truth; the wiring is automatic.
 
 This is the AI-discoverable form. Schemas are the AI-first surface for app shape (per [ch.04a — Schemas](04a-schemas.md)); an agent reading the schema sees the privacy claim alongside the type, on the same line, in the same vocabulary. There is no separate handler-side declaration to cross-reference, no interceptor to grep for, no runtime registration to chase down.
 
@@ -114,20 +83,19 @@ This is the *only* declaration site outside the schema. Use it when the sensitiv
 
 ## Worked examples
 
-### A small schema with both axes
+### A schema with a sensitive slot
 
 ```clojure
 (rf/reg-app-schema
   [:user/account]
   [:map
    [:username     :string]
-   [:credit-card  {:sensitive? true}                                :string]
-   [:audit-log    {:large?     true :hint "Audit log entries"}      [:vector :map]]])
+   [:credit-card  {:sensitive? true}                                :string]])
 ```
 
-That's the entire declaration surface for the `:user/account` slice. `:credit-card` will never appear in any trace. `:audit-log` will appear as a `:rf.size/large-elided` marker. Every handler that touches either slot inherits the verdict; no further bookkeeping required.
+That's the entire privacy declaration surface for the `:user/account` slice. `:credit-card` will never appear in any trace. Every handler that touches the slot inherits the verdict; no further bookkeeping required.
 
-### A handler that touches both — automatic scrub, no interceptor
+### A handler that touches the slot — automatic scrub, no interceptor
 
 ```clojure
 (rf/reg-event-db :user.account/update-card
@@ -136,8 +104,6 @@ That's the entire declaration surface for the `:user/account` slice. `:credit-ca
 ```
 
 That's all you write. The handler body sees `new-card-number` verbatim — handlers need the real value to do their work. But the `:event/dispatched` trace event for this handler, and the `:event/db-changed` trace event that follows, both ship with `:credit-card` substituted by `:rf/redacted` — *automatically*, because the schema for the slot declared `:sensitive? true`. You did not write a `with-redacted` interceptor. You did not stamp the handler. The schema is the single source of truth; the framework installs the scrub.
-
-The same handler emits `:event/db-changed` with the `:audit-log` slot (if the handler happened to load it from the server in the same cascade) substituted by the `:rf.size/large-elided` marker — again, because the schema says so.
 
 ### The cross-cutting case — handler-meta `:sensitive?`
 
@@ -158,30 +124,22 @@ Here no individual slot in `app-db` carries `:sensitive? true` — the user's us
 
 A short list of things that used to exist and don't. Each line answers "what do I do instead?"
 
-- **No runtime auto-detect to learn.** The 16 KB `pr-str`-byte-counting walker is gone. *Instead:* declare `:large?` on the schema. The schema is the single source the runtime consults; un-schema'd slots that exceed the threshold trigger a dev-only warning (next section).
-- **No `:rf.size/declare-large` fx to dispatch.** *Instead:* declare `:large?` on the schema. If you don't have a schema for the slot, add one — schemas are how the framework knows the shape of your `app-db`, and the privacy + size facts are part of that shape.
-- **No `rf/declare-large-path!` REPL form.** *Instead:* declare `:large?` on the schema, then `rf/reg-app-schema` it. There is no runtime declaration API for size — schemas are the only path.
 - **No `with-redacted` interceptor to add by hand.** *Instead:* declare `:sensitive?` on the schema slot. The framework auto-installs the scrub for every handler that reads or writes the slot. You write zero interceptor lines.
-- **No "belt + braces" pattern.** The earlier recommendation to write `:sensitive? true` on the handler-meta *and* `with-redacted` *and* the schema-slot meta was a confession that no one site was sufficient. Under Path D each declaration is sufficient by itself — schema-slot meta for the data-shape case, handler-meta for the rare cross-cutting case. Pick the one that matches the truth; never both.
+- **No "belt + braces" pattern.** The earlier recommendation to write `:sensitive? true` on the handler-meta *and* `with-redacted` *and* the schema-slot meta was a confession that no one site was sufficient. Under the current contract each declaration is sufficient by itself — schema-slot meta for the data-shape case, handler-meta for the rare cross-cutting case. Pick the one that matches the truth; never both.
 
-## The dev-mode warning — `:rf.warning/large-value-unschema'd`
+## Composition with `:large?` — sensitive wins
 
-Schemas are the path. But you'll write code faster than you write schemas, and during development a `[:user :photo-cache]` slot can quietly grow past the 16 KB wire-budget while you haven't yet declared its schema. The framework needs to nudge you without resorting to a runtime walker on the hot path.
-
-The nudge is `:rf.warning/large-value-unschema'd`. When the wire-boundary walker is about to emit a value that's over the 16 KB threshold and the path has *no* schema declaration (no `:large?`, no `:large? false`, no schema at all), the runtime emits the warning trace event:
+When a slot carries both flags (a 5 MB base64-encoded ID-card image stored under `[:auth :scanned-id]` — both sensitive *and* large), the value is dropped, not marker-substituted — because the marker itself carries `:path` and `:bytes`, which is structural information about the redacted slot. The composition rule is **`sensitive drop wins`**, deterministic:
 
 ```clojure
-{:operation :rf.warning/large-value-unschema'd
- :tags      {:path  [:user :photo-cache]
-             :bytes 87324
-             :hint  "Add `{:large? true}` to the schema slot for this path."}}
+(cond
+  (and sensitive? large?)  ::drop                  ; no marker; emit :sensitive? true
+  sensitive?               ::redact-or-drop        ; :rf/redacted sentinel
+  large?                   ::elide-with-marker     ; :rf.size/large-elided (see ch.23b)
+  :else                    ::pass-through)
 ```
 
-The warning fires **once per slot per session** — re-emits on the same path short-circuit, so a chatty cascade doesn't flood your dev panel. It is **dev-only** — under `goog.DEBUG=false` (the production build flag) the entire warning emit-site compiles away. There is no runtime cost in production.
-
-What you do when the warning fires: open the schema for the slot's slice, add `{:large? true}` to the slot's props map, reload. The next dispatch consults the registry and the value rides the wire as a marker. The warning stops.
-
-If the value really is below the threshold *most* of the time and only spikes occasionally, you can either declare `:large? true` (it's cheap — the marker is small) or declare `:large? false` to suppress the warning and explicitly admit the slot to the wire. Both are valid; both are explicit.
+The same composition rule binds the schema-validation emit-site (per [§Schema-validation errors](#schema-validation-errors) below) and every tool that calls the walker downstream. The `:large?` side of the story lives in [chapter 23b](23b-large-blobs.md).
 
 ## How elision uses what you declared
 
@@ -189,7 +147,7 @@ The schema is the input; the elision pipeline is the output. The framework does 
 
 At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, pair2-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
 
-**One declaration; every consumer honours it.** If you declare `:sensitive? true` on `[:user :credit-card]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body, every schema-validation error trace substitutes `:rf/redacted` for the slot's value. Same for `:large? true` and the elision marker. The platform handles the rest.
+**One declaration; every consumer honours it.** If you declare `:sensitive? true` on `[:user :credit-card]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body, every schema-validation error trace substitutes `:rf/redacted` for the slot's value. The platform handles the rest.
 
 ## The unified walker — `rf/elide-wire-value`
 
@@ -198,29 +156,15 @@ One function. Every tool that emits wire data calls it. The single normative emi
 ```clojure
 (rf/elide-wire-value v
                      {:rf.size/include-sensitive? false    ;; default false — sensitive drops
-                      :rf.size/include-large?     false    ;; default false — large elides
+                      :rf.size/include-large?     false    ;; default false — large elides (see ch.23b)
                       :rf.size/include-digests?   false    ;; default false — no sha256 in marker
                       :rf.size/threshold-bytes    16384
                       :frame                      :rf/default})
 ;; → v unchanged, OR
 ;; → nil (sensitive event dropped entirely), OR
 ;; → v with :rf/redacted at sensitive paths, OR
-;; → v with :rf.size/large-elided markers at large paths
+;; → v with :rf.size/large-elided markers at large paths (see ch.23b)
 ```
-
-The marker shape:
-
-```clojure
-{:rf.size/large-elided
-  {:path   [:user :uploaded-pdf]               ;; absolute path inside the slice's root
-   :bytes  5242880                             ;; pr-str byte count, exact when known
-   :type   :string                             ;; :map :vector :set :scalar :string
-   :reason :schema                             ;; only :schema under Path D
-   :hint   "Upload preview blob"               ;; the schema slot's :hint copied verbatim
-   :handle [:rf.elision/at [:user :uploaded-pdf]]}}  ;; EDN, passable to get-path
-```
-
-The `:handle` is **a normal EDN vector**, not a tagged literal — agents pattern-match on the leading `:rf.elision/at` keyword and pass the handle straight to the pair2-mcp `get-path` tool to fetch the elided value (subject to that tool's own cap check; an over-cap fetch fails with `:rf.mcp/overflow`). One round-trip per elided value the consumer actually needs.
 
 ## HTTP coverage
 
@@ -282,19 +226,18 @@ Writer-side is half the picture. The other half is the *consumer*'s elision poli
 
 On-box dev UIs (the Causa panel, the Story panel) show a `[● ELIDED N]`-style indicator when the marker is in the rendered view, and the user clicks to opt in for a single fetch. Production-trust on-box consumers MAY default to `true`, but the rationale must be documented per-consumer.
 
-## Worked example — login + PDF upload
+## Worked example — login with a sensitive credential
 
-Pulling the strings together. A login form with sensitive credentials and a PDF preview upload (large blob) — both axes, both predicates, one app, *one declaration site*:
+A login form with a sensitive password — `:sensitive?` declared once on the schema, enforced once at the wire boundary:
 
 ```clojure
-;; 1. Declare the schema slots — :sensitive? on the password slot,
-;;    :large? on the PDF blob slot. That's the whole privacy surface.
+;; 1. Declare the schema slot — :sensitive? on the password.
+;;    That's the whole privacy surface.
 (rf/reg-app-schema
   [:auth]
   [:map
    [:username    :string]
-   [:password    {:sensitive? true}                                   :string]
-   [:pdf-preview {:large?     true :hint "Resume PDF preview blob"}   :string]])
+   [:password    {:sensitive? true}     :string]])
 
 ;; 2. Sign-in handler — no metadata, no interceptor.
 ;;    The schema's :sensitive? on :password drives the trace scrub
@@ -311,13 +254,7 @@ Pulling the strings together. A login form with sensitive credentials and a PDF 
 ;; (by schema); body redaction kicks in; the Authorization header (if
 ;; the response sets one) is denylisted automatically.
 
-;; 3. PDF upload — no privacy concern, but the blob is huge. Same story:
-;;    the schema declared :large?, the handler is plain.
-(rf/reg-event-db :auth/load-pdf-preview
-  (fn [db [_ pdf-base64]]
-    (assoc-in db [:auth :pdf-preview] pdf-base64)))
-
-;; 4. Trace stream when the user signs in then uploads a 5MB PDF:
+;; 3. Trace stream when the user signs in:
 
 ;;    Event A — :event/dispatched
 ;;    {:operation :event/dispatched
@@ -332,33 +269,19 @@ Pulling the strings together. A login form with sensitive credentials and a PDF 
 ;;     :sensitive? true}
 ;;    ;; HTTP cascade saw :password was :sensitive?; body redaction fired.
 
-;;    Event C — :event/db-changed (the PDF assoc)
-;;    {:operation :event/db-changed
-;;     :tags      {:app-db-after
-;;                 {:auth {:pdf-preview
-;;                         {:rf.size/large-elided
-;;                          {:path   [:auth :pdf-preview]
-;;                           :bytes  5242880
-;;                           :type   :string
-;;                           :reason :schema
-;;                           :hint   "Resume PDF preview blob"
-;;                           :handle [:rf.elision/at [:auth :pdf-preview]]}}}}}}
-;;    ;; The walker swapped the 5MB blob for a 150-byte marker;
-;;    ;; the rest of app-db rides verbatim.
-
-;;    Event D — the Datadog shipper from ch.22
-;;    Event A drops (sensitive); B drops (sensitive); C ships
-;;    (large-but-not-sensitive — the marker rides the wire and the
-;;    Datadog dashboard sees a `large-elided` indicator instead of
-;;    the 5MB string).
+;;    Event C — the Datadog shipper from ch.22
+;;    Events A and B drop (sensitive). The Datadog dashboard sees the
+;;    cascade shape, the timing, the error class — it just doesn't see
+;;    the password.
 ```
 
-Two axes, one walker, one consumer rendering — and **one declaration site**. The Datadog dashboard sees the cascade shape, the timing, the error class — it just doesn't see the password or the PDF. Privacy and size, declared once on the schema, enforced once at the wire boundary.
+One declaration site, one walker, every consumer honours it.
 
 ## Next
 
+- [23b — Large blobs: keeping the wire small](23b-large-blobs.md) — the matching size half. The `:large?` flag, the `:rf.size/large-elided` marker, opt-in fetch via `:handle`.
 - [04a — Schemas](04a-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — the `:rf.http/managed` cascade that extends this chapter's privacy machinery.
 - [14 — Errors and how to handle them](14-errors.md) — the `:rf.error/*` taxonomy this chapter's schema-validation section bottoms out on.
 - [15 — Tooling](15-devtools-and-pair-tools.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason privacy and size matter is that the bus has five+ consumers.
-- [22 — Trace forwarding to Datadog](22-trace-to-datadog.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.
+- [22 — Production observability](22-trace-to-datadog.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.

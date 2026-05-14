@@ -50,7 +50,7 @@ Every time an event finishes (successfully or with an error), the runtime invoke
 
 No `:op-type`, no `:operation`, no `:tags`, no `:source`. Those are trace-bus shape. Production observability doesn't need them.
 
-The record passes through `rf/elide-wire-value` **before** your listener sees it — so any `:sensitive?` handler drops the entire record, and any `:large?` payload (e.g., a 5MB base64 PDF in `:event`) is replaced with a `:rf.size/large-elided` marker. See [ch.23 — Privacy + Size Elision](23-privacy-and-elision.md) for the full elision contract.
+The record passes through `rf/elide-wire-value` **before** your listener sees it — so any `:sensitive?` handler drops the entire record, and any `:large?` payload (e.g., a 5MB base64 PDF in `:event`) is replaced with a `:rf.size/large-elided` marker. See [ch.23a — Privacy](23a-privacy-secrets.md) for the `:sensitive?` half and [ch.23b — Large blobs](23b-large-blobs.md) for the `:large?` half of the elision contract.
 
 ## The error-emit record
 
@@ -266,4 +266,5 @@ The point: the framework owns the production-observability shape and tools own t
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — the managed-fx that does the actual POST, with retry and abort-on-destroy.
 - [14 — Errors and how to handle them](14-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-emit-listener!`.
 - [15 — Tooling](15-devtools-and-pair-tools.md) — the dev-only trace bus and the tools (Causa, pair2, story) that consume it.
-- [23 — Privacy + Size Elision](23-privacy-and-elision.md) — the `:sensitive?` + `:large?` machinery the framework applies to every record before your listener sees it.
+- [23a — Privacy: keeping secrets out of traces](23a-privacy-secrets.md) — the `:sensitive?` half of the wire-elision machinery the framework applies to every record before your listener sees it.
+- [23b — Large blobs: keeping the wire small](23b-large-blobs.md) — the `:large?` half of the same machinery.
