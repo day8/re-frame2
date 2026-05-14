@@ -229,6 +229,41 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'websocket', 'index.html'),
     outDir: path.join(OUT_ROOT, 'websocket'),
   },
+  // rf2-ik4io — SSR hydration baseline. Static index.html bakes
+  // pre-rendered HTML + a :rf/hydration-payload script; the browser-
+  // side run reads the payload, dispatches :rf/hydrate, and calls
+  // verify-hydration!. The companion spec.cjs lives at
+  // testbeds/ssr_basic/spec.cjs.
+  //
+  // These three SSR testbeds are top-level `testbeds/<surface>/`
+  // siblings of `examples/<substrate>/` (per the testbeds split,
+  // rf2-96nb3); the shadow-cljs build id uses the `testbeds/` prefix
+  // and lands the bundle under `implementation/out/testbeds/<id>/`.
+  // The orchestrator serves http://127.0.0.1:8030/<id>/ from OUT_ROOT
+  // (out/examples/), so we redirect outDir into the served root with
+  // a `testbed-` prefix to keep the URL path unambiguous.
+  {
+    build: 'testbeds/ssr-basic',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_basic', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'testbed-ssr-basic'),
+  },
+  // rf2-ik4io — SSR hydration-mismatch surface. The payload bakes a
+  // deliberately wrong :rf/render-hash so verify-hydration! emits
+  // :rf.ssr/hydration-mismatch with :recovery :warned-and-replaced.
+  {
+    build: 'testbeds/ssr-hydration-mismatch',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_hydration_mismatch', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'testbed-ssr-hydration-mismatch'),
+  },
+  // rf2-ik4io — SSR multi-frame surface. Three frames each hydrate
+  // independently from their own payload slice; the three panels
+  // prove per-frame state restoration through the hydration
+  // boundary.
+  {
+    build: 'testbeds/ssr-multi-frame',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_multi_frame', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'testbed-ssr-multi-frame'),
+  },
 ];
 
 function compileAll() {
