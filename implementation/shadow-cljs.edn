@@ -599,4 +599,13 @@
    :output-dir "out/testbeds/deliberate-throw"
    :asset-path "."
    :modules    {:main {:init-fn deliberate-throw.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim — schema-violation testbed (the four :where surfaces of
+  ;; :rf.error/schema-validation-failure; one button per :where).
+  :testbeds/schema-violation
+  {:target     :browser
+   :output-dir "out/testbeds/schema-violation"
+   :asset-path "."
+   :modules    {:main {:init-fn schema-violation.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
