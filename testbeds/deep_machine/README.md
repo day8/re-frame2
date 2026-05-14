@@ -13,7 +13,7 @@ machine through each capability one at a time.
 | **`:always`** (eventless transitions) | `:work` region's `:resolving` node | After `work-done`, the runtime fires a microstep cascade through `:resolving` to `:done-a` without an explicit event on the trace stream. The `:phase-a-ran?` guard's truthiness picks the branch. |
 | **`:after`** (delayed transitions) | `:health` region's `:warming` node — `{:after {200 :ready}}` | `health-heat` schedules a `:dispatch-later` for the `:rf.machine.timer/after-elapsed` synthetic event; ~200ms later the region transitions to `:ready`. Per-region `:rf/after-epoch-by-region` slot at `[:data :rf/after-epoch-by-region :health]` advances on each entry/exit. |
 | **`:invoke`** (single child actor) | `:work/leaf-a` (the deepest leaf) | On entry, the desugared `:rf.machine/spawn` fx mounts `:helper/tick` at `[:rf/spawned :deep/main [:work :phase-a :sub-a :nested-a :deep-a :leaf-a]]`. On exit (via `work-done`), the desugared `:rf.machine/destroy` fires. |
-| **`:invoke-all`** (parallel children + join) | `:work/phase-b` | After `work-spawn`, the runtime emits one `:rf.machine/invoke-all-init` plus three `:rf.machine/spawn` fxs (one per child id `:j1` / `:j2` / `:j3`). After clicking finish on all three, `:helper/all-finished` fires and the parent transitions to `:done-b`. |
+| **`:invoke-all`** (parallel children + join) | `:work/phase-b` | After `work-spawn`, the runtime emits one `:rf.machine.invoke-all/started` plus three `:rf.machine/spawn` fxs (one per child id `:j1` / `:j2` / `:j3`). Each child dispatches `:helper/child-done` to the parent from its terminal `:done` `:entry`; after the third the runtime fires `:rf.machine.invoke-all/all-completed` and dispatches `[:helper/all-finished]` into the parent, transitioning to `:done-b`. |
 
 ## Button reference
 
@@ -22,7 +22,7 @@ machine through each capability one at a time.
 | `:work/go` | `work-go` | Descend the deep hierarchy into `[:work :phase-a … :leaf-a]`; `:invoke` spawns `:helper/tick`. |
 | `:work/done` | `work-done` | Exit the deep leaf; `:invoke`-destroy fires; `:always` cascade settles into `:done-a`. |
 | `:work/spawn` | `work-spawn` | `:invoke-all` spawns three `:helper/job` children. |
-| finish j1 / j2 / j3 | `helper-finish-j1`, `helper-finish-j2`, `helper-finish-j3` | Each transitions one child to its `:final?` leaf; the runtime advances `:invoke-all` join bookkeeping; the third fires `:helper/all-finished` and the parent transitions to `:done-b`. |
+| finish j1 / j2 / j3 | `helper-finish-j1`, `helper-finish-j2`, `helper-finish-j3` | Each transitions one child to its `:final?` leaf; the child's terminal `:entry` dispatches `:helper/child-done` to the parent; the runtime advances `:invoke-all` join bookkeeping; the third triggers `:on-all-complete` which dispatches `[:helper/all-finished]` into the parent and transitions to `:done-b`. |
 | `:work/reset` | `work-reset` | Return `:work` region to `:idle` from any state. |
 | `:health/heat` | `health-heat` | Drive `:health` region from `:cold` → `:warming` → (after 200ms) → `:ready`. |
 | `:health/cool` | `health-cool` | Return `:health` region to `:cold`. |
@@ -82,9 +82,10 @@ destroy / join shape, not what the children compute.
   - `work-done`: `:rf.machine/destroy` (the `:invoke` desugaring on
     leaf exit) + `:rf.machine/transition` (the `:always`
     microstep).
-  - `work-spawn`: `:rf.machine/invoke-all-init` + three
+  - `work-spawn`: `:rf.machine.invoke-all/started` + three
     `:rf.machine/spawn` in source order.
-  - `helper-finish-j3` (after j1 and j2): `:rf.machine/invoke-all-join`
+  - `helper-finish-j3` (after j1 and j2): three intercepted
+    `:helper/child-done` dispatches + `:rf.machine.invoke-all/all-completed`
     + `:rf.machine/transition` (`:helper/all-finished` →
     `:done-b`).
 

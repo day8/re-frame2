@@ -21,8 +21,11 @@
       `:leaf-a` — spawns a `:helper/tick` child whose lifecycle is
       bound to the leaf's; on leaf exit the desugared destroy fires.
     - **`:invoke-all`** (parallel children + join) on `:phase-b` —
-      three `:helper/job` workers spawn in parallel; `:on-all-done`
-      transitions the parent.
+      three `:helper/job` workers spawn in parallel; each child
+      dispatches the parent's `:on-child-done` keyword from its
+      terminal `:done` `:entry`; on the third the runtime fires
+      `:on-all-complete` ([:helper/all-finished]) and the parent
+      transitions to `:done-b`.
 
   This is NOT a tutorial — the bodies are minimal. The whole point is
   to give a consumer ONE machine whose snapshot, transitions, and
@@ -61,18 +64,32 @@
 
 (def helper-job-machine
   {:initial :running
+
+   :actions
+   {:dispatch-child-done
+    ;; Terminal action: dispatch the parent's :on-child-done keyword.
+    ;; Per Spec 005 §Child completion protocol the event shape is
+    ;;   [<parent-id> [<on-child-done-keyword> <child-id> & extra]]
+    ;; The runtime stamps :rf/parent-id and :rf/invoke-all-child-id
+    ;; into each spawned child's :data at allocate-time, so the child
+    ;; reads them out for the dispatch-back. The parent's
+    ;; create-machine-handler intercepts the event and updates the
+    ;; join state at [:rf/spawned :deep/main [:work :phase-b]].
+    (fn action-dispatch-child-done [data _event]
+      {:fx [[:dispatch [(:rf/parent-id data)
+                        [:helper/child-done (:rf/invoke-all-child-id data)]]]]})}
+
    :states
    {:running
     {:tags    #{:helper/running}
-     ;; Each child runs once and transitions to its terminal state.
-     ;; The :invoke-all join machinery in the parent reads each
-     ;; child's :final? leaf to advance the bookkeeping at
-     ;; [:rf/spawned :deep/main [:work :phase-b] :done].
+     ;; Each child runs once and transitions to its terminal :done
+     ;; leaf. The dispatch-back fires from :done's :entry — see below.
      :on      {:helper.job/finish :done}}
     :done
     {:meta   {:terminal? true}
      :final? true
-     :tags   #{:helper/done}}}})
+     :tags   #{:helper/done}
+     :entry  :dispatch-child-done}}})
 
 (rf/reg-machine :helper/job helper-job-machine)
 
@@ -94,9 +111,9 @@
 (def main-machine
   {:type :parallel
 
-   :data {:tick-count   0
-          :phase-a-ran? false
-          :phase-b-done []}
+   :data {:tick-count            0
+          :phase-a-ran?          false
+          :phase-b-all-finished? false}
 
    :guards
    {:phase-a-ran?
@@ -112,9 +129,14 @@
     (fn action-mark-phase-a-ran [data _ev]
       {:data (assoc data :phase-a-ran? true)})
 
-    :record-phase-b-done
-    (fn action-record-phase-b-done [data [_ child-id]]
-      {:data (update data :phase-b-done (fnil conj []) child-id)})}
+    :record-all-finished
+    ;; Transition action — fires on the parent's :on-all-complete
+    ;; event after the third child's :on-child-done is intercepted
+    ;; by the runtime. The transition target settles into :done-b;
+    ;; this action stamps a :data flag so the view's mirror shows
+    ;; the join resolved.
+    (fn action-record-all-finished [data _event]
+      {:data (assoc data :phase-b-all-finished? true)})}
 
    :regions
    {;; ---- :work region — 5-deep compound + :always + :invoke + :invoke-all ----
@@ -193,23 +215,32 @@
       :phase-b
       ;; Sibling of :phase-a, NOT nested under it. Hosts the
       ;; :invoke-all — three :helper/job children spawn in
-      ;; parallel; the :on-all-done keyword (`:helper/all-finished`)
-      ;; dispatches when the runtime's join machinery sees all
-      ;; three children's :final? state.
+      ;; parallel; each child dispatches the parent's
+      ;; `:on-child-done` keyword (`:helper/child-done`) from its
+      ;; terminal `:done` `:entry`. The runtime intercepts these
+      ;; events at the parent's create-machine-handler boundary,
+      ;; updates the join state at [:rf/spawned :deep/main
+      ;; [:work :phase-b]], and — once all three have reported —
+      ;; dispatches the parent's `:on-all-complete` event vector
+      ;; (`[:helper/all-finished]`) which the parent's :on table
+      ;; routes to `:done-b`.
       ;;
       ;; A consumer that watches the trace stream after :work/spawn
-      ;; sees one :rf.machine/invoke-all-init plus three
+      ;; sees one :rf.machine.invoke-all/started plus three
       ;; :rf.machine/spawn fxs in source order; the children's
-      ;; :final? states fire :on-child-done back to the parent;
-      ;; after the third, :helper/all-finished fires.
+      ;; terminal states dispatch :helper/child-done back to the
+      ;; parent; after the third, :rf.machine.invoke-all/all-completed
+      ;; fires and `[:helper/all-finished]` lands.
       {:tags #{:work/phase-b}
        :invoke-all
-       {:children [{:id :j1 :machine-id :helper/job :data {:id :j1}}
-                   {:id :j2 :machine-id :helper/job :data {:id :j2}}
-                   {:id :j3 :machine-id :helper/job :data {:id :j3}}]
-        :on-child-done :record-phase-b-done
-        :on-all-done   :helper/all-finished}
-       :on   {:helper/all-finished :done-b
+       {:children        [{:id :j1 :machine-id :helper/job :data {:id :j1}}
+                          {:id :j2 :machine-id :helper/job :data {:id :j2}}
+                          {:id :j3 :machine-id :helper/job :data {:id :j3}}]
+        :on-child-done   :helper/child-done
+        :on-child-error  :helper/child-error
+        :on-all-complete [:helper/all-finished]}
+       :on   {:helper/all-finished {:target :done-b
+                                    :action :record-all-finished}
               :work/reset          :idle}}
 
       :done-b
@@ -278,17 +309,17 @@
   (fn [snap _]
     (get-in snap [:data :tick-count])))
 
-(rf/reg-sub :phase-b-done
+(rf/reg-sub :phase-b-all-finished?
   :<- [:rf/machine :deep/main]
   (fn [snap _]
-    (get-in snap [:data :phase-b-done])))
+    (get-in snap [:data :phase-b-all-finished?])))
 
 (reg-view buttons []
-  (let [work-state   @(subscribe [:work-state])
-        health-state @(subscribe [:health-state])
-        tags         @(subscribe [:tags])
-        tick-count   @(subscribe [:tick-count])
-        phase-b-done @(subscribe [:phase-b-done])]
+  (let [work-state            @(subscribe [:work-state])
+        health-state          @(subscribe [:health-state])
+        tags                  @(subscribe [:tags])
+        tick-count            @(subscribe [:tick-count])
+        phase-b-all-finished? @(subscribe [:phase-b-all-finished?])]
     [:div {:data-testid "deep-machine" :style {:font-family "sans-serif" :padding "1em"}}
      [:h1 "deep-machine testbed"]
      [:p "One machine, every grammar surface. Click through to drive
@@ -324,11 +355,11 @@
        "C · :health/cool"]]
 
      [:p {:style {:margin-top "1em" :color "#666" :white-space :pre-wrap}}
-      "work-state="   [:span {:data-testid "work-state"}   (pr-str work-state)]   "\n"
-      "health-state=" [:span {:data-testid "health-state"} (pr-str health-state)] "\n"
-      "tags="         [:span {:data-testid "tags"}         (pr-str tags)]         "\n"
-      "tick-count="   [:span {:data-testid "tick-count"}   tick-count]            "\n"
-      "phase-b-done=" [:span {:data-testid "phase-b-done"} (pr-str phase-b-done)]]]))
+      "work-state="            [:span {:data-testid "work-state"}            (pr-str work-state)]            "\n"
+      "health-state="          [:span {:data-testid "health-state"}          (pr-str health-state)]          "\n"
+      "tags="                  [:span {:data-testid "tags"}                  (pr-str tags)]                  "\n"
+      "tick-count="            [:span {:data-testid "tick-count"}            tick-count]                     "\n"
+      "phase-b-all-finished?=" [:span {:data-testid "phase-b-all-finished?"} (pr-str phase-b-all-finished?)]]]))
 
 (reg-view root []
   [buttons])

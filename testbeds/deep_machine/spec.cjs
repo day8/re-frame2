@@ -43,19 +43,6 @@ const { readTraceEventsAsEdn, clearTraceBus, pollUntil } = require(
 );
 
 module.exports = {
-  // The testbed's `:phase-b` `:invoke-all` declaration is stale per
-  // current Spec 005 §Spawn-and-join: the validator at
-  // `re-frame.machines.lifecycle_fx.validation/validate-invoke-all!`
-  // (rf2-6vmw) requires `:on-child-done`, `:on-child-error`, and
-  // `:on-all-complete` (vector) — the testbed declares `:on-all-done`
-  // (a single keyword), so `(rf/reg-machine :deep/main ...)` throws
-  // at module-load time and the page never mounts. Per the rf2-fe84r
-  // dispatch boundaries, this spec cannot touch the testbed
-  // `core.cljs`; the surface needs a fix in its own bead before the
-  // scenario can land. Skipping pins the file at the canonical
-  // location with the reason; unskipping is a one-line revert once
-  // the surface fix ships.
-  skip: 'deep_machine/core.cljs declares :on-all-done; validator requires :on-child-done/:on-child-error/:on-all-complete (stale per rf2-6vmw). Filed for follow-up.',
   name: 'cross-cutting #3 — state-machine transition cascade',
   url: '/testbeds/deep-machine/',
   run: async (page) => {
