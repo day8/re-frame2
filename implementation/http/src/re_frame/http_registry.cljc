@@ -97,7 +97,15 @@
      the per-host attempt loops. Both args are taken from the captured
      ctx + handle pair, so the cleanup is index-walks by identity and
      does not depend on `request-id` being non-nil. This arity covers
-     anonymous-request natural completion from inside spawned actors."
+     anonymous-request natural completion from inside spawned actors.
+
+  Per rf2-plngk this is THE single source of truth for in-flight
+  cleanup on per-request termination. The natural-completion sites
+  (`finalise-success!`, `finalise-failure!`, retry-clear in
+  `maybe-retry!`) call this directly; the abort sites
+  (`managed-abort-handler`, `abort-on-actor-destroy`) rely on the
+  abort-fn → `finalise-failure!` cascade to reach here. Idempotent
+  against already-gone state — the swap!s no-op on absent slots."
   ([request-id]
    (when request-id
      (let [handle (get @in-flight request-id)]
@@ -174,15 +182,20 @@
 
   Idempotent: invoking against an actor with no in-flight HTTP is a
   no-op. Tolerant of repeated invocations against the same actor —
-  the second call sees the already-cleared slot and does nothing."
+  the actor-side slot is cleared atomically first so a re-entry sees
+  an empty registry.
+
+  Per rf2-plngk the per-handle request-id cleanup is owned by
+  `clear-in-flight!` (called inside the abort-fn closure via
+  `finalise-failure!`). The earlier shape pre-walked the request-id
+  index here AND cleared inside `finalise-failure!`, doubling the
+  `swap!` traffic per actor destroy. The actor-side eager dissoc
+  remains: it pins the idempotency guarantee against re-entry, and
+  it's a single `swap!` regardless of handle count."
   [actor-id]
   (when actor-id
     (let [handles (get @actor-in-flight actor-id)]
-      ;; Atomically clear the slot first, so any in-flight failure
-      ;; dispatch path that observes the removal won't re-walk the
-      ;; same handles (the abort-fn closure also calls clear-in-flight!
-      ;; on its way through finalise-failure!, so we want a single
-      ;; source of truth for "is this still tracked").
+      ;; Atomically clear the slot first so a re-entry sees no handles.
       (swap! actor-in-flight dissoc actor-id)
       (doseq [handle handles]
         (when interop/debug-enabled?
@@ -195,10 +208,6 @@
                           :actor-id   actor-id
                           :url        (:url handle)}
                          (true? (:sensitive? handle)))))
-        ;; Remove from the request-id index too so the natural failure
-        ;; path doesn't try to clear a slot we already swept.
-        (when-let [rid (:request-id handle)]
-          (swap! in-flight dissoc rid))
         (try
           ((:abort-fn handle) :actor-destroyed)
           (catch #?(:clj Throwable :cljs :default) _ nil)))))
