@@ -44,6 +44,11 @@
             [re-frame.http-encoding :as encoding]
             [re-frame.late-bind    :as late-bind]))
 
+;; rf2-2utlm — the canned stubs delegate to `encoding/dispatch-reply-
+;; via-late-bind!`, the same helper `http-transport/dispatch-reply!`
+;; uses, so the build-reply-event + late-bind lookup pattern lives in
+;; one place.
+
 ;; ---- canned stub handlers (used by the registered :rf.http/managed-* fxs
 ;; AND the per-call stub fx-override that with-managed-request-stubs
 ;; installs). The fxs themselves are registered in the façade so they fire
@@ -57,34 +62,28 @@
 (defn canned-success-handler
   "Stub fx — synthesises a success reply per Spec 014 §Testing."
   [frame-ctx args-map]
-  (let [{:keys [on-success]} args-map
-        value (get args-map :value {:stubbed true})
-        reply {:kind :success :value value}
-        ev    (encoding/build-reply-event {:origin-event (encoding/resolve-origin-event frame-ctx args-map)
-                                           :explicit-on  {:supplied? (contains? args-map :on-success)
-                                                          :value     on-success}
-                                           :reply-payload reply
-                                           :kind          :success})]
-    (when ev
-      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-        (dispatch! ev (cond-> {} (:frame frame-ctx) (assoc :frame (:frame frame-ctx))))))
+  (let [value (get args-map :value {:stubbed true})]
+    (encoding/dispatch-reply-via-late-bind!
+      {:origin-event  (encoding/resolve-origin-event frame-ctx args-map)
+       :explicit-on   {:supplied? (contains? args-map :on-success)
+                       :value     (:on-success args-map)}
+       :reply-payload {:kind :success :value value}
+       :kind          :success}
+      (:frame frame-ctx))
     nil))
 
 (defn canned-failure-handler
   [frame-ctx args-map]
-  (let [{:keys [on-failure]} args-map
-        kind  (or (:kind args-map) :rf.http/transport)
-        tags  (or (:tags args-map) {})
-        failure (assoc tags :kind kind)
-        reply {:kind :failure :failure failure}
-        ev    (encoding/build-reply-event {:origin-event (encoding/resolve-origin-event frame-ctx args-map)
-                                           :explicit-on  {:supplied? (contains? args-map :on-failure)
-                                                          :value     on-failure}
-                                           :reply-payload reply
-                                           :kind          :failure})]
-    (when ev
-      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-        (dispatch! ev (cond-> {} (:frame frame-ctx) (assoc :frame (:frame frame-ctx))))))
+  (let [kind    (or (:kind args-map) :rf.http/transport)
+        tags    (or (:tags args-map) {})
+        failure (assoc tags :kind kind)]
+    (encoding/dispatch-reply-via-late-bind!
+      {:origin-event  (encoding/resolve-origin-event frame-ctx args-map)
+       :explicit-on   {:supplied? (contains? args-map :on-failure)
+                       :value     (:on-failure args-map)}
+       :reply-payload {:kind :failure :failure failure}
+       :kind          :failure}
+      (:frame frame-ctx))
     nil))
 
 ;; ---- with-managed-request-stubs ------------------------------------------
