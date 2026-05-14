@@ -863,11 +863,16 @@
         ;; Walk each path once; reuse the `[prefix node]` pair vectors
         ;; for both the cascade ref derivation AND the spawn/destroy fx
         ;; emission downstream (per audit §T6 #2 — eliminate the double
-        ;; nodes-along-path call).
+        ;; nodes-along-path call). `nodes-along-path` returns a vector, so
+        ;; `subvec` is one zero-copy slice — the prior `(vec (drop ...))`
+        ;; built a lazy seq, then realised it, then `vec`'d (three
+        ;; allocations). Per rf2-ijbg2.
         exited-pairs  (when-not internal?
-                        (vec (drop lca-len (nodes-along-path machine src-path))))
+                        (let [pairs (nodes-along-path machine src-path)]
+                          (subvec pairs (min lca-len (count pairs)))))
         entered-pairs (when-not internal?
-                        (vec (drop lca-len (nodes-along-path machine target-leaf))))
+                        (let [pairs (nodes-along-path machine target-leaf)]
+                          (subvec pairs (min lca-len (count pairs)))))
         exit-refs     (when-not internal?
                         (map (fn [[_ n]] (:exit n)) (reverse exited-pairs)))
         entry-refs    (when-not internal?
