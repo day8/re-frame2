@@ -162,32 +162,41 @@
   Recurses into sub-maps; vectors and scalars are treated as leaves
   (replaced wholesale via `:assoc` rather than re-diffed element-wise
   — element-wise vector diff doesn't shrink the wire for the typical
-  app-db where vector values are short)."
+  app-db where vector values are short).
+
+  Two-pass: walks `b` once to emit `:assoc` patches for added /
+  changed keys (recursing on map/map pairs), then walks `a` once to
+  emit `:dissoc` patches for keys absent from `b`. Avoids the
+  intermediate key-union set the naive single-pass form would
+  allocate per call — non-trivial on the hot app-db diff path."
   [a b path]
-  (let [ks (into #{} (concat (keys a) (keys b)))]
-    (reduce
-      (fn [acc k]
-        (let [av (get a k ::absent)
-              bv (get b k ::absent)
-              p  (conj path k)]
-          (cond
-            ;; Key removed.
-            (= bv ::absent)
-            (conj acc [p :dissoc])
-            ;; Key added.
-            (= av ::absent)
-            (conj acc [p :assoc bv])
-            ;; Unchanged — skip.
-            (= av bv)
-            acc
-            ;; Both maps: recurse.
-            (and (map? av) (map? bv))
-            (into acc (collect-patches av bv p))
-            ;; Otherwise: leaf replacement.
-            :else
-            (conj acc [p :assoc bv]))))
-      []
-      ks)))
+  (let [after-assocs
+        (reduce-kv
+          (fn [acc k bv]
+            (let [av (get a k ::absent)
+                  p  (conj path k)]
+              (cond
+                ;; Key added.
+                (= av ::absent)
+                (conj acc [p :assoc bv])
+                ;; Unchanged — skip.
+                (= av bv)
+                acc
+                ;; Both maps: recurse.
+                (and (map? av) (map? bv))
+                (into acc (collect-patches av bv p))
+                ;; Otherwise: leaf replacement.
+                :else
+                (conj acc [p :assoc bv]))))
+          []
+          b)]
+    (reduce-kv
+      (fn [acc k _av]
+        (if (contains? b k)
+          acc
+          (conj acc [(conj path k) :dissoc])))
+      after-assocs
+      a)))
 
 (defn collect-patches
   "Patch-list factory. Two maps recurse via `collect-map-patches`; any
