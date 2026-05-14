@@ -1,31 +1,18 @@
 (ns re-frame.adapter.helix
-  "The Helix adapter — the third canonical browser substrate (rf2-2qit).
-  Per Spec 006 §CLJS reference: Helix as alternative substrate.
+  "The Helix adapter — third canonical browser substrate, targeting the
+  Helix 0.2.x line. Per Spec 006 §CLJS reference: Helix as alternative
+  substrate. Ships in `day8/re-frame2-helix`; dependency flows adapter
+  → core.
 
-  Ships in its own Maven artefact (day8/re-frame2-helix) per
-  Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use Helix
-  depend on both day8/re-frame2 (core) and this artefact; apps
-  targeting Reagent depend on day8/re-frame2-reagent instead; apps
-  targeting UIx depend on day8/re-frame2-uix instead. Core does
-  *not* :require this ns — the dependency direction is adapter → core.
-
-  Per rf2-2qit Decision 2 the React frame-context lives in
-  `re-frame.adapter.context` (CLJS-only file in core); this adapter
-  consumes the *same* createContext object the Reagent and UIx
-  adapters consume, so a future mixed-substrate app's frame-provider
-  chain composes across substrates.
-
-  Per rf2-2qit Decision 8 we target the Helix 0.2.x line.
-
-  Substrate-spine sharing (rf2-3vwbx). The container quartet, derived
-  value, render-root, render-to-string, frame-provider, use-subscribe,
-  flush-views!, source-coord wrapper, and warn-once-cache logic all
-  come from `re-frame.substrate.spine` — that ns hosts the
-  React-shaped-substrate spine UIx and Helix share byte-for-byte. The
-  Helix-specific configuration here is the gensym-prefix triple, the
-  substrate-name (\"Helix\") used in warn-once text, and the helix.hooks
-  use-memo*/use-callback* (which want JS-array deps; the spine passes
-  JS arrays unconditionally)."
+  Shares the React-shaped substrate machinery (container quartet,
+  derived value, render-root, render-to-string, frame-provider, use-
+  subscribe, flush-views!, source-coord wrapper, warn-once-cache) with
+  the UIx adapter via `re-frame.substrate.spine`. Helix-specific
+  configuration: gensym prefixes, substrate name (used in warn-once
+  text), and helix.hooks `use-memo*` / `use-callback*` (the spine
+  passes JS-array deps unconditionally). The React frame-context
+  comes from `re-frame.adapter.context` so a mixed-substrate app's
+  frame-provider chain composes across substrates."
   (:require [reagent.core        :as r]
             [reagent.ratom       :as ratom]
             [helix.hooks         :as helix-hooks]

@@ -1,19 +1,16 @@
 (ns re-frame.adapter.uix
-  "The UIx adapter — the second canonical browser substrate (rf2-3yij).
-  Per Spec 006 §CLJS reference: UIx as alternative substrate.
-  Ships in its own Maven artefact (day8/re-frame2-uix) per
-  Spec 006 §Adapter shipping convention (rf2-0hxm); core does NOT
-  :require this ns (dependency direction: adapter → core). Targets
-  UIx 2.x (hooks-based) per rf2-3yij Decision 8.
+  "The UIx adapter — second canonical browser substrate, targeting UIx
+  2.x (hooks-based). Per Spec 006 §CLJS reference: UIx as alternative
+  substrate. Ships in `day8/re-frame2-uix`; dependency flows adapter
+  → core.
 
-  Substrate-spine sharing (rf2-3vwbx). The container quartet, derived
-  value, render-root, render-to-string, frame-provider, use-subscribe,
-  flush-views!, source-coord wrapper, and warn-once-cache logic come
-  from `re-frame.substrate.spine`. The UIx-specific configuration
-  here is the gensym-prefix triple, the substrate-name (\"UIx\") used
-  in warn-once text, and the runtime hook fns from `uix.hooks.alpha`
-  (the spine passes JS-array deps; `uix.hooks.alpha/use-memo` and
-  `use-callback` are the runtime fns the `uix.core` macros expand to)."
+  Shares the React-shaped substrate machinery (container quartet,
+  derived value, render-root, render-to-string, frame-provider, use-
+  subscribe, flush-views!, source-coord wrapper, warn-once-cache) with
+  the Helix adapter via `re-frame.substrate.spine`. UIx-specific
+  configuration: gensym prefixes, substrate name (used in warn-once
+  text), and the runtime hook fns from `uix.hooks.alpha` (the
+  `uix.core` macros expand to these)."
   (:require [reagent.core      :as r]
             [reagent.ratom     :as ratom]
             [uix.core          :as uix]

@@ -1,35 +1,14 @@
 (ns re-frame.adapter.reagent-slim
   "The day8/reagent-slim adapter — emits the 9-key substrate map for
-  `re-frame.substrate.adapter`. Drop-in shape-compatible with the
-  bridge adapter `re-frame.adapter.reagent`; internals route through
-  the `reagent2.*` rewrite of Reagent (no stock-Reagent dep).
-
-  Usage:
+  `re-frame.substrate.adapter`. Shape-compatible with the bridge
+  adapter `re-frame.adapter.reagent`; internals route through the
+  `reagent2.*` rewrite of Reagent (no stock-Reagent dep).
 
       (require '[re-frame.adapter.reagent-slim :as reagent-slim])
       (rf/init! reagent-slim/adapter)
 
-  Public surface:
-
-    adapter             — the 9-key substrate spec map
-    set-hiccup-emitter! — wires SSR's render-to-string (rf2-uo7v)
-
-  Detail lives in:
-
-    DESIGN-RATIONALE.md — the why (separate-ns rationale, slim vs
-                          bridge split, render-path mechanics)
-    IMPL-SPEC.md §2.1   — the 9-key map contract
-    IMPL-SPEC.md §9     — late-bind hook table + per-hook routing
-    IMPL-SPEC.md §13.1  — artefact-publication shape
-
-  Late-bind hooks installed at ns-load time route through
-  `(substrate-adapter/current-adapter)` so the active adapter's impl
-  wins when multiple adapter ns'es are loaded into the same bundle
-  (test fixtures, story builds). See the `route-hook!` calls at the
-  bottom of this file.
-
-  Pre-release: until the bridge is retired (post-1.0), apps opt in
-  to the rewrite by requiring this ns."
+  See IMPL-SPEC.md §2.1 (9-key map contract), §9 (late-bind hook table),
+  §13.1 (artefact-publication shape) and DESIGN-RATIONALE.md."
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
