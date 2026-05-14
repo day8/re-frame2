@@ -9,9 +9,6 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
-            [re-frame.routing :as routing]
             ;; Pull http-managed in so its late-bind hooks (in particular
             ;; :http/reg-http-interceptor) are published — the
             ;; registry-introspection-round-trip test below exercises
@@ -84,33 +81,10 @@
       (is (= 1 @fired)))))
 
 ;; ---- standard interceptors ------------------------------------------------
-
-(deftest path-interceptor
-  (testing "(path :a :b) focuses a handler on the [:a :b] sub-slice"
-    (rf/reg-event-db :init   (fn [_ _] {:user {:profile {:name "alice" :role :admin}}}))
-    (rf/reg-event-db :rename
-      [(rf/path :user :profile :name)]
-      ;; Handler sees ONLY the slice value as :db.
-      (fn [name [_ new-name]]
-        (str new-name "-renamed-from-" name)))
-    (rf/dispatch-sync [:init])
-    (rf/dispatch-sync [:rename "bob"])
-    ;; Result spliced back at [:user :profile :name]; :role is preserved.
-    (is (= {:user {:profile {:name "bob-renamed-from-alice"
-                             :role :admin}}}
-           (rf/get-frame-db :rf/default)))))
-
-(deftest unwrap-interceptor
-  (testing "[unwrap] gives the handler the payload map directly"
-    (let [seen (atom nil)]
-      (rf/reg-event-fx :consume
-        [rf/unwrap]
-        (fn [_cofx payload]
-          (reset! seen payload)
-          {}))
-      (rf/dispatch-sync [:consume {:k "v" :n 7}])
-      (is (= {:k "v" :n 7} @seen)
-          "handler should receive the payload map as :event"))))
+;;
+;; The path / unwrap interceptor contracts live in interceptor_test.clj —
+;; that namespace pins every retained Spec 002 interceptor primitive with
+;; deeper coverage than this smoke layer ever did (rf2-zqar3 deduplication).
 
 (deftest compute-sub-against-supplied-db
   (testing "compute-sub evaluates a sub against a supplied db value"
@@ -142,116 +116,10 @@
                 @traces)
           "expected :rf.error/frame-destroyed trace with :replaced-with-default"))))
 
-(deftest sub-cache-ref-counting
-  (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
-    ;; Per Spec 006 §Reference counting and disposal (rf2-s9dn): default
-    ;; disposal is deferred by a grace-period to bridge React re-render
-    ;; churn. For this synchronous-assertion test we set grace=0 so the
-    ;; slot disposes immediately — see sub_cache_test.clj for the
-    ;; deferred-dispose contract tests.
-    (rf/configure :sub-cache {:grace-period-ms 0})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [cache (:sub-cache (frame/frame :rf/default))]
-      ;; Two subscriptions to the same query share a single cache slot.
-      (let [r1 (rf/subscribe [:n])
-            r2 (rf/subscribe [:n])]
-        (is (identical? r1 r2) "cache hit returns the same reaction")
-        (is (contains? @cache [:n]))
-        (is (= 2 (get-in @cache [[:n] :ref-count]))))
-      ;; First unsubscribe drops to 1, slot still present.
-      (rf/unsubscribe [:n])
-      (is (contains? @cache [:n]))
-      (is (= 1 (get-in @cache [[:n] :ref-count])))
-      ;; Second unsubscribe drops to 0; with grace=0 the slot is evicted
-      ;; synchronously.
-      (rf/unsubscribe [:n])
-      (is (not (contains? @cache [:n]))
-          "cache slot is removed when ref-count reaches zero"))
-    ;; Restore the default for subsequent tests.
-    (rf/configure :sub-cache {:grace-period-ms 50})))
-
-(deftest flows-are-frame-scoped
-  (testing "the same flow-id registered against two frames runs independently"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
-    ;; Register :compute against :left as 2x; against :right as 100x.
-    (rf/reg-flow {:id     :compute
-                  :inputs [[:n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:result]}
-                 {:frame :left})
-    (rf/reg-flow {:id     :compute
-                  :inputs [[:n]]
-                  :output (fn [n] (* 100 (or n 0)))
-                  :path   [:result]}
-                 {:frame :right})
-    (rf/dispatch-sync [:seed 5] {:frame :left})
-    (rf/dispatch-sync [:seed 5] {:frame :right})
-    (is (= 10  (:result (rf/get-frame-db :left)))
-        "left frame's :compute uses the 2x formula → 5*2 = 10")
-    (is (= 500 (:result (rf/get-frame-db :right)))
-        "right frame's :compute uses the 100x formula → 5*100 = 500"))
-  (testing "clear-flow on one frame leaves the other frame's flow intact"
-    (rf/clear-flow :compute {:frame :left})
-    ;; Re-trigger drain on both frames; left should NOT recompute (flow gone).
-    (rf/dispatch-sync [:seed 7] {:frame :left})
-    (rf/dispatch-sync [:seed 7] {:frame :right})
-    (is (nil? (:result (rf/get-frame-db :left)))
-        "left's :result was cleared by (clear-flow :compute :frame :left)")
-    (is (= 700 (:result (rf/get-frame-db :right)))
-        "right's :compute still active — 7 * 100 = 700")))
-
-(deftest flow-hot-reload-invalidates-last-inputs
-  (testing "re-registering a flow re-evaluates even when inputs are unchanged"
-    (rf/reg-event-db :init   (fn [_ _] {:n 5}))
-    (rf/reg-event-db :inc-n  (fn [db _] (update db :n inc)))
-    ;; v1 flow: doubles :n at [:doubled].
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:doubled]})
-    (rf/dispatch-sync [:init])
-    (is (= 10 (:doubled (rf/get-frame-db :rf/default))))
-    (rf/dispatch-sync [:inc-n])
-    (is (= 12 (:doubled (rf/get-frame-db :rf/default))))
-    ;; Re-register with a NEW formula. Inputs haven't changed yet — but the
-    ;; flow body did, so the next drain should re-evaluate.
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :output (fn [n] (* 100 n))
-                  :path   [:doubled]})
-    ;; Trigger ANY event to drive the drain (no input change).
-    (rf/dispatch-sync [:inc-n])
-    (is (= 700 (:doubled (rf/get-frame-db :rf/default)))
-        "after re-registration the flow body re-evaluates on the next drain")))
-
-(deftest sub-hot-reload-invalidates-cache
-  (testing "re-registering a :sub disposes cached reactions and emits a trace"
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
-    (rf/dispatch-sync [:seed])
-    ;; v1 of :answer returns the value as-is.
-    (rf/reg-sub :answer (fn [db _] (:n db)))
-    (is (= 7 (rf/subscribe-value [:answer])))
-    ;; Force the cache to retain the entry by holding a ref via subscribe.
-    (let [_pinned (rf/subscribe [:answer])
-          traces  (atom [])]
-      (rf/register-trace-cb! ::hot-reload (fn [ev] (swap! traces conj ev)))
-      ;; Re-register with a transformed body.
-      (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
-      (rf/remove-trace-cb! ::hot-reload)
-      ;; After re-registration, the next subscribe-value sees the new fn.
-      (is (= 70 (rf/subscribe-value [:answer]))
-          "after re-registration the new sub body is used")
-      (is (some (fn [ev]
-                  (and (= :rf.registry/handler-replaced (:operation ev))
-                       (= :registry (:op-type ev))
-                       (= :sub (:kind (:tags ev)))
-                       (= :answer (:id (:tags ev)))))
-                @traces)
-          "expected :rf.registry/handler-replaced trace"))))
+;; sub-cache-ref-counting and sub-hot-reload-invalidates-cache moved to
+;; sub_cache_test.clj; flows-are-frame-scoped and
+;; flow-hot-reload-invalidates-last-inputs moved to flows artefact's
+;; flows_test.clj (rf2-zqar3 cohort split).
 
 (deftest subscriber-captures-frame
   (testing "subscriber closes over the current frame so closures don't need to thread it"
@@ -479,56 +347,12 @@
     (is (= 5           (rf/subscribe-value :rf/default [:item-count])))))
 
 ;; ---- machine ---------------------------------------------------------------
-
-(deftest pure-machine-transition
-  (testing "machine-transition is pure"
-    (let [m {:id     :traffic-light
-             :initial :red
-             :data    {}
-             :states
-             {:red    {:on {:tick {:target :green}}}
-              :green  {:on {:tick {:target :yellow}}}
-              :yellow {:on {:tick {:target :red}}}}}]
-      (let [{s1 ::result/snap} (machines/machine-transition m {:state :red :data {}} [:tick])]
-        (is (= :green (:state s1))))
-      (let [{s2 ::result/snap} (machines/machine-transition m {:state :green :data {}} [:tick])]
-        (is (= :yellow (:state s2)))))))
-
-(deftest machine-always-microstep
-  (testing ":always fires once after the resolving event under a true guard"
-    (let [m {:id     :auth
-             :initial :checking
-             :data    {:authed? true}
-             :guards  {:authed? (fn [data _] (:authed? data))}
-             :states
-             {:checking {:always [{:guard :authed? :target :authed}]}
-              :authed   {}
-              :idle     {}}}
-          ;; Even with a no-op event (no match in :on), :always is checked
-          ;; and the guard passes — transition to :authed.
-          {s ::result/snap} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
-      (is (= :authed (:state s))))))
-
-(deftest machine-raise-pre-commit
-  (testing ":raise routes locally pre-commit (does not go to runtime fifo)"
-    (let [calls (atom [])
-          m {:id      :counter
-             :initial :idle
-             :data    {:n 0}
-             :actions {:start (fn [_ _]
-                                {:fx [[:raise [:bump]] [:raise [:bump]]]})
-                       :bump  (fn [data _]
-                                {:data {:n (inc (:n data))}})}
-             :states
-             {:idle {:on {:start {:target :busy :action :start}
-                          :bump  {:action :bump}}}
-              :busy {:on {:bump {:action :bump}}}}}
-          {s ::result/snap fx ::result/fx} (machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
-      ;; Two raised :bump events should have been processed pre-commit;
-      ;; final data :n should be 2.
-      (is (= 2 (:n (:data s))))
-      ;; No :raise should escape to the outer fx.
-      (is (not (some #{:raise} (map first fx)))))))
+;;
+;; pure-machine-transition / machine-always-microstep / machine-raise-pre-commit
+;; moved to machines artefact's machine_transition_purity_test.clj
+;; (rf2-zqar3 cohort split — all three exercise the pure
+;; machines/machine-transition surface; co-located with the rest of the
+;; pure-transition contract tests).
 
 ;; ---- flows ----------------------------------------------------------------
 
@@ -900,84 +724,9 @@
         (is (nil? (rf/machine-meta :test/never-registered))
             "unregistered ids return nil")))))
 
-(deftest ssr-with-fx-override
-  (testing "SSR flow with :fx-overrides redirecting :http/get to a stub"
-    (let [stub-fired? (atom false)]
-      ;; Stub fx that synthesises an HTTP response. Threads the active
-      ;; frame through to the dispatch so :articles/loaded lands in the
-      ;; right frame's app-db (per Spec 002 §Routing the dispatch envelope:
-      ;; fx handlers receive {:frame frame-id} as their first arg).
-      (rf/reg-fx :http/get.canned-articles
-        {:platforms #{:server :client}}
-        (fn [{:keys [frame]} {:keys [on-success]}]
-          (reset! stub-fired? true)
-          (when on-success
-            (rf/dispatch (conj on-success
-                               [{:id "a" :title "Article A"}
-                                {:id "b" :title "Article B"}])
-                         {:frame frame}))))
-      ;; The real fx must be registered for the override to know what
-      ;; "http/get" is — register a no-op so it exists.
-      (rf/reg-fx :http/get
-        {:platforms #{:server :client}}
-        (fn [_ _] nil))
-
-      (rf/reg-event-fx :rf/server-init
-        (fn [{:keys [db]} [_ _request]]
-          {:db (assoc db :rf/route {:id :route/articles})
-           :fx [[:http/get {:url "/api/articles"
-                            :on-success [:articles/loaded]}]]}))
-      (rf/reg-event-db :articles/loaded
-        (fn [db [_ articles]] (assoc db :articles articles)))
-
-      (let [traces (atom [])]
-        (rf/register-trace-cb! ::ssr (fn [ev] (swap! traces conj ev)))
-        (let [f  (rf/make-frame
-                   {:on-create    [:rf/server-init {:uri "/articles"}]
-                    :fx-overrides {:http/get :http/get.canned-articles}})
-              db (rf/get-frame-db f)]
-          (rf/remove-trace-cb! ::ssr)
-          (is @stub-fired? "the override redirected the fx to the stub")
-          (is (= 2 (count (:articles db)))
-              (str "expected 2 articles in db; traces: "
-                   (pr-str (mapv :operation @traces))))
-          (is (= "Article A" (-> db :articles first :title))))))))
-
-(deftest ssr-end-to-end
-  (testing "complete SSR flow: dispatch-sync → render-to-string → embedded hash"
-    ;; Register a trivial articles app — an event seeds state, a sub
-    ;; reads it, a view renders it.
-    (rf/reg-event-db :articles/seed
-      (fn [_ _] {:articles [{:id "a" :title "Article A" :body "Body A"}
-                            {:id "b" :title "Article B" :body "Body B"}]}))
-    (rf/reg-sub :articles (fn [db _] (:articles db)))
-    ;; Test exercises the keyword-id [:pages/articles] hiccup head — not
-    ;; the macro shape — so it uses the plain-fn surface reg-view* with
-    ;; an explicit id rather than the defn-shape macro.
-    (rf/reg-view* :pages/articles
-      (fn []
-        (let [arts (rf/subscribe-value [:articles])]
-          [:div.page
-           [:h1 "Recent articles"]
-           [:ul
-            (for [{:keys [id title body]} arts]
-              ^{:key id} [:li [:h3 title] [:p body]])]])))
-
-    ;; Server flow: dispatch the seed event, render the root, capture hash.
-    (rf/dispatch-sync [:articles/seed])
-    (let [html (rf/render-to-string [:pages/articles] {:emit-hash? true})]
-      (is (clojure.string/includes? html "Article A")
-          "rendered HTML contains the title from app-db")
-      (is (clojure.string/includes? html "Article B"))
-      (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
-                   html)
-          "root <div> carries a data-rf-render-hash attribute")
-      ;; The hash is reproducible: re-render the same tree, same hash.
-      (let [h1 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html)
-            html-2 (rf/render-to-string [:pages/articles] {:emit-hash? true})
-            h2 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html-2)]
-        (is (= (second h1) (second h2))
-            "re-rendering the same view+state yields the same hash")))))
+;; ssr-with-fx-override and ssr-end-to-end moved to the ssr artefact's
+;; ssr_end_to_end_test.clj (rf2-zqar3 cohort split — co-located with the
+;; rest of the SSR request-lifecycle coverage).
 
 (deftest reg-view-jvm
   (testing "reg-view registers a view that render-to-string resolves"

@@ -794,3 +794,63 @@
       (let [after (count @(deref hooks-var))]
         (is (= before after)
             "the hook count is unchanged across a namespace reload — `defonce` guards the install")))))
+
+;; ---------------------------------------------------------------------------
+;; 9. Frame-scoped flow smoke (relocated from core/smoke_test.clj, rf2-zqar3)
+;; ---------------------------------------------------------------------------
+
+(deftest flows-are-frame-scoped
+  (testing "the same flow-id registered against two frames runs independently"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    ;; Register :compute against :left as 2x; against :right as 100x.
+    (rf/reg-flow {:id     :compute
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    (rf/reg-flow {:id     :compute
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 (or n 0)))
+                  :path   [:result]}
+                 {:frame :right})
+    (rf/dispatch-sync [:seed 5] {:frame :left})
+    (rf/dispatch-sync [:seed 5] {:frame :right})
+    (is (= 10  (:result (rf/get-frame-db :left)))
+        "left frame's :compute uses the 2x formula → 5*2 = 10")
+    (is (= 500 (:result (rf/get-frame-db :right)))
+        "right frame's :compute uses the 100x formula → 5*100 = 500"))
+  (testing "clear-flow on one frame leaves the other frame's flow intact"
+    (rf/clear-flow :compute {:frame :left})
+    ;; Re-trigger drain on both frames; left should NOT recompute (flow gone).
+    (rf/dispatch-sync [:seed 7] {:frame :left})
+    (rf/dispatch-sync [:seed 7] {:frame :right})
+    (is (nil? (:result (rf/get-frame-db :left)))
+        "left's :result was cleared by (clear-flow :compute :frame :left)")
+    (is (= 700 (:result (rf/get-frame-db :right)))
+        "right's :compute still active — 7 * 100 = 700")))
+
+(deftest flow-hot-reload-invalidates-last-inputs
+  (testing "re-registering a flow re-evaluates even when inputs are unchanged"
+    (rf/reg-event-db :init   (fn [_ _] {:n 5}))
+    (rf/reg-event-db :inc-n  (fn [db _] (update db :n inc)))
+    ;; v1 flow: doubles :n at [:doubled].
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:doubled]})
+    (rf/dispatch-sync [:init])
+    (is (= 10 (:doubled (rf/get-frame-db :rf/default))))
+    (rf/dispatch-sync [:inc-n])
+    (is (= 12 (:doubled (rf/get-frame-db :rf/default))))
+    ;; Re-register with a NEW formula. Inputs haven't changed yet — but the
+    ;; flow body did, so the next drain should re-evaluate.
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 n))
+                  :path   [:doubled]})
+    ;; Trigger ANY event to drive the drain (no input change).
+    (rf/dispatch-sync [:inc-n])
+    (is (= 700 (:doubled (rf/get-frame-db :rf/default)))
+        "after re-registration the flow body re-evaluates on the next drain")))

@@ -135,3 +135,60 @@
           {snap' ::result/snap} (machines/machine-transition spec {:state :idle :data {}} [:start])]
       (is (= {:worker 3} (:rf/spawn-counter snap'))
           "three :worker children bumped the slot to 3"))))
+
+;; ---- Pure transition smoke (relocated from core/smoke_test.clj, rf2-zqar3) ----
+;;
+;; These pin baseline machine-transition behaviours — flat transitions,
+;; :always microsteps, and pre-commit :raise routing. Co-located with the
+;; allocator-purity contract above because they all exercise the pure
+;; `machines/machine-transition` surface from argument to Result.
+
+(deftest pure-machine-transition
+  (testing "machine-transition is pure"
+    (let [m {:id     :traffic-light
+             :initial :red
+             :data    {}
+             :states
+             {:red    {:on {:tick {:target :green}}}
+              :green  {:on {:tick {:target :yellow}}}
+              :yellow {:on {:tick {:target :red}}}}}]
+      (let [{s1 ::result/snap} (machines/machine-transition m {:state :red :data {}} [:tick])]
+        (is (= :green (:state s1))))
+      (let [{s2 ::result/snap} (machines/machine-transition m {:state :green :data {}} [:tick])]
+        (is (= :yellow (:state s2)))))))
+
+(deftest machine-always-microstep
+  (testing ":always fires once after the resolving event under a true guard"
+    (let [m {:id     :auth
+             :initial :checking
+             :data    {:authed? true}
+             :guards  {:authed? (fn [data _] (:authed? data))}
+             :states
+             {:checking {:always [{:guard :authed? :target :authed}]}
+              :authed   {}
+              :idle     {}}}
+          ;; Even with a no-op event (no match in :on), :always is checked
+          ;; and the guard passes — transition to :authed.
+          {s ::result/snap} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
+      (is (= :authed (:state s))))))
+
+(deftest machine-raise-pre-commit
+  (testing ":raise routes locally pre-commit (does not go to runtime fifo)"
+    (let [calls (atom [])
+          m {:id      :counter
+             :initial :idle
+             :data    {:n 0}
+             :actions {:start (fn [_ _]
+                                {:fx [[:raise [:bump]] [:raise [:bump]]]})
+                       :bump  (fn [data _]
+                                {:data {:n (inc (:n data))}})}
+             :states
+             {:idle {:on {:start {:target :busy :action :start}
+                          :bump  {:action :bump}}}
+              :busy {:on {:bump {:action :bump}}}}}
+          {s ::result/snap fx ::result/fx} (machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
+      ;; Two raised :bump events should have been processed pre-commit;
+      ;; final data :n should be 2.
+      (is (= 2 (:n (:data s))))
+      ;; No :raise should escape to the outer fx.
+      (is (not (some #{:raise} (map first fx)))))))
