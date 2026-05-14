@@ -417,17 +417,56 @@
             seed
             (ids :variant))))
 
+;; ---- variants-with-tags (memoised on mutation-tick, rf2-c5nwl) ----------
+;;
+;; The hot path is the sidebar compose loop + the SOTA assertions/play
+;; flows: every render computes
+;; `(variants-with-tags qs)` to surface the testable / docs-tagged subset.
+;; Each call is O(V × |query|) over the variant side-table. Once the
+;; registrar's mutation-tick is bumped, every cached answer becomes stale;
+;; until then, repeated calls with the same query collide on the same
+;; underlying set.
+;;
+;; The cache key is `[tick, sorted-qs]` so callers that pass the same
+;; query (in any order) hit the same slot. The cache is per-process and
+;; invalidates on every registrar mutation; a single-slot variant
+;; (last-call only) would also work, but the {tick → {qs → result}}
+;; shape keeps the assertions + sidebar + docs queries from evicting
+;; each other when they fire from the same render.
+
+(defonce ^:private variants-with-tags-cache
+  (atom {:tick -1 :by-query {}}))
+
+(defn- compute-variants-with-tags [qs]
+  (->> (registrations :variant)
+       (filter (fn [[_ body]]
+                 (let [tset (:tags body #{})]
+                   (some #(contains? tset %) qs))))
+       (map first)
+       set))
+
 (defn variants-with-tags
   "Return the variant ids whose `:tags` set intersects `query-tags`. Per
-  IMPL-SPEC §3.2 — the public `variants-with-tags` wraps this."
+  IMPL-SPEC §3.2 — the public `variants-with-tags` wraps this.
+
+  Memoised on the registrar mutation-tick (rf2-c5nwl): repeated calls
+  with the same query between two registrar writes return the same
+  cached set in O(1)."
   [query-tags]
-  (let [qs (set query-tags)]
-    (->> (registrations :variant)
-         (filter (fn [[_ body]]
-                   (let [tset (:tags body #{})]
-                     (some #(contains? tset %) qs))))
-         (map first)
-         set)))
+  (let [qs        (set query-tags)
+        cache-key (sort qs)
+        tick      @mutation-tick
+        cache     @variants-with-tags-cache]
+    (if (and (= tick (:tick cache))
+             (contains? (:by-query cache) cache-key))
+      (get (:by-query cache) cache-key)
+      (let [result (compute-variants-with-tags qs)]
+        (swap! variants-with-tags-cache
+               (fn [{prev-tick :tick prev-by :by-query}]
+                 (if (= prev-tick tick)
+                   {:tick tick :by-query (assoc prev-by cache-key result)}
+                   {:tick tick :by-query {cache-key result}})))
+        result))))
 
 (defn- query-tags-by
   "Pure data → data: return the set of registered tag ids whose body

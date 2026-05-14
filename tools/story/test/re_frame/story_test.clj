@@ -532,6 +532,26 @@
                            {:events [[:init]]}))
       (is (>= (registrar/current-mutation-tick) (+ t0 5))))))
 
+(deftest variants-with-tags-memoised-on-mutation-tick
+  (testing "variants-with-tags returns cached results between two registrar writes (rf2-c5nwl)"
+    (story/reg-tag :status/stable {:axis :status})
+    (story/reg-tag :role/dev      {:axis :role})
+    (story/reg-variant :story.memo/a {:tags #{:status/stable} :events []})
+    (story/reg-variant :story.memo/b {:tags #{:role/dev}     :events []})
+    (story/reg-variant :story.memo/c {:tags #{:status/stable :role/dev} :events []})
+    (let [r1 (registrar/variants-with-tags #{:status/stable})
+          r2 (registrar/variants-with-tags #{:status/stable})]
+      (testing "same query between writes returns identical (cache-hit) set"
+        (is (identical? r1 r2))
+        (is (= #{:story.memo/a :story.memo/c} r1))))
+    (testing "different query in same tick is also cached + correct"
+      (let [r-role (registrar/variants-with-tags #{:role/dev})]
+        (is (= #{:story.memo/b :story.memo/c} r-role))))
+    (testing "registrar mutation invalidates the cache"
+      (story/reg-variant :story.memo/d {:tags #{:status/stable} :events []})
+      (let [r3 (registrar/variants-with-tags #{:status/stable})]
+        (is (= #{:story.memo/a :story.memo/c :story.memo/d} r3))))))
+
 ;; ---- Public tag->axis-index API -------------------------------------
 
 (deftest public-tag-axis-index-no-axis-sentinel
