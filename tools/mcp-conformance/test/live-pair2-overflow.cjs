@@ -74,6 +74,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
+const { parseEDNString } = require('edn-data');
 const { runWithWatchdog } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
@@ -96,192 +97,80 @@ const DEFAULT_MAX_TOKENS = 5000;
 // path kicks in first).
 const FORM_OVER_BUDGET = '(apply str (repeat 25000 "x"))';
 
-// Canonical schema for `:rf.mcp/overflow`. Mirrors the Malli
-// `Pair2OverflowBody` schema pinned by `tools/mcp-conformance/wire-vocab/`
-// (the JVM-side vocabulary conformance test) — we re-encode it here as
-// plain JS assertions because this is a Node-side harness and the SDK
-// doesn't link Malli. A drift between the two pins is a vocabulary bug:
-// the marker MUST validate against both encodings identically.
-//
-// Cross-encoding sanity (rf2-0zqox): the JVM test
-// `js-assertOverflowBody-pins-every-pair2-overflow-required-field`
-// in `wire-vocab/test/.../wire_vocab_test.clj` grep-asserts every
-// required field on `Pair2OverflowBody` against the substrings in this
-// function. Adding / removing a check below MUST keep that gate happy;
-// adding / removing a Malli field on the JVM side MUST update the
-// `pair2-overflow-js-required-grep-markers` table there in lockstep.
+// `edn-data` parse opts pinned for the whole harness (rf2-i3ffz
+// F-CORR-2): map → plain JS object, keyword → bare string (no `:`
+// prefix), set → array. The bare-string keyword form matches Node's
+// JSON-native sensibilities and makes assertions read directly
+// (`body.limit === 'reached'` vs the previous `body[':limit'] ===
+// ':reached'`). Drift in the EDN shape now surfaces as a parse
+// exception on a real EDN reader, not a hand-rolled tokeniser's
+// silent acceptance of an evolution it wasn't designed for.
+const EDN_PARSE_OPTS = { mapAs: 'object', keywordAs: 'string', setAs: 'array' };
+
+// Required-field table for `:rf.mcp/overflow` (pair2-mcp shape). Each
+// row pins one Malli `Pair2OverflowBody` field, the expected value
+// shape, and a description for the error message. Adding / removing a
+// row MUST stay in lockstep with the Malli schema in
+// `wire-vocab/test/.../wire_vocab_test.clj` (`Pair2OverflowBody`); the
+// cross-encoding grep gate (`js-assertOverflowBody-pins-every-pair2-
+// overflow-required-field`) reads this same data table by name so a
+// drift in either direction trips the JVM-side test.
+const REQUIRED_FIELDS = [
+  ['limit',       (v) => v === 'reached',          'enum :reached'],
+  ['cap-tokens',  (v) => typeof v === 'number',    'int'],
+  ['token-count', (v) => typeof v === 'number',    'int'],
+  ['tool',        (v) => typeof v === 'string',    'string|keyword'],
+  ['hint',        (v) => typeof v === 'string',    'string|keyword'],
+];
+
+// Validate the parsed `:rf.mcp/overflow` body against the canonical
+// `Pair2OverflowBody` shape (rf2-i3ffz F-HYG-4 data-driven refactor).
 function assertOverflowBody(body, ctx) {
   if (!body || typeof body !== 'object') {
     throw new Error(ctx + ': overflow body is not a map: ' + JSON.stringify(body));
   }
-  // Required: :limit :reached
-  if (body[':limit'] !== ':reached') {
-    throw new Error(
-      ctx +
-        ': :limit MUST be :reached; got ' +
-        JSON.stringify(body[':limit']) +
-        '. (Schema: OverflowBody.limit ∈ {:reached})',
-    );
+  for (const [field, ok, desc] of REQUIRED_FIELDS) {
+    if (!ok(body[field])) {
+      throw new Error(
+        ctx + ': :' + field + ' MUST be ' + desc +
+          '; got ' + JSON.stringify(body[field]) +
+          '. (Schema: Pair2OverflowBody.' + field + ' : ' + desc + ')',
+      );
+    }
   }
-  // pair2-mcp form: requires :cap-tokens + :token-count + :tool + :hint
-  if (typeof body[':cap-tokens'] !== 'number') {
+  // Cross-field invariant: a tripped cap MUST report token-count
+  // strictly greater than cap-tokens. Malli's `[:map ...]` doesn't
+  // model cross-field relationships; this is the only gate.
+  if (body['token-count'] <= body['cap-tokens']) {
     throw new Error(
-      ctx +
-        ': :cap-tokens MUST be int; got ' +
-        JSON.stringify(body[':cap-tokens']) +
-        '. (Schema: OverflowBody.cap-tokens : int)',
-    );
-  }
-  if (typeof body[':token-count'] !== 'number') {
-    throw new Error(
-      ctx +
-        ': :token-count MUST be int; got ' +
-        JSON.stringify(body[':token-count']) +
-        '. (Schema: OverflowBody.token-count : int)',
-    );
-  }
-  if (typeof body[':tool'] !== 'string') {
-    throw new Error(
-      ctx +
-        ': :tool MUST be string; got ' +
-        JSON.stringify(body[':tool']) +
-        '. (Schema: OverflowBody.tool : string|keyword)',
-    );
-  }
-  if (typeof body[':hint'] !== 'string') {
-    throw new Error(
-      ctx +
-        ': :hint MUST be string; got ' +
-        JSON.stringify(body[':hint']) +
-        '. (Schema: OverflowBody.hint : string|keyword)',
-    );
-  }
-  if (body[':token-count'] <= body[':cap-tokens']) {
-    throw new Error(
-      ctx +
-        ': :token-count MUST exceed :cap-tokens for a tripped cap; got ' +
-        body[':token-count'] +
-        ' ≤ ' +
-        body[':cap-tokens'],
+      ctx + ': :token-count MUST exceed :cap-tokens for a tripped cap; got ' +
+        body['token-count'] + ' ≤ ' + body['cap-tokens'],
     );
   }
 }
 
-// Minimal EDN tokeniser for the canonical pair2-mcp marker shape. The
-// server's `pr-str` emits the marker as:
-//
-//   {:rf.mcp/overflow {:limit :reached :token-count 6250
-//                      :cap-tokens 5000 :tool "eval-cljs"
-//                      :hint "..."}}
-//
-// We do not want to pull a full EDN reader into a Node-only harness;
-// the parse here is keyed on the specific top-level shape of the
-// overflow marker and is robust to interior key order changes. If the
-// emitted shape grows new top-level keys this parser ignores them
-// (the schema assertion above is what enforces the contract).
+// Parse the canonical pair2-mcp overflow marker from response text
+// (rf2-i3ffz F-CORR-2). The hand-rolled ~120-LoC tokeniser this
+// replaces was technically correct for today's shape but fragile under
+// nested-map / escape-sequence evolution; `edn-data` (~30KB, zero
+// transitive deps) is a real EDN reader that handles the cases the
+// hand-roll only handled by accident. Returns the inner body map (a
+// plain JS object with bare-string keys) or null when the marker is
+// absent / the text is unparseable.
 function parseOverflowMarker(text) {
-  // Strip outer `{:rf.mcp/overflow ` ... ` }`.
-  const TOP = ':rf.mcp/overflow';
-  const topIdx = text.indexOf(TOP);
-  if (topIdx < 0) return null;
-  // Find the inner-map opening `{` after the top key.
-  let i = topIdx + TOP.length;
-  while (i < text.length && text[i] !== '{') i++;
-  if (i >= text.length) return null;
-  // Walk to the matching close-brace; respect quoted strings so we
-  // don't trip on a `}` embedded in :hint.
-  let depth = 0;
-  let start = i;
-  let end = -1;
-  let inStr = false;
-  for (let j = i; j < text.length; j++) {
-    const c = text[j];
-    if (inStr) {
-      if (c === '\\') {
-        j++; // skip escaped char
-        continue;
-      }
-      if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') {
-      inStr = true;
-      continue;
-    }
-    if (c === '{') depth++;
-    else if (c === '}') {
-      depth--;
-      if (depth === 0) {
-        end = j;
-        break;
-      }
-    }
+  let outer;
+  try {
+    outer = parseEDNString(text, EDN_PARSE_OPTS);
+  } catch (_e) {
+    return null;
   }
-  if (end < 0) return null;
-  const inner = text.slice(start + 1, end);
-
-  // Tokenise `:key value :key value ...` where value is one of:
-  //   - :keyword
-  //   - "string" (handle escapes)
-  //   - integer
-  const out = {};
-  let p = 0;
-  function skipWs() {
-    while (p < inner.length && /\s|,/.test(inner[p])) p++;
-  }
-  function readKey() {
-    skipWs();
-    if (inner[p] !== ':') return null;
-    let k = p;
-    while (p < inner.length && !/\s|,/.test(inner[p])) p++;
-    return inner.slice(k, p);
-  }
-  function readValue() {
-    skipWs();
-    if (p >= inner.length) return undefined;
-    const c = inner[p];
-    if (c === '"') {
-      // string
-      let s = '';
-      p++; // past opening "
-      while (p < inner.length) {
-        const ch = inner[p++];
-        if (ch === '\\') {
-          const next = inner[p++];
-          if (next === 'n') s += '\n';
-          else if (next === 't') s += '\t';
-          else if (next === 'r') s += '\r';
-          else s += next;
-          continue;
-        }
-        if (ch === '"') return s;
-        s += ch;
-      }
-      return s;
-    }
-    if (c === ':') {
-      // keyword
-      let k = p;
-      while (p < inner.length && !/\s|,/.test(inner[p])) p++;
-      return inner.slice(k, p);
-    }
-    // number or bare token (e.g. `nil`)
-    let k = p;
-    while (p < inner.length && !/\s|,/.test(inner[p])) p++;
-    const tok = inner.slice(k, p);
-    if (/^-?\d+$/.test(tok)) return parseInt(tok, 10);
-    if (tok === 'nil') return null;
-    return tok;
-  }
-  while (p < inner.length) {
-    skipWs();
-    if (p >= inner.length) break;
-    const k = readKey();
-    if (!k) break;
-    const v = readValue();
-    out[k] = v;
-  }
-  return out;
+  if (!outer || typeof outer !== 'object') return null;
+  // The marker is `{:rf.mcp/overflow {...}}` — with `keywordAs:
+  // 'string'` the top-level key arrives as the bare string
+  // `'rf.mcp/overflow'`. Any other shape (a longer envelope wrapping
+  // the marker, an `:ok? true` success that means apply-cap missed)
+  // is rejected.
+  return outer['rf.mcp/overflow'] || null;
 }
 
 // Pre-flight SKIP: route through the runner's shared skip helper so we
@@ -399,23 +288,29 @@ runWithWatchdog(
     //   - :tool MUST equal "eval-cljs" (the offending tool name).
     //   - :hint MUST match the per-tool entry (the wire-cap test
     //     pins the fallback path; this pins the per-tool path).
-    if (body[':cap-tokens'] !== DEFAULT_MAX_TOKENS) {
+    //
+    // Field-access shape: `edn-data` with `keywordAs: 'string'` parses
+    // EDN keywords as bare strings (no `:` prefix), so `body.foo` reads
+    // directly. The Malli-side schema names the same fields as kebab-
+    // case keywords; the cross-encoding gate in `wire_vocab_test.clj`
+    // greps for the JS-side substrings below.
+    if (body['cap-tokens'] !== DEFAULT_MAX_TOKENS) {
       throw new Error(
         ':cap-tokens MUST equal default ' +
           DEFAULT_MAX_TOKENS +
           ' (no per-call override sent); got ' +
-          body[':cap-tokens'] +
+          body['cap-tokens'] +
           '. If the default has changed in pair2-mcp `tools.cljs`, ' +
           'update DEFAULT_MAX_TOKENS in this file and refresh the spec ' +
           '§"Tight token budget per response" reference together.',
       );
     }
-    if (body[':tool'] !== 'eval-cljs') {
+    if (body['tool'] !== 'eval-cljs') {
       throw new Error(
-        ':tool MUST equal "eval-cljs"; got ' + JSON.stringify(body[':tool']),
+        ':tool MUST equal "eval-cljs"; got ' + JSON.stringify(body['tool']),
       );
     }
-    if (!body[':hint'] || !body[':hint'].includes('Slice')) {
+    if (!body['hint'] || !body['hint'].includes('Slice')) {
       // The pair2-mcp `overflow-hints` table maps "eval-cljs" → "Slice
       // the value at the call-site (`get-in`, `take`, project to fewer
       // keys) before returning." A rename of the per-tool hint surfaces
@@ -424,16 +319,16 @@ runWithWatchdog(
       throw new Error(
         ':hint MUST contain "Slice" (per-tool pair2-mcp hint for ' +
           'eval-cljs); got ' +
-          JSON.stringify(body[':hint']),
+          JSON.stringify(body['hint']),
       );
     }
     console.log(
       'OK   marker body pins: :cap-tokens=' +
-        body[':cap-tokens'] +
+        body['cap-tokens'] +
         ', :tool=' +
-        body[':tool'] +
+        body['tool'] +
         ', :token-count=' +
-        body[':token-count'],
+        body['token-count'],
     );
 
     // 7. Belt-and-braces: the wire response itself must fit under
