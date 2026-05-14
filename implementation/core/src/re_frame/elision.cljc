@@ -264,8 +264,8 @@
    new app-db path segment, so an inner `:large?` / `:hint` claim on
    the wrapped schema applies to the wrapper's path. Conservative v1:
    only `:maybe`. `:and` / `:or` / `:enum` may carry MULTIPLE children
-   with different props (merge / priority semantics TBD per rf2-b20zm
-   follow-on); a future iteration may extend this set."
+   with different props (merge / priority semantics TBD); a future
+   iteration may extend this set."
   #{:maybe})
 
 (defn- schema-properties
@@ -280,7 +280,7 @@
    exposes the inner `:large?` to callers. The descent preserves an
    explicit outer props map — if the wrapper itself carries props
    (`[:maybe {:large? true} :string]`), those win and no descent
-   happens. Per rf2-b20zm."
+   happens."
   [schema]
   (cond
     (and (vector? schema)
@@ -427,11 +427,11 @@
 (def ^:private redacted-sentinel
   "The `:rf/redacted` privacy sentinel emitted by the walker for slots
    matching the `:sensitive?` predicate. Re-exported from
-   `re-frame.privacy/redacted-sentinel` per rf2-iwqu9 so the in-handler
-   `with-redacted` interceptor and this wire-walker emit the same value
-   from a single source of truth. Per [009 §Privacy / sensitive data
-   in traces] — privacy owns the policy locus; the walker remains the
-   single normative emission site for the elision pathway."
+   `re-frame.privacy/redacted-sentinel` so the in-handler
+   `with-redacted` interceptor and this wire-walker emit the same value.
+   Per Spec 009 §Privacy / sensitive data in traces — privacy owns the
+   policy locus; the walker remains the single normative emission site
+   for the elision pathway."
   privacy/redacted-sentinel)
 
 (defn- sensitive-decl?

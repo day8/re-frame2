@@ -1,28 +1,24 @@
 (ns re-frame.views.warn-once
   "Warn-once caches and detection helpers for the Reagent-side views ns.
-  Per rf2-lh7p — split out of `re-frame.views` so the views file stays
-  focused on registration orchestration. Re-frame.views re-exports the
-  publicly-referenced surface (`clear-warned-non-dom-roots!`,
+  Re-frame.views re-exports the publicly-referenced surface
+  (`clear-warned-non-dom-roots!`,
   `maybe-warn-plain-fn-under-non-default-frame!`,
-  `clear-plain-fn-warned-pairs!`) so existing call sites continue to work
-  unchanged.
+  `clear-plain-fn-warned-pairs!`).
 
-  Two cohesive warn-once concerns live here:
+  Two warn-once concerns live here:
 
   1. Non-DOM-root warning (Spec 006 §Source-coord annotation,
      documented exemption). When a reg-view'd component returns a
-     non-DOM root (fn/class component or React Fragment) the
-     source-coord walk skips the annotation and emits a one-shot
-     console.warn per id. Pair tools fall back to the registry's
-     `:rf/id`. The `warned-non-dom-roots` defonce holds the per-process
-     set; `reset-runtime-fixture` clears it via the chained
-     `:adapter/clear-warn-once-caches!` hook per rf2-4edk.
+     non-DOM root (fn/class component or React Fragment) the source-
+     coord walk skips the annotation and emits a one-shot
+     console.warn per id. The `warned-non-dom-roots` defonce holds
+     the per-process set; `reset-runtime-fixture` clears it via the
+     chained `:adapter/clear-warn-once-caches!` hook.
 
-  2. Plain-fn-under-non-default-frame warning (Spec 004 §Plain Reagent
-     fns and Spec 006 §706). Detected at subscribe-time; suppression is
-     keyed by `[component-id non-default-frame-id]` pairs. Production
-     builds elide the entire body via the `interop/debug-enabled?`
-     gate."
+  2. Plain-fn-under-non-default-frame warning (Spec 004 §Plain
+     Reagent fns / Spec 006 §706). Detected at subscribe-time;
+     suppression keyed by `[component-id non-default-frame-id]` pairs.
+     Production builds elide via the `interop/debug-enabled?` gate."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -30,7 +26,7 @@
             [re-frame.trace :as trace]
             [re-frame.views.provider :as provider]))
 
-;; ---- non-DOM-root warning (rf2-4edk) -------------------------------------
+;; ---- non-DOM-root warning ------------------------------------------------
 
 (defonce ^:private warned-non-dom-roots (atom #{}))
 
@@ -39,9 +35,9 @@
   between cases (via `reset-runtime-fixture` and the chained
   `:adapter/clear-warn-once-caches!` hook) so a sibling test's first-
   encounter warning cannot silently swallow a later test's same-id
-  warning. Per rf2-4edk — the cache is a process-wide `defonce` so
-  the user-facing warn-once UX is unchanged in production; test-time
-  clearing is the only effect."
+  warning. The cache is a process-wide `defonce` so the user-facing
+  warn-once UX is unchanged in production; test-time clearing is the
+  only effect."
   []
   (reset! warned-non-dom-roots #{})
   nil)
@@ -124,9 +120,9 @@
 
 (defn- read-react-context-frame
   "Read the value the closest enclosing frame-provider has pushed onto
-  the shared React context. Per rf2-d4sf this is now a thin wrapper
-  around `adapter-context/current-frame` minus the dynamic-var tier —
-  the warn-once detection below has already filtered to the case where
+  the shared React context. A thin wrapper around
+  `adapter-context/current-frame` minus the dynamic-var tier — the
+  warn-once detection below has already filtered to the case where
   `*current-frame*` is unset (Condition 4), so we want the React-
   context value alone.
 
@@ -236,12 +232,9 @@
 (late-bind/set-fn! :views/clear-plain-fn-warned-pairs!
                    clear-plain-fn-warned-pairs!)
 
-;; Per rf2-4edk: register a clear of the `warned-non-dom-roots` cache
-;; under the chained `:adapter/clear-warn-once-caches!` hook. Each
-;; adapter (helix, uix) and this views ns all contribute a clear-step;
+;; Register a clear of the `warned-non-dom-roots` cache under the
+;; chained `:adapter/clear-warn-once-caches!` hook. Each adapter (helix,
+;; uix) and this views ns all contribute a clear-step;
 ;; `reset-runtime-fixture` invokes the top of the chain and every
-;; contributor's reset runs. Production behaviour is unchanged: the
-;; warn-once `defonce` is still per-process for users; only test-time
-;; clearing is new. Chain wiring goes through `late-bind/chain-fn!`
-;; (rf2-1fh5h) — the generic chain idiom.
+;; contributor's reset runs.
 (late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-warned-non-dom-roots!)

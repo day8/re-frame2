@@ -59,13 +59,12 @@
   per Spec 002 §Reading the frame from React context and Spec 006
   §Lookup algorithm.
 
-  Per rf2-d4sf, on CLJS this consults the `:adapter/current-frame`
-  late-bind hook so the React-context tier is LIVE — adapters publish
-  their React-context-aware impl through the hook at ns-load time.
-  When the hook is unbound (no adapter loaded yet, or JVM build) the
-  fallback is `current-frame` which honours the dynamic-var tier and
-  the `:rf/default` tier; the React-context tier silently no-ops in
-  that case.
+  On CLJS this consults the `:adapter/current-frame` late-bind hook
+  so the React-context tier is LIVE — adapters publish their React-
+  context-aware impl through the hook at ns-load time. When the hook
+  is unbound (no adapter loaded yet, or JVM build) the fallback is
+  `current-frame` which honours the dynamic-var tier and the
+  `:rf/default` tier; the React-context tier silently no-ops.
 
   This is the canonical 3-tier resolver — `subs/subscribe`,
   `router/dispatch*`'s default-frame computation, and
@@ -87,9 +86,9 @@
       f)))
 
 (defn frame-disposed-for-drain?
-  "Per rf2-68kok / Spec 002 §Frame disposal mid-drain: predicate used
-  by the router's drain loop to interrupt a pass when the frame was
-  destroyed mid-cycle. True when EITHER:
+  "Per Spec 002 §Frame disposal mid-drain: predicate used by the
+  router's drain loop to interrupt a pass when the frame was destroyed
+  mid-cycle. True when EITHER:
 
     (a) The frame record still exists but `:destroyed?` is flipped
         (post-step-3 of `destroy-frame!`, before step-6 dissoc), OR
@@ -237,17 +236,16 @@
   {:id         id
    :app-db     (adapter/make-state-container {})
    :router     (atom {:queue interop/empty-queue :scheduled? false})
-   ;; Per rf2-ynk7 §single-drainer invariant: a separate CAS-able cell
-   ;; that admits at most one thread into `drain!` at a time. On the JVM
-   ;; the executor's `next-tick` callback can wake while the calling
+   ;; Single-drainer invariant: a separate CAS-able cell that admits
+   ;; at most one thread into `drain!` at a time. On the JVM the
+   ;; executor's `next-tick` callback can wake while the calling
    ;; thread is mid-drain (e.g. `dispatch-sync!`); without this guard,
    ;; both threads' peek+pop sequence on `:queue` is non-atomic and
-   ;; double-processes / drops envelopes (the rf2-lmkk #442 flake). The
-   ;; loser of the CAS no-ops; the winning drainer rechecks the queue
-   ;; before releasing the flag so envelopes queued in the gap are not
-   ;; orphaned. CLJS is single-threaded so the CAS is uncontended there,
-   ;; but the same flag preserves the contract under any future
-   ;; concurrent host.
+   ;; double-processes / drops envelopes. The loser of the CAS no-ops;
+   ;; the winning drainer rechecks the queue before releasing the
+   ;; flag so envelopes queued in the gap are not orphaned. CLJS is
+   ;; single-threaded so the CAS is uncontended there, but the same
+   ;; flag preserves the contract under any future concurrent host.
    :drain-lock (atom false)
    :sub-cache  (atom {})
    :lifecycle  {:created-at (interop/now-ms)
@@ -273,28 +271,21 @@
         (nil? existing)
         (let [f (new-frame-record id config)]
           (swap! frames assoc id f)
-          ;; Run :on-create events BEFORE emitting :frame/created.
-          ;; Per Spec 002 §Frame creation: on-create completes (or — for
-          ;; the in-handler case below — is queued) first, then the
-          ;; frame is observable to listeners. The router/dispatch
-          ;; namespace handles dispatch / dispatch-sync; we forward via
-          ;; the late-bind registry to avoid a cyclic dep at compile
-          ;; time. (`resolve` is not a runtime fn in CLJS, so the older
-          ;; `(resolve 'router/...)` pattern silently no-op'd in CLJS —
-          ;; see rf2-p8g8.)
+          ;; Run :on-create events BEFORE emitting :frame/created
+          ;; (Spec 002 §Frame creation). The router/dispatch ns is
+          ;; reached through late-bind to avoid a cyclic dep at
+          ;; compile time.
           ;;
-          ;; Per rf2-cufbh / Spec 002 §`reg-frame` / `make-frame` called
-          ;; from inside a handler: when a handler creates a child
-          ;; frame mid-cascade, the child's `:on-create` MUST be queued
-          ;; asynchronously on the child's router (not dispatch-sync'd)
-          ;; — synchronous dispatch-sync from inside a handler is an
-          ;; error per Spec 002 §dispatch-sync inside a handler is an
-          ;; error, and even were it permitted the two cascades would
-          ;; interleave (the no-cross-frame-drain rule in Spec 002
-          ;; §Run-to-completion forbids that). The signal for "inside
-          ;; a handler" is `frame/*current-frame*` being bound — the
-          ;; router binds it in `process-event!` for the duration of
-          ;; the cascade.
+          ;; Per Spec 002 §`reg-frame` / `make-frame` called from inside
+          ;; a handler: when a handler creates a child frame mid-
+          ;; cascade, the child's `:on-create` MUST be async-queued
+          ;; (not dispatch-sync'd) — synchronous dispatch-sync from
+          ;; inside a handler is an error, and even were it permitted
+          ;; the two cascades would interleave (forbidden by the no-
+          ;; cross-frame-drain rule in Spec 002 §Run-to-completion).
+          ;; The signal for "inside a handler" is `*current-frame*`
+          ;; being bound — the router binds it in `process-event!`
+          ;; for the duration of the cascade.
           (when-let [on-create (:on-create config)]
             (if *current-frame*
               ;; Handler-created child frame: async-queue on the child.

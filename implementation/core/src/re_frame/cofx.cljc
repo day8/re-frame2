@@ -177,11 +177,10 @@
                                             (use `cofx/no-value` for the
                                             no-value path with a call-site)
 
-  The 3-arity form is what the `re-frame.core/inject-cofx` macro expands
-  to (per rf2-ts1a); it captures `(meta &form)` at the user call site
-  so error events emitted from the cofx body carry the invocation
-  coord. The 1-/2-arity forms wrap to the 3-arity with a `nil`
-  call-site.
+  The 3-arity form is what the `re-frame.core/inject-cofx` macro
+  expands to; it captures `(meta &form)` at the user call site so
+  error events emitted from the cofx body carry the invocation coord.
+  The 1-/2-arity forms wrap to the 3-arity with a `nil` call-site.
 
   See also: `reg-cofx`, `re-frame.core/inject-cofx` (macro form with
   call-site capture)."
@@ -207,7 +206,7 @@
            (let [frame-id        (interceptor/get-coeffect ctx :frame)
                  active-platform (active-platform-for-frame frame-id)]
              (if (cofx-runs-on-platform? meta active-platform)
-               ;; Per rf2-ryri7: publish the cofx handler's HandlerScope.
+               ;; Publish the cofx handler's HandlerScope.
                ;; `:trigger-handler` / `:sensitive?` / `:no-emit?` come
                ;; from the cofx's registration meta per Spec 009's
                ;; "innermost in-scope handler" rule. `:call-site` is

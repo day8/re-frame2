@@ -1,11 +1,9 @@
 (ns re-frame.substrate.spine
   "Shared substrate-spine helpers for React-shaped adapters that lack a
-  native reactive-atom primitive (UIx, Helix, and any future
-  minimal-React-wrapper substrate). Per rf2-3vwbx — the duplication
-  between UIx and Helix at the substrate-contract layer was byte-for-byte
-  identical modulo gensym prefixes, hook ns, and substrate-name strings.
-  This ns lifts the shared body into one place; the adapter ns wires its
-  per-substrate hooks via `make-react-spine`.
+  native reactive-atom primitive (UIx, Helix, and any future minimal-
+  React-wrapper substrate). UIx and Helix duplicated this body byte-
+  for-byte modulo gensym prefixes, hook ns, and substrate-name strings;
+  per-adapter wiring goes through `make-react-spine`.
 
   Scope. This ns provides:
 
@@ -99,9 +97,9 @@
           on-dispose-fns (atom [])
           ;; Per-source wrapper keys we own so dispose can unwire them.
           own-keys       (atom {})           ;; source → key
-          ;; Per rf2-ggx29: iterate the watcher fns via `run!` over
-          ;; `vals` rather than `doseq` over map-entries. Skips one
-          ;; map-entry seq allocation per source-change notification.
+          ;; Iterate via `run!` over `vals` rather than `doseq` over
+          ;; map-entries — skips one map-entry seq allocation per
+          ;; source-change notification.
           notify         (fn [prev nu]
                            (when (not= prev nu)
                              (run! (fn [w] (w prev nu)) (vals @watchers))))]
@@ -115,12 +113,10 @@
       ;; spuriously notify whenever the derived projection differs in
       ;; identity from the raw source — e.g. `(odd? x)`, counts, `:k`
       ;; lookups, projections — even when the derived value itself is `=`.
-      ;; (per rf2-66hb)
       ;;
       ;; `prev-state` is written and read only inside the watch callback
-      ;; (single-threaded JS / Reagent reactivity) and never escapes this
-      ;; closure, so a `volatile!` is the right primitive — no CAS cost.
-      ;; (per rf2-eiux0)
+      ;; (single-threaded JS / Reagent reactivity) and never escapes
+      ;; this closure — `volatile!` is the right primitive, no CAS cost.
       (let [prev-state (volatile! (recompute))]
         (doseq [s source-containers]
           (let [k (gensym gensym-prefix)]
@@ -178,19 +174,18 @@
   "Return a fresh `(atom #{})` cell holding React roots the spine
   currently keeps mounted. Each adapter owns its own cell so multiple
   React-shaped adapters can coexist in a test bundle without
-  clobbering each other's tracking. Per rf2-9fdkb."
+  clobbering each other's tracking."
   []
   (atom #{}))
 
 (defn make-render
   "Build a `render` fn that registers every mounted React root in
   `active-roots-cell` and returns an unmount thunk that removes the
-  root from the cell before calling `.unmount`. Per rf2-9fdkb."
+  root from the cell before calling `.unmount`."
   [active-roots-cell]
   (fn render [render-tree mount-point opts]
-    ;; Per rf2-gwkvr: Spec 006 §`render` types `:hydrate?` as a boolean;
-    ;; non-bool truthy values are undefined-behaviour. No defensive
-    ;; `boolean` coercion.
+    ;; Spec 006 §`render` types `:hydrate?` as a boolean; non-bool
+    ;; truthy values are undefined-behaviour (no defensive coercion).
     (let [hydrate? (:hydrate? opts)
           root     (if hydrate?
                      (react-dom-client/hydrateRoot mount-point render-tree)
@@ -254,11 +249,10 @@
 
 ;; ---- context provider -----------------------------------------------------
 ;;
-;; Per rf2-3yij / rf2-2qit Decision 2: every React-shaped adapter shares
-;; the same React.createContext object (it lives in
-;; re-frame.adapter.context). The provider component is identical across
-;; substrates — only `use-current-frame` (the read-side hook) varies, and
-;; only by which hook ns supplies `use-context`.
+;; Every React-shaped adapter shares the same React.createContext object
+;; (in re-frame.adapter.context). The provider component is identical
+;; across substrates — only `use-current-frame` (the read-side hook)
+;; varies, and only by which hook ns supplies `use-context`.
 
 (defn frame-provider
   "User-facing component scoping `frame-kw` to its subtree. Wraps
@@ -268,9 +262,9 @@
   `frame-provider` is.
 
   Reads `:frame` from props. When missing or `nil`, falls through to
-  `:rf/default` (per rf2-sixo — defensive default that matches the
-  no-provider behaviour and avoids breaking tooling-generated trees that
-  elide the prop)."
+  `:rf/default` — defensive default that matches the no-provider
+  behaviour and avoids breaking tooling-generated trees that elide the
+  prop."
   [{:keys [frame children]}]
   (let [frame-kw (or frame :rf/default)]
     (apply adapter-context/provider-element frame-kw
@@ -278,10 +272,9 @@
 
 (defn register-context-provider
   "Substrate `:register-context-provider` slot. Same shape across all
-  React-shaped adapters: returns the `frame-provider` fn unchanged. The
-  frame-keyword arg is ignored because the frame keyword lives in the
-  Provider's :value at render time (rf2-4y60), not in a build-time
-  closure."
+  React-shaped adapters: returns the `frame-provider` fn unchanged.
+  The frame-keyword arg is ignored because the frame keyword lives in
+  the Provider's `:value` at render time, not in a build-time closure."
   [_frame-keyword]
   frame-provider)
 
@@ -358,8 +351,8 @@
   "Return a thunk that resets `cache-atom` to `#{}` and returns nil.
   Tests use this between cases (via `reset-runtime-fixture` and the
   chained `:adapter/clear-warn-once-caches!` hook) so a sibling test's
-  first-encounter warning cannot silently swallow a later test's same-id
-  warning. Per rf2-4edk."
+  first-encounter warning cannot silently swallow a later test's same-
+  id warning."
   [cache-atom]
   (fn clear-warned-non-dom-roots! []
     (reset! cache-atom #{})
@@ -374,10 +367,6 @@
   (fn warn-non-dom-root! [id type-tag]
     (when-not (contains? @cache-atom id)
       (swap! cache-atom conj id)
-      ;; Per rf2-g7bi4: `js/console` is universally present in modern
-      ;; browsers and Node; React-shaped substrates target React 18+
-      ;; which targets those runtimes. The historical
-      ;; `(when (exists? js/console) ...)` guard is dead.
       (.warn js/console
         (str "[re-frame] reg-view " id " — root element is "
              (pr-str type-tag) " (" substrate-name "); "
@@ -436,21 +425,16 @@
   "Wire `clear-fn` into the chained `:adapter/clear-warn-once-caches!`
   late-bind hook. The hook is chained — each adapter and re-frame.views
   contribute a clear-step; `reset-runtime-fixture` invokes the top of
-  the chain and every contributor's reset runs. Per rf2-4edk.
-
-  Thin wrapper around `late-bind/chain-fn!` (rf2-1fh5h) — the
-  generic chain idiom; this wrapper exists so callers do not need
-  to know the chain key."
+  the chain and every contributor's reset runs. Thin wrapper around
+  `late-bind/chain-fn!` so callers don't need to know the chain key."
   [clear-fn]
   (late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-fn))
 
 ;; ---- subscription hook ----------------------------------------------------
 ;;
-;; Per Spec 006 §subscription-cache (rf2-3yij Decision 1 / rf2-2qit
-;; Decision 1) `use-subscribe` is the substrate-idiomatic hook surface
-;; for reading a sub. It wraps React.useSyncExternalStore so updates are
-;; scheduled by React's concurrent renderer rather than a per-component
-;; scheduler.
+;; `use-subscribe` is the substrate-idiomatic hook surface for reading
+;; a sub. It wraps React.useSyncExternalStore so updates are scheduled
+;; by React's concurrent renderer rather than a per-component scheduler.
 ;;
 ;; The hook:
 ;;   1. Resolves the active frame via use-context (Decision 2).
@@ -517,12 +501,11 @@
         active-roots-cell  (make-active-roots-cell)
         subscribe-cont     (make-subscribe-container gensym-prefix-sub)
         make-derived       (make-derived-value-fn gensym-prefix-derived)
-        ;; Per rf2-y1hbg: precompute the `use-subscribe` watch-key
-        ;; keyword namespace once (outside the render hot path). The
-        ;; per-reaction key derives from `(hash reaction)` so the
-        ;; subscribe-fn closure pays one hash + one keyword intern per
-        ;; reaction-identity change — no process-wide gensym counter
-        ;; tick per render.
+        ;; Precompute the `use-subscribe` watch-key keyword namespace
+        ;; once (outside the render hot path). The per-reaction key
+        ;; derives from `(hash reaction)` so the subscribe-fn closure
+        ;; pays one hash + one keyword intern per reaction-identity
+        ;; change — no process-wide gensym counter tick per render.
         use-sub-watch-ns   (let [s gensym-prefix-use-sub
                                  n (count s)]
                              ;; Strip the trailing "-" the gensym prefix
@@ -559,12 +542,10 @@
                 subscribe-fn
                 (use-callback
                   (fn [on-change]
-                    ;; Per rf2-y1hbg: hash-of-reaction-identity keyword
-                    ;; rather than a fresh `gensym` per call. The
-                    ;; per-reaction key is stable for the reaction's
-                    ;; lifetime, sidesteps the process-wide gensym
-                    ;; counter, and remains unique across distinct
-                    ;; reactions.
+                    ;; Hash-of-reaction-identity keyword rather than a
+                    ;; fresh `gensym` per call — stable for the
+                    ;; reaction's lifetime, sidesteps the process-wide
+                    ;; gensym counter, unique across distinct reactions.
                     (let [k (keyword use-sub-watch-ns (str (hash reaction)))]
                       (when reaction
                         (add-watch reaction k (fn [_ _ _ _] (on-change))))

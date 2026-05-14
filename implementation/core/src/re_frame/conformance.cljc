@@ -107,10 +107,9 @@
     (case (first form)
       :event-arg    (let [[_ idx default-val] form
                           v (get (:event ctx) idx)]
-                      ;; The 3rd element is unconditionally a default-for-nil.
-                      ;; Per rf2-xb5o (resolves rf2-pz9f): no type-dispatch on
-                      ;; the 3rd element. For map-value key-access, use the
-                      ;; explicit [:get-event-arg n :key] form below.
+                      ;; The 3rd element is unconditionally a default-for-nil
+                      ;; — no type-dispatch. For map-value key-access, use
+                      ;; the explicit [:get-event-arg n :key] form below.
                       (if (and (>= (count form) 3) (nil? v))
                         default-val
                         v))
@@ -348,11 +347,10 @@
   actor id; it returns an updated :data map. The runtime patches the
   result back into the snapshot at :data.
 
-  Per rf2-een2 / rf2-smba: the body's :set paths are DATA-relative —
-  uniform with regular machine actions, whose canonical contract is
-  (fn [data event] effects) and whose :set paths assoc-in into :data.
-  So [:set [:pending] x] writes data.:pending = x. (Pre-rf2-een2
-  semantics treated paths as snapshot-relative; that asymmetry is gone.)"
+  The body's `:set` paths are DATA-relative — uniform with regular
+  machine actions, whose canonical contract is (fn [data event] effects)
+  and whose `:set` paths `assoc-in` into `:data`. So
+  `[:set [:pending] x]` writes `data.:pending = x`."
   [steps]
   (fn [data spawned-id]
     (let [synthetic-event [::on-spawn spawned-id]]

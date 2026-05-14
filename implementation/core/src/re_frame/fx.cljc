@@ -14,12 +14,11 @@
     :rf.fx/reg-flow   — runtime, register a flow (Spec 013)
     :rf.fx/clear-flow — runtime, clear a flow
 
-  Per rf2-xbtj the machine fx-ids `:rf.machine/spawn` and
-  `:rf.machine/destroy` are registered by `re-frame.machines` (which now
-  ships in `day8/re-frame2-machines`) at its ns-load time, via the
-  regular `reg-fx` path. They are NOT reserved in core's case-block —
-  apps that don't pull in the machines artefact don't carry the trace
-  strings or the handler for them."
+  The machine fx-ids `:rf.machine/spawn` and `:rf.machine/destroy` are
+  registered by `re-frame.machines` (ships in `day8/re-frame2-machines`)
+  at its ns-load time via the regular `reg-fx` path. They are NOT
+  reserved in core's case-block — apps that don't pull in the machines
+  artefact don't carry the trace strings or the handler for them."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -281,15 +280,15 @@
   consumes this trace; pair tools route off it without re-folding the raw
   trace stream.
 
-  Per rf2-lf84g: when called inside the fx-handler's
-  `*handler-scope*` binding (the user-registered fx branch), `emit!`
-  hoists the fx handler's registration coord onto the emitted event's
-  `:rf.trace/trigger-handler` slot — so consumers can jump to the fx's
-  `reg-fx` site from the success trace. Reserved fx-id calls
-  (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`)
-  emit outside any fx-handler binding; the outer event handler's
-  scope (if any) stamps the event handler's coord instead, which is
-  the right attribution for those — they don't have their own
+  When called inside the fx-handler's `*handler-scope*` binding (the
+  user-registered fx branch), `emit!` hoists the fx handler's
+  registration coord onto the emitted event's `:rf.trace/trigger-
+  handler` slot — so consumers can jump to the fx's `reg-fx` site
+  from the success trace. Reserved fx-id calls (`:dispatch`,
+  `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) emit
+  outside any fx-handler binding; the outer event handler's scope
+  (if any) stamps the event handler's coord instead, which is the
+  right attribution for those — they don't have their own
   registration site."
   [fx-id args frame-id]
   (trace/emit! :fx :rf.fx/handled
@@ -379,18 +378,15 @@
           ;; NOT emit a sibling warning (the schema-validation-failure
           ;; trace IS the warning, per Spec 010).
           nil
-          ;; Per rf2-ryri7: publish the fx handler's HandlerScope —
-          ;; `:trigger-handler` (rf2-3nn8 / rf2-lf84g) for the fx
-          ;; handler's invocation AND for the success-path
-          ;; `:rf.fx/handled` emit that follows; `:sensitive?`
-          ;; (rf2-isdwf) and `:no-emit?` (rf2-qsjda) per the
-          ;; Spec 009 "innermost handler wins" rule. Errors emitted
-          ;; from inside the fx body (`:rf.error/fx-handler-exception`
-          ;; here and anything the body itself surfaces) carry the fx
-          ;; handler's source-coord; the success-path `:rf.fx/handled`
-          ;; emit picks up the same coord through `emit!`'s hoist of
-          ;; `*handler-scope*` — the outer event handler's scope would
-          ;; otherwise stamp the event handler's coord onto the
+          ;; Publish the fx handler's HandlerScope — `:trigger-handler`
+          ;; for the fx handler's invocation AND the success-path
+          ;; `:rf.fx/handled` emit; `:sensitive?` and `:no-emit?` per
+          ;; Spec 009 "innermost handler wins". Errors emitted from
+          ;; inside the fx body carry the fx handler's source-coord;
+          ;; the success-path `:rf.fx/handled` emit picks up the same
+          ;; coord through `emit!`'s hoist of `*handler-scope*` — the
+          ;; outer event handler's scope would otherwise stamp the
+          ;; event handler's coord onto the
           ;; `:rf.fx/handled` event (Story/Causa want jump-to-source to
           ;; land on the fx handler's `reg-fx` site, not the event
           ;; handler that produced the fx vector). `:call-site` /
