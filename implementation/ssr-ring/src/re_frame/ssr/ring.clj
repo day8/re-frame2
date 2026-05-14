@@ -30,11 +30,13 @@
   and Jetty all accept Ring-shaped handlers, so a single adapter covers
   the bulk of the Clojure HTTP ecosystem.
 
-  ---- file split (rf2-pjsrc) ----
+  ---- file split (rf2-pjsrc, rf2-zkca8.1) ----
 
   Pre-split this namespace was 747 LoC carrying nine independent
-  concerns enumerated by its own `;; ----` banners. It's now a thin
-  façade over eight flat sub-namespaces:
+  concerns enumerated by its own `;; ----` banners. After the rf2-pjsrc
+  split it became a thin façade over eight flat sub-namespaces; the
+  rf2-zkca8.1 recombine pass merged the two single-consumer-trivia
+  leaves back here / into `pipeline`. Current sub-namespaces:
 
     - `re-frame.ssr.ring.cookie`           — RFC 6265 Set-Cookie wire
                                              serialisation.
@@ -42,18 +44,23 @@
                                              collapse, multi-valued
                                              headers, content-type
                                              default.
-    - `re-frame.ssr.ring.response`         — `ssr-response->ring-response`.
     - `re-frame.ssr.ring.shell`            — `default-html-shell`.
     - `re-frame.ssr.ring.payload`          — `build-payload`,
                                              `resolve-version`.
     - `re-frame.ssr.ring.lifecycle`        — frame teardown, root-view /
                                              head resolution, on-create
                                              enrichment.
-    - `re-frame.ssr.ring.handler-defaults` — default opts + caller-opt
-                                             validation.
     - `re-frame.ssr.ring.pipeline`         — `setup-request-frame!` +
-                                             `build-full-response` (the
-                                             4-step request pipeline).
+                                             `build-full-response` +
+                                             `ssr-response->ring-response`
+                                             (the 4-step request pipeline
+                                             and its accumulator →
+                                             Ring-map materialiser).
+
+  `default-on-error` + `handler-defaults` + `validate-handler-opts!`
+  live here (the pre-rf2-zkca8.1 `handler-defaults` sub-ns was 45 L
+  and had `ring` as its only consumer; folding them in keeps the
+  handler-constructor reading top-down as one concept).
 
   This façade re-exposes the public surface (`ssr-handler`,
   `ssr-middleware`, `cookie->set-cookie-header`, `default-html-shell`)
@@ -94,10 +101,8 @@
       extension is additive."
   (:require [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.cookie :as cookie]
-            [re-frame.ssr.ring.handler-defaults :as defaults]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.response :as response]
             [re-frame.ssr.ring.shell :as shell]))
 
 (set! *warn-on-reflection* true)
@@ -109,6 +114,56 @@
 
 (def cookie->set-cookie-header cookie/cookie->set-cookie-header)
 (def default-html-shell        shell/default-html-shell)
+
+;; ---- handler defaults + caller-opt validation -----------------------------
+;;
+;; Pre-rf2-zkca8.1 these lived in `re-frame.ssr.ring.handler-defaults`
+;; (45 L, one consumer — this ns). Recombined here so the handler
+;; constructor reads top-down as one concept.
+
+(defn default-on-error
+  "Minimal 500 response used when the caller doesn't supply `:on-error`.
+  The SSR runtime's error projector handles trace-emitted errors
+  during drain; this hook covers exceptions the projector can't see
+  (Ring-layer throws, render-time CLJ exceptions).
+
+  rf2-kzvwq / security audit 2026-05-14 §P2.1 — the body MUST NOT leak
+  the throwable's message. `.getMessage` carries internal topology that
+  has no business reaching the wire: JDBC URLs (host, port, database
+  name), file paths under deploy roots, partial SQL fragments, server-
+  internal class names. Pre-fix, an attacker who could trigger any
+  unhandled JVM exception would see e.g.
+  `\"SSR error: Connection refused: jdbc:postgresql://internal-db.svc:5432/auth\"`
+  on the public wire — direct topology disclosure.
+
+  We now emit a fixed generic body matching the projector's
+  `fallback-public-error` shape. Apps that want dev-mode detail
+  override via `:on-error` (the recommended pattern is
+  `(if dev? log-and-detail log-only-quietly)`)."
+  [_request ^Throwable _t]
+  {:status  500
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body    "Internal error"})
+
+(def handler-defaults
+  {:emit-hash?   true
+   :html-shell   shell/default-html-shell
+   :content-type "text/html; charset=utf-8"
+   :on-error     default-on-error})
+
+(defn- validate-handler-opts!
+  "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
+  caller omits a required `ssr-handler` opt. Extracted from the
+  handler body per audit rf2-asmj1 R3 / cluster rf2-sljs1 so the body
+  of `ssr-handler` reads as the lifecycle wiring rather than a
+  validation-then-wire two-step."
+  [{:keys [on-create root-view]}]
+  (when-not on-create
+    (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
+                    {:reason "ssr-handler requires :on-create (an event vector)"})))
+  (when-not root-view
+    (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
+                    {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"}))))
 
 ;; ---- ssr-handler ----------------------------------------------------------
 
@@ -188,11 +243,11 @@
                              :html-shell ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
   [raw-opts]
-  (defaults/validate-handler-opts! raw-opts)
+  (validate-handler-opts! raw-opts)
   ;; Merge defaults once at construction time so the pipeline helpers
   ;; (`setup-request-frame!`, `build-full-response`) can destructure
   ;; without re-stating the `:or` map. Caller-supplied values win.
-  (let [opts        (merge defaults/handler-defaults raw-opts)
+  (let [opts        (merge handler-defaults raw-opts)
         {:keys [on-error]} opts]
     (fn ring-handler [request]
       (let [{:keys [frame-id short-circuit]}
@@ -203,7 +258,7 @@
             (let [resp (ssr/get-response frame-id)]
               (if (some? (:redirect resp))
                 ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-                (response/ssr-response->ring-response resp nil)
+                (pipeline/ssr-response->ring-response resp nil)
                 (pipeline/build-full-response frame-id resp opts)))
             (catch Throwable t
               (on-error request t))

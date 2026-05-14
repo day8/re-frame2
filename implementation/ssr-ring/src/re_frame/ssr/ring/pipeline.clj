@@ -10,19 +10,45 @@
        attempting render.
     2. `ssr/get-response`     — read the resolved response accumulator
        (flushes any pending error projection).
-    3. branch on :redirect    — short-circuit to a Location response,
-       OR `build-full-response` — render the root-view, build the
-       hydration payload, wrap in the html-shell, materialise to Ring.
+    3. branch on :redirect    — short-circuit to a Location response via
+       `ssr-response->ring-response`, OR `build-full-response` — render
+       the root-view, build the hydration payload, wrap in the html-
+       shell, materialise to Ring.
     4. `destroy-frame-quietly!` in `finally` — `:ssr/on-frame-destroyed`
-       (rf2-fcj33) clears the per-frame request slot."
+       (rf2-fcj33) clears the per-frame request slot.
+
+  Per rf2-zkca8.1: `ssr-response->ring-response` (28 L, one fn) lives
+  here rather than in its own ns. Its only consumers were the redirect
+  short-circuit in `re-frame.ssr.ring` and `build-full-response` below;
+  it's a pipeline-stage helper and reads top-down with the rest of the
+  pipeline."
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.headers :as headers]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.payload :as payload]
-            [re-frame.ssr.ring.response :as response]))
+            [re-frame.ssr.ring.payload :as payload]))
 
 (set! *warn-on-reflection* true)
+
+(defn ssr-response->ring-response
+  "Materialise the runtime's resolved response accumulator (per
+  Spec 011 §HTTP response contract) into a Ring response map. The
+  `:body` arg is the rendered HTML (or nil for redirect-only
+  responses). `:redirect` short-circuits per Spec 011 §Redirect
+  precedence — status + Location header, no body."
+  [{:keys [status headers cookies redirect]} body]
+  (if redirect
+    (let [{:keys [location url to] redirect-status :status} redirect
+          target (or location url to)]
+      {:status  (or redirect-status status 302)
+       :headers (-> (headers/headers->ring-map headers)
+                    (headers/append-set-cookies cookies)
+                    (cond-> target (assoc "Location" target)))
+       :body    ""})
+    {:status  (or status 200)
+     :headers (-> (headers/headers->ring-map headers)
+                  (headers/append-set-cookies cookies))
+     :body    (or body "")}))
 
 (defn setup-request-frame!
   "Register a per-request frame and populate the request slot. Returns
@@ -115,4 +141,4 @@
         ;; usually a no-op, but we let opts override and trust the
         ;; runtime's default in absence.
         resp*       (update resp :headers headers/ensure-content-type content-type)]
-    (response/ssr-response->ring-response resp* html)))
+    (ssr-response->ring-response resp* html)))
