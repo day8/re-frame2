@@ -8,9 +8,18 @@
     - `resolve-head`           — active route's `:head` → map carrying the
                                  rendered fragment plus `:html-attrs` /
                                  `:body-attrs` bags for the host shell
-    - `on-create-with-request` — append request to caller's :on-create vec
 
-  Per Spec 011 §Request storage substrate + §Head/meta contract."
+  Per Spec 011 §Request storage substrate + §Head/meta contract.
+
+  Note (audit rf2-cegm7 A2 / rf2-j54ee): the prior `on-create-with-request`
+  helper conj'd the Ring request map onto the caller's `:on-create`
+  event vector as a fallback for handlers that pre-dated the
+  `:rf.server/request` cofx. The conj path is gone — Spec 011 names the
+  cofx as the canonical read surface; the positional-arg variant had a
+  subtle pitfall (a 1-vector `[:rf/server-init]` silently became
+  `[:rf/server-init {ring-request...}]` after the conj, so a handler that
+  forgot to destructure ended up with the request riding the unused-arg
+  slot). Pre-alpha: one canonical surface, no fallback."
   (:require [re-frame.core :as rf]
             [re-frame.trace :as trace]))
 
@@ -83,20 +92,15 @@
     (catch Throwable _
       {:head-html "" :html-attrs nil :body-attrs nil})))
 
-(defn on-create-with-request
-  "Conj the Ring request map onto the caller's :on-create event vector
-  so handlers can read it as an event arg. The `:rf.server/request`
-  cofx (rf2-e825b) is the canonical read path; this is the fallback
-  for handlers that don't inject the cofx and want the request as a
-  positional arg, matching the worked example in
-  examples/reagent/ssr/core.cljc.
-
+(defn validate-on-create!
+  "Validate the caller's :on-create event vector and return it verbatim.
   `:on-create` is required (per `handler-defaults/validate-handler-opts!`),
-  so a `nil` arg here is a programmer error — handled by the non-vector
-  arm. Audit rf2-cegm7 A3."
-  [on-create request]
+  so a non-vector here is a programmer error — surface it as an
+  ex-info rather than letting `reg-frame` produce an obscure failure
+  downstream. Audit rf2-cegm7 A3 / rf2-j54ee."
+  [on-create]
   (if (vector? on-create)
-    (conj on-create request)
+    on-create
     (throw (ex-info ":rf.error/invalid-on-create"
                     {:reason   ":on-create must be a vector (event)"
                      :received on-create}))))

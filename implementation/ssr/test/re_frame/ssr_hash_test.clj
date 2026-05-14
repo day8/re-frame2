@@ -18,6 +18,8 @@
   lives in hash_check_cljs_test.cljs. This namespace focuses on
   pruning-equivalence."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
+            [re-frame.ssr.emit :as emit]
             [re-frame.ssr.hash :as hash]))
 
 ;; ---- canonical-edn ---------------------------------------------------------
@@ -105,3 +107,46 @@
                [:p "Body"]]]))
         "a deeply nested tree with nils at multiple levels hashes identically
          to the same tree with all nils pruned")))
+
+;; ===========================================================================
+;; rf2-dl9yg TC-2 — :doctype? + :emit-hash? composition
+;; ===========================================================================
+;;
+;; The two opts interact subtly: hash injection runs on the hiccup root
+;; BEFORE stringification (rf2-lxwse), so the doctype prepend lands after
+;; the hash attribute has been stamped — `data-rf-render-hash` rides on
+;; the root DOM element, not on the doctype declaration. Pin the
+;; composition.
+
+(deftest doctype-and-emit-hash-compose
+  (testing "(render-to-string tree {:doctype? true :emit-hash? true}) emits
+            <!DOCTYPE html> followed by <root data-rf-render-hash=\"...\"> —
+            the hash rides on the root element, not on the doctype"
+    (let [tree [:div {:class "page"} [:h1 "Hello"]]
+          html (emit/render-to-string tree {:doctype? true :emit-hash? true})]
+      (is (str/starts-with? html "<!DOCTYPE html>")
+          ":doctype? prepended")
+      (is (re-find #"<!DOCTYPE html><div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
+                   html)
+          ":emit-hash? stamped on the root <div>, immediately after the doctype")
+      (is (str/includes? html "<h1>Hello</h1>")
+          "body content rendered"))))
+
+(deftest emit-hash-without-doctype-yields-bare-root
+  (testing ":emit-hash? true / :doctype? false → root element carries the hash;
+            no doctype prefix"
+    (let [tree [:section [:p "x"]]
+          html (emit/render-to-string tree {:emit-hash? true})]
+      (is (not (str/starts-with? html "<!DOCTYPE"))
+          "no doctype emitted")
+      (is (re-find #"^<section[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
+                   html)
+          "hash attribute on the root element"))))
+
+(deftest doctype-without-emit-hash-omits-hash-attribute
+  (testing ":doctype? true / :emit-hash? false → doctype emitted; no hash attr"
+    (let [tree [:div "no-hash"]
+          html (emit/render-to-string tree {:doctype? true :emit-hash? false})]
+      (is (str/starts-with? html "<!DOCTYPE html>"))
+      (is (not (str/includes? html "data-rf-render-hash"))
+          "no hash attribute when :emit-hash? false"))))

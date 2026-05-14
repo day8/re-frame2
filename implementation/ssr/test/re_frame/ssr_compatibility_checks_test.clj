@@ -13,7 +13,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
-            [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
 
 ;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
@@ -142,3 +141,102 @@
           (is (= "sha256:deadbeefcafef00d"             (-> ev :tags :expected)))
           (is (= "sha256:0000000000000000"             (-> ev :tags :actual)))
           (is (= :warned-and-applied                   (:recovery ev))))))))
+
+;; ===========================================================================
+;; SCALAR-form + missing-hook paths — rf2-ooj41
+;; ===========================================================================
+;;
+;; Per rf2-ooj41 (audit ssr coverage + robustness): the explicit-map form is
+;; covered above. The reference :rf/hydrate handler dispatches the SCALAR
+;; form `[:rf.ssr/check-version <server-value>]`; the fx then looks up the
+;; client-side "actual" via the `:rf2/runtime-version` /
+;; `:schemas/app-schemas-digest` late-bind hooks. When the hook is absent
+;; (host hasn't registered a version-stamp, schemas artefact not on the
+;; classpath), the fx emits `:rf.ssr/compatibility-check-skipped` rather
+;; than throwing. Pin both paths so a regression that silently drops
+;; either trace is caught.
+
+(deftest check-version-scalar-with-no-hook-emits-skipped
+  (testing "scalar form + absent :rf2/runtime-version hook → :rf.ssr/compatibility-check-skipped"
+    (rf/reg-event-fx ::probe-check-version-scalar-no-hook
+      {:platforms #{:client}}
+      (fn [_ _]
+        {:fx [[:rf.ssr/check-version "1.0.0"]]}))
+
+    (let [f      (rf/make-frame {:platform :client})
+          traces (capture-traces!
+                   (fn []
+                     (rf/dispatch-sync [::probe-check-version-scalar-no-hook]
+                                       {:frame f})))
+          hits   (traces-of traces :rf.ssr/compatibility-check-skipped)]
+      (is (= 1 (count hits))
+          (str "expected one :rf.ssr/compatibility-check-skipped trace; saw: "
+               (pr-str (mapv :operation traces))))
+      (when (seq hits)
+        (let [ev (first hits)]
+          (is (= :warning              (:op-type ev)))
+          (is (= :rf.ssr/check-version (-> ev :tags :check))
+              ":check tag identifies which compatibility fx skipped")
+          (is (= "1.0.0"               (-> ev :tags :expected))
+              "scalar value is the :expected (server-side) value")
+          (is (= :skipped              (:recovery ev))))))))
+
+(deftest check-version-scalar-with-hook-runs-comparison
+  (testing "scalar form + registered :rf2/runtime-version hook → compare; mismatch fires"
+    ;; Install the hook to return the client-side runtime version;
+    ;; remove after to keep the hook table clean for the next test.
+    (late-bind/set-fn! :rf2/runtime-version (constantly "2.0.0"))
+    (try
+      (rf/reg-event-fx ::probe-check-version-scalar-with-hook
+        {:platforms #{:client}}
+        (fn [_ _]
+          {:fx [[:rf.ssr/check-version "1.0.0"]]}))
+
+      (let [f      (rf/make-frame {:platform :client})
+            traces (capture-traces!
+                     (fn []
+                       (rf/dispatch-sync [::probe-check-version-scalar-with-hook]
+                                         {:frame f})))
+            hits   (traces-of traces :rf.ssr/version-mismatch)]
+        (is (empty? (traces-of traces :rf.ssr/compatibility-check-skipped))
+            "hook present → no skipped trace; the comparison ran")
+        (is (= 1 (count hits))
+            (str "expected one :rf.ssr/version-mismatch trace; saw: "
+                 (pr-str (mapv :operation traces))))
+        (when (seq hits)
+          (let [ev (first hits)]
+            (is (= "1.0.0" (-> ev :tags :expected))
+                "scalar arg is :expected (server side)")
+            (is (= "2.0.0" (-> ev :tags :actual))
+                ":actual sourced via the late-bind hook"))))
+      (finally
+        (swap! late-bind/hooks dissoc :rf2/runtime-version)))))
+
+(deftest check-schema-digest-scalar-with-no-hook-emits-skipped
+  (testing "scalar form + absent :schemas/app-schemas-digest hook → skipped"
+    ;; Test deps pull `re-frame.schemas` onto the classpath so its ns-load
+    ;; registers `:schemas/app-schemas-digest`; explicitly clear the hook
+    ;; for this test so we can pin the missing-hook path. Restore on exit.
+    (let [prior-hook (late-bind/get-fn :schemas/app-schemas-digest)]
+      (swap! late-bind/hooks dissoc :schemas/app-schemas-digest)
+      (try
+        (rf/reg-event-fx ::probe-check-digest-scalar-no-hook
+          {:platforms #{:client}}
+          (fn [_ _]
+            {:fx [[:rf.ssr/check-schema-digest "sha256:deadbeefcafef00d"]]}))
+
+        (let [f      (rf/make-frame {:platform :client})
+              traces (capture-traces!
+                       (fn []
+                         (rf/dispatch-sync [::probe-check-digest-scalar-no-hook]
+                                           {:frame f})))
+              hits   (traces-of traces :rf.ssr/compatibility-check-skipped)]
+          (is (= 1 (count hits)))
+          (when (seq hits)
+            (let [ev (first hits)]
+              (is (= :rf.ssr/check-schema-digest (-> ev :tags :check)))
+              (is (= "sha256:deadbeefcafef00d"   (-> ev :tags :expected)))
+              (is (= :skipped                    (:recovery ev))))))
+        (finally
+          (when prior-hook
+            (late-bind/set-fn! :schemas/app-schemas-digest prior-hook)))))))

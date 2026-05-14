@@ -40,7 +40,8 @@
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.response :as response]))
+            [re-frame.ssr.response :as response]
+            [re-frame.trace :as trace]))
 
 (defonce
   ^{:doc "Per-frame storage for the active HTTP request. Keys are
@@ -125,14 +126,30 @@
   Per rf2-4dra9 (Spec 011 §Head/meta contract), also invokes any
   registered `:ssr/head-on-frame-destroyed` hook so `re-frame.ssr.head`
   can release its per-frame head-snapshot bookkeeping. Hook lookup is
-  late-bound so the call is a no-op when the head ns is absent."
+  late-bound so the call is a no-op when the head ns is absent.
+
+  Head-cleanup throws are caught + surfaced on the trace bus rather
+  than silently swallowed — mirrors the trace-on-catch pattern shipped
+  in `ssr-ring/lifecycle/destroy-frame-quietly!` (audit rf2-cegm7 CQ-2 /
+  rf2-j54ee). Vanishing destroy-time exceptions is exactly what the
+  R6 cluster was fixing; keep the symmetry."
   [frame-id]
   (error-listener/clear-pending-error-traces! frame-id)
   (swap! request-slots dissoc frame-id)
   (response/clear-response! frame-id)
   (when-let [head-cleanup! (late-bind/get-fn :ssr/head-on-frame-destroyed)]
     (try (head-cleanup! frame-id)
-         (catch #?(:clj Throwable :cljs :default) _ nil)))
+         (catch #?(:clj Throwable :cljs :default) t
+           (trace/emit! :warning :rf.ssr.head/cleanup-failed
+                        {:frame    frame-id
+                         :hook     :ssr/head-on-frame-destroyed
+                         :reason   (or #?(:clj  (.getMessage ^Throwable t)
+                                          :cljs (.-message t))
+                                       (str t))
+                         :ex-class #?(:clj  (.getName (class t))
+                                      :cljs (.-name (type t)))
+                         :recovery :warned-and-skipped})
+           nil)))
   nil)
 
 (defn request-cofx
