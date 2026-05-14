@@ -5,7 +5,7 @@
 ;; Two re-frame2 coords:
 ;;   - day8/re-frame2          — core runtime (registry, dispatch,
 ;;                                subscriptions, frames, machines, ...).
-;;   - day8/re-frame2-uix      — the UIx substrate adapter (rf2-3yij).
+;;   - day8/re-frame2-uix      — the UIx substrate adapter.
 ;;
 ;; Both ride the same version. Bump them together when you upgrade
 ;; re-frame2.

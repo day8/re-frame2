@@ -2,8 +2,8 @@
   "Views (UIx substrate). UIx uses `defui` rather than Reagent's
    function-style views; the dataflow is identical — subscriptions
    deliver values via the `use-subscribe` hook, dispatches send events
-   via `rf/dispatcher`. Per rf2-3yij Decision 3 there is no
-   auto-injection — components call these explicitly."
+   via `rf/dispatcher`. There is no auto-injection on the UIx adapter
+   — components call these explicitly."
   (:require [uix.core             :refer [$ defui]]
             [re-frame.core        :as rf]
             [re-frame.adapter.uix :as uix-adapter]))

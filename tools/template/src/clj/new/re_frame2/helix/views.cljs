@@ -2,8 +2,8 @@
   "Views (Helix substrate). Helix uses `defnc` rather than Reagent's
    function-style views; the dataflow is identical. Subscriptions deliver
    values via the `use-subscribe` hook, dispatches send events via
-   `rf/dispatcher`. Per rf2-2qit Decision 3 there is no auto-injection
-   — components call these explicitly."
+   `rf/dispatcher`. There is no auto-injection on the Helix adapter —
+   components call these explicitly."
   (:require [helix.core             :refer [$ defnc]]
             [helix.dom              :as d]
             [re-frame.core          :as rf]
