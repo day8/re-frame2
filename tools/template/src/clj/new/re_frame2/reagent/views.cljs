@@ -20,7 +20,7 @@
      - shape subscriptions so each row subscribes to *its* slice, not
        the whole collection — collection-level subscriptions cause every
        row to re-render on every cell change."
-  (:require [re-frame.core    :as rf]
+  (:require [re-frame.core]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
