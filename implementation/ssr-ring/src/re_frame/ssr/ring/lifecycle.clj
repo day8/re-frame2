@@ -89,12 +89,14 @@
   cofx (rf2-e825b) is the canonical read path; this is the fallback
   for handlers that don't inject the cofx and want the request as a
   positional arg, matching the worked example in
-  examples/reagent/ssr/core.cljc."
+  examples/reagent/ssr/core.cljc.
+
+  `:on-create` is required (per `handler-defaults/validate-handler-opts!`),
+  so a `nil` arg here is a programmer error — handled by the non-vector
+  arm. Audit rf2-cegm7 A3."
   [on-create request]
-  (cond
-    (nil? on-create)    nil
-    (vector? on-create) (conj on-create request)
-    :else
+  (if (vector? on-create)
+    (conj on-create request)
     (throw (ex-info ":rf.error/invalid-on-create"
                     {:reason   ":on-create must be a vector (event)"
                      :received on-create}))))

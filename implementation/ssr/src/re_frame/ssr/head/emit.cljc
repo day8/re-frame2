@@ -98,6 +98,14 @@
 ;; of `[model-key emit-fn]` pairs so the canonical ordering reads as
 ;; data, not as a six-arm `cond->` (audit rf2-asmj1 H4 / cluster
 ;; rf2-sljs1).
+;;
+;; `:title` is intentionally absent — it's a singleton (one slot, one
+;; string value) whose emit fn takes a string rather than an item from a
+;; collection. `head-model->html` extracts it via a separate `when-let`
+;; binding outside this loop. Future singleton additions (e.g. `<base>`)
+;; need the same separate-binding treatment; collection keys (multiple
+;; tags emitted in declaration order) extend this vector. Audit
+;; rf2-cegm7 A5.
 (def ^:private emission-order
   [[:meta    emit-meta-tag]
    [:link    emit-link-tag]
