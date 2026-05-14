@@ -29,10 +29,14 @@ module.exports = {
   name: 'state-machines walkthrough (lockout)',
   url: '/state-machine-walkthrough/',
   run: async (page) => {
-    const banner = page.locator('strong.state');
-    const emailInput = page.locator('input[type="email"]');
-    const passwordInput = page.locator('input[type="password"]');
-    const submitBtn = page.locator('form.login-form button[type="submit"]');
+    // Anchor on data-testid attrs (rf2-i0j1x) — the previous role +
+    // CSS-class selectors (`strong.state`, `form.login-form
+    // button[type="submit"]`, `.error-row button`, `.locked`) tracked
+    // styling decisions in the views.
+    const banner = page.getByTestId('state-banner');
+    const emailInput = page.getByTestId('login-email');
+    const passwordInput = page.getByTestId('login-password');
+    const submitBtn = page.getByTestId('login-submit');
 
     // Initial state: machine is idle (the snapshot is created on first
     // dispatch, so a freshly-mounted page reads (uninitialised) for
@@ -49,7 +53,7 @@ module.exports = {
     };
 
     const dismissOnce = async () => {
-      await page.locator('.error-row button').click();
+      await page.getByTestId('login-dismiss').click();
       await expectTextEquals(banner, 'idle', 5000);
     };
 
@@ -67,7 +71,7 @@ module.exports = {
 
     // The form is replaced by the locked-out panel.
     await expectTextContains(
-      page.locator('.locked'),
+      page.getByTestId('locked-panel'),
       'Account locked',
       5000,
     );

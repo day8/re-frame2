@@ -17,7 +17,8 @@ module.exports = {
   name: 'counter-uix',
   url: '/counter-uix/',
   run: async (page) => {
-    const span = page.locator('span').first();
+    // Anchor on data-testid (rf2-i0j1x).
+    const span = page.getByTestId('counter-value');
     await expectTextEquals(span, '5', 10000);
 
     await page.getByRole('button', { name: '+' }).click();

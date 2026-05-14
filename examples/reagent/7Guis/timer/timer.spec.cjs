@@ -10,17 +10,18 @@
  * - Reset: elapsed back to "0.0 s".
  */
 
-const { expectVisible } = require('../../../scripts/spec-helpers.cjs');
+const {
+  expectVisible,
+  waitForValue,
+} = require('../../../scripts/spec-helpers.cjs');
 
 async function readElapsed(page) {
-  // The view renders elapsed seconds inside a <label>, e.g. "1.5 s".
-  // We read the .row containing the elapsed-only label (no preceding label).
-  const labels = await page.locator('label').allTextContents();
-  for (const t of labels) {
-    const m = (t || '').match(/^\s*(\d+\.\d+)\s*s\s*$/);
-    if (m) return parseFloat(m[1]);
-  }
-  return null;
+  // The view renders elapsed seconds inside [data-testid="timer-elapsed"],
+  // e.g. "1.5 s". Parse the leading float; on the (extremely brief)
+  // first-render the label may not be present yet — return null.
+  const t = (await page.getByTestId('timer-elapsed').textContent()) || '';
+  const m = t.match(/(\d+\.\d+)\s*s/);
+  return m ? parseFloat(m[1]) : null;
 }
 
 module.exports = {
@@ -32,30 +33,18 @@ module.exports = {
 
     // Wait for the timer to actually advance past zero — poll the
     // elapsed label rather than sleeping a fixed budget (rf2-u3amn).
-    const start = Date.now();
-    let elapsed1 = 0;
-    while (Date.now() - start < 5000) {
-      const v = await readElapsed(page);
-      if (v != null && v > 0) {
-        elapsed1 = v;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    if (elapsed1 <= 0) {
-      throw new Error(`expected elapsed > 0 within 5s, got ${elapsed1}`);
-    }
+    await waitForValue(() => readElapsed(page), (v) => v != null && v > 0, {
+      timeoutMs: 5000,
+      description: 'timer elapsed > 0',
+    });
 
     // Click Reset; elapsed should return to 0.0.
-    await page.getByRole('button', { name: /reset/i }).click();
+    await page.getByTestId('timer-reset').click();
     // Use a small grace window — the very first reading may be a tiny
     // fraction of a tick if the next tick fired immediately.
-    const resetStart = Date.now();
-    while (Date.now() - resetStart < 2000) {
-      const e = await readElapsed(page);
-      if (e === 0 || e === 0.0) return;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    throw new Error('Reset did not return elapsed to 0.0 within 2s');
+    await waitForValue(() => readElapsed(page), (v) => v === 0, {
+      timeoutMs: 2000,
+      description: 'timer elapsed reset to 0.0',
+    });
   },
 };

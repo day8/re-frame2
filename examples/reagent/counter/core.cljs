@@ -44,7 +44,7 @@
 (reg-view counter-buttons []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span {:style {:margin "0 1em"}} @(subscribe [:count])]
+   [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:count])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
 ;; The root `counter-app` view renders `counter-buttons` against the

@@ -189,9 +189,12 @@
         can-redo?  @(subscribe [:drawer/can-redo?])]
     [:div.drawer
      [:div.row
-      [:button {:on-click #(dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
-      [:button {:on-click #(dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
-     [:svg {:width 600 :height 400 :style {:border "1px solid #999"}
+      [:button {:data-testid "drawer-undo"
+                :on-click #(dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
+      [:button {:data-testid "drawer-redo"
+                :on-click #(dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
+     [:svg {:data-testid "drawer-canvas"
+            :width 600 :height 400 :style {:border "1px solid #999"}
             :on-click (fn [e]
                         (let [rect (.. e -currentTarget getBoundingClientRect)
                               x    (- (.. e -clientX) (.-left rect))
@@ -205,14 +208,17 @@
                                      (dispatch [:drawer/open-dialog id]))}])]
 
      (when dialog
-       [:div.dialog {:style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
+       [:div.dialog {:data-testid "drawer-dialog"
+                     :style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
         [:p (str "Adjust diameter of circle " (:circle-id dialog))]
         [:input {:type      "range"
+                 :data-testid "drawer-slider"
                  :min       5 :max 100 :step 1
                  :value     (:draft-radius dialog)
                  :on-change #(dispatch [:drawer/dialog-drag
                                         (js/parseInt (.. % -target -value))])}]
-        [:button {:on-click #(dispatch [:drawer/close-dialog])} "Close"]])]))
+        [:button {:data-testid "drawer-close"
+                  :on-click #(dispatch [:drawer/close-dialog])} "Close"]])]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS
