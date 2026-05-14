@@ -188,7 +188,14 @@ runWithWatchdog(
 
     const dispatchPromise = client.callTool({
       name: 'dispatch',
-      arguments: { 'event-v': '[:rf-conformance/subscribe-probe :hello]' },
+      // Per pair2-mcp's `dispatch` schema the arg slot is `event` (a
+      // single EDN-vector string, parsed server-side per rf2-vflrg).
+      // An earlier draft used `event-v` (the runtime-side `pair-dispatch!`
+      // ARG name); that doesn't match the MCP tool's `inputSchema` —
+      // the server rejected with `:reason :missing-event` and the
+      // streaming trace bus never fired (no event → no trace frame →
+      // 0 ticks → :max-ms-reached with delivered 0).
+      arguments: { event: '[:rf-conformance/subscribe-probe :hello]' },
     });
 
     // Wait for both calls to settle. subscribe returns the terminal

@@ -137,7 +137,12 @@ runWithWatchdog(
     // before we even reach the `isError` assertion.
     const dispatchResp = await client.callTool({
       name: 'dispatch',
-      arguments: { 'event-v': '[:rf-conformance/probe]' },
+      // The dispatch tool's MCP inputSchema names the slot `event` —
+      // a single EDN-vector string parsed server-side (rf2-vflrg).
+      // (Degraded-mode returns `:nrepl-port-not-found` regardless of
+      // args, so the pre-rf2-zb5z6 `event-v` typo went unobserved
+      // here; the live subscribe gate surfaced it.)
+      arguments: { event: '[:rf-conformance/probe]' },
     });
     if (!dispatchResp.isError) {
       throw new Error(
