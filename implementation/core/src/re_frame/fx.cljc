@@ -276,7 +276,7 @@
                 :fx-args args
                 :frame   frame-id}))
 
-(defn- handle-one-fx
+(defn handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
    1. Reserved fx-id with runtime handling (:dispatch, :dispatch-later, :rf.fx/...).
    2. User-registered fx looked up via registrar.
@@ -292,7 +292,14 @@
   `origin-event` (when supplied) is the originating event vector, threaded
   through to the user-registered fx handler's ctx so handlers like
   `:rf.http/managed` (Spec 014 §Reply addressing) can address replies back
-  to the originator without a separate cofx-injection step."
+  to the originator without a separate cofx-injection step.
+
+  Public so that fx wrappers (per Spec 012 §Navigation tokens
+  `:rf.route/with-nav-token`, and any future single-fx re-entry helper)
+  can route a single inner fx entry through the same machinery as the
+  outer walk — without re-emitting the `:event/do-fx` boundary marker
+  that `do-fx` terminates each walk with. `do-fx` remains the entry
+  point for the whole `:fx` vector."
   [frame-id [original-fx-id args] active-platform overrides origin-event]
   (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)
         resolved-meta (resolved-fx-meta original-fx-id fx-id overrides)

@@ -206,6 +206,91 @@
                 @traces)
           "expected :rf.route.nav-token/stale-suppressed trace for the A response"))))
 
+(deftest with-nav-token-fx-suppresses-stale-do-and-commits-fresh
+  (testing ":rf.route/with-nav-token fx: stale `:do` is suppressed; fresh `:do` runs"
+    ;; Per Spec 012 §Navigation tokens §Threading: a user event handler
+    ;; emits an `:fx` entry of the form
+    ;;
+    ;;   [:rf.route/with-nav-token {:do        [:dispatch [<ev> args...]]
+    ;;                              :nav-token <captured-token>}]
+    ;;
+    ;; …and the runtime threads the carried token against the current
+    ;; `:rf/route :nav-token`. Match → the inner fx runs (canonically a
+    ;; `:dispatch` to the success continuation). Mismatch → the inner fx
+    ;; is suppressed and `:rf.route.nav-token/stale-suppressed` emits.
+    ;;
+    ;; This test pins both branches via the production fx (no use of
+    ;; the test-only `:rf.test/simulate-http-resolution` event). The
+    ;; `:article/loaded` continuation is the user-facing handler the
+    ;; wrapped dispatch would commit through; we observe it via the
+    ;; resulting app-db slice.
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-event-db :article/loaded
+                     (fn [db [_ id payload]]
+                       (assoc db :article {:id id :payload payload})))
+    ;; Bridge event: a real :on-success handler. Carries the token it
+    ;; captured at request time and re-emits an `:rf.route/with-nav-token`
+    ;; fx entry. The runtime then either dispatches `[:article/loaded ...]`
+    ;; (match) or suppresses (mismatch).
+    (rf/reg-event-fx :article/loaded-via-nav-token
+                     (fn [_ctx [_ {:keys [carried-token id payload]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:do        [:dispatch [:article/loaded id payload]]
+                               :nav-token carried-token}]]}))
+
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::with-nav-token-fx
+                             (fn [ev] (swap! traces conj ev)))
+
+      ;; 1. Land on :route/article id="A" — nav-token allocates to "nav-1".
+      (rf/dispatch-sync [:rf/url-changed "/articles/A"])
+      (is (= "nav-1" (get-in (rf/get-frame-db :rf/default)
+                             [:rf/route :nav-token]))
+          "first navigation got nav-1")
+
+      ;; 2. Before A's async :on-success lands, navigate to id="B" — "nav-2".
+      (rf/dispatch-sync [:rf/url-changed "/articles/B"])
+      (is (= "nav-2" (get-in (rf/get-frame-db :rf/default)
+                             [:rf/route :nav-token]))
+          "second navigation advanced the epoch to nav-2")
+
+      ;; 3. A's stale :on-success arrives carrying "nav-1" via the fx
+      ;; wrapper. Current is "nav-2"; the inner :dispatch must be
+      ;; suppressed and the trace must fire.
+      (rf/dispatch-sync [:article/loaded-via-nav-token
+                         {:carried-token "nav-1"
+                          :id            "A"
+                          :payload       "A-payload"}])
+
+      ;; 4. B's fresh :on-success arrives carrying "nav-2"; matches
+      ;; current; inner :dispatch fires; :article/loaded commits.
+      (rf/dispatch-sync [:article/loaded-via-nav-token
+                         {:carried-token "nav-2"
+                          :id            "B"
+                          :payload       "B-payload"}])
+
+      (rf/remove-trace-cb! ::with-nav-token-fx)
+
+      (is (= {:id "B" :payload "B-payload"}
+             (:article (rf/get-frame-db :rf/default)))
+          "fresh :do ran end-to-end; stale :do was suppressed before commit")
+
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                       (= "nav-1" (-> ev :tags :carried-token))
+                       (= "nav-2" (-> ev :tags :current-token))
+                       (= :article/loaded (-> ev :tags :event-id))))
+                @traces)
+          "stale :do produced :rf.route.nav-token/stale-suppressed with the inner dispatch's event-id")
+
+      ;; Negative: no spurious suppressed-trace for the fresh path.
+      (is (= 1 (count (filter (fn [ev]
+                                (= :rf.route.nav-token/stale-suppressed
+                                   (:operation ev)))
+                              @traces)))
+          "exactly one stale-suppressed trace fired — the fresh :do did NOT trip the validation"))))
+
 ;; ---- Spec 012 §Scroll restoration -----------------------------------------
 
 (deftest routing-scroll-metadata-preserved

@@ -30,10 +30,16 @@
     :rf.route/navigate                  programmatic
     :rf.route/handle-url-change         pop-state / initial / SSR
     :rf.route/continue / cancel         pending-nav protocol
-    :rf.test/simulate-http-resolution   test-only nav-token check"
+    :rf.test/simulate-http-resolution   test-only nav-token check
+
+  Effects:
+    :rf.nav/push-url    :rf.nav/replace-url    :rf.nav/scroll
+    :rf.route/with-nav-token            stale-result suppression wrapper"
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
+            [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.router :as router]
             [re-frame.source-coords :as source-coords]
@@ -900,6 +906,91 @@
     #?(:cljs (.replaceState js/window.history nil "" url)
        :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
                           {:fx-id :rf.nav/replace-url :url url}))))
+
+;; ---- :rf.route/with-nav-token --------------------------------------------
+;;
+;; Per Spec 012 §Navigation tokens §Threading and §Trace events, and the
+;; `:rf.fx/with-nav-token-args` schema in Spec-Schemas.md. The fx wraps an
+;; async-completion fx entry (`:do`) with a stale-result check: at fire
+;; time, the carried `:nav-token` is compared against the current
+;; `:rf/route :nav-token` in app-db; on match, the inner fx entry is
+;; dispatched through the regular fx machinery (so `:dispatch`,
+;; `:dispatch-later`, `:rf.http/managed`, etc all flow through); on
+;; mismatch, the inner fx is suppressed and the runtime emits
+;; `:rf.route.nav-token/stale-suppressed` with the canonical tags
+;; (`:carried-token`, `:current-token`, `:event-id`) — the handler does
+;; NOT run (no `:db` write, no `:fx`, no transition).
+;;
+;; This is the production-grade staleness-suppression path; the
+;; `:rf.test/simulate-http-resolution` event above is its test-only
+;; conformance-fixture stand-in (used where the fixture DSL can't
+;; emit an effect-map of its own).
+
+(defn- inner-fx-event-id
+  "Best-effort extraction of an `event-id` from an `:do` fx entry. For
+  the canonical `[:dispatch [<event-id> args...]]` shape the event-id is
+  the head of the inner vector; for any other fx entry we fall back to
+  the outer fx-id (e.g. `:rf.http/managed`) so the `:event-id` tag still
+  identifies what was suppressed."
+  [do-entry]
+  (when (vector? do-entry)
+    (let [[fx-id args] do-entry]
+      (cond
+        (and (= :dispatch fx-id) (vector? args) (seq args))
+        (first args)
+
+        :else
+        fx-id))))
+
+(fx/reg-fx :rf.route/with-nav-token
+  {:doc  "Per Spec 012 §Navigation tokens. Threads the carried
+`:nav-token` against the current `:rf/route :nav-token`. Match → run
+`:do` (any fx entry); mismatch → suppress and emit
+`:rf.route.nav-token/stale-suppressed`."
+   ;; Inline Malli schema per Spec-Schemas.md §`:rf.fx/with-nav-token-args`.
+   ;; Inline rather than a registered schema-id so validation works in
+   ;; consumers that don't pre-register the keyword in their Malli
+   ;; registry; the registered-id form remains available to apps that
+   ;; want to centralise schemas (per Spec 010 §Schema registration).
+   :spec [:map
+          [:do        [:vector :any]]
+          [:nav-token :any]]}
+  (fn [{:keys [frame] :as _ctx} args]
+    ;; Destructure `:do` via `get` rather than `:keys` so the binding name
+    ;; doesn't shadow `clojure.core/do` inside the body. Per Spec 012
+    ;; §Threading the `:do` slot is the wrapped fx entry to perform.
+    (let [do-entry        (get args :do)
+          nav-token       (get args :nav-token)
+          frame-id        (or frame :rf/default)
+          frame-record    (frame/frame frame-id)
+          db              (frame/frame-app-db-value frame-id)
+          current         (get-in db [:rf/route :nav-token])]
+      (cond
+        (= nav-token current)
+        ;; Token matches — route the inner fx entry through
+        ;; `fx/handle-one-fx`. Routing it through the same machinery means
+        ;; `:dispatch`, `:dispatch-later`, `:rf.http/managed`, et al. all
+        ;; work uniformly. `handle-one-fx` rather than `do-fx` so the
+        ;; cascade's single `:event/do-fx` boundary marker stays on the
+        ;; outer walk (the inner re-entry must not double-emit it — the
+        ;; epoch projection's six-domino bucketing keys off that marker
+        ;; per `trace/projection.cljc`). The active-platform resolution
+        ;; mirrors `router/run-fx-effects!` so a server-only or
+        ;; client-only inner fx skips with the standard
+        ;; `:rf.fx/skipped-on-platform` trace.
+        (let [active-platform (or (get-in frame-record [:config :platform])
+                                  interop/platform)]
+          (fx/handle-one-fx frame-id do-entry active-platform {} nil))
+
+        :else
+        ;; Stale — suppress. Same trace shape as
+        ;; `:rf.test/simulate-http-resolution` so a single conformance
+        ;; assertion covers both production and test paths.
+        (trace/emit-error! :rf.route.nav-token/stale-suppressed
+                           {:carried-token nav-token
+                            :current-token current
+                            :event-id      (inner-fx-event-id do-entry)
+                            :recovery      :replaced-with-default})))))
 
 (fx/reg-fx :rf.nav/scroll
   {:platforms #{:client}
