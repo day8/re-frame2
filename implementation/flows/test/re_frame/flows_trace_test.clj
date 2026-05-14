@@ -359,6 +359,82 @@
       (is (empty? (get per-flow :C))
           ":C emitted no drain trace — did not run after :B threw"))))
 
+;; ---------------------------------------------------------------------------
+;; 7c. Failed-flow contract pin (rf2-hrqvg).
+;;
+;; Companion to 7b: explicitly pin the per-flow `last-inputs` non-advance
+;; on failure and the prior-flow `last-inputs` advance on success. The
+;; failed-cascade test above asserts the OBSERVABLE outcome (which
+;; :path slots survive); this asserts the dirty-check bookkeeping that
+;; makes retry-on-next-drain work correctly.
+;;
+;; This is the contract decision documented in the cluster's PR body
+;; (decision-flagged bead rf2-hrqvg): preserve prior writes AND halt
+;; the cascade — the strongest no-silent-loss guarantee compatible
+;; with surfacing failures as cascade-level errors.
+;; ---------------------------------------------------------------------------
+
+(deftest failed-flow-contract-last-inputs-bookkeeping
+  (testing "failing flow's last-inputs is NOT advanced; prior flow's last-inputs IS advanced"
+    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (let [a-calls (atom 0)
+          b-calls (atom 0)]
+      (rf/reg-flow {:id     :A
+                    :inputs [[:n]]
+                    :output (fn [n] (swap! a-calls inc) (* 2 n))
+                    :path   [:a-out]})
+      (rf/reg-flow {:id     :B
+                    :inputs [[:a-out]]
+                    :output (fn [_]
+                              (swap! b-calls inc)
+                              (throw (ex-info "boom" {})))
+                    :path   [:b-out]})
+      (rf/dispatch-sync [:init])
+      (is (= 1 @a-calls) ":A computed once on the first drain")
+      (is (= 1 @b-calls) ":B threw once on the first drain")
+
+      ;; Bump :n — :A's input changed (5 → 6).
+      ;; - :A's last-inputs WAS advanced to [5] on the first drain, so a
+      ;;   new dirty-check at [6] triggers recompute. (@a-calls should
+      ;;   reach 2.)
+      ;; - :A's new output (12) is different from the prior (10) it
+      ;;   wrote on the first drain, so :B's input [:a-out] is now [12].
+      ;;   :B's last-inputs was NOT advanced (still nil/empty from the
+      ;;   failure), so :B retries. (@b-calls should reach 2.)
+      (rf/dispatch-sync [:bump])
+      (is (= 2 @a-calls)
+          ":A re-fired because its last-inputs advanced and inputs changed (prior write succeeded)")
+      (is (= 2 @b-calls)
+          ":B re-fired because its last-inputs was NOT advanced on the prior failure"))))
+
+(deftest failed-flow-contract-app-db-shape-after-multiple-failing-drains
+  (testing "across multiple failing drains, prior flow's writes keep landing; failing flow's slot stays absent"
+    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+    (rf/reg-event-db :n!   (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-flow {:id     :A
+                  :inputs [[:n]]
+                  :output (fn [n] (* 10 n))
+                  :path   [:a-out]})
+    (rf/reg-flow {:id     :B
+                  :inputs [[:a-out]]
+                  :output (fn [_] (throw (ex-info "boom" {})))
+                  :path   [:b-out]})
+    (rf/dispatch-sync [:init])
+    (is (= 50 (:a-out (rf/get-frame-db :rf/default))))
+    (is (not (contains? (rf/get-frame-db :rf/default) :b-out)))
+
+    (rf/dispatch-sync [:n! 7])
+    (is (= 70 (:a-out (rf/get-frame-db :rf/default)))
+        ":A's write landed again after the second failing drain (5 → 7 → 70)")
+    (is (not (contains? (rf/get-frame-db :rf/default) :b-out))
+        ":b-out still absent across drains — failing flow's slot remains vacated")
+
+    (rf/dispatch-sync [:n! 11])
+    (is (= 110 (:a-out (rf/get-frame-db :rf/default)))
+        ":A's write landed a third time (7 → 11 → 110)")
+    (is (not (contains? (rf/get-frame-db :rf/default) :b-out)))))
+
 (deftest computed-trace-elision-no-op-when-no-declaration
   (testing "absent any declaration, :input-values and :result pass through unchanged"
     ;; Belt-and-braces against an over-eager rewrite — the walker must be
