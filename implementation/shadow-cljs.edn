@@ -91,7 +91,18 @@
                 "../examples/reagent/long_running_work/test"
                 "../examples/reagent/websocket/test"
                 "../examples/uix"
-                "../examples/helix"]
+                "../examples/helix"
+                ;; rf2-kzcim Tier 1 — shared framework-behavior
+                ;; testbeds. Top-level testbeds/<surface>/ siblings of
+                ;; examples/; the per-testbed CLJS namespace
+                ;; (e.g. deliberate-throw.core) resolves under this
+                ;; source path. Per the testbeds split (rf2-96nb3),
+                ;; these are framework-behavior fixtures consumed by
+                ;; multiple tools (Causa, Story, pair2-mcp); the
+                ;; sources are bundle-isolated from the examples
+                ;; surface (no example :requires anything under
+                ;; testbeds/, and vice versa).
+                "../testbeds"]
  :dependencies [[reagent           "2.0.1"]
                 [metosin/malli     "0.20.1"]
                 [com.pitch/uix.core "1.4.4"]
@@ -550,4 +561,31 @@
   {:target     :browser
    :output-dir "out/examples/websocket"
    :asset-path "."
-   :modules    {:main {:init-fn websocket.core/run}}}}}
+   :modules    {:main {:init-fn websocket.core/run}}}
+
+  ;; ============================================================================
+  ;; Testbeds (rf2-kzcim — shared framework-behavior surfaces).
+  ;;
+  ;; Each testbed surface compiles into out/testbeds/<name>/ and is
+  ;; paired with the testbed's hand-written index.html. The Causa
+  ;; preload (rf2-n6x4q) is wired on every testbed dev build mirroring
+  ;; the examples convention — dev-only, DCEs from release builds.
+  ;;
+  ;; Bundle-isolation contract: testbeds/ source is on shadow's
+  ;; :source-paths but nothing under examples/ or implementation/
+  ;; :requires anything under testbeds/. The same contract that
+  ;; firewalls tools/ from production builds (tools/README.md) applies
+  ;; here in reverse: testbed namespaces are visible to the
+  ;; bundle-isolation grep as a denylist token so a future regression
+  ;; that accidentally :requires a testbed from production code surfaces
+  ;; on CI.
+  ;; ============================================================================
+
+  ;; rf2-kzcim — deliberate-throw testbed (the throw-from-each-layer
+  ;; surface; four buttons, four :rf.error/* categories).
+  :testbeds/deliberate-throw
+  {:target     :browser
+   :output-dir "out/testbeds/deliberate-throw"
+   :asset-path "."
+   :modules    {:main {:init-fn deliberate-throw.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
