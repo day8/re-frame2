@@ -111,7 +111,14 @@ inside the relevant slice) before treating a result as raw data:
 - `{:rf.mcp/cache-hit {:hash ... :unchanged-since ... :hint ...}}` —
   reuse the prior call's payload.
 - `{:rf.size/large-elided {:path ... :handle [:rf.elision/at ...] ...}}` —
-  drill into the handle (or pass `elision false`).
+  drill into the handle (or pass `elision false`). If the marker rides
+  with a `:reason :runtime-flagged`, the framework's walker auto-detected
+  the path (the value's `pr-str` byte count exceeded
+  `:rf.size/threshold-bytes` and a one-shot
+  `:rf.warning/runtime-large-elision` was emitted — see Spec 009 §Size
+  elision in traces). Authors should either promote the path with
+  `:rf.size/declare-large` (suppresses the warning, keeps the elision)
+  or override with `{:large? false}` (suppresses both).
 - `{:rf.mcp/summary {:type :map :keys [...] :count N :bytes ~B}}` —
   ask for `"full"` mode (per-slice or globally) when you need detail.
 
