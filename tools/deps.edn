@@ -1,0 +1,90 @@
+;; Top-level tools coordinator (rf2-nuuk3).
+;;
+;; The published artefacts are
+;;   - causa/       (day8/re-frame2-causa)
+;;   - mcp-base/    (day8/re-frame2-mcp-base)
+;;   - pair2-mcp/   (@day8/re-frame-pair2-mcp, npm only)
+;;   - story/       (day8/re-frame2-story)
+;;   - story-mcp/   (day8/re-frame2-story-mcp)
+;;   - template/    (day8/clj-template.re-frame2)
+;; see tools/causa/deps.edn, tools/mcp-base/deps.edn,
+;; tools/pair2-mcp/deps.edn, tools/story/deps.edn,
+;; tools/story-mcp/deps.edn, and tools/template/deps.edn.
+;;
+;; Other tool directories (causa-mcp/, machines-viz/, machines-viz-mcp/,
+;; mcp-conformance/) are spec-only or Node-only today — no `deps.edn` /
+;; CLJ surface to coordinate. They will be added here when their `src/`
+;; trees land. The Node-side `tools/mcp-conformance/wire-vocab/deps.edn`
+;; is a self-contained JVM conformance test; it is run from its own
+;; directory and is not coordinated here.
+;;
+;; This top-level deps.edn is *not* itself a published artefact — it is
+;; the build coordinator that pulls every tool artefact onto a single
+;; classpath for aggregate test runs and for the shadow-cljs builds (see
+;; tools/shadow-cljs.edn) that exercise pair2-mcp end-to-end. Per-tool
+;; JVM tests run via the per-tool deps.edn directly.
+;;
+;; ## Why template is NOT in the base :deps map
+;;
+;; `tools/template/` ships clj-new templates — its `src/` tree contains
+;; placeholder-bearing `.cljs` template files (e.g. `(ns {{namespace}}...)`
+;; in src/clj/new/re_frame2/shared/events_test.cljs) that are NOT valid
+;; ClojureScript. Adding `day8/clj-template.re-frame2` to the base `:deps`
+;; map would put those files on the shadow-cljs classpath; shadow-cljs
+;; would try to compile them and fail at the read-loop. The template dep
+;; therefore lives ONLY on the `:test` alias, which runs on the JVM
+;; where the .cljs templates are treated as plain resources.
+;;
+;; ## Bundle-isolation
+;;
+;; This file does NOT change the tool→implementation dependency arrow
+;; (see tools/README.md §The bundle-isolation contract). It only widens
+;; the *coordinator's* classpath; nothing under implementation/ may
+;; :require anything under tools/.
+{:paths []
+ :deps  {day8/re-frame2-causa     {:local/root "causa"}
+         day8/re-frame2-mcp-base  {:local/root "mcp-base"}
+         day8/re-frame-pair2-mcp  {:local/root "pair2-mcp"}
+         day8/re-frame2-story     {:local/root "story"}
+         day8/re-frame2-story-mcp {:local/root "story-mcp"}}
+
+ :aliases
+ {;; Aggregate JVM-side test run across every tool whose tests are
+  ;; runnable on the JVM (mcp-base, story, story-mcp, template). Useful
+  ;; for ad-hoc REPL work and as a single-command sanity check across
+  ;; the tool tier. Production CI runs each tool's :test alias
+  ;; separately (per-tool gates).
+  ;;
+  ;; Note on coverage gaps:
+  ;;   - tools/causa/ — CLJS-side only (DOM + Reagent shell). Its tests
+  ;;     run under the implementation/shadow-cljs.edn :node-test build,
+  ;;     not on the JVM.
+  ;;   - tools/pair2-mcp/ — CLJS Node-script. Its tests run under
+  ;;     tools/pair2-mcp/shadow-cljs.edn :server-test (mirrored in
+  ;;     tools/shadow-cljs.edn).
+  :test
+  {:extra-deps  {;; template lives on the JVM-only path — see the
+                 ;; "Why template is NOT in the base :deps map" block
+                 ;; above for the shadow-cljs incompatibility.
+                 day8/clj-template.re-frame2
+                 {:local/root "template"}
+                 ;; rf2-try1x — silent-on-success reporter.
+                 day8/re-frame2-test-quiet
+                 {:local/root "../implementation/test-quiet"}
+                 io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :extra-paths ["mcp-base/test"
+                 "story/test"
+                 "story-mcp/test"
+                 "template/test"]
+   ;; The `-d` args are necessary because cognitect.test-runner's
+   ;; default `--dir` is "test" (relative to cwd) — without explicit
+   ;; dir flags the runner scans `tools/test/` and finds nothing. The
+   ;; aggregated build needs one `-d` per per-tool test path. Per-tool
+   ;; `:test` aliases keep their default invocation (a single
+   ;; `test/` path relative to the tool's own deps.edn).
+   :main-opts   ["-m" "re-frame.test-quiet.runner"
+                 "-d" "mcp-base/test"
+                 "-d" "story/test"
+                 "-d" "story-mcp/test"
+                 "-d" "template/test"]}}}

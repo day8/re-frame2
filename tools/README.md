@@ -60,9 +60,19 @@ Each `deps.edn` carries a `:local/root` dep on `../../implementation/core`
 (plus whichever per-feature artefacts the tool legitimately consumes).
 Each tool publishes to Clojars under `day8/re-frame2-<tool>`.
 
-A top-level `tools/deps.edn` and `tools/shadow-cljs.edn` may appear later
-as build coordinators (matching the pattern in `implementation/`) once
-there's more than one tool to coordinate. Not needed yet.
+A top-level `tools/deps.edn` and `tools/shadow-cljs.edn` (rf2-nuuk3) act
+as build coordinators across the tool tier, matching the pattern in
+`implementation/`. `tools/deps.edn` declares each tool as a `:local/root`
+dep and exposes a `:test` alias that aggregates every JVM-runnable
+tool's `test/` tree; running `clojure -M:test` from `tools/` exercises
+the aggregated suite. `tools/shadow-cljs.edn` mirrors the per-tool CLJS
+builds (today: `pair2-mcp/server` and `pair2-mcp/server-test`) so
+`shadow-cljs compile <build>` works from `tools/` as well as from each
+tool's directory. Per-tool invocations remain valid — the coordinators
+compose the per-tool builds, they do not replace them. CLJS-only tools
+(`causa`) and JVM-only tools whose sources contain placeholder-bearing
+template files (`template`) are excluded from the shadow-cljs surface
+for technical reasons documented in the coordinator's comment block.
 
 ## Shipped
 
