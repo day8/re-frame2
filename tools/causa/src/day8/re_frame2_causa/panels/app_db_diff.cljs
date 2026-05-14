@@ -498,6 +498,17 @@
 
 ;; ---- registration entry --------------------------------------------------
 
+(defonce diff-cache
+  ;; Per-`:epoch-id` cache for the diff triples computed by the
+  ;; `:rf.causa/selected-epoch-diff` sub. See the long comment inside
+  ;; `install!` for the rationale and the eviction contract. Lifted
+  ;; from a let-local to a top-level `defonce` in rf2-o94sp so the
+  ;; size-on-rotation contract (audit 4c) is testable directly. Not
+  ;; `^:private` precisely so tests can `reset!` it between cases —
+  ;; production callers MUST NOT mutate this atom directly; all
+  ;; writes go through the sub fn.
+  (atom {}))
+
 (defn install!
   "Idempotent install for the App-DB Diff panel's Causa-side
   registrations (Phase 5, rf2-jps1o). Owns the cross-panel
@@ -552,39 +563,45 @@
   ;; retained epoch-history depth (which is itself bounded by the
   ;; framework's epoch-record ring buffer).
   ;;
-  ;; The cache is a private atom rather than a `with-meta`
-  ;; computation on the sub because reagent-sub identity caching
-  ;; only short-circuits when the underlying tuple is
-  ;; `identical?`-equal — with a freshly-vec'd `history` on every
-  ;; epoch settle the tuple shifts, so the sub re-runs even when
-  ;; the selected epoch hasn't changed. The atom-keyed cache
-  ;; collapses that to a map lookup.
-  (let [diff-cache (atom {})]
-    (rf/reg-sub :rf.causa/selected-epoch-diff
-      :<- [:rf.causa/epoch-history]
-      :<- [:rf.causa/selected-epoch-id]
-      (fn [[history selected-id] _query]
-        (let [record (if selected-id
-                       (tt-helpers/find-epoch-in-history history selected-id)
-                       (peek history))]
-          (when record
-            (let [epoch-id (:epoch-id record)
-                  ;; Cheap hit path — most renders.
-                  cached   (get @diff-cache epoch-id ::miss)]
-              (if (not= ::miss cached)
-                cached
-                ;; Miss — compute, store, and prune. Pruning keeps
-                ;; the cache size bounded by the live epoch-history
-                ;; depth without needing an LRU ordering.
-                (let [diff   (h/diff-paths (:db-before record)
-                                          (:db-after  record))
-                      live   (into #{} (map :epoch-id) history)]
-                  (swap! diff-cache
-                         (fn [m]
-                           (-> m
-                               (select-keys live)
-                               (assoc epoch-id diff))))
-                  diff))))))))
+  ;; The cache is a top-level `defonce` atom (declared just above
+  ;; `install!`) rather than a let-local closure because reagent-sub
+  ;; identity caching only short-circuits when the underlying tuple
+  ;; is `identical?`-equal — with a freshly-vec'd `history` on every
+  ;; epoch settle the tuple shifts, so the sub re-runs even when the
+  ;; selected epoch hasn't changed. The atom-keyed cache collapses
+  ;; that to a map lookup.
+  ;;
+  ;; The atom is intentionally module-visible (top-level `defonce`,
+  ;; not let-local) so the eviction-on-rotation contract from
+  ;; rf2-o94sp (audit 4c) can assert cache *size* directly — "size
+  ;; matches live history length" is observable only by peeking the
+  ;; cache map. `defonce` keeps the cache stable across `:after-load`
+  ;; reloads.
+  (rf/reg-sub :rf.causa/selected-epoch-diff
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/selected-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (if selected-id
+                     (tt-helpers/find-epoch-in-history history selected-id)
+                     (peek history))]
+        (when record
+          (let [epoch-id (:epoch-id record)
+                ;; Cheap hit path — most renders.
+                cached   (get @diff-cache epoch-id ::miss)]
+            (if (not= ::miss cached)
+              cached
+              ;; Miss — compute, store, and prune. Pruning keeps
+              ;; the cache size bounded by the live epoch-history
+              ;; depth without needing an LRU ordering.
+              (let [diff   (h/diff-paths (:db-before record)
+                                        (:db-after  record))
+                    live   (into #{} (map :epoch-id) history)]
+                (swap! diff-cache
+                       (fn [m]
+                         (-> m
+                             (select-keys live)
+                             (assoc epoch-id diff))))
+                diff)))))))
 
   ;; The pinned-slices store — `{frame-id [path-1 path-2 ...]}`.
   ;; Separate from Phase 3's :pin-store (which pins whole epoch
