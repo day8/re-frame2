@@ -28,7 +28,7 @@
 
 (deftest a11y-panel-registers
   (testing "the a11y panel registers as a story-panel"
-    (let [panels (story/handlers :story-panel)]
+    (let [panels (story/registrations :story-panel)]
       (is (contains? panels a11y/panel-id)))))
 
 (deftest a11y-panel-body

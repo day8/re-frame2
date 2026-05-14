@@ -21,7 +21,7 @@ story-mcp is a **downstream consumer** of Story's public read and
 - New component substrates.
 
 Every tool call routes through Story's existing public API —
-`re-frame.story/handlers`, `re-frame.story/run-variant`,
+`re-frame.story/registrations`, `re-frame.story/run-variant`,
 `re-frame.story/snapshot-identity`, `re-frame.story/variant->edn`,
 the `*`-suffix runtime helpers (`reg-variant*`, `unregister!`).
 Nothing here registers new framework primitives.

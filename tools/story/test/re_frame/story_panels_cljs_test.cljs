@@ -28,7 +28,7 @@
 
 (deftest v1-panels-registered
   (testing "Stage 6 ships three v1.0 story-panel registrations"
-    (let [ps (story/handlers :story-panel)]
+    (let [ps (story/registrations :story-panel)]
       (is (contains? ps a11y/panel-id))
       (is (contains? ps panels/epoch-panel-id))
       (is (contains? ps panels/layout-debug-panel-id)))))

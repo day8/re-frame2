@@ -15,7 +15,7 @@
          :enabled-when (optional)         ;; predicate fn from registry → boolean
          :for          #{<context-id>}})  ;; optional: contexts the panel belongs to
 
-  The shell's panel-host component reads `(rf/handlers :story-panel)`
+  The shell's panel-host component reads `(rf/registrations :story-panel)`
   + the shell's `:panel-visibility` map and renders every visible
   panel into its `:placement` slot. The `:render` view receives the
   current variant-id as its single arg.
@@ -289,7 +289,7 @@
 
   Returns a hiccup vector wrapping the resolved panels."
   [placement variant-id panel-visibility]
-  (let [panels (story-registrar/handlers :story-panel)
+  (let [panels (story-registrar/registrations :story-panel)
         slots  (->> panels
                     (filter (fn [[pid body]]
                               (and (= placement (:placement body))

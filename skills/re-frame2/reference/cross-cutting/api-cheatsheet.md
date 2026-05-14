@@ -118,7 +118,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/install-adapter!` / `rf/dispose-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-subscription-cache!` | targeted deregistration |
 | `rf/configure` | `(:epoch-history\|:trace-buffer\|:sub-cache opts)` — runtime knobs |
-| `rf/handlers` / `rf/handler-meta` / `rf/handler-ids` / `rf/registry-summary` | registrar reads |
+| `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` / `rf/registry-summary` | registrar reads |
 | `rf/frame-ids` / `rf/view` | registry reads |
 | `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:on-error` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta` |
 | `rf/sub-cache` (CLJS) / `rf/sub-topology` | dynamic / static sub graph reads |

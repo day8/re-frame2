@@ -43,7 +43,7 @@ The same threat model that drives `:rf.http/max-decoded-keys` ([`../../../spec/0
 The cross-MCP rule:
 
 1. **`safe-keyword` is the default primitive.** Every cross-MCP arg whose set of valid values is *bounded* — modes, enum-like opts, registered tool ids — uses `safe-keyword` with the allowlist passed in.
-2. **`parse-keyword` is reserved for registry-backed ids.** When the arg's value goes straight into a registry lookup whose key set is *itself* bounded by the registrar (e.g. `(handlers :event)` filtered by id), `parse-keyword` is acceptable — the interning is bounded by the registry's existing size.
+2. **`parse-keyword` is reserved for registry-backed ids.** When the arg's value goes straight into a registry lookup whose key set is *itself* bounded by the registrar (e.g. `(registrations :event)` filtered by id), `parse-keyword` is acceptable — the interning is bounded by the registry's existing size.
 3. **`parse-mode` routes through `safe-keyword`.** The convention's enum-shaped parser is internally safe; consumers should use it rather than rolling their own.
 
 The keyword-interning cap (`:rf.http/max-decoded-keys`) defends against the body-decode threat; this convention defends against the argument-parse threat. Both close the same DoS / keyword-table-poisoning vector.

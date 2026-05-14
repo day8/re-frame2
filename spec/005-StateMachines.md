@@ -585,7 +585,7 @@ No framework support beyond ordinary Clojure var resolution. Each machine names 
 
 What this gives:
 
-- **One id, one registration.** Reuses the `:event` registry kind. `(handlers :event)` enumerates every machine alongside every other event handler; `(handler-meta :event :drawer/editor)` carries `:rf/machine? true` so tooling can identify it. The snapshot's location in `app-db` is fixed and runtime-managed (see [§Where snapshots live](#where-snapshots-live)).
+- **One id, one registration.** Reuses the `:event` registry kind. `(registrations :event)` enumerates every machine alongside every other event handler; `(handler-meta :event :drawer/editor)` carries `:rf/machine? true` so tooling can identify it. The snapshot's location in `app-db` is fixed and runtime-managed (see [§Where snapshots live](#where-snapshots-live)).
 - **Standard dispatch.** `dispatch` and `dispatch-sync` route to a machine the same way they route to any handler.
 - **Hot-reload.** Re-eval of the registration replaces the table; live snapshots pick up the new interpretation on their next event.
 - **Reading the snapshot.** Views read the snapshot via the framework-shipped `:rf/machine` sub or its `sub-machine` wrapper — `@(rf/sub-machine :drawer/editor)` yields `{:state ... :data ...}` (or `nil` if not yet initialised). See [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine).
@@ -658,7 +658,7 @@ Both forms return `machine-id` per the family-wide [`reg-*` return-value convent
 
 **Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
 
-- `:rf/machine? true` — the discriminator. `(rf/machines)` filters `(handlers :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
+- `:rf/machine? true` — the discriminator. `(rf/machines)` filters `(registrations :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
 - `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(rf/machine-meta id)` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source coords, the `:rf.machine/source-coords` index lives inside this spec map.
 
 Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping-rf2-8bp3) for the per-element index.
@@ -1773,7 +1773,7 @@ Symmetry between singleton and spawned:
 | Singleton | `:drawer/editor` (explicit) | `[:rf/machines :drawer/editor]` | registered at boot via `reg-event-fx` |
 | Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf/machines :request/protocol#42]` | registered dynamically by `[:rf.machine/spawn ...]` fx |
 
-Both are event handlers. Both addressable by `dispatch`. Both visible to `(handlers :event)`. Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`.
+Both are event handlers. Both addressable by `dispatch`. Both visible to `(registrations :event)`. Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`.
 
 ### Spawn lifecycle — ordering (rf2-k0qb3)
 
@@ -1968,7 +1968,7 @@ The `:on-spawn` shape is general enough to subsume binding-as-key (`(assoc d :k 
 
 ### What spawning gives for free
 
-- **Inspection.** `(handlers :event)` lists every live actor. Filter by `:rf/machine?` metadata.
+- **Inspection.** `(registrations :event)` lists every live actor. Filter by `:rf/machine?` metadata.
 - **Tracing.** Every message to an actor is a normal `:event` trace. Lifecycle is `:registry/handler-{registered,cleared}`.
 - **Errors.** Sending to a destroyed actor → `:rf.error/no-such-handler`. Already categorised, already recoverable.
 - **Hot-reload.** Live spawned instances pick up new table interpretations on next event.
@@ -2639,7 +2639,7 @@ The handler dispatches `:got-data` (with the correlation id) when the response a
 
 ## Querying machines
 
-A machine *is* an event handler — that's the architectural commitment. But callers (tooling, AIs, conformance harnesses, post-v1 visualisers) routinely ask "what machines are registered?" and "what is machine `<id>`'s definition / metadata?" Forcing every caller to reimplement "scan `(handlers :event)`, filter by `:rf/machine? true`" is a tax with no upside.
+A machine *is* an event handler — that's the architectural commitment. But callers (tooling, AIs, conformance harnesses, post-v1 visualisers) routinely ask "what machines are registered?" and "what is machine `<id>`'s definition / metadata?" Forcing every caller to reimplement "scan `(registrations :event)`, filter by `:rf/machine? true`" is a tax with no upside.
 
 The framework therefore ships two thin lookup fns — **derived views over the existing event registry**, not a new registry kind:
 
@@ -2669,7 +2669,7 @@ Why a lens, not a registry kind:
 
 - **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. `(rf/machines)` is a `filter` call, not a separate index.
 - **`:rf/machine? true` metadata is the discriminator.** `create-machine-handler` carries this metadata onto the registration; `reg-event-fx` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
-- **One-line implementation.** `(rf/machines)` is `(handlers :event #(:rf/machine? %))`-shaped; `(rf/machine-meta id)` is `(handler-meta :event id)`. Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
+- **One-line implementation.** `(rf/machines)` is `(registrations :event #(:rf/machine? %))`-shaped; `(rf/machine-meta id)` is `(handler-meta :event id)`. Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
 - **Discovery is a first-class operation.** Visualisers can iterate every live machine without knowing where else to look; conformance harnesses can enumerate the suite under test; AI agents can answer "show me the machines in this app."
 
 User-facing call sites:
@@ -2710,7 +2710,7 @@ The framework exposes two surfaces, both equivalent:
     (rf/subscribe [:rf/machine machine-id]))
   ```
 
-- **`(rf/subscribe [:rf/machine :drawer/editor])`** — explicit registry use. The `:rf/machine` sub is in `(handlers :sub)`, traceable, introspectable. Power-users and tools use this form.
+- **`(rf/subscribe [:rf/machine :drawer/editor])`** — explicit registry use. The `:rf/machine` sub is in `(registrations :sub)`, traceable, introspectable. Power-users and tools use this form.
 
 `sub-machine` is sugar over the registered sub. Both surfaces resolve on the surrounding frame; `@(rf/sub-machine :drawer/editor)` reads from that frame's `[:rf/machines :drawer/editor]`.
 

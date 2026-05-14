@@ -34,7 +34,7 @@ What re-frame-pair2 can see inside a live re-frame2 app.
 | Read all of `app-db` for any frame | *done* | `app-db/snapshot` via `rf/get-frame-db` |
 | Read a specific path | *done* | `app-db/get` via `rf/snapshot-of` |
 | Diff `app-db` before/after one event | *done* | Each `:rf/epoch-record` carries `:db-before` and `:db-after`; `epoch-diff` returns the projected `{:only-before :only-after :common}` |
-| List registered handlers | *done* | `registrar/list <kind>` over `rf/handlers` |
+| List registered handlers | *done* | `registrar/list <kind>` over `rf/registrations` |
 | Inspect handler + interceptor chain + source coords | *done* | `registrar/describe :event <id>` over `rf/handler-meta` (returns `:ns` / `:line` / `:file` / `:column` / `:handler-fn`) |
 | Sample a subscription on demand | *done* | `subs/sample [:query-v]` |
 | Inspect the live sub cache | *done* | `subs/cache` returns `{query-v {:value v :ref-count n}}` (CLJS-only) |

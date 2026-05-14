@@ -199,7 +199,7 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 - The path is **parseable both ways**: a path-pattern matched against an incoming URL produces a params map; a route-id + params map produces a URL.
 - The params shape is described by the host's idiom (Malli for CLJS dynamic; types for static hosts; per [000-Vision.md](000-Vision.md) on the schema/type duality).
-- Routes are **stably-id'd**, queryable via `(rf/handlers :route)`, source-coordinated.
+- Routes are **stably-id'd**, queryable via `(rf/registrations :route)`, source-coordinated.
 - Route metadata is an **open map**. The pattern reserves a small set of keys (see "Reserved route-metadata keys" below); hosts and applications may add their own keys (e.g. `:myapp/analytics-id`, `:myapp/layout`) under a chosen namespace. Interceptors, guards, layouts, and analytics tooling read those keys via `(rf/handler-meta :route route-id)`.
 
 #### Reserved route-metadata keys
@@ -963,7 +963,7 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 
 ## Tooling and AI-amenability
 
-- `(rf/handlers :route)` enumerates every registered route. Tools and agents enumerate them; AI scaffolding consults this before generating new routes to avoid collisions.
+- `(rf/registrations :route)` enumerates every registered route. Tools and agents enumerate them; AI scaffolding consults this before generating new routes to avoid collisions.
 - `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render route-loading dependency graphs without parsing handler bodies.
 - The `:rf/route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
 - `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.

@@ -227,8 +227,8 @@ each; substrate-specific failures show inline (see
 ## Tag-vocabulary queries
 
 ```clojure
-(rf/handlers :tag)                               ; all registered tags
-(rf/handlers :tag #(contains? (:tags %) :auth))  ; filtered
+(rf/registrations :tag)                               ; all registered tags
+(rf/registrations :tag #(contains? (:tags %) :auth))  ; filtered
 ```
 
 Already framework-supplied via the

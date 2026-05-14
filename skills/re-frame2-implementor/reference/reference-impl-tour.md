@@ -122,7 +122,7 @@ EP 005 implementation. Largest non-core artefact. The transition machine, drain 
 
 ### `routing/`
 
-EP 012 implementation. Hand-rolled URL matcher with a six-rule precedence cascade; not a third-party routing library. The routing registry plugs into EP 001's registrar — `(handlers :route)` is queryable.
+EP 012 implementation. Hand-rolled URL matcher with a six-rule precedence cascade; not a third-party routing library. The routing registry plugs into EP 001's registrar — `(registrations :route)` is queryable.
 
 ### `schemas/`
 

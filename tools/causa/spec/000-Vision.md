@@ -88,7 +88,7 @@ Each row is "new in re-frame2 → new tooling story Causa must tell."
 | **Effect log** | Every fx invocation; filter by fx-id; outcome (`:ok` / `:error` / `:skipped-on-platform`). | `(rf/trace-buffer {:op-type :fx})` + `:effects` projection. |
 | **Trace timeline** | Raw trace events with timing. Structured filter on `:op-type` / `:operation` / `:frame` / `:dispatch-id` / `:origin`. | `(rf/trace-buffer)` + `PerformanceObserver` on `rf:*` measures. |
 | **Machine inspector** | State-chart per machine; live highlight; transition history scrub; source-coord jump. Embeds `tools/machines-viz/`. | `(rf/machines)` + `[:rf/machines <id>]` + `:rf.machine/*` traces. |
-| **Flow graph** | DAG of registered flows; per-flow recompute heatmap; "marked dormant" indicator. | `(rf/handlers :flow)` + `:rf.flow/*` traces. |
+| **Flow graph** | DAG of registered flows; per-flow recompute heatmap; "marked dormant" indicator. | `(rf/registrations :flow)` + `:rf.flow/*` traces. |
 | **Performance ribbon** | INP, long tasks, layout shifts, re-render counts per epoch. | `PerformanceObserver` watching `rf:*` + browser entries. |
 | **Schema violation timeline** | Per-schema row; coloured dot per failure with recovery mode (skip / rollback / replaced-with-default / re-raised). | `(rf/trace-buffer {:operation :rf.error/schema-validation-failure})`. |
 | **Issues ribbon** | Unified feed: errors, warnings, schema violations, hydration mismatches. Permanent ribbon, not a console line. | All `:op-type :error` / `:warning` traces (including `:operation :rf.ssr/hydration-mismatch`, which carries `:op-type :error`). |

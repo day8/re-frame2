@@ -201,7 +201,7 @@ Pair tools, generators, and AI-assisted tooling want to know which schemas a han
               :decode  ArticleResponse}]]})))     ;; same schema at the call site
 ```
 
-Then `(rf/handler-meta :event :article/load)` returns a map carrying `:rf.http/decode-schemas [ArticleResponse]`, which pair tools / `(rf/handlers :event)` enumeration / generators can introspect.
+Then `(rf/handler-meta :event :article/load)` returns a map carrying `:rf.http/decode-schemas [ArticleResponse]`, which pair tools / `(rf/registrations :event)` enumeration / generators can introspect.
 
 **Optional, never enforced.** The runtime does NOT cross-check that the call-site `:decode` matches the declared schemas — the metadata is reflective sugar for tooling, not a runtime contract. A handler that declares one schema and uses another still works. (If you want runtime enforcement, you're really asking for a `defmanaged-event-fx` macro that DRY's the declaration and the call-site reference; out of v1 scope.)
 

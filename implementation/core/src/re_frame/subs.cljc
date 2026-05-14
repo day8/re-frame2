@@ -790,7 +790,7 @@
   JVM-runnable. The runtime cache state (`sub-cache`) is the dynamic
   counterpart and is CLJS-only."
   []
-  (let [subs-meta (registrar/handlers :sub)]
+  (let [subs-meta (registrar/registrations :sub)]
     (reduce-kv
       (fn [acc sub-id meta]
         (let [inputs (mapv first (:input-signals meta))

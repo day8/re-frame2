@@ -5,7 +5,7 @@
   `re-frame.story.<sub-ns>`.
 
   This namespace re-exports the seven `reg-*` macros, the registry
-  query helpers (`handlers` / `handler-meta` / `ids` /
+  query helpers (`registrations` / `handler-meta` / `ids` /
   `variants-of` / `variants-with-tags`), the runtime entry points
   (`run-variant` / `reset-variant` / `watch-variant` / `variant->edn` /
   `snapshot-identity`), and the shell mount/unmount surface
@@ -276,16 +276,16 @@
 
 ;; ---- query API (public) --------------------------------------------------
 
-(defn handlers
+(defn registrations
   "Return the `{id → body}` map for `kind`, or `{}`. Stable shape across
-  JVM and CLJS — same as `re-frame.registrar/handlers`. Use this in
+  JVM and CLJS — same as `re-frame.registrar/registrations`. Use this in
   tooling that enumerates the registered Story artefacts.
 
   Mirror of the spec/001 §Public registrar query API for Story's
   side-table. The Story registry is logically a peer of the framework
   registrar — see IMPL-SPEC §1.1 + bd rf2-7ho2 for the design rationale."
   [kind]
-  (registrar/handlers kind))
+  (registrar/registrations kind))
 
 (defn handler-meta
   "Return the body for `(kind, id)`, or nil."

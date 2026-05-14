@@ -401,7 +401,7 @@ The Reagent-v2 directive (rf2-25aq) constrains the canonical surface to Form-1 +
 
 Registered views live in re-frame's handler registrar (kind `:view`). The public registrar query API ([002-Frames.md §The public registrar query API](002-Frames.md#the-public-registrar-query-api)) provides:
 
-- `(rf/handlers :view)` — map of view-id → metadata (`:doc`, `:ns`/`:line`/`:file`, args info, source).
+- `(rf/registrations :view)` — map of view-id → metadata (`:doc`, `:ns`/`:line`/`:file`, args info, source).
 - `(rf/handler-meta :view :counter)` — single view's metadata.
 
 Tools (10x, story tools, agents) read these to render view inspectors, pick views for stories, generate documentation. Source coords let tools navigate to the view's source.

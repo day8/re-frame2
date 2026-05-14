@@ -252,7 +252,7 @@
 ;; ---- standard cofx --------------------------------------------------------
 
 (reg-cofx :db
-  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :db)` is a no-op. Registered for symmetry with `:event` and so `(handlers :cofx)` enumerates the standard cofx."}
+  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :db)` is a no-op. Registered for symmetry with `:event` and so `(registrations :cofx)` enumerates the standard cofx."}
   (fn [ctx]
     ;; The runtime pre-populates :coeffects :db with the frame's current
     ;; app-db value before invoking the chain — so this cofx is a no-op.
@@ -260,7 +260,7 @@
     ctx))
 
 (reg-cofx :event
-  {:doc "Inject the dispatched event vector under `:coeffects :event`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :event)` is a no-op. Registered for symmetry with `:db` and so `(handlers :cofx)` enumerates the standard cofx."}
+  {:doc "Inject the dispatched event vector under `:coeffects :event`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :event)` is a no-op. Registered for symmetry with `:db` and so `(registrations :cofx)` enumerates the standard cofx."}
   (fn [ctx]
     ;; The runtime pre-populates :coeffects :event with the dispatched
     ;; event vector before invoking the chain — so this cofx is a no-op.

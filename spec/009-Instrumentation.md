@@ -747,7 +747,7 @@ External tools consume re-frame2 through stable surfaces. Production builds elid
 | Hoisted top-level fields (`:source`, `:recovery`) | Preserved |
 | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | Preserved |
 | Compile-time elision via `goog.DEBUG=false` + `:advanced` | Preserved |
-| Public registrar query API (`handlers`/`handler-meta`/`frame-ids`/`frame-meta`/`get-frame-db`/`snapshot-of`/`sub-topology`/`sub-cache`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
+| Public registrar query API (`registrations`/`handler-meta`/`frame-ids`/`frame-meta`/`get-frame-db`/`snapshot-of`/`sub-topology`/`sub-cache`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Hot-reload notifications (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`, `:frame/created`, `:frame/destroyed`) | Trace events |
 
 ### Capabilities tools depend on
@@ -1433,7 +1433,7 @@ The `:sensitive?` mechanism is **dev-time only** — both pieces of it ride the 
 - The `:sensitive?` registration-metadata key is **NOT elided** — it sits on the registry's stored meta and surfaces through `(handler-meta kind id)` in dev and production alike. Production tools that query the registrar (e.g., for diagnostic dumps) see the flag without depending on the trace surface.
 - The elision-probe verifier (per [§Production-elision verification](#production-elision-verification)) gains one sentinel: the string fragment `":rf/redacted"` (the sentinel keyword) MUST be absent from the production bundle when no source-file declares it as a literal outside an elided branch. (Apps that use `with-redacted` declare it in their handler chains; the literal survives elision in those source-file slots — the verifier checks the *framework* surface, not user code.)
 
-A dedicated warning category accompanies the contract: `:rf.warning/sensitive-without-redaction` (canonicalised in [§Error event catalogue](#error-event-catalogue) above). Trace events emitted under it ride the warning channel like every other `:rf.warning/*`: `:op-type :warning`, structured `:tags`, surfaced through `register-trace-cb!`. Tools that want a pre-flight sweep of an app's registrations consult `(rf/handlers :event)` filtered on `(:sensitive? (rf/handler-meta :event id))` and cross-check against the positional chain inspection (`(:interceptors (rf/handler-meta :event id))`).
+A dedicated warning category accompanies the contract: `:rf.warning/sensitive-without-redaction` (canonicalised in [§Error event catalogue](#error-event-catalogue) above). Trace events emitted under it ride the warning channel like every other `:rf.warning/*`: `:op-type :warning`, structured `:tags`, surfaced through `register-trace-cb!`. Tools that want a pre-flight sweep of an app's registrations consult `(rf/registrations :event)` filtered on `(:sensitive? (rf/handler-meta :event id))` and cross-check against the positional chain inspection (`(:interceptors (rf/handler-meta :event id))`).
 
 ### Error event catalogue (single source of truth)
 

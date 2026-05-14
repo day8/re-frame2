@@ -296,7 +296,7 @@ The same routing setup runs **server-side under SSR** without modification. The 
 
 ## Tooling and AI-amenability
 
-- `(rf/handlers :route)` enumerates every registered route. AI scaffolds consult this before generating new routes to avoid collisions.
+- `(rf/registrations :route)` enumerates every registered route. AI scaffolds consult this before generating new routes to avoid collisions.
 - `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is enumerable — tools render route-loading dependency graphs without parsing handler bodies.
 - `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required by contract; tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
@@ -307,7 +307,7 @@ Pulling routing inside the registry isn't a stylistic choice. It's the differenc
 
 Tests are the most obvious payoff. A blocked navigation, a `:can-leave` guard, a stale `:on-match` reply landing after the user has moved on — each one is a sequence of named events against a frame. Dispatch the events, assert the slice, assert what `:rf.nav/push-url` did or didn't fire. No DOM, no router mock, no event simulation, no hook test library. Routing tests run on the JVM in milliseconds alongside the rest of the unit suite.
 
-Time-travel works on routes the same way it works on the counter. Replay a session and the URL replays with it, because the URL is a function of the slice. Pair-tools enumerate routes (`rf/handlers :route`), render `:on-match` dependency graphs, and surface every navigation as a named trace event. The deterministic ranking cascade means an AI scaffold (or a teammate) can answer "which route matches `/articles/foo`?" by reading data — no need to step through library code.
+Time-travel works on routes the same way it works on the counter. Replay a session and the URL replays with it, because the URL is a function of the slice. Pair-tools enumerate routes (`rf/registrations :route`), render `:on-match` dependency graphs, and surface every navigation as a named trace event. The deterministic ranking cascade means an AI scaffold (or a teammate) can answer "which route matches `/articles/foo`?" by reading data — no need to step through library code.
 
 SSR is the load-bearing case. The same `:rf.route/handle-url-change`, the same `:on-match` events, the same `:rf/route` slice — on a per-request frame, with no client-side `pushState` and no SSR-specific routing code. The seam vanishes because there was never a seam: only one place where URLs become state, only one place where state becomes URLs. The hook-based router needs a different code path for the server. re-frame2 needs none.
 

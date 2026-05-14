@@ -155,7 +155,7 @@ reference:
 | `(rf/reset-frame-db! frame-id value)` | Tool-Pair | Used for "try anyway" recovery. |
 | `(rf/get-frame-db frame-id)` | Spec 002 | The app-db panel's live read. |
 | `(rf/compute-sub query-v db)` | Spec 008 | The sub-graph panel's value display. |
-| `(rf/handlers kind)` / `(rf/handler-meta kind id)` | Spec 001 | Registry-browser metadata. |
+| `(rf/registrations kind)` / `(rf/handler-meta kind id)` | Spec 001 | Registry-browser metadata. |
 | `(rf/frame-ids)` / `(rf/frame-meta id)` | Spec 002 | The frame picker. |
 | `(rf/machines frame-id)` | Spec 005 | The machine inspector dropdown. |
 | `(rf/app-schemas frame-id)` | Spec 010 | The schema-violation timeline rows. |

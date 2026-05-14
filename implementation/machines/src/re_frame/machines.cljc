@@ -93,7 +93,7 @@
   registration metadata carries `:rf/machine? true`. Per Spec 005
   §Querying machines."
   []
-  (->> (registrar/handlers :event)
+  (->> (registrar/registrations :event)
        (keep (fn [[id m]] (when (:rf/machine? m) id)))
        (vec)))
 

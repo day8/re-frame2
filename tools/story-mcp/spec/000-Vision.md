@@ -14,7 +14,7 @@ handshake, then call tools like `list-stories`, `run-variant`,
 introspect the Story library.
 
 The server bridges the agent's JSON-RPC dialect to Story's CLJS /
-CLJC public API: `re-frame.story/handlers`,
+CLJC public API: `re-frame.story/registrations`,
 `re-frame.story/run-variant`, `re-frame.story/snapshot-identity`,
 `re-frame.story/variant->edn`, and friends. Story-MCP itself adds
 zero new framework primitives — it is a thin adapter from JSON-RPC to

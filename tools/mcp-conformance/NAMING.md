@@ -98,7 +98,7 @@ extension** to pair2-mcp / story-mcp.
 | `get-variant` | `get-` | Conformant. |
 | `list-tags` | `list-` | Conformant. |
 | `list-modes` | `list-` | Conformant. |
-| `list-decorators` | `list-` | Conformant — read-only `(rf/handlers :decorator)` enumeration (rf2-mqp1u). |
+| `list-decorators` | `list-` | Conformant — read-only `(rf/registrations :decorator)` enumeration (rf2-mqp1u). |
 | `list-assertions` | `list-` | Conformant. |
 | `get-docs-markdown` | `get-` | Conformant — single-record read of a story's GFM-projected documentation (rf2-i0kyy). Sibling shape to `get-story`. |
 | `variant->edn` | bare (Clojure idiom) | **Deviation** — `->edn` is a Clojure-idiomatic projection name (mirrors `into`, `seq->vec` etc.). The convention catalogues this as an accepted exception: when the operation is a **canonical-form serialiser** of a known artefact, `<thing>->edn` is preferable to `get-<thing>-edn` because the arrow signals the projection direction. Story-mcp ships exactly one of these; if a sibling appears (`variant->json`, etc.) it follows the same shape. |

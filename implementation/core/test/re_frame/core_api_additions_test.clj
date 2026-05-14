@@ -6,7 +6,7 @@
      bare-keyword (Shape 1) and let-binding (Shape 2). Per Spec 002
      §with-frame and `spec/API.md` row 74.
 
-   - `(rf/handlers kind pred-fn)` 2-arity filter. Per `spec/API.md`
+   - `(rf/registrations kind pred-fn)` 2-arity filter. Per `spec/API.md`
      row 304 and Spec 001 §Public registrar query API.
 
    - `(rf/frame-ids ns-prefix)` 1-arity filter. Per `spec/API.md`
@@ -145,19 +145,19 @@
             "the message carries the structured reason")))))
 
 ;; ===========================================================================
-;; rf2-ewku — (rf/handlers kind pred-fn) filter arity
+;; rf2-ewku — (rf/registrations kind pred-fn) filter arity
 ;; ===========================================================================
 
-(deftest handlers-1-arity-returns-full-map
-  (testing "(handlers kind) returns the full {id metadata} map"
+(deftest registrations-1-arity-returns-full-map
+  (testing "(registrations kind) returns the full {id metadata} map"
     (rf/reg-event-db :hf/one (fn [db _] db))
     (rf/reg-event-db :hf/two (fn [db _] db))
-    (let [all (rf/handlers :event)]
+    (let [all (rf/registrations :event)]
       (is (contains? all :hf/one))
       (is (contains? all :hf/two)))))
 
-(deftest handlers-2-arity-filters
-  (testing "(handlers kind pred-fn) filters by (pred meta) — metadata-only"
+(deftest registrations-2-arity-filters
+  (testing "(registrations kind pred-fn) filters by (pred meta) — metadata-only"
     ;; Per Spec 001 §The query API + API.md the predicate sees the
     ;; metadata-map only. Id-namespace filters ride a user-tag the
     ;; caller stamps onto the slot (or compose via `filter` over the
@@ -169,7 +169,7 @@
       (assoc (rf/handler-meta :event :hf.alpha/one) :rf/group :alpha))
     (registrar/register! :event :hf.alpha/two
       (assoc (rf/handler-meta :event :hf.alpha/two) :rf/group :alpha))
-    (let [alpha-only (rf/handlers :event
+    (let [alpha-only (rf/registrations :event
                                   (fn [m] (= :alpha (:rf/group m))))]
       (is (= #{:hf.alpha/one :hf.alpha/two}
              (set (keys alpha-only)))
@@ -177,26 +177,26 @@
       (is (not (contains? alpha-only :hf.beta/one))
           ":hf.beta/one is filtered out"))))
 
-(deftest handlers-2-arity-pred-receives-meta
+(deftest registrations-2-arity-pred-receives-meta
   (testing "the pred-fn receives the metadata-map only"
     (rf/reg-event-db :hf/marked   (fn [db _] db))
     (rf/reg-event-db :hf/unmarked (fn [db _] db))
     ;; Re-register :hf/marked with extra meta on the slot.
     (registrar/register! :event :hf/marked
       (assoc (rf/handler-meta :event :hf/marked) :rf/marker? true))
-    (let [marked (rf/handlers :event (fn [m] (:rf/marker? m)))]
+    (let [marked (rf/registrations :event (fn [m] (:rf/marker? m)))]
       (is (= #{:hf/marked} (set (keys marked)))
           "only handlers whose metadata satisfies the pred survive"))))
 
-(deftest handlers-2-arity-empty-result
+(deftest registrations-2-arity-empty-result
   (testing "a predicate that matches nothing returns {}"
     (rf/reg-event-db :hf/one (fn [db _] db))
-    (is (= {} (rf/handlers :event (constantly false)))
+    (is (= {} (rf/registrations :event (constantly false)))
         "no entries match → empty map")))
 
-(deftest handlers-2-arity-unknown-kind-returns-empty
+(deftest registrations-2-arity-unknown-kind-returns-empty
   (testing "a kind with no registrations returns {} regardless of pred"
-    (is (= {} (rf/handlers :app-schema (constantly true)))
+    (is (= {} (rf/registrations :app-schema (constantly true)))
         "kind has no entries → empty map even when pred is permissive")))
 
 ;; ===========================================================================

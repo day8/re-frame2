@@ -90,7 +90,7 @@
   (testing "calling register-all! twice does not throw and leaves registry consistent"
     (standard/register-all!)
     (standard/register-all!)
-    (let [registered (set (keys (registrar/handlers :mode)))]
+    (let [registered (set (keys (registrar/registrations :mode)))]
       (is (every? registered (keys standard/viewports)))
       (is (every? registered (keys standard/backgrounds))))))
 
@@ -99,7 +99,7 @@
 (deftest registered-modes-appear-on-mode-registry
   (testing "after register-all! the live registry exposes the canonical ids"
     (standard/register-all!)
-    (let [snapshot (registrar/handlers :mode)]
+    (let [snapshot (registrar/registrations :mode)]
       (is (= (:axis (get snapshot :Mode.viewport/mobile)) :viewport))
       (is (= (:axis (get snapshot :Mode.background/dark)) :background))
       (is (= (:viewport (:args (get snapshot :Mode.viewport/tablet))) :tablet))

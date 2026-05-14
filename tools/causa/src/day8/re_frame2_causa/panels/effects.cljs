@@ -5,7 +5,7 @@
   outcome status, and stub indicator. Consumer of:
 
     - Spec 002 (`reg-fx`)          — the registered-fx surface;
-                                     `(rf/handlers :fx)` is the
+                                     `(rf/registrations :fx)` is the
                                      `{fx-id metadata}` projection
                                      the composite sub reads.
     - Spec 009 (Instrumentation)   — the `:rf.fx/*` trace event
@@ -316,7 +316,7 @@
   ;; vocabulary).
   ;;
   ;; The panel reads two surfaces — the framework's registered-fx map
-  ;; (`(rf/handlers :fx)`) and the Causa trace-buffer's fx-related
+  ;; (`(rf/registrations :fx)`) and the Causa trace-buffer's fx-related
   ;; slice (`:op-type :fx` plus the fx-layer error categories) — and
   ;; folds them via `effects-helpers/project-rows` into one row per
   ;; registered fx.
@@ -334,7 +334,7 @@
   ;;      :total          <int>
   ;;      :selected-fx-id <fx-id-or-nil>}
 
-  ;; Read the registered-fx map. Reads `(rf/handlers :fx)` — per
+  ;; Read the registered-fx map. Reads `(rf/registrations :fx)` — per
   ;; Spec 001 §The public registrar query API the registrar is
   ;; process-global so this surfaces every registered fx across
   ;; every frame. The v1 wiring threads it through the override
@@ -343,7 +343,7 @@
   (rf/reg-sub :rf.causa/registered-fxs
     (fn [db _query]
       (let [ov (get db :registered-fxs-override)]
-        (or ov (rf/handlers :fx)))))
+        (or ov (rf/registrations :fx)))))
 
   ;; Test-only override hook for the registered-fxs surface.
   ;; Production code paths never dispatch this — the slot exists

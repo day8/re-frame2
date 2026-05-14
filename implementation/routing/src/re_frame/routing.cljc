@@ -225,7 +225,7 @@
   "Read the current `:route` kind from the registrar, sort descending by
   rank, and replace the cache. Returns the new pairs vector."
   []
-  (let [source (registrar/handlers :route)
+  (let [source (registrar/registrations :route)
         pairs  (->> source
                     (sort-by (fn [[_id meta]]
                                (or (:rf.route/rank meta) [0 0 0 0 0 0]))
@@ -237,13 +237,13 @@
 (defn- route-table
   "Return the cached pre-sorted route table, rebuilding when the
   underlying registrar map changes identity (Spec 002 §The public
-  registrar query API — `handlers` returns a snapshot map, so identity
+  registrar query API — `registrations` returns a snapshot map, so identity
   equality is a safe invalidation signal — register! / clear-kind! /
   clear-all! all swap the underlying ref, so the snapshot identity
   changes on every mutation)."
   []
   (let [cache  @route-table-cache
-        source (registrar/handlers :route)]
+        source (registrar/registrations :route)]
     (if (and cache (identical? source (:source-id cache)))
       (:pairs cache)
       (rebuild-route-table-cache!))))
@@ -287,7 +287,7 @@
                            (when (and (not= other-id id)
                                       (= structural (subvec other-rank 0 5)))
                              other-id)))
-                       (registrar/handlers :route))]
+                       (registrar/registrations :route))]
         (trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
                      {:route-id id :shadowed shadowed})))
     (registrar/register! :route id meta')
@@ -1530,7 +1530,7 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
                          (and (= :rf/default other-id)
                               (not (false? (url-bound?-from-config other-meta))))))
             other-id))
-        (registrar/handlers :frame)))
+        (registrar/registrations :frame)))
 
 (defn- check-url-bound-exclusivity!
   "Registration-hook fn. When a `:frame` registration carries

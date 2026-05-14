@@ -25,7 +25,7 @@
 
 (deftest three-decorators-register
   (testing "the three layout-debug decorators register at boot"
-    (let [decs (story/handlers :decorator)]
+    (let [decs (story/registrations :decorator)]
       (is (contains? decs :rf.story/layout-debug.measure))
       (is (contains? decs :rf.story/layout-debug.outline))
       (is (contains? decs :rf.story/layout-debug.pseudo)))))

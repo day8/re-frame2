@@ -15,7 +15,7 @@ A coding agent working with just the **static code** is working with a limited p
 It can:
 
 - use the REPL
-- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`register-trace-cb`), the retain-N trace buffer (`trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`handlers`, `handler-meta`, `frame-ids`, `frame-meta`, `machines`, `machine-meta`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
+- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`register-trace-cb`), the retain-N trace buffer (`trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `machines`, `machine-meta`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
 - use re-frame2's source-coord annotation (`data-rf2-source-coord`) — and re-com's `data-rc-src` as a fallback — to bridge live DOM elements back to source `{:ns :line :file}`
 
 With these capabilities, Claude Code can iteratively perform experiments by patching parts of the system, restoring state to a recorded epoch, retrying events and seeing the results.

@@ -421,7 +421,7 @@
 
 (def Tag
   "Schema for the body of `reg-tag`. The vocabulary itself is queryable
-  via `(story/handlers :tag)`.
+  via `(story/registrations :tag)`.
 
   Slots (all optional):
 

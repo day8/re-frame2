@@ -258,7 +258,7 @@ What's JVM-runnable:
 - ✓ Cofx injection
 - ✓ `machine-transition` (pure function)
 - ✓ `compute-sub` (sub computation against an `app-db` value)
-- ✓ Public registrar queries (`handlers`, `frame-meta`, `sub-topology`, etc.)
+- ✓ Public registrar queries (`registrations`, `frame-meta`, `sub-topology`, etc.)
 - ✓ **Hiccup → HTML emission** via the SSR renderer — pure function, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
 
 What's CLJS-only:

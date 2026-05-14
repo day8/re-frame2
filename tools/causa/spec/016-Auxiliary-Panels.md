@@ -98,7 +98,7 @@ their per-fx invocation outcomes and stub indicators.
 
 ### Inputs
 
-- `(rf/handlers :fx)` — `{fx-id metadata}` projection from the
+- `(rf/registrations :fx)` — `{fx-id metadata}` projection from the
   framework registrar.
 - `:rf.causa/trace-buffer` filtered to the fx-related slice:
   `:rf.fx/handled`, `:rf.fx/override-applied`,
@@ -141,7 +141,7 @@ their per-flow inputs, output path, and live recomputation indicator.
 
 ### Inputs
 
-- `(rf/handlers :flow)` — `{flow-id metadata}` projection.
+- `(rf/registrations :flow)` — `{flow-id metadata}` projection.
 - `:rf.causa/trace-buffer` filtered to `:op-type :flow` (the
   `:rf.flow/*` instrumentation per Spec 009).
 - The current cascade's dispatch-id for the `RAN` cue
@@ -285,7 +285,7 @@ the active `:rf/route` slice + recent navigation history.
 
 ### Inputs
 
-- `(rf/handlers :route)` — `{route-id metadata}` projection.
+- `(rf/registrations :route)` — `{route-id metadata}` projection.
 - The target frame's `:rf/route` slice (per Spec 012 §The
   `:rf/route` slice) — route-id, params, query, fragment,
   transition (FSM: `:idle / :loading / :error`).
@@ -312,7 +312,7 @@ Three stacked sections (top to bottom):
    - `:loading` → cyan ◐
    - `:error` → red ●
    Colour is never alone — each transition pairs with a glyph.
-2. **Registered routes** — one row per `(rf/handlers :route)`
+2. **Registered routes** — one row per `(rf/registrations :route)`
    entry, sorted by `:path`. Each row: route-id, path-pattern,
    `:doc`. The active-route row is highlighted.
 3. **Navigation history** — recent route-history trace events,

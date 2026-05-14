@@ -22,7 +22,7 @@ This artefact is intended to be:
 Every CP below begins with the same mechanics; rather than restate them in each, treat the following as a shared preamble. Each CP's "Pre-flight checks" section calls out only the *delta* — the kind-specific naming convention or extra check — on top of these.
 
 1. **Choose a namespaced id.** Lowercase, kebab-case. The id-prefix matches the feature (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)).
-2. **Verify the id is unused.** Query the registry via the public registrar query API for the relevant kind (e.g., `(rf/handlers :event)`, `(rf/handlers :sub)`, `(rf/handlers :fx)`, `(rf/handlers :view)`, `(rf/handlers :route)`).
+2. **Verify the id is unused.** Query the registry via the public registrar query API for the relevant kind (e.g., `(rf/registrations :event)`, `(rf/registrations :sub)`, `(rf/registrations :fx)`, `(rf/registrations :view)`, `(rf/registrations :route)`).
 3. **Consult registered schemas** (`(rf/app-schemas)`, `(rf/app-schema-at <path>)`) so the new artefact aligns with shapes already in use.
 
 ## Catalogue
@@ -270,8 +270,8 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Pre-flight delta (in addition to the shared preamble above):**
 
 - **Id-shape convention:** `:feature/component-name` or `:feature.area/component-name`. Plural component names for lists (`:cart/items`), singular for single-instance (`:cart/total`). The relevant registry kind is `:view`.
-- **Identify the subscriptions the view will read.** Each must be already registered (`(rf/handlers :sub)`) or scaffolded as a sibling — if missing, invoke CP-2.
-- **Identify the events the view will dispatch.** Each must be already registered (`(rf/handlers :event)`) — if missing, invoke CP-1.
+- **Identify the subscriptions the view will read.** Each must be already registered (`(rf/registrations :sub)`) or scaffolded as a sibling — if missing, invoke CP-2.
+- **Identify the events the view will dispatch.** Each must be already registered (`(rf/registrations :event)`) — if missing, invoke CP-1.
 
 **Template — Form-1 (simple render fn):**
 
@@ -354,7 +354,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Pre-flight checks:**
 
 1. **Choose a machine id.** Convention: `:feature.flow/machine` or `:feature/flow`. Examples: `:auth.login/flow`, `:checkout/flow`, `:video-player/flow`.
-2. **Verify the id is unused.** `(rf/handlers :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf/machines)` enumerates already-registered machines specifically.
+2. **Verify the id is unused.** `(rf/registrations :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf/machines)` enumerates already-registered machines specifically.
 3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
 5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [snapshot event] boolean)` and each action `(fn [snapshot event] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). **Inline only when the body is a single non-branching expression.**
@@ -606,9 +606,9 @@ For projections, compose against `:rf/machine` via `:<-`:
 
 1. **Choose the feature id-prefix.** A short, namespaced keyword: `:auth`, `:cart`, `:tagging`. Sub-areas use dotted children: `:cart.item`, `:cart.checkout`. Every registration the feature ships uses this prefix.
 2. **Verify the prefix is unused.** Query each kind:
-   - `(rf/handlers :event)` — none should start with your prefix.
-   - `(rf/handlers :sub)` — likewise.
-   - `(rf/handlers :view)` — likewise.
+   - `(rf/registrations :event)` — none should start with your prefix.
+   - `(rf/registrations :sub)` — likewise.
+   - `(rf/registrations :view)` — likewise.
    - `(rf/app-schemas)` — your `app-db` paths must be free.
 3. **Identify the feature's `app-db` shape.** Pick a single root key matching the prefix: `:cart`, `:auth`, etc. All feature state lives under that key. No exceptions.
 4. **Identify external dependencies.** Other features (e.g., `:auth` reads `:user`), registered fx (e.g., `:http`, `:localstorage`), schemas the feature consumes.
@@ -740,7 +740,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
    - Path: captured by `:name` / `*name` segments — declared in `:params` schema.
    - Query: parsed from `?key=value&...` — declared in `:query` schema, with `:query-defaults` and `:query-retain` for ergonomics.
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
-5. **Verify the route ids are unused.** `(rf/handlers :route)` enumerates registered routes.
+5. **Verify the route ids are unused.** `(rf/registrations :route)` enumerates registered routes.
 
 Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
 
@@ -935,7 +935,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 **Pre-flight checks:**
 
 1. **Identify the per-request setup events.** What does the server need to dispatch before rendering? Typically: `:auth/load-session`, `:rf.route/handle-url-change`, feature-specific `:feature/load-initial-data`.
-2. **Identify the fx that need server platforms.** HTTP for sure. Anything else? Confirm with `(rf/handlers :fx)` and audit each fx's `:platforms` metadata.
+2. **Identify the fx that need server platforms.** HTTP for sure. Anything else? Confirm with `(rf/registrations :fx)` and audit each fx's `:platforms` metadata.
 3. **Identify the views that may render under SSR.** All of them, in principle. Confirm none use Form-2 outer-fn-side-effects (they don't run on the server).
 4. **Confirm the root view is registered** via `reg-view`, not a plain Reagent fn.
 

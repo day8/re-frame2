@@ -287,10 +287,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn registrar-list
-  "Enumerate registered ids under a kind. (rf/handlers kind) returns
+  "Enumerate registered ids under a kind. (rf/registrations kind) returns
    `{id meta}`; we return the sorted id vector."
   [kind]
-  (-> (rf/handlers kind) keys sort vec))
+  (-> (rf/registrations kind) keys sort vec))
 
 (defn- handler-fn-hash
   "Opaque hash for hot-reload probe comparisons. Function refs aren't

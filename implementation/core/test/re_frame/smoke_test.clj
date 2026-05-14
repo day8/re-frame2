@@ -764,17 +764,17 @@
       (is (clojure.string/starts-with? (r2s [:html [:body]] {:doctype? true})
                                        "<!DOCTYPE html>")))))
 
-;; ---- rf2-o1bp: registry-summary / handler-ids / handlers / handler-meta ---
+;; ---- rf2-o1bp: registry-summary / handler-ids / registrations / handler-meta ---
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-17: the introspection re-exports
-;; live at core.cljc:1157-1159 (`handlers`, `handler-meta`, `handler-ids`,
+;; live at core.cljc:1157-1159 (`registrations`, `handler-meta`, `handler-ids`,
 ;; `registry-summary`). They're used inside fixtures and the source-coords
 ;; tests but no single deftest pins their cross-kind round-trip. This test
 ;; registers handlers across the canonical kinds, then walks the four
 ;; introspection surfaces against each.
 
 (deftest registry-introspection-round-trip
-  (testing "rf/registry-summary, rf/handler-ids, rf/handlers, rf/handler-meta
+  (testing "rf/registry-summary, rf/handler-ids, rf/registrations, rf/handler-meta
             cover every registration kind with the documented shape"
     ;; Capture the per-kind baseline counts BEFORE this test's registrations
     ;; so framework-shipped entries (the :rf.route/* events, :rf/hydrate,
@@ -908,9 +908,9 @@
               "registrar handler-ids :app-schema is empty — schemas owns its
                own side-table (rf2-0frdi)")))
 
-      ;; ---- (3) handlers returns {id → metadata} per kind ----------------
-      (testing "(rf/handlers kind) returns {id → metadata}"
-        (let [events (rf/handlers :event)]
+      ;; ---- (3) registrations returns {id → metadata} per kind -----------
+      (testing "(rf/registrations kind) returns {id → metadata}"
+        (let [events (rf/registrations :event)]
           (is (map? events))
           (is (contains? events :rf2-o1bp/evt1))
           (let [meta (get events :rf2-o1bp/evt1)]

@@ -42,7 +42,7 @@
   Per the `downstream EPs consume foundation` rule each assertion is a
   regular re-frame event registered against `re-frame.core/reg-event-fx`
   — Story adds NO new registry kind for assertions. The vocabulary is
-  enumerable via `(rf/handlers :event #(re-find #\"^:rf\\.assert/\"
+  enumerable via `(rf/registrations :event #(re-find #\"^:rf\\.assert/\"
   (str (:id %))))` per the existing registrar query API.
 
   ## Public surface

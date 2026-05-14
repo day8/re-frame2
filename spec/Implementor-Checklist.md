@@ -352,7 +352,7 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **TypeScript** — `path-to-regexp` (the routing primitive react-router uses), or a hand-rolled matcher.
   - **Other in-scope hosts (Melange / ReScript / Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS)** — Hand-rolled matcher from registered route metadata using the host's native pattern-matching primitives, or a binding to `path-to-regexp` via the host's JS-FFI.
 - **Reference-impl picks.** CLJS hand-rolls the matcher with a 6-rule precedence cascade.
-- **Trade-offs.** Routes are registry entries (per [012](012-Routing.md)) — the routing table is data, queryable via `(handlers :route)`.
+- **Trade-offs.** Routes are registry entries (per [012](012-Routing.md)) — the routing table is data, queryable via `(registrations :route)`.
 
 #### R2. Navigation observer
 
@@ -452,7 +452,7 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **Trace listener** — `(rf/register-trace-cb! key callback)` for live events.
   - **Trace buffer** — `(rf/trace-buffer ...)` for recent events (retain-N ring buffer; default 200).
   - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch frame-id epoch-id)`, `(rf/configure :epoch-history {:depth N})`.
-  - **Registrar query** — `(rf/handlers kind)`, `(rf/handler-meta kind id)`, `(rf/machines)`, `(rf/machine-meta id)`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
+  - **Registrar query** — `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/machines)`, `(rf/machine-meta id)`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
   - **App-db query** — `(rf/get-frame-db frame-id)`, `(rf/snapshot-of path opts)`.
   - **Sub-cache (CLJS-only)** — `(rf/sub-cache frame-id)`.
   - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.

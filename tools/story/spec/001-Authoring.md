@@ -162,7 +162,7 @@ Body:
 ```
 
 Per [spec/007 §Story-tool extension hook](../../../spec/007-Stories.md).
-The render shell reads `(rf/handlers :story-panel)` and lays them out.
+The render shell reads `(rf/registrations :story-panel)` and lays them out.
 The five-rule embed contract is defined in
 [`006-MCP-Surface.md`](006-MCP-Surface.md) and
 [`003-Render-Shell.md`](003-Render-Shell.md).

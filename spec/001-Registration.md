@@ -100,7 +100,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 | `:error-projector` | Registered SSR error projectors (internal trace event → public-error shape, per [011 §Server error projection](011-SSR.md#server-error-projection)) | `reg-error-projector` (Spec 011) |
 | `:flow` | Registered flows (computed-state declarations materialised into `app-db`, per [013 §The registration shape](013-Flows.md#the-registration-shape)) | `reg-flow` (Spec 013) |
 
-`:event` is a single kind even though three registration functions feed it (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`). The arity-distinguishing internal sub-kind is on the metadata as `:event/kind ∈ {:db :fx :ctx}` — `(rf/handlers :event)` returns every event handler regardless of which `reg-event-*` registered it; tools that need the sub-kind read it from metadata.
+`:event` is a single kind even though three registration functions feed it (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`). The arity-distinguishing internal sub-kind is on the metadata as `:event/kind ∈ {:db :fx :ctx}` — `(rf/registrations :event)` returns every event handler regardless of which `reg-event-*` registered it; tools that need the sub-kind read it from metadata.
 
 > Machine guards and actions are **NOT** a registry kind — they are **machine-scoped**, declared in each machine's `:guards` / `:actions` maps inside the `create-machine-handler` spec. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
 
@@ -152,8 +152,8 @@ The registry is a public, queryable structure. Tools and agents read it without 
 
 | Function | Returns |
 |---|---|
-| `(rf/handlers kind)` | All registrations for a kind. Returns `id → metadata`. |
-| `(rf/handlers kind pred-fn)` | Filtered: only registrations where `(pred-fn metadata)` returns truthy. |
+| `(rf/registrations kind)` | All registrations for a kind. Returns `id → metadata`. |
+| `(rf/registrations kind pred-fn)` | Filtered: only registrations where `(pred-fn metadata)` returns truthy. |
 | `(rf/handler-meta kind id)` | A single registration's metadata. Returns `nil` if not registered. |
 | `(rf/frame-ids)` | All registered frame ids. |
 | `(rf/frame-meta frame-id)` | Metadata for a specific frame. |

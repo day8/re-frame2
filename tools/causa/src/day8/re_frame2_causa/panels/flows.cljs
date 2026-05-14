@@ -5,7 +5,7 @@
   path / live recomputation indicator. Consumer of:
 
     - Spec 013 (Flows)             — the registered-flow surface;
-                                     `(rf/handlers :flow)` is the
+                                     `(rf/registrations :flow)` is the
                                      `{flow-id metadata}` projection
                                      the composite sub reads.
     - Spec 009 (Instrumentation)   — the `:rf.flow/*` trace event
@@ -292,7 +292,7 @@
   ;; event vocabulary).
   ;;
   ;; The panel reads two surfaces — the framework's registered-flow
-  ;; map (`(rf/handlers :flow)`) and the Causa trace-buffer's
+  ;; map (`(rf/registrations :flow)`) and the Causa trace-buffer's
   ;; `:op-type :flow` slice — and folds them via
   ;; `flows-helpers/project-rows` into one row per registered flow.
   ;;
@@ -309,17 +309,17 @@
   ;;      :total            <int>
   ;;      :selected-flow-id <flow-id-or-nil>}
 
-  ;; Read the registered-flow map. Reads `(rf/handlers :flow)` —
+  ;; Read the registered-flow map. Reads `(rf/registrations :flow)` —
   ;; per Spec 001 §The public registrar query API the registrar is
   ;; process-global so this surfaces every registered flow across
-  ;; every frame. CLJS-only — `rf/handlers` exists under both
+  ;; every frame. CLJS-only — `rf/registrations` exists under both
   ;; targets, but the v1 wiring threads it through the override
   ;; slot so the JVM test target can drive the projection without
   ;; booting the flows artefact.
   (rf/reg-sub :rf.causa/registered-flows
     (fn [db _query]
       (let [ov (get db :registered-flows-override)]
-        (or ov (rf/handlers :flow)))))
+        (or ov (rf/registrations :flow)))))
 
   ;; Test-only override hook for the registered-flows surface.
   ;; Production code paths never dispatch this — the slot exists

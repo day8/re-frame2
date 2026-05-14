@@ -167,7 +167,7 @@ These are *injected* by `reg-view`. The body uses them just like the original re
 
 Two reasons:
 
-1. **AI inspection**. `(rf/handlers :view)` returns every registered view in the app. An AI can list, filter, and inspect them without parsing source files.
+1. **AI inspection**. `(rf/registrations :view)` returns every registered view in the app. An AI can list, filter, and inspect them without parsing source files.
 2. **Hot reload that works**. Re-evaluating the `reg-view` form replaces the registered view; mounted instances pick up the new code on next render.
 
 There's a tradeoff: plain Reagent functions also work, but they don't get registry introspection. For a small app you can use plain `defn` views with no observable difference; `reg-view` is the safer default.

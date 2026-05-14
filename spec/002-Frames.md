@@ -1202,12 +1202,12 @@ Authors of fx that escape into async land *do* have to forward the frame — eit
 
 ### The public registrar query API
 
-re-frame2 commits to a queryable public registrar for every kind of registered entity (frames, events, subs, fx, cofx, views, interceptors). [Goal 10 (Strong introspection surface)](000-Vision.md#goals) says this is first-class. **The contract for registry queries (`handlers`, `handler-meta`, `frame-ids`, `frame-meta`) is owned by [001 §The query API](001-Registration.md#the-query-api).** The table below restates that surface alongside the frame-runtime queries (`get-frame-db`, `snapshot-of`, `sub-topology`, `sub-cache`) that 002 owns:
+re-frame2 commits to a queryable public registrar for every kind of registered entity (frames, events, subs, fx, cofx, views, interceptors). [Goal 10 (Strong introspection surface)](000-Vision.md#goals) says this is first-class. **The contract for registry queries (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`) is owned by [001 §The query API](001-Registration.md#the-query-api).** The table below restates that surface alongside the frame-runtime queries (`get-frame-db`, `snapshot-of`, `sub-topology`, `sub-cache`) that 002 owns:
 
 | Query | Returns | JVM-runnable? |
 |---|---|---|
-| `(rf/handlers kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (all of `reg-event-db`/`-fx`/`-ctx`), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:app-schema`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. | Yes |
-| `(rf/handlers kind pred-fn)` | Same, filtered by `pred-fn` applied to each metadata map. | Yes |
+| `(rf/registrations kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (all of `reg-event-db`/`-fx`/`-ctx`), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:app-schema`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. | Yes |
+| `(rf/registrations kind pred-fn)` | Same, filtered by `pred-fn` applied to each metadata map. | Yes |
 | `(rf/handler-meta kind id)` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
 | `(rf/frame-ids prefix)` | Seq filtered by namespace prefix (e.g., `(rf/frame-ids :story)` returns all `:story.*` frames). | Yes |

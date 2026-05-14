@@ -228,7 +228,7 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
 
 > **Layer:** Public
 
-The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machine*` (per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler)). This is the **registry-slot metadata** — `:rf/machine?` discriminates a machine handler from an ordinary event handler in `(handlers :event)` queries; the captured machine spec rides at `:rf/machine` and conforms to [`:rf/transition-table`](#rftransition-table) extended with the root-only `:guards` / `:actions` / `:data` / `:doc` slots per [005 §Transition table grammar](005-StateMachines.md#transition-table-grammar).
+The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machine*` (per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler)). This is the **registry-slot metadata** — `:rf/machine?` discriminates a machine handler from an ordinary event handler in `(registrations :event)` queries; the captured machine spec rides at `:rf/machine` and conforms to [`:rf/transition-table`](#rftransition-table) extended with the root-only `:guards` / `:actions` / `:data` / `:doc` slots per [005 §Transition table grammar](005-StateMachines.md#transition-table-grammar).
 
 ```clojure
 (def MachineMeta

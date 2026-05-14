@@ -187,7 +187,7 @@ Ranked by community signal (download counts, issue activity, blog frequency) int
 
 ### 3.2 Tier 2 — ship by v1.1
 
-6. **MCP server / agent surface.** Expose `(rf/handlers :story)`, `(rf/handlers :variant)`, the snapshot identity, the assertion vocabulary, and `run-variant` via MCP. Agents discover, generate, run, and self-correct. Aligns directly with re-frame2's AI-implementable ethos.
+6. **MCP server / agent surface.** Expose `(rf/registrations :story)`, `(rf/registrations :variant)`, the snapshot identity, the assertion vocabulary, and `run-variant` via MCP. Agents discover, generate, run, and self-correct. Aligns directly with re-frame2's AI-implementable ethos.
 7. **Autodocs from schemas + docstrings.** Spec 010 + the registrar's `:doc` field combine to give Storybook-quality autodocs with zero per-story authoring.
 8. **Workspace grid + transit-shareable layouts.** Nubank's win, re-styled. Layout-as-data → exportable artefacts → team-shareable presentations.
 9. **Per-variant fx-override panel.** UI for "what gets stubbed for this variant." Mirrors MSW's coverage panel.
@@ -298,7 +298,7 @@ The v1 deliverable lands the 1.1–1.3 tier-1 list plus the differentiators. Con
 
 | Panel | Source data | Owner |
 |---|---|---|
-| Sidebar nav | `(rf/handlers :story)` tree on `.` | story lib |
+| Sidebar nav | `(rf/registrations :story)` tree on `.` | story lib |
 | Controls | `:argtypes` + Spec 010 schema | story lib |
 | Trace | `register-trace-cb!` on variant's frame | tool-pair |
 | Epoch scrubber | `epoch-history` + `restore-epoch` | tool-pair |
