@@ -37,27 +37,39 @@
   opts in via `(causa-config/configure! {:trace/show-sensitive?
   true})`.
 
-  ## Reactivity
+  ## Reactivity (rf2-in6l2)
 
-  The buffer is held in a plain atom (`buffer-state` below). The
-  `:rf.causa/trace-buffer` sub (in `registry.cljs`) thunks
-  `(trace-bus/buffer)` so subscribers get a fresh read on every
-  recompute. The sub is layer-1 so it re-fires on every app-db
-  change of the resolved frame — under Causa's normal usage
-  (panels rendered inside a host app), every host dispatch dirties
-  the host's app-db and the sub re-fires, picking up whatever the
-  trace-cb has accumulated in the atom since the last recompute.
-  Visible delay between trace push and panel update is bounded by
-  the host's next dispatch, indistinguishable from native trace-
-  rate UI cadence on every example app the foundation ships.
+  The buffer lives in two places that move in lockstep:
 
-  An architecturally clean reactive-on-every-push surface would
-  require either reg-view-wrapping Causa's panels (so plain-fn
-  subscribes route to `:rf/causa` via the React-context tier) or a
-  fixed-frame sub mechanism — both wider refactors filed for follow-
-  up. Until then, the layer-1 + host-driven recompute path delivers
-  the same UX without the layering hazards."
+    1. The `buffer-state` atom (this ns) — the JVM-runnable data
+       primitive. Tests over push algebra / sensitive-trace privacy /
+       filter-vocab consumer use the atom directly; CLJC so the shape
+       runs under both runtimes.
+
+    2. Causa's app-db `:trace-buffer` slot (lazy-registered by
+       `mount.cljs/open!` at first Ctrl+Shift+C, mirrored on every
+       `collect-trace!` via `:rf.causa/note-trace-event`). Panels
+       subscribe to `:rf.causa/trace-buffer` which reads this slot —
+       the layer-1 sub re-fires on the standard app-db-write reactive
+       path so the panel re-renders IMMEDIATELY on every trace push
+       with no dependency on a host-side dispatch.
+
+  Why both: the atom is the JVM-runnable primitive and the pre-mount
+  fallback (`collect-trace!` can fire before `open!` has registered
+  the frame; the atom still accumulates and the seed lands when the
+  user opens Causa). The app-db slot is the reactive surface that
+  reg-view-wrapped panels read via the `:rf/causa` frame.
+
+  Per rf2-e9s81 the parallel-app-db approach was attempted at preload
+  time and reverted because the preload couldn't register `:rf/causa`
+  in that window (no substrate adapter yet) and chain-resolving to
+  `:rf/default` polluted the host's app-db / consumed drain-depth
+  headroom. The rf2-in6l2 design lands the dispatch under `:rf/causa`
+  proper, registered lazily at mount time — closing the gap without
+  the layering hazards."
   (:require [re-frame.interop :as interop]
+            #?(:cljs [re-frame.core :as rf])
+            #?(:cljs [re-frame.frame :as frame])
             [day8.re-frame2-causa.config :as config]))
 
 ;; ---- ring-buffer state ----------------------------------------------------
@@ -90,6 +102,31 @@
     (if (> n depth)
       (subvec buffer' (- n depth))
       buffer')))
+
+;; ---- causa-frame mirror dispatch helper (rf2-in6l2) -------------------
+;;
+;; CLJS-only — the framework dispatch surface is CLJS-only on this code
+;; path (the JVM `re-frame.frame/frame` lookup is also CLJC but `rf/
+;; dispatch` is the gating call). When the `:rf/causa` frame is
+;; registered (`mount.cljs/open!` ran), every `collect-trace!` /
+;; `clear-buffer!` / `set-buffer-depth!` mirrors its effect into the
+;; frame's app-db via dispatch — so the layer-1 sub re-fires on the
+;; standard app-db-write reactive path and panels re-render IMMEDIATELY.
+;; Pre-mount the frame is absent; the mirror is a no-op and the atom
+;; still accumulates (the eventual `mount.cljs/open!` seeds the slot
+;; from the atom). Per `mount.cljs/ensure-causa-frame!` for the seed.
+
+#?(:cljs
+   (defn- mirror-into-causa!
+     "Dispatch `event-v` into `:rf/causa`'s frame iff the frame is
+     registered. Pre-mount this is a silent no-op (no warning trace,
+     no exception) — the trace-bus atom keeps accumulating and the
+     `:rf.causa/sync-trace-buffer` seed in `mount.cljs/open!` lifts
+     the atom's contents into the freshly-registered frame."
+     [event-v]
+     (when (some? (frame/frame :rf/causa))
+       (rf/with-frame :rf/causa
+         (rf/dispatch event-v)))))
 
 ;; ---- collector --------------------------------------------------------
 
@@ -137,7 +174,15 @@
       (config/note-suppressed! (get-in event [:tags :frame]))
 
       :else
-      (swap! buffer-state push @buffer-depth event))))
+      (do
+        (swap! buffer-state push @buffer-depth event)
+        ;; Mirror into :rf/causa so the reg-view-wrapped panels'
+        ;; `:rf.causa/trace-buffer` sub re-fires on the standard app-db-
+        ;; write reactive path. CLJS only — the JVM build does not run
+        ;; panels. Pre-mount the mirror is a no-op (frame absent); the
+        ;; atom keeps accumulating and `mount.cljs/open!`'s seed lifts
+        ;; the contents at first Ctrl+Shift+C.
+        #?(:cljs (mirror-into-causa! [:rf.causa/note-trace-event event]))))))
 
 ;; ---- read-side accessors -------------------------------------------
 
@@ -261,6 +306,10 @@
   []
   (when interop/debug-enabled?
     (reset! buffer-state [])
+    ;; Mirror the clear into :rf/causa so the reactive `:trace-buffer`
+    ;; slot empties in lockstep with the atom. Pre-mount this is a
+    ;; silent no-op (frame absent).
+    #?(:cljs (mirror-into-causa! [:rf.causa/clear-trace-buffer]))
     (config/reset-suppressed-count!))
   nil)
 
@@ -277,5 +326,8 @@
                (cond
                  (zero? depth) []
                  (> n depth)   (subvec v (- n depth))
-                 :else         v)))))
+                 :else         v))))
+    ;; Mirror the post-shrink contents into `:rf/causa`'s app-db so
+    ;; the reactive slot reflects the same eviction the atom just took.
+    #?(:cljs (mirror-into-causa! [:rf.causa/sync-trace-buffer @buffer-state])))
   nil)

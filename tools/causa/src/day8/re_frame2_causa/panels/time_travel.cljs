@@ -113,10 +113,10 @@
                                     (:accent-violet tokens)
                                     (:text-tertiary tokens))
                         :cursor   "pointer"}
-             :on-click #(rf/dispatch [:rf.causa/select-epoch epoch-id])}
+             :on-click #(rf/dispatch [:rf.causa/select-epoch epoch-id] {:frame :rf/causa})}
       (str (if attached "●" "○") " " label)]
      [:button {:data-testid (str "rf-causa-pin-reset-" (str epoch-id))
-               :on-click    #(rf/dispatch [:rf.causa/reset-to-pinned epoch-id])
+               :on-click    #(rf/dispatch [:rf.causa/reset-to-pinned epoch-id] {:frame :rf/causa})
                :style       {:background    "transparent"
                              :border        "none"
                              :color         (:cyan tokens)
@@ -127,7 +127,7 @@
                :title       "Reset frame-db to this pin"}
       "↺"]
      [:button {:data-testid (str "rf-causa-pin-remove-" (str epoch-id))
-               :on-click    #(rf/dispatch [:rf.causa/unpin epoch-id])
+               :on-click    #(rf/dispatch [:rf.causa/unpin epoch-id] {:frame :rf/causa})
                :style       {:background    "transparent"
                              :border        "none"
                              :color         (:text-tertiary tokens)
@@ -167,7 +167,7 @@
         cur-idx  (or selected-index max-idx)
         on-step  (fn [delta]
                    (when-let [new-id (h/step-epoch history selected-epoch-id delta)]
-                     (rf/dispatch [:rf.causa/select-epoch new-id])))]
+                     (rf/dispatch [:rf.causa/select-epoch new-id] {:frame :rf/causa})))]
     [:div {:data-testid "rf-causa-time-travel-track"
            :style       {:padding "12px"
                          :display "flex"
@@ -178,7 +178,7 @@
                :on-click    #(when (seq history)
                                (rf/dispatch
                                  [:rf.causa/select-epoch
-                                  (:epoch-id (first history))]))
+                                  (:epoch-id (first history))] {:frame :rf/causa}))
                :title       "Jump to oldest"
                :style       {:background  "transparent"
                              :border      (str "1px solid " (:border-default tokens))
@@ -198,7 +198,7 @@
               :on-change   (fn [e]
                              (let [idx (js/parseInt (.. e -target -value))]
                                (when-let [eid (h/epoch-id-at-index history idx)]
-                                 (rf/dispatch [:rf.causa/select-epoch eid]))))
+                                 (rf/dispatch [:rf.causa/select-epoch eid] {:frame :rf/causa}))))
               :on-key-down (fn [e]
                              (case (.-key e)
                                "[" (do (.preventDefault e) (on-step -1))
@@ -210,7 +210,7 @@
                :on-click    #(when (seq history)
                                (rf/dispatch
                                  [:rf.causa/select-epoch
-                                  (:epoch-id (peek (vec history)))]))
+                                  (:epoch-id (peek (vec history)))] {:frame :rf/causa}))
                :title       "Jump to newest"
                :style       {:background  "transparent"
                              :border      (str "1px solid " (:border-default tokens))
@@ -262,7 +262,7 @@
                :on-click    #(when target-eid
                                (rf/dispatch
                                  [:rf.causa/pin-current target-eid
-                                  (read-label-input)])
+                                  (read-label-input)] {:frame :rf/causa})
                                (set-label-input! ""))
                :style       {:background  (if cap-reached?
                                             (:bg-3 tokens)
@@ -280,7 +280,7 @@
       "Pin"]
      [:button {:data-testid "rf-causa-reset-to-epoch"
                :disabled    (or history-empty? (nil? target-eid))
-               :on-click    #(rf/dispatch [:rf.causa/reset-to-epoch target-eid])
+               :on-click    #(rf/dispatch [:rf.causa/reset-to-epoch target-eid] {:frame :rf/causa})
                :style       {:background  "transparent"
                              :color       (:text-secondary tokens)
                              :border      (str "1px solid " (:border-default tokens))
@@ -299,7 +299,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn time-travel-view
+(rf/reg-view time-travel-view
   "The Time Travel panel's root view. Subscribes to
   `:rf.causa/time-travel` and renders the empty-state / track + chips
   / actions stack."

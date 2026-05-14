@@ -151,7 +151,7 @@
                   :color (:text-primary tokens)}}
      "schema violation"]
     [:button {:data-testid "rf-causa-schema-violation-detail-close"
-              :on-click    #(rf/dispatch [:rf.causa/clear-violation-selection])
+              :on-click    #(rf/dispatch [:rf.causa/clear-violation-selection] {:frame :rf/causa})
               :style       {:background "transparent"
                             :border     "none"
                             :color      (:text-tertiary tokens)
@@ -197,8 +197,8 @@
    (when dispatch-id
      [:button {:data-testid "rf-causa-schema-violation-detail-open-in-graph"
                :on-click    (fn []
-                              (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
-                              (rf/dispatch [:rf.causa/select-panel :causality]))
+                              (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
+                              (rf/dispatch [:rf.causa/select-panel :causality] {:frame :rf/causa}))
                :style       {:background  "transparent"
                              :color       (:cyan tokens)
                              :border      (str "1px solid " (:border-default tokens))
@@ -217,7 +217,7 @@
                   :letter-spacing "0.6px"}}
     "Filter"]
    [:button {:data-testid "rf-causa-schema-violation-detail-filter-row"
-             :on-click    #(rf/dispatch [:rf.causa/set-schema-filter schema-id])
+             :on-click    #(rf/dispatch [:rf.causa/set-schema-filter schema-id] {:frame :rf/causa})
              :style       {:background  "transparent"
                            :color       (:cyan tokens)
                            :border      (str "1px solid " (:border-default tokens))
@@ -283,7 +283,7 @@
                                    fill)
                     :stroke-width stroke-width
                     :style       {:cursor "pointer"}
-                    :on-click    #(rf/dispatch [:rf.causa/select-violation id])}
+                    :on-click    #(rf/dispatch [:rf.causa/select-violation id] {:frame :rf/causa})}
            [:title (h/format-tooltip v)]]))]]))
 
 ;; ---- header strip -------------------------------------------------------
@@ -320,7 +320,7 @@
                       :font-size   "11px"}}
        (h/schema-row-label schema-filter)]
       [:button {:data-testid "rf-causa-schema-timeline-clear-filter"
-                :on-click    #(rf/dispatch [:rf.causa/set-schema-filter nil])
+                :on-click    #(rf/dispatch [:rf.causa/set-schema-filter nil] {:frame :rf/causa})
                 :style       {:background "transparent"
                               :color      (:cyan tokens)
                               :border     (str "1px solid " (:border-default tokens))
@@ -333,7 +333,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn schema-violation-timeline-view
+(rf/reg-view schema-violation-timeline-view
   "The Schema-violation Timeline panel's root view. Subscribes to
   `:rf.causa/schema-violation-timeline` and renders the empty-state
   or the per-schema track stack."

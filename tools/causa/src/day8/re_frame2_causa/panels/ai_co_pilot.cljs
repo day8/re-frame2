@@ -81,7 +81,7 @@
   Clicking the cue toggles the rail open."
   [_cue-active?]
   [:button {:data-testid "rf-causa-copilot-cue"
-            :on-click    #(rf/dispatch [:rf.causa/copilot-toggle])
+            :on-click    #(rf/dispatch [:rf.causa/copilot-toggle] {:frame :rf/causa})
             :title       "Ask Causa (Ctrl+Shift+/)"
             :style       {:background  "transparent"
                           :border      "none"
@@ -110,7 +110,7 @@
             :on-click    #(rf/dispatch [:rf.causa/copilot-chip-clicked
                                         {:chip-key chip-key
                                          :value    value
-                                         :target   target}])
+                                         :target   target}] {:frame :rf/causa})
             :title       (str chip-key " " (pr-str value))
             :style       {:display       "inline-flex"
                           :align-items   "center"
@@ -281,12 +281,12 @@
                      (set-input! "")
                      (cond
                        (= :clear (:command parsed))
-                       (rf/dispatch [:rf.causa/copilot-clear-conversation])
+                       (rf/dispatch [:rf.causa/copilot-clear-conversation] {:frame :rf/causa})
 
                        :else
                        (rf/dispatch
                          [:rf.causa/copilot-submit-question
-                          {:text text :parsed parsed}])))))]
+                          {:text text :parsed parsed}] {:frame :rf/causa})))))]
     [:div {:style {:position "relative"
                    :padding "8px 12px"
                    :border-top (str "1px solid " (:border-subtle tokens))
@@ -351,7 +351,7 @@
                   :color (:text-secondary tokens)
                   :font-family mono-stack :font-size "12px"}}
     [:button {:data-testid "rf-causa-copilot-provider-picker"
-              :on-click    #(rf/dispatch [:rf.causa/copilot-cycle-provider])
+              :on-click    #(rf/dispatch [:rf.causa/copilot-cycle-provider] {:frame :rf/causa})
               :title       "Provider"
               :style       {:background "transparent"
                             :border "none"
@@ -360,7 +360,7 @@
                             :padding "2px 4px"}}
      "⌗"]
     [:button {:data-testid "rf-causa-copilot-close"
-              :on-click    #(rf/dispatch [:rf.causa/copilot-toggle])
+              :on-click    #(rf/dispatch [:rf.causa/copilot-toggle] {:frame :rf/causa})
               :title       "Close"
               :style       {:background "transparent"
                             :border "none"
@@ -371,10 +371,11 @@
 
 ;; ---- public views -------------------------------------------------------
 
-(defn ai-co-pilot-rail
+(rf/reg-view ai-co-pilot-rail
   "The rail-shaped view — title bar + scrollable conversation + input
   row. This is the open form (320px right-rail per spec §Panel
-  layout)."
+  layout). Per rf2-in6l2 `reg-view`-registered so the subscribe
+  routes through React context to `:rf/causa`."
   []
   (let [conversation (or @(rf/subscribe [:rf.causa/copilot-conversation]) [])]
     [:aside {:data-testid "rf-causa-copilot-rail"
@@ -392,7 +393,7 @@
       [conversation-view conversation]]
      [input-row]]))
 
-(defn ai-co-pilot-cue
+(rf/reg-view ai-co-pilot-cue
   "The collapsed form — a single `◇` cue glyph. Per spec §Default
   state the rail is collapsed by default; the glyph is the
   affordance for opening it.
@@ -400,12 +401,15 @@
   Rendered into the shell's right margin when
   `:rf.causa/copilot-open?` is false. The cue glyph + the sidebar
   `Co-pilot` row + the `Ctrl+Shift+/` keybinding all dispatch the
-  same `:rf.causa/copilot-toggle` event."
+  same `:rf.causa/copilot-toggle` event.
+
+  Per rf2-in6l2 `reg-view`-registered so the subscribe routes
+  through React context to `:rf/causa`."
   []
   (let [cue-active? (boolean @(rf/subscribe [:rf.causa/copilot-cue-active?]))]
     [cue-glyph cue-active?]))
 
-(defn ai-co-pilot-view
+(rf/reg-view ai-co-pilot-view
   "The panel-style view used when the sidebar's Co-pilot row is
   selected as the active canvas panel. Mirrors the rail view but
   drops the explicit width (the canvas owns its layout). This is the

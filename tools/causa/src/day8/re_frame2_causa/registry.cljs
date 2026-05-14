@@ -80,20 +80,24 @@
     ;; ---- cross-panel primitives ---------------------------------
 
     ;; Causa's trace-buffer sub returns the Causa-side ring buffer
-    ;; contents (NOT the framework's `(rf/trace-buffer)`). Reading
-    ;; directly from `trace-bus/buffer` is the right shape here
-    ;; because the buffer is process-global, not per-frame — every
-    ;; Causa shell mounted across any frame should see the same
-    ;; trace stream. The sub thunks the pure-data accessor so
-    ;; reactive contexts get a fresh read on every recompute;
-    ;; layer-1 re-fires on the host's next dispatch and picks up
-    ;; whatever the trace-cb has accumulated. See `trace_bus.cljc`
-    ;; §Reactivity for the trade-off and the refactor path that
-    ;; would re-introduce immediate-update reactivity without the
-    ;; layering hazard.
+    ;; contents (NOT the framework's `(rf/trace-buffer)`). Per rf2-in6l2
+    ;; the slot lives in Causa's app-db at `:trace-buffer`; the trace
+    ;; collector dispatches `:rf.causa/note-trace-event` into `:rf/causa`
+    ;; on every push so the sub re-fires on the standard app-db-write
+    ;; reactive path — panels re-render IMMEDIATELY on every trace
+    ;; event with no dependency on the host's next dispatch (the prior
+    ;; rf2-e9s81 shape thunked `trace-bus/buffer` directly so visible
+    ;; delay was bounded by the host's next dispatch).
+    ;;
+    ;; The pre-mount fallback `(trace-bus/buffer)` keeps the sub useful
+    ;; if a consumer reaches in before `mount.cljs/open!` has registered
+    ;; the `:rf/causa` frame + seeded the slot (e.g. headless tests
+    ;; that drive `collect-trace!` without opening the shell). In a
+    ;; live session the seed lands at first Ctrl+Shift+C and the
+    ;; app-db slot is the authoritative reactive source from there on.
     (rf/reg-sub :rf.causa/trace-buffer
-      (fn [_db _query]
-        (trace-bus/buffer)))
+      (fn [db _query]
+        (or (get db :trace-buffer) (trace-bus/buffer))))
 
     ;; Total count of :sensitive? trace events the collector has
     ;; suppressed under the current `:trace/show-sensitive?` setting
@@ -137,6 +141,56 @@
     (rf/reg-event-db :rf.causa/select-panel
       (fn [db [_ panel-id]]
         (assoc db :selected-panel panel-id)))
+
+    ;; ---- trace-buffer mirror events (rf2-in6l2) -------------------
+    ;;
+    ;; `collect-trace!` dispatches `:rf.causa/note-trace-event` into
+    ;; `:rf/causa` on every push so the layer-1 `:rf.causa/trace-buffer`
+    ;; sub fires on the standard app-db-write reactive path. The event
+    ;; mirrors `trace-bus/push`'s capped-vector eviction algebra so the
+    ;; app-db slot stays bounded by the same depth contract as the
+    ;; trace-bus atom — single source of truth on the cap, dual write
+    ;; for the reactive surface.
+    ;;
+    ;; The mirror is *additive*: `trace-bus/buffer-state` remains as
+    ;; the JVM-runnable data primitive (push algebra, sensitive-trace
+    ;; tests, filter-vocab consumer tests) and as the seed source when
+    ;; `mount.cljs/open!` first registers `:rf/causa`. The CLJS path
+    ;; dual-writes atom + dispatch.
+    ;;
+    ;; Per rf2-qsjda + the matching `:rf.causa/note-sensitive-
+    ;; suppressed` pattern: `:rf.trace/no-emit? true` opts the handler
+    ;; out of framework trace emission. Without it the dispatch would
+    ;; emit `:event/dispatched` etc. back through the trace-cb fan-out,
+    ;; the collector would see its own self-emit, and the cascade would
+    ;; loop until `drain-depth-default` terminated it.
+    (rf/reg-event-db :rf.causa/note-trace-event
+      {:rf.trace/no-emit? true}
+      (fn [db [_ event]]
+        (let [buf   (get db :trace-buffer [])
+              depth (trace-bus/current-depth)]
+          (assoc db :trace-buffer (trace-bus/push buf depth event)))))
+
+    ;; Clear the mirrored slot in lockstep with the trace-bus atom
+    ;; (dispatched from `trace-bus/clear-buffer!` in CLJS). Per
+    ;; rf2-qsjda the `:rf.trace/no-emit?` flag applies for the same
+    ;; loop-avoidance reason as `:rf.causa/note-trace-event`.
+    (rf/reg-event-db :rf.causa/clear-trace-buffer
+      {:rf.trace/no-emit? true}
+      (fn [db _event]
+        (dissoc db :trace-buffer)))
+
+    ;; Wholesale overwrite of the mirrored slot. Dispatched from
+    ;; `mount.cljs/open!` on first Ctrl+Shift+C to seed `:rf/causa`'s
+    ;; app-db with whatever the trace-bus atom has accumulated before
+    ;; the shell was opened, and from `trace-bus/set-buffer-depth!`
+    ;; when the depth shrinks so the mirror reflects the post-shrink
+    ;; contents. Per rf2-qsjda `:rf.trace/no-emit? true` for the same
+    ;; loop-avoidance reason.
+    (rf/reg-event-db :rf.causa/sync-trace-buffer
+      {:rf.trace/no-emit? true}
+      (fn [db [_ buffer]]
+        (assoc db :trace-buffer (vec buffer))))
 
     ;; Bump the per-frame suppressed-events counter (rf2-0vxdn).
     ;; Dispatched from `trace-bus/collect-trace!` (CLJS) under
