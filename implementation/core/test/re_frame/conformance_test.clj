@@ -156,7 +156,15 @@
   "Capabilities this build INTENTIONALLY does not claim. Fixtures whose
   capabilities fall here are reported as out-of-claim skips but do not
   block the suite."
-  #{})
+  ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR is gated by the
+  ;; ssr-artefact conformance runners (re-frame.ssr-conformance-test +
+  ;; re-frame.ssr-streaming-conformance-test). Listed here so the core
+  ;; conformance runner reports the ssr-streaming.edn fixture as an
+  ;; intentional out-of-claim skip rather than as an unknown-capability
+  ;; failure.
+  #{:ssr/suspense-boundary
+    :ssr/hydration-payload
+    :ssr/chunked-response})
 
 ;; ---- fixture loader -------------------------------------------------------
 
