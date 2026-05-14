@@ -234,7 +234,7 @@
 (deftest layout-deterministic-over-the-same-input
   (testing "two runs of compute-layout over identical input yield identical
             positions — required so the panel can diff layouts for the
-            animation hook (rf2-xxx)"
+            animation hook"
     (let [trace  (concat (cascade-events 0   100 [:a])
                          (cascade-events 100 200 [:b] 100)
                          (cascade-events 200 300 [:c] 200))

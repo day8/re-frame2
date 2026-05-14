@@ -56,7 +56,7 @@
   empirically — '~10 surfaces a UI-density problem; 32 is the cliff at
   which the user is using pins as session-export, which Lock #4 says
   no'). Configurable via Settings → `pin-store-capacity` once Settings
-  ships (rf2-xxx); until then, callers may override via the 3-arity
+  ships; until then, callers may override via the 3-arity
   form of `pin-snapshot`."
   32)
 

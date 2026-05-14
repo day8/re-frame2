@@ -49,8 +49,8 @@
   on; the v1 layout does not run a force-directed pass. Per the spec
   §Performance — re-layout runs incrementally — but the v1 helper is
   a stable O(n) pass over the cascade vector. The full incremental-
-  layout pass lands in rf2-xxx once the panel's perf budget is
-  measured against a real cascade stream."
+  layout pass lands once the panel's perf budget is measured against
+  a real cascade stream."
   (:require [clojure.set :as set]))
 
 ;; ---- layout constants ----------------------------------------------------
@@ -283,10 +283,10 @@
   layout is deterministic over a fixed input.
 
   Per spec §Layout the v1 horizontal axis is *frame swimlanes*. The
-  v1 helper collapses every cascade onto the same swimlane (rf2-4rqs1
-  scope); the cross-frame swimlane assignment lands when the frame
-  picker / Spec 002 §Cross-frame fx surface is wired into the
-  buffer (rf2-xxx — out of Phase 4 scope)."
+  v1 helper collapses every cascade onto the same swimlane; the
+  cross-frame swimlane assignment lands when the frame picker /
+  Spec 002 §Cross-frame fx surface is wired into the buffer (out
+  of v1 scope)."
   [roots children level-of all-ids]
   (let [;; Walk in BFS order from the roots; pure-data so the encounter
         ;; index is stable.
@@ -331,7 +331,7 @@
     plus the outer margin.
 
   Pure data → data. Deterministic given the same input — callers can
-  diff two layouts for animation hooks (rf2-xxx)."
+  diff two layouts for animation hooks (out of v1 scope)."
   [{:keys [nodes arrows roots] :as _graph}]
   (let [children  (children-by-parent arrows)
         all-ids   (map :dispatch-id nodes)
@@ -397,7 +397,7 @@
   `:parent`, plus every descendant walked down through `:children`.
 
   Pure data → id-set. Used by `filter-to-cascade` and by the
-  spec §Find root cause affordance (rf2-xxx)."
+  spec §Find root cause affordance."
   [{:keys [nodes arrows] :as _graph} dispatch-id]
   (when dispatch-id
     (let [parent-by-id (into {} (map (juxt :dispatch-id :parent)) nodes)

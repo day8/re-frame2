@@ -112,9 +112,9 @@
   causality strip + frame picker + global actions (Issues badge,
   epoch counter, command palette, help, close).
 
-  Phase 1 stub: brand mark + version label + close-affordance text.
-  Live causality strip / frame picker / Issues badge land with their
-  respective panel beads (rf2-xxx)."
+  v1 stub: brand mark + version label + close-affordance text.
+  Live causality strip / frame picker / Issues badge land as
+  follow-on work."
   [_props]
   [:div {:style {:display          "flex"
                  :align-items      "center"
@@ -302,7 +302,7 @@
                       :color            (:text-tertiary tokens)
                       :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
                       :font-size        "12px"}}
-     [:span "◀◀  ────●────  ▶▶  (scrubber — rf2-xxx)"]
+     [:span "◀◀  ────●────  ▶▶  (scrubber)"]
      (when (pos? redacted-count)
        [:span {:data-testid "rf-causa-redacted-indicator"
                :title       (str "Spec 009 §Privacy: " redacted-count
