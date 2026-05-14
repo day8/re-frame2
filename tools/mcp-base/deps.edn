@@ -17,6 +17,8 @@
 ;;                        `:rf.mcp/*` and `:rf.size/*` namespaced
 ;;                        keywords, JSON-RPC error codes).
 ;;   - `sensitive.cljc` — spec/009 §Privacy default-suppress filter.
+;;   - `elision.cljc`   — wire-boundary elision-marker walker
+;;                        (`count-elided-markers`, rf2-9fz64).
 ;;   - `args.cljc`      — argument-coercion helpers (booleans, limits,
 ;;                        keyword reading) used by every MCP tool.
 ;;   - `diff_encode.cljc` — path-keyed structural diff for epoch
