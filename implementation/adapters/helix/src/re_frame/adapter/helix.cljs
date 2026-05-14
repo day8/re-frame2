@@ -185,3 +185,14 @@
 ;; Production behaviour is unchanged: the warn-once defonce is still
 ;; per-process for users; only test-time clearing is new.
 (spine/install-clear-warn-once-step! clear-warned-non-dom-roots!)
+
+;; Chained SSR emitter install (rf2-4z7bp): `re-frame.ssr.emit` invokes
+;; `:reagent/set-hiccup-emitter!` at ns-load; every loaded React-shaped
+;; adapter contributes its own install step so a single
+;; `(require '[re-frame.ssr])` auto-wires every adapter's
+;; render-to-string slot. Hook key is historical (Reagent published it
+;; first per rf2-uo7v); behaviour is adapter-agnostic. Per rf2-y9spn
+;; this restores parity with the Reagent and UIx adapters — without
+;; this line a Helix-only SSR bundle silently no-ops the emitter slot
+;; under `(require '[re-frame.ssr])`.
+(late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)

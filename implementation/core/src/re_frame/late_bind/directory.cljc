@@ -318,7 +318,8 @@
    {:key         :reagent/set-hiccup-emitter!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix]
+                   re-frame.adapter.uix
+                   re-frame.adapter.helix]
     :chained?    true
     :design-bead "rf2-4z7bp"
     :description "Install the substrate-specific hiccup emitter for SSR. Chained — every loaded React-shaped adapter contributes its own install step so a single SSR ns-load auto-wires every adapter's render-to-string slot."}
