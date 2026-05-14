@@ -120,6 +120,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | Conformance corpus (EDN fixtures interpreted by the host) | yes (conform against) | yes | — | — |
 | Shape description (schemas in dynamic hosts; types in static hosts) | yes (some form) | yes (Malli) | yes — host's idiom (Zod for TS / Squint; native types for Melange / ReScript / Reason / Fable / Scala.js / PureScript / Kotlin/JS) | — |
 | Production elision of dev-time machinery (trace, schema validation) | encouraged | yes (`goog-define`) | yes — host's mechanism (build flag, debug/release builds, runtime stubs) | — |
+| **Security pattern** (threat model + behavioural MUSTs per [Security.md](Security.md)) — keyword-interning cap, CRLF fail-fast, default-redact on `:sensitive?`, fail-fast `:rf.error/*` categories, production-gate elision, MCP tool authority classes | yes | yes (concrete bindings in [`../implementation/SECURITY.md`](../implementation/SECURITY.md) — named fns, numeric defaults, JVM-vs-CLJS stub semantics) | yes — host re-binds each pattern obligation to host-idiomatic names (e.g. TS `elideWireValue`, F# `RFHttp.MaxDecodedKeys`); the *behaviour* is contract, the *names* are host's | — |
 | Source-coordinate capture at registration | encouraged | yes (macros) | yes — host's mechanism (stack inspection, build-time codegen, omit) | — |
 | `:platforms` metadata on `reg-fx` (SSR) | yes | yes | — | — |
 | `render-to-string` / SSR drain (per [011](011-SSR.md)) | yes | yes | — | — |
