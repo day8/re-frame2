@@ -459,6 +459,8 @@ The same pattern applies to `register-epoch-cb!`, `trace-buffer`, `clear-trace-b
 
 ### JVM builds
 
+> Cross-reference: see [Security.md §Production gates](Security.md#production-gates) — SSR / webhook / long-running JVMs facing untrusted input MUST set the gate `false` explicitly so dev-side trace enrichment elides in production. The runtime gate below is the JVM mirror of CLJS `goog.DEBUG`; both surfaces compose with the always-on substrates above.
+
 JVM has no `:advanced` and no compile-time DCE. The JVM half of the interop layer:
 
 ```clojure
@@ -533,6 +535,8 @@ A `:closure-defines {goog.DEBUG false}` `:advanced` build carries no trace machi
 - The Causa-MCP server and the pair2 server (per [Tool-Pair.md](Tool-Pair.md)). These are dev-only tools that attach to the trace surface; they are not designed for, and not shippable to, production. The Causa preload artefact must not be on a production build's classpath; the pair2 server lives in its own dev-only artefact for the same reason.
 
 ### What IS available in production
+
+> Cross-reference: see [Security.md §Production gates](Security.md#production-gates) for the framework-wide threat-model entry — the three always-on substrates below are the production-survivable surface; everything in [§What is NOT available in a default production CLJS build](#what-is-not-available-in-a-default-production-cljs-build) is dev-only by design (both for performance and for security — dev-side enrichments would otherwise leak to production consumers).
 
 Six surfaces survive elision and are the canonical production-debugging fallbacks:
 
@@ -1296,6 +1300,8 @@ Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per
 `:db` mutations happen inside `do-fx`. The runtime emits a separate `:event/db-changed` trace event on every dispatch whose handler returned a new db value. Tools that want before/after pairs read the `:rf/epoch-record`'s `:db-before` / `:db-after` slots, which the runtime captures atomically across the cascade rather than per-event.
 
 ### Privacy / sensitive data in traces
+
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture this section grounds — `:sensitive?` is the canonical privacy marker; the three composition sites (`with-redacted` interceptor + registration-meta + per-slot schema meta) compose at every privacy boundary the framework owns.
 
 Trace events carry dispatched event vectors, handler return values, and (under [§Trace event for app-db changes](#trace-event-for-app-db-changes)) `app-db` snapshots — any of which may contain user input that should not leave the developer's machine: passwords, auth tokens, payment details, PII captured from form fields. Tools that ship traces off-box (error-monitor forwarders per [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), remote dev dashboards, the Causa-MCP / pair2 servers per [Tool-Pair.md](Tool-Pair.md)) must not emit that data verbatim.
 

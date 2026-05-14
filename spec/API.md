@@ -447,6 +447,8 @@ Trace events emitted by epoch-history machinery:
 
 ### Size-elision wire-boundary walker
 
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) — `elide-wire-value` is named there as the **single normative emission site** for the `:rf/redacted` sentinel. Every off-box egress (trace forwarders, MCP servers, error monitors) routes through this walker; the trust-boundary surfaces catalogued in [Security.md](Security.md) compose against this primitive.
+
 The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Consumed by every tool that emits wire data (the off-box error-monitor forwarders, the Causa-MCP / pair2-mcp / story-mcp servers per [Tool-Pair.md](Tool-Pair.md), the on-box dev panels). The walker is the **single normative emission site** for the `:rf/redacted` sensitive sentinel and the `:rf.size/large-elided` marker; per-tool reimplementation is prohibited.
 
 | API | M/Fn | Signature | Status | Spec |
@@ -473,6 +475,8 @@ Recent additions consumers should be aware of: `:rf.ssr/version-mismatch`, `:rf.
 Per-Spec emit-sites: [002-Frames](002-Frames.md), [005-StateMachines](005-StateMachines.md), [006-ReactiveSubstrate](006-ReactiveSubstrate.md), [010-Schemas](010-Schemas.md), [011-SSR](011-SSR.md), [012-Routing](012-Routing.md), [013-Flows](013-Flows.md), [014-HTTPRequests](014-HTTPRequests.md), [Tool-Pair](Tool-Pair.md). Each catalogue row's "Per [N]" cross-link names the owning Spec section.
 
 ### Privacy (Spec 009 §Privacy / sensitive data in traces)
+
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture and the three composition sites (`with-redacted` + registration-meta + per-slot schema meta); the trust-boundary catalogue lives in [Security.md](Security.md).
 
 Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a registration declared `:sensitive? true`. Framework-published trace consumers (Sentry/Honeybadger forwarders, pair2 server, Causa, Story, story-mcp, pair2-mcp, causa-mcp) MUST default-drop the stamped events at their egress boundary. `with-redacted` is the in-place payload scrub composed alongside the stamp.
 
