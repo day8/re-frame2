@@ -695,6 +695,33 @@ The path syntax is the *primary* binding. Query strings are bound separately via
 
 Coercion is data-shaped (the `:query` schema is the coercion specification — `:int` coerces `"2"` → `2`); per-key middleware functions are not part of the contract — data over functions.
 
+### Keyword-interning cap on query keys + values (rf2-3k3o7)
+
+URL query strings are an attacker-influenceable input — caller-controlled, often deep-linked from third parties (search results, partner sites, share links). JVM keywords intern into a process-global, never-GC'd table; a routing layer that turns every URL query key into a keyword permanently extends that table on every unique hostile key, eventually exhausting the host. Long-running SSR JVMs are the worst case. This is the routing-side analogue of the HTTP-side keyword-interning DoS (per [Spec 014 §Keyword-interning cap (rf2-wu1n5)](014-HTTPRequests.md#keyword-interning-cap-rf2-wu1n5)).
+
+Three layered defenses, all on by default:
+
+1. **URL-level cap on unique query keys.** `match-url` enforces a per-URL cap on the number of unique query keys (default **10000**, named `default-max-decoded-keys` in the routing implementation — symmetric with `:rf.http/max-decoded-keys` for managed HTTP). Overflow throws `:rf.error/route-too-many-keys` with `{:limit :count :url}` ex-data, which propagates through the calling navigation event the same as any other parse failure. 10000 is generous — legitimate URLs typically carry tens of keys at most — and finite enough to bound an attacker-controlled payload.
+
+2. **Selective keywording against the route's declared vocabulary.** When the route declares a `:query` schema (or `:query-defaults` / `:query-retain`), only keys named by those slots are promoted to keyword keys. Unknown URL query keys retain their **string** form in the parsed `:query` map. The route's declared vocabulary is the keyword universe; the framework refuses to permanently extend the JVM keyword table on behalf of URL keys the route did not name.
+
+3. **`:keyword`-typed value gate.** A bare `:keyword` query-slot type-form is treated as an **unbounded** intern site (any URL value would intern as a keyword) and the value is preserved as a **string**. Authors who want keyword-typed values declare an `[:enum :asc :desc ...]` allowlist — the bounded keyword universe. Values matching one of the declared enum choices are interned; values outside the allowlist stay as strings.
+
+Routes that declare **no** `:query` schema at all fall back to the legacy keyword-all behaviour for query keys — the URL-level cap (defense #1) is the DoS guard for that path. The selective-keywording rule (defense #2) and the `:keyword`-value gate (defense #3) only activate once the route opts in by declaring a `:query` schema, defaults, or retain set.
+
+```clojure
+;; rf2-3k3o7 — safe enum allowlist for a keyword-typed query value.
+(rf/reg-route :route/sorted
+  {:path  "/items"
+   :query [:map
+           [:sort [:enum :asc :desc]]]})
+
+;; URL: /items?sort=desc       → :query {:sort :desc}     ;; declared enum value → interned
+;; URL: /items?sort=hostile    → :query {:sort "hostile"} ;; outside enum → stays as string
+```
+
+Cross-references: [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide stance, [Security.md §Security-relevant reserved config slots](Security.md#security-relevant-reserved-config-slots) for the slot catalogue, and [014 §Keyword-interning cap](014-HTTPRequests.md#keyword-interning-cap-rf2-wu1n5) for the symmetric HTTP-side cap.
+
 ## Fragments
 
 The URL `#fragment` is a first-class part of the routing contract — anchor navigation, scroll-to-section, settings-tab selection, and SSR-safe in-page navigation all depend on it being explicit data flowing through events rather than a `window.location.hash` read in view code.

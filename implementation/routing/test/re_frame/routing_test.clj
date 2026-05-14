@@ -1403,8 +1403,12 @@
 ;; ---- T2: :int / :keyword / :boolean query coercion ----------------------
 
 (deftest query-coercion-vocabulary
-  (testing "coerce-by-type-form honours :int / :keyword / :boolean for
-            query-string values (Spec 012 §Query-string coercion)"
+  (testing "coerce-by-type-form honours :int / :boolean for query-string
+            values. Per rf2-3k3o7 a bare `:keyword` type-form is
+            unbounded — the value stays as a string rather than
+            interning an attacker-controllable string as a Clojure
+            keyword. The narrowing-via-enum path is exercised by
+            `query-coercion-keyword-enum-allowlist` below."
     (rf/reg-route :route/search
                   {:path  "/search"
                    :query [:map
@@ -1415,8 +1419,10 @@
     (let [m (routing/match-url "/search?count=42&sort=desc&archived=true&plain=hello")]
       (is (= 42 (get-in m [:query :count]))
           ":int coerces to a Long")
-      (is (= :desc (get-in m [:query :sort]))
-          ":keyword coerces via (keyword v)")
+      (is (= "desc" (get-in m [:query :sort]))
+          "rf2-3k3o7: bare `:keyword` stays as string — the JVM keyword-
+          interning DoS surface is closed by requiring an `[:enum ...]`
+          allowlist for keyword values")
       (is (= true (get-in m [:query :archived]))
           ":boolean coerces \"true\" to true")
       (is (= "hello" (get-in m [:query :plain]))
@@ -1437,6 +1443,114 @@
                                 :query [:map [:n :int]]})
     (is (= "abc" (get-in (routing/match-url "/p2?n=abc") [:query :n]))
         "non-numeric :int input is left as-is (no exception)")))
+
+;; ---- rf2-3k3o7: keyword-interning cap on query keys + values -------------
+;;
+;; Symmetric with rf2-wu1n5's `:rf.http/max-decoded-keys` cap on JSON
+;; object keys. JVM keywords intern into a process-global, never-GC'd
+;; table; an attacker-influenced URL stream with N-unique query keys (or
+;; N-unique `:keyword`-typed values) would otherwise permanently burn
+;; N slots on long-running SSR JVMs. Three defenses:
+;;
+;; 1. URL-level cap on number of unique query keys — overflow throws
+;;    `:rf.error/route-too-many-keys` with `:limit` / `:count` ex-data.
+;; 2. Selective keywording — only keys declared by the route's `:query`
+;;    schema / `:query-defaults` are promoted to keyword keys. Unknown
+;;    keys stay as **string** keys.
+;; 3. `:keyword`-typed value gate — a bare `:keyword` type-form stays
+;;    as a string; `[:enum :a :b ...]` is the bounded-allowlist path.
+
+(deftest rf2-3k3o7-cap-on-unique-query-keys
+  (testing "match-url rejects URLs whose query exceeds the
+            `default-max-decoded-keys` cap with a structured ex-info"
+    (rf/reg-route :route/search {:path "/search"})
+    ;; A URL one over the cap trips the throw.
+    (let [n      (inc routing/default-max-decoded-keys)
+          q      (clojure.string/join "&" (map #(str "k" % "=v") (range n)))
+          url    (str "/search?" q)
+          thrown (try (routing/match-url url) ::no-throw
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown)
+          "over-cap URL throws ex-info")
+      (let [data (ex-data thrown)]
+        (is (= :rf.error/route-too-many-keys (:kind data)))
+        (is (= routing/default-max-decoded-keys (:limit data)))
+        (is (>= (:count data) routing/default-max-decoded-keys))))))
+
+(deftest rf2-3k3o7-under-cap-succeeds
+  (testing "URLs at-or-under the cap parse successfully"
+    (rf/reg-route :route/search {:path "/search"})
+    ;; A URL with 100 unique keys is well under the cap.
+    (let [n   100
+          q   (clojure.string/join "&" (map #(str "k" % "=v") (range n)))
+          url (str "/search?" q)
+          m   (routing/match-url url)]
+      (is (some? m) "under-cap URL parses without throwing")
+      (is (= :route/search (:route-id m))))))
+
+(deftest rf2-3k3o7-undeclared-query-keys-stay-as-strings
+  (testing "query keys NOT declared by the route's `:query` schema or
+            `:query-defaults` stay as **string** keys in the parsed
+            :query map — no permanent keyword-table slot is burned on
+            their behalf"
+    (rf/reg-route :route/search
+                  {:path  "/search"
+                   :query [:map [:q :string]]})
+    (let [m (routing/match-url "/search?q=clojure&unknown1=foo&unknown2=bar")]
+      (is (some? m))
+      (is (= "clojure" (get-in m [:query :q]))
+          "declared :q (keyword key) is present and typed per schema")
+      (is (= "foo" (get-in m [:query "unknown1"]))
+          "undeclared `unknown1` is keyed by STRING, not keyword")
+      (is (= "bar" (get-in m [:query "unknown2"]))
+          "undeclared `unknown2` is keyed by STRING, not keyword")
+      (is (not (contains? (:query m) :unknown1))
+          "no `:unknown1` keyword in the result map")
+      (is (not (contains? (:query m) :unknown2))
+          "no `:unknown2` keyword in the result map"))))
+
+(deftest rf2-3k3o7-defaults-extend-declared-universe
+  (testing "keys declared via `:query-defaults` (without a `:query`
+            schema) widen the keyword universe — they get keyword
+            keys; non-declared URL keys stay string-keyed"
+    (rf/reg-route :route/list
+                  {:path           "/list"
+                   :query-defaults {:page 1 :sort "asc"}})
+    (let [m (routing/match-url "/list?page=3&unknown=x")]
+      (is (= "3" (get-in m [:query :page]))
+          ":page from defaults → declared → keyword-keyed (no schema coerce → stays string)")
+      (is (= "asc" (get-in m [:query :sort]))
+          "absent :sort filled from defaults")
+      (is (= "x" (get-in m [:query "unknown"]))
+          "undeclared `unknown` stays string-keyed"))))
+
+(deftest rf2-3k3o7-keyword-enum-allowlist
+  (testing "a `[:enum :asc :desc]` schema constrains the keyword
+            universe — values matching declared choices intern, others
+            stay as strings (bounded by construction)"
+    (rf/reg-route :route/sorted
+                  {:path  "/items"
+                   :query [:map [:sort [:enum :asc :desc]]]})
+    (let [m1 (routing/match-url "/items?sort=asc")
+          m2 (routing/match-url "/items?sort=desc")
+          m3 (routing/match-url "/items?sort=hostile-value")]
+      (is (= :asc  (get-in m1 [:query :sort]))
+          "declared enum value `asc` interns to :asc")
+      (is (= :desc (get-in m2 [:query :sort]))
+          "declared enum value `desc` interns to :desc")
+      (is (= "hostile-value" (get-in m3 [:query :sort]))
+          "value outside the enum allowlist stays as string — no intern"))))
+
+(deftest rf2-3k3o7-bare-keyword-stays-string
+  (testing "rf2-3k3o7: bare `:keyword` type-form (no enum allowlist) is
+            an unbounded-intern site — value stays as a string"
+    (rf/reg-route :route/page
+                  {:path  "/page"
+                   :query [:map [:tag :keyword]]})
+    (let [m (routing/match-url "/page?tag=arbitrary-value")]
+      (is (= "arbitrary-value" (get-in m [:query :tag]))
+          "bare :keyword preserves the URL value as a string — no
+          unbounded intern site"))))
 
 ;; ---- T3: :query-defaults populates absent keys -------------------------
 

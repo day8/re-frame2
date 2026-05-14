@@ -37,6 +37,22 @@ Your `:on-failure` handler sees the structured shape; the request didn't complet
 
 The full normative description sits at [014-HTTPRequests.md §Keyword-interning cap](../../../spec/014-HTTPRequests.md) and [Security.md §DoS by input](../../../spec/Security.md#dos-by-input).
 
+### The symmetric routing-side cap (rf2-3k3o7)
+
+The same accident class lives on the routing side. URL query strings are caller-controlled (deep links, partner referrals, share links) and `match-url` historically turned every query key into a keyword — exactly the unbounded-intern pattern the JSON cap above guards against. Per rf2-3k3o7 the routing parser applies a symmetric cap:
+
+```clojure
+;; URL with > 10000 unique query keys:
+{:kind   :rf.error/route-too-many-keys
+ :limit  10000
+ :count  10001
+ :url    "/search?k0=...&k10000=..."}
+```
+
+…thrown from `match-url`, propagated through the calling navigation event.
+
+The defense layers further. When a route declares a `:query` schema, only the schema-named keys are promoted to keyword keys; unknown URL keys retain their string form in the parsed `:query` map. A `:keyword`-typed slot without an `[:enum ...]` allowlist stays as a string (the unbounded-intern site is closed); declare `[:enum :asc :desc]` for the safe, bounded keyword universe. See [012-Routing.md §Keyword-interning cap on query keys + values](../../../spec/012-Routing.md#keyword-interning-cap-on-query-keys--values-rf2-3k3o7) for the full contract.
+
 ## Slow-loris defense — `:timeout-ms` default 30000
 
 A "slow-loris" upstream is one that never quite finishes the response — it sends a header, dribbles a byte, waits, dribbles another byte, waits. On the CLJS side that's a fetch promise that never resolves. On the JVM side that's a `CompletableFuture` that never completes and a connection-pool slot that never returns. Run a long-lived JVM against a compromised partner and you can have your pool exhausted in minutes.
