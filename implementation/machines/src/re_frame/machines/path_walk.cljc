@@ -91,13 +91,24 @@
   `prefix` is the vector of path elements from `path[0]` through
   `path[i]` inclusive, of length `i+1`. `node` is the state-node map
   at that prefix; when the prefix doesn't resolve (defensive), the
-  predicate is skipped and the walk continues toward the root."
+  predicate is skipped and the walk continues toward the root.
+
+  Per rf2-ogsrx the inclusive-prefix is taken via `subvec` (zero-copy
+  slice) rather than `(vec (take (inc i) path))` (lazy-seq + realise +
+  copy). On a depth-D path × P pickers per macrostep the walk now
+  allocates D×P subvec references rather than D×P fresh vectors. The
+  `path` argument is coerced to a vector once at the top so callers
+  may pass any seqable; downstream callers receiving the prefix may
+  rely on the vector contract (predicates often `(last prefix)` or
+  `conj` onto it)."
   [tree path predicate]
-  (loop [i (dec (count path))]
-    (when (>= i 0)
-      (let [prefix (vec (take (inc i) path))
-            node   (node-at* tree prefix)
-            hit    (when node (predicate prefix node))]
-        (if (some? hit)
-          hit
-          (recur (dec i)))))))
+  (let [path (if (vector? path) path (vec path))
+        n    (count path)]
+    (loop [i (dec n)]
+      (when (>= i 0)
+        (let [prefix (subvec path 0 (inc i))
+              node   (node-at* tree prefix)
+              hit    (when node (predicate prefix node))]
+          (if (some? hit)
+            hit
+            (recur (dec i))))))))
