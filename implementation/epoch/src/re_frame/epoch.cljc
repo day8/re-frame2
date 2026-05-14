@@ -250,6 +250,42 @@
   [frame-id]
   (get @capture-buffers frame-id []))
 
+;; Operations this namespace itself emits with a `:frame` tag, all of
+;; which fire OUTSIDE a cascade (the drain has either not started, or
+;; has just settled and the buffer has been harvested). If `capture-
+;; event!` didn't skip them they would accrete into `capture-buffers`
+;; and leak into the NEXT cascade's harvested record for the same
+;; frame — a silent correctness bug surfacing as phantom `:trace-events`
+;; and a wrong `:trigger-event` via `find-trigger-event`'s fallback arm.
+;;
+;; Enumeration (not a `:rf.epoch/*` namespace-prefix filter) is the
+;; deliberate choice: a future in-cascade `:rf.epoch/*` op (e.g. an
+;; in-drain cascade-rollback trace) must continue to surface in epoch
+;; records. The companion test `skip-ops-catalogue-pins-every-rf-epoch-op`
+;; pins this catalogue against every `:rf.epoch/*` op the namespace
+;; emits, so an addition that forgets to update one or the other will
+;; fail loudly rather than drift silently.
+;;
+;; `:rf.epoch.cb/silenced-on-frame-destroy` is a different op-type
+;; (`:rf.epoch.cb`) and emits AFTER the frame's ring buffer has been
+;; dropped, so it can never race a future cascade for that frame.
+(def ^:private skip-ops
+  #{;; Drain-settle emit (after harvest-buffer! has emptied the buffer).
+    :rf.epoch/snapshotted
+    ;; restore-epoch success + the five documented failure modes.
+    :rf.epoch/restored
+    :rf.epoch/restore-unknown-epoch
+    :rf.epoch/restore-schema-mismatch
+    :rf.epoch/restore-missing-handler
+    :rf.epoch/restore-version-mismatch
+    :rf.epoch/restore-during-drain
+    ;; reset-frame-db! success + its two failure modes (Tool-Pair §Pair-
+    ;; tool writes, rf2-zq55). All three fire after the synthetic record
+    ;; has been built and the cascade-buffer (if any) has been harvested.
+    :rf.epoch/db-replaced
+    :rf.epoch/reset-frame-db-during-drain
+    :rf.epoch/reset-frame-db-schema-mismatch})
+
 (defn- capture-event!
   "Internal trace-capture entry point published through `re-frame.late-bind`
   under `:epoch/capture-event`. `re-frame.trace/emit!` and
@@ -264,24 +300,17 @@
   recording.
 
   Events whose tags don't carry `:frame` are skipped — they can't be
-  tied to a specific cascade. The `:rf.epoch/*` trace events emitted by
-  this namespace itself are also skipped, so a listener-driven cascade
-  never feeds back into a capture buffer."
+  tied to a specific cascade. The `:rf.epoch/*` trace events this
+  namespace emits OUTSIDE a cascade (catalogued in `skip-ops`) are
+  also skipped, so a snapshotted/restored/db-replaced emit cannot leak
+  into the next cascade's harvested record."
   [event]
   (when interop/debug-enabled?
     (let [op       (:operation event)
           tags     (:tags event)
           frame-id (or (:frame tags)
                        (:frame event))]
-      (when (and frame-id
-                 (not (contains? #{:rf.epoch/snapshotted
-                                   :rf.epoch/restored
-                                   :rf.epoch/restore-unknown-epoch
-                                   :rf.epoch/restore-schema-mismatch
-                                   :rf.epoch/restore-missing-handler
-                                   :rf.epoch/restore-version-mismatch
-                                   :rf.epoch/restore-during-drain}
-                                 op)))
+      (when (and frame-id (not (contains? skip-ops op)))
         (buffer-event! frame-id event)))))
 
 ;; ---- record projection ----------------------------------------------------
