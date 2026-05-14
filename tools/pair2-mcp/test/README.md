@@ -12,7 +12,7 @@
 | Does a per-tool function build the right eval form / wire envelope? | **CLJS** — `re_frame_pair2_mcp/<tool>_test.cljs` |
 | Does a cross-cutting concern (cache, cap, dedup, elision, sensitive) reshape an envelope correctly? | **CLJS** — `re_frame_pair2_mcp/<concern>_test.cljs` |
 | Does `tools/invoke` glue the four pipeline phases (precheck → dispatch → cache → cap) in the right order? | **CLJS** — `re_frame_pair2_mcp/invoke_test.cljs` |
-| Does the eleven-tool catalogue still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame_pair2_mcp/conformance_test.cljs` |
+| Does the twelve-tool catalogue still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame_pair2_mcp/conformance_test.cljs` |
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
 

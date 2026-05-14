@@ -1,5 +1,5 @@
 (ns re-frame-pair2-mcp.conformance-test
-  "Per rf2-xkxbv (audit rf2-7hie3 §TE3). Drives the eleven-tool catalogue
+  "Per rf2-xkxbv (audit rf2-7hie3 §TE3). Drives the twelve-tool catalogue
   through `tools/invoke` against a stub `conn` and asserts the recorded
   wire-shape EDN — the artefact's contract suite, sibling to:
 
@@ -241,24 +241,25 @@
 ;; ---------------------------------------------------------------------------
 
 (def corpus
-  "Inline conformance corpus for pair2-mcp's eleven-tool catalogue.
+  "Inline conformance corpus for pair2-mcp's twelve-tool catalogue.
 
-  Coverage matrix today (rf2-xkxbv):
+  Coverage matrix today (rf2-xkxbv, rf2-fnpqg):
 
-    | Tool              | Happy | Missing-arg | Degraded-runtime |
-    |-------------------|-------|-------------|-------------------|
-    | discover-app      | yes   | n/a         | yes               |
-    | eval-cljs         | yes   | yes         | (covered by ↑ )   |
-    | dispatch          | yes   | yes         | yes               |
-    | trace-window      | yes   | n/a         | n/a               |
-    | watch-epochs      | yes   | n/a         | n/a               |
-    | tail-build        | yes   | n/a         | n/a               |
-    | snapshot          | yes   | n/a         | yes (no-preload)  |
-    | get-path          | yes   | yes         | yes (no-preload)  |
-    | subscribe         | n/a   | yes         | n/a               |
-    | unsubscribe       | n/a   | yes         | n/a               |
-    | subscription-info | yes   | n/a         | n/a               |
-    | (pipeline)        | cache-hit (precheck) ; unknown-tool error  |
+    | Tool                   | Happy | Missing-arg | Degraded-runtime |
+    |------------------------|-------|-------------|-------------------|
+    | discover-app           | yes   | n/a         | yes               |
+    | eval-cljs              | yes   | yes         | (covered by ↑ )   |
+    | dispatch               | yes   | yes         | yes               |
+    | trace-window           | yes   | n/a         | n/a               |
+    | watch-epochs           | yes   | n/a         | n/a               |
+    | tail-build             | yes   | n/a         | n/a               |
+    | snapshot               | yes   | n/a         | yes (no-preload)  |
+    | get-path               | yes   | yes         | yes (no-preload)  |
+    | subscribe              | n/a   | yes         | n/a               |
+    | unsubscribe            | n/a   | yes         | n/a               |
+    | subscription-info      | yes   | n/a         | n/a               |
+    | get-pair2-instructions | yes   | n/a         | n/a               |
+    | (pipeline)             | cache-hit (precheck) ; unknown-tool error  |
 
   Streaming `subscribe` happy paths are covered exhaustively in
   `subscribe_test`; here we pin only the missing-arg shape because the
@@ -485,6 +486,19 @@
     :fixture/expect
     {:isError? false}}
 
+   ;; ---------- get-pair2-instructions ------------------------------------
+   ;; Inline-text tool (rf2-fnpqg). No nREPL round-trip; the result is a
+   ;; pure-data def in the bundle, so the eval-script is irrelevant.
+   {:fixture/id    :get-pair2-instructions/happy
+    :fixture/doc   "get-pair2-instructions returns {:ok? true :tool ... :text <prose>}."
+    :fixture/tool  "get-pair2-instructions"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :tool "get-pair2-instructions"}}}
+
    ;; ---------- pipeline: unknown tool ------------------------------------
    {:fixture/id    :pipeline/unknown-tool
     :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error."
@@ -533,7 +547,7 @@
 ;;
 ;; Why one deftest, not one per fixture: matches the framework-side
 ;; runners (`ssr-conformance-test`, `machines-conformance-test`); the
-;; corpus is a unit of coverage, not eleven units. Failure reports name
+;; corpus is a unit of coverage, not twelve units. Failure reports name
 ;; each failing fixture by `:fixture/id` so a CI failure is
 ;; self-locating without forcing the runner to declare N `deftest`s
 ;; that would expand at compile time as the corpus grows.

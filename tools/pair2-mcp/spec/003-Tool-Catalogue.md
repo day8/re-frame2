@@ -6,7 +6,7 @@
 > `register-epoch-cb!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The eleven MCP tools.
+The twelve MCP tools.
 
 ## Universal: wire-boundary token cap
 
@@ -841,3 +841,39 @@ The causa-mcp peer is `list-subscriptions` (see causa-mcp
 [`DESIGN-RATIONALE.md` §Lock #12](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-12--subscription-info-parity-list-subscriptions-is-the-eighteenth-tool))
 — same diagnostic shape, NAMING.md-conformant verb in causa-mcp's
 catalogue.
+
+## get-pair2-instructions
+
+Agent-onboarding text (rf2-fnpqg). Returns an inline prose summary
+of pair2-mcp's tool catalogue, the EDN posture, the `:origin :pair`
+tagged-mutation convention, the streaming `subscribe` semantics,
+and the wire-boundary pipeline (precheck → elision → diff-encode
+→ dedup → cap).
+
+Mirrors story-mcp's `get-story-instructions` — agent hosts call
+this at session start to orient before the first real op. No nREPL
+round-trip; the text is a `def` in the compiled `.js` bundle so
+the call is one MCP frame and zero socket bytes. The cache layer
+(`cache.cljs`) marks this tool `cacheable? true` since the text is
+a pure-data function of the bundle.
+
+**Args**: none recognised. `:additionalProperties false`.
+
+**Returns**:
+
+```clojure
+{:ok? true
+ :tool "get-pair2-instructions"
+ :text "<prose>"}
+```
+
+The `:text` slot is a single string the agent host renders
+verbatim. It carries no `:rf.size/large-elided` markers (no app-db
+slot), no `:rf.mcp/dedup-table` (no repeated subtrees), and no
+streaming machinery — just text.
+
+Maintenance: the text lives in
+`tools/get_pair2_instructions.cljs` as the `instructions-text` def.
+Edit it when the catalogue grows or shrinks. The structural peer
+is the `re-frame-pair2-mcp.tools/tool-descriptors` docstring;
+keep the two in lockstep when adding or removing tools.
