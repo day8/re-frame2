@@ -435,6 +435,224 @@
         (finally
           (rf/remove-trace-cb! ::late-cb))))))
 
+;; ---- forged child-id rejection (rf2-ns8ut) ------------------------------
+;;
+;; intercept-invoke-all-event must verify the inbound `child-id` is one
+;; of the parent's spawned children before mutating the join state.
+;; Otherwise a hand-crafted dispatch (typo, copy-paste from a sibling
+;; :invoke-all, cascaded event from another parent) silently folds an
+;; unknown id into `:done` / `:failed` and can collapse the join early
+;; (silent state-machine corruption). The runtime gates this with
+;; `:rf.error/machine-invoke-all-bad-child-id` and a no-op fx — the
+;; join state is NOT mutated and the join does not resolve on the
+;; forged event.
+;;
+;; Pragmatic security stance: trust the explicit invoker but gate
+;; accidents. See ai/findings/machines-security-audit-2026-05-15.md F1.
+
+(defn- mk-inert-child
+  "A child that records its parent-id but never auto-dispatches back —
+  letting us hand-craft forged `[parent [:on-child-done <bogus>]]`
+  events into the parent without race with real child completion."
+  []
+  {:initial :running
+   :data    {:id nil}
+   :actions {:record-id
+             (fn [data ev]
+               {:data (assoc data :id (second ev))})}
+   :states
+   {:running {:on {:set-id {:action :record-id}}}}})
+
+(defn- collect-traces
+  "Run `body-fn` with a trace listener attached; return the collected
+  vector of trace envelopes."
+  [body-fn]
+  (let [traces (atom [])
+        cb-key (gensym ::forged-cb)]
+    (rf/register-trace-cb! cb-key (fn [ev] (swap! traces conj ev)))
+    (try
+      (body-fn)
+      (finally
+        (rf/remove-trace-cb! cb-key)))
+    @traces))
+
+(defn- bad-child-id-error-traces
+  [traces]
+  (->> traces
+       (filter #(= :rf.error/machine-invoke-all-bad-child-id
+                   (:operation %)))))
+
+(deftest forged-child-id-with-no-live-children-is-rejected
+  (testing "an :on-child-done dispatch carrying a child-id NOT in the
+  parent's spawned set emits :rf.error/machine-invoke-all-bad-child-id
+  and is a no-op (join state untouched, no resolution)"
+    (let [parent {:initial :idle
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:invoke-all
+                    {:children        [{:id :a :machine-id :child/forge-a :start [:set-id :a]}
+                                       {:id :b :machine-id :child/forge-b :start [:set-id :b]}]
+                     :join            :all
+                     :on-child-done   :asset/loaded
+                     :on-child-error  :asset/failed
+                     :on-all-complete [:hydrate/done]
+                     :on-any-failed   [:hydrate/failed]}
+                    :on    {:hydrate/done   :ready
+                            :hydrate/failed :error}}
+                   :ready  {}
+                   :error  {}}}]
+      (rf/reg-machine :child/forge-a (mk-inert-child))
+      (rf/reg-machine :child/forge-b (mk-inert-child))
+      (rf/reg-machine :sup/forge-none parent)
+      (rf/dispatch-sync [:sup/forge-none [:start]])
+      (let [pre-jstate (get-in (frame-db) [:rf/spawned :sup/forge-none [:hydrating]])
+            children   (:children pre-jstate)
+            _          (is (= #{:a :b} (set (keys children))))
+            traces (collect-traces
+                    (fn []
+                      (rf/dispatch-sync
+                        [:sup/forge-none [:asset/loaded :totally-fake-id]])))
+            post-jstate (get-in (frame-db) [:rf/spawned :sup/forge-none [:hydrating]])
+            errs (bad-child-id-error-traces traces)]
+        (is (= 1 (count errs))
+            "exactly one :rf.error/machine-invoke-all-bad-child-id trace fired")
+        (let [err  (first errs)
+              tags (:tags err)]
+          (is (= :sup/forge-none (:machine-id tags)))
+          (is (= [:hydrating] (:invoke-id tags)))
+          (is (= :totally-fake-id (:child-id tags)))
+          (is (= #{:a :b} (:children tags))
+              ":children carries the legitimate seed set")
+          (is (= :done (:kind tags))
+              ":kind carries the resolution-side the forged event aimed at")
+          (is (= :event-dropped (:recovery err))
+              ":recovery is hoisted to top-level on error envelopes"))
+        (is (= pre-jstate post-jstate)
+            "join state unchanged: forged id NOT added to :done or :failed")
+        (is (= :hydrating (:state (snapshot :sup/forge-none)))
+            "parent did NOT resolve on the forged event")))))
+
+(deftest repeated-forged-completions-each-emit-error-and-do-not-resolve
+  (testing "repeated forged :on-child-done dispatches each emit error
+  traces; the join still does not resolve"
+    (let [parent {:initial :idle
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:invoke-all
+                    {:children        [{:id :a :machine-id :child/forge-r :start [:set-id :a]}]
+                     :join            :all
+                     :on-child-done   :asset/loaded
+                     :on-child-error  :asset/failed
+                     :on-all-complete [:hydrate/done]
+                     :on-any-failed   [:hydrate/failed]}
+                    :on    {:hydrate/done   :ready
+                            :hydrate/failed :error}}
+                   :ready  {}
+                   :error  {}}}]
+      (rf/reg-machine :child/forge-r (mk-inert-child))
+      (rf/reg-machine :sup/forge-repeated parent)
+      (rf/dispatch-sync [:sup/forge-repeated [:start]])
+      (let [traces (collect-traces
+                    (fn []
+                      (rf/dispatch-sync [:sup/forge-repeated [:asset/loaded :fake-1]])
+                      (rf/dispatch-sync [:sup/forge-repeated [:asset/loaded :fake-2]])
+                      (rf/dispatch-sync [:sup/forge-repeated [:asset/failed :fake-3]])))
+            errs (bad-child-id-error-traces traces)
+            jstate (get-in (frame-db) [:rf/spawned :sup/forge-repeated [:hydrating]])]
+        (is (= 3 (count errs))
+            "one error trace per forged dispatch")
+        (is (= [:fake-1 :fake-2 :fake-3]
+               (mapv (comp :child-id :tags) errs))
+            "each error trace carries its specific forged child-id")
+        (is (= [:done :done :failed]
+               (mapv (comp :kind :tags) errs))
+            "each error trace carries the resolution-side it aimed at")
+        (is (= #{} (:done jstate)))
+        (is (= #{} (:failed jstate)))
+        (is (false? (:resolved? jstate)))
+        (is (= :hydrating (:state (snapshot :sup/forge-repeated))))))))
+
+(deftest sibling-invoke-all-child-id-is-not-counted-into-other-join
+  (testing "a child-id legitimate to one parent's :invoke-all is forged
+  for ANOTHER parent's :invoke-all and is rejected by the other"
+    (let [parent-1 {:initial :idle
+                    :states
+                    {:idle      {:on {:start :working}}
+                     :working
+                     {:invoke-all
+                      {:children        [{:id :p1-a :machine-id :child/p1a :start [:set-id :p1-a]}]
+                       :join            :all
+                       :on-child-done   :asset/loaded
+                       :on-child-error  :asset/failed
+                       :on-all-complete [:done]}}}}
+          parent-2 {:initial :idle
+                    :states
+                    {:idle      {:on {:start :working}}
+                     :working
+                     {:invoke-all
+                      {:children        [{:id :p2-x :machine-id :child/p2x :start [:set-id :p2-x]}]
+                       :join            :all
+                       :on-child-done   :asset/loaded
+                       :on-child-error  :asset/failed
+                       :on-all-complete [:done]}}}}]
+      (rf/reg-machine :child/p1a (mk-inert-child))
+      (rf/reg-machine :child/p2x (mk-inert-child))
+      (rf/reg-machine :sup/p1 parent-1)
+      (rf/reg-machine :sup/p2 parent-2)
+      (rf/dispatch-sync [:sup/p1 [:start]])
+      (rf/dispatch-sync [:sup/p2 [:start]])
+      ;; Dispatch p2's child-id (:p2-x) into p1's join — it is foreign
+      ;; to p1's seeded :children {:p1-a ...} and must be rejected.
+      (let [traces (collect-traces
+                    (fn []
+                      (rf/dispatch-sync [:sup/p1 [:asset/loaded :p2-x]])))
+            errs (bad-child-id-error-traces traces)
+            p1-j (get-in (frame-db) [:rf/spawned :sup/p1 [:working]])]
+        (is (= 1 (count errs))
+            "sibling parent's child-id is forged-for-this-parent and rejected")
+        (is (= :p2-x (:child-id (:tags (first errs)))))
+        (is (= #{:p1-a} (:children (:tags (first errs))))
+            ":children reflects p1's seed, NOT p2's")
+        (is (= #{} (:done p1-j))
+            "p1's join state untouched by the foreign id")
+        (is (false? (:resolved? p1-j)))))))
+
+(deftest legitimate-child-id-flow-not-regressed-by-the-gate
+  (testing "the legitimate child-id path still resolves and the gate
+  does not emit a bad-child-id error for real children"
+    (let [child  (mk-child :sup/gate-ok :asset/loaded :asset/failed)
+          parent {:initial :idle
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:invoke-all
+                    {:children        [{:id :a :machine-id :child/gate-a :start [:set-id :a]}
+                                       {:id :b :machine-id :child/gate-b :start [:set-id :b]}]
+                     :join            :all
+                     :on-child-done   :asset/loaded
+                     :on-child-error  :asset/failed
+                     :on-all-complete [:hydrate/done]}
+                    :on    {:hydrate/done :ready}}
+                   :ready {}}}]
+      (rf/reg-machine :child/gate-a child)
+      (rf/reg-machine :child/gate-b child)
+      (rf/reg-machine :sup/gate-ok parent)
+      (let [traces (collect-traces
+                    (fn []
+                      (rf/dispatch-sync [:sup/gate-ok [:start]])
+                      (let [ids (:children (get-in (frame-db)
+                                                   [:rf/spawned :sup/gate-ok
+                                                    [:hydrating]]))]
+                        (rf/dispatch-sync [(:a ids) [:go]])
+                        (rf/dispatch-sync [(:b ids) [:go]]))))
+            errs (bad-child-id-error-traces traces)]
+        (is (= [] (vec errs))
+            "no :rf.error/machine-invoke-all-bad-child-id for legitimate flow")
+        (is (= :ready (:state (snapshot :sup/gate-ok)))
+            "legitimate :invoke-all resolution still fires :on-all-complete")))))
+
 (deftest any-failed-trace-carries-reason-payload
   (testing ":rf.machine.invoke-all/any-failed trace carries :reason from decisive failure"
     (let [traces (atom [])

@@ -10,16 +10,20 @@
       snapshot's `:state` path leaf→root looking for a state node whose
       `:invoke-all` declares the matching event keyword.
    2. Reads the join state at `[:rf/spawned <parent> <invoke-id>]`.
-   3. Adds `<child-id>` (event[1]) to `:done` or `:failed`.
-   4. If `:resolved?` is already true, the event is silently dropped
+   3. Verifies `<child-id>` (event[1]) is one of the parent's spawned
+      children. Forged / unknown ids are rejected with the
+      `:rf.error/machine-invoke-all-bad-child-id` error trace and a
+      no-op fx (the join state is NOT mutated). See rf2-ns8ut.
+   4. Adds `<child-id>` to `:done` or `:failed`.
+   5. If `:resolved?` is already true, the event is silently dropped
       (post-resolution late-completion).
-   5. Else evaluates the join condition. On resolution:
+   6. Else evaluates the join condition. On resolution:
         - latches `:resolved?` true,
         - if `:cancel-on-decision?` (default true), emits per-sibling
           `:rf.machine/destroy` fx and `:rf.machine.invoke/cancelled-on-
           join-resolution` traces,
         - dispatches the parent join event via `:fx [[:dispatch ...]]`.
-   6. Writes the new join state back into app-db.
+   7. Writes the new join state back into app-db.
 
   The interceptor's public entry point is `intercept-invoke-all-event`;
   the handler-factory in `re-frame.machines.lifecycle-fx.registration`
@@ -250,6 +254,25 @@
                             :invoke-id  invoke-id
                             :child-id   child-id
                             :kind       kind})
+              {:db db :fx []})
+
+          ;; Forged / unknown child-id: the inbound `child-id` is NOT in
+          ;; the seeded `:children` map. The accident class is a
+          ;; hand-crafted dispatch (copy-paste from a sibling :invoke-all,
+          ;; typo, cascaded event from a sibling parent) that the runtime
+          ;; would otherwise silently fold into `:done` / `:failed`,
+          ;; collapsing the join early. Gate it: emit a structured error
+          ;; trace and short-circuit with a no-op fx (do NOT mutate the
+          ;; join state). Per Spec 005 §Spawn-and-join and the machines
+          ;; security-audit finding F1 (rf2-ns8ut / rf2-s9tf8).
+          (not (contains? (:children join-state) child-id))
+          (do (trace/emit-error! :rf.error/machine-invoke-all-bad-child-id
+                                 {:machine-id parent-id
+                                  :invoke-id  invoke-id
+                                  :child-id   child-id
+                                  :children   (set (keys (:children join-state)))
+                                  :kind       kind
+                                  :recovery   :event-dropped})
               {:db db :fx []})
 
           :else
