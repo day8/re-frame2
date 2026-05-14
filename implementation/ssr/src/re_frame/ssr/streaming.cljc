@@ -227,8 +227,13 @@
   "At a `:rf/suspense-boundary`, materialise the fallback inline as a
   `<template>` placeholder + register a continuation for the subtree."
   [el acc]
-  (let [attrs (second el)
-        children (drop 2 el)]
+  (let [attrs    (second el)
+        ;; Per rf2-ezdwh — `children` was a `(drop 2 el)` lazy seq the
+        ;; cond branches below counted twice (`(zero? (count children))`
+        ;; then `(= 1 (count children))`). Realise to a vector once and
+        ;; bind `n` so the cond reads as a constant-time arity dispatch.
+        children (vec (drop 2 el))
+        n        (count children)]
     (when-not (suspense-attrs? attrs)
       (throw (ex-info ":rf.error/suspense-boundary-invalid-attrs"
                       {:reason   ":rf/suspense-boundary requires {:id … :fallback …} attrs map"
@@ -240,10 +245,10 @@
           ;; attrs map. Single-child or multi-child both work — we wrap
           ;; multi-children in a `:<>` fragment so the continuation
           ;; renders one logical hiccup form.
-          subtree (cond
-                    (zero? (count children)) nil
-                    (= 1 (count children))   (first children)
-                    :else                    (into [:<>] children))
+          subtree (case n
+                    0 nil
+                    1 (nth children 0)
+                    (into [:<>] children))
           ;; Render the fallback with the standard emitter so it can
           ;; itself contain view-refs / nested hiccup. NOT a recursive
           ;; walk — fallbacks cannot nest suspense-boundaries (they
@@ -329,11 +334,16 @@
   semantics — the failure boundary stops at the continuation; a shell-
   walk throw is a structural failure that escalates."
   [root-hiccup]
-  (let [acc       (new-continuations-acc)
-        shell     (walk root-hiccup acc)
-        conts     (dedupe-continuations @acc)]
-    {:shell-html shell
-     :continuations conts}))
+  ;; Per rf2-ezdwh — bind the per-render parse-tag-name memo so the
+  ;; walker's DOM-tag emissions and any inline fallback renders share
+  ;; one cache for the whole shell pass. The cache lives only for the
+  ;; duration of `render-shell`.
+  (binding [emit/*tag-name-cache* (volatile! {})]
+    (let [acc       (new-continuations-acc)
+          shell     (walk root-hiccup acc)
+          conts     (dedupe-continuations @acc)]
+      {:shell-html shell
+       :continuations conts})))
 
 (defn render-continuation
   "Drain one continuation. `frame-id` is the per-request frame whose
