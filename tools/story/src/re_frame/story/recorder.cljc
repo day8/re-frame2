@@ -253,12 +253,18 @@
                    :placeholder ":http"
                    :type :edn}]}])
 
+(def ^:private vocabulary-by-id
+  "Lookup index for `assertion-vocabulary`, keyed on the entry `:id`.
+  Built once at module load so the picker UI's per-render lookup is
+  O(1) instead of O(n) over the seven canonical entries."
+  (into {} (map (juxt :id identity)) assertion-vocabulary))
+
 (defn vocabulary-entry
   "Return the `assertion-vocabulary` entry whose `:id` matches
   `assertion-id`, or `nil`. Used by the picker UI to render field
   prompts after the user has picked an assertion."
   [assertion-id]
-  (some #(when (= assertion-id (:id %)) %) assertion-vocabulary))
+  (get vocabulary-by-id assertion-id))
 
 (defn make-assertion
   "Build a well-formed `:rf.assert/*` event vector for `assertion-id`
@@ -268,6 +274,14 @@
   in order, and pulls each field's value out of `payload`. Missing
   fields fall through as `nil` so the user can supply a partial payload
   while iterating. Returns `nil` for an unknown assertion id.
+
+  ## Contract
+
+  The caller supplies a payload map keyed on `:fields` `:key`s — only
+  those keys contribute to the output vector. Extra keys are silently
+  ignored (so the picker UI can re-key its captured form state without
+  filtering). Use `(:fields (vocabulary-entry assertion-id))` to
+  enumerate the expected `:key`s for `assertion-id`.
 
   Examples:
 
@@ -381,29 +395,33 @@
 
 (defn start-recording!
   "Begin recording events dispatched against `variant-id`'s frame.
-  Returns the new state. Stops any in-flight recording first."
+  Returns the new state. Stops any in-flight recording first. Under
+  elision (`config/enabled?` false) returns the idle `initial-state`
+  without touching the atom."
   ([variant-id]
    (start-recording! variant-id #?(:clj (System/currentTimeMillis)
                                    :cljs (.now js/Date))))
   ([variant-id now-ms]
-   (when config/enabled?
-     (swap! state start variant-id now-ms))
-   @state))
+   (if config/enabled?
+     (swap! state start variant-id now-ms)
+     initial-state)))
 
 (defn stop-recording!
   "Stop the in-flight recording, preserving the captured events for
-  the UI's save-as-variant dialog. Returns the new state."
+  the UI's save-as-variant dialog. Returns the new state. Under
+  elision returns `initial-state` without touching the atom."
   []
-  (when config/enabled?
-    (swap! state stop))
-  @state)
+  (if config/enabled?
+    (swap! state stop)
+    initial-state))
 
 (defn clear!
-  "Drop the captured events and return to idle."
+  "Drop the captured events and return to idle. Under elision returns
+  `initial-state` without touching the atom."
   []
-  (when config/enabled?
-    (reset! state initial-state))
-  @state)
+  (if config/enabled?
+    (reset! state initial-state)
+    initial-state))
 
 (defn toggle!
   "Start or stop recording. If currently recording, stop. Otherwise
@@ -477,11 +495,8 @@
   events, internal helpers) before appending."
   [ev]
   (when (recording?)
-    (cond
-      (config/suppress-sensitive? ev)
+    (if (config/suppress-sensitive? ev)
       (config/note-suppressed! (get-in ev [:tags :frame]))
-
-      :else
       (let [{:keys [op-type operation tags]} ev]
         (when (and (= op-type :event)
                    (= operation :event/dispatched)

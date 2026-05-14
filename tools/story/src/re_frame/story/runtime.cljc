@@ -86,6 +86,18 @@
 
 (defonce ^:private capture-counter (atom 0))
 
+(defn- with-trace-listener
+  "Register `listener` against a fresh capture id, run `body-fn` (a
+  0-arg thunk), then remove the listener in a `finally`. Returns
+  `body-fn`'s return value. Factors out the register/try/finally/remove
+  shape shared by every `capture-phase-errors`-style helper."
+  [listener body-fn]
+  (let [cb-id (keyword "re-frame.story.runtime"
+                       (str "capture-" (swap! capture-counter inc)))]
+    (trace/register-trace-cb! cb-id listener)
+    (try (body-fn)
+      (finally (trace/remove-trace-cb! cb-id)))))
+
 (defn- capture-phase-errors
   "Run `body-fn` (a 0-arg thunk) with a registered trace listener that
   collects `:rf.error/handler-exception` events targeting `variant-id`'s
@@ -97,14 +109,9 @@
   whose `:sensitive?` flag is true are dropped from the capture set
   when the global `:trace/show-sensitive?` flag is false (the
   default). A counter bump is recorded so the UI's redaction hint
-  can surface 'N sensitive events suppressed'. Sensitive cascades
-  fail silently to the developer's eye on purpose — opt in via
-  `(story/configure! {:trace/show-sensitive? true})` to surface them
-  in the assertions list while debugging redaction policy."
+  can surface 'N sensitive events suppressed'."
   [variant-id phase body-fn]
   (let [collected (atom [])
-        cb-id     (keyword "re-frame.story.runtime"
-                           (str "capture-" (swap! capture-counter inc)))
         listener  (fn [ev]
                     (cond
                       (config/suppress-sensitive? ev)
@@ -113,16 +120,15 @@
                       (and (= :rf.error/handler-exception (:operation ev))
                            (= variant-id (get-in ev [:tags :frame])))
                       (swap! collected conj ev)))]
-    (trace/register-trace-cb! cb-id listener)
-    (try
-      (let [result (body-fn)]
-        (doseq [ev @collected]
-          (record-error! variant-id phase
-                         (get-in ev [:tags :event])
-                         (get-in ev [:tags :exception])))
-        result)
-      (finally
-        (trace/remove-trace-cb! cb-id)))))
+    (with-trace-listener
+      listener
+      (fn []
+        (let [result (body-fn)]
+          (doseq [ev @collected]
+            (record-error! variant-id phase
+                           (get-in ev [:tags :event])
+                           (get-in ev [:tags :exception])))
+          result)))))
 
 ;; ---- phase-2 events execution --------------------------------------------
 
@@ -202,9 +208,19 @@
   (let [record (error-record phase event err)]
     (try
       (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
-      (catch #?(:clj Throwable :cljs :default) _
-        ;; The frame may already be torn down; swallow.
-        nil))
+      (catch #?(:clj Throwable :cljs :default) dispatch-err
+        ;; The frame may already be torn down (run-variant tearing down
+        ;; under error, or a hot-reload race destroying the frame mid-
+        ;; capture). Emit a debug trace breadcrumb so the lossy path is
+        ;; visible in tooling; never re-throw — the caller is already
+        ;; in error-recording flow.
+        (trace/emit!
+          :debug ::append-assertion-failed
+          {:frame      variant-id
+           :phase      phase
+           :event      event
+           :error-msg  #?(:clj  (.getMessage ^Throwable dispatch-err)
+                          :cljs (str dispatch-err))})))
     record))
 
 ;; ---- helper event registrations ------------------------------------------
@@ -351,15 +367,17 @@
     :substrate       active substrate (`:reagent`, `:uix`, ...)
     :render?         when truthy, Stage 4's UI shell renders into
                      `:rendered-hiccup`. Stage 3 leaves the slot nil.
-    :assertions      Stage 5's hook. Stage 3 accepts the slot but
-                     leaves the runtime semantics to Stage 5.
 
   Returns a Promise (CLJS) / CompletableFuture (JVM). Per IMPL-SPEC
   §13.2 this is Stage 3's locked async-return shape.
 
   Production callers (CLJS `:advanced` with `enabled?` false) get an
   immediately-resolved promise of the empty result map — per IMPL-SPEC
-  §6.3 the runtime doesn't throw when nothing is registered."
+  §6.3 the runtime doesn't throw when nothing is registered.
+
+  Pre-requisite: `re-frame.story/install-canonical-vocabulary!` must
+  have been called at boot — it registers the `::append-assertion`
+  helper event this runtime dispatches into."
   ([variant-id] (run-variant variant-id nil))
   ([variant-id opts]
    (if-not config/enabled?
@@ -371,7 +389,6 @@
            (async/promise
              (fn [resolve]
                (try
-                 (install-helpers!)
                  (let [ctx          (-> (prepare-context variant-id variant-body opts)
                                         run-phase-0!
                                         run-phase-1!
