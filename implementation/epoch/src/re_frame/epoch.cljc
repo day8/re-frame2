@@ -670,10 +670,15 @@
 
 ;; ---- restore --------------------------------------------------------------
 
-(defn- find-epoch
-  [frame-id epoch-id]
+(defn- find-epoch-in
+  "Search a resolved history vector for the record matching `epoch-id`.
+  Caller has already paid the `@histories` deref — `check-restore-
+  preconditions!` reads history once at the top and reuses the vector
+  for both the lookup and the `:history-size` count on the
+  unknown-epoch failure path (rf2-3g7x3 — was two derefs)."
+  [history epoch-id]
   (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
-        (epoch-history frame-id)))
+        history))
 
 (defn- emit-precondition-failure!
   [operation tags]
@@ -733,7 +738,7 @@
 
       :else
       (let [history (epoch-history frame-id)
-            epoch   (find-epoch frame-id epoch-id)]
+            epoch   (find-epoch-in history epoch-id)]
         (cond
           ;; (3) Epoch present in current history?
           (nil? epoch)
