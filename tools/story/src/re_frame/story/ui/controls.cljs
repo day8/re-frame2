@@ -267,12 +267,44 @@
     (keyword? v) {:widget :text}
     :else        {:widget :text}))
 
+(defn normalize-argtype-spec
+  "Translate a single author-supplied argtype-spec to the canonical
+  internal shape. Per spec/007-Stories.md §argtypes the author uses
+  `:control` as the slot name (a 'control' is what the user sees in
+  the UI). Internal dispatch (`scalar-widget`, `arg-widget`) is on
+  `:widget`. This fn bridges the two — `:control` wins, then `:widget`
+  as the legacy alias.
+
+  Pure data → data; JVM-testable. Idempotent: a spec already keyed on
+  `:widget` round-trips unchanged."
+  [spec]
+  (cond
+    (not (map? spec))      spec
+    (contains? spec :control)
+    (-> spec
+        (assoc :widget (:control spec))
+        (dissoc :control))
+    :else spec))
+
+(defn normalize-argtypes
+  "Map `normalize-argtype-spec` over the values of an `:argtypes` map.
+  Returns nil for nil input so callers can `merge` safely."
+  [argtypes]
+  (when (map? argtypes)
+    (reduce-kv (fn [acc k v] (assoc acc k (normalize-argtype-spec v)))
+               {}
+               argtypes)))
+
 (defn resolve-argtypes
   "Build the `{arg-key → widget-spec}` map for a variant. Variant-level
   `:argtypes` wins; otherwise we walk the parent story's `:argtypes`;
   otherwise we infer from the component schema (when registered);
   finally we fall back to inferring from the resolved args' value
   shapes.
+
+  Author-supplied `:argtypes` carry the canonical spec-level `:control`
+  slot per spec/007-Stories.md §argtypes; `normalize-argtypes` translates
+  them to the internal `:widget` shape before merge.
 
   Per rf2-agshe the inference recurses into nested `:map` / `:vector` /
   `:set` / `:tuple` shapes, producing widget descriptors the renderer
@@ -281,7 +313,8 @@
   (let [vb      (registrar/handler-meta :variant variant-id)
         story   (args/parent-story-id variant-id)
         sb      (when story (registrar/handler-meta :story story))
-        types   (merge (:argtypes sb) (:argtypes vb))
+        types   (merge (normalize-argtypes (:argtypes sb))
+                       (normalize-argtypes (:argtypes vb)))
         ;; Prefer an explicit `:schema` slot on the variant/story body
         ;; (forward-compatible — Spec 010 will land an `:rf/schema` slot
         ;; on variants for the auto-derivation path). Fall back to the

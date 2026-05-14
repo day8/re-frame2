@@ -138,6 +138,33 @@
       (is (= :number  (:widget (get t :n))))
       (is (= :boolean (:widget (get t :flag)))))))
 
+(deftest argtype-control-to-widget-translation
+  (testing "controls/normalize-argtype-spec translates :control → :widget"
+    (is (= {:widget :text}     (controls/normalize-argtype-spec {:control :text})))
+    (is (= {:widget :textarea} (controls/normalize-argtype-spec {:control :textarea})))
+    (is (= {:widget :select :options [:a :b]}
+           (controls/normalize-argtype-spec {:control :select :options [:a :b]}))))
+  (testing "normalize-argtype-spec is idempotent on :widget-keyed specs"
+    (is (= {:widget :date} (controls/normalize-argtype-spec {:widget :date}))))
+  (testing "non-map specs round-trip"
+    (is (= "doc" (controls/normalize-argtype-spec "doc")))
+    (is (nil?    (controls/normalize-argtype-spec nil))))
+  (testing "resolve-argtypes honours the spec-canonical :control key"
+    ;; Per spec/007-Stories.md §argtypes — author writes :control;
+    ;; renderer dispatches on :widget. Without the translation this
+    ;; would fall through to the 'unsupported widget' span.
+    (story/reg-variant :story.argtypes/ctrl
+      {:args     {:placeholder "ok" :flavor :primary}
+       :argtypes {:placeholder {:control :textarea}
+                  :flavor      {:control :select :options [:primary :secondary]}}
+       :events   []})
+    (let [t (controls/resolve-argtypes :story.argtypes/ctrl)]
+      (is (= :textarea (:widget (get t :placeholder))))
+      (is (= :select   (:widget (get t :flavor))))
+      (is (= [:primary :secondary] (:options (get t :flavor))))
+      (is (not (contains? (get t :placeholder) :control))
+          ":control key is stripped after translation"))))
+
 ;; ---- workspace layout resolver ------------------------------------------
 
 (deftest grid-layout-resolves
