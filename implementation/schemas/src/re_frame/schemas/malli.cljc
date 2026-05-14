@@ -47,6 +47,8 @@
   (:require [malli.core]
             [re-frame.late-bind :as late-bind]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- publish Malli into the late-bind hook table -------------------------
 ;;
 ;; Per rf2-t0hq the two hooks `:schemas/malli-validate` and

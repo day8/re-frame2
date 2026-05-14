@@ -32,6 +32,8 @@
   #?(:clj (:import [java.security MessageDigest]
                    [java.nio.charset StandardCharsets])))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- utf8-bytes
   "Encode a string as UTF-8 bytes."
   [s]
