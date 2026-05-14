@@ -301,7 +301,7 @@ Highlights this doc relies on as principles:
   [`004-Wire-Pipeline.md` §"Tight token budget per response"](./004-Wire-Pipeline.md#tight-token-budget-per-response).
 - **Streaming**: the `subscribe` stream returns one event per JSON-RPC
   `notifications/progress`, with the cap applied per notification —
-  per [`004-Wire-Pipeline.md` §"Streaming over batch (cross-cutting)"](./004-Wire-Pipeline.md#streaming-over-batch-cross-cutting).
+  per [`004-Wire-Pipeline.md` §"Streaming over batch (cross-cut)"](./004-Wire-Pipeline.md#streaming-over-batch-cross-cut).
 
 The cross-server contract — default cap, override slot name
 (`max-tokens`), overflow marker key (`:rf.mcp/overflow`),
