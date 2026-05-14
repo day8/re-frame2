@@ -375,6 +375,75 @@
           (is (= :secrets (-> v :tags :sub-id)))
           (is (= :replaced-with-default (:recovery v))))))))
 
+(deftest sub-return-validation-redacts-query-v-when-sensitive
+  (testing "Per Spec 010 §`:sensitive?` + rf2-adtp2 / rf2-p2adl Q2 —
+            the caller-supplied :query-v on a sensitive sub-return
+            failure is itself redacted. :query-v is a value-bearing
+            slot on this surface (the lookup key typically carries
+            the same secret material the sub's return schema is
+            gating — user ids, auth tokens, document ids); without
+            redaction the failure trace re-leaks it alongside the
+            return value the existing clauses scrub."
+    (rf/reg-event-db :tokens/init  (fn [_ _]   {:tokens {"user-42-token" "ok"}}))
+    (rf/reg-event-db :tokens/break (fn [db _] (assoc-in db
+                                                       [:tokens "user-42-token"]
+                                                       99))) ; int — fails :string
+    (rf/reg-sub :token-for
+      {:sensitive? true
+       :spec       :string}
+      (fn [db [_ token]] (get-in db [:tokens token])))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::qv (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:tokens/init])
+      ;; Well-typed return on the first call — no validation failure.
+      (rf/subscribe-value [:token-for "user-42-token"])
+      (rf/dispatch-sync [:tokens/break])
+      ;; Malformed return on the second call — fires the sub-return failure.
+      (rf/subscribe-value [:token-for "user-42-token"])
+      (rf/remove-trace-cb! ::qv)
+      (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces)
+            v (first violations)]
+        (is (some? v) "a sub-return failure fired")
+        (is (true? (:sensitive? v))
+            "top-level :sensitive? stamp present")
+        (is (= :rf/redacted (-> v :tags :query-v))
+            ":query-v — the caller-supplied lookup key — is redacted")
+        (is (= :rf/redacted (-> v :tags :value)))
+        (is (= :rf/redacted (-> v :tags :received)))
+        (is (= :rf/redacted (-> v :tags :explain)))
+        ;; The structural slots still survive — consumers can still
+        ;; route on the sub-id without seeing the lookup key.
+        (is (= :sub-return (-> v :tags :where)))
+        (is (= :token-for  (-> v :tags :sub-id)))
+        (is (= :token-for  (-> v :tags :failing-id)))))))
+
+(deftest sub-return-validation-non-sensitive-rides-query-v-verbatim
+  (testing "Backward-compat — a sub without :sensitive? emits :query-v
+            verbatim on the validation-failure trace (legacy behaviour
+            preserved for non-sensitive subs). Redaction is opt-in."
+    (rf/reg-event-db :widgets/init  (fn [_ _]   {:widgets {:w1 "ok"}}))
+    (rf/reg-event-db :widgets/break (fn [db _] (assoc-in db [:widgets :w1] 99)))
+    (rf/reg-sub :widget
+      {:spec :string}                                  ; no :sensitive?
+      (fn [db [_ wid]] (get-in db [:widgets wid])))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::plain (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:widgets/init])
+      (rf/subscribe-value [:widget :w1])
+      (rf/dispatch-sync [:widgets/break])
+      (rf/subscribe-value [:widget :w1])
+      (rf/remove-trace-cb! ::plain)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (not (contains? v :sensitive?))
+            "no top-level :sensitive? stamp on non-sensitive sub")
+        (is (= [:widget :w1] (-> v :tags :query-v))
+            ":query-v rides verbatim — no redaction on non-sensitive subs")
+        (is (= 99 (-> v :tags :value))
+            ":value also rides verbatim — legacy backward-compat")))))
+
 ;; ---- composition with :large? --------------------------------------------
 
 (deftest sensitive-overrides-large-on-same-slot
