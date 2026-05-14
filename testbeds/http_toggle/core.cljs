@@ -28,6 +28,7 @@
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
+            [re-frame.trace :as trace]
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at
             ;; app boot triggers its load-time fx registrations
             ;; (`:rf.http/managed`, the canned-* stubs); without it,
@@ -72,6 +73,46 @@
 
 (def request-id ::in-flight)
 
+;; ----------------------------------------------------------------------------
+;; Canned-failure-with-trace — fix for rf2-3g16l
+;; ----------------------------------------------------------------------------
+;;
+;; The framework-shipped `:rf.http/managed-canned-failure` synthesises a
+;; failure reply via the same late-bind dispatch path the live transport
+;; uses, but it does NOT call `trace/emit-error!`. The live failure path
+;; (`re-frame.http-transport/finalise-failure!`) emits a single
+;; `:rf.http/<kind>` error-trace event before dispatching the reply; the
+;; canned stub skips it. The testbed README documents an ordered
+;; `:rf.http/<kind>` stream per click — so this per-testbed wrapper fx
+;; replays the live path's `trace/emit-error!` before delegating to the
+;; canned stub. Consumers (Causa, Story, cross-cutting specs) can now
+;; assert on the `:operation :rf.http/<kind>` trace directly rather than
+;; falling back to the `:rf.fx/handled` proxy.
+
+(rf/reg-fx :http-toggle/canned-failure-with-trace
+  {:doc       "Testbed-only wrapper around :rf.http/managed-canned-failure.
+               Emits the category-attributed :rf.http/<kind> error trace
+               (matching the live failure path's finalise-failure! emit)
+               and then delegates to the framework canned stub for the
+               actual reply synthesis. See rf2-3g16l."
+   :platforms #{:client}}
+  (fn fx-canned-failure-with-trace [frame-ctx args-map]
+    (let [kind (or (:kind args-map) :rf.http/transport)
+          tags (or (:tags args-map) {})
+          url  (get-in args-map [:request :url])]
+      ;; Match finalise-failure!'s emit shape: operation is the failure
+      ;; :kind, tags carry the category-specific slots plus :request-id,
+      ;; :url, and :recovery (canned failures are :no-recovery — they
+      ;; classify identically to a terminal live failure).
+      (trace/emit-error! kind
+                         (assoc tags
+                                :kind       kind
+                                :request-id (:request-id args-map)
+                                :url        url
+                                :recovery   :no-recovery))
+      ((registrar/handler :fx :rf.http/managed-canned-failure)
+       frame-ctx args-map))))
+
 (rf/reg-event-fx ::go
   (fn [{:keys [db]} [_ msg]]
     (cond
@@ -103,7 +144,7 @@
                 ;; canned-failure stub. Same reply envelope as a live
                 ;; 4xx; the consumer's trace watcher cannot distinguish.
                 :rf.http/http-4xx
-                [:rf.http/managed-canned-failure
+                [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/4xx"}
                   :request-id request-id
                   :kind       :rf.http/http-4xx
@@ -112,7 +153,7 @@
                                :headers {}}}]
 
                 :rf.http/http-5xx
-                [:rf.http/managed-canned-failure
+                [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/5xx"}
                   :request-id request-id
                   :kind       :rf.http/http-5xx
@@ -121,7 +162,7 @@
                                :headers {}}}]
 
                 :rf.http/timeout
-                [:rf.http/managed-canned-failure
+                [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/timeout"}
                   :request-id request-id
                   :kind       :rf.http/timeout
@@ -137,7 +178,7 @@
                  {:request-id request-id}]
 
                 :rf.http/transport
-                [:rf.http/managed-canned-failure
+                [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/transport"}
                   :request-id request-id
                   :kind       :rf.http/transport
@@ -145,7 +186,7 @@
                                :cause   "ECONNREFUSED"}}]
 
                 :rf.http/decode-failure
-                [:rf.http/managed-canned-failure
+                [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/decode"}
                   :request-id request-id
                   :kind       :rf.http/decode-failure
@@ -154,7 +195,7 @@
                                :schema-validation-failure? false}}]
 
                 :rf.http/cors
-                [:rf.http/managed-canned-failure
+                [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "https://other.example/api/cors"}
                   :request-id request-id
                   :kind       :rf.http/cors
@@ -180,12 +221,14 @@
                §Testing for the canonical stub seam."
    :platforms #{:client}}
   (fn fx-deferred-abortable [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+    (let [stub (registrar/handler :fx :http-toggle/canned-failure-with-trace)]
       ;; Demo-only artificial latency. The :request-id in args-map
       ;; would normally bind the abort handle in the in-flight
       ;; registry; for the testbed stub, the Cancel button fires the
       ;; abort via the live :rf.http/managed-abort fx which short-
-      ;; circuits the timer.
+      ;; circuits the timer. Delegating to the trace-emitting wrapper
+      ;; (rf2-3g16l) keeps the abort path's trace stream uniform with
+      ;; every other failure category.
       (js/setTimeout
         (fn []
           (stub frame-ctx (assoc args-map
