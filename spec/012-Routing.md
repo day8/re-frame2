@@ -720,7 +720,7 @@ Routes that declare **no** `:query` schema at all fall back to the legacy keywor
 ;; URL: /items?sort=hostile    → :query {:sort "hostile"} ;; outside enum → stays as string
 ```
 
-Cross-references: [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide stance, [Security.md §Security-relevant reserved config slots](Security.md#security-relevant-reserved-config-slots) for the slot catalogue, and [014 §Keyword-interning cap](014-HTTPRequests.md#keyword-interning-cap-rf2-wu1n5) for the symmetric HTTP-side cap.
+Cross-references: [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide stance (slot catalogue cross-ref TBD post-Security.md anchor stabilisation), and [014 §Keyword-interning cap](014-HTTPRequests.md#keyword-interning-cap-rf2-wu1n5) for the symmetric HTTP-side cap.
 
 ## Fragments
 
