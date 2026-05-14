@@ -157,7 +157,7 @@ reference:
 | `(rf/compute-sub query-v db)` | Spec 008 | The sub-graph panel's value display. |
 | `(rf/registrations kind)` / `(rf/handler-meta kind id)` | Spec 001 | Registry-browser metadata. |
 | `(rf/frame-ids)` / `(rf/frame-meta id)` | Spec 002 | The frame picker. |
-| `(rf/machines frame-id)` | Spec 005 | The machine inspector dropdown. |
+| `(rf/machines)` | Spec 005 | The machine inspector dropdown — 0-ary; returns the seq of machine-ids registered in the active frame. |
 | `(rf/app-schemas frame-id)` | Spec 010 | The schema-violation timeline rows. |
 | `(rf/sub-cache frame-id)` (CLJS only) | Tool-Pair | The subscription graph. |
 | `:dispatch-id` / `:parent-dispatch-id` (in `:tags`) | Spec 009 | The causality graph edges. |
