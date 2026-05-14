@@ -102,6 +102,7 @@
             [re-frame.conformance :as conformance]
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
+            [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -369,30 +370,30 @@
 
 (defn- flow-graph-deps
   "Build the dependency graph from the per-frame flow registry. Flow B
-  depends on flow A iff A's `:path` is a prefix of (or equal to) any
-  of B's `:inputs` paths, OR any of B's `:inputs` is a prefix of A's
-  `:path` (the symmetric overlap rule per Spec 013 §Topological sort).
+  depends on flow A iff A's `:path` and any of B's `:inputs` share a
+  path prefix in either direction (the symmetric overlap rule per
+  Spec 013 §Topological sort).
+
+  Delegates to `re-frame.flows.topo/depends-on?` — single source of
+  truth with the production runtime. Previously this fn inlined a
+  local `prefix?` / `overlap?` pair that would silently disagree with
+  the runtime if the dependency rule ever evolved (e.g. self-edge
+  short-circuit, path-equality fast-path).
 
   Returns `{flow-id #{dep-id ...}}` for the `:rf/default` frame's
   flows. Fixtures that register on a non-default frame would extend
   this; today's flow-*.edn fixtures all target `:rf/default`."
   []
-  (let [registry (get @flows/flows :rf/default {})
-        prefix?  (fn [a b]
-                   (let [n (count a)]
-                     (and (<= n (count b))
-                          (= a (subvec b 0 n)))))
-        overlap? (fn [path inputs]
-                   (some (fn [in] (or (prefix? path in)
-                                      (prefix? in path)))
-                         inputs))]
+  (let [registry (get @flows/flows :rf/default {})]
     (into {}
           (for [[id flow] registry]
             [id (into #{}
                       (for [[other-id other-flow] registry
                             :when (not= id other-id)
-                            :when (overlap? (:path other-flow)
-                                            (:inputs flow))]
+                            ;; `topo/depends-on?` takes `(b-flow a-flow)`
+                            ;; — "b depends on a". We want "this-flow
+                            ;; depends on other-flow", so b=flow, a=other.
+                            :when (topo/depends-on? flow other-flow)]
                         other-id))]))))
 
 (defn- flow-registry-ids
