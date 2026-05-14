@@ -619,3 +619,86 @@
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
     (is (contains? (get @flows/flows :rf/default) :one)
         "re-registration after reset works without raising")))
+
+;; ---------------------------------------------------------------------------
+;; 7. clear-flow :frame opt routing — multi-frame registrar-slot retention
+;;
+;; Per audit rf2-0b2eh §TC-2 / rf2-otbub. The cross-artefact
+;; `smoke_test.clj` exercises frame-scoped flow REGISTRATION end-to-end,
+;; but the flows artefact's own test alias did not pin `clear-flow`'s
+;; `:frame` opt routing — three branches in registry.cljc went unverified
+;; here:
+;;
+;; 1. Frame opt routing: `(clear-flow :foo {:frame :left})` removes the
+;;    flow from `:left`'s per-frame map only; sibling frame `:right`'s
+;;    identically-named flow stays intact.
+;; 2. "Last frame holding id" registrar-slot retention (registry.cljc
+;;    line ~254 `not-any?`): when the same flow id is registered against
+;;    two frames, clearing it from one frame must NOT unregister the
+;;    `:flow` registrar slot — the other frame still needs it for
+;;    hot-reload tracking. Clearing from the second frame then unregisters.
+;; 3. app-db `dissoc-in` is frame-local: clearing on `:left` only
+;;    dissoc-in's `:left`'s app-db; `:right`'s app-db is untouched.
+;;
+;; Spec 013 §Frame-scoping calls all three properties out normatively.
+;; This deftest pins them inside the flows slice's own gate so the
+;; artefact doesn't rely on smoke_test.clj catching regressions.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-routes-via-frame-opt
+  (testing "the same flow id registers independently against two frames"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    ;; Register :compute against both frames with DIFFERENT :output fns
+    ;; so sibling-frame-untouched is observable in the materialised output.
+    (rf/reg-flow {:id     :compute
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    (rf/reg-flow {:id     :compute
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 (or n 0)))
+                  :path   [:result]}
+                 {:frame :right})
+    (rf/dispatch-sync [:seed 5] {:frame :left})
+    (rf/dispatch-sync [:seed 5] {:frame :right})
+    (is (= 10  (:result (rf/get-frame-db :left)))
+        "left frame's :compute used the 2x formula (5 * 2)")
+    (is (= 500 (:result (rf/get-frame-db :right)))
+        "right frame's :compute used the 100x formula (5 * 100)")
+    (is (contains? (get @flows/flows :left)  :compute)
+        ":left's per-frame registry slot carries :compute")
+    (is (contains? (get @flows/flows :right) :compute)
+        ":right's per-frame registry slot carries :compute"))
+
+  (testing "clear-flow on one frame leaves the sibling frame's registry slot intact"
+    ;; Branch 1: per-frame registry routing.
+    (rf/clear-flow :compute {:frame :left})
+    (is (not (contains? (get @flows/flows :left)  :compute))
+        ":left's slot was removed")
+    (is (contains? (get @flows/flows :right) :compute)
+        ":right's slot is untouched — flow STILL registered against :right"))
+
+  (testing ":left's app-db output path is dissoc'd; :right's app-db is unchanged"
+    ;; Branch 3: app-db dissoc-in is frame-local.
+    (is (not (contains? (rf/get-frame-db :left) :result))
+        ":left's :result was dissoc'd by the frame-scoped clear")
+    (is (= 500 (:result (rf/get-frame-db :right)))
+        ":right's :result is preserved (the previous compute's output)"))
+
+  (testing "the :flow registrar slot survives clear-from-one-frame (multi-frame retention)"
+    ;; Branch 2: the "last-frame-holding-id" check — the registrar slot is
+    ;; flow-id-keyed and shared across frames. Clearing on :left while
+    ;; :right still registers the same id MUST keep the slot populated so
+    ;; hot-reload tracking continues to work for :right's copy.
+    (is (some? (registrar/lookup :flow :compute))
+        "the :flow registrar slot is still populated — :right still holds the id"))
+
+  (testing "clearing from the second (last) frame finally unregisters the registrar slot"
+    (rf/clear-flow :compute {:frame :right})
+    (is (not (contains? (get @flows/flows :right) :compute))
+        ":right's slot is now gone")
+    (is (nil? (registrar/lookup :flow :compute))
+        "registrar slot was unregistered once the LAST frame released the id")))
