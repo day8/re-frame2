@@ -115,17 +115,20 @@
 ;; the same hash 99.9% of the time.
 ;;
 ;; The cache below keys on `[registrar-mutation-tick, active-modes,
-;; substrate]` — the three inputs that can perturb a snapshot-identity
-;; hash across two polls (registrar writes invalidate every variant
-;; entry; shell-state mode/substrate changes too). When the key matches
-;; the previous tick's key, we return the cached map — zero hashing
-;; work. When it drifts, we recompute the lot once and re-seed the
-;; cache.
+;; substrate, cell-overrides]` — the four inputs that can perturb a
+;; snapshot-identity hash across two polls. Registrar writes invalidate
+;; every variant entry; shell-state mode/substrate changes do too; and
+;; per-cell control edits land in `:cell-overrides` and ARE threaded
+;; through `args/resolve-args` into `snapshot-tuple`'s `:effective-args`
+;; slot (identity.cljc:213 + args.cljc:125-134) — they DO perturb the
+;; hash. When the key matches the previous tick's key, we return the
+;; cached map — zero hashing work. When it drifts, we recompute the lot
+;; once and re-seed the cache.
 ;;
-;; The `:cell-overrides` slot of shell-state is intentionally NOT in
-;; the cache key: `snapshot-identity`'s public surface drops it (only
-;; `:active-modes` and `:substrate` are threaded into the tuple), so
-;; per-cell control edits do not perturb the watch-mode signal.
+;; Pre-rf2-mclvi the cache key dropped `:cell-overrides` citing
+;; `snapshot-identity` as the source of truth, but `snapshot-tuple`
+;; DOES read them via `resolve-args` — the cache was stale after every
+;; control edit, watch-mode missed re-runs.
 
 (defonce ^:private testable-hash-cache
   (atom {:key nil :hashes nil}))
@@ -134,31 +137,34 @@
   "Walk the registered testable variants and return a `{variant-id →
   hex-hash}` map of snapshot-identity content hashes. The hash captures
   the variant's `:play` / `:events` / `:loaders` / `:decorators` /
-  `:tags` slots plus the parent story's slice and the view's registered
-  schema-digest (per `re-frame.story.identity` §What's in the hash —
-  spec/007 §Variant snapshot identity), so a change to any of those —
-  including a decorator-only edit or a view schema change — produces a
-  fresh hash.
+  `:tags` slots plus the parent story's slice, the view's registered
+  schema-digest, AND the variant's resolved effective args (which fold
+  in the user's live `:cell-overrides`). See `re-frame.story.identity`
+  §What's in the hash + spec/007 §Variant snapshot identity.
 
   HOT PATH (rf2-zrswb): registrar-driven cache short-circuits when
-  neither the side-table nor the relevant shell-state slots have
-  drifted since the last tick."
+  neither the side-table nor the relevant shell-state slots
+  (`:active-modes` / `:substrate` / `:cell-overrides`) have drifted
+  since the last tick."
   []
-  (let [shell  (state/get-state)
-        modes  (:active-modes shell)
-        subs   (:substrate shell)
-        tick   (registrar/current-mutation-tick)
-        key    [tick modes subs]
-        cached @testable-hash-cache]
+  (let [shell      (state/get-state)
+        modes      (:active-modes shell)
+        subs       (:substrate shell)
+        overrides  (:cell-overrides shell)
+        tick       (registrar/current-mutation-tick)
+        key        [tick modes subs overrides]
+        cached     @testable-hash-cache]
     (if (= key (:key cached))
       (:hashes cached)
       (let [testable (state/testable-variant-ids
                        (:variants (state/registry-snapshot)))
-            opts     {:active-modes modes :substrate subs}
             hashes   (into {}
                            (map (fn [vid]
-                                  [vid (:content-hash
-                                         (identity/snapshot-identity vid opts))]))
+                                  (let [opts {:active-modes   modes
+                                              :substrate      subs
+                                              :cell-overrides (get overrides vid)}]
+                                    [vid (:content-hash
+                                           (identity/snapshot-identity vid opts))])))
                            testable)]
         (reset! testable-hash-cache {:key key :hashes hashes})
         hashes))))

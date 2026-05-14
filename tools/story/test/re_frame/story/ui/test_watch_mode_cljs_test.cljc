@@ -18,7 +18,8 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
             [re-frame.story.ui.state :as state]
-            #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]])))
+            #?@(:cljs [[re-frame.story.ui.shell   :as shell]
+                       [re-frame.story.ui.sidebar :as sidebar]])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -209,3 +210,60 @@
        (sidebar/watch-rerun! [])
        (let [s (state/get-state)]
          (is (nil? (get-in s [:tests :runs :story.x/a])))))))
+
+;; ---- rf2-mclvi regression: cell-override edit triggers a re-run -------
+;;
+;; Before rf2-mclvi the watch-mode hash cache key explicitly omitted
+;; `:cell-overrides` while `snapshot-tuple` (via `resolve-args`) DID
+;; thread overrides into the hash input. The cache served stale answers
+;; on every control edit; the detector saw no drift and missed the
+;; re-run. The cache now includes `:cell-overrides` in the key + threads
+;; per-variant overrides into the snapshot-identity opts.
+
+#?(:cljs
+   (deftest cell-override-edit-perturbs-watch-mode-hash
+     (testing "editing :cell-overrides on a :test-tagged variant
+               produces a fresh content-hash via detect-watch-drift!
+               and stamps the variant :running (rf2-mclvi)"
+       (story/reg-variant :story.x/a
+         {:component :app.ui/echo
+          :args      {:n 0}
+          :tags      #{:test}
+          :events    []
+          :play      [[:rf.assert/path-equals [:c] 0]]})
+       ;; Flip watch-mode on and seed the initial hashes with no overrides.
+       (state/swap-state! state/set-test-watch-mode true)
+       (state/swap-state!
+         (fn [s]
+           (state/record-test-content-hashes
+             s
+             ;; Seed from the current registry — these are the baseline
+             ;; hashes the detector diffs against.
+             {})))
+       ;; First detection pass — should seed hashes + (because prev is
+       ;; empty) treat every testable variant as drifted, re-running it.
+       (shell/detect-watch-drift!)
+       (let [seeded-hashes (get-in (state/get-state) [:tests :content-hashes])]
+         (is (contains? seeded-hashes :story.x/a)
+             "after the first pass the slot is seeded from the registry"))
+       ;; Re-seed against the post-baseline so the next pass starts from
+       ;; the registry's current truth; cell-edit happens after.
+       (let [post-seed (get-in (state/get-state) [:tests :content-hashes])
+             baseline  (get post-seed :story.x/a)]
+         ;; Drop the per-variant :running stamp so we can detect a fresh one.
+         (state/swap-state! state/clear-test-run :story.x/a)
+         ;; Now simulate a control-panel edit — write into :cell-overrides.
+         (state/swap-state! state/set-cell-override :story.x/a [:n] 42)
+         (shell/detect-watch-drift!)
+         (let [after-hashes (get-in (state/get-state) [:tests :content-hashes])
+               after-hash   (get after-hashes :story.x/a)
+               run-state    (get-in (state/get-state) [:tests :runs :story.x/a])]
+           (testing "the recomputed hash differs from the baseline (cell-overrides
+                     ARE threaded through snapshot-tuple)"
+             (is (not= baseline after-hash)
+                 (str "expected fresh hash after cell-override edit; got "
+                      (pr-str baseline) " → " (pr-str after-hash))))
+           (testing "the detector dispatched watch-rerun! → :running stamp lands"
+             (is (= :running (:status run-state))
+                 (str "expected the variant marked :running after the cell-
+                       override edit; run-state was " (pr-str run-state)))))))))
