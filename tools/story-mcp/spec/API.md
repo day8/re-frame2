@@ -24,12 +24,18 @@ agent-onboarding text.
 **Input.**
 
 ```clojure
-{:variant-id      keyword (required)
- :substrate       keyword (optional)
- :active-modes    [keyword] (optional)
- :cell-overrides  {keyword any} (optional)
- :base-url        string (optional)}
+{:variant-id         keyword (required)
+ :substrate          keyword (optional)
+ :active-modes       [keyword] (optional)
+ :cell-overrides     {keyword any} (optional)
+ :base-url           string (optional)
+ :include-sensitive? boolean (optional, gated — see below)}
 ```
+
+`:include-sensitive?` is honoured ONLY when the server was started
+with `--allow-sensitive-reads` (rf2-g9fje); when that boot gate is
+closed (the default) the slot is omitted from `tools/list` and any
+caller-supplied value is silently ignored at egress.
 
 **Output.**
 
@@ -133,12 +139,17 @@ projection — byte stability matters for round-tripping).
 **Input.**
 
 ```clojure
-{:variant-id     keyword (required)
- :substrate      keyword (optional)
- :active-modes   [keyword] (optional)
- :cell-overrides {keyword any} (optional)
- :timeout-ms     number (optional)}
+{:variant-id         keyword (required)
+ :substrate          keyword (optional)
+ :active-modes       [keyword] (optional)
+ :cell-overrides     {keyword any} (optional)
+ :timeout-ms         number  (optional, capped at 30000)
+ :include-sensitive? boolean (optional, gated — see `preview-variant`)}
 ```
+
+`:timeout-ms` is clamped to 30 s (matches `:rf.http/timeout-ms`
+baseline per rf2-it1cd; rf2-g9fje). `:include-sensitive?` follows
+the same `--allow-sensitive-reads` gate as `preview-variant`.
 
 **Output.**
 
@@ -186,9 +197,18 @@ hosts return `{:violations [] :hint "axe-core requires the in-browser panel."}`.
 
 ### `read-failures`
 
-**Input.** `{:variant-id keyword (required)}`.
+**Input.**
+
+```clojure
+{:variant-id         keyword (required)
+ :include-sensitive? boolean (optional, gated — see `preview-variant`)}
+```
 
 **Output.** `{:assertions [map] :passing? boolean}`. No re-run.
+
+`:include-sensitive?` follows the same `--allow-sensitive-reads`
+boot gate as `preview-variant` / `run-variant`. Assertion records
+stamped `:sensitive? true` are dropped at egress by default.
 
 ## Write tools (gated)
 

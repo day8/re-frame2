@@ -17,6 +17,16 @@
   - `set-allow-writes!` — write helper. Called from `-main` (`--allow-writes`
     CLI flag), from the JVM property `-Drf.story-mcp.allow-writes=true`,
     or programmatically (tests).
+  - `allow-sensitive-reads?` — atom holding the sensitive-read gate. Read
+    by the wire-egress scrubbers (`helpers/include-sensitive?`); a `false`
+    value forces redaction regardless of any per-call `:include-sensitive?`
+    arg. Symmetric with `--allow-eval` in pair2-mcp (rf2-zyoj2): arbitrary
+    code execution + raw sensitive-state reads are operator-only opt-ins,
+    not caller-controlled toggles.
+  - `set-allow-sensitive-reads!` — write helper. Same three input paths
+    as `allow-writes?`: `--allow-sensitive-reads` CLI flag, JVM property
+    `-Drf.story-mcp.allow-sensitive-reads=true`, or env var
+    `RF_STORY_MCP_ALLOW_SENSITIVE_READS=true`.
   - `protocol-version` — the MCP protocol version this server advertises.
 
   ## Why a separate ns
@@ -109,6 +119,41 @@
   []
   (boolean @allow-writes?))
 
+;; ---- sensitive-read gate (rf2-g9fje) --------------------------------------
+;;
+;; Per the rf2-uaymx (b) decision and rf2-zyoj2's `--allow-eval` precedent,
+;; raw sensitive-state reads are an operator-only opt-in. The wire-egress
+;; helpers (`helpers/include-sensitive?`) defer to this atom — when it is
+;; `false` the per-call `:include-sensitive?` arg is silently treated as
+;; `false`, so a hostile or careless caller cannot exfiltrate declared-
+;; sensitive `:app-db` slots / assertion records by flipping a JSON
+;; boolean. Closed-by-default; opened by `--allow-sensitive-reads` CLI
+;; flag, JVM sysprop `rf.story-mcp.allow-sensitive-reads=true`, or env
+;; var `RF_STORY_MCP_ALLOW_SENSITIVE_READS=true`.
+
+(defonce
+  ^{:doc "Atom holding the sensitive-read gate. Defaults to `false`. Per
+         the rf2-uaymx (b) decision the per-call `:include-sensitive?`
+         arg is honoured ONLY when this atom is also `true`. Symmetric
+         with `allow-eval?` in pair2-mcp."}
+  allow-sensitive-reads?
+  (atom false))
+
+(defn set-allow-sensitive-reads!
+  "Set the sensitive-read gate. Idempotent. Returns the new value.
+  Accepts the same string-form booleans as `set-allow-writes!`."
+  [v]
+  (let [coerced (args/parse-boolean v false)]
+    (reset! allow-sensitive-reads? coerced)
+    coerced))
+
+(defn sensitive-reads-allowed?
+  "True iff raw sensitive-read egress is currently enabled. The wire-
+  egress helpers AND each per-call `:include-sensitive?` arg must both
+  be `true` for raw values to cross the wire."
+  []
+  (boolean @allow-sensitive-reads?))
+
 ;; ---- boot config from env / sysprop ---------------------------------------
 
 (defn read-boot-config
@@ -118,25 +163,34 @@
 
   - JVM sysprop `rf.story-mcp.allow-writes` — `\"true\"` / `\"1\"` enables.
   - Env var `RF_STORY_MCP_ALLOW_WRITES` — same.
+  - JVM sysprop `rf.story-mcp.allow-sensitive-reads` — same shape.
+  - Env var `RF_STORY_MCP_ALLOW_SENSITIVE_READS` — same shape.
 
-  Both sources are parsed via the cross-MCP `args/parse-boolean`
+  All sources are parsed via the cross-MCP `args/parse-boolean`
   primitive (rf2-vw4sq) so the truthy-string vocabulary
   (`true`/`1`/`yes`/`y`/`on`, case-insensitive) is the same one an
   agent learns once.
 
-  Returns a map `{:allow-writes? boolean}`. The caller (`-main`) merges
-  in CLI overrides before calling `apply-config!`."
+  Returns a map `{:allow-writes? boolean :allow-sensitive-reads? boolean}`.
+  The caller (`-main`) merges in CLI overrides before calling
+  `apply-config!`."
   []
-  (let [sysprop (System/getProperty "rf.story-mcp.allow-writes")
-        envv    (System/getenv "RF_STORY_MCP_ALLOW_WRITES")]
-    {:allow-writes? (or (args/parse-boolean sysprop false)
-                        (args/parse-boolean envv false))}))
+  (let [wsysprop (System/getProperty "rf.story-mcp.allow-writes")
+        wenv     (System/getenv "RF_STORY_MCP_ALLOW_WRITES")
+        ssysprop (System/getProperty "rf.story-mcp.allow-sensitive-reads")
+        senv     (System/getenv "RF_STORY_MCP_ALLOW_SENSITIVE_READS")]
+    {:allow-writes?          (or (args/parse-boolean wsysprop false)
+                                 (args/parse-boolean wenv false))
+     :allow-sensitive-reads? (or (args/parse-boolean ssysprop false)
+                                 (args/parse-boolean senv false))}))
 
 (defn apply-config!
   "Apply a boot-config map to the runtime atoms. Returns the applied map."
-  [{:keys [allow-writes?] :as cfg}]
+  [{:keys [allow-writes? allow-sensitive-reads?] :as cfg}]
   (when (some? allow-writes?)
     (set-allow-writes! allow-writes?))
+  (when (some? allow-sensitive-reads?)
+    (set-allow-sensitive-reads! allow-sensitive-reads?))
   cfg)
 
 ;; ---- stage marker --------------------------------------------------------

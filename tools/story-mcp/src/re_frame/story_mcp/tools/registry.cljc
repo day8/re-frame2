@@ -16,7 +16,8 @@
   The schema fragments + injection helpers live in
   `re-frame.story-mcp.tools.schemas`; the wire-boundary token-cap
   dispatcher (`invoke-tool`) lives in `re-frame.story-mcp.tools.cap`."
-  (:require [re-frame.story-mcp.tools.dev :as dev]
+  (:require [re-frame.story-mcp.config :as config]
+            [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.docs :as docs]
             [re-frame.story-mcp.tools.recorder :as recorder]
             [re-frame.story-mcp.tools.testing :as testing]
@@ -45,6 +46,19 @@
                 tool-registry)
         "tool-registry: every entry must carry positive-integer :typicalTokens")
 
+(defn- strip-include-sensitive
+  "Remove the `:include-sensitive?` slot from a tool's `:inputSchema`
+  properties. The slot is baked into the descriptor at load time by
+  `schemas/with-include-sensitive`; this fn runs at `tools/list` time
+  and removes it when the operator-only gate is closed (rf2-g9fje) so
+  the descriptor never advertises an opt-in the server is configured
+  to ignore. Idempotent: tools whose schema never carried the slot are
+  returned unchanged."
+  [schema]
+  (if (contains? (:properties schema) :include-sensitive?)
+    (update schema :properties dissoc :include-sensitive?)
+    schema))
+
 (defn tool-descriptors
   "Build the `tools/list` response payload: each tool's name +
   description + inputSchema + typicalTokens, in registry order. The
@@ -59,14 +73,26 @@
   The `:typicalTokens` slot is asserted on every entry by the
   `typical-tokens-hint-on-every-tool` test plus the registry-load
   assertion below, so the projection is a plain map literal rather
-  than a defensive `cond->`."
+  than a defensive `cond->`.
+
+  ## Sensitive-read gate (rf2-g9fje)
+
+  The `:include-sensitive?` slot is stripped from every tool's input
+  schema when the operator-only gate (`config/sensitive-reads-allowed?`)
+  is closed — agents shouldn't see an opt-in they can't exercise. The
+  three affected tools (`preview-variant`, `run-variant`, `read-failures`)
+  silently ignore caller-supplied `:include-sensitive? true` at the
+  helper layer regardless, so the descriptor strip is purely a UX
+  improvement and a defence-in-depth signal."
   []
-  (mapv (fn [{:keys [name description inputSchema typicalTokens]}]
-          {:name          name
-           :description   description
-           :inputSchema   inputSchema
-           :typicalTokens typicalTokens})
-        tool-registry))
+  (let [strip? (not (config/sensitive-reads-allowed?))]
+    (mapv (fn [{:keys [name description inputSchema typicalTokens]}]
+            {:name          name
+             :description   description
+             :inputSchema   (cond-> inputSchema
+                              strip? strip-include-sensitive)
+             :typicalTokens typicalTokens})
+          tool-registry)))
 
 (def ^:private tool-by-name-index
   "Pre-computed `name → descriptor` map so `tool-by-name` is O(1)

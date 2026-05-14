@@ -25,9 +25,20 @@
   declared-sensitive paths land `:rf/redacted` via `elide-wire-value`,
   and assertion records stamped `:sensitive? true` are dropped via
   `strip-sensitive`. Pass true to forward the raw values; per the
-  cross-MCP convention from `re-frame.mcp-base.sensitive`."
+  cross-MCP convention from `re-frame.mcp-base.sensitive`.
+
+  Honoured only when the server was started with
+  `--allow-sensitive-reads` (rf2-g9fje). When that operator-only gate
+  is closed, the slot is omitted from `tools/list` advertisements (so
+  agents don't even see it) and any caller-supplied value is silently
+  ignored at egress."
   {:type "boolean"
-   :description "Opt in to forwarding sensitive `:app-db` slots and assertion records. Default false (declared-sensitive paths return `:rf/redacted`; assertion records stamped `:sensitive? true` are dropped). Per spec/Tool-Pair.md §Direct-read privacy posture."})
+   :description (str "Opt in to forwarding sensitive `:app-db` slots and "
+                     "assertion records. Default false (declared-sensitive paths "
+                     "return `:rf/redacted`; assertion records stamped "
+                     "`:sensitive? true` are dropped). Per spec/Tool-Pair.md "
+                     "§Direct-read privacy posture. Honoured only when the "
+                     "server was started with `--allow-sensitive-reads`.")})
 
 (defn with-max-tokens
   "Inject the `:max-tokens` slot into a tool's `:properties` map. Every
@@ -38,6 +49,12 @@
 (defn with-include-sensitive
   "Inject the `:include-sensitive?` slot into a tool's `:properties`
   map. Used by tools that surface a live `:app-db` slice or assertion
-  accumulator (`preview-variant`, `run-variant`, `read-failures`)."
+  accumulator (`preview-variant`, `run-variant`, `read-failures`).
+
+  The slot is baked into the static descriptor at load time and
+  stripped at `tools/list` time by `registry/tool-descriptors` when the
+  server's `--allow-sensitive-reads` gate is closed (rf2-g9fje) — so a
+  closed gate hides the opt-in from agents entirely, and an open gate
+  surfaces it verbatim."
   [props]
   (assoc props :include-sensitive? include-sensitive-schema))
