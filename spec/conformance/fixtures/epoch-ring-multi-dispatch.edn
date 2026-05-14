@@ -1,0 +1,63 @@
+;; Conformance fixture: epoch/ring-multi-dispatch
+;; The epoch-history ring buffer records settled drains in append order
+;; (oldest-first). Multiple dispatches in a fixture produce one record
+;; per dispatch; positions are stable across re-runs.
+;;
+;; Tool-Pair time-travel and the re-frame-10x epoch panel both walk
+;; this ring; a second-host implementation that emits one record per
+;; dispatch but in REVERSE order would break the time-travel contract
+;; even though every individual record looks right. This fixture pins
+;; the order.
+
+{:fixture/id           :epoch/ring-multi-dispatch
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace}
+ :fixture/doc          "Three sequential dispatches commit three :rf/epoch-record entries in append order (oldest-first). The :on-create cascade is its own record at position 0; the three user dispatches land at positions 1..3. The :db-before / :db-after pairs chain so each record's :db-before equals the previous record's :db-after."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed."}
+          :counter/inc        {:doc "Increment."}
+          :counter/double     {:doc "Multiply by two."}
+          :counter/set-to-ten {:doc "Replace count with 10."}}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]]
+          :counter/double     [[:update [:count] [:fn :* 2]]]
+          :counter/set-to-ten [[:set [:count] 10]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ [[:counter/inc]
+  [:counter/double]
+  [:counter/set-to-ten]]
+
+ :fixture/expect
+ {:final-app-db {:count 10}
+
+  ;; Four records in append order. Each :db-before chains from the
+  ;; previous :db-after; the runtime MUST preserve this snapshot pair
+  ;; for Tool-Pair restore semantics.
+  :epoch-records
+  [{:frame  :rf/default
+    :record {:event-id  :counter/initialise
+             :db-before {}
+             :db-after  {:count 0}
+             :outcome   :ok}}
+   {:frame  :rf/default
+    :record {:event-id  :counter/inc
+             :db-before {:count 0}
+             :db-after  {:count 1}
+             :outcome   :ok}}
+   {:frame  :rf/default
+    :record {:event-id  :counter/double
+             :db-before {:count 1}
+             :db-after  {:count 2}
+             :outcome   :ok}}
+   {:frame  :rf/default
+    :record {:event-id  :counter/set-to-ten
+             :db-before {:count 2}
+             :db-after  {:count 10}
+             :outcome   :ok}}]}}
