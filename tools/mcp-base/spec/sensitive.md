@@ -12,6 +12,7 @@ This doc is one of seven per-namespace contracts indexed from [`README.md`](READ
 - The cross-MCP `sensitive-event?` predicate over a trace-event map.
 - The `strip-sensitive` walker (returns `[kept dropped-count]`).
 - The `scrub-snapshot` walker that recurses through a snapshot payload and removes `:sensitive?`-stamped subtrees.
+- The fail-closed malformed-stamp counter (`malformed-count` / `reset-malformed-count!`) — operator-surface observability for the rf2-ih7g4 fail-closed posture; bumped silently every time a non-boolean truthy `:sensitive?` stamp arrives and is dropped + logged.
 - The fixed cross-server arg-vocabulary name (`:include-sensitive?`) every MCP tool surfacing trace-like data MUST accept.
 
 `sensitive` does NOT own:
