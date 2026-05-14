@@ -79,14 +79,45 @@
   [x]
   (and (vector? x) (seq x) (every? valid-path-element? x)))
 
+;; Every validation throw shares the same ex-data skeleton:
+;;
+;;   {:where     'rf/reg-flow      ;; user-facing fn for greping the call site
+;;    :recovery  :fix-registration  ;; "the caller fixes their flow map and retries"
+;;    :reason    "<diagnostic>"
+;;    :flow      <the supplied flow>}
+;;
+;; The `:where` / `:recovery` slots mirror the late-bind-missing throw
+;; shape standardised by `re-frame.late-bind/require-fn!` and used by
+;; every `re-frame.core-<artefact>` wrapper — tools (Causa, 10x,
+;; debuggers) read the same fields uniformly across error sources.
+;; Per-clause extras (`:bad-entries` / `:bad-elements`) merge on top.
+
+(defn- flow-error
+  "Build the validate-flow ex-info with the standard shape. `error-kw`
+  becomes the message AND the `:error` slot; `reason` is the human-
+  readable diagnostic; `extras` merges per-clause slots (e.g.
+  `:bad-entries`)."
+  ([error-kw reason flow] (flow-error error-kw reason flow nil))
+  ([error-kw reason flow extras]
+   (ex-info (str error-kw)
+            (merge {:error    error-kw
+                    :where    'rf/reg-flow
+                    :recovery :fix-registration
+                    :reason   reason
+                    :flow     flow}
+                   extras))))
+
 (defn- validate-flow [flow]
   (cond
     (nil? (:id flow))
-    (throw (ex-info ":rf.error/flow-missing-id" {:flow flow}))
+    (throw (flow-error :rf.error/flow-missing-id
+                       ":id is required (flow registration must name an id)"
+                       flow))
 
     (not (vector? (:inputs flow)))
-    (throw (ex-info ":rf.error/flow-bad-inputs"
-                    {:flow flow :reason ":inputs must be a vector of paths"}))
+    (throw (flow-error :rf.error/flow-bad-inputs
+                       ":inputs must be a vector of paths"
+                       flow))
 
     ;; One clause for both "entry isn't a vector" and "entry isn't a
     ;; valid path" — `valid-path?` already requires `vector?`, so the
@@ -96,29 +127,31 @@
     ;; `:bad-entries` slot points at the offending values so callers
     ;; can fix them without a stack-trace dig.
     (not (every? valid-path? (:inputs flow)))
-    (throw (ex-info ":rf.error/flow-bad-inputs"
-                    {:flow flow
-                     :reason ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
-                     :bad-entries (vec (remove valid-path? (:inputs flow)))}))
+    (throw (flow-error :rf.error/flow-bad-inputs
+                       ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
+                       flow
+                       {:bad-entries (vec (remove valid-path? (:inputs flow)))}))
 
     (not (fn? (:output flow)))
-    (throw (ex-info ":rf.error/flow-bad-output"
-                    {:flow flow :reason ":output must be a fn"}))
+    (throw (flow-error :rf.error/flow-bad-output
+                       ":output must be a fn"
+                       flow))
 
     (not (vector? (:path flow)))
-    (throw (ex-info ":rf.error/flow-bad-path"
-                    {:flow flow :reason ":path must be a vector"}))
+    (throw (flow-error :rf.error/flow-bad-path
+                       ":path must be a vector"
+                       flow))
 
     (empty? (:path flow))
-    (throw (ex-info ":rf.error/flow-bad-path"
-                    {:flow flow
-                     :reason ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"}))
+    (throw (flow-error :rf.error/flow-bad-path
+                       ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"
+                       flow))
 
     (not (every? valid-path-element? (:path flow)))
-    (throw (ex-info ":rf.error/flow-bad-path"
-                    {:flow flow
-                     :reason ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
-                     :bad-elements (vec (remove valid-path-element? (:path flow)))}))))
+    (throw (flow-error :rf.error/flow-bad-path
+                       ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
+                       flow
+                       {:bad-elements (vec (remove valid-path-element? (:path flow)))}))))
 
 ;; ---- registration --------------------------------------------------------
 
@@ -248,8 +281,10 @@
     (swap! last-inputs dissoc id)))
 
 (defonce ^:private _hot-reload-hook
-  (do (registrar/add-replacement-hook! invalidate-flow-on-replace!)
-      :installed))
+  ;; `defonce` only needs the side-effect to fire once at namespace
+  ;; load; the value bound to the var is incidental. `add-replacement-hook!`
+  ;; returns nil — let that be the bound value.
+  (registrar/add-replacement-hook! invalidate-flow-on-replace!))
 
 ;; ---- test-only resets ----------------------------------------------------
 

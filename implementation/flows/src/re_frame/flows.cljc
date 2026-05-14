@@ -80,14 +80,15 @@
   (mapv (fn [path] (get-in db path)) (:inputs flow)))
 
 (defn- evaluate-flow!
-  "Evaluate one flow against the given db. Returns the [new-db dirty?] tuple.
-
-  Emits one of the per-flow `:rf.flow/*` traces per call (per Spec 009
-  §:op-type vocabulary, §Flow tracing): `:rf.flow/skip` when value-equal
-  recompute suppression triggers, `:rf.flow/computed` on a successful
-  recompute, or `:rf.flow/failed` when the flow's `:output` fn throws.
-  On the failure path the in-flight db is returned unchanged and `dirty?`
-  is `false` so downstream flows still walk."
+  "Evaluate one flow against the given db. Returns the `[new-db dirty?]`
+  tuple. On the failure path the exception re-throws after the
+  `:rf.flow/failed` trace fires — `run-flows!`'s loop exits and the
+  router's outer catch emits the cascade-level
+  `:rf.error/flow-eval-exception`. Trace semantics live in Spec 009
+  §Flow trace events; this docstring just names the failure-path
+  unwind (rf2-rlmla Q11 — the prior docstring claimed `[db false]`
+  was returned and downstream flows still walked, which contradicts
+  the actual `(throw e)` impl at the catch site below)."
   [frame-id db flow]
   (let [flow-id    (:id flow)
         new-inputs (read-inputs db flow)
