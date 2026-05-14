@@ -33,6 +33,7 @@
             [re-frame-pair2-mcp.tools :as tools]
             [re-frame-pair2-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame-pair2-mcp.tools.raw-state :as raw-state]
+            [re-frame-pair2-mcp.tools.resource-controls :as resource]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
             ["@modelcontextprotocol/sdk/types.js" :as mcp-types]))
@@ -166,8 +167,24 @@
   ;; reading multi-MCP logs see one vocabulary.
   (log! "Raw-state access:" (if allow-raw-state? "allowed (--allow-raw-state)" "gated (default; pass --allow-raw-state to opt in)")))
 
+(defn- apply-resource-controls!
+  "Read resource-control config from env + CLI flags and push it into
+  the resource-controls atoms (rf2-3ijbl). Logs the effective values
+  so operators can confirm at startup which caps are in force."
+  [argv]
+  (let [env-cfg  (resource/read-resource-env)
+        flag-cfg (resource/parse-resource-flags argv)
+        merged   (resource/apply-resource-config! env-cfg flag-cfg)]
+    (log! (str "Resource controls:"
+               " max-concurrent-streams="    (:max-concurrent-streams merged)
+               " max-events-per-sec="        (:max-events-per-sec merged)
+               " abuse-overflow-threshold="  (:abuse-overflow-threshold merged)
+               " abuse-window-ms="           (:abuse-window-ms merged)))))
+
 (defn main [& args]
-  (apply-launch-flags! (parse-launch-flags (vec args)))
+  (let [argv (vec args)]
+    (apply-launch-flags! (parse-launch-flags argv))
+    (apply-resource-controls! argv))
   (try
     (let [conn   (new-conn)
           server (boot! conn)]
