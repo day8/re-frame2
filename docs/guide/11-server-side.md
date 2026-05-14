@@ -2,7 +2,7 @@
 
 re-frame2 ships **first-class server-side rendering** with feature parity to Next.js, Remix, and SolidStart: SEO-ready first paint, social-media link previews, deep-link hydration, per-request response control. The same handlers, subs, and views run unchanged in the browser and on the server — one codebase, one mental model, no server-only carve-out.
 
-The SSR response-shape fxs (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/set-cookie`, `:rf.server/redirect`, ...) together with the Ring host adapter are **managed external effects** in the [ch.10](10-doing-http-requests.md) sense — the per-request response is built across the per-request frame's lifetime, then emitted as one structured response. See [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md) for the unifying eight-property contract the SSR surface inherits.
+The SSR response-shape fxs (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/set-cookie`, `:rf.server/redirect`, ...) together with the Ring host adapter are **managed external effects** in the [ch.10](10-doing-http-requests.md) sense — the per-request response is built across the per-request frame's lifetime, then emitted as one structured response.
 
 This chapter explains how that works.
 
@@ -14,13 +14,13 @@ Concretely:
 
 1. An HTTP request arrives at the server.
 2. The host adapter (e.g. `re-frame.ssr.ring`) creates a frame for this request and binds the request map so handlers can read it via the `:rf.server/request` cofx (see [§The Ring host adapter](#the-ring-host-adapter) and [§Reading the request — the `:rf.server/request` cofx](#reading-the-request--the-rfserverrequest-cofx) below).
-3. The frame's `:on-create` event fires; setup events dispatch (load user session, fetch initial data in parallel via [Pattern-SSR-Loaders](../../spec/Pattern-SSR-Loaders.md), set the route).
+3. The frame's `:on-create` event fires; setup events dispatch (load user session, fetch initial data in parallel via the SSR-Loaders convention, set the route).
 4. The runtime drains. State settles.
 5. The server calls the registered root view fn, gets back a hiccup tree.
 6. The server runs `render-to-string` on the hiccup, producing HTML.
 7. The server ships the HTML *and* the serialised state down to the client.
 8. The client boots, reads the serialised state, dispatches `:rf/hydrate` to seed its own frame, then renders. The client's first render produces the same HTML the server sent.
-9. From there on, the app is interactive. Subsequent form POSTs flow through the same handler tree via [Pattern-FormAction](../../spec/Pattern-FormAction.md).
+9. From there on, the app is interactive. Subsequent form POSTs flow through the same handler tree via the FormAction convention.
 
 The crucial fact: **steps 2-5 are running the same handlers and views you've already written**. There's no separate "server code" you maintain in parallel. There's one app. It happens to run twice — once on the server, then again on the client — with a state-shipping handshake in between.
 
@@ -152,7 +152,7 @@ The SSR runtime owns the request lifecycle (frame create → drain → response 
 
 `ssr-handler` gensyms a per-request frame-id, populates the per-frame request slot via `ssr/set-request!` (so the `:rf.server/request` cofx can read the Ring request map during the drain), registers the frame with `:platform :server` via `reg-frame`, lets the drain settle synchronously, then reads the response accumulator, renders the root view, materialises structured cookies and headers to wire shape, and destroys the per-request frame in a `finally` block. The per-frame teardown hook (`:ssr/on-frame-destroyed`) drops the request slot — no leak across requests. A redirect short-circuits the body render. The adapter is also available as Ring middleware (`ssr-middleware`) when SSR is one of several handlers in a stack.
 
-Non-Ring hosts (Pedestal-direct, HttpKit native, custom JVM transports) implement the same contract: populate the per-frame request slot via `re-frame.ssr/set-request!` before the drain, drive the runtime through `make-frame` / `get-response` / `render-to-string`, materialise the resolved response, and rely on per-frame teardown to clear the slot (or call `clear-request!` explicitly). Per [Spec 011 §Request storage substrate](../../spec/011-SSR.md#request-storage-substrate), a dynamic `Var` / thread-local binding is explicitly forbidden — frame-id-keyed storage is the canonical mechanism. See [`spec/011-SSR.md §HTTP response contract`](../../spec/011-SSR.md#http-response-contract) for the host-adapter contract surface.
+Non-Ring hosts (Pedestal-direct, HttpKit native, custom JVM transports) implement the same contract: populate the per-frame request slot via `re-frame.ssr/set-request!` before the drain, drive the runtime through `make-frame` / `get-response` / `render-to-string`, materialise the resolved response, and rely on per-frame teardown to clear the slot (or call `clear-request!` explicitly). A dynamic `Var` / thread-local binding is explicitly forbidden — frame-id-keyed storage is the canonical mechanism, so per-request state never leaks across concurrent requests under any scheduler.
 
 ## Reading the request — the `:rf.server/request` cofx
 
@@ -314,17 +314,17 @@ The routing substrate has more to it than fits in this chapter — deterministic
 
 The example `:rf/server-init` above issues one managed-HTTP request and lets the drain settle. Real pages need *several* independent fetches before render — the product, the related items, the most-recent reviews — and serialising three back-to-back `:rf.http/managed` calls from a single setup event adds their wall-clock costs together. The drain runs to fixed point but it runs in a single thread; the JVM transport blocks the drain on each call.
 
-**[Pattern-SSR-Loaders](../../spec/Pattern-SSR-Loaders.md)** is the canonical fan-out shape: a state-machine spawned at `:on-create` time uses `:invoke-all` (per [chapter 08](08-state-machines.md)) to spawn N HTTP-fetching children in parallel, joins on all-complete, and writes the results into `app-db` from the join's `:entry`. Total wall-clock cost falls to `max(fetch-i) + overhead`. A phase-level `:after` deadline guards against a single fetch hanging the request. The same machine drives client-side navigation-fetch — only the spawn site changes (`:on-create` server-side, the route's `:on-match` client-side); the rest of the handler tree is identical.
+**Pattern-SSR-Loaders** is the canonical fan-out shape: a state-machine spawned at `:on-create` time uses `:invoke-all` (per [chapter 08](08-state-machines.md)) to spawn N HTTP-fetching children in parallel, joins on all-complete, and writes the results into `app-db` from the join's `:entry`. Total wall-clock cost falls to `max(fetch-i) + overhead`. A phase-level `:after` deadline guards against a single fetch hanging the request. The same machine drives client-side navigation-fetch — only the spawn site changes (`:on-create` server-side, the route's `:on-match` client-side); the rest of the handler tree is identical.
 
-This is the SSR-side answer to "how do I write the Next.js `Promise.all([...])` shape in re-frame2." It's a convention, not Spec — the primitives (`:invoke-all`, `:rf.http/managed`, the `:rf.server/request` cofx) are all locked; the Pattern names the composition.
+This is the SSR-side answer to "how do I write the Next.js `Promise.all([...])` shape in re-frame2." The primitives — `:invoke-all`, `:rf.http/managed`, the `:rf.server/request` cofx — are all framework-locked; the Pattern names the composition.
 
 ## Form POST handling — Pattern-FormAction
 
 The chapter so far has covered GET requests: the server renders, the client hydrates, the user is now on an interactive page. But SSR apps also have to handle **POSTs** — form submissions, especially in the no-JS / pre-hydration window. A form must work without JavaScript (the server processes the POST and re-renders), and the same submission code path should run client-side once JS hydrates (the client intercepts `:on-submit`, dispatches the same event, no full-page reload).
 
-**[Pattern-FormAction](../../spec/Pattern-FormAction.md)** is the canonical shape. The HTML form renders with `method="POST" action="/<route>"` and a hidden CSRF token; the host adapter parses the POST body and binds it to the request as `:form-params`; `:rf/server-init` routes GET → page loader, POST → action event; the action event-handler validates against the registered schema (per [chapter 04a](04a-schemas.md)) and either emits `[:rf.server/redirect {:status 303 :location ...}]` on success (canonical POST-redirect-GET) or writes structured errors into the form slice and lets the standard re-render show them inline. The view's `:on-submit` interceptor — `(.preventDefault e); (dispatch [:cart/add-item ...])` — is purely additive once JS is alive; the *same* domain event runs in both contexts.
+**Pattern-FormAction** is the canonical shape. The HTML form renders with `method="POST" action="/<route>"` and a hidden CSRF token; the host adapter parses the POST body and binds it to the request as `:form-params`; `:rf/server-init` routes GET → page loader, POST → action event; the action event-handler validates against the registered schema (per [chapter 04a](04a-schemas.md)) and either emits `[:rf.server/redirect {:status 303 :location ...}]` on success (canonical POST-redirect-GET) or writes structured errors into the form slice and lets the standard re-render show them inline. The view's `:on-submit` interceptor — `(.preventDefault e); (dispatch [:cart/add-item ...])` — is purely additive once JS is alive; the *same* domain event runs in both contexts.
 
-Pattern-FormAction composes with [Pattern-Forms](../../spec/Pattern-Forms.md) (the client-side form-slice convention from [chapter 09](09-forms.md)) and with the [server error projector](../../spec/011-SSR.md#server-error-projection) (which maps schema failures to the 400 public-error shape). A page may use both Patterns — Loaders for the initial GET, FormAction for subsequent POSTs.
+Pattern-FormAction composes with the client-side form-slice convention from [chapter 09](09-forms.md) and with the server error projector (which maps schema failures to the 400 public-error shape). A page may use both Patterns — Loaders for the initial GET, FormAction for subsequent POSTs.
 
 ## What you give up
 

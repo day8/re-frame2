@@ -19,7 +19,7 @@ You'll know:
 - How schema-validation errors interact (sensitive paths in `:explain` traces).
 - How consumer-side flags compose with your writer-side declarations.
 
-The `:sensitive?` + `:large?` composition you'll meet below is **wire-elision over managed external effects** — property five of the eight-property contract in [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md). Every framework-owned async surface (HTTP, WebSocket, state-machine `:invoke`, SSR per-request fxs, managed flows) routes its wire-bearing trace slots through the single shared `rf/elide-wire-value` walker. Surface-specific elision is prohibited; the walker is the one point of truth. This chapter is what you declare so that one walker has something to honour for every surface at once.
+The `:sensitive?` + `:large?` composition you'll meet below is **wire-elision over managed external effects**. Every framework-owned async surface (HTTP, WebSocket, state-machine `:invoke`, SSR per-request fxs, managed flows) routes its wire-bearing trace slots through the single shared `rf/elide-wire-value` walker. Surface-specific elision is prohibited; the walker is the one point of truth. This chapter is what you declare so that one walker has something to honour for every surface at once.
 
 ## Why the framework cares
 
@@ -47,7 +47,7 @@ Two predicates. Same walker.
 | `:sensitive?` | "Does this value carry user input that must not leave the trust boundary?" | `:rf/redacted` keyword (or whole event dropped) | Filter-out for off-box ship; in-place scrub for in-app emit |
 | `:large?` | "Is this value too big to ride a 5K-token wire?" | `:rf.size/large-elided` marker with `:handle` for opt-in fetch | Marker substitutes for the value; consumer re-fetches via `get-path` |
 
-The walker — `rf/elide-wire-value` (per [API.md §Size-elision wire-boundary walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker)) — consults both flags at every node it visits and substitutes the appropriate placeholder. One pass, two flags.
+The walker — `rf/elide-wire-value` — consults both flags at every node it visits and substitutes the appropriate placeholder. One pass, two flags.
 
 **The composition rule is `sensitive drop wins`.** When a value matches both predicates (a 5 MB base64-encoded ID-card image stored under `[:auth :scanned-id]`), the value is dropped, not marker-substituted — because the marker itself carries `:path` and `:bytes`, which is structural information about the redacted slot. One value, two flags, deterministic precedence:
 
@@ -76,7 +76,7 @@ Both flags live on the same surface: a Malli slot's per-slot props map. One keyw
 
 That's the declaration. Nothing else.
 
-Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db` (per [Conventions §Reserved app-db keys](../../spec/Conventions.md)). Every wire-boundary emit consults that slot. Every off-box consumer — pair2-mcp, Datadog shipper, Causa-MCP — sees the redacted / elided shape; the value never leaves the trust boundary.
+Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — pair2-mcp, Datadog shipper, Causa-MCP — sees the redacted / elided shape; the value never leaves the trust boundary.
 
 What each flag does:
 
@@ -107,7 +107,7 @@ For that case — and only for that case — handler-meta `:sensitive?` is the e
 What the runtime does with the flag:
 
 - Hoists `:sensitive? true` to the **top level** of every trace event emitted while this handler is in scope (alongside `:source` / `:recovery`; not nested under `:tags`). Off-box listeners route on this exact slot.
-- Propagates the flag through dispatched cascades — every `:rf.http/*` trace event the handler triggers inherits `:sensitive? true` (per [spec/014 §Privacy](../../spec/014-HTTPRequests.md#privacy)).
+- Propagates the flag through dispatched cascades — every `:rf.http/*` trace event the handler triggers inherits `:sensitive? true`.
 - Drops the whole trace event from off-box shippers' default policy. The on-box dev panels render an opaque `:sensitive?` indicator and require an opt-in click to reveal.
 
 This is the *only* declaration site outside the schema. Use it when the sensitivity claim genuinely belongs to the handler — when no single slot's schema can carry the truth. Otherwise: put it on the schema.
@@ -187,7 +187,7 @@ If the value really is below the threshold *most* of the time and only spikes oc
 
 The schema is the input; the elision pipeline is the output. The framework does the wiring between the two — you don't see it from the app-writer side, but the one paragraph is worth knowing:
 
-At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit — `rf/elide-wire-value` (per [API.md §Size-elision wire-boundary walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker)) — the walker consults that slot once per visited path. Tools like Causa, pair2-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
+At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, pair2-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
 
 **One declaration; every consumer honours it.** If you declare `:sensitive? true` on `[:user :credit-card]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body, every schema-validation error trace substitutes `:rf/redacted` for the slot's value. Same for `:large? true` and the elision marker. The platform handles the rest.
 
@@ -208,7 +208,7 @@ One function. Every tool that emits wire data calls it. The single normative emi
 ;; → v with :rf.size/large-elided markers at large paths
 ```
 
-The marker shape (per [Spec-Schemas §`:rf/elision-marker`](../../spec/Spec-Schemas.md)):
+The marker shape:
 
 ```clojure
 {:rf.size/large-elided
@@ -224,7 +224,7 @@ The `:handle` is **a normal EDN vector**, not a tagged literal — agents patter
 
 ## HTTP coverage
 
-HTTP is the canonical privacy surface — passwords ride bodies, auth tokens ride headers, user PII rides response payloads. The framework's HTTP cascade ([ch.10](10-doing-http-requests.md), [spec/014 §Privacy](../../spec/014-HTTPRequests.md#privacy)) layers three cooperating pieces on top of the generic `:sensitive?` machinery — none of them are app-writer declarations, but all of them honour your schema's `:sensitive?` verdict.
+HTTP is the canonical privacy surface — passwords ride bodies, auth tokens ride headers, user PII rides response payloads. The framework's HTTP cascade (see [ch.10](10-doing-http-requests.md)) layers three cooperating pieces on top of the generic `:sensitive?` machinery — none of them are app-writer declarations, but all of them honour your schema's `:sensitive?` verdict.
 
 **Header denylist (always-on).** A canonical set of header names is *always sensitive* — the name itself declares the value secret regardless of the surrounding handler's flag. The v1 closed list is twelve names: `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-Session-Token`, `X-CSRF-Token`, `X-XSRF-Token`, `Authentication`, `WWW-Authenticate`, `Proxy-Authenticate`. Their values become `:rf/redacted` in every `:rf.http/*` trace event that carries a `:headers` slot. Apps extend with `(rf.http/declare-sensitive-header! "X-Honeycomb-Team")`.
 
@@ -247,7 +247,7 @@ HTTP is the canonical privacy surface — passwords ride bodies, auth tokens rid
 
 When `app-db` fails validation, the runtime emits `:rf.error/schema-validation-failure` with the failing value in `:tags :value` (and the surrounding `:explain` map). For sensitive slots, that emit is the back-door — the value the schema rejected is exactly the value you didn't want in the trace stream.
 
-Per [spec/010 §`:sensitive?` — privacy in schema-validation error traces (rf2-kj51z)](../../spec/010-Schemas.md), the validation emit-site walks the failing path's schema; if the slot declares `:sensitive? true`, the `:value` and `:received` slots in the trace are substituted with `:rf/redacted` before emit, and the trace event is stamped `:sensitive? true` at the top level (so off-box listeners filter it like any other sensitive emit).
+The validation emit-site walks the failing path's schema; if the slot declares `:sensitive? true`, the `:value` and `:received` slots in the trace are substituted with `:rf/redacted` before emit, and the trace event is stamped `:sensitive? true` at the top level (so off-box listeners filter it like any other sensitive emit).
 
 This is the same `:sensitive?` declaration you already wrote on the schema slot. There is no second site to also tell the validation emit-site:
 
@@ -358,10 +358,7 @@ Two axes, one walker, one consumer rendering — and **one declaration site**. T
 ## Next
 
 - [04a — Schemas](04a-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
-- [10 — Doing HTTP requests](10-doing-http-requests.md) — the `:rf.http/managed` cascade the privacy section of [spec/014 §Privacy](../../spec/014-HTTPRequests.md#privacy) extends.
+- [10 — Doing HTTP requests](10-doing-http-requests.md) — the `:rf.http/managed` cascade that extends this chapter's privacy machinery.
 - [14 — Errors and how to handle them](14-errors.md) — the `:rf.error/*` taxonomy this chapter's schema-validation section bottoms out on.
 - [15 — Tooling](15-devtools-and-pair-tools.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason privacy and size matter is that the bus has five+ consumers.
 - [22 — Trace forwarding to Datadog](22-trace-to-datadog.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.
-- [spec/009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces) and [§Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces) — the normative specification.
-- [spec/010 §Per-slot metadata vocabulary](../../spec/010-Schemas.md#per-slot-metadata-vocabulary) — the schema-slot vocabulary the declaration site rests on.
-- [API §Size-elision wire-boundary walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker) — the `rf/elide-wire-value` reference.

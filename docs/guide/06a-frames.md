@@ -92,9 +92,9 @@ A freshly-created frame's `app-db` is **always `{}`**. There's no `:db` config s
 ;; By the time reg-frame returns, :left's app-db is {:count 0 :history [0]}.
 ```
 
-If you need to fire multiple init events, the single `:on-create` handler does so via its effect map — `:fx [[:dispatch [:counter/restore]] [:dispatch [:counter/preferences-load]]]`. Run-to-completion guarantees those cascades settle before `reg-frame` returns; the spec calls this out in [§Frame lifecycle](../../spec/002-Frames.md#frame-lifecycle).
+If you need to fire multiple init events, the single `:on-create` handler does so via its effect map — `:fx [[:dispatch [:counter/restore]] [:dispatch [:counter/preferences-load]]]`. Run-to-completion guarantees those cascades settle before `reg-frame` returns.
 
-There's a symmetric `:on-destroy` slot for teardown effects. The full metadata grammar (`:fx-overrides`, `:interceptors`, `:drain-depth`, `:on-error`, `:platform`) lives in [Spec 002 §`reg-frame`](../../spec/002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar).
+There's a symmetric `:on-destroy` slot for teardown effects. `reg-frame` also accepts a broader metadata grammar — `:fx-overrides`, `:interceptors`, `:drain-depth`, `:on-error`, `:platform` — that the rest of this chapter introduces as each surface comes up.
 
 ## Targeting a specific frame
 
@@ -202,7 +202,7 @@ Most frames you'll register fall into one of four shapes: a normal client app, a
 (rf/reg-frame :ssr.req/abc123      {:preset :ssr-server})
 ```
 
-Each preset's intent is **visible at the call site** — a reader of the source can tell at a glance that this is a test frame, that one is a story variant. The expansion is locked (a port can't ship a fifth preset; that's a Spec-change), which keeps the four canonical for AI scaffolding. The full preset expansion table — what each preset wires up, and why — lives in [Spec 002 §Frame presets](../../spec/002-Frames.md#frame-presets--capability-bundles-for-common-configurations); chapters 11, 13, and 21 introduce each preset in the context that needs it.
+Each preset's intent is **visible at the call site** — a reader of the source can tell at a glance that this is a test frame, that one is a story variant. The expansion is locked, which keeps the four canonical for AI scaffolding. Chapters 11, 13, and 21 introduce each preset in the context that needs it.
 
 ## What we covered
 
@@ -216,7 +216,6 @@ Each preset's intent is **visible at the call site** — a reader of the source 
 
 ## Cross-references
 
-- [Spec 002 — Frames](../../spec/002-Frames.md) — the full normative surface: lifecycle, surgical re-registration, the preset expansion table, the dispatch envelope, the per-instance `make-frame` shape, drain semantics, destroyed-frame behaviour.
 - [chapter 06 — Views and frames](06-views-and-frames.md) — `reg-view`, `frame-provider`, and the split-counter in context.
 - [chapter 13 — Testing](13-testing.md) — `with-frame`/`make-frame` as the per-test fixture; the `:test` preset.
 - [chapter 21 — Stories](21-stories.md) — frame-per-variant; the `:story` preset.

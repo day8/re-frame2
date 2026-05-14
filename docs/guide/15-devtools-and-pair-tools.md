@@ -14,7 +14,7 @@ You'll come away knowing:
 - How off-box trace forwarding to APM platforms attaches to the same listener API — see [ch.22 — Trace to Datadog](22-trace-to-datadog.md).
 - Where to look when you need the contract reference (it's still here, just positioned at the end).
 
-Causa's trace surface — the events, errors, retries, aborts, teardowns that scroll past in the panel — is exactly the set of **managed external effects** the framework owns end-to-end: HTTP requests, WebSocket lifecycles, state-machine `:invoke` actors, SSR per-request fxs, managed flows. Every one of them emits structured trace events at issuance, intermediate transitions, retries, and terminal outcomes onto the same bus. [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md) names the eight properties every conformant managed-effect surface inherits; observability via the trace bus is property four. The tooling pitch in this chapter and the contract in that spec are the same picture from two angles.
+Causa's trace surface — the events, errors, retries, aborts, teardowns that scroll past in the panel — is exactly the set of **managed external effects** the framework owns end-to-end: HTTP requests, WebSocket lifecycles, state-machine `:invoke` actors, SSR per-request fxs, managed flows. Every one of them emits structured trace events at issuance, intermediate transitions, retries, and terminal outcomes onto the same bus. Observability via the trace bus is part of the managed-effect contract every framework-owned async surface inherits.
 
 ## The architectural punchline: one observation surface
 

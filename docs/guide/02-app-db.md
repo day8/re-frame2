@@ -94,11 +94,11 @@ That's the whole picture. There aren't more steps; there aren't different kinds 
 
 A question new readers ask early: "Where does X go in app-db?"
 
-The honest answer is: re-frame2 doesn't prescribe. app-db is your app's state, shaped how your domain shapes it. But the framework has opinions about *certain recurring shapes*, and those are documented as **Pattern docs** in the spec:
+The honest answer is: re-frame2 doesn't prescribe. app-db is your app's state, shaped how your domain shapes it. But the framework has opinions about *certain recurring shapes*:
 
-- **HTTP request lifecycle data** — Use [Pattern-RemoteData](../../spec/Pattern-RemoteData.md): a standard five-key slice (`:status`, `:data`, `:error`, `:in-flight?`, `:last-fetched-at`) lives under `[:remote-data <feature> <id>]`. Chapter [10 — Doing HTTP requests](10-doing-http-requests.md) walks the full story.
+- **HTTP request lifecycle data** — A standard five-key slice (`:status`, `:data`, `:error`, `:in-flight?`, `:last-fetched-at`) lives under `[:remote-data <feature> <id>]`. Chapter [10 — Doing HTTP requests](10-doing-http-requests.md) walks the full story.
 
-- **Form state** — Use [Pattern-Forms](../../spec/Pattern-Forms.md): `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [09 — Forms](09-forms.md) walks the lifecycle.
+- **Form state** — `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [09 — Forms](09-forms.md) walks the lifecycle.
 
 - **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [08 — State machines](08-state-machines.md) covers this.
 

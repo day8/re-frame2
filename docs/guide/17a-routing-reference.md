@@ -318,6 +318,5 @@ That's the bet the previous chapter was defending: the URL is a sub.
 ## Next
 
 - [18 — From re-frame v1](18-from-re-frame-v1.md) — appendix-shaped migration notes if you're carrying a re-frame v1 app forward.
-- [20 — Where to go next](20-where-next.md) — the chapter wrap-up, with pointers to the worked examples, pattern docs, the API ref, and the spec.
-- [Spec 012 — Routing](../../spec/012-Routing.md) — the full normative surface, including the path-pattern grammar's productions, the route ranking cascade, scroll restoration, and the SSR integration story in detail.
+- [20 — Where to go next](20-where-next.md) — the chapter wrap-up, with pointers to the worked examples and pattern docs.
 - [chapter 11](11-server-side.md) — how routing folds into SSR.
