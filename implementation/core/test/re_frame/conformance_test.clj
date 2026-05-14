@@ -1106,25 +1106,25 @@
           passed    (filter :passed? run)
           failed    (remove :passed? run)
           skipped   (filter :skipped? all)]
-      (println)
-      (println "Conformance corpus:")
-      (println "  total fixtures:" (count all))
-      (println "  runnable:      " (count run))
-      (println "  passed:        " (count passed))
-      (println "  failed:        " (count failed))
-      (println "  skipped:       " (count skipped))
-      (when (seq passed)
-        (println)
-        (println "Passing:")
-        (doseq [p passed]
-          (println "  " (:fixture-id p))))
-      (when (seq skipped)
-        (println)
-        (println "Skipped (out-of-claim):")
-        (doseq [s skipped]
-          (println "  " (:fixture-id s) "—"
-                   (or (:capabilities s) (:spec-version s) (:reason s)))))
+      ;; Silent-on-success (rf2-try1x): the corpus summary only prints
+      ;; when there are failures. The `is` assertion below carries the
+      ;; pass/fail signal; the stats and skip-list are diagnostic
+      ;; context for failure triage. On green, agents reading test
+      ;; output don't burn ~30 lines of stats per artefact.
       (when (seq failed)
+        (println)
+        (println "Conformance corpus:")
+        (println "  total fixtures:" (count all))
+        (println "  runnable:      " (count run))
+        (println "  passed:        " (count passed))
+        (println "  failed:        " (count failed))
+        (println "  skipped:       " (count skipped))
+        (when (seq skipped)
+          (println)
+          (println "Skipped (out-of-claim):")
+          (doseq [s skipped]
+            (println "  " (:fixture-id s) "—"
+                     (or (:capabilities s) (:spec-version s) (:reason s)))))
         (println)
         (println "Failures:")
         (doseq [f failed]

@@ -14,10 +14,11 @@
   (let [tree      [:div {:class "x"} [:p "hi"]]
         canonical (#'ssr/canonical-edn tree)
         h         (ssr/render-tree-hash tree)]
-    (println :cljs-canonical canonical)
-    (println :cljs-hash h)
+    ;; Silent-on-success (rf2-try1x): canonical-edn + hash are now
+    ;; surfaced in the `is` message so they only appear on failure.
     (is (= "9d7457ef" h)
-        "CLJS hash should equal the JVM hash for the same render tree")))
+        (str "CLJS hash should equal the JVM hash for the same render tree"
+             "  canonical=" (pr-str canonical) "  hash=" h))))
 
 (deftest jvm-cljs-hash-parity-non-ascii
   ;; Per rf2-t7ktb: fnv-1a-32 now hashes the UTF-8 byte sequence on
@@ -30,6 +31,6 @@
   ;; codepoints — silently shipping a hash mismatch in production for
   ;; non-English content.
   (let [h (#'ssr/fnv-1a-32 "café")]
-    (println :cljs-hash-cafe h)
     (is (= "a82b5049" h)
-        "CLJS UTF-8 byte hash of 'café' must equal JVM UTF-8 byte hash")))
+        (str "CLJS UTF-8 byte hash of 'café' must equal JVM UTF-8 byte hash"
+             "  hash=" h))))

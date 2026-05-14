@@ -961,25 +961,23 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
-      (println)
-      (println "Conformance corpus (CLJS):")
-      (println "  total fixtures:" (count all))
-      (println "  runnable:      " (count run))
-      (println "  passed:        " (count passed))
-      (println "  failed:        " (count failed))
-      (println "  skipped:       " (count skipped))
-      (when (seq passed)
-        (println)
-        (println "Passing:")
-        (doseq [p passed]
-          (println "  " (:fixture-id p))))
-      (when (seq skipped)
-        (println)
-        (println "Skipped (out-of-claim):")
-        (doseq [s skipped]
-          (println "  " (:fixture-id s) "—"
-                   (or (:capabilities s) (:spec-version s) (:reason s)))))
+      ;; Silent-on-success (rf2-try1x): the corpus summary only prints
+      ;; when there are failures. See the JVM mirror in
+      ;; conformance_test.clj for the rationale.
       (when (seq failed)
+        (println)
+        (println "Conformance corpus (CLJS):")
+        (println "  total fixtures:" (count all))
+        (println "  runnable:      " (count run))
+        (println "  passed:        " (count passed))
+        (println "  failed:        " (count failed))
+        (println "  skipped:       " (count skipped))
+        (when (seq skipped)
+          (println)
+          (println "Skipped (out-of-claim):")
+          (doseq [s skipped]
+            (println "  " (:fixture-id s) "—"
+                     (or (:capabilities s) (:spec-version s) (:reason s)))))
         (println)
         (println "Failures:")
         (doseq [f failed]
