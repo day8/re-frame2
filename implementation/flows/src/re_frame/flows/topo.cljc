@@ -105,32 +105,49 @@
   reg-flow / clear-flow anyway. The unmemoised call is the cheapest
   correct option."
   [flow-map]
-  (let [ids   (vec (keys flow-map))
-        graph (into {}
-                    (map (fn [id]
-                           (let [flow (flow-map id)]
-                             [id (into #{}
-                                       (filter #(and (not= id %)
-                                                     (depends-on? flow (flow-map %))))
-                                       ids)])))
-                    ids)]
-    (loop [ready     (filterv #(empty? (graph %)) ids)
-           remaining graph
-           order     []]
-      (if-let [n (peek ready)]
-        (let [rem0 (dissoc remaining n)
-              [remaining' ready']
-              (reduce-kv (fn [[rem rdy] m m-deps]
-                           (if-not (contains? m-deps n)
-                             [rem rdy]
-                             (let [m-deps' (disj m-deps n)]
-                               [(assoc rem m m-deps')
-                                (cond-> rdy (empty? m-deps') (conj m))])))
-                         [rem0 (pop ready)]
-                         rem0)]
-          (recur ready' remaining' (conj order n)))
-        (if (seq remaining)
-          (throw (ex-info ":rf.error/flow-cycle"
-                          {:cycle (extract-cycle-path graph
-                                                      (set (keys remaining)))}))
-          order)))))
+  (let [ids (vec (keys flow-map))]
+    ;; Fast-paths for the trivial sizes — topo-sort runs on every drain
+    ;; AND every `reg-flow`, so the dominant call shape during steady-
+    ;; state is the small-registry case where the O(n²) graph build is
+    ;; pure waste. Self-edges are excluded (per the `(not= id %)` filter
+    ;; below), so a single-flow registry has no dependency edges and
+    ;; the sort order is just `[that-id]`.
+    (case (count ids)
+      0 []
+      1 ids
+      ;; ≥2 flows: build the full dep graph and run Kahn's algorithm.
+      ;; Graph construction is O(n² · max-inputs · max-path-length) —
+      ;; tiny at v1 per-frame flow counts (a handful of nodes); even a
+      ;; 20-flow registry stays under a millisecond. If a real
+      ;; bottleneck shows up at larger node counts, a memo keyed on
+      ;; the flow-map identity would be the next move (rf2-cd00
+      ;; removed the previous memo; the contract is just deterministic
+      ;; order per drain).
+      (let [graph (into {}
+                        (map (fn [id]
+                               (let [flow (flow-map id)]
+                                 [id (into #{}
+                                           (filter #(and (not= id %)
+                                                         (depends-on? flow (flow-map %))))
+                                           ids)])))
+                        ids)]
+        (loop [ready     (filterv #(empty? (graph %)) ids)
+               remaining graph
+               order     []]
+          (if-let [n (peek ready)]
+            (let [rem0 (dissoc remaining n)
+                  [remaining' ready']
+                  (reduce-kv (fn [[rem rdy] m m-deps]
+                               (if-not (contains? m-deps n)
+                                 [rem rdy]
+                                 (let [m-deps' (disj m-deps n)]
+                                   [(assoc rem m m-deps')
+                                    (cond-> rdy (empty? m-deps') (conj m))])))
+                             [rem0 (pop ready)]
+                             rem0)]
+              (recur ready' remaining' (conj order n)))
+            (if (seq remaining)
+              (throw (ex-info ":rf.error/flow-cycle"
+                              {:cycle (extract-cycle-path graph
+                                                          (set (keys remaining)))}))
+              order)))))))
