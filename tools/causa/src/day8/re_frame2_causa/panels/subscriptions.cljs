@@ -410,10 +410,9 @@
   sub list + (when a sub is selected and the chain is open) the
   invalidation-chain affordance."
   []
-  (let [{:keys [rows status-counts selected-query-v active-filters
-                chain-open? chain]}
+  (let [{:keys [rows filtered-rows status-counts selected-query-v
+                active-filters chain-open? chain]}
         @(rf/subscribe [:rf.causa/subscriptions-data])
-        filtered-rows (h/filter-by-status rows active-filters)
         total         (count rows)]
     [:section {:data-testid "rf-causa-subscriptions"
                :style       {:height         "100%"
@@ -544,16 +543,24 @@
             changed-paths   (:changed-paths latest-epoch)
             rows            (h/project-rows
                               sub-cache sub-runs error-cache)
+            ;; rf2-ltb7n / audit 2f — filter inside the sub so the
+            ;; substrate's reactive value-cache short-circuits when
+            ;; neither rows nor filters changed; the view previously
+            ;; ran `(filter-by-status rows filters)` on every
+            ;; render, recomputing for unrelated reactive triggers.
+            active-filters  (or filters #{})
+            filtered-rows   (h/filter-by-status rows active-filters)
             counts          (h/status-counts rows)
             chain           (when (and chain-open? selected-q-v)
                               (h/compute-chain
                                 selected-q-v sub-cache sub-runs
                                 error-cache changed-paths))]
         {:rows             rows
+         :filtered-rows    filtered-rows
          :status-counts    counts
          :total            (count rows)
          :selected-query-v selected-q-v
-         :active-filters   (or filters #{})
+         :active-filters   active-filters
          :chain-open?      (boolean chain-open?)
          :chain            chain})))
 
