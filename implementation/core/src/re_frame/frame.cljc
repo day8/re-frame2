@@ -248,16 +248,36 @@
         (nil? existing)
         (let [f (new-frame-record id config)]
           (swap! frames assoc id f)
-          ;; Run :on-create events synchronously BEFORE emitting :frame/created.
-          ;; Per Spec 002 §Frame creation: on-create completes first, then
-          ;; the frame is observable to listeners. The router/dispatch
-          ;; namespace handles dispatch-sync; we forward via the late-bind
-          ;; registry to avoid a cyclic dep at compile time. (`resolve` is
-          ;; not a runtime fn in CLJS, so the older `(resolve 'router/...)`
-          ;; pattern silently no-op'd in CLJS — see rf2-p8g8.)
+          ;; Run :on-create events BEFORE emitting :frame/created.
+          ;; Per Spec 002 §Frame creation: on-create completes (or — for
+          ;; the in-handler case below — is queued) first, then the
+          ;; frame is observable to listeners. The router/dispatch
+          ;; namespace handles dispatch / dispatch-sync; we forward via
+          ;; the late-bind registry to avoid a cyclic dep at compile
+          ;; time. (`resolve` is not a runtime fn in CLJS, so the older
+          ;; `(resolve 'router/...)` pattern silently no-op'd in CLJS —
+          ;; see rf2-p8g8.)
+          ;;
+          ;; Per rf2-cufbh / Spec 002 §`reg-frame` / `make-frame` called
+          ;; from inside a handler: when a handler creates a child
+          ;; frame mid-cascade, the child's `:on-create` MUST be queued
+          ;; asynchronously on the child's router (not dispatch-sync'd)
+          ;; — synchronous dispatch-sync from inside a handler is an
+          ;; error per Spec 002 §dispatch-sync inside a handler is an
+          ;; error, and even were it permitted the two cascades would
+          ;; interleave (the no-cross-frame-drain rule in Spec 002
+          ;; §Run-to-completion forbids that). The signal for "inside
+          ;; a handler" is `frame/*current-frame*` being bound — the
+          ;; router binds it in `process-event!` for the duration of
+          ;; the cascade.
           (when-let [on-create (:on-create config)]
-            (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
-              (dispatch-sync on-create {:frame id})))
+            (if *current-frame*
+              ;; Handler-created child frame: async-queue on the child.
+              (when-let [dispatch (late-bind/get-fn :router/dispatch!)]
+                (dispatch on-create {:frame id}))
+              ;; Top-level (no in-flight cascade): synchronous, as before.
+              (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
+                (dispatch-sync on-create {:frame id}))))
           (trace/emit! :frame :frame/created
                        {:frame id :config config})
           id)
