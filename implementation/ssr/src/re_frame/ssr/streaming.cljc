@@ -176,15 +176,25 @@
 
 (declare walk)
 
-(defn- some-suspense-boundary?
-  "Cheap pre-scan: is there a `:rf/suspense-boundary` anywhere in the
-  hiccup vector's subtree? Lets the walker take the fast non-recursive
-  emit path on DOM-tag elements whose subtrees are boundary-free."
-  [el]
-  (cond
-    (not (vector? el)) false
-    (= :rf/suspense-boundary (first el)) true
-    :else (boolean (some some-suspense-boundary? (rest el)))))
+;; Per rf2-muasb (perf-sweep H2, ai/findings/perf-sweep-2026-05-15.md):
+;; the prior implementation called `(some-suspense-boundary? el)` —
+;; itself a recursive scan of the entire subtree — on every DOM-tag
+;; descent, then took a fast `emit/emit-element` path when the
+;; subtree was boundary-free. For a shell with N DOM nodes the
+;; ancestor-chain scans collectively walked O(N × tree-depth) nodes,
+;; quadratic on deep trees with a buried boundary, and the fast path
+;; saved only one fn-call boundary on a tree-walk that emit-element
+;; would do anyway.
+;;
+;; Replaced with the simplest correct shape: walk always recurses
+;; through DOM-tag children via `walk-dom-tag`. Single keyword check
+;; per node either way. A registered view resolved via `:view`
+;; lookup may itself contain boundaries (the conformance fixture
+;; root does); the recursion-always shape catches those without any
+;; pre-scan. The fast-path option (emit/emit-element on
+;; statically-clean subtrees) cannot see through view-refs and so
+;; cannot serve as a correct pre-filter without the per-descent
+;; cost the audit calls out.
 
 (defn- walk-children [children acc]
   (clojure.string/join (mapv #(walk % acc) children)))
@@ -192,18 +202,18 @@
 (defn- walk-dom-tag
   "Emit a DOM tag element while recursing into its children with the
   walker (so nested boundaries get caught). Mirrors the non-void branch
-  of `emit/emit-element` but threads `acc` through."
+  of `emit/emit-element` but threads `acc` through. Per rf2-muasb the
+  prior shape called `parse-tag-name` twice on `head` (once destructured
+  to `[tag-name _]`, then again to `[_ tag-attrs]`); collapsed to one
+  call here, the binding shape mirrors `emit/emit-element` exactly."
   [el acc]
-  (let [head (first el)
-        [tag-name _tag-attrs-from-head] (emit/parse-tag-name head)
+  (let [head                  (first el)
+        [tag-name tag-attrs]  (emit/parse-tag-name head)
         [user-attrs children] (if (map? (second el))
                                 [(second el) (drop 2 el)]
                                 [{} (rest el)])
-        ;; Re-derive `[tag-attrs]` and `merged` exactly as emit-element
-        ;; does — keeps tag#id.cls parity with the non-streaming path.
-        [_ tag-attrs] (emit/parse-tag-name head)
-        merged-attrs  (emit/merge-class-attrs tag-attrs user-attrs)
-        void?         (contains? emit/void-elements (keyword tag-name))]
+        merged-attrs          (emit/merge-class-attrs tag-attrs user-attrs)
+        void?                 (contains? emit/void-elements (keyword tag-name))]
     (if void?
       (str "<" tag-name (emit/attr-string merged-attrs) ">")
       (str "<" tag-name (emit/attr-string merged-attrs) ">"
@@ -281,14 +291,12 @@
                         (emit/inject-coord-on-root-hiccup coord raw)
                         raw)]
             (walk out acc))
-          ;; DOM tag — emit via the standard emitter ONLY IF the
-          ;; subtree contains no suspense-boundaries; otherwise recurse
-          ;; manually so we descend into them. A quick pre-scan keeps
-          ;; the common case (no boundary in subtree) fast — fall
-          ;; through to emit-element which is already optimised.
-          (if (some-suspense-boundary? el)
-            (walk-dom-tag el acc)
-            (emit/emit-element el)))))
+          ;; DOM tag — always recurse via `walk-dom-tag` so nested
+          ;; suspense-boundaries are reachable. Per rf2-muasb the
+          ;; prior `some-suspense-boundary?` pre-scan was a perf
+          ;; anti-pattern: O(N) per descent, dominated whatever it
+          ;; saved by short-circuiting to `emit/emit-element`.
+          (walk-dom-tag el acc))))
 
     (and (vector? el) (fn? (first el)))
     ;; fn-headed component — invoke + recurse on the body.
