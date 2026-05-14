@@ -157,6 +157,51 @@ Single source of truth for the per-leaf size ceiling — per-skill
 Corpus stats supporting these numbers: `ai/findings/skill-leaf-size-audit-20260513.md`
 (local-only; max 203 L, p95 148 L, median 88 L).
 
+### Published-skill `allowed-tools` baseline (security policy)
+
+Per the closed decision under rf2-hpkkx — a pragmatic least-privilege
+stance, not a paranoid one. The skills here are dev productivity tools;
+trust the explicit invoker, gate accidents rather than theoretical
+attacks.
+
+- **Wildcards on routine commands are fine.** `Bash(npm *)`,
+  `Bash(npx *)`, `Bash(clojure *)`, `Bash(shadow-cljs *)`,
+  `Bash(rg *)`, `Bash(gh issue *)`, `Bash(gh pr *)`, `Bash(git *)`
+  are all acceptable in published-skill frontmatter.
+- **No `Bash(bd *)` in published skill frontmatter.** `bd` (beads) is
+  the re-frame2 monorepo's internal tracker — it has no place in
+  skills shipped to consumer projects. Cross-repo side effects from
+  skills file against **the target repo's GitHub issues** via
+  `gh issue create` (see the shell-safety pattern below).
+- **Avoid wildcards on truly dangerous tools.** Never grant
+  `Bash(*)`, `Bash(sudo *)`, `Bash(rm -rf *)`, or equivalent. If a
+  skill needs a destructive shell action, name the exact command.
+- **Install from tags, not from SHAs.** Skill installation guidance
+  may point at `main` or a release tag — no SHA-pin requirement.
+  Latest-stable is the default for remote inputs; the explicit
+  invoker can override.
+- **nREPL is dev-only and binds to localhost.** Any skill that walks
+  the author through enabling nREPL (currently `re-frame2-setup`)
+  carries a one-line reminder that nREPL is a remote-evaluation
+  surface and must stay bound to `localhost` in dev.
+- **Shell-safety pattern for transcript-derived text.** When a skill
+  composes a shell command from text drawn out of the conversation —
+  transcripts, error traces, user-supplied recaps — pass the body via
+  stdin or a here-doc, never via direct interpolation. Canonical
+  shape:
+
+  ```bash
+  cat > /tmp/issue-body.md <<'EOF'
+  …transcript-derived body…
+  EOF
+  gh issue create --title "<short title>" --body "$(cat /tmp/issue-body.md)"
+  ```
+
+  Single-quoted here-doc delimiter (`<<'EOF'`) so the shell doesn't
+  expand `$`, `` ` ``, or `\` inside the body. The skill files
+  affected by this pattern are the retro / improvement-filing skills
+  (`re-frame-pair-retro2`, `re-frame2-implementor`).
+
 ### Test-fixture discipline — only `re-frame-pair2/` ships tests
 
 Of the skills in this corpus, **only [`re-frame-pair2/`](./re-frame-pair2/)

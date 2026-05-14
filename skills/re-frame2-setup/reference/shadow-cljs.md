@@ -98,6 +98,8 @@ If the author plans to attach `re-frame-pair2` (the live-inspection skill) to th
 
 If you want to pin the port explicitly (e.g. for editor integrations), add a top-level `:nrepl {:port 7002}` to `shadow-cljs.edn`. Not required for greenfield.
 
+**Dev-only — bind to localhost.** nREPL is a remote-evaluation surface; in development always leave it bound to `localhost` (the shadow-cljs default). Never expose the nREPL port on `0.0.0.0` or a public interface — anything that can connect can evaluate arbitrary code in the running JVM.
+
 ## What re-frame2 does NOT need
 
 A few things you might pull in by reflex from other CLJS framework setups that re-frame2 specifically does not require:
