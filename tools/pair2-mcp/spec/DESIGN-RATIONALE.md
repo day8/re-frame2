@@ -199,8 +199,8 @@ resolve-fn}` pending map).
 ## Lock #4 — Tool catalogue cardinality
 
 **Locked 2026-05-12 (Mike).** **Seven ops at v0.1.0**, mirroring the
-bash-shim catalogue exactly. The catalogue has since grown to **nine
-ops** via two additive drops; see *Subsequent evolution* below.
+bash-shim catalogue exactly. The catalogue has since grown to **fourteen
+ops** via successive additive drops; see *Subsequent evolution* below.
 
 ### Question
 
@@ -278,12 +278,13 @@ decomposition; bounded surface) still holds — both amendments are
   `notifications/progress` mechanism. Push-mode replacement for the
   polling-shaped `watch-epochs`. No bash-shim equivalent.
 
-Net: pair2-mcp ships **twelve ops** (`discover-app`, `eval-cljs`,
+Net: pair2-mcp ships **fourteen ops** (`discover-app`, `eval-cljs`,
 `dispatch`, `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
 `get-path`, `subscribe`, `unsubscribe`, `subscription-info`,
-`get-pair2-instructions`). The bash shims ship six. The shim
-catalogue is a strict subset of the MCP catalogue, with identical
-names and arg shapes for every overlapping op.
+`handler-meta`, `registry-list`, `get-pair2-instructions`). The bash
+shims ship six. The shim catalogue is a strict subset of the MCP
+catalogue, with identical names and arg shapes for every overlapping
+op.
 
 Post-Lock additions accumulated as follows:
 
@@ -297,6 +298,16 @@ Post-Lock additions accumulated as follows:
   agent-onboarding text blob read once at session start. Mirrors
   story-mcp's `get-story-instructions` under the cross-MCP `get-`
   verb.
+- **rf2-cibp8 / rf2-pctf8** added `handler-meta` and `registry-list`
+  — the registrar-introspection pair. `handler-meta {kind id}` returns
+  the registration-metadata map (`:source-coord`, `:doc`, `:tags`,
+  any reg-`*`-emitted slots) so agents can answer "where is `:user/login`
+  defined?" without a wide-authority `eval-cljs` round-trip;
+  `registry-list {kind}` is the discovery peer that enumerates every
+  registered id under a kind. Both route through the existing
+  `re-frame-pair2.runtime` registrar primitives (and `(rf/machines)`
+  for the `:machine` kind per Spec 005 §Querying machines); both are
+  `:cacheable? true` since the registrar is stable across a session.
 
 ---
 
@@ -384,15 +395,16 @@ changes.
   existing runbooks, skill docs, and personal workflows that
   reference them. The benefit of removal (less code) is small
   compared to the cost (someone's session breaking on a Tuesday).
-- **Overlapping op vocabulary.** Six of the twelve MCP tools
+- **Overlapping op vocabulary.** Six of the fourteen MCP tools
   (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
   `watch-epochs`, `tail-build`) mirror the six bash shims exactly,
-  with identical names and arg shapes. The remaining six
+  with identical names and arg shapes. The remaining eight
   (`snapshot`, `get-path`, `subscribe`, `unsubscribe`,
-  `subscription-info`, `get-pair2-instructions`) are MCP-only
-  additions per Lock #4's *Subsequent evolution* note — they have
-  no shim equivalent. Agents can mix calls in the same workflow
-  during transition — no all-or-nothing switch is required.
+  `subscription-info`, `handler-meta`, `registry-list`,
+  `get-pair2-instructions`) are MCP-only additions per Lock #4's
+  *Subsequent evolution* note — they have no shim equivalent.
+  Agents can mix calls in the same workflow during transition —
+  no all-or-nothing switch is required.
 - **MCP server isn't proven across the team yet.** Side-by-side
   shipping gives the MCP server time to accumulate trust before
   becoming the only path.
@@ -555,7 +567,7 @@ posture locked here.
 | 1 | Implementation language | **ClojureScript + shadow-cljs → Node** | 2026-05-12 |
 | 2 | Agent-host transport | **MCP over stdio** | 2026-05-12 |
 | 3 | Connection model | **Single persistent nREPL socket** | 2026-05-12 |
-| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown to nine** (mirror the shim catalogue + `snapshot` + `subscribe`/`unsubscribe`) | 2026-05-12 |
+| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown to fourteen** (mirror the shim catalogue + `snapshot` + `get-path` + `subscribe`/`unsubscribe`/`subscription-info` + `handler-meta`/`registry-list` + `get-pair2-instructions`) | 2026-05-12 |
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
@@ -563,10 +575,10 @@ posture locked here.
 These seven locks together define pair2-mcp's shipped surface.
 Anything outside these decisions is up for design discussion;
 anything inside is direction-set and shipped. Lock #4's
-cardinality has since grown additively (see its *Subsequent
-evolution* note); the load-bearing direction — mirror the shim
-catalogue, prefer mode flags over op decomposition, keep the
-surface bounded — still holds. Lock #7 sets the wire-budget
+cardinality has since grown additively from seven to fourteen
+(see its *Subsequent evolution* note); the load-bearing direction
+— mirror the shim catalogue, prefer mode flags over op decomposition,
+keep the surface bounded — still holds. Lock #7 sets the wire-budget
 posture that subsequent trim-mechanism beads (path slicing,
 diff encoding, lazy summary, structural dedup, pagination)
 compose against without rebuilding the wrapper.
