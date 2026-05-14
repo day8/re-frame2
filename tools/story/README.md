@@ -120,8 +120,8 @@ The substantive implementation contract is decomposed into
   snapshot identities; dual-pane SSR support.
 - [`tools/README.md`](../README.md) — the per-tool layout and bundle-isolation
   contract.
-- [Guide chapter 21 — Stories](../../docs/guide/21-stories.md) — the narrative
-  walkthrough; the friendly entry-point for human readers.
+- [Story tutorial](../../docs/story/index.md) — the narrative walkthrough;
+  the friendly entry-point for human readers.
 - [`tools/story/testbeds/counter_with_stories/`](testbeds/counter_with_stories/) —
   the tool-owned testbed wiring the seven `reg-*` macros against the canonical
   counter app (rf2-p8f2s — relocated from `examples/reagent/`).

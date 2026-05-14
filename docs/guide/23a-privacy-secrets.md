@@ -283,5 +283,5 @@ One declaration site, one walker, every consumer honours it.
 - [04a — Schemas](04a-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — the `:rf.http/managed` cascade that extends this chapter's privacy machinery.
 - [14 — Errors and how to handle them](14-errors.md) — the `:rf.error/*` taxonomy this chapter's schema-validation section bottoms out on.
-- [15 — Tooling](15-devtools-and-pair-tools.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason privacy and size matter is that the bus has five+ consumers.
+- [Causa](../causa/index.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason privacy and size matter is that the bus has five+ consumers.
 - [22 — Production observability](22-trace-to-datadog.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.

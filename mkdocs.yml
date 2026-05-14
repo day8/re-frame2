@@ -61,7 +61,6 @@ nav:
 
   - Guide:
     - Overview: guide/README.md
-    - "00 — ClojureScript for non-Clojurians": guide/00-clojurescript-for-non-clojurians.md
     - "02 — app-db": guide/02-app-db.md
     - "03 — Your first app": guide/03-your-first-app.md
     - "04 — Events, state, the cycle": guide/04-events-state-cycle.md
@@ -77,18 +76,43 @@ nav:
     - "12 — The dynamic model": guide/12-the-dynamic-model.md
     - "13 — Testing": guide/13-testing.md
     - "14 — Errors": guide/14-errors.md
-    - "15 — Tooling": guide/15-devtools-and-pair-tools.md
     - "16 — Performance": guide/16-performance.md
     - "17 — Routing": guide/17-routing.md
     - "17a — Routing: reference and advanced topics": guide/17a-routing-reference.md
     - "18 — From re-frame v1": guide/18-from-re-frame-v1.md
     - "19 — Adapters": guide/19-adapters.md
     - "20 — Where to go next": guide/20-where-next.md
-    - "21 — Stories": guide/21-stories.md
     - "Useful patterns":
       - "22 — Production observability": guide/22-trace-to-datadog.md
       - "23a — Privacy: keeping secrets out of traces": guide/23a-privacy-secrets.md
       - "23b — Large blobs: keeping the wire small": guide/23b-large-blobs.md
+
+  - CLJS:
+    - "ClojureScript for non-Clojurians": cljs/index.md
+
+  - Story:
+    - "Welcome": story/index.md
+    - "1. Your first story": story/01-first-story.md
+    - "2. Mode tabs": story/02-mode-tabs.md
+    - "3. Recorder + Test Codegen": story/03-recorder-codegen.md
+    - "4. Workspaces + args editor": story/04-workspaces.md
+    - "5. Snapshot identity + QR sharing": story/05-snapshot-identity.md
+    - "6. Time-travel in Story": story/06-time-travel.md
+    - "7. Multi-substrate side-by-side": story/07-multi-substrate.md
+
+  - Causa:
+    - "Welcome": causa/index.md
+    - "1. Installation": causa/01-installation.md
+    - "2. Panel tour": causa/02-panel-tour.md
+    - "3. Time-travel scrubbing": causa/03-time-travel.md
+    - "4. Trace stream": causa/04-trace-stream.md
+    - "5. Click-to-source": causa/05-click-to-source.md
+    - "6. AI co-pilot rail": causa/06-ai-copilot.md
+    - "7. Schema-violation timeline": causa/07-schema-timeline.md
+    - "8. Hydration debugger": causa/08-hydration.md
+    - "9. Machine inspector": causa/09-machine-inspector.md
+    - "10. App-DB diff": causa/10-app-db-diff.md
+    - "11. MCP-server panel": causa/11-mcp-server.md
 
   - Skills:
     - Overview: skills/index.md
@@ -112,7 +136,7 @@ markdown_extensions:
       slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
   - pymdownx.highlight:
       anchor_linenums: true
-      # Klipse cells in guide/00-clojurescript-for-non-clojurians.md use the
+      # Klipse cells in cljs/index.md use the
       # ```klipse fence. The Klipse JS plugin keys off the `.language-klipse`
       # class that pymdownx.highlight emits when pygments_lang_class is on;
       # the static (no-JS) fallback gets clojure-style syntax highlighting

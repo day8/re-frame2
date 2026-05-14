@@ -46,7 +46,7 @@ The lens that makes the rest of the chapter click: **a frame is one running inst
 The canonical multi-frame use cases, roughly in order of how often you'll meet them:
 
 - **Multiple live instances of the same widget.** The motivating example above — two panels, two date ranges, one widget definition. Devcards on a documentation page, embedded white-label widgets on a host page, multi-window or split-screen UIs.
-- **Stories.** [Chapter 21 — Stories](21-stories.md) gives every variant its own frame. *"Show this view in the loaded state, the loading state, and the error state, side by side"* — three frames, one set of registered handlers, three different `app-db` values. The story tool owns the frame allocation; you don't see it directly.
+- **Stories.** [Story](../story/index.md) gives every variant its own frame. *"Show this view in the loaded state, the loading state, and the error state, side by side"* — three frames, one set of registered handlers, three different `app-db` values. The story tool owns the frame allocation; you don't see it directly.
 - **Per-test fixtures.** [Chapter 13 — Testing](13-testing.md) creates a fresh frame for each test and tears it down at the end, so no test leaks state into the next. `with-frame` and `make-frame` are the test-side primitives.
 - **Per-request server-side render.** [Chapter 11 — The server side](11-server-side.md) creates a new frame per HTTP request, runs the SSR cascade against it, serialises the resulting `app-db`, and destroys the frame. Concurrent requests can't pollute each other because they each have their own `app-db`.
 
@@ -186,7 +186,7 @@ The chapters that exercise the multi-frame story in anger are downstream:
 
 - **[Chapter 13 — Testing](13-testing.md)** — `with-frame` and `make-frame` as the per-test fixture. The pattern is "create a fresh frame, dispatch a sequence of events, assert against the frame's `app-db`, tear down." Tests that span more than one event use `with-frame`'s lexical-binding form so you don't write `{:frame f}` on every dispatch.
 
-- **[Chapter 21 — Stories](21-stories.md)** — every story variant is a frame, allocated by the story runner. The variant's `:events` slot is a sequence of regular event vectors that dispatch into that frame; the canvas renders against it. The frame disappears when the variant is unmounted.
+- **[Story](../story/index.md)** — every story variant is a frame, allocated by the story runner. The variant's `:events` slot is a sequence of regular event vectors that dispatch into that frame; the canvas renders against it. The frame disappears when the variant is unmounted.
 
 - **[Chapter 11 — The server side](11-server-side.md)** — the per-request frame. The SSR adapter calls `(rf/make-frame {:preset :ssr-server :on-create [:rf/server-init request]})`, runs the cascade, reads the resulting `app-db` for hydration shipping, and destroys the frame. Concurrent requests don't see each other.
 
@@ -202,7 +202,7 @@ Most frames you'll register fall into one of four shapes: a normal client app, a
 (rf/reg-frame :ssr.req/abc123      {:preset :ssr-server})
 ```
 
-Each preset's intent is **visible at the call site** — a reader of the source can tell at a glance that this is a test frame, that one is a story variant. The expansion is locked, which keeps the four canonical for AI scaffolding. Chapters 11, 13, and 21 introduce each preset in the context that needs it.
+Each preset's intent is **visible at the call site** — a reader of the source can tell at a glance that this is a test frame, that one is a story variant. The expansion is locked, which keeps the four canonical for AI scaffolding. Chapter 11, chapter 13, and the [Story tutorial](../story/index.md) introduce each preset in the context that needs it.
 
 ## What we covered
 
@@ -218,7 +218,7 @@ Each preset's intent is **visible at the call site** — a reader of the source 
 
 - [chapter 06 — Views and frames](06-views-and-frames.md) — `reg-view`, `frame-provider`, and the split-counter in context.
 - [chapter 13 — Testing](13-testing.md) — `with-frame`/`make-frame` as the per-test fixture; the `:test` preset.
-- [chapter 21 — Stories](21-stories.md) — frame-per-variant; the `:story` preset.
+- [Story](../story/index.md) — frame-per-variant; the `:story` preset.
 - [chapter 11 — The server side](11-server-side.md) — per-request frame; the `:ssr-server` preset.
 
 ## Next

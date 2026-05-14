@@ -66,7 +66,7 @@ This buys you three things:
 
 - **No mutation-bug class.** Half of "what's wrong with my app" in mutable-state systems is "something changed state from somewhere I don't expect." In re-frame2, only event handlers change state, and they do it by returning a new value. There is no `db.cart.push(item)` somewhere in your codebase. There can't be.
 
-- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for the [pair tool](15-devtools-and-pair-tools.md) and [Causa](15-devtools-and-pair-tools.md) to read.
+- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for [`re-frame-pair2`](../skills/re-frame-pair2.md) and [Causa](../causa/index.md) to read.
 
 The lost flexibility — you can't sneak a mutation in from a corner of the app — is the point. Less flexibility, more inspectability.
 

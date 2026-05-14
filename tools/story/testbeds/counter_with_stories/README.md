@@ -148,7 +148,7 @@ implementation symbols. The contract is enforced by:
 
 ## See also
 
-- The guide chapter at [`docs/guide/21-stories.md`](../../../docs/guide/21-stories.md).
+- The Story tutorial at [`docs/story/`](../../../docs/story/).
 - The Story tool's authoring contract at [`tools/story/spec/`](../../../tools/story/spec/).
 - The normative spec at [`spec/007-Stories.md`](../../../spec/007-Stories.md).
 - The agent-facing MCP surface at [`tools/story-mcp/`](../../../tools/story-mcp/).

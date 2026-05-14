@@ -32,7 +32,7 @@ The fastest way to make the pattern stick is to write code in it. The [worked ex
 
 Every example ships with a Playwright smoke spec (`<name>.spec.cjs`) — the spec is the executable acceptance test for "this example still works." Use them as templates when you write your own.
 
-If you'd like a **frame-aware component playground** alongside the live app — Storybook-flavoured but built on re-frame2's primitives — chapter [21 — Stories](21-stories.md) walks the surface, and [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories) is the worked example.
+If you'd like a **frame-aware component playground** alongside the live app — Storybook-flavoured but built on re-frame2's primitives — the [Story tutorial](../story/index.md) walks the surface, and [`tools/story/testbeds/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/counter_with_stories) is the worked example.
 
 ## Pick a substrate adapter
 
