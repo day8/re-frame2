@@ -253,3 +253,47 @@
             (is (= "https://example.invalid/v1?q=:rf/redacted&page=:rf/redacted"
                    (:url tags)))
             (is (true? (:sensitive? w)))))))))
+
+;; ---- rf2-q3ts4 — classify-jvm-error no longer string-matches "abort"/"timed out" ----
+
+;; Reach the private fn via #' so the public surface stays unchanged.
+(def ^:private classify-jvm-error
+  @#'re-frame.http-transport/classify-jvm-error)
+
+(deftest classify-jvm-error-uses-instance-checks-only
+  (testing "rf2-q3ts4 — HttpTimeoutException → :rf.http/timeout (instance match)"
+    (let [t (java.net.http.HttpTimeoutException. "request timed out after 30s")
+          out (classify-jvm-error t)]
+      (is (= :rf.http/timeout (:kind out)))
+      (is (string? (:message out)))))
+
+  (testing "rf2-q3ts4 — CancellationException → :rf.http/aborted (instance match)"
+    (let [t (java.util.concurrent.CancellationException. "cancelled")
+          out (classify-jvm-error t)]
+      (is (= :rf.http/aborted (:kind out)))
+      (is (= :user (:reason out)))))
+
+  (testing "rf2-q3ts4 — a downstream service's error whose message contains
+            \"timed out\" or \"abort\" must NOT misclassify. Pre-fix the
+            substring fallback would route these to :rf.http/timeout /
+            :rf.http/aborted; post-fix they correctly stay at
+            :rf.http/transport (the catch-all for unknown JDK failures)."
+    (let [timed-out-substring-trap
+          (java.io.IOException. "upstream service reported: gateway timed out at edge")
+          abort-substring-trap
+          (java.lang.RuntimeException. "user clicked abort on 3rd-party retry-wrapper")
+          out-1 (classify-jvm-error timed-out-substring-trap)
+          out-2 (classify-jvm-error abort-substring-trap)]
+      (is (= :rf.http/transport (:kind out-1))
+          "an IOException whose message says \"timed out\" is NOT a JDK timeout — stays at :rf.http/transport")
+      (is (= :rf.http/transport (:kind out-2))
+          "a RuntimeException whose message says \"abort\" is NOT a JDK cancellation — stays at :rf.http/transport")
+      (is (= "java.io.IOException" (:cause out-1)))
+      (is (= "java.lang.RuntimeException" (:cause out-2)))))
+
+  (testing "rf2-q3ts4 — wrapped causes still resolve through (.getCause t)"
+    (let [inner (java.net.http.HttpTimeoutException. "inner timeout")
+          outer (java.util.concurrent.CompletionException. inner)
+          out (classify-jvm-error outer)]
+      (is (= :rf.http/timeout (:kind out))
+          "the JDK HttpClient wraps in CompletionException; classify- still resolves the underlying HttpTimeoutException via (.getCause t)"))))

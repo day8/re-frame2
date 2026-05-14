@@ -307,17 +307,27 @@
                           :body-text (.body r)})))))))
 
 #?(:clj
-   (defn- classify-jvm-error [^Throwable t]
+   (defn- classify-jvm-error
+     "Map a JVM-side throwable to a `:rf.http/*` failure shape.
+
+     Per rf2-q3ts4: the JDK reliably surfaces `HttpTimeoutException` for
+     per-attempt timeouts and `CancellationException` for explicit
+     cancellations, so we narrow to instance-checks only. The earlier
+     `str/includes? msg \"timed out\"` / `\"abort\"` fallbacks could
+     misclassify a downstream service's error body (whose message
+     happened to contain those words) as `:rf.http/timeout` /
+     `:rf.http/aborted`, polluting the failure taxonomy. Anything not
+     matching an instance check stays at `:rf.http/transport` — the
+     correct catch-all for unknown JDK failures."
+     [^Throwable t]
      (let [cause (or (.getCause t) t)
            msg   (.getMessage cause)
            cls   (.getName (class cause))]
        (cond
-         (or (instance? java.net.http.HttpTimeoutException cause)
-             (and msg (str/includes? (str/lower-case msg) "timed out")))
+         (instance? java.net.http.HttpTimeoutException cause)
          {:kind :rf.http/timeout :elapsed-ms nil :limit-ms nil :message msg}
 
-         (or (instance? java.util.concurrent.CancellationException cause)
-             (and msg (str/includes? (str/lower-case msg) "abort")))
+         (instance? java.util.concurrent.CancellationException cause)
          {:kind :rf.http/aborted :reason :user :message msg}
 
          :else
