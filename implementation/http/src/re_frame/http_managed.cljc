@@ -45,7 +45,7 @@
   failure taxonomy, or any of the `:rf.http/*` keyword strings onto the
   classpath.
 
-  ## File split (rf2-3i9b, rf2-p7da)
+  ## File split (rf2-3i9b, rf2-p7da, rf2-0eyp2)
 
   This namespace was 1790 LoC pre-split; it's now a thin public façade.
   The implementation is in per-concern sibling namespaces (flat
@@ -54,7 +54,8 @@
 
    - `re-frame.http-encoding`       — URL/query/body encoding, decode
                                       pipeline, `:accept` normalisation,
-                                      failure-map / build-reply-event,
+                                      failure-map / build-reply-event /
+                                      `dispatch-reply-via-late-bind!`,
                                       backoff. All pure fns.
    - `re-frame.http-registry`       — in-flight request + actor-id
                                       indexes, supersede semantics,
@@ -67,6 +68,9 @@
                                       platform-specific fragments are
                                       gated with reader conditionals
                                       (rf2-921qy).
+   - `re-frame.http-handlers`      — `:rf.http/managed` /
+                                      `:rf.http/managed-abort` fx
+                                      handler bodies (rf2-0eyp2).
    - `re-frame.http-machine-wrapper`— machine-shape wrapper (rf2-ijm7),
                                       canned stub handlers,
                                       with-managed-request-stubs*.
@@ -81,13 +85,11 @@
   `:rf.http/*` fx registrations and the `late-bind/set-fn!` hook
   publications that `re-frame.core` reaches through."
   (:require [re-frame.fx                   :as fx]
-            [re-frame.http-encoding        :as encoding]
+            [re-frame.http-handlers        :as handlers]
             [re-frame.http-machine-wrapper :as machine-wrapper]
             [re-frame.http-middleware      :as middleware]
-            [re-frame.http-privacy         :as privacy]
             [re-frame.http-privacy-headers :as privacy-headers]
             [re-frame.http-registry        :as registry]
-            [re-frame.http-transport       :as transport]
             [re-frame.interop              :as interop]
             [re-frame.late-bind            :as late-bind]))
 
@@ -125,121 +127,22 @@
 (def clear-sensitive-headers!   privacy-headers/clear-sensitive-headers!)
 (def default-header-denylist    privacy-headers/default-header-denylist)
 
-;; ---- normalise-args + managed-handler -------------------------------------
-;;
-;; The fx entry point lives here in the façade — it threads the request
-;; through the per-frame interceptor chain (middleware), then dispatches
-;; to the shared attempt loop. Keeping this in the façade means the
-;; sub-namespaces don't need to know about each other (the transport
-;; doesn't `:require` middleware/registry-management; it just runs the
-;; attempt loop).
-
-(defn- normalise-args
-  "Validate + normalise the args map. Returns a context ready for the
-  per-host attempt loop.
-
-  `frame-ctx` carries the resolved `:event` (the originating event
-  vector) — `managed-handler` runs `encoding/resolve-origin-event`
-  once before calling here and stashes the result back into
-  `frame-ctx` as `:event`, so the resolution shape lives in exactly
-  one place per rf2-622e3."
-  [{:keys [request decode accept retry timeout-ms
-           on-success on-failure request-id abort-signal]
-    :or   {timeout-ms 30000}
-    :as   args-map}
-   frame-ctx]
-  (let [origin-event (:event frame-ctx)
-        frame        (or (:frame frame-ctx) :rf/default)
-        ;; rf2-wvkn — when the originating event-id is a spawned actor's
-        ;; address, capture it so the in-flight registry can index by
-        ;; actor-id alongside :request-id. The destroy cascade then has
-        ;; a key to walk on actor-destroy. Detection is structural —
-        ;; we look up the id in the frame's [:rf/spawned ...] runtime
-        ;; registry (per Spec 005 §Declarative :invoke); ordinary event
-        ;; handlers' dispatches yield nil and are not tracked.
-        actor-id     (registry/compute-actor-id frame origin-event)
-        ;; rf2-bma05 — compute the effective :sensitive? flag once and
-        ;; thread it through the attempt-and-retry loop. Three sources
-        ;; (OR-reduced): per-call args, per-request, and the originating
-        ;; handler's registration metadata. The flag rides every
-        ;; :rf.http/* trace event emitted within the cascade so
-        ;; consumers honour the privacy contract per Spec 009 §Privacy.
-        sensitive?   (privacy/request-sensitive? args-map origin-event)]
-    {:request           request
-     :decode            decode
-     :decode-supplied?  (some? decode)
-     :accept            accept
-     :retry             retry
-     :timeout-ms        timeout-ms
-     :origin-event      origin-event
-     :explicit-on-success
-     {:supplied? (contains? args-map :on-success)
-      :value     on-success}
-     :explicit-on-failure
-     {:supplied? (contains? args-map :on-failure)
-      :value     on-failure}
-     :request-id        request-id
-     :actor-id          actor-id
-     :abort-signal      abort-signal
-     :frame             frame
-     :attempt           1
-     :sensitive?        sensitive?}))
-
-(defn- managed-handler
-  "The public `:rf.http/managed` fx body. `frame-ctx` carries `:frame`
-  and (when threaded by the runtime, per the do-fx 5-arity) `:event` —
-  the originating event vector used for default reply addressing per
-  Spec 014 §Reply addressing.
-
-  Per Spec 014 §Middleware (rf2-6y3q): before normalising args, the
-  per-frame interceptor chain is walked. Each `:before` transforms a
-  ctx `{:request :args :frame :event}`; the runtime threads its return
-  value through the rest of the chain. A throw inside any `:before`
-  classifies as `:rf.error/http-interceptor-failed`; the request is
-  not dispatched."
-  [frame-ctx args-map]
-  (transport/check-cljs-only-keys! args-map)
-  (let [frame-id     (or (:frame frame-ctx) :rf/default)
-        ;; rf2-622e3 — resolve once, thread the result through
-        ;; frame-ctx's :event slot so normalise-args reads it
-        ;; directly instead of re-running the OR-chain.
-        origin-event (encoding/resolve-origin-event frame-ctx args-map)
-        frame-ctx'   (assoc frame-ctx :event origin-event)
-        ctx0         {:request (:request args-map)
-                      :args    args-map
-                      :frame   frame-id
-                      :event   origin-event}
-        ctx          (middleware/run-interceptor-chain! frame-id ctx0)
-        args-map'    (assoc args-map :request (:request ctx))
-        normalised   (normalise-args args-map' frame-ctx')
-        request-id   (:request-id normalised)]
-    (when request-id (registry/supersede! request-id))
-    (transport/run-attempt! normalised)
-    nil))
-
-(defn- managed-abort-handler
-  "Public `:rf.http/managed-abort` fx. Args is the request-id (any value).
-
-  Per rf2-plngk the in-flight cleanup is owned by `finalise-failure!`
-  (the abort-fn closure calls into it). The earlier shape pre-cleared
-  the registry here AND inside `finalise-failure!`, doubling the
-  `swap!` traffic per abort. Now the single source of truth lives at
-  the failure-finalise site; this handler only fires the abort-fn."
-  [_frame-ctx request-id]
-  (when-let [handle (registry/lookup-in-flight request-id)]
-    (try ((:abort-fn handle) :user)
-         (catch #?(:clj Throwable :cljs :default) _ nil)))
-  nil)
-
 ;; ---- registration ---------------------------------------------------------
+;;
+;; The `:rf.http/managed` and `:rf.http/managed-abort` fx handler bodies
+;; live in `re-frame.http-handlers` (per rf2-0eyp2). The façade only
+;; performs the `(fx/reg-fx ...)` registrations and the canned-stub
+;; registrations gated on `interop/debug-enabled?`. Apps that don't
+;; load `re-frame.http-managed` don't carry the handlers either —
+;; the registration site is the load-time anchor.
 
 (fx/reg-fx :rf.http/managed
            {:doc "Spec 014 — managed HTTP request."}
-           managed-handler)
+           handlers/managed-handler)
 
 (fx/reg-fx :rf.http/managed-abort
            {:doc "Spec 014 — abort an in-flight :rf.http/managed by request-id."}
-           managed-abort-handler)
+           handlers/managed-abort-handler)
 
 ;; The two canned-stub fxs are gated on `interop/debug-enabled?` so they
 ;; elide in production. Per Spec 014 §Testing — "Don't ship the canned-
