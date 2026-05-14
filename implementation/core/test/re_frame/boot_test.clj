@@ -38,11 +38,18 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  ;; Wipe both the install slot AND the disposed breadcrumb so each test
+  ;; starts from a never-installed cold state (rf2-6wxys). A plain
+  ;; `dispose-adapter!` would leave the breadcrumb true after the first
+  ;; test that installed, biasing every subsequent throw assertion toward
+  ;; `:rf.error/adapter-disposed` rather than `:rf.error/no-adapter-installed`.
   (adapter/dispose-adapter!)
+  (adapter/reset-lifecycle-state-for-tests!)
   (test-fn)
   ;; Leave the world in a state the next namespace's fixture can reset
   ;; from cleanly.
   (adapter/dispose-adapter!)
+  (adapter/reset-lifecycle-state-for-tests!)
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {}))
@@ -410,3 +417,65 @@
         "replace-container! on nil container returns nil silently (no throw)")
     (is (nil? (adapter/current-adapter))
         "the nil-container path did not consult or modify the adapter slot")))
+
+;; ---- disposed-vs-never-installed (rf2-6wxys) ------------------------------
+;;
+;; Post-dispose runtime calls now raise `:rf.error/adapter-disposed`,
+;; distinct from `:rf.error/no-adapter-installed` (the fresh-process
+;; case). Both states leave the install slot nil so a subsequent
+;; install-adapter! works.
+
+(deftest adapter-disposed-predicate-tracks-lifecycle
+  (testing "adapter-disposed? reflects the dispose/install lifecycle"
+    (is (false? (adapter/adapter-disposed?))
+        "fresh cold start — no install, no dispose; breadcrumb is false")
+    (rf/init! plain-atom/adapter)
+    (is (false? (adapter/adapter-disposed?))
+        "install clears the breadcrumb (and was already false)")
+    (adapter/dispose-adapter!)
+    (is (true? (adapter/adapter-disposed?))
+        "after dispose-adapter!, the breadcrumb is true")
+    (rf/init! plain-atom/adapter)
+    (is (false? (adapter/adapter-disposed?))
+        "fresh install clears the breadcrumb")))
+
+(deftest dispose-with-no-install-does-not-set-breadcrumb
+  (testing "dispose-adapter! is a no-op when no adapter is installed; the breadcrumb stays false"
+    (is (nil? (adapter/current-adapter))
+        "precondition: no adapter installed")
+    (is (false? (adapter/adapter-disposed?))
+        "precondition: breadcrumb is false")
+    (adapter/dispose-adapter!)
+    (is (false? (adapter/adapter-disposed?))
+        "dispose with no adapter does not pretend a fresh process is post-dispose")))
+
+(deftest substrate-delegation-after-dispose-throws-adapter-disposed
+  (testing "every substrate-delegation fn throws :rf.error/adapter-disposed after dispose-adapter!"
+    (rf/init! plain-atom/adapter)
+    (adapter/dispose-adapter!)
+    (is (nil? (adapter/current-adapter))
+        "precondition: adapter slot is empty after dispose")
+    (is (true? (adapter/adapter-disposed?))
+        "precondition: disposed breadcrumb is true")
+    (let [cases [['rf/make-state-container        #(adapter/make-state-container         {:k :v})]
+                 ['rf/read-container              #(adapter/read-container               ::dummy-container)]
+                 ['rf/replace-container!          #(adapter/replace-container!           ::dummy-container {:new :value})]
+                 ['rf/make-derived-value          #(adapter/make-derived-value           [::source]        (constantly 42))]
+                 ['rf/render                      #(adapter/render                       [:div]            ::mount-point {})]
+                 ['rf/render-to-string            #(adapter/render-to-string             [:div]            {})]
+                 ['rf/subscribe-container         #(adapter/subscribe-container          ::dummy-container (fn [_]))]
+                 ['rf/register-context-provider   #(adapter/register-context-provider    :rf/default)]]]
+      (doseq [[where-sym thunk] cases]
+        (let [thrown (catch-no-adapter thunk)]
+          (is (some? thrown)
+              (str where-sym " throws when called after dispose-adapter!"))
+          (is (= ":rf.error/adapter-disposed"
+                 (some-> thrown ex-message))
+              (str where-sym " ex-message carries the :rf.error/adapter-disposed tag (not :no-adapter-installed)"))
+          (let [data (ex-data thrown)]
+            (is (= where-sym (:where data))
+                (str where-sym " ex-data :where echoes the offending public surface symbol"))
+            (is (= :no-recovery (:recovery data))
+                (str where-sym " ex-data :recovery is :no-recovery"))
+            (is (re-find #"dispose-adapter!" (str (:reason data)))
+                (str where-sym " ex-data :reason mentions the prior dispose-adapter!"))))))))

@@ -619,6 +619,7 @@
 (def dispose-adapter!     adapter/dispose-adapter!)
 (def current-adapter      adapter/current-adapter)
 (def current-adapter-spec adapter/current-adapter-spec)
+(def adapter-disposed?    adapter/adapter-disposed?)
 
 (defn- bad-init-arg!
   "Raise `:rf.error/no-adapter-specified` with a consistent reason
