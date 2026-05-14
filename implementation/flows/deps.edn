@@ -18,10 +18,9 @@
 ;; `rf/reg-flow` / `rf/clear-flow` or relies on the `:rf.fx/reg-flow`
 ;; / `:rf.fx/clear-flow` runtime fxs — loading the namespace registers
 ;; its late-bind hooks (`:flows/reg-flow`, `:flows/clear-flow`,
-;; `:flows/reg-flow-fx!`, `:flows/clear-flow-fx!`, `:flows/run-flows!`,
-;; `:flows/reset-last-inputs!`, `:flows/reset-flows!`) and installs
-;; the registrar replacement-hook for hot-reload `last-inputs`
-;; invalidation.
+;; `:flows/run-flows!`, `:flows/reset-last-inputs!`, `:flows/reset-flows!`)
+;; and installs the registrar replacement-hook for hot-reload
+;; `last-inputs` invalidation.
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on

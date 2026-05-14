@@ -124,13 +124,14 @@ const ARTEFACTS = [
         sentinel: 'rf.error/flow-bad-inputs' },
     ],
     // Two consumer-side strings:
-    //   `flows/reg-flow-fx!` — late-bind hook key core publishes for
-    //                          the flows artefact's reg-flow-fx install
-    //                          (rf2-tfw3 split).
+    //   `flows/reg-flow`     — late-bind hook key core publishes for
+    //                          the flows artefact's reg-flow surface
+    //                          (rf2-tfw3 split; rf2-7ppmo consolidated
+    //                          the fx-side path onto the same hook).
     //   `rf.fx/reg-flow`     — fx-case key core's case-block dispatches
     //                          on; the flows artefact registers its
     //                          handler against this key.
-    consumerAllowList: /flows\/reg-flow-fx!|rf\.fx\/reg-flow/g,
+    consumerAllowList: /flows\/reg-flow|rf\.fx\/reg-flow/g,
     expectedAllowListHits: 2,
   },
 
