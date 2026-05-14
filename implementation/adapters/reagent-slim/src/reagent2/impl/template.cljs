@@ -435,19 +435,24 @@
   "Expand a sequence of hiccup forms (e.g. `(map ...)` children) to a
   JS array of React elements. Per IMPL-SPEC §7.4 — emits a one-shot
   dev warning per surrounding component when a child vector lacks a
-  `:key` meta or `:key` in its prop map."
+  `:key` meta or `:key` in its prop map.
+
+  Single-pass: the DEBUG key-check runs inline with the as-element
+  conversion (was two passes over the same lazy seq); production
+  builds (`goog.DEBUG=false`) DCE the inner branch."
   [s]
-  (let [arr (into-array (map as-element s))]
-    (when ^boolean js/goog.DEBUG
-      (loop [items s]
-        (when-let [el (first items)]
+  (let [arr #js []]
+    (loop [items s]
+      (when-let [el (first items)]
+        (when ^boolean js/goog.DEBUG
           (when (and (vector? el)
-                     (not (get-react-key el)))
-            (when (exists? js/console)
-              (.warn js/console
-                     (str "[reagent-slim] each child in a list should have a unique"
-                          " :key prop; saw " (pr-str el)))))
-          (recur (rest items)))))
+                     (not (get-react-key el))
+                     (exists? js/console))
+            (.warn js/console
+                   (str "[reagent-slim] each child in a list should have a unique"
+                        " :key prop; saw " (pr-str el)))))
+        (.push arr (as-element el))
+        (recur (rest items))))
     arr))
 
 (defn- ^boolean hiccup-tag? [x]
