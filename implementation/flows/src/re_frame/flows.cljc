@@ -72,19 +72,6 @@
 (def reset-flows!       registry/reset-flows!)
 (def reset-last-inputs! registry/reset-last-inputs!)
 
-;; ---- fx hooks (called from re-frame.fx) ---------------------------------
-;;
-;; The :rf.fx/reg-flow / :rf.fx/clear-flow runtime fx receive a {:frame ...}
-;; cofx via fx.cljc. Thread the frame through.
-
-(defn reg-flow-fx!
-  ([flow]      (reg-flow flow))
-  ([flow opts] (reg-flow flow opts)))
-
-(defn clear-flow-fx!
-  ([id]      (clear-flow id))
-  ([id opts] (clear-flow id opts)))
-
 ;; ---- evaluation ---------------------------------------------------------
 ;;
 ;; Called from the per-event drain after :db commits and before :fx runs.
@@ -194,8 +181,6 @@
 
 (late-bind/set-fn! :flows/reg-flow           reg-flow)
 (late-bind/set-fn! :flows/clear-flow         clear-flow)
-(late-bind/set-fn! :flows/reg-flow-fx!       reg-flow-fx!)
-(late-bind/set-fn! :flows/clear-flow-fx!     clear-flow-fx!)
 (late-bind/set-fn! :flows/run-flows!         run-flows!)
 (late-bind/set-fn! :flows/reset-last-inputs! reset-last-inputs!)
 (late-bind/set-fn! :flows/reset-flows!       reset-flows!)

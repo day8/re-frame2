@@ -163,13 +163,21 @@
 
    ;; Per Spec 013 — flows are frame-scoped. The flow registers against
    ;; the dispatching frame.
+   ;;
+   ;; Both fx-ids route through the SAME hooks the public API uses
+   ;; (`:flows/reg-flow` / `:flows/clear-flow`). Pre-rf2-7ppmo the
+   ;; flows artefact published four hooks — two API-shape, two fx-
+   ;; shape — but the API-shape hooks already accept `(arg opts)` with
+   ;; opts carrying `:frame`, and `call-frame-scoped-hook!` passes
+   ;; `{:frame frame-id}` as the second arg. The fx-shape hooks were
+   ;; one-line pass-throughs; consolidated to two hooks.
    :rf.fx/reg-flow
    (fn [frame-id args]
-     (call-frame-scoped-hook! :flows/reg-flow-fx! frame-id args))
+     (call-frame-scoped-hook! :flows/reg-flow frame-id args))
 
    :rf.fx/clear-flow
    (fn [frame-id args]
-     (call-frame-scoped-hook! :flows/clear-flow-fx! frame-id args))})
+     (call-frame-scoped-hook! :flows/clear-flow frame-id args))})
 
 (defn- resolve-fx-with-overrides
   "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides.

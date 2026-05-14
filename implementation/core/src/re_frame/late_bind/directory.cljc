@@ -51,18 +51,17 @@
     :description "Process an event synchronously, bypassing the drain queue."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
+   ;; Both the public `rf/reg-flow` / `rf/clear-flow` surfaces AND the
+   ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs route through
+   ;; the same two hooks (rf2-7ppmo). The api-shape `(arg opts)` already
+   ;; carries the `:frame` opt the fx-side path needs, so a separate
+   ;; `*-fx!` hook pair was dead indirection.
    {:key         :flows/reg-flow
     :producer-ns 're-frame.flows
-    :description "Register a flow definition with the runtime."}
+    :description "Register a flow definition with the runtime (public-API + :rf.fx/reg-flow)."}
    {:key         :flows/clear-flow
     :producer-ns 're-frame.flows
-    :description "Remove a previously-registered flow definition."}
-   {:key         :flows/reg-flow-fx!
-    :producer-ns 're-frame.flows
-    :description "Install the :rf.flow/reg-flow effect handler."}
-   {:key         :flows/clear-flow-fx!
-    :producer-ns 're-frame.flows
-    :description "Install the :rf.flow/clear-flow effect handler."}
+    :description "Remove a previously-registered flow definition (public-API + :rf.fx/clear-flow)."}
    {:key         :flows/run-flows!
     :producer-ns 're-frame.flows
     :description "Re-evaluate every registered flow for the current frame."}
