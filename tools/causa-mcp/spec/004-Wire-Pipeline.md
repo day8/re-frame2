@@ -50,25 +50,50 @@ helper:
 - **Opt-in**: per-call `:include-sensitive? true` MCP arg disables
   the gate. The arg name is fixed cross-server (pair2-mcp + story-mcp
   + causa-mcp) per the cross-server symmetry posture above.
-- **Scope**: only the trace-stream surface. Mutating ops (`dispatch`,
-  `restore-epoch`, `reset-frame-db`) and read-mostly per-frame state
-  ops (`get-app-db`, `get-app-db-diff`, `get-machine-state`) don't
-  carry `:sensitive?` stamps — they don't ride the trace bus. Note
-  what `with-redacted` does and does not displace: it is the
-  **writing-handler** interceptor that shapes the trace's
-  `:db-before` / `:db-after` slots so the trace stream's projection
-  is redacted at write time; it does **not** scrub a subsequent
-  direct read of `app-db`, the sub-cache, or any tree-typed surface.
-  Direct-read tools (`get-app-db`, `get-app-db-diff`,
-  `get-machine-state`, sub-cache reads, direct epoch slices) ride
-  the `rf/elide-wire-value` walker contract pinned at
-  [`spec/Tool-Pair.md` §Direct-read privacy posture](../../../spec/Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path)
-  — `:include-sensitive?` and `:include-large?` both default
-  `false` off-box, so the walker is the mandatory wire-egress
-  mechanism on the read side (mechanism 6 below, §"Size elision").
-  Apps that need fine-grained app-db privacy continue to use
-  `with-redacted` on writing handlers — defence in depth, not
-  displacement.
+- **Scope**: this default-drop applies to the **trace-stream
+  surface only**. Mutating ops (`dispatch`, `restore-epoch`,
+  `reset-frame-db`) don't carry `:sensitive?` stamps — they don't
+  ride the trace bus. **Direct-read tools** (`get-app-db`,
+  `get-app-db-diff`, `get-machine-state`, sub-cache reads, direct
+  epoch slices) are a *separate* normative privacy contract — see
+  the **direct-read MUST** immediately below.
+
+**Direct-read privacy — normative MUST.** Direct-read tools
+(`get-app-db`, `get-app-db-diff`, `get-machine-state`, sub-cache
+reads, direct epoch slices) **MUST** route every returned value
+through `rf/elide-wire-value` before the value crosses the MCP
+stdio egress. Both `:include-sensitive?` and `:include-large?`
+**MUST** default `false` off-box; the walker is the mandatory
+wire-egress mechanism on the read side, not an opt-in policy.
+This is the cross-MCP contract pinned at
+[`spec/Tool-Pair.md` §Direct-read privacy posture](../../../spec/Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path)
+(L569-573) and tracked by row #19 of
+[`findings/MUST-inventory.md`](./findings/MUST-inventory.md);
+the walker's wire shape, composition cascade ("sensitive wins"),
+and per-call opt-outs are catalogued in §6 ("Size elision")
+below.
+
+The two contracts compose but do not substitute: the
+trace-stream default-drop above protects the *stream* surface;
+the direct-read MUST here protects the *live-value* surface.
+Both surfaces share the cross-server `:include-sensitive?` /
+`:include-large?` opt-in slots so an agent learns one posture
+everywhere.
+
+**What `with-redacted` does and does not displace.** The
+`with-redacted` interceptor is the **writing-handler** interceptor
+that shapes the trace's `:db-before` / `:db-after` slots — it
+redacts the trace stream's projection of `app-db` at write time.
+It does **not** scrub a subsequent direct read of live `app-db`,
+the live sub-cache, or any tree-typed surface; a direct read
+returns the live value untransformed unless the wire-egress
+walker scrubs it. The two mechanisms are **defence in depth**:
+`with-redacted` keeps sensitive paths out of the *trace*
+projection; the `rf/elide-wire-value` walker (the direct-read
+MUST above) keeps them out of the *direct-read* wire. Apps that
+need fine-grained app-db privacy continue to use `with-redacted`
+on writing handlers alongside the walker — neither displaces the
+other.
 
 The wiring pattern (when implementation lands) mirrors
 [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)'s
