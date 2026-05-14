@@ -89,12 +89,11 @@
         old-inputs (get-in @last-inputs [flow-id frame-id])]
     (if (= new-inputs old-inputs)
       (do
-        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/skip records the
-        ;; suppressed recompute (per rf2-719e value-equal recompute
-        ;; suppression). Tools use this to surface "flow ran but inputs
-        ;; were stable" — distinct from "flow didn't fire at all because
-        ;; nothing wrote". Outer debug-enabled? gate elides the tag-map
-        ;; construction in prod (rf2-drr4z).
+        ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/skip` records a
+        ;; value-equal recompute suppression. Tools use this to surface
+        ;; "flow ran but inputs were stable" — distinct from "flow
+        ;; didn't fire at all". Outer `debug-enabled?` gate elides the
+        ;; tag-map construction in prod.
         (when interop/debug-enabled?
           (trace/emit! :flow :rf.flow/skip
                        {:flow-id flow-id
@@ -105,9 +104,10 @@
         (let [new-output (apply (:output flow) new-inputs)
               new-db     (assoc-in db (:path flow) new-output)]
           (swap! last-inputs assoc-in [flow-id frame-id] new-inputs)
-          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/computed records
-          ;; a successful recompute. Per rf2-719e the dirty-check is
-          ;; =-equality so this only fires when inputs actually changed.
+          ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/computed`
+          ;; records a successful recompute. The dirty-check is
+          ;; `=`-equality so this only fires when inputs actually
+          ;; changed.
           ;;
           ;; Wire-bearing payloads (`:input-values`, `:result`) ride
           ;; through `elision/elide-wire-value` per Spec 009 §Size
@@ -247,11 +247,11 @@
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
 ;; re-frame.core, re-frame.fx, re-frame.router and re-frame.test-support
-;; need to call into flows but per rf2-tfw3 ship in the core artefact
-;; — they cannot `:require` this namespace because the flows artefact
-;; is optional (apps that don't register flows don't carry it). Publish
-;; entry points through the late-bind hook registry; consumers look the
-;; fns up at call time. See re-frame.late-bind.
+;; need to call into flows but ship in the core artefact — they cannot
+;; `:require` this namespace because the flows artefact is optional
+;; (apps that don't register flows don't carry it). Publish entry
+;; points through the late-bind hook registry; consumers look the fns
+;; up at call time.
 ;;
 ;; Calls are written as literal `set-fn!` invocations with a literal
 ;; keyword (one per line) — the late-bind drift gate
