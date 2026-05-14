@@ -28,7 +28,8 @@ description: >
   a real `re-frame-pair2` session must have occurred in this
   conversation or be summarised by the user as a recap.
 allowed-tools:
-  - Bash(bd *)
+  - Bash(gh issue *)
+  - Bash(gh pr *)
   - Read
   - Edit
   - Write
@@ -48,15 +49,16 @@ Deliver:
 - where the workflow dragged, confused, or frustrated them
 - which problems were one-off environment issues vs recurring product gaps
 - 2-5 concrete improvement ideas, prioritized by leverage, including 1-2 bolder options when they would materially improve the workflow
-- an opt-in bead draft or filed bead only after explicit user approval
+- an opt-in GitHub-issue draft or filed issue only after explicit user approval
 
 ## Guard rails
 
 - **Always start with session analysis.** Do not jump to fixes.
 - **Friction points before root causes.** Let the user pick which ones to dig into.
 - **Default to diagnosis, not contribution.** Do not assume the user wants to file a bead or propose a patch.
-- **Never file a bead or edit another repo without explicit user approval.**
-- **Stay focused on improving `re-frame-pair2`.** If the right fix is upstream in `re-frame2` (Tool-Pair surfaces, trace stream, epoch-history, schema reflection, source-coord annotation), say so and route the proposal to a `bd` bead against the `re-frame2` repo, not `re-frame-pair2`.
+- **Never file a GitHub issue or edit another repo without explicit user approval.**
+- **Stay focused on improving `re-frame-pair2`.** If the right fix is upstream in `re-frame2` (Tool-Pair surfaces, trace stream, epoch-history, schema reflection, source-coord annotation), say so and route the proposal to a GitHub issue against the `re-frame2` repo, not `re-frame-pair2`.
+- **Tracker boundary — file GitHub issues, never `bd` beads.** `bd` is the re-frame2 monorepo's internal tracker; skills consumed downstream file against the target repo's GitHub issues via `gh issue create`. See the shell-safety pattern below.
 - **Do not propose fixes via `re-frame-10x`.** v2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation).
 
 ## When NOT to use this skill
@@ -81,7 +83,7 @@ Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-
 2. **Build a short timeline.** Turns where progress stalled, restarted, detoured, required a workaround. Tool errors, empty/stale outputs, retries, clarification loops.
 3. **Extract friction.** Numbered list first. For each: what happened, where it appeared, initial category guess. Ask which to dig into and what was missed.
 4. **Classify the root cause.** Pick one primary cause per finding from the canonical taxonomy in [`references/analysis-lenses.md` §Root-cause categories](references/analysis-lenses.md#root-cause-categories) (single source of truth — do not redefine inline). Allow multiple contributing causes when needed.
-5. **Generate improvements at the right layer** — skill wording, structured op, runtime surface, cross-platform behavior, validation/fixture, instrumentation, or an upstream `re-frame2` bead. Prefer proposals that remove repeated effort, not just this session's exact symptom. Offer options: no action / docs / tool change / pair2 bead / upstream re-frame2 bead.
+5. **Generate improvements at the right layer** — skill wording, structured op, runtime surface, cross-platform behavior, validation/fixture, instrumentation, or an upstream `re-frame2` GitHub issue. Prefer proposals that remove repeated effort, not just this session's exact symptom. Offer options: no action / docs / tool change / pair2 issue / upstream re-frame2 issue.
 6. **Prioritize.** Favor high-impact, specific, evidence-supported, trust-improving ideas. Return 2-5; default mix is 1-3 grounded + 0-2 bolder.
 
 Load [`references/analysis-lenses.md`](references/analysis-lenses.md) when the session has multiple plausible causes or you want a sharper taxonomy — including the `:on-error` policy lens when the session touched a frame's `:on-error` slot (inspecting it, hot-swapping it, or chasing why an error wasn't recovered the expected way). Load [`references/known-frictions.md`](references/known-frictions.md) when the session resembles a recurring class of pain and you want to sanity-check one-off vs pattern.
@@ -95,7 +97,7 @@ Compact retrospective sections (when the session has enough evidence):
 - `Likely root causes`
 - `Improvement ideas`
 - `Bolder ideas` — for credible higher-upside options worth separating from grounded fixes
-- `Bead candidates` — only if the user wants them
+- `Issue candidates` — only if the user wants them
 - `Other possibilities` — good lower-priority ideas
 
 For each improvement idea: the friction it addresses; why `re-frame-pair2` wasn't enough; the proposed change; the likely layer (skill / script-runtime / tests-docs / upstream `re-frame2`); a short impact statement.
@@ -104,13 +106,24 @@ If the session is too thin, say so plainly and ask for a recap or permission to 
 
 ## Filing improvements
 
-Never file a bead without explicit user approval. After presenting the retrospective, offer filing work only if useful: draft bead text, file via `bd create` against the appropriate repo, or split into multiple focused beads.
+Never file a GitHub issue without explicit user approval. After presenting the retrospective, offer filing work only if useful: draft issue text, file via `gh issue create` against the appropriate repo, or split into multiple focused issues.
 
 **Routing.** `re-frame-pair2` — friction in the pair tool (SKILL.md, scripts, recipes, structured results, attach/discovery, cross-platform). `re-frame2` — friction caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings).
 
-**Before filing.** Redact secrets, tokens, internal URLs, unnecessary local paths. Don't dump the raw transcript; summarize the evidence. Search for an existing bead first (`bd list` / `bd ready` / `bd show <id>`). Prefer one bead per materially distinct improvement. Use [`references/issue-template.md`](references/issue-template.md) for structure.
+**Before filing.** Redact secrets, tokens, internal URLs, unnecessary local paths. Don't dump the raw transcript; summarize the evidence. Search for an existing issue first (`gh issue list --search "<keywords>"`). Prefer one issue per materially distinct improvement. Use [`references/issue-template.md`](references/issue-template.md) for structure.
 
-If `bd` is not configured in the target repo, produce a ready-to-paste body and say it's a draft, not a filed bead. The same template works as a GitHub Issue.
+**Shell safety — transcript-derived text.** Issue bodies drawn from the session transcript can carry shell metacharacters (`$`, backticks, `\`, embedded quotes) the user never sees but the shell would happily expand. Always write the body to a file first and pass it via `--body "$(cat …)"`, never as an interpolated string. Canonical shape:
+
+```bash
+cat > /tmp/issue-body.md <<'EOF'
+…body drawn from the retro transcript…
+EOF
+gh issue create --title "<short title>" --body "$(cat /tmp/issue-body.md)"
+```
+
+Single-quoted here-doc delimiter (`<<'EOF'`) so `$`, `` ` ``, and `\` inside the body stay literal. This matches the skills-baseline shell-safety pattern in [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy).
+
+**Tracker boundary.** `bd` (beads) is the re-frame2 monorepo's internal tracker; this skill never invokes `bd`. Cross-repo side effects target the **target repo's GitHub issues** — `re-frame-pair2` issues for pair-tool friction, `re-frame2` issues for upstream / framework friction.
 
 ## Anti-patterns
 
