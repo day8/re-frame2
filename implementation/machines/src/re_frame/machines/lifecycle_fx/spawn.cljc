@@ -23,7 +23,6 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
 
@@ -85,32 +84,16 @@
                       invoke-id (assoc :rf/invoke-id invoke-id))]
       (assoc spec :data data'))))
 
-(defn- compute-initial-snapshot
-  "Build the spawned actor's initial snapshot — the same shape the
-  `synthesise-initial-snapshot` registration helper produces, but
-  stamped with `:rf/bootstrap-pending? true` so the actor's first event
-  triggers the initial-entry cascade.
-
-  Per rf2-0z73 the bootstrap-pending marker drives the cascade in the
-  handler; per Spec 005 §Parallel regions, parallel-region children get
-  the region-map state shape."
-  [spec]
-  (let [parallel-child? (parallel/parallel? spec)
-        initial-decl    (:initial spec)
-        initial-state   (cond
-                          parallel-child?
-                          (into {} (for [[rn region-body] (:regions spec)]
-                                     [rn (parallel/region-initial-state region-body)]))
-
-                          :else
-                          (transition/denormalise-state
-                            (transition/initial-cascade spec (transition/state-path initial-decl))
-                            initial-decl))]
-    (-> (parallel/commit-tags-parallel
-          spec
-          {:state initial-state
-           :data  (or (:data spec) {})})
-        (assoc :rf/bootstrap-pending? true))))
+;; Per rf2-fgqs4: the spawned actor's initial snapshot is built by
+;; `parallel/build-initial-snapshot` — the single source of truth shared
+;; with the singleton-registration path
+;; (`lifecycle-fx.registration/create-machine-handler`). Pre-rf2-fgqs4
+;; the spawn-path's local helper silently omitted `:rf/spawn-counter`
+;; (so an `:entry`-declared `:invoke` fell to `allocate-spawned-id`'s
+;; defensive `(fnil inc 0)` backstop) and `:meta` (so spawned actors
+;; that declared `:meta` couldn't introspect it from the snapshot).
+;; The spawn path passes `:bootstrap-pending? true` because the actor's
+;; first dispatch must fire the initial-entry cascade (rf2-0z73).
 
 (defn- install-spawn!
   "Atomically install the spawned actor's initial snapshot, system-id
@@ -125,7 +108,9 @@
   re-read is value-equal to the snapshot the caller already had."
   [frame-id db-after-alloc spec spawned-id
    {:keys [system-id parent-id invoke-id track?]}]
-  (let [initial-snap (when spec (compute-initial-snapshot spec))
+  (let [initial-snap (when spec
+                       (parallel/build-initial-snapshot
+                         spec {:bootstrap-pending? true}))
         existing     (when system-id (get-in db-after-alloc [:rf/system-ids system-id]))]
     (when (and system-id existing (not= existing spawned-id))
       (trace/emit-error! :rf.error/system-id-collision
