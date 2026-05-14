@@ -42,7 +42,10 @@
 
 ;; ---- configuration --------------------------------------------------------
 
-(def ^:private default-depth 50)
+(def ^:private default-depth
+  ;; 50 — bounds the per-frame ring buffer; covers a deep undo trail
+  ;; without unbounded retention of replaced app-db snapshots.
+  50)
 
 (defonce ^:private config
   ;; Currently a single key (:depth) but kept as a map so future
