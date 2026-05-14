@@ -6,7 +6,7 @@ Origin: extracted under rf2-dhe9v from the locked decisions in `re-frame-pair-re
 
 ## What "retrospect" means here
 
-A retrospect-style skill reads some body of evidence — a session transcript, a code body, an error trace, a recap supplied by the user — and produces a structured critique: what was observed, what patterns or frictions it matches, where the fix lives, and (only on request) a draft bead.
+A retrospect-style skill reads some body of evidence — a session transcript, a code body, an error trace, a recap supplied by the user — and produces a structured critique: what was observed, what patterns or frictions it matches, where the fix lives, and (only on request) a draft issue.
 
 The shape of the evidence varies by skill. The discipline below does not.
 
@@ -33,11 +33,12 @@ The shape of the evidence varies by skill. The discipline below does not.
    - For improver: the canonical-idiom leaf under `skills/re-frame2/patterns/` or the relevant `spec/` document.
    The cross-link is supporting evidence; the finding must still stand on its own with the symptom and the suggested rewrite.
 
-6. **Apply the opt-in bead protocol.** Never file a bead, edit a foreign repo, or land an `Edit` for a higher-leverage redesign without explicit user approval.
+6. **Apply the opt-in issue-filing protocol.** Never file a GitHub issue, edit a foreign repo, or land an `Edit` for a higher-leverage redesign without explicit user approval.
    - Mechanical rewrites with a clear canonical idiom MAY use `Edit` when the agent is confident.
    - Anything else stays as a suggestion until the user says go.
-   - Before filing: redact secrets, tokens, internal URLs, unnecessary local paths; search for an existing bead first (`bd list` / `bd ready` / `bd show <id>`); prefer one bead per materially distinct improvement; use the consuming skill's `references/issue-template.md` (or equivalent) for body shape.
-   - If `bd` is not configured in the target repo, produce a ready-to-paste body and say it is a draft, not a filed bead.
+   - **Tracker boundary** — skills file GitHub issues against the target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from these skills.
+   - **Shell safety** — transcript-derived bodies can carry shell metacharacters. Always pass the body via a file: `cat > /tmp/issue-body.md <<'EOF' … EOF; gh issue create --body "$(cat /tmp/issue-body.md)"`. Single-quoted here-doc delimiter so `$`, `` ` ``, and `\` stay literal. See [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy).
+   - Before filing: redact secrets, tokens, internal URLs, unnecessary local paths; search for an existing issue first (`gh issue list --repo <owner/repo> --search "<keywords>"`); prefer one issue per materially distinct improvement; use the consuming skill's `references/issue-template.md` (or equivalent) for body shape.
 
 7. **Voice: confident, opinionated, no hedging.** Name the idiom. Name the layer. Pick a priority. The user is asking the skill to surface its judgement — equivocation wastes the trip. Bolder ideas get labelled as such, not buried in qualifiers.
 
@@ -59,7 +60,7 @@ Compact retrospective sections (skills MAY rename to fit their domain, but the s
 - `Causes` (or `Pattern findings`) — classified per the consuming skill's catalogue, one primary cause per finding.
 - `Improvements` (or `Suggested rewrites`) — 2-5 grounded ideas, each with: the friction/pattern it addresses, why the consuming tool was not enough, the proposed change, the layer (see above), and a one-line impact statement.
 - `Bolder ideas` (or `Higher-leverage redesigns`) — 0-2 credible higher-upside options worth separating from grounded fixes. Labelled as bolder; the user picks whether to engage.
-- `Bead candidates` — only if the user has signalled interest. Routed to the right repo per the layer rules.
+- `Issue candidates` — only if the user has signalled interest. Routed to the right repo per the layer rules.
 - `Other possibilities` — good lower-priority ideas demoted to a short list.
 
 If the evidence is too thin for findings, say so plainly. Don't pad.
@@ -74,7 +75,7 @@ Friction and anti-patterns are recognised, not invented. Every finding must trac
 
 - **Domain catalogues.** Each consuming skill provides its own catalogue of recognisable patterns. This protocol assumes the catalogue exists and is loaded.
 - **Trigger semantics.** Each consuming skill carries its own activation precondition (e.g. "a pair2 session must exist," "a body of re-frame2 source must be in scope"). This protocol does not override that.
-- **Tool surfaces.** Each consuming skill carries its own `allowed-tools` frontmatter. This protocol does not require any specific tools beyond the standard Read / Edit / Grep / Glob set; bead drafting needs `Bash(bd *)` if filing is in scope.
+- **Tool surfaces.** Each consuming skill carries its own `allowed-tools` frontmatter. This protocol does not require any specific tools beyond the standard Read / Edit / Grep / Glob set; issue-filing needs `Bash(gh issue *)` (and `Bash(gh pr *)` when proposing a paired PR). `Bash(bd *)` is never granted in published-skill frontmatter — see the baseline policy in `../README.md`.
 
 ## Cross-references
 

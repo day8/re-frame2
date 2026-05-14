@@ -160,7 +160,7 @@ SKILL.md cross-links here rather than reciting these rules inline — keeps the 
 ## 9. Why this design diverges from `re-frame-pair2`
 
 - **No structured-op catalogue.** This skill doesn't operate on a live app; it operates on a session transcript.
-- **No `allowed-tools` block in frontmatter.** The skill is conversational; the AI's tools are the default Read/Edit/Write/Grep/Glob set plus `bd create` when filing is opt-in.
+- **No `allowed-tools` block in frontmatter.** The skill is conversational; the AI's tools are the default Read/Edit/Write/Grep/Glob set plus `gh issue create` when filing is opt-in (the skill files GitHub issues against the target repo — `bd` is the re-frame2 monorepo's internal tracker and is never invoked from a published skill).
 - **No connect-first rule.** No live runtime to connect to.
 - **`agents/openai.yaml` is included.** The skill is portable across LLM hosts; the openai config carries the routing for non-Claude hosts.
 - **No `scripts/` directory.** The skill doesn't ship runtime tooling.

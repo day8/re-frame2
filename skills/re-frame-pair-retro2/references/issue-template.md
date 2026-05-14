@@ -1,8 +1,8 @@
-# Bead / issue template
+# Issue template
 
 Use this structure when drafting or filing an improvement. Keep it evidence-based and concise.
 
-The default filing path for the re-frame2 ecosystem is `bd` (beads) — both for `re-frame-pair2` (the pair tool) and for `re-frame2` (the framework). The body shape below works equally well as a GitHub issue if a repo prefers that path.
+The default filing path is a **GitHub issue** against the target repo — `re-frame-pair2` for pair-tool friction, `re-frame2` for upstream / framework friction. `bd` (beads) is the re-frame2 monorepo's internal tracker; this skill never invokes it.
 
 ## Routing first
 
@@ -57,40 +57,46 @@ Explain what effort, confusion, or risk this would remove in future sessions.
 List any remaining uncertainty, especially if the best fix might belong upstream.
 ```
 
-## Filing with bd
+## Filing with `gh issue create`
 
-Once the body is drafted and the user has approved:
-
-```bash
-# In the target repo (re-frame-pair2 or re-frame2)
-bd create \
-  --title "<title>" \
-  --type task \
-  --priority <P0|P1|P2|P3> \
-  --body "<body>"
-```
-
-For an upstream bead against re-frame2:
+Once the body is drafted and the user has approved, file via the GitHub CLI. **Always pass the body through a file or stdin** — never interpolate the transcript-derived body inline (it can carry shell metacharacters the user never sees but the shell would expand). The canonical shape is the here-doc + `--body "$(cat …)"` pattern from [`../../README.md` §Published-skill `allowed-tools` baseline](../../README.md#published-skill-allowed-tools-baseline-security-policy):
 
 ```bash
-cd /c/Users/miket/code/re-frame2
-bd create --title "..." --type task --priority P2 --body "..."
+# Write the body to a temp file (single-quoted here-doc — keeps $, `, and \ literal):
+cat > /tmp/issue-body.md <<'EOF'
+## Problem
+…drawn from the retro transcript…
+
+## Evidence from a real session
+…
+EOF
+
+# File against the target repo's issues:
+gh issue create \
+  --repo day8/re-frame-pair2 \
+  --title "<short title>" \
+  --body "$(cat /tmp/issue-body.md)" \
+  --label retro
 ```
 
-For a tool-side bead:
+For an upstream issue against re-frame2:
 
 ```bash
-cd /c/Users/miket/code/re-frame-pair2
-bd create --title "..." --type task --priority P2 --body "..."
+gh issue create \
+  --repo day8/re-frame2 \
+  --title "<short title>" \
+  --body "$(cat /tmp/issue-body.md)" \
+  --label retro,upstream-from-pair2
 ```
 
-Always run `bd list` or `bd ready` first to check for an existing bead on the same friction; reference it instead of duplicating.
+Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to check for an existing issue on the same friction; reference it instead of duplicating.
 
 ## Filing rules
 
 - File only after explicit user approval.
+- **Never interpolate transcript-derived text directly into a shell command.** Use the here-doc + `--body "$(cat /tmp/file)"` pattern above — single-quoted `<<'EOF'` delimiter so `$`, `` ` ``, and `\` stay literal.
 - Redact secrets, tokens, and internal-only details.
-- Prefer one bead per distinct improvement.
-- Search for an existing bead first (`bd list`, `bd ready`, `bd show <id>`).
-- Cross-link tool-side and upstream beads when both are filed for the same friction.
-- If the target repo does not have `bd` configured, paste the same body as a GitHub issue and tell the user it is a draft.
+- Prefer one issue per distinct improvement.
+- Search for an existing issue first: `gh issue list --repo <owner/repo> --search "<keywords>"`.
+- Cross-link tool-side and upstream issues when both are filed for the same friction.
+- **Tracker boundary** — file GitHub issues against the target repo. Never invoke `bd` from this skill; `bd` is the re-frame2 monorepo's internal tracker.
