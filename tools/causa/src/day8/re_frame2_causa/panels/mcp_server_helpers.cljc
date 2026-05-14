@@ -85,7 +85,8 @@
   activity observed' empty state. This is simpler than a separate
   detector loop and matches the trace-bus-is-truth posture of
   every other Causa panel."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-causa.panels.common-helpers :as common]))
 
 ;; ---- the inferential origin colour --------------------------------------
 
@@ -222,16 +223,10 @@
         (keep project-row)
         events))
 
-;; ---- now-ms (abstracted for test fixtures) -------------------------------
-
-(defn now-ms
-  "Return host-clock time in ms. Pure-ish — abstracted so test
-  fixtures can stub via `with-redefs`. Cross-platform via
-  `#?(:clj ... :cljs ...)`. Mirrors the issues_ribbon_helpers /
-  trace_helpers convention."
-  []
-  #?(:clj  (System/currentTimeMillis)
-     :cljs (.getTime (js/Date.))))
+;; Re-export `now-ms` so existing callers (registry.cljs thunks the
+;; `:rf.causa/mcp-server-feed` sub via `(mcp-helpers/now-ms)`) keep
+;; working without churn. Body lives in `common-helpers`.
+(def now-ms common/now-ms)
 
 ;; ---- filter application -------------------------------------------------
 

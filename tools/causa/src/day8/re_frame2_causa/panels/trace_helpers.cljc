@@ -234,15 +234,6 @@
     {}
     rows))
 
-;; ---- now-ms (abstracted for tests) --------------------------------------
-
-(defn now-ms
-  "Return host-clock time in ms. Pure-ish — abstracted so test
-  fixtures can stub via `with-redefs`."
-  []
-  #?(:clj  (System/currentTimeMillis)
-     :cljs (.getTime (js/Date.))))
-
 ;; ---- composite projection (the panel reads this) ------------------------
 
 (defn project-feed

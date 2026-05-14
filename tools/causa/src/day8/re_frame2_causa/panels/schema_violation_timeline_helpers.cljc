@@ -53,7 +53,8 @@
   each row using the projection here — this ns hands the view a flat
   vector of `{:schema-id ... :violations [...]}` rows + pre-computed
   pixel positions for each dot."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-causa.panels.common-helpers :as common]))
 
 ;; ---- defaults ------------------------------------------------------------
 
@@ -261,23 +262,15 @@
 
 ;; ---- time-axis window projection ----------------------------------------
 
-(defn now-ms
-  "Return host-clock time in ms. Pure-ish — abstracted so test
-  fixtures can stub it via `with-redefs`. Cross-platform via
-  `#?(:clj ... :cljs ...)`."
-  []
-  #?(:clj  (System/currentTimeMillis)
-     :cljs (.getTime (js/Date.))))
-
 (defn default-window
   "Return the default time-axis window — the last
-  `default-window-ms` ms ending at `(now-ms)`. Per spec §Layout the
-  default is 60s. Pure data → `{:t0 :t1}`.
+  `default-window-ms` ms ending at `(common/now-ms)`. Per spec §Layout
+  the default is 60s. Pure data → `{:t0 :t1}`.
 
   Used by the registry's `:rf.causa/schema-timeline-window` sub when
   no window has been set explicitly."
   []
-  (let [t1 (now-ms)]
+  (let [t1 (common/now-ms)]
     {:t0 (- t1 default-window-ms)
      :t1 t1}))
 
