@@ -58,8 +58,15 @@
    {:operation :event :tags {:event-id :user/set-bad}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
-    :tags      {:category   :rf.error/schema-validation-failure
-                :failing-id :user/set-bad
-                :where      :app-db
-                :path       [:user]}
+    :tags      {:category        :rf.error/schema-validation-failure
+                :failing-id      :user/set-bad
+                :where           :app-db
+                ;; Per rf2-oh4se the trace's :path is the failing leaf
+                ;; path (registered-path + Malli explainer's :in suffix),
+                ;; not the registration root. The :registered-path tag
+                ;; carries the registration root for consumers that want
+                ;; it. Here [:user] is the registered slot and [:id] is
+                ;; the failing leaf inside it.
+                :path            [:user :id]
+                :registered-path [:user]}
     :recovery  :no-recovery}]}}

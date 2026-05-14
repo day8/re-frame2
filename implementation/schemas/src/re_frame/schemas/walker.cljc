@@ -229,3 +229,52 @@
   (-> (extract-sensitive-paths-from-schema schema [])
       seq
       boolean))
+
+(defn- prefix?
+  "True when `prefix` is a prefix of `path` (or equal). Both are
+  sequential collections compared element-wise."
+  [prefix path]
+  (and (<= (count prefix) (count path))
+       (= (seq prefix) (seq (take (count prefix) path)))))
+
+(defn schema-sensitive-at?
+  "Path-targeted sensitivity check (rf2-oh4se). Returns true when the
+  slot at `in-path` inside `schema` is sensitive under Spec 010
+  §`:sensitive?`. `in-path` is the navigation path relative to the
+  schema's root (the value path Malli reports as `:in` in its explain
+  output, NOT the `:path` slot which encodes branch dispatch values).
+
+  A slot at `in-path` is sensitive when EITHER:
+
+    - An **ancestor** along the path is `:sensitive?` — the failing
+      slot sits underneath a sensitive container, so its value is part
+      of a sensitive subtree (e.g. `[:auth]` is sensitive, the failing
+      slot is `[:auth :token]`).
+
+    - A **descendant** of the slot is `:sensitive?` — the failing
+      slot's value contains a sensitive child (e.g. `[:user]` is the
+      failing slot, `[:user :password]` is declared sensitive; the
+      value at `[:user]` carries the password verbatim and would
+      re-leak it if shipped).
+
+  Per Spec 010 §`:sensitive?` — privacy in schema-validation error
+  traces; replaces the coarse whole-schema `schema-has-sensitive?`
+  check at the `validate-app-db!` emit-site when a leaf path is
+  extractable from the explainer output.
+
+  When `in-path` is nil or empty the check is equivalent to
+  `schema-has-sensitive?` (the failing slot IS the whole registered
+  schema, so any sensitive declaration anywhere counts).
+
+  Returns boolean. Pure; same `(schema, in-path)` always produces the
+  same output."
+  [schema in-path]
+  (if (or (nil? in-path) (empty? in-path))
+    (schema-has-sensitive? schema)
+    (let [decls (extract-sensitive-paths-from-schema schema [])
+          in-v  (vec in-path)]
+      (boolean
+        (some (fn [decl-path]
+                (or (prefix? decl-path in-v)   ;; ancestor sensitive
+                    (prefix? in-v decl-path))) ;; descendant sensitive
+              (keys decls))))))

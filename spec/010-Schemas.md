@@ -116,6 +116,8 @@ Re-registering a schema at a path replaces the previous one (last-write-wins, sa
 
 All validation points emit machine-readable errors per [Goal 10 (Strong introspection surface)](000-Vision.md#goals) and the structured error contract in [009 §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/schema-validation-failure` events carry `{:where :event/:sub-return/:app-db/...; :path [...]; :value <bad>; :explain <validator-supplied explanation>}`. The explanation's inner shape is whatever the registered explainer fn returns (a Malli explanation map on the CLJS reference; a Zod issue list on a TS port; etc.); consumers that need to branch on the inner shape inspect the port they're talking to.
 
+For `:where :app-db` failures, the trace's `:path` is the **failing leaf** path — the registered root concat'd with the explainer's value-navigation suffix (Malli's `:in`, not its schema-walk `:path`). The trace also carries `:registered-path` — the registration root — so tooling that needs the registration anchor reaches `(:registered-path tags)` while consumers reading the failure locator reach `(:path tags)`. When the registered explainer is absent or returns no extractable suffix (non-Malli validator, structurally-different explanation), `:path` falls back to the registered root and `:registered-path` mirrors it. Other surfaces (`:where :event` / `:cofx` / `:fx-args` / `:sub-return`) emit `:path` per their existing contract; no `:registered-path` tag is stamped on those surfaces because the registration is named by `:failing-id` / `:spec-id` directly.
+
 ### Validation order on event processing
 
 For a single dispatched event, schema checks fire in this order:

@@ -100,6 +100,7 @@
 (def extract-large-paths-from-schema  walker/extract-large-paths-from-schema)
 (def extract-sensitive-paths-from-schema walker/extract-sensitive-paths-from-schema)
 (def schema-has-sensitive?            walker/schema-has-sensitive?)
+(def schema-sensitive-at?             walker/schema-sensitive-at?)
 
 ;; Per-flag registry feeders (rf2-v9tw2 / rf2-c1l4d).
 (def frame-elision-declarations    elision-feeder/frame-elision-declarations)
