@@ -27,6 +27,7 @@
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three (now
   unified) call-sites."
   (:require [re-frame.frame :as frame]
+            [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
@@ -35,16 +36,27 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn- destroy-single-actor!
-  "Destroy a single spawned actor against the frame's container: apply
-  the unified teardown projection (per
+  "Destroy a single spawned actor against the frame's container: run
+  the active configuration's `:exit` cascade (rf2-nahfm), apply the
+  unified teardown projection (per
   `re-frame.machines.lifecycle-fx.teardown`), abort in-flight
   `:rf.http/managed` requests (rf2-wvkn), emit the
   `:system-id-released` trace, and unregister the live event handler.
 
   Used by `destroy-machine-fx` for the keyword-form legacy/imperative
-  destroy AND iterated for each child in an `:invoke-all` teardown."
+  destroy AND iterated for each child in an `:invoke-all` teardown.
+
+  Per Spec 005 §Declarative `:invoke` §Composition with explicit
+  `:entry` / `:exit`: the actor's `:exit` action runs BEFORE the
+  teardown clears the snapshot, so `:exit`-time side effects (HTTP
+  requests, logs, dispatches) execute against the live snapshot."
   [frame-id actor-id]
   (when actor-id
+    ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
+    ;; BEFORE any teardown work. This fires `:exit`-emitted fx via
+    ;; do-fx and writes any `:data` updates back to the snapshot —
+    ;; both transient (the snapshot is dissoc'd two steps later).
+    (exit-cascade/run-child-exit! frame-id actor-id)
     (finalize/abort-actor-in-flight-http! actor-id)
     ;; `teardown-actor` returns [new-db released-sid]; `swap-frame-db!`
     ;; expects a fn returning the new-db only. Capture sid via a side
@@ -117,6 +129,9 @@
     ;; the spawn slot was already cleared (e.g. by an earlier explicit
     ;; destroy) or the spawn was suppressed (SSR / platform gating).
     (when actor-id
+      ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
+      ;; BEFORE the teardown projection clears the snapshot.
+      (exit-cascade/run-child-exit! frame-id actor-id)
       (finalize/abort-actor-in-flight-http! actor-id)
       (frame/swap-frame-db! frame-id
                             (fn [db]

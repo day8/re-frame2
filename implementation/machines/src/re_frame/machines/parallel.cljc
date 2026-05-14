@@ -361,3 +361,31 @@
   (if (parallel? machine)
     (parallel-machine-transition machine snapshot event)
     (transition/machine-transition-single machine snapshot event)))
+
+;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
+;;
+;; Per Spec 005 §Final states §Composition with `:entry` / `:exit` and
+;; §Declarative `:invoke` §Composition: the active configuration's
+;; `:exit` actions run BEFORE the destroy cascade tears the snapshot
+;; down. The single-machine helper lives in `re-frame.machines.transition`
+;; (`run-active-exit-cascade`); for parallel-region machines every
+;; region's active leaf path contributes its own exit cascade, ordered
+;; by region declaration via `reduce-regions` so the broadcast invariant
+;; (shared `:data` threading, per-region fx prefix) holds during destroy
+;; the same way it holds during transition.
+
+(defn run-active-exit-cascade
+  "Synthesise the destroy-time exit cascade for `machine` against its
+  active `snapshot`. For parallel-region machines, runs the exit cascade
+  for every region in declaration order via `reduce-regions` (the
+  per-region step delegates to `transition/run-active-exit-cascade`).
+  For flat / compound machines, drops straight into the single-machine
+  helper.
+
+  Returns a `re-frame.machines.result/Result` carrying the post-cascade
+  snapshot + accumulated fx, or a `result/fail` if any region's `:exit`
+  action threw."
+  [machine snapshot]
+  (if (parallel? machine)
+    (reduce-regions machine snapshot transition/run-active-exit-cascade)
+    (transition/run-active-exit-cascade machine snapshot)))

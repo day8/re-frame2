@@ -36,6 +36,7 @@
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.result :as result]
             [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
@@ -116,6 +117,39 @@
     _inner-event   — the event that caused the finish (for diagnostics)
     extra-fx       — the fx vector from the transition (passed through)"
   [machine machine-id frame-id db next-snapshot _inner-event extra-fx]
+  ;; (rf2-nahfm) Run the actor's active configuration `:exit` cascade
+  ;; FIRST so the final state's `:exit` actions fire from the auto-
+  ;; destroy teardown (Spec 005 §Final states §Composition with
+  ;; `:entry` / `:exit`). The cascade is pure — it returns a new
+  ;; snapshot + fx vector; we project the `:data` writes onto
+  ;; `next-snapshot` so `:on-done`'s `result` computation observes
+  ;; them, and we append `exit-fx` to the returned `:fx` so any
+  ;; `:exit`-emitted dispatches / HTTP / etc. run.
+  ;;
+  ;; If any `:exit` action threw, we emit the standard exit-cascade
+  ;; failure trace and proceed with the pre-cascade snapshot (fail-
+  ;; soft — the destroy must complete to keep the registrar +
+  ;; spawn-slot consistent).
+  (let [exit-result   (parallel/run-active-exit-cascade machine next-snapshot)
+        exit-ok?      (result/ok? exit-result)
+        next-snapshot (if exit-ok? (result/snap exit-result) next-snapshot)
+        exit-fx       (if exit-ok? (vec (result/fx exit-result)) [])
+        db            (if exit-ok?
+                        ;; Project the post-`:exit` snapshot back into
+                        ;; the db so any reader between `:exit` and the
+                        ;; teardown projection (e.g. `:on-done` reading
+                        ;; the child via `(:rf/machines)`) sees the
+                        ;; final state's writes.
+                        (assoc-in db [:rf/machines machine-id] next-snapshot)
+                        db)
+        _             (when (not exit-ok?)
+                        (trace/emit-error! :rf.error/machine-action-exception
+                                           {:machine-id machine-id
+                                            :frame      frame-id
+                                            :phase      :rf.machine/destroy-exit
+                                            :reason     "An :exit action threw during destroy-time cascade."
+                                            :recovery   :skipped
+                                            :info       (result/info exit-result)}))]
   (let [child-data (:data next-snapshot)
         ;; Resolve the final state-node so we can extract `:output-key`.
         final-node (cond
@@ -209,4 +243,7 @@
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
     {:db db-after-destroy
-     :fx extra-fx}))
+     ;; rf2-nahfm — append the destroy-time `:exit` cascade's fx to
+     ;; the transition's fx vector so any `:exit`-emitted dispatches /
+     ;; HTTP / etc. fire as part of the same epoch.
+     :fx (vec (concat extra-fx exit-fx))})))

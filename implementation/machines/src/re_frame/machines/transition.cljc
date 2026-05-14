@@ -814,6 +814,53 @@
   (let [node (node-at machine (state-path state))]
     (final-state-node? node)))
 
+;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
+;;
+;; Per Spec 005 §Declarative `:invoke` §Composition with explicit `:entry`
+;; / `:exit` and §Final states §Composition with `:entry` / `:exit`: when
+;; a spawned actor is torn down, its active configuration's `:exit`
+;; actions run BEFORE the teardown clears the snapshot. That covers
+;; every destroy entry-point — explicit `:rf.machine/destroy`,
+;; declarative-`:invoke` exit-cascade destroy, `:invoke-all` per-child
+;; teardown, and final-state auto-destroy.
+;;
+;; `run-active-exit-cascade` is the single helper the destroy path
+;; reaches for. It returns the post-cascade snapshot + fx so the caller
+;; can (a) apply any `:exit`-time `:data` writes to the snapshot the
+;; teardown observes (e.g. `:on-done` reads), and (b) surface the fx
+;; the `:exit` action emitted. Parallel-region machines run an exit
+;; cascade per region; the dispatcher lives in `re-frame.machines.parallel`
+;; so this layer stays parallel-agnostic.
+
+(defn run-active-exit-cascade
+  "Synthesise the destroy-time exit cascade for `machine` against its
+  active `snapshot`. Walks the active state's full path leaf→root and
+  collects every node's `:exit` action-ref (shallowest-first reversed,
+  matching how `compute-cascade-paths` orders the exit cascade with
+  `lca-len = 0`). Runs them via `collect-actions`.
+
+  Returns a `re-frame.machines.result/Result` — a `result/ok` carrying
+  the post-cascade snapshot + accumulated fx, or a `result/fail` if any
+  `:exit` action threw. Callers (destroy / finalize / invoke-all child
+  teardown) emit a `[:rf.machine/bootstrap-exit]` synthetic event so
+  3-arity `:exit` fns that introspect the event see a discriminator
+  distinguishing destroy-time exit from transition-driven exit.
+
+  This is the SINGLE entry-point — every destroy path threads through
+  here so a spec change to destroy-time `:exit` semantics is one-edit-
+  touches-all. Per Spec 005 §Final states §Composition: the final
+  state's `:exit` runs from the auto-destroy teardown — same ordering
+  convention as the user's `:exit` running before the auto-destroy for
+  ordinary `:invoke`-bearing states."
+  [machine snapshot]
+  (let [path        (state-path (:state snapshot))
+        active-pairs (nodes-along-path machine path)
+        ;; Leaf→root: exit cascade reverses `nodes-along-path` (which
+        ;; returns shallowest-first), matching `compute-cascade-paths`'s
+        ;; `(map ... (reverse exited-pairs))` ordering.
+        exit-refs   (keep (fn [[_ n]] (:exit n)) (reverse active-pairs))]
+    (collect-actions machine snapshot [:rf.machine/destroy-exit] (vec exit-refs))))
+
 ;; ---- apply-transition-once: cascade phases --------------------------------
 ;;
 ;; Per Spec 005 §Entry/exit cascading along the LCA, one transition flows
