@@ -4,11 +4,18 @@
 ;; Spec 002 §Run-to-completion §Rules rule 3, the runtime restores
 ;; app-db to its pre-drain snapshot when the limit trips — the partial
 ;; writes from the cascade are NOT preserved.
+;;
+;; Per rf2-v0jwt (§Outcomes): the runtime ALSO commits a partial
+;; :rf/epoch-record with :outcome :halted-depth so devtools (Causa,
+;; re-frame-pair2) receive cascade context for the failing cascade.
+;; :db-after equals :db-before (atomic rollback) and :halt-reason
+;; carries the structured halt descriptor. The fixture's
+;; :epoch-records assertion pins the partial-record shape.
 
 {:fixture/id           :drain/depth-limit
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :core/trace}
- :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. The runtime rolls app-db back to the pre-drain snapshot (atomic rollback per Spec 002 rule 3) and the cascade halts."
+ :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. The runtime rolls app-db back to the pre-drain snapshot (atomic rollback per Spec 002 rule 3) AND commits a :halted-depth partial :rf/epoch-record (rf2-v0jwt §Outcomes) so devtools receive cascade context for the failing cascade."
 
  :fixture/registry
  {:event {:recursive {:doc "Always dispatches itself."}}
@@ -20,8 +27,7 @@
   :sub   {:depth [[:get [:depth]]]}}
 
  :fixture/frame-config
- {:on-create   []
-  :drain-depth 5}                                         ;; small limit for testing
+ {:drain-depth 5}                                         ;; small limit for testing
 
  :fixture/dispatches
  [[:recursive]]
@@ -49,4 +55,29 @@
                 :queue-size 1
                 :last-event [:recursive]
                 :rollback?  true}
-    :recovery  :no-recovery}]}}
+    :recovery  :no-recovery}
+   ;; Per rf2-v0jwt: the runtime commits a partial :halted-depth
+   ;; epoch record AFTER the error trace fires (the router's
+   ;; settle! call for the halt outcome). The :rf.epoch/snapshotted
+   ;; trace carries the :outcome :halted-depth tag so listeners
+   ;; can discriminate from clean-settle records without inspecting
+   ;; the epoch-history vector.
+   {:operation :rf.epoch/snapshotted
+    :tags      {:frame   :rf/default
+                :outcome :halted-depth}}]
+
+  ;; Per rf2-v0jwt §Outcomes: the recorded epoch carries the partial-
+  ;; record shape — :outcome :halted-depth, :db-after equals :db-before
+  ;; (the atomic-rollback contract), :halt-reason carries the structured
+  ;; halt descriptor.
+  :epoch-records
+  [{:frame :rf/default
+    :record {:outcome   :halted-depth
+             :event-id  :recursive
+             :db-before {}
+             :db-after  {}
+             :halt-reason
+             {:operation  :rf.error/drain-depth-exceeded
+              :depth      5
+              :queue-size 1
+              :last-event [:recursive]}}}]}}
