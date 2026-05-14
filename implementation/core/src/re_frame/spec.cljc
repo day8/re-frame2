@@ -43,13 +43,13 @@
     to flag the misconfiguration.
 
   Validation routes through the same registered validator the dev-time
-  hot path uses (per rf2-froe's `set-schema-validator!` seam) — a
-  substituted validator covers both surfaces with one registration.
-  When `set-schema-validator!` has been called with `nil` the boundary
+  hot path uses (the `set-schema-validator!` seam) — a substituted
+  validator covers both surfaces with one registration. When
+  `set-schema-validator!` has been called with `nil` the boundary
   interceptor is also a no-op (validation disabled).
 
-  This namespace stays decoupled from `re-frame.schemas` (the schemas
-  artefact is optional per rf2-p7va) by reaching into it through the
+  This namespace stays decoupled from `re-frame.schemas` (an optional
+  artefact) by reaching into it through the
   `:schemas/validate-with-registered-fn` and
   `:schemas/explain-with-registered-fn` late-bind hooks. When the
   schemas artefact is not on the classpath the hooks return nil and
@@ -116,11 +116,11 @@
 
 ;; ---- :spec/validate-at-boundary -------------------------------------------
 ;;
-;; Per Spec 010 §Production builds (rf2-r2uh). The interceptor runs in the
-;; :before slot — pre-handler, alongside the dev-mode step-1 validation
-;; site. Failure recovery is identical to step-1: skip the handler
-;; (set :rf/skip-handler? on the context per rf2-jwm4 / rf2-7leq);
-;; downstream queue continues.
+;; Per Spec 010 §Production builds. The interceptor runs in the
+;; :before slot — pre-handler, alongside the dev-mode step-1
+;; validation site. Failure recovery is identical to step-1: skip the
+;; handler (set `:rf/skip-handler?` on the context); downstream queue
+;; continues.
 
 (def validate-at-boundary
   "Production-side schema validation interceptor. Per Spec 010 §Production
@@ -128,12 +128,12 @@
   to force `:spec` validation against the dispatched event vector even
   in production builds where dev-time validation is elided.
 
-  Re-uses the handler's existing `:spec` metadata; does not introduce a
-  parallel schema. No-op in dev builds (step-1 validation already
-  fires); no-op when no validator is registered (per rf2-froe's
-  `set-schema-validator!` `nil` path); no-op when the handler carries
-  no `:spec` (and emits `:rf.warning/boundary-without-spec` once to
-  flag the misconfiguration)."
+  Re-uses the handler's existing `:spec` metadata; does not introduce
+  a parallel schema. No-op in dev builds (step-1 validation already
+  fires); no-op when no validator is registered (`set-schema-validator!`
+  was called with `nil`); no-op when the handler carries no `:spec`
+  (and emits `:rf.warning/boundary-without-spec` once to flag the
+  misconfiguration)."
   (interceptor/->interceptor
     :id :spec/validate-at-boundary
     :before
@@ -146,7 +146,7 @@
         ctx
         ;; Production path. Reach validation through the late-bind
         ;; seam so this namespace stays decoupled from the optional
-        ;; schemas artefact (rf2-p7va).
+        ;; schemas artefact.
         (let [validate-fn (late-bind/get-fn :schemas/validate-with-registered-fn)
               explain-fn  (late-bind/get-fn :schemas/explain-with-registered-fn)]
           (if (nil? validate-fn)
@@ -219,6 +219,6 @@
                                           :recovery   :no-recovery})
                       ;; Per Spec 010 §Per-step recovery step 1: handler
                       ;; is not invoked. The handler-as-interceptor
-                      ;; checks :rf/skip-handler? in its :before slot
-                      ;; (per rf2-jwm4 / rf2-7leq events.cljc).
+                      ;; checks `:rf/skip-handler?` in its :before slot
+                      ;; (see events.cljc).
                       (assoc ctx :rf/skip-handler? true))))))))))))

@@ -15,9 +15,8 @@
   to obtain the wrapped fn and use `[(rf/view :id) args]` as the
   hiccup head.
 
-  Per rf2-lh7p the file has been split into three internally-cohesive
-  sub-namespaces; this ns is now the orchestration entry point that
-  ties them together:
+  Orchestration entry point that re-exports three internally-cohesive
+  sub-namespaces:
 
     - `re-frame.views.provider`                — frame-provider + the
                                                  React-context bridge
@@ -53,7 +52,7 @@
             [re-frame.views.source-coord-annotation :as source-coord]
             [re-frame.views.warn-once :as warn-once]))
 
-;; ---- *render-key* (rf2-piag / rf2-t5tx) ----------------------------------
+;; ---- *render-key* --------------------------------------------------------
 ;;
 ;; Bound by the `reg-view*` wrapper below for the duration of each render.
 ;; Lives here (the public ns) so `re-frame.views/*render-key*` is the
@@ -118,15 +117,14 @@
 
 ;; ---- reg-view -------------------------------------------------------------
 ;;
-;; Per rf2-w9ykb the wrapper-builder is decomposed into named helpers,
-;; each owning one phase of the registration pipeline:
+;; The wrapper-builder is decomposed into named helpers, each owning
+;; one phase of the registration pipeline:
 ;;
-;;   1. `apply-adapter-wrap-view`   — consult the substrate hook
-;;   2. `view-coord-attr`           — debug-only source-coord stamp
-;;   3. `trace/handler-scope-from-meta` — pre-compute the view's HandlerScope
-;;      (already a named helper in trace.cljc — rf2-ryri7)
-;;   4. `build-frame-aware-view`    — assemble the per-render wrapped fn
-;;   5. `registrar/register!`       — install in the :view kind
+;;   1. `apply-adapter-wrap-view`         — consult the substrate hook
+;;   2. `view-coord-attr`                 — debug-only source-coord stamp
+;;   3. `trace/handler-scope-from-meta`   — pre-compute view's HandlerScope
+;;   4. `build-frame-aware-view`          — assemble the per-render wrapped fn
+;;   5. `registrar/register!`             — install in the :view kind
 ;;
 ;; reg-view* itself becomes a five-line straight-line composition.
 
@@ -216,25 +214,23 @@
   registry slot's metadata as-is; source-coord capture is performed
   by the caller (`re-frame.core/reg-view*`).
 
-  Per rf2-piag / rf2-t5tx: each render binds `*render-key*` to the
-  tuple `[id instance-token]` for the body, so the trace recorder can
-  attribute the render. The instance-token is minted at mount and
-  reused across re-renders of the same component instance (per
-  Spec 004 §Render-tree primitives).
+  Each render binds `*render-key*` to `[id instance-token]` so the
+  trace recorder can attribute the render. The instance-token is
+  minted at mount and reused across re-renders of the same component
+  instance (per Spec 004 §Render-tree primitives).
 
-  Per rf2-ryri7: the view's HandlerScope is pre-computed once at
-  registration time from `metadata` (source-coord stamp, `:sensitive?`,
-  `:rf.trace/no-emit?` — all three fixed for the life of the registered
-  view). Each render binds the scope (via `with-handler-scope`, which
-  inherits parent's `:call-site` / `:dispatch-id`) around the user
-  render-fn invocation. Errors emitted during render (subscribe-miss
-  against this frame, sub exception during a render-time deref, etc.)
-  ride the view's `:trigger-handler` coord; `:view/render` emits ride
-  `:sensitive?` per Spec 009 §Privacy and short-circuit when
-  `:no-emit?` is true.
+  The view's HandlerScope is pre-computed once at registration time
+  from `metadata` (source-coord stamp, `:sensitive?`,
+  `:rf.trace/no-emit?` — all three fixed for the life of the
+  registered view). Each render binds the scope (via
+  `with-handler-scope`, which inherits parent's `:call-site` /
+  `:dispatch-id`) around the render-fn invocation. Errors emitted
+  during render ride the view's `:trigger-handler` coord;
+  `:view/render` emits ride `:sensitive?` per Spec 009 §Privacy and
+  short-circuit when `:no-emit?` is true.
 
-  Per rf2-w9ykb the body is a five-line pipeline; the work lives in
-  the named helpers above."
+  The body is a five-line pipeline; the work lives in the named
+  helpers above."
   [id metadata render-fn]
   (let [[render-fn wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
         coord-attr (view-coord-attr id metadata wrap-applied?)

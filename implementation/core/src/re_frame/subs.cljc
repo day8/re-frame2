@@ -236,19 +236,11 @@
      exception emit :rf.error/sub-exception and yield nil (recovery
      :replaced-with-default)."
   [body-fn in-vals query-id query-v frame-id input-signals sub-meta]
-  ;; Per rf2-ryri7: publish the sub's HandlerScope for the duration
-  ;; of `:sub/run` emit + body-fn invocation + validation step. Spec
-  ;; 009 §:rf.trace/trigger-handler table row "Inside a sub recompute
-  ;; (body fn)" — the sub's source-coord rides every emit (success
-  ;; path: `:sub/run`; error path: `:rf.error/sub-exception`,
-  ;; schema-validation failures, transitive sub misses). The emit MUST
-  ;; sit inside the scope for the sub's coord to ride the success
-  ;; trace. `:sensitive?` (rf2-isdwf) per Spec 009 §Privacy — sub
-  ;; return values flow user input into views and must be filterable.
-  ;; `:no-emit?` (rf2-qsjda) — a sub whose registration carries
-  ;; `:rf.trace/no-emit? true` produces no `:sub/run` trace event
-  ;; (and no error trace if it throws). `:call-site` / `:dispatch-id`
-  ;; are inherited from the outer scope per `inherit-scope`.
+  ;; Publish the sub's HandlerScope for the duration of `:sub/run` emit
+  ;; + body-fn invocation + validation. Per Spec 009 §:rf.trace/
+  ;; trigger-handler the sub's source-coord rides every emit (`:sub/run`
+  ;; success, `:rf.error/sub-exception` / schema-validation / transitive
+  ;; sub-miss errors). The emit MUST sit inside the scope.
   (trace/with-handler-scope
     (trace/handler-scope-from-meta :sub query-id sub-meta)
     (trace/emit! :sub/run :sub/run
@@ -293,13 +285,12 @@
 ;; compute fn — only the user's body (and the trace+validate+perf+
 ;; recovery layer that brackets it) is suppressed.
 ;;
-;; Per rf2-sxacg: the layer-1 path is specialised to a fixed-arity-1
-;; wrapper that compares the db value directly. This skips the
-;; varargs-seq allocation that `(fn [& in-vals])` would force on every
-;; recompute, and replaces the seq-vs-seq `=` walk with a direct value
-;; compare. Every layer-1 sub × every dispatch that touches it pays
-;; this — it's the hottest allocation in the artefact (per the
-;; rf2-spr6q audit, SU1/PE1).
+;; The layer-1 path is specialised to a fixed-arity-1 wrapper that
+;; compares the db value directly. This skips the varargs-seq allocation
+;; a `(fn [& in-vals])` form would force on every recompute, and
+;; replaces the seq-vs-seq `=` walk with a direct value compare. Every
+;; layer-1 sub × every dispatch that touches it pays this — the hottest
+;; allocation in the artefact.
 
 (defn- make-layer-1-memoised-body
   "Specialised memo wrapper for layer-1 subs (which read app-db
@@ -362,20 +353,18 @@
     - `make-layer-1-memoised-body` / `make-layer-n-memoised-body` —
       Spec 006 §No-op via value equality (rf2-719e). Wraps the user's
       body in a `=`-skipping memo. The layer-1 form is fixed-arity-1
-      and compares the db scalar directly (per rf2-sxacg — avoids
-      per-recompute varargs-seq allocation); layer-2+ keeps the
-      vec-of-inputs shape.
-    - `validate-and-trace`  — Spec 009 :sub/run trace emit, Spec 009
-      perf bracket (rf2-du3i), Spec 010 step 6 validation (rf2-wcam),
-      and Spec 009 error contract (`:replaced-with-default` on throw).
+      and compares the db scalar directly (avoids per-recompute
+      varargs-seq allocation); layer-2+ keeps the vec-of-inputs shape.
+    - `validate-and-trace`  — Spec 009 :sub/run trace emit, perf bracket,
+      Spec 010 step 6 validation, error contract
+      (`:replaced-with-default` on throw).
 
-  Per Spec 006 §What happens when a sub references an unknown sub
-  (rf2-l9u5): when the registrar lookup misses, emit
-  `:rf.error/no-such-sub` and build a nil-yielding reaction, but
-  DO NOT store it in the cache. The miss is transient — a later
-  registration (boot order, lazy load) must let the next subscribe
-  build a fresh reaction against the real body. We achieve this by
-  branching here on nil meta."
+  Per Spec 006 §What happens when a sub references an unknown sub: when
+  the registrar lookup misses, emit `:rf.error/no-such-sub` and build a
+  nil-yielding reaction, but DO NOT store it in the cache. The miss is
+  transient — a later registration (boot order, lazy load) must let the
+  next subscribe build a fresh reaction against the real body. We
+  achieve this by branching here on nil meta."
   [frame-id query-v]
   (let [query-id      (first query-v)
         sub-meta      (registrar/lookup :sub query-id)
@@ -410,16 +399,13 @@
                             :pending-dispose nil})
       (interop/add-on-dispose! reaction
         (fn []
-          ;; Per rf2-f3rd: a layer-2+ sub's construction called `subscribe`
-          ;; once per `:<-` input (line 290 above), each incrementing the
-          ;; input's `:ref-count`. The disposal of this parent slot must
-          ;; release those refs symmetrically — without this, input
-          ;; ref-counts leak after Reagent auto-disposes the parent. We
-          ;; decrement inputs BEFORE clearing the parent slot so the cache
-          ;; introspection invariant ("ref-count reflects live refs")
-          ;; holds at every observable moment; the recursive disposal
-          ;; cascade is driven by the same ref-count → 0 path
-          ;; `unsubscribe` already takes.
+          ;; A layer-2+ sub's construction called `subscribe` once per
+          ;; `:<-` input, each incrementing the input's `:ref-count`.
+          ;; The disposal must release those refs symmetrically —
+          ;; without this, input ref-counts leak after Reagent auto-
+          ;; disposes the parent. Decrement inputs BEFORE clearing the
+          ;; parent slot so the cache invariant ("ref-count reflects
+          ;; live refs") holds at every observable moment.
           (doseq [input-q input-signals]
             (try (unsubscribe frame-id input-q)
                  (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -447,12 +433,12 @@
   the JVM build never loads it; production (`:advanced` +
   `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
 
-  Per rf2-ts1a: this is the runtime-callable fn form. The macro form
+  This is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and delegates here
   through `re-frame.core/subscribe*`, wrapping the call in
-  `trace/with-call-site` for the duration so any error emitted inside
-  the synchronous miss path (`:rf.error/no-such-sub`,
-  `:rf.error/frame-destroyed`) carries the invocation coord."
+  `trace/with-call-site` so any error emitted inside the synchronous
+  miss path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`)
+  carries the invocation coord."
   ([query-v]
    #?(:cljs
       (let [frame-id (frame/resolve-current-frame)]
@@ -508,25 +494,20 @@
   so the read is part of the cofx contract rather than a side-effect
   inside the handler body.
 
-  Per rf2-zmufj: the teardown unsubscribe runs with `{:grace 0}` so
-  the one-shot read's whole lifetime — subscribe, deref, dispose —
-  completes in the calling tick. Without this, a fresh-sub call
-  would build, deref, then schedule a grace-period timer that fires
-  after the caller has moved on, leaking dispose side-effects
-  (`set-timeout!` + `clear-timeout!` + the post-grace `dispose!`
-  trace burst) past the call's observable lifetime.
+  The teardown unsubscribe runs with `{:grace 0}` so the one-shot
+  read's whole lifetime — subscribe, deref, dispose — completes in
+  the calling tick (without it the fresh-sub would schedule a grace-
+  period timer leaking dispose side-effects past the call's
+  observable lifetime).
 
   See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`."
   ([query-v] (subscribe-value (frame/resolve-current-frame) query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
          v        (when reaction @reaction)]
-     ;; Per rf2-zmufj: force synchronous dispose for our own teardown so
-     ;; the one-shot read surface pays no deferred-dispose tax. The
-     ;; `{:grace 0}` opt overrides the configured grace-period for this
-     ;; call only — concurrent subscribers (if any) keep the slot alive
-     ;; via ref-count and are unaffected; this call's decrement only
-     ;; triggers disposal when it drove the 1→0 transition.
+     ;; `{:grace 0}` overrides the configured grace-period for this
+     ;; call only — concurrent subscribers keep the slot alive via
+     ;; ref-count and are unaffected.
      (unsubscribe frame-id query-v {:grace 0})
      v)))
 
@@ -571,12 +552,12 @@
   is still <= 0 (no resubscribe arrived) and dispose the reaction.
   Idempotent — a second call is a no-op because the slot is gone.
 
-  Per rf2-3mww7: the swap-fn body is pure — it returns the new cache
-  map and nothing else. The reaction to dispose is read from the
-  PRE-swap snapshot returned by `swap-vals!` and acted on AFTER the
-  CAS commits. `swap!` is allowed to retry on contention on the JVM,
-  so any side-effect (interop/dispose!) inside the swap-fn could fire
-  2+ times under concurrent invalidate + grace-fire."
+  The swap-fn body is pure — it returns the new cache map and nothing
+  else; the reaction to dispose is read from the PRE-swap snapshot
+  returned by `swap-vals!` and acted on AFTER the CAS commits. `swap!`
+  is allowed to retry on contention on the JVM, so any side-effect
+  (`interop/dispose!`) inside the swap-fn could fire 2+ times under
+  concurrent invalidate + grace-fire."
   [cache k]
   (let [[old new] (swap-vals! cache
                               (fn [m]
@@ -606,7 +587,7 @@
 
   When grace-period is 0, disposal is synchronous — useful for tests.
 
-  The 3-arity form accepts an opts map. Per rf2-zmufj:
+  The 3-arity form accepts an opts map:
 
       {:grace N}   — override the configured grace-period for THIS
                      call only. `{:grace 0}` forces synchronous
@@ -627,22 +608,19 @@
   ([frame-id query-v opts]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (let [k     (cache-key query-v)
-           ;; Per rf2-zmufj: an explicit `:grace` in opts overrides the
-           ;; per-runtime configured grace-period for this call only.
-           ;; `contains?` rather than `(:grace opts)` so `{:grace 0}`
-           ;; is honoured (0 is truthy in Clojure but reads better
-           ;; intent-wise to gate on presence).
+           ;; An explicit `:grace` in opts overrides the per-runtime
+           ;; configured grace-period. `contains?` (not `(:grace opts)`)
+           ;; so `{:grace 0}` is honoured.
            grace (if (and (map? opts) (contains? opts :grace))
                    (:grace opts)
                    (grace-period-ms))
-           ;; Per rf2-3mww7: the swap-fn body is pure — it returns only
-           ;; the new cache map. The drop-to-zero signal is read from
-           ;; the diff between `old` and `new` AFTER the CAS commits.
-           ;; `swap!` is allowed to retry on contention on the JVM, so
-           ;; a side-effecting `(reset! dropped-to-zero? true)` inside
-           ;; the swap-fn body could fire on a discarded retry whose
-           ;; CAS lost — leading to a spurious dispose schedule for
-           ;; a slot that was never actually transitioned by this call.
+           ;; The swap-fn body is pure — it returns only the new cache
+           ;; map. The drop-to-zero signal is read from the diff between
+           ;; `old` and `new` AFTER the CAS commits. `swap!` is allowed
+           ;; to retry on JVM contention, so a side-effecting
+           ;; `(reset! dropped-to-zero? true)` inside the swap-fn body
+           ;; could fire on a discarded retry whose CAS lost — leading
+           ;; to a spurious dispose schedule.
            [old new] (swap-vals! cache
                                  (fn [m]
                                    (if-let [entry (get m k)]
@@ -716,14 +694,10 @@
   (when (= kind :sub)
     (doseq [frame-id (frame/frame-ids)]
       (when-let [cache (:sub-cache (frame/frame frame-id))]
-        ;; Per rf2-3mww7: the swap-fn body is pure — it returns only the
-        ;; new cache map. Reactions to dispose and timers to cancel are
-        ;; read from the diff between `old` and `new` AFTER the CAS
-        ;; commits. `swap!` is allowed to retry on contention on the
-        ;; JVM, so any side-effecting collector (`(swap! evictions
-        ;; conj ...)`) inside the swap-fn could double-conj — and then
-        ;; the post-swap `dispose!` loop would call dispose on the same
-        ;; reaction twice.
+        ;; The swap-fn body is pure — it returns only the new cache map.
+        ;; Reactions to dispose and timers to cancel are read from the
+        ;; diff between `old` and `new` AFTER the CAS commits (so a
+        ;; retried `swap!` can't fire dispose 2+ times).
         (let [[old new] (swap-vals! cache
                                     (fn [m]
                                       (let [hit-keys (->> (keys m)

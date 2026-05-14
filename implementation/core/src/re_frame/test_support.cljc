@@ -61,12 +61,9 @@
             ;; any of them.
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]
-            ;; Per rf2-rirbq: clear the always-on event-emit listener
-            ;; registry in the per-test reset so a forwarder registered
-            ;; in one test does not see events fired by a sibling test.
-            ;; The substrate is always-on (no goog.DEBUG check) and the
-            ;; registry is a plain atom — clearing is cheap and
-            ;; substrate-agnostic.
+            ;; Clear the always-on event-emit listener registry on each
+            ;; reset so a forwarder registered in one test doesn't see
+            ;; events fired by a sibling test.
             [re-frame.event-emit :as event-emit]
             [re-frame.router :as router]
             [re-frame.substrate.adapter :as adapter]
@@ -146,70 +143,40 @@
 
   Per-row rationale:
 
-    :flows/reset-flows!              — rf2-tfw3 — drop the per-frame flow
-                                       registry. Flows ships in
-                                       day8/re-frame2-flows; hook returns
-                                       nil when the artefact is absent.
-    :flows/reset-last-inputs!        — rf2-tfw3 — drop the dirty-check
-                                       last-inputs map paired with the flow
-                                       registry.
-    :schemas/clear-by-frame!         — rf2-p7va — clear per-frame schema
-                                       registrations. Paired with
-                                       `:schemas/snapshot-by-frame` +
-                                       `:schemas/restore-by-frame!` for
+    :flows/reset-flows!              — drop the per-frame flow registry.
+    :flows/reset-last-inputs!        — drop the dirty-check last-inputs
+                                       map paired with the flow registry.
+    :schemas/clear-by-frame!         — clear per-frame schema registrations.
+                                       Paired with `:schemas/snapshot-by-frame`
+                                       + `:schemas/restore-by-frame!` for
                                        snapshot/restore around the test body.
-                                       Schemas ships in
-                                       day8/re-frame2-schemas.
-    :machines/reset-timers!          — rf2-xbtj / rf2-gr8q — cancel in-flight
-                                       `:after` wall-clock timers so a stale
-                                       timer from a sibling test cannot
-                                       survive into this one. Per rf2-gr8q
-                                       the spawn-counter atom is gone; this
-                                       hook resets only the timer table.
-                                       Machines ships in
-                                       day8/re-frame2-machines.
-    :routing/reset-counters!         — rf2-k682 — reset the route-registration
-                                       counter so reg-index is deterministic
-                                       across fixture runs. Routing ships in
-                                       day8/re-frame2-routing.
-    :http/clear-all-in-flight!       — rf2-5kpd — drop the in-flight managed-
-                                       request registry so a stale handle
-                                       from a sibling test cannot survive
-                                       into this one. http-managed ships in
-                                       day8/re-frame2-http.
-    :epoch/clear-history!            — rf2-lt4e — drop the per-frame epoch
-                                       ring buffer so a previous test's
-                                       recorded epochs cannot survive into
-                                       this one. Epoch ships in
-                                       day8/re-frame2-epoch.
-    :epoch/clear-epoch-cbs!          — rf2-lt4e — drop the epoch-settled
-                                       callback registry, paired with the
-                                       ring-buffer clear above.
-    :adapter/clear-warn-once-caches! — rf2-4edk — clear the per-adapter
+    :machines/reset-timers!          — cancel in-flight `:after` wall-clock
+                                       timers so a stale timer from a
+                                       sibling test can't survive.
+    :routing/reset-counters!         — reset the route-registration counter
+                                       so reg-index is deterministic across
+                                       fixture runs.
+    :http/clear-all-in-flight!       — drop the in-flight managed-request
+                                       registry.
+    :epoch/clear-history!            — drop the per-frame epoch ring buffer.
+    :epoch/clear-epoch-cbs!          — drop the epoch-settled callback
+                                       registry.
+    :adapter/clear-warn-once-caches! — clear per-adapter
                                        `warned-non-dom-roots` warn-once
-                                       caches so a sibling test's first-
-                                       encounter warning cannot silently
-                                       swallow a later test's same-id
-                                       warning. The hook is chained:
-                                       re-frame.views, re-frame.adapter.helix
-                                       and re-frame.adapter.uix each
-                                       register a clear-step at ns-load and
-                                       the chained closure runs all of them.
-                                       When none of these CLJS-only
-                                       namespaces are on the classpath (JVM
-                                       tests), the lookup returns nil and
-                                       this is a no-op.
+                                       caches. Chained — re-frame.views,
+                                       and the helix / uix adapters each
+                                       register a clear-step.
 
   Adding a new artefact's reset becomes a one-row addition here."
-  [{:hook :flows/reset-flows!              :phase :pre-dispose  :source "rf2-tfw3"}
-   {:hook :flows/reset-last-inputs!        :phase :pre-dispose  :source "rf2-tfw3"}
-   {:hook :schemas/clear-by-frame!         :phase :pre-dispose  :source "rf2-p7va"}
-   {:hook :machines/reset-timers!          :phase :post-dispose :source "rf2-xbtj"}
-   {:hook :routing/reset-counters!         :phase :post-dispose :source "rf2-k682"}
-   {:hook :http/clear-all-in-flight!       :phase :post-dispose :source "rf2-5kpd"}
-   {:hook :epoch/clear-history!            :phase :post-dispose :source "rf2-lt4e"}
-   {:hook :epoch/clear-epoch-cbs!          :phase :post-dispose :source "rf2-lt4e"}
-   {:hook :adapter/clear-warn-once-caches! :phase :post-dispose :source "rf2-4edk"}])
+  [{:hook :flows/reset-flows!              :phase :pre-dispose}
+   {:hook :flows/reset-last-inputs!        :phase :pre-dispose}
+   {:hook :schemas/clear-by-frame!         :phase :pre-dispose}
+   {:hook :machines/reset-timers!          :phase :post-dispose}
+   {:hook :routing/reset-counters!         :phase :post-dispose}
+   {:hook :http/clear-all-in-flight!       :phase :post-dispose}
+   {:hook :epoch/clear-history!            :phase :post-dispose}
+   {:hook :epoch/clear-epoch-cbs!          :phase :post-dispose}
+   {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}])
 
 (defn- run-reset-hooks!
   "Driver: fire every `reset-hook-table` row whose `:phase` matches and
@@ -235,25 +202,17 @@
        reset is late-bound so JVM tests that don't pull them in are
        unaffected).
     3. Disposes the currently-installed substrate adapter.
-    4. Cancels the machines' in-flight `:after` wall-clock timers
-       (per rf2-gr8q the spawn-counter atom is gone; the late-bind
-       hook now resets only the timer table).
+    4. Cancels the machines' in-flight `:after` wall-clock timers.
     5. Clears trace listeners and adapter warn-once caches
        (`warned-non-dom-roots` across re-frame.views and the helix /
-       uix adapters; per rf2-4edk).
+       uix adapters).
     6. If an `:adapter` was supplied, installs it and ensures the
        `:rf/default` frame. Otherwise leaves adapter installation to
        the test (or to a separate fixture).
     7. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
-       hook for per-suite setup that needs the registrar / adapter live
-       — e.g. seeding test data into the just-installed adapter's
-       app-db. (Routing's reg-counter and the machines wall-clock
-       timer table are reset automatically when their respective
-       artefacts are on the classpath; see step 4 and the late-bind
-       block above. Per rf2-gr8q the machines spawn-counter atom is
-       gone — spawn-id allocation lives in-snapshot now, so per-test
-       isolation is inherited from the registrar / frame snapshot
-       reset rather than from a dedicated reset call.)
+       hook for per-suite setup that needs the registrar / adapter
+       live — e.g. seeding test data into the just-installed adapter's
+       app-db.
     8. Runs the test.
     9. Restores the registrar to the captured snapshot.
    10. Resets `frame/frames` back to `{}` for symmetry, and (when their
@@ -304,11 +263,8 @@
      ;; the per-frame schema registry around the test body. The clear
      ;; step in the mid-body run fires from `reset-hook-table` —
      ;; `clear-fn` is captured here only for the `:clear-kinds
-     ;; [:app-schema]` branch below (per rf2-0frdi `:app-schema` is no
-     ;; longer a registrar kind; the schemas artefact owns its own
-     ;; per-frame side-table). Per rf2-p7va — schemas ships in
-     ;; day8/re-frame2-schemas and this namespace must not statically
-     ;; require it.
+     ;; [:app-schema]` branch (the schemas artefact owns its own per-
+     ;; frame side-table, not a registrar kind).
      (let [snap          (snapshot-registrar)
            snapshot-fn   (late-bind/get-fn :schemas/snapshot-by-frame)
            clear-fn      (late-bind/get-fn :schemas/clear-by-frame!)
@@ -329,9 +285,9 @@
            ;; The `:clear-kinds [:app-schema]` opt is preserved as the
            ;; test-support convention for "give me a clean app-schema
            ;; slate"; the registrar `clear-kind!` above is a no-op for
-           ;; this kind (per rf2-0frdi `:app-schema` is no longer a
-           ;; registrar kind), and this branch dispatches the actual
-           ;; reset through the schemas clear-fn.
+           ;; this kind (`:app-schema` is the schemas artefact's per-
+           ;; frame side-table, not a registrar kind), and this branch
+           ;; dispatches the actual reset through the schemas clear-fn.
            (when (and (= k :app-schema) clear-fn)
              (clear-fn)))
          (when init-fn (init-fn))

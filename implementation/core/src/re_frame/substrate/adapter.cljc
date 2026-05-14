@@ -22,15 +22,13 @@
   install-adapter! and introspected via current-adapter (keyword) and
   current-adapter-spec (the full map).
 
-  Per rf2-agql (replaces rf2-84po) there is no default-adapter registry
-  and no ns-load side-effect. Each adapter ns
-  (re-frame.adapter.reagent / .uix / .helix, re-frame.substrate.plain-atom,
-  re-frame.ssr) exports an `adapter` var (the spec map); consumers
-  require the ns and pass the var explicitly via
-  `(rf/init! reagent/adapter)` etc. The registry was removed because:
-  (1) explicit > implicit at the call site; (2) the registry is bundle
-  weight even when unused — under rf2-agql an app that requires only
-  the adapter it needs ships only that adapter's code."
+  There is no default-adapter registry and no ns-load side-effect.
+  Each adapter ns (re-frame.adapter.reagent / .uix / .helix,
+  re-frame.substrate.plain-atom, re-frame.ssr) exports an `adapter`
+  var (the spec map); consumers require the ns and pass the var
+  explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
+  at the call site, and an app requiring only the adapter it needs
+  ships only that adapter's code."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
@@ -38,7 +36,7 @@
 
 ;; ---- adapter installation -------------------------------------------------
 ;;
-;; Two cells, not one (rf2-6wxys). `installed-adapter` holds the live spec
+;; Two cells, not one. `installed-adapter` holds the live spec
 ;; map when an adapter is installed and `nil` otherwise. `disposed?` is a
 ;; boolean breadcrumb left behind by the most recent
 ;; `(dispose-adapter!)` so subsequent runtime calls can distinguish
@@ -116,8 +114,7 @@
   "Return true iff the most recent lifecycle event was a successful
   `dispose-adapter!` and no `install-adapter!` has fired since. False
   for `never installed` (fresh process) and after a fresh install.
-  Read-only — the breadcrumb is owned by the install / dispose pair.
-  Per rf2-6wxys §differentiate disposed-adapter from never-installed."
+  Read-only — the breadcrumb is owned by the install / dispose pair."
   []
   @disposed?)
 
@@ -125,9 +122,9 @@
   "Test-only seam — resets the installed-adapter slot and the disposed
   breadcrumb to a never-installed cold state. NOT part of the runtime
   contract; cold-start test fixtures (e.g. `boot_test/cold-start`) use
-  this to wipe the lifecycle state between cases so the
-  no-adapter-installed throw can be asserted independently of the
-  adapter-disposed throw. Per rf2-6wxys."
+  this to wipe the lifecycle state between cases so the no-adapter-
+  installed throw can be asserted independently of the adapter-
+  disposed throw."
   []
   (reset! installed-adapter nil)
   (reset! disposed? false)
@@ -272,16 +269,13 @@
 ;; `(rf/init! reagent/adapter)` then silently uses (say) UIx's impl,
 ;; breaking adapter-specific contracts.
 ;;
-;; Per rf2-0d35 the fix is to wrap each adapter's impl in a routing
-;; closure that runs the impl ONLY when this adapter is the
-;; (rf/init!)-installed one; otherwise the closure chains to the
-;; previously-registered handler (which itself does the same
-;; active-adapter check for ITS adapter). The chain terminates with
-;; fallback-fn when no previous handler is registered — typically
-;; `(constantly nil)` (default), `(constantly false)` for predicates,
-;; or `#(frame/current-frame)` for the React-context-tier
-;; `:adapter/current-frame` hook (whose chain-bottom is the
-;; dynamic-var / :rf/default resolution in re-frame.frame).
+;; The fix is to wrap each adapter's impl in a routing closure that
+;; runs the impl ONLY when this adapter is the (rf/init!)-installed
+;; one; otherwise the closure chains to the previously-registered
+;; handler (which does the same active-adapter check for ITS adapter).
+;; The chain terminates with fallback-fn — typically `(constantly nil)`,
+;; `(constantly false)` for predicates, or `#(frame/current-frame)`
+;; for the React-context-tier `:adapter/current-frame` hook.
 
 (defn route-hook!
   "Install `impl-fn` under late-bind hook `hook-key`, wrapped so the call
@@ -291,8 +285,7 @@
   the first/only adapter to publish this hook), the routed closure
   returns `(fallback-fn)`.
 
-  Per rf2-0d35. See `spec/006-ReactiveSubstrate.md` for the adapter
-  routing contract.
+  See `spec/006-ReactiveSubstrate.md` for the adapter routing contract.
 
   3-arg form: defaults `fallback-fn` to `(constantly nil)` — the
   most common shape across the adapters (nil-fallback semantics).

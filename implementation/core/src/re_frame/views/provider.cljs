@@ -1,55 +1,45 @@
 (ns re-frame.views.provider
   "Frame-provider component + per-render identity machinery for the
-  Reagent-side views ns. Per rf2-lh7p — split out of `re-frame.views`
-  so the views file stays focused on registration orchestration.
-  Re-frame.views re-exports the publicly-referenced surface
-  (`frame-provider`, `build-frame-provider`, `current-frame`,
-  `mint-instance-token!`, `current-render-key`, `*render-key*`) so
-  existing call sites continue to work unchanged.
+  Reagent-side views ns. Re-frame.views re-exports the publicly-
+  referenced surface (`frame-provider`, `build-frame-provider`,
+  `current-frame`, `mint-instance-token!`, `current-render-key`,
+  `*render-key*`) so existing call sites work unchanged.
 
   Three cohesive concerns live here:
 
-  1. `frame-provider` — the user-facing Reagent component that scopes
-     a frame keyword to its subtree via React context. The actual
-     React Context object is owned by `re-frame.adapter.context` so
-     adapters across substrates (Reagent / UIx / Helix) read the same
-     context (per rf2-3yij Decision 2). The `build-frame-provider`
-     factory is the lower-level substrate hook the Reagent adapter
-     registers with `register-context-provider`.
+  1. `frame-provider` / `build-frame-provider` — the user-facing
+     Reagent component that scopes a frame keyword to its subtree via
+     React context. The React Context object is owned by
+     `re-frame.adapter.context` so adapters across substrates
+     (Reagent / UIx / Helix) read the same context.
 
   2. Per-render instance-token machinery — `mint-instance-token!`,
      `reagent-component-token`. Tokens disambiguate concurrently-
-     mounted instances of the same view-kind (Spec 004 §Render-tree
-     primitives, rf2-piag / rf2-t5tx). The `*render-key*` dynamic var
-     itself lives in `re-frame.views` so the wrapper's binding and
-     consumer reads share the same canonical Var.
+     mounted instances of the same view-kind. The `*render-key*`
+     dynamic var lives in `re-frame.views` so the wrapper's binding
+     and consumer reads share the same canonical Var.
 
-  3. `current-frame` — the resolution chain that subscribe / dispatch
-     consult to find the surrounding frame at render time
-     (Spec 002 §Reading the frame from React context). It pairs with
-     the `:contextType` static reg-view's wrapper installs on its
-     output (per `re-frame.views`).
+  3. `current-frame` — the resolution chain subscribe / dispatch
+     consult at render time (Spec 002 §Reading the frame from React
+     context). Pairs with the `:contextType` static `reg-view*`
+     attaches to its wrapper output.
 
-  Per rf2-wbnl this ns does NOT statically `:require` `reagent.core`.
-  The in-flight Reagent component is read through the late-bind hook
-  `:adapter/current-component`, which the active adapter ns publishes
-  at load time. The classic bridge points the hook at
-  `reagent.core/current-component`; the slim adapter points it at
-  `reagent2.core/current-component`. With no adapter installed the
-  hook returns nil and the React-context tier of the resolution chain
-  is skipped — equivalent to a non-Reagent render context, which is
-  what JVM / headless tests already rely on."
+  This ns does NOT statically `:require` `reagent.core`. The in-flight
+  Reagent component is read through the late-bind hook
+  `:adapter/current-component`; with no adapter installed the hook
+  returns nil and the React-context tier of the resolution chain is
+  skipped (equivalent to a non-Reagent render context — JVM /
+  headless tests rely on this)."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]))
 
 ;; ---- the React context for frame propagation -----------------------------
 ;;
-;; Per rf2-3yij Decision 2 the React Context object lives in
-;; `re-frame.adapter.context` so the UIx adapter (and any future
-;; React-shaped adapter) reads the *same* context — not a parallel one.
-;; The Reagent code below references it via the alias rather than
-;; minting a new createContext call.
+;; The React Context object lives in `re-frame.adapter.context` so
+;; every React-shaped adapter reads the *same* context — not a
+;; parallel one. The Reagent code below references it via the alias
+;; rather than minting a new createContext call.
 
 (def frame-context adapter-context/frame-context)
 
@@ -99,9 +89,9 @@
   `frame-provider` is.
 
   Reads `:frame` from props. When missing or `nil`, falls through to
-  `:rf/default` (per rf2-sixo — defensive default that matches the
-  no-provider behaviour and avoids breaking tooling-generated trees
-  that elide the prop).
+  `:rf/default` — defensive default that matches no-provider
+  behaviour and avoids breaking tooling-generated trees that elide
+  the prop.
 
   Reagent call shape:
 
@@ -111,9 +101,9 @@
        [footer]]
 
   Children are variadic (zero, one, or many). Same surface as the UIx
-  and Helix variants, different rendering substrate. The three adapters
-  share one React Context (per rf2-3yij Decision 2) so a subtree under
-  any frame-provider sees the right frame regardless of which substrate
+  and Helix variants, different rendering substrate. The three
+  adapters share one React Context so a subtree under any frame-
+  provider sees the right frame regardless of which substrate
   rendered the provider.
 
   `build-frame-provider` is the lower-level substrate hook; this fn is
@@ -122,21 +112,18 @@
   (let [frame-kw (or (:frame props) :rf/default)]
     (into [(build-frame-provider) frame-kw] children)))
 
-;; ---- in-flight Reagent component (rf2-wbnl) ------------------------------
+;; ---- in-flight Reagent component -----------------------------------------
 ;;
-;; The active adapter (classic bridge or slim) publishes its Reagent build's
-;; `current-component` fn through the `:adapter/current-component` late-bind
-;; hook at ns-load time. This ns must NOT statically `:require [reagent.core]`
-;; — doing so hard-couples views.cljs to stock Reagent and silently shadows
-;; the slim adapter's components in mixed-mode environments. Per the bead's
-;; resolution-chain note: dynamic var → adapter.current-component
-;; (late-bind) → nil. When no adapter has installed the hook the call returns
-;; nil and the React-context tier is skipped.
+;; The active adapter publishes its Reagent build's `current-component`
+;; fn through `:adapter/current-component` at ns-load time. Static
+;; `:require [reagent.core]` would hard-couple this ns to stock Reagent
+;; and silently shadow the slim adapter's components in mixed-mode
+;; environments.
 
 (defn current-component
   "Resolve the in-flight Reagent component via the active adapter's hook.
   Returns nil when no adapter has registered the hook (JVM / headless
-  builds; no-adapter tests). Per rf2-wbnl."
+  builds; no-adapter tests)."
   []
   (when-let [hook (late-bind/get-fn :adapter/current-component)]
     (hook)))
@@ -157,9 +144,9 @@
   context object — that is the wiring `reg-view*` attaches via
   `{:contextType frame-context}`. Plain Reagent fns lack this wiring,
   so `(.-context cmp)` is React's empty default — they fall through
-  to `:rf/default`. This narrowness is by design: it is what makes the
-  `:rf.warning/plain-fn-under-non-default-frame-once` warning
-  meaningful (rf2-d3k3 / rf2-d4sf).
+  to `:rf/default`. This narrowness is by design: it is what makes
+  the `:rf.warning/plain-fn-under-non-default-frame-once` warning
+  meaningful.
 
   The keyword/string coercion via
   `re-frame.adapter.context/coerce-context-value` is defensive cover
@@ -179,23 +166,19 @@
         (adapter-context/coerce-context-value (.-context cmp)))
       :rf/default))
 
-;; ---- per-render identity (rf2-piag / rf2-t5tx) ----------------------------
+;; ---- per-render identity --------------------------------------------------
 ;;
 ;; Render-trace entries carry a `:render-key` of shape
-;; `[<view-id> <instance-token>]`. Per rf2-t5tx Option C the tuple is the
-;; canonical identity: the view-id (registry keyword) names the kind; the
-;; instance-token disambiguates concurrently-mounted instances of the same
-;; kind. Tokens are minted at mount time from a process-wide counter and
-;; are NOT correlated across runs — they're for in-run instance discrimination
-;; only (per Spec 004 §Render-tree primitives).
+;; `[<view-id> <instance-token>]`. Tokens are minted at mount time
+;; from a process-wide counter and disambiguate concurrently-mounted
+;; instances of the same kind — they're for in-run discrimination
+;; only, no cross-run correlation.
 ;;
-;; Note: the `*render-key*` dynamic var and `current-render-key` reader
-;; live in `re-frame.views` (the public ns) rather than here. That keeps
-;; the dynamic-var Var canonical at the public path that tests reach via
-;; `re-frame.views/*render-key*` — see the views.cljs orchestration ns
-;; for the rationale. The mint / per-component-instance machinery does
-;; live here because it owns its own state (`instance-counter`) and the
-;; component-side stamp (`.-rfInstanceToken`).
+;; The `*render-key*` dynamic var and `current-render-key` reader
+;; live in `re-frame.views` (the public ns) so the canonical Var sits
+;; at the public path tests reach via `re-frame.views/*render-key*`.
+;; The mint / per-component-instance machinery lives here with its
+;; state (`instance-counter`, `.-rfInstanceToken`).
 
 (defonce ^:private instance-counter (atom 0))
 

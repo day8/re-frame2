@@ -1,15 +1,13 @@
 (ns re-frame.error-emit
-  "Always-on error-emit substrate. Per rf2-hqbeh (per-frame `:on-error`
-  policy fan-out) and rf2-bacs4 (corpus-wide listener fan-out). Per
-  Spec 009 §What IS available in production §Error-handler policy.
+  "Always-on error-emit substrate. Per Spec 009 §What IS available in
+  production §Error-handler policy.
 
   Survives `:advanced` + `goog.DEBUG=false`. Carries two independent
   fan-out paths from one normative emission site (the router's
   handler-exception path):
 
-    1. Corpus-wide listener registry (rf2-bacs4) — every fn
-       registered through [[register-error-emit-listener!]] receives
-       a tight error-record (Spec 009 §Record shape):
+    1. Corpus-wide listener registry — every fn registered through
+       [[register-error-emit-listener!]] receives a tight error-record:
 
          {:error      <kw>       ;; e.g. :rf.error/handler-exception
           :event      <vector>    ;; dispatched event vector (elided)
@@ -19,35 +17,29 @@
           :exception  <ex>
           :elapsed-ms <int>}
 
-       For off-box observability shippers (Sentry / Honeybadger /
+       For off-box observability shippers (Sentry, Honeybadger,
        Rollbar).
 
-    2. Per-frame `:on-error` policy fn (rf2-hqbeh) — the frame's
-       `:on-error` slot, when present, receives a structured error
-       event (`:operation` / `:tags` / `:recovery` shape) for in-app
-       recovery decisions.
+    2. Per-frame `:on-error` policy fn — the frame's `:on-error` slot,
+       when present, receives a structured error event (`:operation` /
+       `:tags` / `:recovery` shape) for in-app recovery decisions.
 
-  Both paths are independent (a buggy listener cannot block the
-  policy fn; a buggy policy fn cannot block listeners). Both are
-  try/catch wrapped per Spec 009 §1052.
+  Both paths are independent (a buggy listener cannot block the policy
+  fn; a buggy policy fn cannot block listeners). Both are try/catch
+  wrapped.
 
   Listener REGISTRATION sites SHOULD use `goog.DEBUG=false` as a
-  belt-and-braces gate alongside an explicit config flag. The
-  substrate proper carries no gate. Sibling to the event-emit
-  listener surface (rf2-rirbq); register both when forwarding to a
-  single hosted observability back-end.
+  belt-and-braces gate alongside an explicit config flag. The substrate
+  proper carries no gate.
 
-  Per rf2-vnjfg (security audit): when the failing event's registered
-  handler-meta carries `:sensitive? true`, the always-on error path
-  ENFORCES privacy — it does NOT merely warn. Both fan-out paths
-  surface the event slot as the `:rf/redacted` sentinel rather than
-  the raw event vector. Errors still observe (the exception object,
-  the failing event-id, the frame, the recovery decision all flow
-  through unchanged — operators need them for triage), but the
-  dispatched event payload — which may carry credentials, payment
-  details, PII — is scrubbed at the substrate boundary. Mirrors the
-  rf2-6hklf event-emit drop policy; we redact rather than drop here
-  because errors are a recovery surface that MUST be observable."
+  When the failing event's registered handler-meta carries
+  `:sensitive? true`, the always-on error path ENFORCES privacy — it
+  does NOT merely warn. Both fan-out paths surface the event slot as
+  `:rf/redacted` rather than the raw event vector. The exception
+  object, event-id, frame, and recovery decision flow through
+  unchanged (operators need them for triage); the event payload —
+  which may carry credentials / PII — is scrubbed at the substrate
+  boundary."
   (:require [re-frame.elision       :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.frame         :as frame]
@@ -91,8 +83,7 @@
   when the frame is unregistered, when no `:on-error` slot is
   configured, or when the slot is not a fn. Per Spec 009 §1052
   policy-fn exceptions are caught here so a buggy policy fn cannot
-  break the cascade. Returns the policy fn's return value or nil.
-  Per rf2-hqbeh."
+  break the cascade. Returns the policy fn's return value or nil."
   [frame-id error-event]
   (when-let [f (frame/frame frame-id)]
     (when-let [policy (get-in f [:config :on-error])]
@@ -104,10 +95,10 @@
 (defn- redact-tags-event
   "Substitute `:tags :event` (and `:tags :emit-event` if present) in
   `error-event` with `:rf/redacted`. Defensive: returns the input
-  unchanged when the shape doesn't match the documented form.
-  Per rf2-vnjfg: the structured error-event passed to the per-frame
-  `:on-error` policy fn MUST surface the redacted event when the
-  failing handler is registered `:sensitive? true`."
+  unchanged when the shape doesn't match the documented form. The
+  structured error-event passed to the per-frame `:on-error` policy
+  fn surfaces the redacted event when the failing handler is
+  registered `:sensitive? true`."
   [error-event]
   (if (and (map? error-event) (map? (:tags error-event)))
     (update error-event :tags
@@ -126,43 +117,25 @@
   Builds the tight error-record ONCE, runs
   `re-frame.elision/elide-wire-value` against `:event` with off-box
   defaults (large → `:rf.size/large-elided`; sensitive →
-  `:rf/redacted`), then fans out along two independent paths:
+  `:rf/redacted`), then fans out along two independent paths
+  (listener registry, per-frame `:on-error` policy).
 
-    1. Corpus-wide listener registry (rf2-bacs4) — emit-substrate
-       fan-out. Listener exceptions caught; siblings still run.
-    2. Per-frame `:on-error` policy fn (rf2-hqbeh) — receives the
-       supplied `error-event` map. Policy-fn exceptions caught per
-       Spec 009 §1052.
+  When the failing event's handler is registered `:sensitive? true`,
+  BOTH fan-out paths surface the event slot as `:rf/redacted` (in the
+  tight record's `:event` slot AND the structured error-event's
+  `:tags :event` slot). The exception, event-id, frame, and
+  elapsed-ms ride through unchanged so operators retain the triage
+  signal.
 
-  Per rf2-vnjfg (security audit): consults the failing event's
-  registered handler-meta `:sensitive?` flag. When the handler is
-  `:sensitive? true`, BOTH fan-out paths surface the event slot as
-  `:rf/redacted`:
-
-    - The tight error-record's `:event` slot is the `:rf/redacted`
-      sentinel (not the elided event vector).
-    - The structured error-event's `:tags :event` slot is the
-      `:rf/redacted` sentinel (in place of `emit-event`).
-
-  This is the substrate-level guarantee — even when the handler
-  failed before `with-redacted` ran (or no `with-redacted` was
-  declared at all), the always-on error path does NOT ship the raw
-  event payload to listeners or to the policy fn. The exception
-  object, the event-id, the frame, the elapsed-ms ride through
-  unchanged so operators retain the triage signal.
-
-  Called by `router.cljc` from the handler-exception path. The
-  `elapsed-ms` is the wall-clock from cascade-start to throw,
-  rounded to an integer at the substrate boundary per the contract
-  (mirrors rf2-ph8pa / rf2-rirbq). Returns nil."
+  Called by `router.cljc` from the handler-exception path. Returns nil."
   [error-kw event event-id frame-id exception elapsed-ms time error-event]
   (let [handler-meta (when event-id (registrar/lookup :event event-id))
         sensitive?   (privacy/sensitive?-from-meta handler-meta)
-        ;; Per rf2-vnjfg: redact the event slot at the substrate boundary
-        ;; when the failing handler is declared sensitive. Otherwise run
-        ;; the wire-walker as before (paths flagged `:sensitive?` /
-        ;; `:large?` via the per-frame `:rf/elision` registry still get
-        ;; their per-path substitutions).
+        ;; Redact the event slot at the substrate boundary when the
+        ;; failing handler is declared sensitive. Otherwise run the
+        ;; wire-walker as before (paths flagged `:sensitive?` /
+        ;; `:large?` via the per-frame `:rf/elision` registry still
+        ;; get their per-path substitutions).
         elided-event (if sensitive?
                        privacy/redacted-sentinel
                        (elision/elide-wire-value event {:frame frame-id}))

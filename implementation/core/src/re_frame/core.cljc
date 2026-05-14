@@ -7,22 +7,22 @@
 
   Topology — this ns is a thin façade:
 
-    - Optional-artefact wrappers (rf2-hoiu) live in `re-frame.core-
-      <feature>` sibling namespaces (`flows`, `routing`, `schemas`,
-      `machines`, `ssr`, `epoch`, `http`); each looks up its target
-      fn through the late-bind hook table so requiring this ns does
-      NOT pull the feature artefacts.
-    - Macro-helper code is factored (per rf2-4rnui) into three
-      siblings — `core-reg-macros`, `core-call-site-macros`,
-      `core-reg-view-macro` — keeping each leaf under the rf2-zkca8
-      250-LoC ceiling. The user-facing `defmacro`s themselves stay in
-      THIS ns (so `rf/reg-event-db` etc. resolve alias-qualified per
-      Clojure's standard `ns-alias/Var` lookup); each is a one-line
-      shell that delegates to the sibling-ns expansion helper.
+    - Optional-artefact wrappers live in `re-frame.core-<feature>`
+      sibling namespaces (`flows`, `routing`, `schemas`, `machines`,
+      `ssr`, `epoch`, `http`); each looks up its target fn through
+      the late-bind hook table so requiring this ns does NOT pull
+      the feature artefacts.
+    - Macro-helper code is factored into three siblings —
+      `core-reg-macros`, `core-call-site-macros`, `core-reg-view-macro`
+      — keeping each leaf under the 250-LoC ceiling. The user-facing
+      `defmacro`s themselves stay in THIS ns (so `rf/reg-event-db`
+      etc. resolve alias-qualified per Clojure's standard
+      `ns-alias/Var` lookup); each is a one-line shell that delegates
+      to the sibling-ns expansion helper.
 
-  File-naming uses the flat dash-form (`core_X.cljc`, per rf2-2vbm):
-  CLJS `goog.provide` for `re-frame.core` overwrites its parent
-  object, which would wipe a previously-loaded `re-frame.core.X`."
+  File-naming uses the flat dash-form (`core_X.cljc`) because CLJS
+  `goog.provide` for `re-frame.core` overwrites its parent object,
+  which would wipe a previously-loaded `re-frame.core.X`."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.router :as router]
@@ -101,11 +101,11 @@
 
 ;; ---- reg-* macros (JVM-only; CLJS sees them via :require-macros) --------
 ;;
-;; Each `defreg-macro` form below expands (per rf2-bd6zl) to a
-;; `defmacro` IN THIS ns — so `rf/reg-event-db` resolves alias-
-;; qualified per Clojure's `ns-alias/Var` lookup. The expansion
-;; captures source-coords at the user's call site and splices args
-;; through to the fully-qualified delegate fn.
+;; Each `defreg-macro` form below expands to a `defmacro` IN THIS ns
+;; — so `rf/reg-event-db` resolves alias-qualified per Clojure's
+;; `ns-alias/Var` lookup. The expansion captures source-coords at the
+;; user's call site and splices args through to the fully-qualified
+;; delegate fn.
 
 #?(:clj
    (do
@@ -313,9 +313,9 @@
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
-;; Per rf2-ts1a — each surface ships as a macro + `*`-fn pair (Q1=C).
-;; The macros expand to `re-frame.core/dispatch*` / `subscribe*` etc.,
-;; so those defs must live here.
+;; Each surface ships as a macro + `*`-fn pair. The macros expand to
+;; `re-frame.core/dispatch*` / `subscribe*` etc., so those defs must
+;; live here.
 
 (def dispatch*       router/dispatch!)
 (def dispatch-sync*  router/dispatch-sync!)
@@ -397,11 +397,10 @@
 
 ;; ---- frame-aware closures (runtime side) ---------------------------------
 ;;
-;; Per rf2-d4sf the public `current-frame` exposes the 3-tier resolution
-;; chain (dynamic var → React context → `:rf/default`) at every user-
-;; facing surface that flows through `(dispatcher)` / `(subscriber)` /
-;; `bound-fn`. The chain is single-sourced through
-;; `frame/resolve-current-frame` (rf2-jj8xf).
+;; The public `current-frame` exposes the 3-tier resolution chain
+;; (dynamic var → React context → `:rf/default`) at every user-facing
+;; surface that flows through `(dispatcher)` / `(subscriber)` /
+;; `bound-fn`. Single-sourced through `frame/resolve-current-frame`.
 
 (defn current-frame
   "Return the active frame at the call site. Resolution chain: dynamic
@@ -629,7 +628,7 @@
                   (cond-> {:where    'rf/init!
                            :expected "adapter spec map"
                            :recovery :no-recovery
-                           :reason   "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}
+                           :reason   "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter)."}
                     (some? received) (assoc :received received)))))
 
 (defn init!
