@@ -38,12 +38,14 @@
 
 (defn coerce-opts
   "Permit the keyword-only sugar `(app-schemas frame-id)` and the
-  opts-map form `(app-schemas {:frame frame-id})`."
+  opts-map form `(app-schemas {:frame frame-id})`. Every zero-arity
+  caller (`app-schema-at`, `app-schema-meta-at`, `app-schemas`,
+  `app-schemas-digest`) supplies `{}` explicitly — `nil` is not a
+  permitted argument."
   [opts-or-frame-id]
   (cond
     (keyword? opts-or-frame-id) {:frame opts-or-frame-id}
     (map?     opts-or-frame-id) opts-or-frame-id
-    (nil?     opts-or-frame-id) {}
     :else
     (throw (ex-info ":rf.error/bad-app-schemas-arg"
                     {:received opts-or-frame-id
