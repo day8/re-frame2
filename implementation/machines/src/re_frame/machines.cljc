@@ -56,14 +56,13 @@
 ;; `:require [re-frame.machines :as machines]`) see the same surface
 ;; they did pre-split.
 
-;; Per rf2-gr8q the global `spawn-counter` atom is gone. Declarative-
-;; :invoke spawns allocate ids inside the parent snapshot's
-;; `:rf/spawn-counter` slot via `re-frame.machines.transition/
-;; allocate-spawned-id`; hand-emitted spawn fxs allocate from the frame's
-;; app-db slot at `[:rf/spawn-counter <machine-id>]` inside the spawn-fx
-;; db-swap. `machine-transition` is now an honest pure function — no
-;; module-level mutable state, deterministic from its (machine snapshot
-;; event) arguments.
+;; Declarative-`:invoke` spawns allocate ids inside the parent
+;; snapshot's `:rf/spawn-counter` slot via
+;; `re-frame.machines.transition/allocate-spawned-id`; hand-emitted
+;; spawn fxs allocate from the frame's app-db slot at
+;; `[:rf/spawn-counter <machine-id>]` inside the spawn-fx db-swap.
+;; `machine-transition` is a pure function — no module-level mutable
+;; state, deterministic from its (machine snapshot event) arguments.
 
 (def reg-machine*           registration/reg-machine*)
 (def create-machine-handler registration/create-machine-handler)
@@ -84,9 +83,8 @@
 ;; system-id sid)` resolves the spawned-machine id currently bound to
 ;; `sid` in the active frame's `[:rf/system-ids]` reverse index.
 ;;
-;; Per rf2-zkca8.2 these fns moved here from the former
-;; `re-frame.machines.lifecycle-fx` (dissolved as a façade-of-a-façade):
-;; they belong on the public artefact surface, not a level below it.
+;; These query fns live on the public artefact surface (not a level
+;; below) since they're how Spec 005 §Querying machines is reached.
 
 (defn machines
   "Return a sequence of machine-ids — every event handler whose
@@ -137,17 +135,12 @@
   hook shape used to release a destroyed frame's host-clock handles and
   subscription watchers without touching sibling frames.
 
-  Per rf2-gr8q the per-process `spawn-counter` atom is gone — declarative-
-  :invoke spawn-id allocation lives inside the parent snapshot's
-  `:rf/spawn-counter` slot, and hand-emitted-spawn allocation lives inside
-  the frame's app-db at `[:rf/spawn-counter <machine-id>]`. Both reset
-  automatically: per-test snapshot rollback (via test-support's registrar
-  snapshot/restore + frame reset) clears the app-db; per-fixture snapshot
-  input in the conformance harness is hand-built fresh on each call.
-
-  Per rf2-ysa94 the wall-clock timer table is now frame-scoped — the
-  last remaining per-process mutable state in the machines artefact —
-  so the 0-arity / 1-arity split aligns with the test-fixture and
+  Spawn-id allocation lives inside the parent snapshot's
+  `:rf/spawn-counter` slot (declarative `:invoke`) or the frame's
+  app-db at `[:rf/spawn-counter <machine-id>]` (hand-emitted spawn);
+  both reset automatically with the registrar snapshot/restore + frame
+  reset, so this hook only handles the frame-scoped wall-clock timer
+  table. The 0-arity / 1-arity split aligns with the test-fixture and
   frame-destroy call sites respectively."
   ([]
    (timer/cancel-all-timers!))
@@ -159,12 +152,12 @@
 ;; Per Spec 005 §Declarative :invoke (sugar over spawn) the runtime
 ;; effects `:rf.machine/spawn` and `:rf.machine/destroy` are emitted
 ;; into the fx vector by `apply-transition-once` whenever entry/exit
-;; cascades cross an :invoke-bearing state. Per rf2-xbtj these handlers
-;; live in this namespace (rather than `re-frame.fx`'s reserved
-;; case-block) so an app that doesn't pull in
-;; `day8/re-frame2-machines` carries neither the trace strings
-;; (`:rf.machine/spawned`, `:rf.machine/destroyed`) nor the handler
-;; symbols on its production-elision bundle.
+;; cascades cross an :invoke-bearing state. These handlers live in
+;; this namespace (rather than `re-frame.fx`'s reserved case-block) so
+;; an app that doesn't pull in `day8/re-frame2-machines` carries
+;; neither the trace strings (`:rf.machine/spawned`,
+;; `:rf.machine/destroyed`) nor the handler symbols on its production-
+;; elision bundle.
 
 (fx/reg-fx :rf.machine/spawn
   {:doc "Spawn a machine instance. Per Spec 005 §Declarative :invoke (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:initial-data`."}
@@ -228,12 +221,11 @@
 ;; machines artefact see the hooks unregistered and the surface
 ;; throws / returns safe defaults cleanly.
 ;;
-;; Per Spec 005 §reg-machine vs reg-machine* (rf2-8bp3): the late-bind
-;; hook key is `:machines/reg-machine` and points at `reg-machine*` —
-;; the plain-fn surface. The `reg-machine` macro at the `re-frame.core`
-;; boundary is import-time-only (CLJS macroexpansion runs before
-;; ns-load); the runtime always reaches through this hook to the
-;; plain-fn surface.
+;; Per Spec 005 §reg-machine vs reg-machine*: the late-bind hook key
+;; `:machines/reg-machine` points at `reg-machine*` — the plain-fn
+;; surface. The `reg-machine` macro at the `re-frame.core` boundary is
+;; import-time-only (CLJS macroexpansion runs before ns-load); the
+;; runtime always reaches through this hook to the plain-fn surface.
 
 (late-bind/set-fn! :machines/reg-machine            reg-machine*)
 (late-bind/set-fn! :machines/create-machine-handler create-machine-handler)
@@ -242,15 +234,11 @@
 (late-bind/set-fn! :machines/machine-meta           machine-meta)
 (late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
 (late-bind/set-fn! :machines/reset-timers!          reset-timers!)
-;; Per rf2-ysa94: per-frame timer-table cleanup wired into
-;; `frame/destroy-frame!`. The frame-scoping refactor partitions the
-;; timer table `{<frame-id> {…}}`; without this hook a destroyed
-;; frame's inner table would linger as dead bookkeeping (and worse, any
-;; in-flight host-clock handles would survive teardown). Late-bound
-;; through the hook table mirroring the rf2-fcj33 SSR
-;; `:ssr/on-frame-destroyed` cleanup pattern — core never statically
-;; requires the machines artefact, so the hook resolves to nil when
-;; this namespace is absent and `destroy-frame!` proceeds without it.
+;; Per-frame timer-table cleanup wired into `frame/destroy-frame!`.
+;; The timer table is partitioned `{<frame-id> {…}}`; without this
+;; hook a destroyed frame's inner table would linger as dead
+;; bookkeeping and in-flight host-clock handles would survive teardown.
+;; Late-bound so core never statically requires the machines artefact.
 (late-bind/set-fn! :machines/on-frame-destroyed!
                    (fn [frame-id] (timer/cancel-all-timers! frame-id)))
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
