@@ -380,23 +380,41 @@
        :kind          kind}
       frame)))
 
-(defn- finalise-success! [ctx accepted]
-  (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
-  (cond
-    (contains? accepted :ok)
-    (dispatch-reply! (assoc ctx
-                            :kind :success
-                            :reply-payload {:kind  :success
-                                            :value (:ok accepted)}))
+(defn- already-replied?
+  "rf2-on7sj — the once-only reply guard. The handle carries a
+  `:finalised?` atom stamped at `record-in-flight!` time; the abort
+  path AND the natural-completion paths both reach `finalise-*` and
+  must NOT both dispatch a reply for the same request. CAS the flag
+  from false→true on first arrival; subsequent calls see `true` and
+  bail. Returns truthy when the caller MUST NOT proceed (already
+  replied OR no handle present at all — defensive, see below).
 
-    (contains? accepted :failure)
-    (dispatch-reply! (assoc ctx
-                            :kind :failure
-                            :reply-payload {:kind    :failure
-                                            :failure {:kind       :rf.http/accept-failure
-                                                      :detail     (:failure accepted)
-                                                      :decoded    (:decoded ctx)
-                                                      :request-id (:request-id ctx)}}))))
+  Synthetic / test-path callers may pass a ctx with no `:handle`
+  (e.g. some failure-shape unit tests build ctx maps directly). In
+  that case the guard is a no-op — the flag's nil and the call
+  proceeds. The real run-attempt! path always stamps a handle."
+  [ctx]
+  (when-let [flag (:finalised? (:handle ctx))]
+    (not (compare-and-set! flag false true))))
+
+(defn- finalise-success! [ctx accepted]
+  (when-not (already-replied? ctx)
+    (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+    (cond
+      (contains? accepted :ok)
+      (dispatch-reply! (assoc ctx
+                              :kind :success
+                              :reply-payload {:kind  :success
+                                              :value (:ok accepted)}))
+
+      (contains? accepted :failure)
+      (dispatch-reply! (assoc ctx
+                              :kind :failure
+                              :reply-payload {:kind    :failure
+                                              :failure {:kind       :rf.http/accept-failure
+                                                        :detail     (:failure accepted)
+                                                        :decoded    (:decoded ctx)
+                                                        :request-id (:request-id ctx)}})))))
 
 (defn- finalise-failure!
   "Final-failure dispatch (after retries exhausted or non-retriable).
@@ -408,29 +426,36 @@
   outcome and corrupt debounce-search patterns). The supersede event
   still emits to the trace bus (`:rf.http/aborted` with
   `:reason :request-id-superseded`); consumers wanting abort telemetry
-  subscribe via `register-trace-cb!`."
+  subscribe via `register-trace-cb!`.
+
+  Per rf2-on7sj: guarded by the once-only `:finalised?` CAS so the
+  abort path and a later natural-completion path can't both dispatch
+  a reply for the same request. The trace emit + registry clear ALSO
+  live inside the guard — a doubled trace would be just as observable
+  as a doubled reply on the dev surface."
   [ctx failure]
-  (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
-  (when interop/debug-enabled?
-    ;; rf2-bma05 — redact response-side payload slots (body, body-text,
-    ;; decoded, detail) and the headers denylist before the trace
-    ;; surface sees them; stamp :sensitive? when applicable. The CLJS
-    ;; and JVM transports share the same contract.
-    (let [sensitive? (true? (:sensitive? ctx))
-          redacted   (privacy/prepare-emit-failure
-                       (assoc failure
-                              :request-id (:request-id ctx)
-                              :url        (:url ctx)
-                              :recovery   :no-recovery)
-                       sensitive?)]
-      (trace/emit-error! (:kind failure) redacted)))
-  (let [superseded? (and (= :rf.http/aborted (:kind failure))
-                         (= :request-id-superseded (:reason failure)))]
-    (when-not superseded?
-      (dispatch-reply! (assoc ctx
-                              :kind          :failure
-                              :reply-payload {:kind    :failure
-                                              :failure failure})))))
+  (when-not (already-replied? ctx)
+    (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+    (when interop/debug-enabled?
+      ;; rf2-bma05 — redact response-side payload slots (body, body-text,
+      ;; decoded, detail) and the headers denylist before the trace
+      ;; surface sees them; stamp :sensitive? when applicable. The CLJS
+      ;; and JVM transports share the same contract.
+      (let [sensitive? (true? (:sensitive? ctx))
+            redacted   (privacy/prepare-emit-failure
+                         (assoc failure
+                                :request-id (:request-id ctx)
+                                :url        (:url ctx)
+                                :recovery   :no-recovery)
+                         sensitive?)]
+        (trace/emit-error! (:kind failure) redacted)))
+    (let [superseded? (and (= :rf.http/aborted (:kind failure))
+                           (= :request-id-superseded (:reason failure)))]
+      (when-not superseded?
+        (dispatch-reply! (assoc ctx
+                                :kind          :failure
+                                :reply-payload {:kind    :failure
+                                                :failure failure}))))))
 
 (defn- maybe-retry!
   "Decide between retry, immediate-final-failure, and successful-completion.
@@ -580,6 +605,56 @@
         ;; attempt controller — abort signalling is host-specific and
         ;; lives outside the sendAsync future.
         #?@(:cljs [internal-controller (js/AbortController.)])
+        ;; rf2-on7sj — once-only reply guard. The abort path AND the
+        ;; subsequent natural-completion path (Fetch .catch on CLJS,
+        ;; CompletableFuture .whenComplete on JVM) both fan into
+        ;; finalise-*; without this CAS each slow-server abort would
+        ;; dispatch TWO replies for the same request — first the
+        ;; synthesised :rf.http/aborted (immediate), then the natural-
+        ;; completion reply (much later, after the underlying transport
+        ;; drains). The flag is stamped on the handle map; finalise-*
+        ;; reads it via `(:finalised? (:handle ctx))` and the abort-fn
+        ;; closure CASes the same atom lexically before dispatching the
+        ;; abort reply itself. JVM additionally cancels the underlying
+        ;; CompletableFuture so the work actually stops (not just the
+        ;; reply path).
+        finalised? (atom false)
+        ;; rf2-on7sj (JVM) — the abort-fn closure must `.cancel cf true`
+        ;; on the underlying CompletableFuture, but cf only exists AFTER
+        ;; this binding (built inside the try-body below). Forward via a
+        ;; one-cell atom that the JVM body fills after construction; the
+        ;; abort-fn reads it lazily through `@cf-holder`.
+        #?@(:clj  [cf-holder (atom nil)])
+        ;; rf2-on7sj — the abort-fn dispatches a synthesised reply
+        ;; directly (no finalise-failure! re-entry). Reuses the same
+        ;; trace-emit + reply-payload shape `finalise-failure!` uses
+        ;; for the natural path so abort + natural failures look
+        ;; identical to consumers. Bypassing finalise-failure! keeps
+        ;; the cancel + CAS + dispatch sequence atomic in the abort
+        ;; path and means the once-only guard has a single owner.
+        dispatch-aborted! (fn [reason]
+                            (let [failure {:kind       :rf.http/aborted
+                                           :request-id request-id
+                                           :reason     reason
+                                           :actor-id   actor-id}]
+                              (when interop/debug-enabled?
+                                (let [sensitive? (true? (:sensitive? ctx-no-handle))
+                                      redacted   (privacy/prepare-emit-failure
+                                                   (assoc failure
+                                                          :url      (:url ctx-no-handle)
+                                                          :recovery :no-recovery)
+                                                   sensitive?)]
+                                  (trace/emit-error! :rf.http/aborted redacted)))
+                              ;; Per rf2-lxd3 — supersede semantics
+                              ;; suppress the reply. Other abort reasons
+                              ;; (`:user`, `:actor-destroyed`, `:timeout`)
+                              ;; all dispatch the failure reply normally.
+                              (when-not (= :request-id-superseded reason)
+                                (dispatch-reply!
+                                  (assoc ctx-no-handle
+                                         :kind          :failure
+                                         :reply-payload {:kind    :failure
+                                                         :failure failure})))))
         ;; Register the abort handle. The handle ref is stamped into ctx
         ;; so finalise-* can clear it from both indexes without needing
         ;; the request-id (handles anonymous-from-actor requests too —
@@ -587,25 +662,46 @@
         handle   (registry/record-in-flight!
                    request-id actor-id
                    {:abort-fn (fn [reason]
-                                #?(:cljs
-                                   (try
-                                     (when internal-controller
-                                       (.abort internal-controller (clj->js reason)))
-                                     (finalise-failure!
-                                       ctx-no-handle
-                                       {:kind       :rf.http/aborted
-                                        :request-id request-id
-                                        :reason     reason
-                                        :actor-id   actor-id})
-                                     (catch :default _ nil))
-                                   :clj
-                                   (finalise-failure!
-                                     ctx-no-handle
-                                     {:kind       :rf.http/aborted
-                                      :request-id request-id
-                                      :reason     reason
-                                      :actor-id   actor-id})))
+                                ;; rf2-on7sj — single-shot CAS guard.
+                                ;; A re-entrant abort (e.g. supersede +
+                                ;; actor-destroy firing in rapid
+                                ;; succession against the same handle)
+                                ;; is a no-op past the first call.
+                                (when (compare-and-set! finalised? false true)
+                                  #?(:cljs
+                                     (try
+                                       (when internal-controller
+                                         (.abort internal-controller (clj->js reason)))
+                                       (catch :default _ nil))
+                                     :clj
+                                     ;; rf2-on7sj — cancel the underlying
+                                     ;; future so it stops running. The
+                                     ;; CompletableFuture's whenComplete
+                                     ;; will still fire (with a
+                                     ;; CancellationException), but
+                                     ;; finalise-failure! is guarded by
+                                     ;; the same :finalised? flag and
+                                     ;; bails before re-emitting.
+                                     ;; `true` = may-interrupt-if-running.
+                                     (when-let [^CompletableFuture cf @cf-holder]
+                                       (try (.cancel cf true)
+                                            (catch Throwable _ nil))))
+                                  ;; Registry cleanup happens here once;
+                                  ;; finalise-failure! is bypassed. The
+                                  ;; 1-arg form resolves the handle by
+                                  ;; request-id and walks both indexes.
+                                  ;; For anonymous (request-id-less)
+                                  ;; requests aborted via actor-destroy,
+                                  ;; the actor-side slot has already
+                                  ;; been cleared atomically by
+                                  ;; `abort-on-actor-destroy` before
+                                  ;; this abort-fn was invoked, so the
+                                  ;; no-op here is correct.
+                                  (registry/clear-in-flight! request-id)
+                                  (dispatch-aborted! reason)))
                     :url url
+                    ;; rf2-on7sj — once-only reply guard, see comment above.
+                    :finalised? finalised?
                     ;; rf2-bma05 — propagate the :sensitive? flag onto
                     ;; the in-flight handle so the actor-destroy abort
                     ;; emit (lives in the registry ns) can stamp the
@@ -631,6 +727,15 @@
            ;; rf2-r40km — pass `url` so `classify-cljs-error` can
            ;; distinguish `:rf.http/cors` from `:rf.http/transport`
            ;; via the cross-origin heuristic.
+           ;; rf2-on7sj — when the abort-fn fired and dispatch-aborted!
+           ;; already replied, the Fetch promise still rejects (because
+           ;; `.abort internal-controller` rejects the underlying
+           ;; fetch); this .catch would call `maybe-retry!` →
+           ;; `finalise-failure!` for a second pass. The once-only
+           ;; `:finalised?` CAS on the handle short-circuits the second
+           ;; dispatch inside finalise-*, so this path stays as the
+           ;; natural-completion sink without a bespoke "did we abort?"
+           ;; check here.
            (.catch (fn [err]
                      (maybe-retry! ctx' (classify-cljs-error err url)))))
        :clj
@@ -642,6 +747,20 @@
                            :body       enc-body
                            :timeout-ms timeout-ms
                            :sensitive? (true? (:sensitive? ctx))})]
+           ;; rf2-on7sj — publish cf to the abort-fn closure's holder
+           ;; BEFORE wiring whenComplete. A racing abort that arrives
+           ;; between `jvm-fetch` returning and `.whenComplete`
+           ;; registering still finds cf in the holder and can cancel
+           ;; it.
+           (reset! cf-holder cf)
+           ;; rf2-on7sj — the whenComplete callback fires even after
+           ;; `.cancel cf true`: the cancel completes-exceptionally
+           ;; with a CancellationException, which routes through this
+           ;; BiConsumer as `throwable`. `maybe-retry!` →
+           ;; `finalise-failure!` is then guarded by the once-only
+           ;; `:finalised?` CAS (the abort-fn already finalised), so
+           ;; the abort's reply is the only one that ever reaches the
+           ;; user.
            (.whenComplete cf
                           (reify java.util.function.BiConsumer
                             (accept [_ result throwable]
