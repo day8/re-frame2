@@ -61,7 +61,7 @@
       [kept n])))
 
 (defn scrub-snapshot
-  "Walk a per-frame snapshot map and apply `strip-sensitive` to every
+  "Walk a per-frame snapshot map and apply a strip-fn to every
   `:traces` / `:epochs` slice. Returns `[scrubbed-snapshot
   total-dropped]`. Non-map slices and non-snapshot inputs pass
   through unchanged.
@@ -71,22 +71,35 @@
   are LEFT ALONE — app-db payload redaction is `with-redacted`'s job
   at write-time, not the forwarder's job at read-time. Re-asserted
   by the snapshot-scrubber tests in every MCP that emits per-frame
-  snapshots."
-  [snapshot include?]
-  (if (or include? (not (map? snapshot)))
-    [snapshot 0]
-    (let [dropped (volatile! 0)
-          scrub-slice
-          (fn [items]
-            (let [[kept n] (strip-sensitive (vec items) false)]
-              (vswap! dropped + n)
-              kept))
-          scrub-frame
-          (fn [frame-map]
-            (cond-> frame-map
-              (contains? frame-map :traces) (update :traces scrub-slice)
-              (contains? frame-map :epochs) (update :epochs scrub-slice)))
-          scrubbed (reduce-kv (fn [m k v]
-                                (assoc m k (if (map? v) (scrub-frame v) v)))
-                              {} snapshot)]
-      [scrubbed @dropped])))
+  snapshots.
+
+  ## Strip-fn parameter (rf2-zpmmr)
+
+  Two-arity form `[snapshot include?]` uses the base
+  `strip-sensitive` predicate (spec/009 §Privacy stamp check).
+  Three-arity form `[snapshot include? strip-fn]` accepts a custom
+  strip-fn matching the `[items include?] => [kept dropped]`
+  contract — pair2-mcp passes its union predicate that also catches
+  the epoch-level `:sensitive?` rollup (`sensitive-event? OR
+  sensitive-epoch?`). The default arity preserves the
+  trace-event-only filter for story-mcp / causa-mcp consumers."
+  ([snapshot include?]
+   (scrub-snapshot snapshot include? strip-sensitive))
+  ([snapshot include? strip-fn]
+   (if (or include? (not (map? snapshot)))
+     [snapshot 0]
+     (let [dropped (volatile! 0)
+           scrub-slice
+           (fn [items]
+             (let [[kept n] (strip-fn (vec items) false)]
+               (vswap! dropped + n)
+               kept))
+           scrub-frame
+           (fn [frame-map]
+             (cond-> frame-map
+               (contains? frame-map :traces) (update :traces scrub-slice)
+               (contains? frame-map :epochs) (update :epochs scrub-slice)))
+           scrubbed (reduce-kv (fn [m k v]
+                                 (assoc m k (if (map? v) (scrub-frame v) v)))
+                               {} snapshot)]
+       [scrubbed @dropped]))))
