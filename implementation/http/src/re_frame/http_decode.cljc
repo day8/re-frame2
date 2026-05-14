@@ -76,26 +76,32 @@
 ;; Memoised resolves (per rf2-tja2y). The Malli vars never rebind at
 ;; runtime; resolving once per JVM / once per CLJS runtime is enough,
 ;; and the deref asymmetry (JVM `requiring-resolve` returns a Var,
-;; CLJS `resolve` returns the value directly) is normalised here so
-;; the call site is platform-uniform per rf2-exycf.
+;; CLJS `resolve` returns the value directly) is normalised behind
+;; the delays so the call sites in `malli-decode` invoke the cached
+;; fn directly (per rf2-exycf).
 ;;
-;; On CLJS `resolve` is the compile-time analyzer affordance — these
-;; delays evaluate once at first call; subsequent decodes share the
-;; cached fn.
+;; CLJS `resolve` is a compile-time macro that requires a literal
+;; quoted symbol — we cannot factor the symbol behind a runtime fn
+;; arg without breaking CLJS analysis. Each delay therefore inlines
+;; its symbol.
 
-(defn- resolve-fn
-  "Resolve `sym` to its var-deref'd function value (or nil if absent).
-  Threading the `#?(:clj :cljs)` here lets callers use the returned
-  value uniformly without further reader conditionals."
-  [sym]
-  #?(:clj  (try (some-> (requiring-resolve sym) deref)
-                (catch Throwable _ nil))
-     :cljs (try (some-> (resolve sym))
-                (catch :default _ nil))))
+(defonce ^:private malli-decode-fn
+  (delay #?(:clj  (try (some-> (requiring-resolve 'malli.core/decode) deref)
+                       (catch Throwable _ nil))
+            :cljs (try (resolve 'malli.core/decode)
+                       (catch :default _ nil)))))
 
-(defonce ^:private malli-decode-fn      (delay (resolve-fn 'malli.core/decode)))
-(defonce ^:private malli-transformer-fn (delay (resolve-fn 'malli.transform/json-transformer)))
-(defonce ^:private malli-validate-fn    (delay (resolve-fn 'malli.core/validate)))
+(defonce ^:private malli-transformer-fn
+  (delay #?(:clj  (try (some-> (requiring-resolve 'malli.transform/json-transformer) deref)
+                       (catch Throwable _ nil))
+            :cljs (try (resolve 'malli.transform/json-transformer)
+                       (catch :default _ nil)))))
+
+(defonce ^:private malli-validate-fn
+  (delay #?(:clj  (try (some-> (requiring-resolve 'malli.core/validate) deref)
+                       (catch Throwable _ nil))
+            :cljs (try (resolve 'malli.core/validate)
+                       (catch :default _ nil)))))
 
 (defn- malli-decode
   "Run a Malli schema's `decode` over `value`, falling back to plain
