@@ -27,13 +27,13 @@
   docs → testing → write. The recorder bridge
   (`record-as-variant`) lives in `tools.recorder` for leaf-size
   reasons (rf2-zkca8) but belongs at the tail of the write category
-  per IMPL-SPEC §7.3."
-  (-> []
-      (into cat [dev/descriptors
-                 docs/descriptors
-                 testing/descriptors
-                 write/descriptors])
-      (conj recorder/descriptor)))
+  per IMPL-SPEC §7.3 — `recorder/descriptors` is a one-element vec
+  so the assembly stays symmetric across every category ns."
+  (into [] cat [dev/descriptors
+                docs/descriptors
+                testing/descriptors
+                write/descriptors
+                recorder/descriptors]))
 
 (defn tool-descriptors
   "Build the `tools/list` response payload: each tool's name +

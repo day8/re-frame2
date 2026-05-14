@@ -144,29 +144,31 @@
                                          (select-keys (ex-data e)
                                                       [:rf.error :explain]))))))))))))
 
-(def descriptor
-  "Registry descriptor for `record-as-variant`. Listed in
-  `tools.write/descriptors` so the registry assembly stays in
-  IMPL-SPEC §7.3 order."
-  {:name           "record-as-variant"
-   :category       :write
-   :description    "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`)."
-   :typicalTokens  1500
-   :inputSchema {:type "object"
-                 :properties (s/with-max-tokens
-                               {:variant-id     s/kw-or-string
-                                :duration-ms    {:type "integer" :minimum 0
-                                                 :description "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op)."}
-                                :new-variant-id (assoc s/kw-or-string
-                                                  :description "When `:write-back?` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
-                                :doc            {:type "string"
-                                                 :description "Optional docstring embedded in the rendered snippet."}
-                                :extends        (assoc s/kw-or-string
-                                                  :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
-                                :alias          {:type "string"
-                                                 :description "Short ns alias for the rendered form (default \"story\")."}
-                                :write-back?    {:type "boolean"
-                                                 :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}})
-                 :required ["variant-id"]
-                 :additionalProperties false}
-   :handler     tool-record-as-variant})
+(def descriptors
+  "Registry descriptors for the recorder's MCP surface — the single
+  `record-as-variant` tool, presented as a vec so
+  `tools.registry/tool-registry` can `into cat` recorder alongside
+  every other category ns symmetrically. The tool is tail-of-write
+  per IMPL-SPEC §7.3."
+  [{:name           "record-as-variant"
+    :category       :write
+    :description    "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`)."
+    :typicalTokens  1500
+    :inputSchema {:type "object"
+                  :properties (s/with-max-tokens
+                                {:variant-id     s/kw-or-string
+                                 :duration-ms    {:type "integer" :minimum 0
+                                                  :description "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op)."}
+                                 :new-variant-id (assoc s/kw-or-string
+                                                   :description "When `:write-back?` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
+                                 :doc            {:type "string"
+                                                  :description "Optional docstring embedded in the rendered snippet."}
+                                 :extends        (assoc s/kw-or-string
+                                                   :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
+                                 :alias          {:type "string"
+                                                  :description "Short ns alias for the rendered form (default \"story\")."}
+                                 :write-back?    {:type "boolean"
+                                                  :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}})
+                  :required ["variant-id"]
+                  :additionalProperties false}
+    :handler     tool-record-as-variant}])
