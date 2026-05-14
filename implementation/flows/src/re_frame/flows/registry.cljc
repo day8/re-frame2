@@ -79,12 +79,13 @@
     (throw (ex-info ":rf.error/flow-bad-inputs"
                     {:flow flow :reason ":inputs must be a vector of paths"}))
 
-    (not (every? vector? (:inputs flow)))
-    (throw (ex-info ":rf.error/flow-bad-inputs"
-                    {:flow flow
-                     :reason ":inputs entries must each be a vector (app-db path)"
-                     :bad-entries (vec (remove vector? (:inputs flow)))}))
-
+    ;; One clause for both "entry isn't a vector" and "entry isn't a
+    ;; valid path" — `valid-path?` already requires `vector?`, so the
+    ;; older two-arm split (the prior code carried a separate
+    ;; `(every? vector? ...)` check) was strictly subsumed by this one.
+    ;; The single rejection message names what the entry must be; the
+    ;; `:bad-entries` slot points at the offending values so callers
+    ;; can fix them without a stack-trace dig.
     (not (every? valid-path? (:inputs flow)))
     (throw (ex-info ":rf.error/flow-bad-inputs"
                     {:flow flow
