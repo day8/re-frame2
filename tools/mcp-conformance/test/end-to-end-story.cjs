@@ -27,7 +27,7 @@
 // 0 on success. Source: rf2-cum40.
 
 const path = require('node:path');
-const { runWithWatchdog } = require('./_runner.cjs');
+const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
@@ -227,7 +227,17 @@ runWithWatchdog(
     }
     console.log('OK   unregister-variant -> teardown verified by subsequent get-variant -> not-found');
 
-    // 7. Clean disconnect — runner handles client.close() on success.
+    // 7. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Mirrors
+    // the assertion in end-to-end-pair2.cjs — story-mcp MUST emit the
+    // same canonical codes from `mcp-base/vocab.cljc` for unknown-method
+    // + malformed-params (its JVM transport reuses the same SDK
+    // server-side framing).
+    await assertJsonRpcErrorCodes(client);
+    console.log(
+      'OK   JSON-RPC error codes -> MethodNotFound + (InvalidParams|InternalError)',
+    );
+
+    // 8. Clean disconnect — runner handles client.close() on success.
     console.log('\nSTORY-MCP MCP-CLIENT CONFORMANCE GREEN');
   },
 );
