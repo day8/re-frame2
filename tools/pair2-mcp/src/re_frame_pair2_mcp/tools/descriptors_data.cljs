@@ -65,7 +65,7 @@
                      "at the top level; opt back in with `include-sensitive? true`. Dropped count surfaces "
                      "as `:dropped-sensitive` on the result when non-zero. "
                      "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
-                     "— pass `epochs-mode \"full\"` for the legacy full-pair shape (needed for time-travel restore). "
+                     "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode) (needed for time-travel restore). "
                      "The epoch vector is structurally deduped by default (rf2-obpa9) — repeated subtrees "
                      "(notably the per-record `:db-before` reference) collapse to a `{:rf.mcp/dedup-table ...}` "
                      "wrapper; the agent host calls `(de-dupe.core/expand cache)` to reconstruct. Pass `dedup false` to skip. "
@@ -81,7 +81,7 @@
                               :limit knobs/limit-property
                               :cursor knobs/cursor-property
                               :epochs-mode {:type "string"
-                                            :description "How :db-after rides the wire: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
+                                            :description "How :db-after rides the wire: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (complete :db-after snapshot — opt-in for time-travel restore, which needs the verbatim state)."
                                             :enum ["diff" "full"]}
                               :dedup knobs/dedup-property
                               :include-sensitive? {:type "boolean"
@@ -103,7 +103,7 @@
                      "Per spec/009 §Privacy this forwarder "
                      "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`. "
                      "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
-                     "— pass `epochs-mode \"full\"` for the legacy full-pair shape. "
+                     "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode). "
                      "The matches vector is structurally deduped by default (rf2-obpa9); pass `dedup false` to skip. "
                      "Cursor pagination (rf2-kbqq3): the matches vector is bounded at `:limit` (default 50). "
                      "When more matches remain, `:next-cursor` is non-nil and `:has-more? true`; pass `cursor` "
@@ -154,7 +154,7 @@
                      "Path-slicing supersedes the slice-level mode for `:app-db`. "
                      "Diff-encoded epochs (rf2-1wdzp): each epoch in the `:epochs` slice has its `:db-after` "
                      "replaced with a structural diff against its own `:db-before` by default — pass "
-                     "`epochs-mode \"full\"` for legacy full-pair shape (opt-in for time-travel restore). "
+                     "`epochs-mode \"full\"` for full-pair shape (the time-travel-restore mode, which needs verbatim state). "
                      "Diff-encode runs before the lazy-summary so `bytes` hints reflect post-shrink cost. "
                      "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
                      "`:sensitive? true`; opt back in with `include-sensitive? true`. App-db / sub-cache / "
@@ -209,7 +209,7 @@
                                         :additionalProperties {:type "string"
                                                                :enum ["summary" "full"]}}
                               :epochs-mode {:type "string"
-                                            :description "How :db-after rides the wire in the :epochs slice: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
+                                            :description "How :db-after rides the wire in the :epochs slice: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (complete :db-after snapshot — opt-in for time-travel restore, which needs the verbatim state)."
                                             :enum ["diff" "full"]}
                               :dedup    knobs/dedup-property
                               :elision  knobs/elision-property

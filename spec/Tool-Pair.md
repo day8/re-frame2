@@ -541,6 +541,23 @@ The cross-MCP catalogue is normative and shared across the re-frame2 MCP triplet
 
 The framework owns the *data*; the wire-protocol layer owns the *packaging*. Findings docs and downstream Specs reaching for the mechanism catalogue link to the MCP-server homes above, not back into this Spec.
 
+#### MCP-side wire-marker vocabulary
+
+The mechanisms above emit a small family of namespaced wire markers — replacement envelopes that pair-shaped tools wrap a payload in when a budget / dedup / cache rule fires. Every marker rides as a top-level map keyed on a `:rf.mcp/*` or `:rf.size/*` keyword (per [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)); agent hosts pattern-match on the key to branch their UI / retry / drill-in flows. Each artefact's own Spec mentions a subset; the family in one place:
+
+| Marker key | Mechanism | Emitted by | Shape (top-level keys) |
+|---|---|---|---|
+| `:rf.mcp/overflow` | Wire-cap (rf2-rvyzy) | Post-eval cap step replaces an over-budget payload. | `:limit :reached`, `:token-count`, `:cap-tokens`, `:tool`, `:hint`. |
+| `:rf.mcp/summary` | Lazy-summary mode (rf2-u2029) | `snapshot` replaces each `:summary`-mode rich slice. | `:type`, `:keys`, `:count`, `:bytes`. |
+| `:rf.mcp/dedup-table` | Structural dedup (rf2-obpa9) | Every epoch / events vector emitter wraps post-encoded payload. | `:de-dupe.cache/cache-0`, `:de-dupe.cache/cache-1`, … (flat). |
+| `:rf.mcp/diff-from` | Diff-encoded `:db-after` (rf2-1wdzp) | Each epoch's `:db-after` is replaced with an intra-record diff. | `:rf.mcp/diff-from`, `:patches`. |
+| `:rf.mcp/cache-hit` | Per-session response cache (rf2-3rt1f / rf2-36xod) | Wire-boundary cache replaces a byte-identical re-emit. | `:hash`, `:unchanged-since`, `:tool`, `:via` (`:result-hash` / `:precheck`), `:hint`. |
+| `:rf.size/large-elided` | Size-elision walker (rf2-urjnc, rf2-9fz64) | `rf/elide-wire-value` substitutes over-threshold leaves. | `:path`, `:bytes`, `:type`, `:reason`, `:hint`, `:handle` (`[:rf.elision/at <path>]`). |
+| `:rf.mcp/cursor-stale` | Cursor pagination (rf2-kbqq3) | `trace-window` / `watch-epochs` refuse a cursor whose `:epoch-id` aged out of the ring. | `:reason :rf.mcp/cursor-stale`, `:tool`, `:requested-id`, `:head-id`. |
+| `:rf/redacted` | Privacy walker (`with-redacted`, spec/009 §Privacy) | The framework-side redact walker replaces named keys at emit time. | Scalar sentinel (no map shape). |
+
+Agents that learn the family see each new slot as one more case in the same pattern-match — the namespaced first key is the discriminator. New mechanisms add to the table; existing markers are stable (additive: new optional keys, never removed / renamed).
+
 ### Direct-read privacy posture for `sub-cache` and `get-path`
 
 Most Tool-Pair surfaces ride the trace bus (`register-trace-cb!` / `register-epoch-cb!`) or the event-emit substrate, where `:sensitive?` stamps and size markers are applied at the emit boundary. Two surfaces in the attachment table above do **not** ride that path: `(rf/sub-cache frame-id)` and the MCP-server `get-path` tool (a direct read-by-path against `(rf/get-frame-db frame-id)`). Both are **synchronous reads** of live runtime state — the sub-cache map, an arbitrary path into `app-db` — and the `:sensitive?` trace stamp protects only the *trace* surface. A direct read returns the live value untransformed unless the wire-egress boundary scrubs it.

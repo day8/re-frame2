@@ -76,11 +76,15 @@
 
 (defn scrub-snapshot-sensitive
   "Walk a snapshot's per-frame map and drop `:sensitive? true` items
-  from the `:traces` slice (and, defensively, `:epochs` — epoch
-  records may inherit the stamp). Returns `[scrubbed dropped-count]`.
-  Non-trace slices (:app-db, :sub-cache, :machines) pass through
-  unchanged — redaction of those payloads is the `with-redacted`
-  interceptor's job, not the forwarder's.
+  from the `:traces` and `:epochs` slices. Returns
+  `[scrubbed dropped-count]`. Non-trace slices (:app-db, :sub-cache,
+  :machines) pass through unchanged — redaction of those payloads is
+  the `with-redacted` interceptor's job, not the forwarder's.
+
+  Epoch-record stamping is current contract per rf2-isdwf — the
+  epoch assembler computes the rollup at record-assembly time and
+  the `sensitive-epoch?` defence-in-depth check matches against it.
+  Both vectors are scrubbed by the same union strip-fn.
 
   Thin delegate (rf2-zpmmr) to
   `re-frame.mcp-base.sensitive/scrub-snapshot` with the pair2-mcp

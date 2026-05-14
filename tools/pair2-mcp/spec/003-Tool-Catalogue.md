@@ -97,6 +97,24 @@ vocabulary `[:rf.elision/at <path>]` are reserved per
 and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md);
 the shape is shared across pair2-mcp, story-mcp, and causa-mcp.
 
+## Universal: `:typicalTokens` on every tool descriptor
+
+Every MCP tool descriptor emitted by `tools/list` carries a
+`:typicalTokens` slot (rf2-6sddv) — an informational ballpark of the
+response-payload size in tokens that AI clients use to budget calls
+and pick size-conscious args (`max-tokens`, `cache`, `cursor`)
+without trial-and-error. The slot is a hint, not a contract: the
+real cap is the per-call wire-cap enforced by §Universal:
+wire-boundary token cap above. Worst-case-shape; narrowing on tool-
+specific args (`limit`, `path`, `:timing-ms` for watch-epochs) shrinks
+the actual payload roughly proportional to the match rate.
+
+Each entry lists its declared `:typicalTokens` value in the tool
+descriptor — read the body of each tool below to see the budget
+hint for that surface. The number lives alongside `:name`,
+`:description`, and `:inputSchema` in the JSON-RPC `tools/list`
+response.
+
 ## Universal: per-session response cache
 
 Every read tool — `snapshot`, `get-path`, `trace-window`,
