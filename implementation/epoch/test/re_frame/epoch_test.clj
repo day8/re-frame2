@@ -793,20 +793,79 @@
              (mapv :fx-id effects))
           "fx-ids preserved in dispatch order"))))
 
-;; ---- partial-drain semantics -----------------------------------------------
+;; ---- partial-drain semantics (rf2-v0jwt) ---------------------------------
 
-(deftest depth-exceeded-discards-buffer
-  (testing "a depth-exceeded drain does NOT commit a partial epoch record"
+(deftest depth-exceeded-commits-halted-record
+  (testing "a depth-exceeded drain commits a :halted-depth epoch record so
+            devtools (Causa, re-frame-pair2) receive cascade context for
+            the failing cascade. :db-after equals :db-before (atomic
+            rollback per Spec 002 §Run-to-completion §Rules rule 3) and
+            :halt-reason carries the depth-exceeded descriptor."
     (rf/reg-frame :test/main {:drain-depth 5})
     (rf/reg-event-fx :loop
       (fn [_ _] {:fx [[:dispatch [:loop]]]}))
 
     (rf/dispatch-sync [:loop] {:frame :test/main})
 
-    ;; The drain hit depth 5 and discarded; no epoch record was committed
-    ;; (the cascade never settled cleanly).
-    (is (= [] (rf/epoch-history :test/main))
-        "no record committed for partial drains")))
+    (let [history (rf/epoch-history :test/main)]
+      (is (= 1 (count history))
+          "exactly one halted-cascade record committed")
+      (let [r (first history)]
+        (is (= :halted-depth (:outcome r))
+            ":outcome :halted-depth pins the depth-exceed path")
+        (is (= (:db-before r) (:db-after r))
+            ":db-after equals :db-before — atomic rollback semantics")
+        (is (= :rf.error/drain-depth-exceeded
+               (-> r :halt-reason :operation))
+            ":halt-reason carries the structured halt descriptor")
+        (is (= 5 (-> r :halt-reason :depth))
+            ":halt-reason carries the depth at which the drain tripped")
+        (is (= :loop (:event-id r))
+            "the cascade's trigger-event survives in the partial record")
+        (is (seq (:trace-events r))
+            "the partial record carries the cascade's trace events
+             so devtools can render the cascade-up-to-halt")))))
+
+(deftest halted-record-fires-listeners
+  (testing "register-epoch-cb! listeners receive halted records too —
+            devtools route off :outcome to render failure shapes"
+    (rf/reg-frame :test/main {:drain-depth 5})
+    (rf/reg-event-fx :loop
+      (fn [_ _] {:fx [[:dispatch [:loop]]]}))
+
+    (let [received (atom [])]
+      (rf/register-epoch-cb! ::watcher
+                             (fn [record] (swap! received conj record)))
+      (rf/dispatch-sync [:loop] {:frame :test/main})
+
+      (is (= 1 (count @received))
+          "exactly one record delivered to the listener")
+      (is (= :halted-depth (:outcome (first @received)))
+          "listener observed the :halted-depth outcome"))))
+
+(deftest restore-non-ok-record-refused
+  (testing "restore-epoch refuses non-:ok records — halted records are
+            for devtools introspection, not valid restore targets.
+            Emits :rf.epoch/restore-non-ok-record and leaves app-db
+            unchanged."
+    (rf/reg-frame :test/main {:drain-depth 5})
+    (rf/reg-event-fx :loop
+      (fn [_ _] {:fx [[:dispatch [:loop]]]}))
+
+    ;; Drive the halted cascade to land a non-:ok record in history.
+    (rf/dispatch-sync [:loop] {:frame :test/main})
+
+    (let [history     (rf/epoch-history :test/main)
+          halted      (first history)
+          recorded    (record-trace!)
+          result      (rf/restore-epoch :test/main (:epoch-id halted))]
+      (is (= :halted-depth (:outcome halted))
+          "sanity — the only record in history is the halted one")
+      (is (false? result)
+          "restore-epoch returned false — refusal is observable to callers")
+      (is (has-error-op? @recorded :rf.epoch/restore-non-ok-record)
+          ":rf.epoch/restore-non-ok-record fired so listeners can surface
+           the refusal to the user"))))
 
 ;; ---- recording is gated on debug-enabled? ---------------------------------
 
@@ -1465,6 +1524,7 @@
                      :rf.epoch/restore-missing-handler
                      :rf.epoch/restore-version-mismatch
                      :rf.epoch/restore-during-drain
+                     :rf.epoch/restore-non-ok-record    ;; rf2-v0jwt
                      :rf.epoch/db-replaced
                      :rf.epoch/reset-frame-db-during-drain
                      :rf.epoch/reset-frame-db-schema-mismatch}
