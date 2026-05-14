@@ -196,6 +196,9 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 | `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 | 011 |
 | `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 | 011 |
 | `head-model->html` | Fn | `(head-model->html head-model)` / `(head-model->html head-model {:wrap? bool})` → inner-head HTML string | v1 | 011 |
+| `streaming-render-shell` | Fn | `(streaming-render-shell root-hiccup)` → `{:shell-html "…" :continuations [{:id <id> :subtree <hiccup>} …]}`. Walks the tree once; at each `:rf/suspense-boundary` emits a `<template …suspense-fallback>` placeholder + records a continuation. Per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — rf2-ojakd / rf2-olb64 (a). | v1 | 011 |
+| `streaming-render-continuation` | Fn | `(streaming-render-continuation frame-id entry)` → `{:id … :html "…" :delta {…} :failed? bool}`. Drains one continuation against `frame-id`'s app-db; snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline (per [011 §Failure semantics — inline fallback](011-SSR.md#failure-semantics--inline-fallback)). | v1 | 011 |
+| `streaming-build-final-payload` | Fn | `(streaming-build-final-payload frame-id render-hash opts)` → canonical `:rf/hydration-payload`. Called after all continuations drain to populate the `__rf_payload` final chunk. | v1 | 011 |
 
 Standard SSR-related events:
 
