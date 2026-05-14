@@ -142,12 +142,16 @@
   - `:slice-mode`   global `:summary` / `:full` mode for non-app-db slices.
   - `:slice-modes`  per-slice override map.
 
-  Unknown `:kind` is a programming error — the dispatch is closed
-  to four cases. Returns `{:value v :indicators {:elided 0}}` as a
-  defensive identity for an unrecognised kind."
+  Unknown `:kind` throws — the dispatch is closed to three cases and
+  silently degrading would mask a programmer typo / a new-payload
+  contributor who forgot to register the arm. The post-eval shrink
+  pipeline is a fixed surface; a dynamic-dispatch fallback has no
+  legitimate use."
   [payload {:keys [kind] :as opts}]
   (case kind
     :snapshot-map (run-snapshot-map payload opts)
     :epoch-vector (run-epoch-vector payload opts)
     :scalar-value (run-scalar-value payload opts)
-    {:value payload :indicators {:elided 0}}))
+    (throw (ex-info "run-wire-pipeline: unknown :kind"
+                    {:kind  kind
+                     :valid #{:snapshot-map :epoch-vector :scalar-value}}))))
