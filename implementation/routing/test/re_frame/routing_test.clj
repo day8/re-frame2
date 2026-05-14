@@ -157,6 +157,68 @@
     (is (= :route/cart (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
         "continue completes the original navigation")))
 
+;; ---- Spec 012 §Query strings and fragments — :query-retain ---------------
+
+(deftest routing-query-retain-carries-keys-across-navigations
+  (testing ":query-retain on the target carries declared keys from the current slice"
+    ;; Per Spec 012 §Query strings and fragments: `:query-retain` names a
+    ;; set of query keys that survive subsequent :rf.route/navigate
+    ;; dispatches even when the caller doesn't supply them — useful for
+    ;; theme / locale / debug. The retained values come from the current
+    ;; :rf.route/query slice; caller-supplied values win on conflict
+    ;; (rf2-u8t3s).
+    (rf/reg-route :route/search
+                  {:path           "/search"
+                   :query-retain   #{:theme :locale}})
+    (rf/reg-route :route/cart
+                  {:path         "/cart"
+                   :query-retain #{:theme :locale}})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+
+      ;; 1. Land on /search with ?theme=dark&locale=en — the URL-driven
+      ;;    path populates the slice via match-url + handle-url-change.
+      (rf/dispatch-sync [:rf/url-changed "/search?theme=dark&locale=en"])
+      (is (= {:theme "dark" :locale "en"}
+             (get-in (rf/get-frame-db :rf/default) [:rf/route :query]))
+          "initial slice carries the URL's query keys")
+
+      ;; 2. Navigate programmatically to :route/cart with NO query — the
+      ;;    target's :query-retain must merge :theme + :locale through.
+      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (let [last-url (last @pushed)]
+        (is (re-find #"theme=dark" last-url)
+            ":query-retain preserves :theme through programmatic nav")
+        (is (re-find #"locale=en" last-url)
+            ":query-retain preserves :locale through programmatic nav"))
+
+      ;; 3. Caller-supplied query values WIN over retained values.
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate :route/cart {} {:query {:theme "light"}}])
+      (let [last-url (last @pushed)]
+        (is (re-find #"theme=light" last-url)
+            "caller-supplied :theme overrides retained value")
+        (is (re-find #"locale=en" last-url)
+            "other retained keys still carry through")))))
+
+(deftest routing-query-retain-no-op-without-declaration
+  (testing "routes without :query-retain do not inherit query keys"
+    (rf/reg-route :route/search
+                  {:path         "/search"
+                   :query-retain #{:theme}})
+    (rf/reg-route :route/cart
+                  {:path "/cart"}) ;; no :query-retain
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf/url-changed "/search?theme=dark"])
+      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (is (= "/cart" (last @pushed))
+          ":query-retain undeclared → no carry-through, URL stays bare"))))
+
 ;; ---- Spec 012 §Navigation tokens — stale-result suppression --------------
 
 (deftest routing-nav-token-staleness

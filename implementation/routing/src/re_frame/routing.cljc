@@ -1,40 +1,9 @@
 (ns re-frame.routing
   "Routing as state. Per Spec 012.
 
-  Routes are registry entries (kind :route) keyed by user route-id.
-  Navigation is an event (:rf.route/navigate); URL changes are events
-  (:rf/url-changed). The :rf/route slice in app-db carries
-  {:id :params :query :fragment :transition :error :nav-token}.
-
-  Path-pattern grammar (per Spec 012):
-    /literal      literal segment
-    /:name        named param (one segment)
-    /*rest        splat — greedy across /
-    /{...}?       optional group; inner /:name is treated as a normal
-                  named param and is elided in route-url output when
-                  the param is absent from path-params.
-
-  Match resolution: structural rank tuple computed at registration time
-  per Spec 012 §Route ranking algorithm (6-rule cascade: static-count,
-  length, splat-count, catch-all, optional-count, registration order).
-  When a new route's structural rank equals an existing one,
-  :rf.warning/route-shadowed-by-equal-score fires at registration.
-
-  Query strings: per-key coercion via the route's :query Malli schema
-  (:int / :keyword / :boolean); :query-defaults populate absent keys;
-  URL key order is preserved for round-trip identity.
-
-  Events:
-    :rf/url-changed                     full / fragment-only nav
-    :rf/url-requested                   user-initiated; can-leave guard
-    :rf.route/navigate                  programmatic
-    :rf.route/handle-url-change         pop-state / initial / SSR
-    :rf.route/continue / cancel         pending-nav protocol
-    :rf.test/simulate-http-resolution   test-only nav-token check
-
-  Effects:
-    :rf.nav/push-url    :rf.nav/replace-url    :rf.nav/scroll
-    :rf.route/with-nav-token            stale-result suppression wrapper"
+  Routes are registry entries (kind :route). Navigation is an event;
+  URL changes are events. The :rf/route slice carries
+  {:id :params :query :fragment :transition :error :nav-token}."
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
@@ -48,13 +17,9 @@
             #?@(:cljs [[re-frame.views :as views]])))
 
 ;; ---- url encoding / decoding ---------------------------------------------
-;;
-;; Per Spec 012 §Bidirectional URL ↔ params: param values are
-;; %-encoded in URLs and decoded into clojure values. We use the
-;; encodeURIComponent-equivalent behaviour (spaces → %20, slashes
-;; encoded) for named path params and query values. Splat values
-;; preserve literal '/' between captured segments — so the splat
-;; encoder runs per-segment.
+;; Per Spec 012 §Bidirectional URL ↔ params. Splat values preserve
+;; literal '/' between captured segments, so the splat encoder runs
+;; per-segment.
 
 (defn- url-encode
   "Encode a single component (named param or query value). Uses
@@ -79,21 +44,16 @@
      :cljs (js/decodeURIComponent (str s))))
 
 ;; ---- registration ---------------------------------------------------------
-;;
-;; Per Spec 012 §Route ranking algorithm: each registration computes a
-;; structural rank tuple that match-url consults to pick the winner among
-;; overlapping matches.
 
 (defn- segment-end
   "Scan forward from index `j` in `pattern` (length `n`) until a
   segment-boundary char is hit; return the index of that boundary (or
   `n` if none). The boundary set is always {/, {, }}; the 4-arity
   additionally treats `?` as a boundary when `?-boundary?` is truthy.
-  Pure helper shared by every pattern walker in this namespace —
-  replaces the four near-identical inline loops. The 3-arity (defaults
-  `?-boundary?` to true) suits param / splat scanners and compile-pattern;
-  pattern-shape's static-segment :else branch passes false so a `?`
-  inside a static segment doesn't truncate the static run."
+  Pure helper used by the param / splat / static branches of
+  `parse-pattern`. The 3-arity (defaults `?-boundary?` to true) suits
+  param / splat scanners; the static-segment branch passes false so a
+  `?` inside a static segment doesn't truncate the static run."
   ([^String pattern n j] (segment-end pattern n j true))
   ([^String pattern n j ?-boundary?]
    (loop [m j]
@@ -104,99 +64,136 @@
              (and ?-boundary? (= c \?)))) m
        :else (recur (inc m))))))
 
-(defn- pattern-shape
-  "Walk a path pattern and tally segment shapes used by the rank tuple.
-  Counts non-optional segments only (rule 2 vs rule 5); the per-pattern
-  optional-group count is tracked separately. Catch-all detection: the
-  whole pattern is a single splat (/*name)."
+(defn- regex-escape
+  "Quote a string for use as a regex literal. Portable across JVM
+  (java.util.regex.Pattern/quote) and CLJS (manual escape table)."
+  [s]
+  #?(:clj  (java.util.regex.Pattern/quote s)
+     :cljs (clojure.string/replace s
+                                   #"[\\^$.|?*+()\[\]{}]"
+                                   #(str "\\" %))))
+
+;; ---- single-pass pattern parser ------------------------------------------
+;; Per Spec 012 §Route ranking algorithm + §Bidirectional URL ↔ params.
+;; `parse-pattern` derives the rank tuple, the match-time regex, the
+;; capture names, AND the per-optional-group lookup `route-url` uses
+;; from a single left-to-right walk of the pattern string. Loop state:
+;;   i      — cursor index into pattern
+;;   depth  — optional-group nesting depth
+;;   parts  — accumulating regex string fragments
+;;   names  — captured param names left-to-right (regex-group order)
+;;   gstack — stack of open optional-group cursor indices; on '{'
+;;       we push the group-open index, on '}' we pop and record the
+;;       close-end position so route-url can skip past an elided group
+;;   inner  — output {group-open-idx → {:inner-names [...] :close-end <pos>}}
+;;   counts — {:static :named :splat :optional :total} for the rank tuple.
+
+(defn- parse-pattern
+  "Single-pass parser for a Spec 012 path-pattern. Returns
+  {:rank :regex :names :groups :pattern}. The leading 5 elements of
+  `:rank` are the structural rank tuple (rules 1-5); `reg-route`
+  appends `(- reg-index)` to form the canonical 6-tuple."
   [pattern]
-  (let [n          (count pattern)
-        ;; Walk char-by-char. State threads as (loop [i depth seen]):
-        ;; i — cursor; depth — optional-group nesting; seen — counts.
-        seen       (loop [i     0
-                          depth 0
-                          seen  {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
-                     (if-not (< i n)
-                       seen
-                       (let [ch (.charAt ^String pattern i)]
-                         (cond
-                           (= ch \{)
-                           (recur (inc i) (inc depth) (update seen :optional inc))
+  (let [n  (count pattern)
+        i0 (if (and (pos? n) (= \/ (.charAt ^String pattern 0))) 1 0)]
+    (loop [i       i0
+           depth   0
+           parts   ["^/?"]
+           names   []
+           inner   {}
+           gstack  ()
+           counts  {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
+      (if-not (< i n)
+        (let [{:keys [static total splat optional named]} counts
+              catch-all? (and (= 1 total) (= 1 splat)
+                              (zero? static) (zero? named) (zero? optional))]
+          {:regex   (re-pattern (apply str (conj parts "$")))
+           :names   names
+           ;; `:groups` maps each optional-group's opening '{' index to
+           ;; `{:inner-names [...] :close-end <pos-after-}?>}`. route-url
+           ;; reads `:inner-names` to decide whether to emit a group and
+           ;; `:close-end` to skip past it when eliding.
+           :groups  inner
+           :pattern pattern
+           :rank    [static
+                     total
+                     (- splat)
+                     (if catch-all? 0 1)
+                     (- optional)]})
+        (let [ch (.charAt ^String pattern i)]
+          (cond
+            (= ch \/)
+            (recur (inc i) depth (conj parts "/") names inner gstack counts)
 
-                           (= ch \})
-                           (let [i' (inc i)]
-                             (recur (if (and (< i' n) (= \? (.charAt ^String pattern i')))
-                                      (inc i')
-                                      i')
-                                    (dec depth)
-                                    seen))
+            (= ch \:)
+            (let [start (inc i)
+                  end   (segment-end pattern n start)
+                  nm    (subs pattern start end)
+                  inner' (if (seq gstack)
+                           (update-in inner [(peek gstack) :inner-names]
+                                      (fnil conj []) nm)
+                           inner)
+                  counts' (cond-> counts
+                            (zero? depth) (-> (update :named inc)
+                                              (update :total inc)))]
+              (recur end depth (conj parts "([^/]+)") (conj names nm)
+                     inner' gstack counts'))
 
-                           (= ch \:)
-                           (recur (segment-end pattern n (inc i))
-                                  depth
-                                  (cond-> seen
-                                    (zero? depth) (-> (update :named inc)
-                                                      (update :total inc))))
+            (= ch \*)
+            (let [start (inc i)
+                  end   (segment-end pattern n start)
+                  nm    (subs pattern start end)
+                  inner' (if (seq gstack)
+                           (update-in inner [(peek gstack) :inner-names]
+                                      (fnil conj []) nm)
+                           inner)
+                  counts' (cond-> counts
+                            (zero? depth) (-> (update :splat inc)
+                                              (update :total inc)))]
+              (recur end depth (conj parts "(.+)") (conj names nm)
+                     inner' gstack counts'))
 
-                           (= ch \*)
-                           (recur (segment-end pattern n (inc i))
-                                  depth
-                                  (cond-> seen
-                                    (zero? depth) (-> (update :splat inc)
-                                                      (update :total inc))))
+            (= ch \{)
+            ;; Open optional group: push group-open index for later
+            ;; inner-name collection. Seed the entry so an empty group
+            ;; still gets `inner-names = []` (route-url's `every?` over
+            ;; an empty seq is true → group emitted with just literal
+            ;; segments, matching pre-rf2-uovh5 behaviour).
+            (recur (inc i) (inc depth) (conj parts "(?:") names
+                   (assoc-in inner [i :inner-names]
+                             (get-in inner [i :inner-names] []))
+                   (conj gstack i)
+                   (update counts :optional inc))
 
-                           (= ch \/)
-                           (recur (inc i) depth seen)
+            (= ch \})
+            (let [i'        (inc i)
+                  ?-suffix? (and (< i' n) (= \? (.charAt ^String pattern i')))
+                  close-end (if ?-suffix? (inc i') i')
+                  inner'    (assoc-in inner [(peek gstack) :close-end] close-end)]
+              (recur close-end
+                     (dec depth)
+                     (cond-> (conj parts ")") ?-suffix? (conj "?"))
+                     names
+                     inner'
+                     (pop gstack)
+                     counts))
 
-                           :else
-                           (recur (segment-end pattern n (inc i) false)
-                                  depth
-                                  (cond-> seen
-                                    (zero? depth) (-> (update :static inc)
-                                                      (update :total inc))))))))
-        catch-all? (and (= 1 (:total seen))
-                        (= 1 (:splat seen))
-                        (zero? (:static seen))
-                        (zero? (:named seen))
-                        (zero? (:optional seen)))]
-    (assoc seen :catch-all? catch-all?)))
-
-(defn- compute-rank
-  "Per Spec 012 §Route ranking algorithm. Returns a tuple sorted descending —
-  the first element that distinguishes two patterns wins.
-
-  Tuple positions, in priority order:
-    [static-count
-     non-optional-total-length
-     (- splat-count)              ;; fewer splats win (rule 3)
-     (if catch-all? 0 1)          ;; non-catch-all wins (rule 4)
-     (- optional-count)           ;; fewer optional groups win (rule 5)
-     (- reg-index)]               ;; earlier registration wins (rule 6)
-  reg-index is added at registration time."
-  [pattern]
-  (let [{:keys [static total splat catch-all? optional]} (pattern-shape pattern)]
-    [static
-     total
-     (- splat)
-     (if catch-all? 0 1)
-     (- optional)]))
+            :else
+            (let [end (segment-end pattern n (inc i) false)
+                  static-seg (subs pattern i end)
+                  counts' (cond-> counts
+                            (zero? depth) (-> (update :static inc)
+                                              (update :total inc)))]
+              (recur end depth (conj parts (regex-escape static-seg)) names
+                     inner gstack counts'))))))))
 
 (defonce ^:private reg-counter (atom 0))
 
 ;; ---- pre-sorted route table -----------------------------------------------
-;;
-;; Per Spec 012 §Route ranking algorithm match-url picks the highest-rank
-;; route whose pattern matches the URL. The naive implementation walks the
-;; full `(registrar/handlers :route)` map per call, allocates a `keep` seq,
-;; and sorts on every navigation. For a N-route app every navigation reads
-;; every route's metadata.
-;;
-;; The cache holds a vector of `[id meta]` pairs sorted by `:rf.route/rank`
-;; descending. `match-url` iterates in pre-sorted order and short-circuits
-;; on the first pattern that matches — that IS the highest-rank winner.
-;; `reg-route` rebuilds the cache on every registration, and a registrar
-;; replacement-hook (rf2-9ihwx) invalidates the cache on hot-reload of any
-;; route entry (whose `:kind` matches `:route`).
+;; Vector of `[id meta]` pairs sorted by `:rf.route/rank` descending.
+;; `match-url` iterates in pre-sorted order and short-circuits on the
+;; first pattern that matches — that IS the highest-rank winner. Cache
+;; invalidation is automatic via registrar map-identity (rf2-9ihwx).
 
 (defonce ^:private route-table-cache
   ;; {:source-id <identity of the registrar's :route map at build time>
@@ -233,7 +230,7 @@
       (:pairs cache)
       (rebuild-route-table-cache!))))
 
-(declare compile-pattern)
+(declare compile-query-coercions)
 
 (defn reg-route
   "Register a route. metadata carries the route's :path pattern and any
@@ -246,21 +243,31 @@
   (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
   the conflict."
   [id metadata]
-  (let [pattern  (:path metadata)
-        rank     (when pattern (compute-rank pattern))
-        compiled (when pattern (compile-pattern pattern))
-        idx      (swap! reg-counter inc)
-        meta'    (cond-> (source-coords/merge-coords metadata)
-                   rank     (assoc :rf.route/rank (conj rank (- idx)))
-                   compiled (assoc :rf.route/compiled compiled))]
-    ;; Spec 012 rule-6 warning: scan existing routes for one whose structural
-    ;; rank (i.e. the rank tuple SANS the reg-index final element) equals ours.
-    (when rank
+  (let [pattern      (:path metadata)
+        idx          (swap! reg-counter inc)
+        ;; Single-pass parse: rank + regex + capture names +
+        ;; per-optional-group lookup all derive from one left-to-right
+        ;; walk (rf2-uovh5). Pre-rf2-uovh5 these were three separate
+        ;; walkers with hand-replicated segment-end logic.
+        parsed       (when pattern (parse-pattern pattern))
+        structural   (when parsed (:rank parsed))
+        rank         (when structural (conj structural (- idx)))
+        compiled     (when parsed (select-keys parsed [:regex :names :pattern :groups]))
+        query-coerce (compile-query-coercions (:query metadata))
+        meta'        (cond-> (source-coords/merge-coords metadata)
+                       rank         (assoc :rf.route/rank rank)
+                       compiled     (assoc :rf.route/compiled compiled)
+                       query-coerce (assoc :rf.route/query-coerce query-coerce))]
+    ;; Spec 012 rule-6 warning: scan existing routes for one whose
+    ;; structural rank (rules 1-5) equals ours. The match-time tuple
+    ;; (`:rf.route/rank`) carries `(- reg-index)` as its trailing
+    ;; element and is structurally one longer; drop that suffix.
+    (when structural
       (when-let [shadowed
                  (some (fn [[other-id other-meta]]
                          (when-let [other-rank (:rf.route/rank other-meta)]
                            (when (and (not= other-id id)
-                                      (= rank (vec (drop-last other-rank))))
+                                      (= structural (subvec other-rank 0 5)))
                              other-id)))
                        (registrar/handlers :route))]
         (trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
@@ -271,74 +278,7 @@
     ;; identity equality before reusing the cached pairs vector.
     id))
 
-;; ---- path-pattern compilation ---------------------------------------------
-
-(defn- regex-escape
-  "Quote a single character for use as a regex literal. Portable across
-  JVM (java.util.regex.Pattern/quote) and CLJS (manual escape table)."
-  [s]
-  #?(:clj  (java.util.regex.Pattern/quote s)
-     :cljs (clojure.string/replace s
-                                   #"[\\^$.|?*+()\[\]{}]"
-                                   #(str "\\" %))))
-
-(defn- compile-pattern
-  "Compile a Spec 012 path-pattern into a regex with capture groups.
-  Recognises:
-    /literal          -> literal
-    /:name            -> ([^/]+)        named param
-    /*name            -> (.+)           splat — greedy across /
-    /{...}?           -> (?: ... )?     optional group; inside the
-                                        group, /:name is treated like
-                                        a normal named param.
-
-  The capture-group ordering matches the order that param names appear
-  left-to-right in the pattern. :names is the vector of those param
-  keywords; absent params (optional group not matched) yield nil."
-  [pattern]
-  (let [n  (count pattern)
-        i0 (if (and (pos? n) (= \/ (.charAt ^String pattern 0))) 1 0)
-        ;; Walk char-by-char. State threads as (loop [i parts names]):
-        ;; i — cursor; parts — regex fragments (vector); names — captured
-        ;; param names (vector). Output is (apply str parts).
-        [parts names]
-        (loop [i     i0
-               parts ["^/?"]
-               names []]
-          (if-not (< i n)
-            [(conj parts "$") names]
-            (let [ch (.charAt ^String pattern i)]
-              (cond
-                (= ch \/)
-                (recur (inc i) (conj parts "/") names)
-
-                (= ch \:)
-                (let [start (inc i)
-                      end   (segment-end pattern n start)
-                      nm    (subs pattern start end)]
-                  (recur end (conj parts "([^/]+)") (conj names nm)))
-
-                (= ch \*)
-                (let [start (inc i)
-                      end   (segment-end pattern n start)
-                      nm    (subs pattern start end)]
-                  (recur end (conj parts "(.+)") (conj names nm)))
-
-                (= ch \{)
-                (recur (inc i) (conj parts "(?:") names)
-
-                (= ch \})
-                (let [i'        (inc i)
-                      ?-suffix? (and (< i' n) (= \? (.charAt ^String pattern i')))]
-                  (recur (if ?-suffix? (inc i') i')
-                         (cond-> (conj parts ")") ?-suffix? (conj "?"))
-                         names))
-
-                :else
-                (recur (inc i) (conj parts (regex-escape (str ch))) names)))))]
-    {:regex   (re-pattern (apply str parts))
-     :names   names
-     :pattern pattern}))
+;; ---- match + coerce -------------------------------------------------------
 
 (defn- match-against
   "Try to match url against the route's compiled pattern. Returns the
@@ -351,35 +291,57 @@
         (zipmap (map keyword names)
                 (map (fn [g] (when g (url-decode g))) groups))))))
 
-(defn- coerce-query-value
-  "Per Spec 012 §Query-string coercion: when a route declares :query as
-  a Malli vector schema, look up the per-key type and coerce. First-pass
-  recognises :int / :keyword / :boolean — strings pass through.
+(defn- compile-query-coercions
+  "Flatten a `[:map [k type-or-opts] ...]` Malli vector schema into a
+  `{k type-form}` map for O(1) per-key lookup during URL coercion.
+  Returns nil when the schema is absent or not a vector. Computed once
+  at registration time and cached on the route metadata under
+  `:rf.route/query-coerce` (rf2-yjjrv); pre-rf2-yjjrv this re-scanned
+  `(rest schema)` per query key per nav."
+  [schema]
+  (when (and schema (vector? schema))
+    (persistent!
+      (reduce
+        (fn [m e]
+          (if (and (vector? e) (keyword? (first e)))
+            (let [k         (first e)
+                  type-form (cond
+                              (= 2 (count e)) (second e)
+                              (= 3 (count e)) (last e)
+                              :else           nil)]
+              (assoc! m k type-form))
+            m))
+        (transient {})
+        (rest schema)))))
 
-  schema is the Malli :map vector or nil; k is the keyword key whose
-  value we're coercing; v is the raw string from the URL."
-  [schema k v]
-  (if-not (and schema (vector? schema))
-    v
-    (let [;; Walk top-level [:map [k type-or-opts] ...] entries to find k.
-          entry (some (fn [e]
-                        (cond
-                          (and (vector? e) (= k (first e))) e
-                          :else nil))
-                      (rest schema))
-          type-form (cond
-                      (and entry (= 2 (count entry))) (second entry)
-                      (and entry (= 3 (count entry))) (last entry)
-                      :else                            nil)]
-      (case type-form
-        :int     (try
-                   #?(:clj  (Long/parseLong v)
-                      :cljs (let [n (js/parseInt v 10)]
-                              (if (js/isNaN n) v n)))
-                   (catch #?(:clj Throwable :cljs :default) _ v))
-        :keyword (keyword v)
-        :boolean (case v "true" true "false" false v)
-        v))))
+(defn- coerce-by-type-form
+  "Apply a single Malli type-form coercion to a raw URL string. First-pass
+  vocabulary: :int / :keyword / :boolean; any other type-form (including
+  nil) is a pass-through. Per Spec 012 §Query-string coercion."
+  [type-form v]
+  (case type-form
+    :int     (try
+               #?(:clj  (Long/parseLong v)
+                  :cljs (let [n (js/parseInt v 10)]
+                          (if (js/isNaN n) v n)))
+               (catch #?(:clj Throwable :cljs :default) _ v))
+    :keyword (keyword v)
+    :boolean (case v "true" true "false" false v)
+    v))
+
+(defn- coerce-query
+  "Coerce a raw `{:k string-value}` map against a precompiled
+  `query-coerce` table (`{:k type-form}`). Returns an array-map to
+  preserve URL key order; when `query-coerce` is nil every value passes
+  through unchanged."
+  [query-coerce raw-query]
+  (if-not query-coerce
+    raw-query
+    (reduce-kv
+      (fn [m k v]
+        (assoc m k (coerce-by-type-form (get query-coerce k) v)))
+      (array-map)
+      raw-query)))
 
 (defn- split-fragment
   "Split a URL into [url-without-fragment fragment]. Returns
@@ -464,21 +426,28 @@
     (reduce
       (fn [_ [id meta]]
         (when-let [compiled (or (:rf.route/compiled meta)
-                                (some-> (:path meta) compile-pattern))]
+                                (some-> (:path meta) parse-pattern))]
           (when-let [params (match-against compiled path)]
-            (let [schema        (:query meta)
-                  defaults      (:query-defaults meta {})
+            (let [query-coerce  (:rf.route/query-coerce meta)
+                  defaults      (:query-defaults meta)
+                  ;; Coercion: O(M) lookups against the precompiled
+                  ;; `query-coerce` map (rf2-yjjrv).
                   coerced       (when raw-query
+                                  (coerce-query query-coerce raw-query))
+                  ;; Defaults: short-circuit when the route declares no
+                  ;; defaults (the common case). When both raw-query and
+                  ;; defaults are empty, fall back to an empty array-map
+                  ;; so the slice's `:query` shape stays consistent and
+                  ;; `validate-route-shape` below runs against a map.
+                  with-defaults (cond
+                                  (and (nil? coerced) (empty? defaults)) (array-map)
+                                  (empty? defaults)                      coerced
+                                  :else
                                   (reduce-kv
                                     (fn [m k v]
-                                      (assoc m k (coerce-query-value schema k v)))
-                                    (array-map)
-                                    raw-query))
-                  with-defaults (reduce-kv
-                                  (fn [m k v]
-                                    (if (contains? m k) m (assoc m k v)))
-                                  (or coerced (array-map))
-                                  defaults)
+                                      (if (contains? m k) m (assoc m k v)))
+                                    (or coerced (array-map))
+                                    defaults))
                   ;; Per Spec 012 §Param validation at the call site: when
                   ;; the route declares :params or :query schemas, validate
                   ;; the parsed values. Either schema failing flips the
@@ -504,30 +473,6 @@
               (reduced result)))))
       nil
       (route-table))))
-
-(defn- collect-param-names-in-group
-  "Walk a pattern starting at `start` (just past the opening '{'), return
-  [end-after-closing-?, param-names-vec] for the group's contents."
-  [pattern start]
-  (let [n (count pattern)]
-    (loop [j     start
-           names []]
-      (cond
-        (>= j n)
-        [j names]   ;; unterminated; let later parsing catch it.
-
-        (= \} (.charAt pattern j))
-        ;; closing brace; consume the trailing '?' if present.
-        (let [k (inc j)]
-          [(if (and (< k n) (= \? (.charAt pattern k))) (inc k) k) names])
-
-        (or (= \: (.charAt pattern j)) (= \* (.charAt pattern j)))
-        (let [start (inc j)
-              end   (segment-end pattern n start)]
-          (recur end (conj names (subs pattern start end))))
-
-        :else
-        (recur (inc j) names)))))
 
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
@@ -574,7 +519,15 @@
                             :slot     :query
                             :value    query-params
                             :error    q-error})))))
-     (let [n     (count pattern)
+     (let [n      (count pattern)
+           ;; Per Spec 012 §Bidirectional URL ↔ params: optional groups
+           ;; are emitted only when every inner param is supplied. The
+           ;; `:groups` map produced by `parse-pattern` (rf2-uovh5) maps
+           ;; each opening '{' index to `{:inner-names [...] :close-end
+           ;; <pos-after-}?>}` — `route-url` consults it instead of
+           ;; re-walking the pattern body.
+           groups (or (:groups (:rf.route/compiled meta))
+                      (:groups (parse-pattern pattern)))
            ;; Inner loop emits the body of an optional group whose params
            ;; are all present. State threads as (loop [i parts]); returns
            ;; [next-i parts'] when the group's '}' (and optional '?') is
@@ -612,12 +565,12 @@
                (let [ch (.charAt ^String pattern i)]
                  (cond
                    (= ch \{)
-                   (let [[after-end inner-names] (collect-param-names-in-group pattern (inc i))
+                   (let [{:keys [inner-names close-end]} (get groups i)
                          all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
                      (if all-present?
                        (let [[i' parts'] (emit-group (inc i) parts)]
                          (recur i' parts'))
-                       (recur after-end parts)))
+                       (recur close-end parts)))
 
                    (= ch \:)
                    (let [start (inc i)
@@ -662,25 +615,11 @@
                   (str "#" fragment))]
        (str path-out qs frag)))))
 
-;; ---- standard handlers ----------------------------------------------------
-
 ;; ---- scroll-restoration helpers -------------------------------------------
-;;
-;; Per Spec 012 §Scroll restoration: the runtime captures scroll positions
-;; per URL on every navigation so a later :restore strategy can re-apply
-;; them. Per Spec 012 §Multi-frame routing the saved-position map is
-;; per-frame (each frame's :rf/route slice is independent and the URL it
-;; remembers is its own). The map lives in app-db at
-;; [:rf.route/scroll-positions]; helpers below work against a db value.
-;;
-;; LRU cap: the map is bounded so a long session over many URLs (SPAs that
-;; deep-link through ids — `/articles/:id`, `/users/:id`) can't grow it
-;; unboundedly. Recency is tracked under [:rf.route/scroll-positions-order];
-;; on each save the url is appended (or re-promoted) to the tail and any
-;; head entries beyond `scroll-positions-cap` are evicted from both the
-;; order vector and the position map. Tools and migrations that inspect
-;; [:rf.route/scroll-positions <url>] still see the raw [x y]; the order
-;; key is an internal LRU anchor.
+;; Per Spec 012 §Scroll restoration §Multi-frame routing. Per-frame
+;; saved-position map at [:rf.route/scroll-positions], LRU-capped by
+;; scroll-positions-cap. Recency anchor lives under
+;; [:rf.route/scroll-positions-order] as an internal vector.
 
 (def ^:private scroll-positions-cap
   "Soft upper bound on tracked URLs in the per-frame scroll-positions map.
@@ -759,11 +698,7 @@
        fragment  (assoc :fragment  fragment))]))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
-;; counters live under the frame boundary — each frame has its own
-;; epoch space at [:rf.route/nav-token-counter] and
-;; [:rf.route/pending-nav-counter]. Allocators are pure: they take a
-;; db value, return [db' allocated-id-string]. Callers thread the new
-;; db through the :db effect map alongside their other writes.
+;; counters are per-frame. Pure allocators: take db, return [db' id-str].
 
 (defn- alloc-nav-token
   "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
@@ -781,18 +716,11 @@
     [(assoc db :rf.route/pending-nav-counter n)
      (str "pn-" n)]))
 
-;; Per Spec 012 §Per-route data loading §2: ":rf.route/transition is
-;; :loading while these dispatches drain, and back to :idle when they
-;; complete." The runtime queues a final :rf.route/settle-transition
-;; dispatch after the :on-match events; FIFO drain semantics guarantee
-;; the settle fires after every :on-match has executed (synchronous
-;; portion). Async on-match continuations (an :http :on-success
-;; landing later) settle separately via :rf.route/with-nav-token's
-;; staleness check against :nav-token, not :transition.
-;;
-;; The settle is nav-token-aware: when a newer navigation has bumped
-;; :nav-token mid-drain, the stale settle is a no-op so the new
-;; navigation's :loading isn't clobbered.
+;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
+;; :rf.route/settle-transition after the :on-match events so :transition
+;; lands at :idle once the synchronous portion completes. The settle is
+;; nav-token-aware: a newer navigation mid-drain bumps :nav-token, and
+;; the stale settle becomes a no-op so the new :loading isn't clobbered.
 (events/reg-event-db :rf.route/settle-transition
   (fn [db [_ token]]
     (let [current (get-in db [:rf/route :nav-token])]
@@ -836,12 +764,28 @@
                           (and (map? target) (:fragment target))
                           matched-fragment)
           route-meta  (registrar/lookup :route route-id)
+          ;; Per Spec 012 §Query strings and fragments: `:query-retain`
+          ;; on the TARGET route names the keys that should be carried
+          ;; through from the current `:rf.route/query` slice when the
+          ;; caller did not supply them. The merge runs here (rather
+          ;; than inside `route-url`, which is documented pure and
+          ;; cannot read app-db) so apps that navigate by
+          ;; `[:rf.route/navigate :route/cart]` from a search page
+          ;; automatically preserve `?theme=dark` / `?locale=en`
+          ;; without explicitly threading those keys through every call
+          ;; site (rf2-u8t3s). Caller-supplied values always win.
+          retain-keys  (:query-retain route-meta)
+          retained     (when (seq retain-keys)
+                         (select-keys (get-in db [:rf/route :query])
+                                      retain-keys))
+          query-params (if (seq retained)
+                         (merge retained query-params)
+                         query-params)
           ;; Per Spec 012 §Bidirectional URL ↔ params and rf2-ug2m1:
           ;; route-url raises :rf.error/route-url-validation /
           ;; :rf.error/missing-route-param / :rf.error/no-such-route on
           ;; caller bugs. Surface these as a structured trace + recover
-          ;; to "/" rather than swallowing silently — apps see the bug
-          ;; in dev, production keeps moving.
+          ;; to "/" rather than swallowing silently.
           url (try (route-url route-id path-params query-params fragment)
                    (catch #?(:clj Throwable :cljs :default) ex
                      (trace/emit-error! :rf.error/route-url-validation
@@ -897,30 +841,49 @@
 
 (defn reset-counters!
   "Reset the route-registration counter to zero. Test-time helper so
-  reg-index is deterministic across fixture runs. Per Spec 012
-  §Multi-frame routing the nav-token and pending-nav id counters and
-  the saved-scroll-positions map all live in app-db, so they reset
-  naturally when a frame's app-db is reset; nothing to clear here for
-  those."
+  reg-index is deterministic across fixture runs."
   []
   (reset! reg-counter 0))
 
 ;; ---- :rf/url-requested + can-leave gating + pending-nav protocol ----------
-;;
-;; Per Spec 012 §Navigation blocking — pending-nav protocol: a route may
-;; declare :can-leave (a sub-id whose value is true when leaving is OK).
-;; A user-initiated :rf/url-requested checks the active route's can-leave.
-;; If it rejects, the navigation is held in :rf/pending-navigation, a
-;; :rf.route/navigation-blocked trace fires, and no URL push happens.
-;; The user's app then dispatches :rf.route/continue (resume) or
-;; :rf.route/cancel (drop).
+;; Per Spec 012 §Navigation blocking — pending-nav protocol.
 
 (defn- can-leave?
-  "Resolve and call the route's :can-leave sub against the live frame."
+  "Resolve and call the route's `:can-leave` sub against the live frame.
+  Per Spec 012 §Navigation blocking §Default flow: only an explicit
+  `false` from the guard sub blocks the navigation; `true`, `nil`, or
+  any other value proceeds. The sub's name is documented to describe
+  the positive case (`:can-leave`), so missing / broken evaluation
+  cannot safely default to 'blocked' — that would silently strand the
+  user on a route they had asked to leave.
+
+  Returns `false` only when a `:can-leave` sub IS declared AND the sub
+  returns a value `(= % false)`. Returns `true` (proceed) in three
+  diagnostic-but-recoverable cases — each emits a warning so tooling
+  and the dev console can surface the misconfiguration:
+
+    - `:subs/subscribe-value` late-bind is unset (consumer opted out of
+      the subs artefact — the runtime has no way to evaluate the sub);
+    - the sub returns `nil` (registration likely typo'd the sub-id, or
+      the sub fn forgot to return a value);
+    - the sub returns a non-boolean truthy value (route author got the
+      polarity wrong; we err on letting the nav through and warn)."
   [frame route-meta]
   (if-let [sub-id (:can-leave route-meta)]
-    (when-let [subscribe-value (late-bind/get-fn :subs/subscribe-value)]
-      (boolean (subscribe-value frame [sub-id])))
+    (if-let [subscribe-value (late-bind/get-fn :subs/subscribe-value)]
+      (let [v (subscribe-value frame [sub-id])]
+        (cond
+          (false? v) false
+          (true?  v) true
+          :else
+          (do (trace/emit! :warning :rf.warning/can-leave-guard-non-boolean
+                           {:route-id (some-> route-meta :path)
+                            :sub-id   sub-id
+                            :value    v})
+              true)))
+      (do (trace/emit! :warning :rf.warning/can-leave-subs-artefact-missing
+                       {:sub-id sub-id})
+          true))
     true))
 
 (events/reg-event-fx :rf/url-requested
@@ -1004,18 +967,9 @@
     {:db (dissoc db :rf/pending-navigation)}))
 
 ;; ---- nav-token stale suppression ------------------------------------------
-;;
-;; Per Spec 012 §Navigation tokens — stale-result suppression. The runtime
-;; allocates a fresh nav-token on every full navigation. Async handlers
-;; (typically :http :on-success) capture the token at request time and
-;; thread it back when their response arrives. The runtime checks the
-;; carried token against the current :rf/route :nav-token; mismatch means
-;; the navigation has moved on and the response is stale — suppress.
-;;
-;; :rf.test/simulate-http-resolution is a test-only event the conformance
-;; fixtures use to simulate an http :on-success arriving with a captured
-;; nav-token. Real client code uses :rf.route/with-nav-token at the fx
-;; layer to wrap the actual response dispatch.
+;; Per Spec 012 §Navigation tokens — stale-result suppression.
+;; `:rf.test/simulate-http-resolution` is the test-only fixture analogue
+;; of the production-grade `:rf.route/with-nav-token` fx below.
 
 (events/reg-event-fx :rf.test/simulate-http-resolution
   (fn [{:keys [db]} [_ {:keys [on-success-event carried-nav-token]}]]
@@ -1035,203 +989,129 @@
                                 :recovery      :replaced-with-default})
             {})))))
 
+;; ---- URL-driven navigation: shared full-rewrite path ---------------------
+;; `:rf/url-changed` (forward nav, default scroll `:top`) and
+;; `:rf.route/handle-url-change` (popstate / initial / SSR, default
+;; scroll `:restore`) share `url-change-fx`. The fragment-only branch is
+;; exclusive to `:rf/url-changed`.
+
+(defn- url-change-fx
+  "Pure helper: given db + url + default scroll strategy (+ optional
+  `:frame` to carry on the no-such-handler trace), return the cofx map
+  `{:db :fx}` for a URL-driven full slice rewrite. Performs the match-url
+  lookup, allocates a fresh nav-token, computes the scroll fx entry, and
+  emits the trace events (:rf.warning/no-not-found-route,
+  :rf.error/no-such-handler, :rf.route.nav-token/allocated).
+
+  Per Spec 012 §URL changes are events §Route-not-found §Per-route data
+  loading §Scroll restoration §Multi-frame routing. The slice always
+  carries the full seven-key shape (rf2-d60go)."
+  [db url default-scroll frame]
+  (let [m                 (match-url url)
+        fragment          (:fragment m)
+        matched?          (some? m)
+        validation-fail?  (:validation-failed? m)
+        fallback?         (or (not matched?) validation-fail?)
+        route-id          (if fallback? :rf.route/not-found (:route-id m))
+        params            (cond
+                            validation-fail? {:url url :reason :validation}
+                            (not matched?)   {:url url}
+                            :else            (:params m))
+        query             (if fallback? {} (:query m))
+        route-meta        (registrar/lookup :route route-id)
+        on-match-vec      (vec (or (:on-match route-meta) []))
+        transition        (if (seq on-match-vec) :loading :idle)
+        [db' token]       (alloc-nav-token db)
+        to-route          (cond-> {:id route-id}
+                            (seq params) (assoc :params params)
+                            (seq query)  (assoc :query  query))
+        strategy          (resolve-scroll-strategy route-meta nil default-scroll)
+        scroll-fx         (scroll-fx-entry
+                            {:strategy  strategy
+                             :from      (route-descriptor (:rf/route db))
+                             :to        to-route
+                             :saved-pos (when (= :restore strategy)
+                                          (lookup-scroll-position db url))
+                             :fragment  fragment})]
+    ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
+    ;; when the unmatched-URL path resolves to :rf.route/not-found AND
+    ;; no such route is registered. Tools / AI scaffolds key off this.
+    (when (and fallback? (nil? route-meta))
+      (trace/emit! :warning :rf.warning/no-not-found-route
+                   {:url url}))
+    ;; :rf.error/no-such-handler discriminates from event / frame
+    ;; handler misses by :kind :route. The :frame tag (present when the
+    ;; caller threads it in — `:rf.route/handle-url-change`) lets the
+    ;; SSR error-projection listener attribute the trace per-frame.
+    (when fallback?
+      (trace/emit-error! :rf.error/no-such-handler
+                         (cond-> {:url url
+                                  :kind :route
+                                  :recovery :replaced-with-default}
+                           frame (assoc :frame frame))))
+    (trace/emit! :event :rf.route.nav-token/allocated
+                 {:route-id  route-id
+                  :nav-token token})
+    {:db (assoc db' :rf/route
+                {:id         route-id
+                 :params     params
+                 :query      query
+                 :fragment   fragment
+                 :transition transition
+                 :error      nil
+                 :nav-token  token})
+     :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                      ;; Per Spec 012 §Per-route data loading §2:
+                      ;; settle :loading → :idle after the on-match
+                      ;; drain. FIFO order: settle runs after every
+                      ;; on-match event already queued above.
+                      (when (seq on-match-vec)
+                        [[:dispatch [:rf.route/settle-transition token]]])
+                      (when scroll-fx [scroll-fx])))}))
+
 (events/reg-event-fx :rf/url-changed
   (fn [{:keys [db]} [_ url]]
     ;; Per Spec 012 §URL changes are events / §Fragments. match-url
     ;; surfaces the URL's `#fragment` directly on its result; if only
     ;; the fragment differs from the current slice, update :fragment but
     ;; DO NOT re-fire :on-match — emit :rf.route/url-changed instead.
-    ;; Otherwise full nav: allocate a nav-token, write new slice, fire
-    ;; :on-match.
+    ;; Otherwise full nav: delegate to `url-change-fx`.
     ;;
-    ;; Per Spec 012 §Route-not-found an unmatched URL routes to
-    ;; `:rf.route/not-found` with `{:url url}` in :params — the slice
-    ;; MUST be rewritten so the view tree's case-over-:rf.route/id
-    ;; renders the 404 page. Leaving the previous slice intact (the
-    ;; pre-rf2-h4r9n behaviour) caused the previous route's UI to show
-    ;; through a navigation to a nonexistent URL.
-    (let [m                 (match-url url)
-          fragment          (:fragment m)
-          prev              (:rf/route db)
-          fragment-only?    (and prev m
-                                 (= (:id prev)     (:route-id m))
-                                 (= (:params prev) (:params m))
-                                 (= (:query prev)  (:query m))
-                                 (not= (:fragment prev) fragment))]
-      (cond
-        fragment-only?
+    ;; Default scroll strategy for forward nav (click / programmatic
+    ;; push) is `:top` per Spec 012 §Scroll restoration; popstate /
+    ;; initial / SSR routes through `:rf.route/handle-url-change` which
+    ;; defaults to `:restore`.
+    (let [m              (match-url url)
+          fragment       (:fragment m)
+          prev           (:rf/route db)
+          fragment-only? (and prev m
+                              (= (:id prev)     (:route-id m))
+                              (= (:params prev) (:params m))
+                              (= (:query prev)  (:query m))
+                              (not= (:fragment prev) fragment))]
+      (if fragment-only?
         ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments:
-        ;; :rf.route/url-changed is the canonical op-name for fragment-only
-        ;; navigation; consumers discriminate full vs fragment-only by
-        ;; :tags (the fragment-only emission carries :prev-fragment /
-        ;; :next-fragment and never coincides with a
+        ;; :rf.route/url-changed is the canonical op-name for
+        ;; fragment-only navigation; consumers discriminate full vs
+        ;; fragment-only by :tags (the fragment-only emission carries
+        ;; :prev-fragment / :next-fragment and never coincides with a
         ;; :rf.route.nav-token/allocated on the same drain).
         (do (trace/emit! :event :rf.route/url-changed
                          {:route-id      (:id prev)
                           :prev-fragment (:fragment prev)
                           :next-fragment fragment})
             {:db (assoc-in db [:rf/route :fragment] fragment)})
-
-        :else
-        ;; Per Spec 012 §Route-not-found: matched / unmatched / validation-
-        ;; failed all share the slice-write + nav-token allocation. An
-        ;; unmatched URL substitutes route-id :rf.route/not-found and
-        ;; params {:url url}; a validation-failed match also routes to
-        ;; not-found, with `:reason :validation` in :params (rf2-ug2m1
-        ;; per Spec 012 §Param validation at the call site).
-        (let [matched?         (some? m)
-              validation-fail? (:validation-failed? m)
-              fallback?        (or (not matched?) validation-fail?)
-              route-id         (if fallback? :rf.route/not-found (:route-id m))
-              params           (cond
-                                 validation-fail? {:url url :reason :validation}
-                                 (not matched?)   {:url url}
-                                 :else            (:params m))
-              query            (if fallback? {} (:query m))
-              route-meta       (registrar/lookup :route route-id)
-              on-match-vec     (vec (or (:on-match route-meta) []))
-              ;; Per Spec 012 §Per-route data loading: :transition is
-              ;; :loading while :on-match drains, else :idle. Computed
-              ;; from the resolved route-meta so the matched and
-              ;; not-found branches share the same FSM.
-              transition   (if (seq on-match-vec) :loading :idle)
-              ;; Per Spec 012 §Multi-frame routing: nav-token allocation
-              ;; bumps the per-frame counter — both branches allocate a
-              ;; fresh token (an unmatched URL is still a navigation;
-              ;; the not-found page may have :on-match loaders of its
-              ;; own that need staleness suppression).
-              [db' token]  (alloc-nav-token db)
-              ;; Per Spec 012 §Scroll restoration: URL-driven nav from
-              ;; clicked links / programmatic pushes defaults to :top;
-              ;; route metadata's :scroll wins when declared.
-              to-route     (cond-> {:id route-id}
-                             (seq params) (assoc :params params)
-                             (seq query)  (assoc :query  query))
-              strategy     (resolve-scroll-strategy route-meta nil :top)
-              scroll-fx    (scroll-fx-entry
-                             {:strategy  strategy
-                              :from      (route-descriptor prev)
-                              :to        to-route
-                              :saved-pos (when (= :restore strategy)
-                                           (lookup-scroll-position db url))
-                              :fragment  fragment})]
-          ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
-          ;; when the unmatched-URL path resolves to :rf.route/not-found AND
-          ;; no such route is registered. Tools / AI scaffolds read this to
-          ;; flag the missing 404 registration.
-          (when (and fallback? (nil? route-meta))
-            (trace/emit! :warning :rf.warning/no-not-found-route
-                         {:url url}))
-          ;; The :no-such-handler error trace is preserved for tooling
-          ;; that already keys off it; it discriminates from event /
-          ;; frame handler misses by :kind :route. Both no-match and
-          ;; validation-fail emit it — the recovery is "replaced with
-          ;; :rf.route/not-found" in both cases.
-          (when fallback?
-            (trace/emit-error! :rf.error/no-such-handler
-                               {:url url
-                                :kind :route
-                                :recovery :replaced-with-default}))
-          (trace/emit! :event :rf.route.nav-token/allocated
-                       {:route-id  route-id
-                        :nav-token token})
-          {:db (assoc db' :rf/route
-                      {:id         route-id
-                       :params     params
-                       :query      query
-                       :fragment   fragment
-                       :transition transition
-                       :error      nil
-                       :nav-token  token})
-           :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                            ;; Per Spec 012 §Per-route data loading §2:
-                            ;; settle :loading → :idle after the
-                            ;; on-match drain.
-                            (when (seq on-match-vec)
-                              [[:dispatch [:rf.route/settle-transition token]]])
-                            (when scroll-fx [scroll-fx])))})))))
+        (url-change-fx db url :top nil)))))
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db frame]} [_ url]]
-    ;; Per Spec 012 §URL changes are events the slice carries the full
-    ;; seven-key shape `{:id :params :query :fragment :transition :error
-    ;; :nav-token}` on every URL-driven write — popstate, initial load,
-    ;; SSR. Pre-rf2-d60go this handler omitted :fragment (computed but
-    ;; never assoc'd) and :nav-token (never allocated), so the
-    ;; URL-driven path produced a slice that diverged in shape from the
-    ;; programmatic-nav path and the :rf/route-slice schema rejected
-    ;; the result.
-    (let [m                (match-url url)
-          fragment         (:fragment m)
-          matched?         (some? m)
-          validation-fail? (:validation-failed? m)
-          fallback?        (or (not matched?) validation-fail?)]
-      (when fallback?
-        ;; Unmatched / validation-failed URL — fixture corpus calls this
-        ;; :rf.error/no-such-handler in the routing context. The default
-        ;; error projector maps it to a public-facing 404. Per Spec 011
-        ;; §Default projector. We carry :frame so the SSR error-
-        ;; projection listener can attribute the trace to the right
-        ;; server frame. The `:kind :route` tag discriminates from
-        ;; `:kind :event` (router.cljc handler-lookup miss) and
-        ;; `:kind :frame` (epoch.cljc frame-lookup miss) — see
-        ;; [Spec 009 §Error categories — :rf.error/no-such-handler].
-        (trace/emit-error! :rf.error/no-such-handler
-                           {:url url
-                            :frame frame
-                            :kind :route
-                            :recovery :replaced-with-default}))
-      (let [route-id     (if fallback? :rf.route/not-found (:route-id m))
-            params       (cond
-                           validation-fail? {:url url :reason :validation}
-                           (not matched?)   {:url url}
-                           :else            (:params m))
-            query        (if fallback? {} (:query m))
-            route-meta   (registrar/lookup :route route-id)
-            on-match-vec (vec (or (:on-match route-meta) []))
-            ;; Per Spec 012 §Multi-frame routing: nav-token allocation
-            ;; bumps the per-frame counter — both branches allocate a
-            ;; fresh token (an unmatched URL is still a navigation;
-            ;; the not-found page may have :on-match loaders of its
-            ;; own that need staleness suppression).
-            [db' token]  (alloc-nav-token db)
-            ;; Per Spec 012 §Scroll restoration: popstate / initial / SSR
-            ;; navigations default to :restore — the saved position trumps.
-            to-route     (cond-> {:id route-id}
-                           (seq params) (assoc :params params)
-                           (seq query)  (assoc :query  query))
-            strategy     (resolve-scroll-strategy route-meta nil :restore)
-            scroll-fx    (scroll-fx-entry
-                           {:strategy  strategy
-                            :from      (route-descriptor (:rf/route db))
-                            :to        to-route
-                            :saved-pos (when (= :restore strategy)
-                                         (lookup-scroll-position db url))
-                            :fragment  fragment})]
-        ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
-        ;; when the unmatched-URL path resolves to :rf.route/not-found AND
-        ;; no such route is registered.
-        (when (and fallback? (nil? route-meta))
-          (trace/emit! :warning :rf.warning/no-not-found-route
-                       {:url url}))
-        (trace/emit! :event :rf.route.nav-token/allocated
-                     {:route-id  route-id
-                      :nav-token token})
-        {:db (assoc db' :rf/route
-                    {:id         route-id
-                     :params     params
-                     :query      query
-                     :fragment   fragment
-                     :transition (if (seq on-match-vec) :loading :idle)
-                     :error      nil
-                     :nav-token  token})
-         :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                          ;; Per Spec 012 §Per-route data loading §2:
-                          ;; settle :loading → :idle after the
-                          ;; on-match drain.
-                          (when (seq on-match-vec)
-                            [[:dispatch [:rf.route/settle-transition token]]])
-                          (when scroll-fx [scroll-fx])))}))))
+    ;; Per Spec 012 §URL changes are events — popstate, initial load,
+    ;; SSR. Always a full slice rewrite (the fragment-only branch is
+    ;; exclusive to `:rf/url-changed`); default scroll strategy is
+    ;; `:restore` so the saved position trumps. `:frame` is threaded
+    ;; through to `url-change-fx` so the SSR error-projection listener
+    ;; can attribute the :no-such-handler trace per-frame.
+    (url-change-fx db url :restore frame)))
 
 ;; ---- standard navigation fx ----------------------------------------------
 
@@ -1252,23 +1132,10 @@
                           {:fx-id :rf.nav/replace-url :url url}))))
 
 ;; ---- :rf.route/with-nav-token --------------------------------------------
-;;
-;; Per Spec 012 §Navigation tokens §Threading and §Trace events, and the
-;; `:rf.fx/with-nav-token-args` schema in Spec-Schemas.md. The fx wraps an
-;; async-completion fx entry (`:do`) with a stale-result check: at fire
-;; time, the carried `:nav-token` is compared against the current
-;; `:rf/route :nav-token` in app-db; on match, the inner fx entry is
-;; dispatched through the regular fx machinery (so `:dispatch`,
-;; `:dispatch-later`, `:rf.http/managed`, etc all flow through); on
-;; mismatch, the inner fx is suppressed and the runtime emits
-;; `:rf.route.nav-token/stale-suppressed` with the canonical tags
-;; (`:carried-token`, `:current-token`, `:event-id`) — the handler does
-;; NOT run (no `:db` write, no `:fx`, no transition).
-;;
-;; This is the production-grade staleness-suppression path; the
-;; `:rf.test/simulate-http-resolution` event above is its test-only
-;; conformance-fixture stand-in (used where the fixture DSL can't
-;; emit an effect-map of its own).
+;; Per Spec 012 §Navigation tokens §Threading. Wraps an async-completion
+;; fx entry (`:do`) with a stale-result check: match → run; mismatch →
+;; suppress and emit `:rf.route.nav-token/stale-suppressed`. Spec-Schemas
+;; carries the `:rf.fx/with-nav-token-args` shape.
 
 (defn- inner-fx-event-id
   "Best-effort extraction of an `event-id` from an `:do` fx entry. For
@@ -1362,18 +1229,9 @@ unknown strategies as :preserve (no-op)."}
                     {:fx-id :rf.nav/scroll :strategy strategy}))))
 
 ;; ---- framework-shipped subs over the slice -------------------------------
-;;
-;; Per Spec 012 the framework ships `:rf/route` (the layer-1 read of the
-;; :rf/route slice) and the layer-2 derivations `:rf.route/{id,params,query,
-;; transition,error}`. Per rf2-k682 these subs ship in this artefact
-;; (rather than `re-frame.core`) so apps that don't pull
-;; `day8/re-frame2-routing` carry neither the registration metadata nor
-;; the `:rf.route/*` keyword strings on their production-elision bundle.
-;;
-;; Lives in this namespace (rather than core.cljc) so the smoke-test
-;; fixture's `require :reload` re-installs the registrations after
-;; `registrar/clear-all!` — exactly the same ergonomic the machines
-;; namespace's `:rf/machine` reg-sub uses.
+;; Per Spec 012. Subs live in this artefact (not re-frame.core) so apps
+;; that don't pull day8/re-frame2-routing carry no `:rf.route/*` strings
+;; on their production-elision bundle (rf2-k682).
 
 (defn route-sub-fn
   "Layer-1 sub fn for :rf/route — reads the slice from app-db. Exposed
@@ -1436,28 +1294,10 @@ unknown strategies as :preserve (no-op)."}
   (fn [db _] (:rf/pending-navigation db)))
 
 ;; ---- route-link registered view ------------------------------------------
-;;
-;; Per Spec 012 §Linking from views and §Standard runtime events, and the
-;; API.md `route-link` row: a registered view at `:route/link` renders an
-;; `<a href="...">` for a known route-id and intercepts plain primary-button
-;; clicks. Plain left-click (no modifier keys) dispatches
-;; `:rf/url-requested`; modifier-key clicks (cmd / ctrl / shift / alt) and
-;; auxiliary-button clicks (middle-click) defer to the browser so users get
-;; the native open-in-new-tab affordance.
-;;
-;; The view is CLJS-only — anchor rendering is DOM-bound and there is no
-;; meaningful JVM counterpart. The pure helpers `route-url` (URL synthesis)
-;; and the `:rf/url-requested` event handler are both JVM-callable, which
-;; is what the JVM-side tests reach for.
-;;
-;; Frame-handling: the view dispatches via `re-frame.router/dispatch!`,
-;; which captures the frame at call time through the same resolution chain
-;; (dynamic var → React-context → `:rf/default`) every registered view's
-;; auto-injected `dispatch` already uses. Routes themselves are a single
-;; global registry (the `:route` registrar kind), so per-frame routing is
-;; a non-issue at the link layer — the URL string is derived from the
-;; route id alone, and the resulting `:rf/url-requested` lands in the
-;; frame that owned the click.
+;; Per Spec 012 §Linking from views. Plain left-click → preventDefault
+;; + dispatch `:rf/url-requested`; modifier-key / middle-click defers to
+;; the browser. CLJS-only render; JVM gets an SSR shell (no DOM events
+;; to intercept).
 
 #?(:cljs
    (defn- plain-left-click?
@@ -1550,17 +1390,10 @@ unknown strategies as :preserve (no-op)."}
                                :handler-fn route-link-render-ssr)))
 
 ;; ---- late-bind hook registration ------------------------------------------
-;;
-;; Per rf2-k682 the routing surface ships in `day8/re-frame2-routing`.
-;; `re-frame.core` MUST NOT `:require [re-frame.routing]` — the artefact
-;; is optional, and a static require would force every consumer of the
-;; core artefact to drag the namespace, the route-rank / pattern-compile
-;; / nav-token machinery, the `:rf/route` reg-sub family, and every
-;; `:rf.route/*` / `:rf.nav/*` trace/event keyword onto the classpath.
-;; The public-API re-exports (`reg-route`, `match-url`, `route-url`) are
-;; published through the late-bind table; consumers without the routing
-;; artefact see the hooks unregistered and the active surfaces throw
-;; cleanly while the read-only surfaces return safe defaults.
+;; Per rf2-k682. `re-frame.core` MUST NOT `:require [re-frame.routing]` —
+;; the artefact is optional. Public-API re-exports are published through
+;; the late-bind table; consumers without the artefact see the hooks
+;; unregistered and the active surfaces throw cleanly.
 
 (late-bind/set-fn! :routing/reg-route        reg-route)
 (late-bind/set-fn! :routing/match-url        match-url)
@@ -1568,10 +1401,7 @@ unknown strategies as :preserve (no-op)."}
 (late-bind/set-fn! :routing/reset-counters!  reset-counters!)
 (late-bind/set-fn! :routing/route-sub-fn     route-sub-fn)
 
-;; route-link is exposed on both platforms so .cljc render trees that
-;; embed `[rf/route-link ...]` resolve identically server- and client-side.
-;; CLJS publishes the Reagent-wrapped render fn (the one `reg-view*`
-;; returned); JVM publishes the SSR render fn. Late-bind keeps
-;; `re-frame.core` decoupled from this artefact.
+;; route-link is exposed on both platforms so .cljc render trees
+;; resolve identically server- and client-side.
 #?(:cljs (late-bind/set-fn! :routing/route-link route-link)
    :clj  (late-bind/set-fn! :routing/route-link route-link-render-ssr))
