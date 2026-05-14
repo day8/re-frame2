@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 testbed: ssr-multi-frame</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    h1, h3 { margin: 0.25em 0; }
+    p { margin: 0.25em 0; }
+  </style>
+</head>
+<body>
+  <!--
+    The pre-rendered HTML is a placeholder (`not-hydrated`); the
+    interesting assertion is the per-frame `:rf/hydration` metadata
+    after hydrate completes. Each frame receives its own
+    `:rf/hydrate` dispatch with a distinct payload slice; the post-
+    hydrate summary block proves the three frames hold independent
+    metadata (distinct `:server-hash` values) and the three counter
+    panels read their seeded `:n` from their own app-db.
+  -->
+  <div id="app">
+    <div data-testid="ssr-multi-frame">
+      <h1>ssr-multi-frame testbed (loading)</h1>
+    </div>
+  </div>
+  <!--
+    Per-frame payload bundle. The outer map carries one entry per
+    frame; the value is a standalone :rf/hydration-payload
+    (`{:rf/version :rf/render-hash :rf/app-db}`) the runtime accepts
+    verbatim. Per Spec 011 §Frames are per-request: each frame's
+    payload survives independently; the framework writes to that
+    frame's app-db only.
+
+    Distinct :rf/render-hash strings per frame so the summary
+    block's `all-distinct=true` assertion is non-vacuous.
+  -->
+  <script id="__rf_payload" type="application/edn">
+{:rf/version 1
+ :rf/per-frame
+ {:counter/a {:rf/version     1
+              :rf/render-hash "aaaa1111"
+              :rf/app-db      {:n 10}}
+  :counter/b {:rf/version     1
+              :rf/render-hash "bbbb2222"
+              :rf/app-db      {:n 99}}
+  :log       {:rf/version     1
+              :rf/render-hash "cccc3333"
+              :rf/app-db      {:entries
+                               [{:from :ssr :note "hello"}
+                                {:from :ssr :note "world"}]}}}}
+  </script>
+  <script src="main.js"></script>
+</body>
+</html>
