@@ -65,21 +65,33 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn- node-at*
-  "Local inline of `transition/node-at` to avoid a require cycle. Walk
-  `(:states tree)` down `path`, returning the leaf state-node or nil
-  if path doesn't resolve."
+(defn- resolve-path-nodes
+  "Walk `(:states tree)` root→leaf following `path`, returning a vector
+  of `node`s — one per prefix level — where `nodes[i]` is the
+  state-node at `(subvec path 0 (inc i))` (so index 0 is the level-1
+  node, index `(dec (count path))` is the leaf). When a level's node
+  doesn't resolve (defensive — e.g. an exited compound branch), the
+  slot is `nil` and descent stops; remaining slots are absent. The
+  return vector's `count` ≤ `(count path)`.
+
+  Per rf2-3h1pf the walk is done ONCE root→leaf to feed the leaf→root
+  iteration in `walk-path-leaf-to-root` — the old shape re-descended
+  from the root at every level (O(depth²) per picker call). One pass
+  + a small vector of resolved nodes turns it into O(depth)."
   [tree path]
-  (loop [m (:states tree)
-         p path]
-    (cond
-      (empty? p) nil
-      :else
-      (let [n (get m (first p))]
-        (cond
-          (nil? n) nil
-          (= 1 (count p)) n
-          :else (recur (:states n) (rest p)))))))
+  (loop [m       (:states tree)
+         remain  path
+         acc     (transient [])]
+    (if (empty? remain)
+      (persistent! acc)
+      (let [n (get m (first remain))]
+        (if (nil? n)
+          ;; Path doesn't resolve at this level — stop descending. The
+          ;; predicate is skipped for this level (and any deeper one)
+          ;; on the leaf→root walk; ancestors above remain valid via
+          ;; the levels accumulated so far.
+          (persistent! acc)
+          (recur (:states n) (rest remain) (conj! acc n)))))))
 
 (defn walk-path-leaf-to-root
   "Walk `path` leaf→root through `tree`'s `:states` map. For each
@@ -98,19 +110,27 @@
   Per rf2-ogsrx the inclusive-prefix is taken via `subvec` (zero-copy
   slice) rather than `(vec (take (inc i) path))` (lazy-seq + realise +
   copy). On a depth-D path × P pickers per macrostep the walk now
-  allocates D×P subvec references rather than D×P fresh vectors. The
-  `path` argument is coerced to a vector once at the top so callers
-  may pass any seqable; downstream callers receiving the prefix may
-  rely on the vector contract (predicates often `(last prefix)` or
-  `conj` onto it)."
+  allocates D×P subvec references rather than D×P fresh vectors.
+
+  Per rf2-3h1pf the descent through `tree`'s `:states` is done ONCE
+  root→leaf via `resolve-path-nodes`, then iterated in reverse — the
+  old shape called `node-at*` at every level, re-descending from the
+  root each time, giving O(depth²) per picker call. The single-pass
+  shape is O(depth). Four pickers (`:on`, `:always`, `:after`,
+  `:invoke-all` join) all run this primitive on the same active path
+  per macrostep, so the depth² → depth win compounds on every event.
+  The `path` argument is coerced to a vector once at the top so
+  callers may pass any seqable; downstream callers receiving the
+  prefix may rely on the vector contract (predicates often
+  `(last prefix)` or `conj` onto it)."
   [tree path predicate]
-  (let [path (if (vector? path) path (vec path))
-        n    (count path)]
-    (loop [i (dec n)]
+  (let [path  (if (vector? path) path (vec path))
+        nodes (resolve-path-nodes tree path)]
+    (loop [i (dec (count nodes))]
       (when (>= i 0)
         (let [prefix (subvec path 0 (inc i))
-              node   (node-at* tree prefix)
-              hit    (when node (predicate prefix node))]
+              node   (nth nodes i)
+              hit    (predicate prefix node)]
           (if (some? hit)
             hit
             (recur (dec i))))))))

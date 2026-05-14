@@ -282,12 +282,21 @@
           (if (result/fail? step-result)
             step-result
             (result/with-ok [reg-snap reg-fx] step-result
-              (let [prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
-                (recur (rest pending)
-                       (:data reg-snap)
-                       (:rf/spawn-counter reg-snap)
-                       (assoc new-states rn (:state reg-snap))
-                       (vec (concat acc-fx prefixed-fx)))))))))))
+              ;; Per rf2-3h1pf: accumulate fx via `into` so the region
+              ;; loop doesn't rebuild the accumulator as a fresh vector
+              ;; on every region step (the old shape was
+              ;; `(vec (concat acc-fx prefixed-fx))` — O(N²·M) copying
+              ;; for N regions × M fx; `into` uses a transient
+              ;; internally — O(N·M) amortised). The prefix-fn is
+              ;; folded into the transducer position so we don't
+              ;; materialise the intermediate `prefixed-fx` vector.
+              (recur (rest pending)
+                     (:data reg-snap)
+                     (:rf/spawn-counter reg-snap)
+                     (assoc new-states rn (:state reg-snap))
+                     (into acc-fx
+                           (map (partial prefix-region-invoke-id rn))
+                           reg-fx)))))))))
 
 (defn apply-initial-entry-cascade
   "Synthesise the bootstrap entry cascade for `machine` against the
