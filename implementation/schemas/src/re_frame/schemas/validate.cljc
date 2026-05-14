@@ -85,21 +85,6 @@
   [m]
   (true? (:sensitive? m)))
 
-(defn- sensitive-by-meta?
-  "Sensitivity check used by validate-event!. Only consults the
-  registration meta (event vectors aren't walked for per-slot
-  `:sensitive?` schema props per Spec 010)."
-  [m _schema]
-  (meta-sensitive? m))
-
-(defn- sensitive-by-meta-or-schema?
-  "Sensitivity check used by validate-cofx! / validate-fx! /
-  validate-sub-return!. Either the registration meta OR a per-slot
-  `:sensitive?` prop anywhere in the schema tree triggers redaction."
-  [m schema]
-  (or (meta-sensitive? m)
-      (walker/schema-has-sensitive? schema)))
-
 (defn- redact-tags
   "Replace value-bearing slots in a tags map with the `:rf/redacted`
   sentinel. Per Spec 010 §`:sensitive?` — privacy in schema-validation
@@ -136,16 +121,26 @@
                      fx) — its `:spec` slot, if any, is the schema.
     - `value`        the value being checked (event vector, cofx
                      value, sub return, fx args).
-    - `sensitive?-fn`  `(fn [meta schema] -> boolean)` — combines the
-                     meta-level `:sensitive?` flag with any
-                     schema-level `:sensitive?` props per Spec 010.
+    - `meta-sensitive?` boolean — the registration-meta `:sensitive?`
+                     flag (the coarse, handler-level signal). Wrappers
+                     pass `(meta-sensitive? meta)`. The schema-level
+                     `:sensitive?` walker check is deferred to the
+                     failure branch so the hot path doesn't pay for it
+                     on every pass.
+    - `walk-schema?` boolean — when true AND `meta-sensitive?` is
+                     false AND the validator fails, consult the
+                     schema's per-slot `:sensitive?` walker before
+                     emitting. Event vectors are not schema-walked
+                     (event vectors aren't `:map`-shaped, so per-slot
+                     `:sensitive?` props don't apply) so wrappers
+                     pass `false`; cofx / fx / sub-return pass `true`.
     - `build-base-tags`  `(fn [schema explanation] -> map)` — produces
                      the per-fn tag map (`:where`, `:reason`, etc.)
                      EXCLUDING any sensitivity stamping.
     - `extra-redact` `(fn [tags] -> tags)` or `nil` — additional
                      redaction step applied AFTER `redact-tags` when
-                     `sensitive?` is true. Used by validate-fx! to
-                     scrub the doubled `:fx-args` slot.
+                     `sensitive?` resolves true. Used by validate-fx!
+                     to scrub the doubled `:fx-args` slot.
 
   Reachability: every call-site lives inside the outermost
   `(if interop/debug-enabled? ...)` gate of its public wrapper.
@@ -157,16 +152,18 @@
   gate and invoked directly — `validator/run-validator` would deref
   the same atom a second time on every pass, which is wasted work
   on a path that runs per-event / per-cofx / per-fx / per-sub-return."
-  [meta value sensitive?-fn build-base-tags extra-redact]
+  [meta value meta-sensitive? walk-schema? build-base-tags extra-redact]
   (if-let [vf @validator/validator-fn]
     (if-let [schema (:spec meta)]
       (if (vf schema value)
         true
         (let [explanation (validator/run-explainer schema value)
-              sensitive?  (sensitive?-fn meta schema)
+              sensitive?  (or meta-sensitive?
+                              (and walk-schema?
+                                   (walker/schema-has-sensitive? schema)))
               base-tags   (build-base-tags schema explanation)
               tags        (cond-> base-tags
-                            sensitive?                  redact-tags
+                            sensitive?                    redact-tags
                             (and sensitive? extra-redact) extra-redact)]
           (trace/emit-error! :rf.error/schema-validation-failure tags)
           false))
@@ -259,7 +256,8 @@
     (run-validation
       handler-meta
       event
-      sensitive-by-meta?
+      (meta-sensitive? handler-meta)
+      false  ;; event vectors aren't `:map`-shaped — no per-slot walk
       (fn [schema explanation]
         {:where      :event
          :event-id   event-id
@@ -288,7 +286,8 @@
     (run-validation
       sub-meta
       value
-      sensitive-by-meta-or-schema?
+      (meta-sensitive? sub-meta)
+      true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         {:where      :sub-return
          :sub-id     sub-id
@@ -318,7 +317,8 @@
     (run-validation
       cofx-meta
       value
-      sensitive-by-meta-or-schema?
+      (meta-sensitive? cofx-meta)
+      true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         {:where      :cofx
          :cofx-id    cofx-id
@@ -353,7 +353,8 @@
     (run-validation
       fx-meta
       args
-      sensitive-by-meta-or-schema?
+      (meta-sensitive? fx-meta)
+      true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         (cond-> {:where      :fx-args
                  :fx-id      fx-id
