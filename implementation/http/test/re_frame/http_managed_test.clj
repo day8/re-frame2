@@ -402,6 +402,54 @@
       (is (= :failure (get-in db [:reply :kind])))
       (is (= :rf.http/transport (get-in db [:reply :failure :kind]))))))
 
+;; ---- 8b. abort on unknown request-id is a silent no-op (rf2-kdwnq) -------
+;;
+;; Per http_handlers.cljc:113-125, `managed-abort-handler` resolves the
+;; abort-fn through the in-flight registry and fires it; a missing
+;; entry yields `nil` from `lookup-in-flight`, the `when-let` collapses,
+;; and the handler returns `nil` without dispatch / throw. The shape is
+;; correct (idempotent abort) but not asserted — a regression that
+;; throws here (e.g. someone changing `when-let` to `let`, or adding a
+;; precondition) would only surface as flake in apps that race
+;; abort-then-cleanup. Pin the no-op contract.
+
+(deftest jvm-managed-abort-unknown-request-id-is-silent-noop
+  (testing ":rf.http/managed-abort on a request-id never seen by the in-flight
+            registry completes without throwing and dispatches no reply
+            (no :on-failure, no trace error). Idempotent abort contract."
+    (let [reply-fired? (atom false)
+          traces       (atom [])
+          listener-id  ::kdwnq-trace]
+      (try
+        (trace/register-trace-cb! listener-id
+                                  (fn [ev] (swap! traces conj ev)))
+        ;; If a reply ever dispatches the test will catch it (silently
+        ;; ignored handler) — but the load-bearing assertion is that no
+        ;; throw escapes the abort fx.
+        (rf/reg-event-fx :kdwnq/abort-never-issued
+          (fn [_ _]
+            {:fx [[:rf.http/managed-abort :kdwnq/never-issued]]}))
+        (rf/reg-event-db :kdwnq/some-reply
+          (fn [db _]
+            (reset! reply-fired? true)
+            db))
+        ;; The call itself must not throw.
+        (is (nil? (rf/dispatch-sync [:kdwnq/abort-never-issued]))
+            "dispatch returns nil; abort handler is a silent no-op on unknown id")
+        ;; Idempotent — abort the same unknown id a second time.
+        (is (nil? (rf/dispatch-sync [:kdwnq/abort-never-issued]))
+            "second abort of the same unknown id is also a silent no-op")
+        ;; No reply ever fired (no :on-failure synthesised, no trace error).
+        (Thread/sleep 50)
+        (is (false? @reply-fired?)
+            "no reply event was dispatched — the registry knew nothing about the id")
+        (let [errors (filter #(= :error (:op-type %)) @traces)]
+          (is (empty? errors)
+              (str "no :rf.error/* trace fired for the abort no-op; saw: "
+                   (mapv :operation errors))))
+        (finally
+          (trace/remove-trace-cb! listener-id))))))
+
 ;; ---- 9. abort by request-id -----------------------------------------------
 
 (deftest jvm-abort-by-request-id
