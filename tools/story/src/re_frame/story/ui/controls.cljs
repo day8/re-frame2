@@ -36,6 +36,7 @@
   (:require [re-frame.story.registrar :as registrar]
             [re-frame.story.args      :as args]
             [re-frame.story.decorators :as decorators]
+            [re-frame.story.malli-schema-utils :as msu]
             [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.state  :as state]))
 
@@ -137,51 +138,17 @@
    :empty       {:color "#9a9a9a" :font-style "italic"}})
 
 ;; ---- pure: Malli-schema introspection -----------------------------------
+;;
+;; Canonical helpers live in `re-frame.story.malli-schema-utils` (a pure
+;; leaf ns shared with `schema-validation`). Aliased privately here so
+;; in-file call sites stay textually identical.
 
-(defn- properties?
-  "Is `x` the optional Malli properties map at index 1 of a vector
-  schema? Per Malli convention any map at that slot is properties;
-  vector entries (child schemas for collections) are never maps."
-  [x]
-  (map? x))
-
-(defn- schema-op
-  "Return the operator symbol of a vector schema (`:map`, `:vector`,
-  `:tuple`, `:set`, `:enum`, ...) or nil if `s` is not a vector."
-  [s]
-  (when (vector? s) (first s)))
-
-(defn- schema-properties
-  "Return the optional properties map from a vector schema, or nil."
-  [s]
-  (when (vector? s)
-    (let [x (second s)]
-      (when (properties? x) x))))
-
-(defn- schema-children
-  "Return the child schemas of a vector schema, skipping the optional
-  properties map. For `[:map [:a :string] [:b :int]]` returns
-  `([:a :string] [:b :int])`."
-  [s]
-  (when (vector? s)
-    (let [rest* (rest s)]
-      (if (properties? (first rest*))
-        (rest rest*)
-        rest*))))
-
-(defn- map-entry-key
-  "Map-entry tuples in Malli have shape `[k props? child]`. Return k."
-  [entry]
-  (first entry))
-
-(defn- map-entry-schema
-  "Map-entry tuples in Malli have shape `[k props? child]`. Return
-  child. Skip the optional properties map at index 1."
-  [entry]
-  (let [r (rest entry)]
-    (if (properties? (first r))
-      (second r)
-      (first r))))
+(def ^:private properties?      msu/properties?)
+(def ^:private schema-op        msu/schema-op)
+(def ^:private schema-properties msu/schema-properties)
+(def ^:private schema-children  msu/schema-children)
+(def ^:private map-entry-key    msu/map-entry-key)
+(def ^:private map-entry-schema msu/map-entry-schema)
 
 ;; ---- pure: argtype inference --------------------------------------------
 
