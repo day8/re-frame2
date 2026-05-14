@@ -18,9 +18,18 @@ recomputes all three flows in topo order. Total cascade time =
 
 ```
 :flow-a  :inputs [[:input]]                  :output (* 2 input)        :path [:a-result]
-:flow-b  :inputs [[:input]]                  :output (* 3 input)        :path [:b-result]   ← throws when input ≥ :fail-at
+:flow-b  :inputs [[:input] [:a-result]]      :output (* 3 input)        :path [:b-result]   ← throws when input ≥ :fail-at
 :flow-c  :inputs [[:a-result] [:b-result]]   :output (+ a b)            :path [:c-result]
 ```
+
+`:flow-b` lists `[:a-result]` as a topology-pin input only — Spec 013
+§Topological sort uses path-prefix overlap to fix evaluation order,
+so the declaration forces `:flow-a → :flow-b`. Without it the two
+flows are independent (both read `[:input]`, write disjoint paths)
+and Kahn's algorithm picks an unspecified order between them —
+which would void Rule 1's "prior-flow writes preserved" guarantee
+when `:flow-b` happens to run first. `:flow-b`'s `:output` ignores
+the `a-result` value; its math is still `(* 3 input)`.
 
 ## The four-rule contract this surface exercises
 
