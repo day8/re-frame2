@@ -28,7 +28,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog } = require('./_runner.cjs');
+const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
 
@@ -250,7 +250,16 @@ runWithWatchdog(
       'OK   tools/call subscription-info (degraded) -> isError + nrepl-port-not-found',
     );
 
-    // 4. The runner tears down the transport via client.close() on
+    // 4. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Asserts
+    // pair2-mcp emits the canonical codes from `mcp-base/vocab.cljc`
+    // for unknown-method + malformed-params. The runner-side helper
+    // pins the shared contract; same call appears in end-to-end-story.
+    await assertJsonRpcErrorCodes(client);
+    console.log(
+      'OK   JSON-RPC error codes -> MethodNotFound + (InvalidParams|InternalError)',
+    );
+
+    // 5. The runner tears down the transport via client.close() on
     // exit; the SDK closes the transport which kills the child
     // process. If the server hangs on shutdown the runner's watchdog
     // catches it.

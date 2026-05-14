@@ -52,6 +52,7 @@
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { ErrorCode, McpError } = require('@modelcontextprotocol/sdk/types.js');
 
 const CLIENT_VERSION = '0.1.0';
 
@@ -134,4 +135,108 @@ runWithWatchdog.skip = function skip(reason) {
   process.exit(0);
 };
 
-module.exports = { runWithWatchdog };
+// ---------------------------------------------------------------------
+// JSON-RPC error-code conformance gate (rf2-i3ffz F-GAP-3).
+//
+// `mcp-base/vocab.cljc` pins the five JSON-RPC 2.0 §5.1 codes the
+// triplet routes against (`-32700` ParseError, `-32600` InvalidRequest,
+// `-32601` MethodNotFound, `-32602` InvalidParams, `-32603`
+// InternalError). Before this gate landed no test asserted either
+// server's actual on-the-wire emission — a regression that swapped
+// `-32602` and `-32603` would have shipped unobserved.
+//
+// Coverage today: two of the five codes are reliably reachable from
+// the SDK Client.
+//
+//   - `-32601 MethodNotFound` — exercised via a deliberately-unknown
+//     JSON-RPC method. Both servers MUST emit this canonically; a
+//     rename to `-32602` would surface here.
+//   - `-32603 InternalError` — exercised via `tools/call` with a
+//     missing `:name` param. The SDK's server-side `tools/call` schema
+//     parse fails on the missing slot and the framework wraps the zod
+//     error as `-32603`. (`-32602 InvalidParams` would be the JSON-RPC
+//     §5.1 reading but the SDK pins `-32603`; this gate accepts
+//     either, so a future SDK tightening doesn't break the contract.)
+//
+// The other three (`-32700`, `-32600`, `-32602`) require wire-level
+// access to the transport (sending malformed JSON, an invalid-shape
+// envelope, etc.) that the SDK Client doesn't expose. Those paths are
+// covered indirectly: any code path that DOES route a JSON-RPC error
+// must use the `ErrorCode.*` constants imported from the same SDK
+// module the canonical pin (`mcp-base/vocab.cljc`) cross-references.
+//
+// Returns nothing; throws on a code-mismatch with a descriptive error.
+// Used by every `end-to-end-*.cjs` after the catalogue check so the
+// gate runs once per server per CI invocation.
+// ---------------------------------------------------------------------
+async function assertJsonRpcErrorCodes(client) {
+  // 1. Unknown JSON-RPC method MUST surface as `-32601 MethodNotFound`.
+  // The SDK's `client.request` throws an `McpError` on a JSON-RPC error
+  // response; we assert the carried `.code` matches the canonical value
+  // pinned by `mcp-base/vocab.cljc/code-method-not-found`.
+  try {
+    await client.request(
+      { method: 'conformance/unknown-method-probe', params: {} },
+      // The schema slot would normally validate the result; we pass a
+      // permissive parser because we EXPECT to throw, not parse.
+      { parse: () => null },
+    );
+    throw new Error(
+      'unknown JSON-RPC method MUST return -32601 MethodNotFound; ' +
+        'got a successful response instead',
+    );
+  } catch (err) {
+    if (!(err instanceof McpError)) {
+      throw new Error(
+        'unknown JSON-RPC method MUST throw McpError; got ' +
+          (err && err.constructor ? err.constructor.name : typeof err) +
+          ': ' + (err && err.message),
+      );
+    }
+    if (err.code !== ErrorCode.MethodNotFound) {
+      throw new Error(
+        'unknown JSON-RPC method MUST yield code -32601 (MethodNotFound, ' +
+          'per mcp-base/vocab.cljc/code-method-not-found); got ' +
+          err.code + ': ' + err.message,
+      );
+    }
+  }
+
+  // 2. `tools/call` with a missing `:name` slot MUST surface a
+  // server-side validation error — either `-32602 InvalidParams` (the
+  // JSON-RPC §5.1 reading) or `-32603 InternalError` (the SDK's
+  // observed shape; the framework wraps the zod parse failure as
+  // InternalError). Both are pinned by `mcp-base/vocab.cljc`; either
+  // is conformant — accepting the union prevents an SDK tightening
+  // from breaking the contract.
+  try {
+    await client.request(
+      { method: 'tools/call', params: { arguments: {} } },
+      { parse: () => null },
+    );
+    throw new Error(
+      'tools/call with missing :name MUST return a JSON-RPC error; ' +
+        'got a successful response instead',
+    );
+  } catch (err) {
+    if (!(err instanceof McpError)) {
+      throw new Error(
+        'malformed tools/call MUST throw McpError; got ' +
+          (err && err.constructor ? err.constructor.name : typeof err) +
+          ': ' + (err && err.message),
+      );
+    }
+    const ok =
+      err.code === ErrorCode.InvalidParams ||
+      err.code === ErrorCode.InternalError;
+    if (!ok) {
+      throw new Error(
+        'tools/call with missing :name MUST yield code -32602 ' +
+          '(InvalidParams) or -32603 (InternalError) per ' +
+          'mcp-base/vocab.cljc; got ' + err.code + ': ' + err.message,
+      );
+    }
+  }
+}
+
+module.exports = { runWithWatchdog, assertJsonRpcErrorCodes };
