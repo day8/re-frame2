@@ -106,6 +106,86 @@ reaches the agent host, and from there potentially the LLM provider.
 The `:sensitive?` flag is the registrar's "do not ship this
 unredacted across that boundary" signal; Causa-MCP honours it.
 
+## Authority classes — named-mutation vs `eval-cljs`
+
+The MCP-server's mutating surface is **two distinct authority
+classes**, not one. The split is normative and load-bearing on
+the published causa-mcp launch posture.
+
+**Class 1 — named-mutation tools** (`dispatch`, `restore-epoch`,
+`reset-frame-db`). These three mirror in-panel right-click
+affordances Causa-the-panel already exposes to a human debugger
+(per [`Principles.md` §Read-mostly catalogue](./Principles.md#read-mostly-catalogue-mutate-via-the-in-panel-equivalent-gates)).
+The authority each surfaces is **bounded** by an existing,
+human-visible Causa affordance — `dispatch` fires a registered
+event, `restore-epoch` rewinds to a recorded epoch, `reset-frame-db`
+re-injects a frame's `app-db`. Every side-effect carries
+`:origin :causa-mcp` on the trace bus (per
+[`Principles.md` §Origin tagging](./Principles.md#origin-tagging-is-the-convention-not-a-suggestion)),
+so the audit trail is complete by construction.
+
+Consent model: **enabling the MCP server is consent to invoke
+these three tools.** No per-call gate; no extra approval prompt.
+The pre-alpha posture is *low-friction default-safe* — a developer
+who chose to launch causa-mcp is choosing to give the agent the
+same surface they already give themselves through the panel.
+Asking for confirmation again at every dispatch would degrade
+the workflow without strengthening the trust boundary.
+
+**Class 2 — `eval-cljs`** (the escape valve). Qualitatively
+different: `eval-cljs` executes arbitrary ClojureScript in the
+browser runtime, exceeding the bounded affordance set the named
+tools mirror. The runtime has full app-db reach, full registrar
+reach, and full reach into anything reachable from the eval
+context. The synchronous-extent `:origin :causa-mcp` tagging
+posture (per
+[`Principles.md` §Boundary semantics of `eval-cljs` origin tagging](./Principles.md#boundary-semantics-of-eval-cljs-origin-tagging))
+covers the *audit* axis but not the *authority* axis — the agent
+can do things no panel right-click can do.
+
+Consent model: **`eval-cljs` MUST be disabled by default in the
+published causa-mcp**, and **MUST** require an explicit launch-time
+opt-in flag (`--allow-eval` or equivalent) to enable. The flag is
+processed at server boot — when not present, `eval-cljs` is
+omitted from `tools/list`, and any `tools/call` against it returns
+the structured error `{:ok? false :reason :eval-cljs-disabled}`
+with a setup hint pointing at the launch flag. When the flag is
+present, `eval-cljs` ships in the catalogue unchanged (origin tag,
+synchronous-extent binding, etc.).
+
+Rationale: a developer who *wants* the escape valve says so once
+at server launch and pays the friction cost there; a developer
+who doesn't want arbitrary-eval (the **majority case**: most
+sessions only need the read-mostly catalogue and the three named
+mutations) gets the reduced authority surface by default without
+having to know what to opt out of. Default-safe, opt-in to
+heightened authority.
+
+The two classes share the trust boundary (the MCP stdio channel,
+above) but split the per-tool authority posture. Published
+causa-mcp ships seventeen tools enabled by default
+(read-mostly + three named mutations + streaming + meta);
+`eval-cljs` is the eighteenth, gated.
+
+**What this is *not*.** This is not a multi-tier approval gate
+on the three named-mutation tools. The pre-alpha posture
+deliberately refuses per-call confirmation prompts for them —
+that path leads to UI-friction-driven workflow degradation
+(every `dispatch` becomes a yes/no modal) without raising the
+trust-boundary bar. The named-mutation tools are bounded by
+their panel-mirror property; arbitrary code execution is not,
+and only the second class needs the extra gate.
+
+**Cross-MCP applicability.** The same split applies to
+[`tools/pair2-mcp/`](../../pair2-mcp/): pair2-mcp's named
+mutations (`dispatch`, `snapshot`'s restore variants) need no
+extra gate; pair2-mcp's `eval-cljs` (when its catalogue lands the
+eval surface) inherits the same `--allow-eval` posture.
+[`tools/story-mcp/`](../../story-mcp/) currently exposes no eval
+surface; if a future catalogue addition lands one, it picks up
+the same default-off posture. The launch-flag spelling is a
+cross-server convention.
+
 ## Tight token budget per response
 
 Each MCP tool response is bounded at **≤ 5,000 tokens** by
