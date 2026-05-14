@@ -98,6 +98,26 @@ These spec-level keys are visible to the 3-arity `^:rf.machine/wants-ctx` intros
 
 The same catalogue is mirrored in [Conventions §Reserved snapshot-internal keys (machine runtime)](Conventions.md#reserved-snapshot-internal-keys-machine-runtime) for cross-spec discoverability.
 
+### Reserved synthetic events (rf2-cl7oi)
+
+The machine runtime emits a small **closed set** of synthetic event vectors that are not user-dispatched and do not come from `reg-event-*` — they are framework-generated and threaded through the standard dispatch pipeline so they appear in traces, conformance fixtures, and tooling exactly like any other event. User code MUST NOT register a handler for these names or hand-dispatch them; they are reserved for the runtime. The set is **fixed-and-additive** — existing names cannot be repurposed; new ones are added by Spec change.
+
+| Synthetic event vector | Source | Reaches | Purpose |
+|---|---|---|---|
+| `[:rf.machine/spawned]` | The `:rf.machine/spawn` fx handler (per [§Synthetic `[:rf.machine/spawned]` on spawn](#synthetic-rfmachinespawned-on-spawn-rf2-ijm7)) when the spawn args carry no `:start`. | The spawned actor — dispatched as `[<spawned-id> [:rf.machine/spawned]]` after the initial-entry cascade settles. | Generic-child kick-off shape. Machines that need to do work on spawn declare `:on :rf.machine/spawned` (pre-rf2-0z73) or `:entry :fire-request` on the initial state (canonical post-rf2-0z73; the synthetic event still flows and resolves as a no-op for non-handlers). |
+| `[:rf.machine/bootstrap]` | The bootstrap entry cascade (per [§Synthetic bootstrap event vector — `[:rf.machine/bootstrap]`](#synthetic-bootstrap-event-vector--rfmachinebootstrap-rf2-pexjc)). | The bootstrap `:entry` action(s) — threaded as the `event` argument to the cascade's action fns. Never reaches an `:on` map. | Placeholder event vector for the initial-entry cascade. Authors writing introspection-capable (`^:rf.machine/wants-ctx`) `:entry` actions observe this vector on bootstrap and use it to distinguish bootstrap from user-driven entry. |
+| `[:rf.machine.timer/after-elapsed <delay-key> <epoch>]` | `re-frame.machines.timer` (per [§Epoch-based stale detection](#epoch-based-stale-detection)). Scheduled via `:dispatch-later` at state entry for every `:after` entry; fires when the wall-clock window elapses. | The parent machine — dispatched as `[<machine-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch>]]`. Handled by the machine handler's `:after`-dispatch path. | Wire format between `schedule-after-timer!` and `pick-after-transition`. `<delay-key>` is the literal `:after` map key (a `pos-int?`, a subscription vector, or the resolved fn-output) that identifies which `:after` entry's timer fired; `<epoch>` is the value of `:rf/after-epoch` (or, for parallel-region machines, the region's slot in `:rf/after-epoch-by-region`) captured at scheduling time. The handler compares the carried `<epoch>` to the snapshot's current value; on mismatch the timer is stale and silently dropped (per [§Epoch-based stale detection](#epoch-based-stale-detection)). |
+
+Conformance harnesses that dispatch these vectors directly (per the JVM pure-fn tests for `:after` timers) do so by emulating the runtime — they're exercising the same wire shape the runtime uses internally, not registering new handlers for these names.
+
+### Pure-call no-op shim (SSR / pure introspection)
+
+`re-frame.machines.join`'s `intercept-invoke-all-event` interceptor (the join-bookkeeping wiring per [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all)) reads from `app-db` at `[:rf/spawned <parent-id> <invoke-all-id>]` to advance child-completion bookkeeping. When the interceptor is invoked through the **pure-call path** — exercising `machine-transition` directly without a live frame, i.e. the conformance corpus, JVM pure-fn tests, the SSR machine-pure surface — there is no `:rf/spawned` slot seeded in `app-db`, so the interceptor would either error or write spurious join-state.
+
+The contract: when no join-state is seeded for the active `(invoke-all-id, child-id)` pair, the interceptor returns its standard `{:db db :fx []}` shape (a no-op effect-map) and emits no trace. **Externally observable behaviour:** pure-call invocations of an `:invoke-all`-bearing machine do NOT advance join bookkeeping; they exercise the transition reducer only. Authors of pure-call test corpora can rely on this — driving the parent through a sequence of events under `machine-transition` will run every transition, action, and entry/exit cascade, but the parent's `:invoke-all` child-completion bookkeeping is unobserved (since the runtime spawn registry isn't in scope).
+
+The shim is keyed off the sentinel `:rf/transition-pure` parent-id stamp on the spec record (per the sibling-vocabulary list in [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys-rf2-33y0y)) — the pure-call path stamps the sentinel; live-frame invocations stamp the actual parent's id. The interceptor short-circuits on the sentinel without consulting `app-db`.
+
 ## Where snapshots live
 
 Every machine snapshot lives at a fixed reserved path: **`[:rf/machines <machine-id>]`** in the frame's `app-db`. The runtime owns this path; users do not pick a path per machine and `create-machine-handler` does not accept a `:path` key.
