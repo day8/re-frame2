@@ -37,6 +37,8 @@
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defonce after-timers
   ;; Per Spec 005 §Delayed `:after` transitions and rf2-3y3y and the rf2-ysa94
   ;; frame-scoping refactor: runtime-owned timer-handle table for in-flight

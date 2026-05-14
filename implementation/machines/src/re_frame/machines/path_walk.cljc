@@ -63,6 +63,8 @@
   (deepest-wins isn't 'a walk'; it's 'a walk in a specific direction
   with a specific tie-breaking semantics'). It lives in its own ns.")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- node-at*
   "Local inline of `transition/node-at` to avoid a require cycle. Walk
   `(:states tree)` down `path`, returning the leaf state-node or nil

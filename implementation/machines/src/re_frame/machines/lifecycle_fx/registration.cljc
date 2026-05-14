@@ -30,6 +30,8 @@
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; Per rf2-fgqs4 the initial-snapshot builder lives in `parallel.cljc` as
 ;; `build-initial-snapshot` — single source of truth for both the
 ;; singleton-registration path (here) and the spawn path

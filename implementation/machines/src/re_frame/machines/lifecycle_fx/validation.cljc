@@ -22,6 +22,8 @@
   top-level dispatch."
   (:require [re-frame.machines.parallel :as parallel]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- validate-no-invoke-timeout-ms!
   "Per rf2-3y3y / Spec 005 §Wall-clock timeouts on :invoke — use parent
   state's `:after`, the pre-release `:timeout-ms` / `:on-timeout` slots

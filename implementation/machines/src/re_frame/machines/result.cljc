@@ -53,6 +53,8 @@
   rather than reading the `::tag` key by hand."
   (:refer-clojure :exclude [ok?]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn ok
   "Build a success Result carrying `snap` (post-transition snapshot) and
   `fx` (the emitted fx vector)."

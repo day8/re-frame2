@@ -58,6 +58,8 @@
             [re-frame.machines.transition :as transition]
             [re-frame.subs :as subs]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- public-surface re-exports --------------------------------------------
 ;;
 ;; These `def`s make the sub-namespace fns reachable as

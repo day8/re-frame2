@@ -26,6 +26,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- id allocation --------------------------------------------------------
 
 (defn- pre-allocated-actor-id

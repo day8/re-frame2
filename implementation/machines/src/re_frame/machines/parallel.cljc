@@ -35,6 +35,8 @@
              #?@(:cljs [:include-macros true])]
             [re-frame.machines.transition :as transition]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn parallel?
   "True iff the machine declares `:type :parallel` (root-level only)."
   [machine]

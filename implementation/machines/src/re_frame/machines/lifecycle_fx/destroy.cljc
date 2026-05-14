@@ -32,6 +32,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- emit-system-id-released!
   "Per Spec 005 §Cancellation cascade D8 — fire the
   `:rf.machine/system-id-released` trace when an actor's `:system-id`
