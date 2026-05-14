@@ -304,6 +304,59 @@
                        :frame   frame-id})))
      nil)))
 
+;; ---- frame-destroy teardown ---------------------------------------------
+;;
+;; Per rf2-wbtjn — symmetric with the machines `:teardown-on-frame-destroy!`
+;; hook (rf2-vsigt). On `destroy-frame!`, the flows registered against the
+;; destroyed frame, the per-frame `last-inputs` rows, AND any `:flow`
+;; registrar entries whose last owning frame was the destroyed one MUST
+;; clear — otherwise SSR-style per-request frame churn / pair-tool
+;; time-travel / `make-frame` ephemeral usage leak flow definitions and
+;; cached input vectors indefinitely (audit
+;; `ai/findings/flows-security-audit-2026-05-15.md` F1).
+
+(defn teardown-on-frame-destroy!
+  "Drop every per-frame entry the flows artefact holds against `frame-id`:
+
+   1. Snapshot the flow-ids the destroyed frame owned (needed for the
+      registrar prune in step 4).
+   2. Dissoc `frame-id` from the per-frame flow registry.
+   3. For each flow-id present in `last-inputs`, dissoc the destroyed
+      frame's row. Drop the whole flow-id key when no other frame still
+      holds an entry for it.
+   4. For each flow-id the destroyed frame owned, drop the `:flow`
+      registrar slot when no other frame still registers that id — the
+      `:frame` stamped onto the registrar entry was the destroyed frame.
+
+   Idempotent against a frame the registry never recorded (a frame
+   destroy before any `reg-flow`). Published via the
+   `:flows/teardown-on-frame-destroy!` late-bind hook so
+   `frame/destroy-frame!` reaches it without statically requiring the
+   flows artefact."
+  [frame-id]
+  (when frame-id
+    (let [owned-flow-ids (keys (get @flows frame-id))]
+      (swap! flows dissoc frame-id)
+      (swap! last-inputs
+             (fn [m]
+               (reduce-kv
+                 (fn [acc flow-id by-frame]
+                   (let [by-frame' (dissoc by-frame frame-id)]
+                     (if (empty? by-frame')
+                       acc
+                       (assoc acc flow-id by-frame'))))
+                 {}
+                 m)))
+      ;; Registrar prune: drop the `:flow` slot for any flow-id the
+      ;; destroyed frame owned that no other frame still holds. The
+      ;; surviving-frame check mirrors `clear-flow`'s shape — O(F) over
+      ;; remaining frame count, short-circuits on first hit.
+      (let [remaining @flows]
+        (doseq [flow-id owned-flow-ids]
+          (when (not-any? #(contains? % flow-id) (vals remaining))
+            (registrar/unregister! :flow flow-id))))))
+  nil)
+
 ;; ---- hot-reload invalidation --------------------------------------------
 ;;
 ;; Per Spec 001 §Hot-reload semantics: when a flow re-registers, the

@@ -71,6 +71,10 @@
    {:key         :flows/reset-flows!
     :producer-ns 're-frame.flows
     :description "Clear the per-frame flow registry (test isolation)."}
+   {:key         :flows/teardown-on-frame-destroy!
+    :producer-ns 're-frame.flows
+    :design-bead "rf2-wbtjn"
+    :description "Drop the destroyed frame's per-frame flow registry slot, its `last-inputs` rows, and any `:flow` registrar entries whose last owning frame was destroyed. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook (rf2-vsigt) — without this hook a long-running SSR JVM with per-request frame churn grows the flow registry unboundedly."}
 
    ;; ---- re-frame.schemas (rf2-p7va boundary; rf2-r2uh / rf2-froe / rf2-t0hq) -
    {:key         :schemas/validate-event!

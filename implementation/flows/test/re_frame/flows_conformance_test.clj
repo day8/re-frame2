@@ -226,11 +226,16 @@
                   (substrate-adapter/replace-container! container new-db)))
    :dispatch! (fn [event frame-id] (rf/dispatch event {:frame frame-id}))})
 
-(defn- realise-handlers
-  "Register every handler the fixture declares (events / subs / fxs /
-  flows). The fx slot reuses any `:rf.fx/reg-flow` / `:rf.fx/clear-flow`
-  default handlers wired by `re-frame.flows` at ns-load; the fixture
-  body may supply additional fx ids that the events emit."
+(defn- realise-event-sub-fx-handlers
+  "Register every event / sub / fx handler the fixture declares. Excludes
+  flow registration — flows are FRAME-SCOPED (per Spec 013), so a
+  destroy-frame call between handler-registration and dispatch would
+  clear them (rf2-wbtjn). Caller registers flows AFTER the frame is
+  re-registered via `realise-flows!`.
+
+  The fx slot reuses any `:rf.fx/reg-flow` / `:rf.fx/clear-flow` default
+  handlers wired by `re-frame.flows` at ns-load; the fixture body may
+  supply additional fx ids that the events emit."
   [fixture]
   (let [hmap          (or (:fixture/handlers fixture) {})
         event-meta    (get-in fixture [:fixture/registry :event] {})
@@ -275,21 +280,26 @@
         (let [body    (get fx-bodies id [[:noop]])
               meta    (get fx-registry id {})
               handler (conformance/realise-fx-handler id body helpers)]
-          (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
-    ;; ---- flows ---------------------------------------------------------
-    ;; Per Spec 013 the static flow shapes live under :fixture/registry :flow
-    ;; (with :inputs / :path) and the body DSL under :fixture/flow-bodies.
-    ;; Dynamic flow registration via :rf.fx/reg-flow is handled by the
-    ;; conformance DSL interpreter (resolve-fx-args in conformance.cljc
-    ;; lifts the :body field into an :output fn before the fx fires).
-    (let [flow-registry (get-in fixture [:fixture/registry :flow] {})
-          flow-bodies   (or (:fixture/flow-bodies fixture) {})]
-      (doseq [[flow-id flow-meta] flow-registry]
-        (when-let [body (get flow-bodies flow-id)]
-          (let [output-fn (conformance/realise-flow-output-fn body)]
-            (rf/reg-flow (-> flow-meta
-                             (assoc :id flow-id)
-                             (assoc :output output-fn)))))))))
+          (rf/reg-fx id (assoc meta :handler-fn handler) handler))))))
+
+(defn- realise-flows!
+  "Per Spec 013 the static flow shapes live under :fixture/registry :flow
+  (with :inputs / :path) and the body DSL under :fixture/flow-bodies.
+  Dynamic flow registration via :rf.fx/reg-flow is handled by the
+  conformance DSL interpreter (resolve-fx-args in conformance.cljc
+  lifts the :body field into an :output fn before the fx fires).
+
+  Called AFTER the frame is (re-)registered — see the
+  ordering note in `run-fixture` (rf2-wbtjn)."
+  [fixture]
+  (let [flow-registry (get-in fixture [:fixture/registry :flow] {})
+        flow-bodies   (or (:fixture/flow-bodies fixture) {})]
+    (doseq [[flow-id flow-meta] flow-registry]
+      (when-let [body (get flow-bodies flow-id)]
+        (let [output-fn (conformance/realise-flow-output-fn body)]
+          (rf/reg-flow (-> flow-meta
+                           (assoc :id flow-id)
+                           (assoc :output output-fn))))))))
 
 ;; ---- trace capture -------------------------------------------------------
 
@@ -414,7 +424,6 @@
   (try
     (let [fid          (:fixture/id fixture)
           traces       (collect-traces fid)
-          _            (realise-handlers fixture)
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
           ;; `reset-runtime` already created :rf/default WITHOUT an
@@ -427,11 +436,22 @@
           ;; `:fixture/frames [{:id ...} ...]` and the single `:rf/default`
           ;; seam is bypassed. Single-frame fixtures keep the original
           ;; shape (`:fixture/frame-config` configures `:rf/default`).
+          ;;
+          ;; Order (rf2-wbtjn): event / sub / fx handlers must be
+          ;; registered BEFORE `reg-frame` fires the `:on-create`
+          ;; cascade — `:on-create` dispatches the fixture's seed event,
+          ;; which needs its handler resolved. Flow registration MUST
+          ;; come AFTER `reg-frame`: the destroy-frame teardown hook
+          ;; (the symmetric leak fix this bead lands) clears any flows
+          ;; registered against the frame being destroyed, so
+          ;; registering them before the destroy would wipe them.
           _            (rf/destroy-frame :rf/default)
+          _            (realise-event-sub-fx-handlers fixture)
           _            (if (seq frames-spec)
                          (doseq [f frames-spec]
                            (rf/reg-frame (:id f) (dissoc f :id)))
                          (rf/reg-frame :rf/default frame-config))
+          _            (realise-flows! fixture)
           dispatches   (or (:fixture/dispatches fixture) [])]
       ;; Dispatches may be a bare event vector (single-frame default) or
       ;; an envelope map `{:event [...] :frame <id> ...}` (multi-frame,
