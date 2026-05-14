@@ -304,3 +304,23 @@
       (rf/dispatch-sync [:par/storage [:no-match]])
       (is (some? (snapshot :par/storage))
           "snapshot synthesised at [:rf/machines :par/storage]"))))
+
+;; ---- 13. region-machine memoization (rf2-s83iu) ---------------------------
+
+(deftest region-machine-result-is-memoised-per-machine
+  (testing "region-machine returns identical-equal results across repeat calls for the same parent-machine"
+    (let [m {:type    :parallel
+             :data    {}
+             :regions {:a {:initial :one :states {:one {}}}
+                       :b {:initial :two :states {:two {}}}}}]
+      (rf/reg-machine :par/cache m)
+      (let [cached  (rf/machine-meta :par/cache)
+            first-a (re-frame.machines.parallel/region-machine cached :a)
+            again-a (re-frame.machines.parallel/region-machine cached :a)
+            first-b (re-frame.machines.parallel/region-machine cached :b)]
+        (is (identical? first-a again-a)
+            "second region-machine call returns the cached spec object")
+        (is (not (identical? first-a first-b))
+            "different regions yield different objects")
+        (is (= :a (:rf/region first-a)))
+        (is (= :b (:rf/region first-b)))))))

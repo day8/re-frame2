@@ -304,7 +304,13 @@
   (set by the `reg-machine` macro) is merged into the registration
   metadata via the `reg-event-fx` defn's `merge-coords` call."
   [machine-id machine]
-  (let [handler-fn (create-machine-handler machine)]
+  ;; Per rf2-s83iu: install a per-machine region-machine cache before
+  ;; the machine value is threaded through the handler closure and
+  ;; published to the registrar. Re-registration replaces the machine
+  ;; map and its attached cache atom, so no separate invalidation step
+  ;; is needed.
+  (let [machine    (parallel/install-region-cache machine)
+        handler-fn (create-machine-handler machine)]
     (events/reg-event-fx machine-id
                          {:rf/machine? true
                           :rf/machine  machine}

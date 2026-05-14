@@ -42,15 +42,10 @@
   [machine]
   (= :parallel (:type machine)))
 
-(defn region-machine
-  "Build a synthetic single-machine spec for a region.
-
-  Inherits `:guards` / `:actions` / `:on-spawn-actions` from the parent so
-  region transitions can reference the parent's named guards / actions
-  without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
-  `:rf/frame` so the post-action `:rf.machine/spawn` / `:after-schedule`
-  fxs the region emits carry the parent's identity (the region name is
-  prepended onto the `:rf/invoke-id` separately)."
+(defn- build-region-machine
+  "Construct a synthetic single-machine spec for one region of
+  `parent-machine`. See `region-machine` for the contract — this is the
+  uncached compute path."
   [parent-machine region-name]
   (let [region-body (get-in parent-machine [:regions region-name])]
     (-> region-body
@@ -61,6 +56,41 @@
         (assoc :rf/platform       (:rf/platform parent-machine))
         (assoc :rf/frame          (:rf/frame parent-machine))
         (assoc :rf/region         region-name))))
+
+(defn region-machine
+  "Synthetic single-machine spec for a region of `parent-machine`.
+
+  Inherits `:guards` / `:actions` / `:on-spawn-actions` from the parent so
+  region transitions can reference the parent's named guards / actions
+  without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
+  `:rf/frame` so the post-action `:rf.machine/spawn` / `:after-schedule`
+  fxs the region emits carry the parent's identity (the region name is
+  prepended onto the `:rf/invoke-id` separately).
+
+  Per round-2 P-r2-1 (rf2-s83iu): region-specs are registration-time
+  data, not transition-time data. The result is memoised in metadata
+  on `parent-machine` itself — re-registration replaces the entire
+  machine map, so the old cache becomes garbage automatically and no
+  invalidation logic is needed. Per-region misses fall through to
+  `build-region-machine` and CAS the result into the metadata atom."
+  [parent-machine region-name]
+  (let [cache (-> parent-machine meta ::region-cache)]
+    (if-let [hit (and cache (get @cache region-name))]
+      hit
+      (let [built (build-region-machine parent-machine region-name)]
+        (when cache
+          (swap! cache assoc region-name built))
+        built))))
+
+(defn install-region-cache
+  "Attach an empty region-machine cache to `parent-machine`'s metadata.
+  Called at registration time for `:type :parallel` machines so the
+  hot-path `region-machine` lookups hit the cache instead of allocating
+  a fresh map per call."
+  [parent-machine]
+  (if (parallel? parent-machine)
+    (vary-meta parent-machine assoc ::region-cache (atom {}))
+    parent-machine))
 
 (defn region-initial-state
   "Compute the initial-state value for one region — applying that region's
