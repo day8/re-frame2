@@ -757,7 +757,7 @@ Trace data is just data; both platforms emit it during dev. The Performance API 
 
 ## Handler-scope: the in-scope reading at emit time
 
-Every handler-execution boundary the runtime crosses (the router's `process-event!` step, a sub recompute, an fx dispatcher, a cofx injector, a view render wrapper) publishes the same five-slot **handler-scope reading** to the trace stream so `emit!` / `emit-error!` can hoist the relevant pieces onto each emitted event. The reading travels through ONE dynamic Var — `re-frame.trace/*handler-scope*` — bound to a `HandlerScope` record with five slots:
+Every handler-execution boundary the runtime crosses (the router's `process-event!` step, a sub recompute, an fx dispatcher, a cofx injector, a view render wrapper) publishes the same five-slot **handler-scope reading** to the trace stream so `emit!` / `emit-error!` can hoist the relevant pieces onto each emitted event. The reading travels through ONE dynamic Var — `re-frame.trace/*handler-scope*` — bound to a `HandlerScope` record with five slots (the [§Canonical slot set](#canonical-slot-set--the-stable-contract) below is the authoritative slot vocabulary; this table is the at-a-glance summary):
 
 | Slot | Carries | Per |
 |---|---|---|
@@ -776,6 +776,45 @@ For `:rf.fx/handled` specifically: the runtime rebinds `:trigger-handler` to the
 ### Production elision
 
 The whole trace surface compiles out via the outer `(when interop/debug-enabled? ...)` gate in `emit!` / `emit-error!`, so all `*handler-scope*` reads are dead code under `:advanced` + `goog.DEBUG=false`. The `:trigger-handler` slot is **not separately elided** in error traces (which survive into production via `error-emit/dispatch-on-error!`).
+
+### Canonical slot set — the stable contract
+
+The `HandlerScope` record's slot set is a **stable contract** consumed at every emit site (`build-event` in `re-frame.trace`) and at every binding site (the router's `process-event!`, fx / cofx dispatchers, sub recompute wrappers, view render wrappers, plus surface macros `dispatch` / `dispatch-sync` / `subscribe` / `inject-cofx`). Downstream tools (Story, Causa, pair2, 10x) read the hoisted slots off emitted events; the table below is the authoritative slot vocabulary they may rely on.
+
+| Slot | Value shape | Origin | Inheritance |
+|---|---|---|---|
+| `:trigger-handler` | `{:kind :id :source-coord {:ns :file :line :column}}` or nil. `:kind` is one of `#{:event :sub :fx :cofx :view :machine :flow :route :app-schema :error-projector}`; `:source-coord` is whatever the registrar slot's meta carried (omitted for programmatic registrations). | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
+| `:call-site` | `{:ns :file :line :column}` or nil. Macro-expansion coord stamped by the surface form (`dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`). Nil for fn-form callers. | Stamped by the surface macro via `with-call-site` or `with-dispatch-id+call-site`. | Inherited from parent scope unless the new scope explicitly overrides. |
+| `:dispatch-id` | Opaque scalar (process-monotonic counter, UUID, or any value with the [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id) uniqueness contract). Nil outside any in-flight cascade. | Allocated once at queue time by `router.cljc`'s `enqueue!`; published into the scope by `with-dispatch-id+call-site` on entry to `process-event!`. | Inherited from parent scope unless the new scope explicitly overrides. |
+| `:sensitive?` | Boolean. True iff the in-scope handler's registration meta carries `:sensitive? true`. | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. (The same boolean is exposed as `re-frame.privacy/sensitive?-from-meta` for non-trace consumers per rf2-iwqu9.) | Innermost wins (meta-derived). |
+| `:no-emit?` | Boolean. True iff the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
+
+Slot values are nil when unbound. Consumers reading a slot off an event MUST treat absent and nil identically (nil-safe access).
+
+#### Emit-side hoist contract — which slot rides which trace
+
+`build-event` (in `re-frame.trace`) reads `*handler-scope*` once per emit and lifts the slots onto the trace envelope according to a fixed per-slot contract. The table below pins the mapping; per-slot variations live in [§The error event shape](#the-error-event-shape) and [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces) and are summarised here:
+
+| Slot | Hoisted as | When | Notes |
+|---|---|---|---|
+| `:trigger-handler` | top-level `:rf.trace/trigger-handler` | every emit (success and error) when bound | Omitted entirely when unbound (no placeholder data). Per [§`:rf.trace/trigger-handler`](#rftracetrigger-handler--naming-the-in-scope-handler). |
+| `:call-site` | top-level `:rf.trace/call-site` | **error emits only** when bound | Success-path emits drop the slot — call-site rides error traces only, where jump-to-source matters. Per [§`:rf.trace/call-site`](#rftracecall-site--naming-the-invocation-line-rf2-ts1a). |
+| `:dispatch-id` | `:tags :dispatch-id` | every emit when bound and `:tags` does not already supply one | Caller-supplied `:tags :dispatch-id` wins. Per [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id). |
+| `:sensitive?` | top-level `:sensitive? true` | every emit when scope is sensitive and `:tags :sensitive?` does not supply its own reading | Caller-supplied `:tags :sensitive?` wins (queue-time `:event/dispatched` computes its own reading before scope is bound). Absent reads as false. Per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces). |
+| `:no-emit?` | **not hoisted** | — | Acts as a short-circuit signal: `emit!` / `emit-error!` skip envelope construction and listener fan-out entirely when bound true. The slot never appears on any emitted event. Per [§Trace-emission opt-out](#trace-emission-opt-out-rftraceno-emit-event-meta). |
+
+### Extension contract — adding a new slot
+
+The `HandlerScope` slot set is closed; adding a sixth concern (e.g. a hypothetical `:tenant-id` for multi-tenant audit) is a **coordinated edit** that crosses the implementation and this spec. To add a slot `X`, all of the following must change in the same change-set:
+
+1. **The defrecord.** `re-frame.trace/HandlerScope`'s positional slot list gains `X` (constructors `->HandlerScope` callers update; all explicit `->HandlerScope` literals in `with-call-site` and `with-dispatch-id+call-site` add the new positional arg).
+2. **The meta-derived reader** (if `X` is meta-derived). `handler-scope-from-meta` reads the slot off the registrar meta map at scope-bind time, with the same nil-when-absent convention as `:sensitive?` / `:no-emit?`.
+3. **The inheritance rule** (if `X` inherits from parent scope). `inherit-scope` adds a `(nil? (:X new-scope)) (assoc :X (:X parent))` branch — mirror of the `:call-site` / `:dispatch-id` branches. Slots that are purely meta-derived (innermost-wins) need no `inherit-scope` change.
+4. **The emit-side hoist** (if `X` rides emitted events). `build-event` reads the slot and stamps it on the envelope — either at the top level (with a reserved namespace, e.g. `:rf.tenancy/tenant-id`) or under `:tags`. Pin the per-slot rule in the [§Emit-side hoist contract](#emit-side-hoist-contract--which-slot-rides-which-trace) table above. Slots that are pure short-circuit signals (like `:no-emit?`) skip this step.
+5. **This canonical slot list.** The two tables above ([§Canonical slot set](#canonical-slot-set--the-stable-contract) and [§Emit-side hoist contract](#emit-side-hoist-contract--which-slot-rides-which-trace)) gain a row for `X`.
+6. **Reserved namespace** (if `X` is hoisted under a new namespace). Per the `:rf/*` single-root scheme in [Conventions](Conventions.md), any new top-level event field uses a reserved sub-namespace (`:rf.<area>/<slot>`); allocate the namespace in `Conventions.md` §Reserved namespaces.
+
+Existing slots are **never repurposed** — value shape and hoist mapping are frozen. Renaming a slot or changing a slot's value shape is a breaking change to every trace consumer and is out of scope for this contract.
 
 ### History — why one record, not five Vars
 
