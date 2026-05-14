@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Tutorial screenshot generator (rf2-6e53j).
+ * Tutorial screenshot generator (rf2-6e53j, rf2-we013, rf2-duat7).
  *
  * Drives a headless Chromium through the Causa + Story testbeds and
  * captures annotated screenshots for the Causa and Story tutorials at
@@ -13,10 +13,14 @@
  *      `npm run test:examples -- --serve-only` in a future iteration).
  *   2. For each declared scene, we navigate to the testbed URL, drive
  *      the UI into the target state, then call page.screenshot.
- *   3. Optional ANNOTATIONS are applied via Playwright's
- *      page.evaluate — we inject a tiny CSS+DOM overlay (boxes, arrows,
- *      labels) before the screenshot fires. The overlay is removed
- *      immediately after so subsequent shots are clean.
+ *   3. ANNOTATIONS are data-driven (rf2-we013). The companion file
+ *      `tutorial-annotation-spec.json` declares one entry per scene-id
+ *      with a list of regions (DOM selectors or absolute xy boxes,
+ *      labels, colours, optional arrows). The pipeline resolves the
+ *      DOM-anchored regions via Playwright `boundingBox`, then injects
+ *      an SVG overlay (anti-aliased boxes, drop-shadowed labels) before
+ *      the screenshot fires. The overlay is removed immediately after so
+ *      subsequent shots are clean.
  *
  * Determinism:
  *   - Viewport pinned to 1280x800.
@@ -54,6 +58,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_CAUSA = path.join(REPO_ROOT, 'docs', 'images', 'causa');
 const OUT_STORY = path.join(REPO_ROOT, 'docs', 'images', 'story');
+const ANNOTATION_SPEC = path.join(__dirname, 'tutorial-annotation-spec.json');
 
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
@@ -61,53 +66,221 @@ const BASE_URL = process.env.SCREENSHOT_BASE_URL || 'http://127.0.0.1:8030';
 const VIEWPORT = { width: 1280, height: 800 };
 
 // ---------------------------------------------------------------------------
-// Annotation helpers — injected into the page before each screenshot.
+// Annotation spec loader — data-driven (rf2-we013).
 // ---------------------------------------------------------------------------
-//
-// We render a small overlay with absolutely-positioned <div>s for labelled
-// rectangles + arrows. The overlay is added to <body> and torn down after
-// the shot. We pass a list of {x,y,w,h,label,colour} regions.
 
-// Annotation function — passed as a Playwright `pageFunction` so it
-// executes inside the page context. We don't use addInitScript because
-// the SPA's own JS may rewrite window before our handler attaches.
-function inPageAnnotate(regions) {
-  const root = document.createElement('div');
-  root.id = '__rf2-tutorial-annotations';
-  root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
-  document.body.appendChild(root);
-  for (const r of regions) {
-    const box = document.createElement('div');
-    const colour = r.colour || '#e53935';
-    box.style.cssText = [
-      'position:absolute',
-      'left:' + r.x + 'px',
-      'top:' + r.y + 'px',
-      'width:' + r.w + 'px',
-      'height:' + r.h + 'px',
-      'border:3px solid ' + colour,
-      'border-radius:4px',
-      'box-shadow:0 0 0 2px rgba(255,255,255,0.85)',
-    ].join(';');
-    root.appendChild(box);
-    if (r.label) {
-      const lbl = document.createElement('div');
-      const placeBelow = r.y < 40;
-      lbl.textContent = r.label;
-      lbl.style.cssText = [
-        'position:absolute',
-        'left:' + r.x + 'px',
-        (placeBelow ? 'top:' : 'top:') + (placeBelow ? (r.y + r.h + 6) : (r.y - 28)) + 'px',
-        'background:' + colour,
-        'color:#fff',
-        'font:600 13px/1.2 -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif',
-        'padding:4px 8px',
-        'border-radius:3px',
-        'white-space:nowrap',
-      ].join(';');
-      root.appendChild(lbl);
-    }
+function loadAnnotationSpec() {
+  const raw = fs.readFileSync(ANNOTATION_SPEC, 'utf8');
+  const parsed = JSON.parse(raw);
+  // Strip any keys that start with `$` (json schema-style comments).
+  const cleaned = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    if (!k.startsWith('$')) cleaned[k] = v;
   }
+  return cleaned;
+}
+
+async function boxOf(page, selector) {
+  const loc = page.locator(selector).first();
+  const handle = await loc.elementHandle();
+  if (!handle) return null;
+  try {
+    return await handle.boundingBox();
+  } finally {
+    await handle.dispose();
+  }
+}
+
+/**
+ * Resolve a region declaration from the spec into an absolute
+ * `{x,y,w,h,colour,label,labelPos,arrow}` shape.
+ *
+ * Returns null when the selector resolves to nothing — that scene will
+ * still capture, just without annotation. (No throw — we'd rather ship
+ * an un-annotated frame than fail the whole pipeline on a UI rename.)
+ */
+async function resolveRegion(page, region) {
+  let x, y, w, h;
+
+  if (region.xy) {
+    ({ x, y, w, h } = region.xy);
+  } else if (region.selector) {
+    const box = await boxOf(page, region.selector);
+    if (!box) return null;
+    x = box.x;
+    y = box.y;
+    w = box.width;
+    h = box.height;
+    if (region.groupExtendTo) {
+      const tail = await boxOf(page, region.groupExtendTo);
+      if (tail) {
+        const xMax = Math.max(x + w, tail.x + tail.width);
+        const yMax = Math.max(y + h, tail.y + tail.height);
+        w = xMax - x;
+        h = yMax - y;
+      }
+    }
+    if (region.inset) {
+      const ins = region.inset;
+      if (ins.x != null) x += ins.x;
+      if (ins.y != null) y += ins.y;
+      // w/h can be: positive delta (override), or a tweak via offset.
+      // Convention: ins.w > 0 means "use this as final width"; ins.w < 0
+      // means "trim by abs(ins.w)". Same for ins.h.
+      if (ins.w != null) w = ins.w > 0 ? ins.w : w + ins.w;
+      if (ins.h != null) h = ins.h > 0 ? ins.h : h + ins.h;
+    }
+    if (region.padding) {
+      const p = region.padding;
+      x -= p;
+      y -= p;
+      w += 2 * p;
+      h += 2 * p;
+    }
+  } else {
+    return null;
+  }
+
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    w: Math.round(w),
+    h: Math.round(h),
+    colour: region.colour || '#e53935',
+    label: region.label || null,
+    labelPos: region.labelPos || 'auto',
+    arrow: region.arrow || null,
+  };
+}
+
+// In-page annotation overlay. SVG-based — crisp anti-aliased strokes,
+// drop-shadowed labels. Single root that's torn down after each shot.
+function inPageAnnotateSvg(regions, viewport) {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const root = document.createElementNS(SVG_NS, 'svg');
+  root.id = '__rf2-tutorial-annotations';
+  root.setAttribute('width', String(viewport.width));
+  root.setAttribute('height', String(viewport.height));
+  root.setAttribute('viewBox', '0 0 ' + viewport.width + ' ' + viewport.height);
+  root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
+
+  // <defs> — shared drop shadow + arrowhead.
+  const defs = document.createElementNS(SVG_NS, 'defs');
+  defs.innerHTML =
+    '<filter id="__rf2-ann-shadow" x="-20%" y="-20%" width="140%" height="140%">' +
+    '  <feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="rgba(0,0,0,0.35)"/>' +
+    '</filter>' +
+    '<marker id="__rf2-ann-arrowhead" viewBox="0 0 10 10" refX="9" refY="5"' +
+    '        markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+    '  <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>' +
+    '</marker>';
+  root.appendChild(defs);
+
+  for (const r of regions) {
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('color', r.colour);
+
+    // White halo behind the stroke for contrast against dark UI.
+    const halo = document.createElementNS(SVG_NS, 'rect');
+    halo.setAttribute('x', String(r.x - 1));
+    halo.setAttribute('y', String(r.y - 1));
+    halo.setAttribute('width', String(r.w + 2));
+    halo.setAttribute('height', String(r.h + 2));
+    halo.setAttribute('rx', '5');
+    halo.setAttribute('fill', 'none');
+    halo.setAttribute('stroke', 'rgba(255,255,255,0.95)');
+    halo.setAttribute('stroke-width', '5');
+    g.appendChild(halo);
+
+    const box = document.createElementNS(SVG_NS, 'rect');
+    box.setAttribute('x', String(r.x));
+    box.setAttribute('y', String(r.y));
+    box.setAttribute('width', String(r.w));
+    box.setAttribute('height', String(r.h));
+    box.setAttribute('rx', '4');
+    box.setAttribute('fill', 'none');
+    box.setAttribute('stroke', 'currentColor');
+    box.setAttribute('stroke-width', '3');
+    box.setAttribute('shape-rendering', 'geometricPrecision');
+    g.appendChild(box);
+
+    // Optional arrow.
+    if (r.arrow) {
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', String(r.arrow.from.x));
+      line.setAttribute('y1', String(r.arrow.from.y));
+      line.setAttribute('x2', String(r.arrow.to.x));
+      line.setAttribute('y2', String(r.arrow.to.y));
+      line.setAttribute('stroke', 'currentColor');
+      line.setAttribute('stroke-width', '2.5');
+      line.setAttribute('marker-end', 'url(#__rf2-ann-arrowhead)');
+      line.setAttribute('shape-rendering', 'geometricPrecision');
+      g.appendChild(line);
+    }
+
+    // Label placement. We measure text length crudely (no DOM measure
+    // for SVG without paint) — assume ~7.2px per char at 13px Inter-ish.
+    if (r.label) {
+      const labelText = r.label;
+      const labelW = Math.max(60, labelText.length * 7.6 + 16);
+      const labelH = 24;
+      let lx, ly;
+      const pos = r.labelPos === 'auto' ? (r.y < 40 ? 'below' : 'above') : r.labelPos;
+      switch (pos) {
+        case 'below':
+          lx = r.x;
+          ly = r.y + r.h + 6;
+          break;
+        case 'right':
+          lx = r.x + r.w + 8;
+          ly = r.y;
+          break;
+        case 'left':
+          lx = Math.max(4, r.x - labelW - 8);
+          ly = r.y;
+          break;
+        case 'above':
+        default:
+          lx = r.x;
+          ly = Math.max(4, r.y - labelH - 6);
+          break;
+      }
+      // Keep on-canvas.
+      lx = Math.min(Math.max(4, lx), viewport.width - labelW - 4);
+      ly = Math.min(Math.max(4, ly), viewport.height - labelH - 4);
+
+      const labelG = document.createElementNS(SVG_NS, 'g');
+      labelG.setAttribute('filter', 'url(#__rf2-ann-shadow)');
+
+      const bg = document.createElementNS(SVG_NS, 'rect');
+      bg.setAttribute('x', String(lx));
+      bg.setAttribute('y', String(ly));
+      bg.setAttribute('width', String(labelW));
+      bg.setAttribute('height', String(labelH));
+      bg.setAttribute('rx', '4');
+      bg.setAttribute('fill', 'currentColor');
+      labelG.appendChild(bg);
+
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.setAttribute('x', String(lx + 8));
+      text.setAttribute('y', String(ly + 16));
+      text.setAttribute('fill', '#ffffff');
+      text.setAttribute(
+        'font-family',
+        '-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif',
+      );
+      text.setAttribute('font-size', '13');
+      text.setAttribute('font-weight', '600');
+      text.textContent = labelText;
+      labelG.appendChild(text);
+
+      g.appendChild(labelG);
+    }
+
+    root.appendChild(g);
+  }
+
+  document.body.appendChild(root);
 }
 
 function inPageClearAnnotations() {
@@ -117,10 +290,10 @@ function inPageClearAnnotations() {
 
 // ---------------------------------------------------------------------------
 // Scenes — one per output screenshot. Each declares:
-//   { id, out, url, before(page), regions(page), label }
+//   { id, out, url, before(page) }
 //
-// `before` drives the page into the target state. `regions` returns an
-// array of annotation rectangles (or [] for an unannotated capture).
+// Annotation regions are looked up by `id` from the annotation spec.
+// `before` drives the page into the target state.
 // ---------------------------------------------------------------------------
 
 const SCENES = [];
@@ -151,20 +324,15 @@ async function navCausa(page, panelId) {
     'causality':   'rf-causa-causality-graph',
     'trace':       'rf-causa-trace',
     'machines':    'rf-causa-machine-inspector',
+    'schemas':     'rf-causa-schema-violation-timeline',
+    'hydration':   'rf-causa-hydration-debugger',
+    'copilot':     'rf-causa-copilot-panel',
   };
   const canvasTestid = canvasMap[panelId];
   if (canvasTestid) {
     await page.locator(`[data-testid="${canvasTestid}"]`)
       .waitFor({ state: 'visible', timeout: 5000 });
   }
-}
-
-async function boxOf(page, locator) {
-  const handle = await locator.elementHandle();
-  if (!handle) return null;
-  const b = await handle.boundingBox();
-  await handle.dispose();
-  return b;
 }
 
 SCENES.push({
@@ -177,18 +345,6 @@ SCENES.push({
     // pill is visible regardless, but a non-zero epoch count makes the
     // screenshot tell a story.
     await page.getByRole('button', { name: '+' }).click();
-  },
-  regions: async (page) => {
-    // The floating launcher pill is anchored bottom-right by Causa's
-    // mount css. We highlight roughly that region of the viewport.
-    return [{
-      x: VIEWPORT.width - 130,
-      y: VIEWPORT.height - 70,
-      w: 110,
-      h: 50,
-      colour: '#1976d2',
-      label: 'Ctrl+Shift+C',
-    }];
   },
 });
 
@@ -203,11 +359,6 @@ SCENES.push({
     await page.getByRole('button', { name: '-' }).click();
     await openCausa(page);
   },
-  regions: async (page) => {
-    const shell = page.locator('[data-testid="rf-causa-shell"]');
-    const b = await boxOf(page, shell);
-    return b ? [{ x: b.x, y: b.y, w: b.width, h: 28, colour: '#43a047', label: 'Causa shell' }] : [];
-  },
 });
 
 SCENES.push({
@@ -217,21 +368,6 @@ SCENES.push({
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await openCausa(page);
-  },
-  regions: async (page) => {
-    // Highlight the sidebar list — first sidebar item gives us the
-    // x-coord; we extend down to capture the full panel list.
-    const first = page.locator('[data-testid="rf-causa-sidebar-item-event-detail"]');
-    const b = await boxOf(page, first);
-    if (!b) return [];
-    return [{
-      x: b.x - 4,
-      y: b.y - 4,
-      w: b.width + 8,
-      h: 16 * Math.max(1, 30),
-      colour: '#fb8c00',
-      label: '16 panels',
-    }];
   },
 });
 
@@ -245,11 +381,6 @@ SCENES.push({
     await page.getByRole('button', { name: '+' }).click();
     await openCausa(page);
     await navCausa(page, 'event-detail');
-  },
-  regions: async (page) => {
-    const ed = page.locator('[data-testid="rf-causa-event-detail"]');
-    const b = await boxOf(page, ed);
-    return b ? [{ x: b.x + 4, y: b.y + 4, w: b.width - 8, h: 40, colour: '#43a047', label: 'Event detail (hero)' }] : [];
   },
 });
 
@@ -267,7 +398,6 @@ SCENES.push({
     await openCausa(page);
     await navCausa(page, 'time-travel');
   },
-  regions: async () => [],
 });
 
 SCENES.push({
@@ -282,11 +412,6 @@ SCENES.push({
     await openCausa(page);
     await navCausa(page, 'trace');
   },
-  regions: async (page) => {
-    const counts = page.locator('[data-testid="rf-causa-trace-counts"]');
-    const b = await boxOf(page, counts);
-    return b ? [{ x: b.x - 4, y: b.y - 4, w: b.width + 8, h: b.height + 8, colour: '#1976d2', label: 'live event count' }] : [];
-  },
 });
 
 SCENES.push({
@@ -299,7 +424,6 @@ SCENES.push({
     await openCausa(page);
     await navCausa(page, 'app-db');
   },
-  regions: async () => [],
 });
 
 SCENES.push({
@@ -312,7 +436,6 @@ SCENES.push({
     await openCausa(page);
     await navCausa(page, 'causality');
   },
-  regions: async () => [],
 });
 
 SCENES.push({
@@ -324,7 +447,6 @@ SCENES.push({
     await openCausa(page);
     await navCausa(page, 'machines');
   },
-  regions: async () => [],
 });
 
 SCENES.push({
@@ -343,18 +465,6 @@ SCENES.push({
       if (inc) inc.setAttribute('data-rf2-source-coord', 'counter.core:counter:48:5');
     });
   },
-  regions: async (page) => {
-    const inc = page.getByRole('button', { name: '+' }).first();
-    const b = await boxOf(page, inc);
-    return b ? [{
-      x: b.x - 4,
-      y: b.y - 4,
-      w: b.width + 8,
-      h: b.height + 8,
-      colour: '#e53935',
-      label: 'data-rf2-source-coord',
-    }] : [];
-  },
 });
 
 // ------------------------------ Story scenes ------------------------------
@@ -372,21 +482,6 @@ SCENES.push({
     await row.click();
     await page.locator('[data-test="count"]').first().waitFor({ state: 'visible', timeout: 10000 });
   },
-  regions: async (page) => {
-    const sidebar = page.getByRole('navigation');
-    const main = page.getByRole('main');
-    const aside = page.getByRole('complementary');
-    const out = [];
-    for (const [loc, label, colour] of [
-      [sidebar, 'sidebar', '#1976d2'],
-      [main, 'canvas', '#43a047'],
-      [aside, 'inspectors', '#fb8c00'],
-    ]) {
-      const b = await boxOf(page, loc);
-      if (b) out.push({ x: b.x, y: b.y + 4, w: b.width, h: 22, colour, label });
-    }
-    return out;
-  },
 });
 
 SCENES.push({
@@ -401,7 +496,6 @@ SCENES.push({
     await row.click();
     await page.locator('[data-test="count"]').first().waitFor({ state: 'visible' });
   },
-  regions: async () => [],
 });
 
 SCENES.push({
@@ -415,11 +509,6 @@ SCENES.push({
     const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
     await row.click();
     await page.locator('[data-test="story-mode-tabs"]').waitFor({ state: 'visible' });
-  },
-  regions: async (page) => {
-    const strip = page.locator('[data-test="story-mode-tabs"]');
-    const b = await boxOf(page, strip);
-    return b ? [{ x: b.x - 4, y: b.y - 4, w: b.width + 8, h: b.height + 8, colour: '#e53935', label: 'mode tabs' }] : [];
   },
 });
 
@@ -436,7 +525,6 @@ SCENES.push({
     await page.locator('[data-mode-tab="docs"]').click();
     await page.locator('[data-test="story-docs-view"]').waitFor({ state: 'visible' });
   },
-  regions: async () => [],
 });
 
 SCENES.push({
@@ -452,7 +540,6 @@ SCENES.push({
     await page.locator('[data-mode-tab="test"]').click();
     await page.locator('[data-test="story-test-view"]').waitFor({ state: 'visible' });
   },
-  regions: async () => [],
 });
 
 SCENES.push({
@@ -471,7 +558,6 @@ SCENES.push({
       await page.waitForTimeout(500);
     }
   },
-  regions: async () => [],
 });
 
 // ---------------------------------------------------------------------------
@@ -508,6 +594,7 @@ async function probeBaseUrl() {
     process.exit(2);
   }
 
+  const annotations = loadAnnotationSpec();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: VIEWPORT });
   const page = await context.newPage();
@@ -520,16 +607,27 @@ async function probeBaseUrl() {
     try {
       await page.goto(BASE_URL + scene.url, { waitUntil: 'load', timeout: 30000 });
       await scene.before(page);
-      const regions = await scene.regions(page);
-      if (regions && regions.length > 0) {
-        await page.evaluate(inPageAnnotate, regions);
+
+      // Resolve the spec-declared regions for this scene.
+      const regionSpecs = annotations[scene.id] || [];
+      const resolved = [];
+      for (const region of regionSpecs) {
+        const r = await resolveRegion(page, region);
+        if (r) resolved.push(r);
       }
+      if (resolved.length > 0) {
+        await page.evaluate(inPageAnnotateSvg, resolved, VIEWPORT);
+      }
+
       ensureDir(path.dirname(scene.out));
       await page.screenshot({ path: scene.out, fullPage: false });
-      if (regions && regions.length > 0) {
+
+      if (resolved.length > 0) {
         await page.evaluate(inPageClearAnnotations);
       }
-      console.log(`OK  [${n}/${SCENES.length}]  ${scene.id} → ${path.relative(REPO_ROOT, scene.out)}`);
+      const tag = resolved.length === regionSpecs.length ? 'OK ' : 'PART';
+      console.log(`${tag} [${n}/${SCENES.length}]  ${scene.id} → ${path.relative(REPO_ROOT, scene.out)}` +
+                  ` (annotations ${resolved.length}/${regionSpecs.length})`);
     } catch (err) {
       failures.push({ id: scene.id, err: err.message });
       console.error(`FAIL [${n}/${SCENES.length}] ${scene.id}: ${err.message}`);

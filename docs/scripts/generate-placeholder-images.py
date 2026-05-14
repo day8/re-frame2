@@ -29,6 +29,9 @@ OUT_CAUSA = REPO_ROOT / "docs" / "images" / "causa"
 OUT_STORY = REPO_ROOT / "docs" / "images" / "story"
 
 # (tool, filename, caption)
+# Filenames track docs/scripts/generate-tutorial-screenshots.cjs scene
+# outputs. The Playwright pipeline overwrites these placeholders with
+# real captures (annotated per docs/scripts/tutorial-annotation-spec.json).
 PLACEHOLDERS = [
     ("causa", "01-floating-pill.png",   "The Causa floating pill on the live counter app"),
     ("causa", "02-shell-opened.png",    "The Causa shell, opened over the live app"),
