@@ -251,3 +251,49 @@ script" a one-file change.
 
 The artefact is bundle-isolated from production builds by construction
 (it's pure Node-side test fixtures; no CLJS sources).
+
+## Spec posture (rf2-uzouv)
+
+`tools/mcp-conformance/` deliberately has **no local `spec/` folder**.
+This is a documented exemption from the per-tool spec convention
+(`tools/README.md` §Per-tool `spec/` folder convention), not a gap.
+
+Rationale: the per-tool `spec/` convention exists so each artefact's
+contract — what it does, why, the locks behind major calls — survives
+across sessions in committed form. For `mcp-conformance` that contract
+already lives, by construction, in three other places:
+
+1. **The test corpus itself.** Each `test/end-to-end-<server>.js`
+   pins exactly one server's wire surface (advertised tool catalogue,
+   tool descriptor presence, the canonical workflow), and the
+   `wire-vocab/` JVM test corpus pins the canonical Malli schema for
+   every reserved `:rf.mcp/*` / `:rf.size/large-elided` /
+   `:rf.elision/at` marker. The tests are the normative contract a
+   server must satisfy; they're machine-checked.
+
+2. **The three cross-MCP docs at this artefact's root** —
+   [`NAMING.md`](NAMING.md) (cross-MCP tool-naming convention,
+   rf2-mzf1r), [`TOKEN-BUDGETS.md`](TOKEN-BUDGETS.md) (cross-MCP
+   token-budget posture, rf2-ll0yq), and
+   [`wire-vocab/README.md`](wire-vocab/README.md) (cross-MCP
+   wire-vocabulary pinning, rf2-j2z7o). These are the
+   non-test-corpus normative content, sitting where their reach is
+   widest (all three MCP servers consume them).
+
+3. **The servers being verified.** Per-tool input / output / error
+   contracts are owned by each server's own `spec/`
+   ([`tools/pair2-mcp/spec/`](../pair2-mcp/spec/),
+   [`tools/story-mcp/spec/`](../story-mcp/spec/), and — when its
+   implementation lands —
+   [`tools/causa-mcp/spec/`](../causa-mcp/spec/)). Duplicating that
+   here would create a second source of truth on a wire that already
+   has one canonical home per server.
+
+A `spec/` folder containing only pointers to those three places would
+add navigation tax for no informational gain. The exemption is the
+straight read.
+
+If `mcp-conformance` ever gains contract surface that does not belong
+to a specific server or to one of the three cross-MCP docs — e.g. a
+new conformance-only protocol the harness defines on its own behalf —
+the exemption is revisited at that point.
