@@ -193,6 +193,14 @@
                 ::not-a-map
                 (h/error-result (str ":body must be a map; got " (some-> body class .getName)))
 
+                ;; rf2-lqjbk write-side exception: `register-variant`
+                ;; by definition extends the registry with a fresh
+                ;; keyword id, so `safe-keyword` against an existing
+                ;; bounded set would always reject. The intern here is
+                ;; gate-bounded by `--allow-writes` (operator-only
+                ;; opt-in); the registrar's `assert-id!` enforces the
+                ;; `:story.<path>/<name>` grammar, which constrains the
+                ;; per-id allocation cost.
                 (register-or-error (args/parse-keyword vid) body-v)))))))
 
 (defn tool-unregister-variant

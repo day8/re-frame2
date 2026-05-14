@@ -124,6 +124,39 @@
       [nil (error-result (str "Missing required argument: " (name k)))]
       [v nil])))
 
+;; ---------------------------------------------------------------------------
+;; Bounded-allowlist keyword resolution (rf2-lqjbk)
+;; ---------------------------------------------------------------------------
+;;
+;; The legacy `args/parse-keyword` INTERNS on the JVM — a caller streaming
+;; unique random strings as `:variant-id`s would slowly grow the JVM's
+;; never-shrinking keyword table. The mitigation is to resolve every
+;; agent-supplied keyword id against a bounded set BEFORE coercing it to
+;; a keyword, using `args/safe-keyword` (which routes through
+;; `find-keyword` on the JVM — no intern outside the allowlist).
+;;
+;; For READ-side handlers (every tool in dev / docs / testing) the
+;; bounded set IS the live registry's id set; an id outside the registry
+;; can't possibly resolve to a registered handler anyway, so the strict
+;; gate is equivalent to "reject what the lookup would have missed
+;; anyway". The fns below take the registry-key fn as data so each
+;; helper site doesn't repeat the bind.
+;;
+;; The WRITE-side handlers (`register-variant`) are the documented
+;; exception: by design they extend the registry with a fresh keyword.
+;; Those callers intern via `args/parse-keyword` directly, bounded by
+;; the operator-gated `--allow-writes` flag (the registry itself is the
+;; bounded set; the operator chose to open it).
+
+(defn- variant-id-set
+  "Snapshot of registered variant ids — the bounded allowlist used by
+  `with-variant` / `with-variant-id` / `read-run-opts`. Captured per
+  call so a registration that lands between two read tools is reflected
+  on the second read (the registry is logically a mutable atom; we
+  re-snapshot rather than cache)."
+  []
+  (story/ids :variant))
+
 (defn read-run-opts
   "Build the `re-frame.story/run-variant` opts map from the standard MCP
   arg slots (`:substrate`, `:active-modes`, `:cell-overrides`). Each
@@ -133,23 +166,46 @@
 
   Shared by `tool-preview-variant`, `tool-run-variant`, and
   `tool-snapshot-identity` (the latter omits `:cell-overrides`, but
-  the absent-slot-not-present rule keeps the helper general)."
+  the absent-slot-not-present rule keeps the helper general).
+
+  rf2-lqjbk: `:substrate` and each entry in `:active-modes` are
+  coerced through `args/safe-keyword` against the live registry's
+  bounded set — an unrecognised id surfaces as `nil` (which
+  `run-variant`'s opts contract already tolerates as 'no override')
+  rather than as a freshly-interned keyword. The substrates set is
+  CLJS-only (the JVM-standalone deploy reads `nil`); the modes set
+  is the registered-mode id set."
   [arguments]
-  (cond-> {}
-    (some? (:substrate arguments))      (assoc :substrate (args/parse-keyword (:substrate arguments)))
-    (some? (:active-modes arguments))   (assoc :active-modes
-                                               (mapv args/parse-keyword (:active-modes arguments)))
-    (some? (:cell-overrides arguments)) (assoc :cell-overrides (:cell-overrides arguments))))
+  (let [substrate-set #?(:clj  (if-let [v (resolve-cljs-var 'story/registered-substrates)]
+                                 (try (set (v)) (catch Throwable _ #{}))
+                                 #{})
+                         :cljs (try (set (story/registered-substrates))
+                                    (catch :default _ #{})))
+        mode-set      (story/list-modes)]
+    (cond-> {}
+      (some? (:substrate arguments))
+      (assoc :substrate (args/safe-keyword (:substrate arguments) substrate-set))
+
+      (some? (:active-modes arguments))
+      (assoc :active-modes
+             (into []
+                   (keep #(args/safe-keyword % mode-set))
+                   (:active-modes arguments)))
+
+      (some? (:cell-overrides arguments)) (assoc :cell-overrides (:cell-overrides arguments)))))
 
 (defn with-variant
-  "Resolve `:variant-id` from `arguments` (required), parse it as a
-  keyword, and probe `story/variant->edn` for the body. When both
+  "Resolve `:variant-id` from `arguments` (required), resolve it against
+  the registered-variants set (no JVM intern outside the allowlist —
+  rf2-lqjbk), and probe `story/variant->edn` for the body. When both
   succeed, returns `(f vk body)`. Otherwise short-circuits with an
   error result:
 
     - Missing/blank `:variant-id` ⇒ `Missing required argument: …`
       (the shape `required-arg` emits).
-    - Unregistered variant ⇒ `Variant not found: <vk>`.
+    - Unregistered variant ⇒ `Variant not found: <vid>` (the raw
+      caller-supplied string is echoed; we don't have a keyword form
+      because the safe-keyword gate refused to intern one).
 
   Crystallises the four-line prelude shared by six tool handlers
   (`preview-variant`, `get-variant`, `variant->edn`, `run-variant`,
@@ -160,25 +216,34 @@
   (let [[vid err] (required-arg arguments :variant-id)]
     (if err
       err
-      (let [vk   (args/parse-keyword vid)
-            body (story/variant->edn vk)]
-        (if (nil? body)
-          (error-result (str "Variant not found: " (pr-str vk)))
-          (f vk body))))))
+      (if-let [vk (args/safe-keyword vid (variant-id-set))]
+        (let [body (story/variant->edn vk)]
+          (if (nil? body)
+            (error-result (str "Variant not found: " (pr-str vk)))
+            (f vk body)))
+        (error-result (str "Variant not found: " (pr-str vid)))))))
 
 (defn with-variant-id
-  "Resolve `:variant-id` from `arguments` (required) and parse it as a
-  keyword. Returns `(f vk)` when the arg is present, the
-  `required-arg` error result otherwise. For tools that tolerate
-  unregistered variants — they read whatever the registry currently
-  holds and report on it (`run-a11y`, `read-failures`,
-  `unregister-variant`). Tools that demand a registered body use
-  `with-variant` instead."
+  "Resolve `:variant-id` from `arguments` (required) against the
+  registered-variants set (rf2-lqjbk — no JVM intern outside the
+  allowlist). Returns `(f vk)` when the id resolves; otherwise an
+  error result.
+
+  Used by tools whose reads tolerate an unregistered variant
+  (`run-a11y`, `read-failures`, `unregister-variant`) — but per the
+  rf2-lqjbk bound, an UNREGISTERED variant id can't intern through
+  this surface either. The behavioural change: instead of returning
+  an empty result for a never-seen id, the tool returns the same
+  `Variant not found` error result `with-variant` emits. That is the
+  more honest answer — if the id was never registered, there's
+  nothing to read."
   [arguments f]
   (let [[vid err] (required-arg arguments :variant-id)]
     (if err
       err
-      (f (args/parse-keyword vid)))))
+      (if-let [vk (args/safe-keyword vid (variant-id-set))]
+        (f vk)
+        (error-result (str "Variant not found: " (pr-str vid)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-egress scrubbers (rf2-73wuj). Per spec/Tool-Pair.md §Direct-read

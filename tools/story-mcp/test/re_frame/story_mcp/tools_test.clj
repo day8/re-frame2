@@ -1767,6 +1767,82 @@
              (proto/read-frame reader))
           "post-cap recovery: stdio loop continues on the next frame"))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-lqjbk — parse-keyword → safe-keyword sweep
+;;
+;; Caller-supplied keyword ids on the read surface MUST resolve through
+;; `args/safe-keyword` against a bounded set, NOT through the legacy
+;; `args/parse-keyword` which interns into the never-shrinking JVM
+;; keyword table. The tests below assert the no-intern property by
+;; calling each read-side tool with a fresh random-shaped id and
+;; verifying that the underlying `find-keyword` returns nil after the
+;; call (the rejection path didn't intern the string).
+;; ---------------------------------------------------------------------------
+
+(defn- find-kw
+  "Find an existing interned keyword by namespace and name without
+  interning. Returns nil when no such keyword has been interned —
+  the asserting probe for the rf2-lqjbk no-intern contract."
+  [ns-str name-str]
+  (find-keyword ns-str name-str))
+
+(deftest get-story-unknown-id-does-not-intern
+  (testing "unknown :story-id rejects WITHOUT interning a fresh JVM keyword"
+    (let [ns-str   "story.rf2-lqjbk-probe"
+          name-str (str "unknown-" (System/nanoTime))
+          r        (invoke "get-story" {:story-id (str ns-str "/" name-str)})]
+      (is (error? r) "unknown story id must error")
+      (is (re-find #"(?i)story not found" (-> r :content first :text)))
+      (is (nil? (find-kw ns-str name-str))
+          "rf2-lqjbk: the unknown id MUST NOT have been interned"))))
+
+(deftest get-variant-unknown-id-does-not-intern
+  (testing "unknown :variant-id rejects WITHOUT interning a fresh JVM keyword"
+    (let [ns-str   "story.rf2-lqjbk-probe"
+          name-str (str "unknown-variant-" (System/nanoTime))
+          r        (invoke "get-variant" {:variant-id (str ns-str "/" name-str)})]
+      (is (error? r))
+      (is (re-find #"(?i)variant not found" (-> r :content first :text)))
+      (is (nil? (find-kw ns-str name-str))
+          "rf2-lqjbk: the unknown id MUST NOT have been interned"))))
+
+(deftest read-failures-unknown-id-does-not-intern
+  (testing "read-failures on an unknown :variant-id rejects WITHOUT interning"
+    (let [ns-str   "story.rf2-lqjbk-probe"
+          name-str (str "rf-" (System/nanoTime))
+          r        (invoke "read-failures" {:variant-id (str ns-str "/" name-str)})]
+      (is (error? r))
+      (is (nil? (find-kw ns-str name-str))
+          "rf2-lqjbk: the unknown id MUST NOT have been interned"))))
+
+(deftest list-stories-unknown-tag-does-not-intern
+  (testing "list-stories filter with an unknown :tags entry skips it WITHOUT interning"
+    (let [name-str (str "rf2-lqjbk-tag-" (System/nanoTime))
+          r        (invoke "list-stories" {:tags [name-str "dev"]})]
+      (is (success? r) "the known :dev tag still narrows; the unknown tag is dropped")
+      (is (nil? (find-kw nil name-str))
+          "rf2-lqjbk: unknown tag id MUST NOT intern"))))
+
+(deftest list-decorators-unknown-kind-falls-through
+  (testing ":kind filter with an unrecognised value rejects WITHOUT interning"
+    (let [name-str (str "rf2-lqjbk-kind-" (System/nanoTime))
+          r        (invoke "list-decorators" {:kind name-str})]
+      (is (success? r) "the no-filter fallback still returns the registered decorators")
+      (is (nil? (find-kw nil name-str))
+          "rf2-lqjbk: unknown kind name MUST NOT intern"))))
+
+(deftest run-variant-unknown-substrate-does-not-intern
+  (testing "run-variant :substrate with an unknown value is dropped WITHOUT interning"
+    ;; A registered variant; the unknown :substrate is dropped from the
+    ;; opts map (run-variant tolerates an absent slot), so the call still
+    ;; succeeds but the substrate name never enters the keyword table.
+    (let [name-str (str "rf2-lqjbk-sub-" (System/nanoTime))
+          r        (invoke "run-variant" {:variant-id "story.button/primary"
+                                          :substrate  name-str})]
+      (is (success? r))
+      (is (nil? (find-kw nil name-str))
+          "rf2-lqjbk: unknown substrate id MUST NOT intern"))))
+
 (deftest run-loop-survives-oversize-frame
   (testing "an oversize frame produces a parse-error response and the loop continues"
     (let [oversize (apply str (repeat (inc proto/max-frame-bytes) \x))
