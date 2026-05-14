@@ -107,19 +107,20 @@
   as source-coord chips (`bg-3`, `radius-sm`, 12px caption type) so
   the eye reads them as first-class data, not decoration.
 
-  Glyph encodes type; click dispatches the chip's target with the
-  chip's value conj'd as the final positional arg. Per spec §Failure
+  Glyph encodes type; click dispatches `:rf.causa/copilot-chip-clicked`
+  with only `:chip-key` + `:value`. The handler resolves the target
+  from the fixed `chip-targets` allowlist server-side — the caller
+  cannot supply an arbitrary target (per rf2-cm93v). Per spec §Failure
   modes the renderer never invents chips from free text — only
   fragments the model emitted in the structured form get this
   treatment. Resolution failure is visible (the click target may
   resolve to a no-longer-present runtime id) but not predicted: the
   runtime is the truth."
-  [{:keys [chip-key value glyph target] :as _resolved}]
+  [{:keys [chip-key value glyph] :as _resolved}]
   [:button {:data-testid (str "rf-causa-copilot-chip-" (name chip-key))
             :on-click    #(rf/dispatch [:rf.causa/copilot-chip-clicked
                                         {:chip-key chip-key
-                                         :value    value
-                                         :target   target}] {:frame :rf/causa})
+                                         :value    value}] {:frame :rf/causa})
             :title       (str chip-key " " (pr-str value))
             :style       {:display       "inline-flex"
                           :align-items   "center"
@@ -623,13 +624,20 @@
             (assoc :copilot-streaming-token-count 0))))
 
     ;; Handle a chip click. Per spec §Chip types each chip's click
-    ;; target is the panel-jump event for that chip kind. The handler
-    ;; dispatches the resolved target with the chip's value as the
-    ;; argument. Unknown chips are no-ops (defensive — the renderer
-    ;; should not produce chips with unknown targets).
+    ;; target is the panel-jump event for that chip kind. Per rf2-cm93v
+    ;; the handler resolves `target` server-side from the fixed
+    ;; `chip-targets` allowlist — the caller may NOT supply a target
+    ;; slot (any caller-supplied target is ignored). Unknown chip-keys
+    ;; are no-ops.
+    ;;
+    ;; Frame containment: this handler runs on the `:rf/causa` frame
+    ;; (it's registered through `register-causa-handlers!` and the
+    ;; chip-view dispatches with `{:frame :rf/causa}`), so the follow-
+    ;; on `:dispatch` fx routes through the same frame's router. The
+    ;; resolved target cannot escape into the host frame.
     (register-evfx! :rf.causa/copilot-chip-clicked
-      (fn [_cofx [_ {:keys [target value]}]]
-        (when target
+      (fn [_cofx [_ {:keys [chip-key value]}]]
+        (when-let [target (get h/chip-targets chip-key)]
           {:fx [[:dispatch [target value]]]})))
 
     ;; ---- effects -----------------------------------------------------

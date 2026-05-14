@@ -415,7 +415,8 @@
 ;; ---- (8) chip click routes panel-jump ----------------------------------
 
 (deftest chip-click-routes-dispatch-id-target
-  (testing ":rf.causa/copilot-chip-clicked dispatches the chip's target
+  (testing ":rf.causa/copilot-chip-clicked resolves the target from the
+            fixed `chip-targets` allowlist (rf2-cm93v) and dispatches it
             with the chip's value as arg"
     (registry/register-causa-handlers!)
     (install-llm-capture-fx!)
@@ -424,8 +425,7 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
                          {:chip-key :dispatch-id
-                          :value    100
-                          :target   :rf.causa/select-dispatch-id}]))
+                          :value    100}]))
     (is (= [[:rf.causa/select-dispatch-id 100]]
            (chip-dispatches)))))
 
@@ -437,9 +437,85 @@
   (rf/with-frame :rf/causa
     (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
                        {:chip-key :epoch-number
-                        :value    47
-                        :target   :rf.causa/select-epoch}]))
+                        :value    47}]))
   (is (= [[:rf.causa/select-epoch 47]] (chip-dispatches))))
+
+;; ---- (8a) rf2-cm93v — chip-click target allowlist ---------------------
+
+(deftest chip-click-rejects-unknown-chip-key
+  (testing "per rf2-cm93v — unknown `:chip-key` is a no-op; no dispatch
+            fires. Pre-cm93v the handler trusted a caller-supplied
+            `:target`, turning `:rf.causa/copilot-chip-clicked` into an
+            arbitrary-dispatch gadget. The handler now resolves the
+            target from the fixed `chip-targets` map and ignores
+            anything outside it."
+    (registry/register-causa-handlers!)
+    (install-llm-capture-fx!)
+    (install-chip-capture!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
+                         {:chip-key :totally-unknown
+                          :value    42}])
+      (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
+                         {:chip-key nil
+                          :value    "anything"}]))
+    (is (= [] (chip-dispatches))
+        "unknown chip-keys produce no follow-on dispatch")))
+
+(deftest chip-click-ignores-caller-supplied-target
+  (testing "per rf2-cm93v — a caller-supplied `:target` slot is IGNORED.
+            The handler always resolves the target from the fixed
+            `chip-targets` allowlist. A caller cannot smuggle an
+            arbitrary event id through the `:target` slot to trigger
+            host-app events."
+    (registry/register-causa-handlers!)
+    (install-llm-capture-fx!)
+    (install-chip-capture!)
+    ;; Register a sentinel handler the attacker would aim at. If the
+    ;; old behaviour leaked through, this would record the dispatch.
+    (let [evil-fired (atom 0)]
+      (rf/reg-event-fx :evil/host-event
+        (fn [_cofx _ev] (swap! evil-fired inc) nil))
+      (frame/reg-frame :rf/causa {})
+      (rf/with-frame :rf/causa
+        (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
+                           {:chip-key :dispatch-id
+                            :value    100
+                            ;; Attacker-supplied target — must be
+                            ;; ignored. The allowlist-resolved target
+                            ;; for `:dispatch-id` is
+                            ;; `:rf.causa/select-dispatch-id`.
+                            :target   :evil/host-event}]))
+      (is (= 0 @evil-fired)
+          "caller-supplied :target did not fire :evil/host-event")
+      (is (= [[:rf.causa/select-dispatch-id 100]] (chip-dispatches))
+          "the allowlist-resolved target fired instead"))))
+
+(deftest chip-click-allowlist-covers-all-chip-keys
+  (testing "every chip-key in `chip-key-set` resolves to its target via
+            the allowlist. The four supported kinds round-trip; this is
+            the positive half of the rf2-cm93v gate (the negative half
+            is the unknown-chip-key rejection above)."
+    (registry/register-causa-handlers!)
+    (install-llm-capture-fx!)
+    (install-chip-capture!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
+                         {:chip-key :dispatch-id  :value 1}])
+      (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
+                         {:chip-key :path         :value [:a :b]}])
+      (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
+                         {:chip-key :epoch-number :value 47}])
+      (rf/dispatch-sync [:rf.causa/copilot-chip-clicked
+                         {:chip-key :handler-id   :value :foo/bar}]))
+    (is (= [[:rf.causa/select-dispatch-id   1]
+            [:rf.causa.copilot/open-path    [:a :b]]
+            [:rf.causa/select-epoch         47]
+            [:rf.causa.copilot/open-handler :foo/bar]]
+           (chip-dispatches))
+        "every chip-key resolved through `chip-targets`")))
 
 ;; ---- (9) rendered tree contracts ---------------------------------------
 
