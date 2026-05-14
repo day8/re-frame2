@@ -657,10 +657,32 @@
   (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
         (epoch-history frame-id)))
 
-(defn- emit-restore-failure!
+(defn- emit-precondition-failure!
   [operation tags]
   (trace/emit-error! operation
                      (assoc tags :recovery :no-recovery)))
+
+(defn- drain-in-flight?
+  "True when `frame-record`'s router is mid-drain (sync or async).
+  Shared by every precondition path that must refuse to write to
+  `app-db` while a cascade is being processed."
+  [frame-record]
+  (let [router (:router frame-record)
+        r      (when router @router)]
+    (boolean (and r (or (:in-drain? r) (:in-sync-drain? r))))))
+
+(defn- frame-exists-or-fail
+  "Resolve `frame-id` to its `frame-record` or yield the canonical
+  no-such-handler precondition-failure tuple. Returns `[:ok
+  frame-record]` or `[:fail :rf.error/no-such-handler {:kind :frame
+  :frame frame-id}]`. Shared by every Tool-Pair / time-travel write
+  surface so the no-such-handler tag shape stays canonical."
+  [frame-id]
+  (if-let [frame-record (frame/frame frame-id)]
+    [:ok frame-record]
+    [:fail :rf.error/no-such-handler
+     {:kind  :frame
+      :frame frame-id}]))
 
 (defn- check-restore-preconditions!
   "Validate the six documented preconditions for restoring `frame-id`
@@ -679,18 +701,14 @@
   the public surface has always emitted (see `restore-epoch`'s
   docstring for the catalogue)."
   [frame-id epoch-id]
-  (let [frame-record (frame/frame frame-id)]
+  (let [frame-result (frame-exists-or-fail frame-id)]
     (cond
       ;; (1) Frame registered?
-      (nil? frame-record)
-      [:fail :rf.error/no-such-handler
-       {:kind  :frame
-        :frame frame-id}]
+      (= :fail (first frame-result))
+      frame-result
 
       ;; (2) In-flight drain?
-      (let [router (:router frame-record)
-            r      (when router @router)]
-        (and r (or (:in-drain? r) (:in-sync-drain? r))))
+      (drain-in-flight? (second frame-result))
       [:fail :rf.epoch/restore-during-drain
        {:frame    frame-id
         :epoch-id epoch-id}]
@@ -778,7 +796,7 @@
     (let [result (check-restore-preconditions! frame-id epoch-id)]
       (case (first result)
         :ok   (perform-restore! frame-id (second result))
-        :fail (do (emit-restore-failure! (second result) (nth result 2))
+        :fail (do (emit-precondition-failure! (second result) (nth result 2))
                   false)))))
 
 ;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
@@ -806,6 +824,56 @@
 ;; `:rf.epoch/db-replaced`, replaces the container, and fires registered
 ;; epoch listeners with the assembled record.
 
+(defn- check-reset-frame-db-preconditions!
+  "Validate the three documented preconditions for `reset-frame-db!`.
+  Returns `[:ok]` when all checks pass, otherwise `[:fail kw tags]`
+  matching the precondition-failure shape of
+  `check-restore-preconditions!`. Pure data — no trace events emitted
+  from here; emission is the caller's job."
+  [frame-id new-db]
+  (let [frame-result (frame-exists-or-fail frame-id)]
+    (cond
+      ;; (1) Frame registered?
+      (= :fail (first frame-result))
+      frame-result
+
+      ;; (2) In-flight drain?
+      (drain-in-flight? (second frame-result))
+      [:fail :rf.epoch/reset-frame-db-during-drain
+       {:frame frame-id}]
+
+      ;; (3) Schema mismatch?
+      (not (schema-validate-ok? frame-id new-db))
+      [:fail :rf.epoch/reset-frame-db-schema-mismatch
+       {:frame         frame-id
+        :failing-paths (failing-paths-for frame-id new-db)}]
+
+      :else
+      [:ok])))
+
+(defn- perform-reset-frame-db!
+  "Carry out the `app-db` replacement once preconditions have passed.
+  Records a synthetic `:rf/epoch-record` (so `restore-epoch` can rewind
+  the prior state), emits `:rf.epoch/db-replaced`, replaces the
+  container, and fans the record out to registered listeners. Returns
+  `true`."
+  [frame-id new-db]
+  (let [container (frame/get-frame-db frame-id)
+        db-before (when container (adapter/read-container container))]
+    (adapter/replace-container! container new-db)
+    ;; Record a synthetic epoch so `restore-epoch` can rewind the
+    ;; previous state. The record's :trigger-event is the
+    ;; pair-tool injection sentinel (no application event ran).
+    (let [record (assoc (build-record frame-id db-before new-db [])
+                        :event-id      :rf.epoch/db-replaced
+                        :trigger-event [:rf.epoch/db-replaced])]
+      (record! record)
+      (trace/emit! :rf.epoch :rf.epoch/db-replaced
+                   {:frame    frame-id
+                    :epoch-id (:epoch-id record)})
+      (notify-listeners! record))
+    true))
+
 (defn reset-frame-db!
   "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
   loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
@@ -826,49 +894,11 @@
   [frame-id new-db]
   (if-not interop/debug-enabled?
     false
-    (let [frame-record (frame/frame frame-id)]
-      (cond
-        ;; (1) Frame registered?
-        (nil? frame-record)
-        (do
-          (emit-restore-failure! :rf.error/no-such-handler
-                                 {:kind  :frame
-                                  :frame frame-id})
-          false)
-
-        ;; (2) In-flight drain?
-        (let [router (:router frame-record)
-              r      (when router @router)]
-          (and r (or (:in-drain? r) (:in-sync-drain? r))))
-        (do
-          (emit-restore-failure! :rf.epoch/reset-frame-db-during-drain
-                                 {:frame frame-id})
-          false)
-
-        ;; (3) Schema mismatch?
-        (not (schema-validate-ok? frame-id new-db))
-        (do
-          (emit-restore-failure! :rf.epoch/reset-frame-db-schema-mismatch
-                                 {:frame         frame-id
-                                  :failing-paths (failing-paths-for frame-id new-db)})
-          false)
-
-        :else
-        (let [container (frame/get-frame-db frame-id)
-              db-before (when container (adapter/read-container container))]
-          (adapter/replace-container! container new-db)
-          ;; Record a synthetic epoch so `restore-epoch` can rewind the
-          ;; previous state. The record's :trigger-event is the
-          ;; pair-tool injection sentinel (no application event ran).
-          (let [record (assoc (build-record frame-id db-before new-db [])
-                              :event-id      :rf.epoch/db-replaced
-                              :trigger-event [:rf.epoch/db-replaced])]
-            (record! record)
-            (trace/emit! :rf.epoch :rf.epoch/db-replaced
-                         {:frame    frame-id
-                          :epoch-id (:epoch-id record)})
-            (notify-listeners! record))
-          true)))))
+    (let [result (check-reset-frame-db-preconditions! frame-id new-db)]
+      (case (first result)
+        :ok   (perform-reset-frame-db! frame-id new-db)
+        :fail (do (emit-precondition-failure! (second result) (nth result 2))
+                  false)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
