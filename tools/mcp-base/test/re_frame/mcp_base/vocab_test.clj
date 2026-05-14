@@ -15,6 +15,7 @@
 
 (deftest rf-size-elision-keys-pinned
   (is (= :rf.size/large-elided        vocab/large-elided-key))
+  (is (= :rf/redacted                 vocab/redacted-sentinel))
   (is (= :rf.elision/at               vocab/elision-handle-key))
   (is (= :rf.size/include-large?      vocab/include-large-opt))
   (is (= :rf.size/include-sensitive?  vocab/include-sensitive-opt))

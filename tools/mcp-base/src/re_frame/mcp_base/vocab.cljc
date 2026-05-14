@@ -112,6 +112,23 @@
   path. Reserved per Conventions §Reserved namespaces. Per rf2-urjnc."
   :rf.size/large-elided)
 
+(def redacted-sentinel
+  "Literal value substituted **in-place** for a sensitive leaf by the
+  framework's `rf/elide-wire-value` walker and by the `with-redacted`
+  interceptor. Unlike `:rf.size/large-elided`, this is a **scalar
+  sentinel** — there is no map payload, no `:handle`, no re-fetch
+  affordance. The value is gone; the agent sees `:rf/redacted` and
+  MUST NOT attempt to recover it.
+
+  Per spec/Tool-Pair.md §Direct-read privacy posture: `elide-wire-value`
+  is the single normative emission site for this sentinel (sensitive)
+  and for `:rf.size/large-elided` (oversize). When both predicates
+  match at a leaf the **sensitive drop wins** — the size marker is
+  suppressed because its `:path` / `:bytes` / `:digest` slots would
+  leak metadata about the redacted value. Reserved per
+  Conventions §Reserved namespaces (`:rf/*` single-root scheme)."
+  :rf/redacted)
+
 (def elision-handle-key
   "First slot in the elision handle vector. The vector shape
   `[:rf.elision/at <path>]` is the cross-MCP convention for re-fetch
