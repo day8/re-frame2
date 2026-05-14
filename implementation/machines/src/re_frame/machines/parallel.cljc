@@ -216,57 +216,94 @@
       {:target    boot-target
        :decl-path []})))
 
+;; ---- parallel-region broadcast invariant (rf2-vqubp) ----------------------
+;;
+;; Per Spec 005 §Parallel regions, every reducer that broadcasts ONE
+;; per-region computation across a parallel-region machine MUST:
+;;   - iterate regions in declaration order (declaration order = the
+;;     order in which `:regions` was authored; falls back to state-map
+;;     key order when the spec has been mutated post-registration),
+;;   - thread shared `:data` sequentially through regions so a later
+;;     region's step sees earlier regions' writes,
+;;   - thread the in-snapshot `:rf/spawn-counter` (rf2-gr8q) so any
+;;     declarative `:invoke` fired in a region bumps the SAME shared
+;;     counter,
+;;   - run each region as a synthetic single-machine spec via
+;;     `region-machine`,
+;;   - prefix per-region fx with the region name via
+;;     `prefix-region-invoke-id` so per-region `[:rf/spawned ...]` /
+;;     `:after`-epoch tracking slots stay distinct from siblings,
+;;   - short-circuit to a `result/fail` if any region's step fails,
+;;   - commit `:tags` via `commit-tags-parallel` AFTER every region has
+;;     transitioned, since `:tags` is the union across active leaves.
+;;
+;; `reduce-regions` names this invariant once — every broadcast
+;; reducer in the parallel layer delegates here.
+
+(defn- reduce-regions
+  "Apply `step-fn` to each region of `parent-machine` in declaration
+  order, threading `:data` + `:rf/spawn-counter` between regions and
+  prefixing per-region fx with the region name. `step-fn` receives the
+  synthetic region-spec and the per-region snapshot
+  (`{:state ... :data ... ?:rf/spawn-counter ...}`) and returns a
+  `re-frame.machines.result/Result`.
+
+  Returns a `result/ok` Result carrying the merged snapshot (post-
+  `commit-tags-parallel`) + accumulated fx, or the first region's
+  `result/fail` (cascade short-circuits).
+
+  This helper assumes `parent-machine` is `:type :parallel`. Flat /
+  compound callers run their step directly — the broadcast invariant
+  doesn't apply."
+  [parent-machine snapshot step-fn]
+  (let [state-map   (:state snapshot)
+        ordered     (filterv #(contains? state-map %)
+                             (or (vec (keys (:regions parent-machine)))
+                                 (vec (keys state-map))))]
+    (loop [pending     ordered
+           cur-data    (:data snapshot)
+           cur-counter (:rf/spawn-counter snapshot)
+           new-states  state-map
+           acc-fx      []]
+      (if (empty? pending)
+        (let [merged (cond-> (-> snapshot
+                                 (assoc :state new-states)
+                                 (assoc :data  cur-data))
+                       (some? cur-counter)
+                       (assoc :rf/spawn-counter cur-counter))]
+          (result/ok (commit-tags-parallel parent-machine merged) acc-fx))
+        (let [rn          (first pending)
+              region-spec (region-machine parent-machine rn)
+              region-snap (cond-> {:state (get state-map rn)
+                                   :data  cur-data}
+                            (some? cur-counter)
+                            (assoc :rf/spawn-counter cur-counter))
+              step-result (step-fn region-spec region-snap)]
+          (if (result/fail? step-result)
+            step-result
+            (result/with-ok [reg-snap reg-fx] step-result
+              (let [prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
+                (recur (rest pending)
+                       (:data reg-snap)
+                       (:rf/spawn-counter reg-snap)
+                       (assoc new-states rn (:state reg-snap))
+                       (vec (concat acc-fx prefixed-fx)))))))))))
+
 (defn apply-initial-entry-cascade
   "Synthesise the bootstrap entry cascade for `machine` against the
   freshly-synthesised `initial-snapshot`. Returns a `result/ok` Result
   carrying the new snapshot + fx, or a `result/fail` Result if any
   `:entry` action threw.
 
-  For parallel-region machines (`:type :parallel`), iterates regions in
-  declaration order, threading shared `:data` sequentially through regions
-  (matching `parallel-machine-transition`'s broadcast semantics — a later
-  region's `:entry` sees earlier regions' `:data` writes). Each region's
-  fx is prefixed with the region name via `prefix-region-invoke-id` so
-  per-region tracking slots stay distinct."
+  For parallel-region machines (`:type :parallel`), delegates to
+  `reduce-regions` so the per-region step sees the broadcast invariant
+  (declaration-order iteration, threaded `:data` + `:rf/spawn-counter`,
+  per-region fx-prefix, `commit-tags-parallel` on commit). For flat /
+  compound machines, runs `bootstrap-step` directly — the broadcast
+  invariant doesn't apply."
   [machine initial-snapshot]
   (if (parallel? machine)
-    (let [state-map     (:state initial-snapshot)
-          region-names  (vec (keys (:regions machine)))
-          ordered       (filterv #(contains? state-map %) region-names)]
-      ;; Per rf2-gr8q: thread `:rf/spawn-counter` across regions so any
-      ;; entry-cascade :invoke fires through the shared in-snapshot
-      ;; allocator and the final merged snapshot carries the bumped value.
-      (loop [pending     ordered
-             cur-data    (:data initial-snapshot)
-             cur-counter (:rf/spawn-counter initial-snapshot)
-             new-states  state-map
-             acc-fx      []]
-        (cond
-          (empty? pending)
-          (let [merged (cond-> (-> initial-snapshot
-                                   (assoc :state new-states)
-                                   (assoc :data  cur-data))
-                         (some? cur-counter)
-                         (assoc :rf/spawn-counter cur-counter))]
-            (result/ok (commit-tags-parallel machine merged) acc-fx))
-
-          :else
-          (let [rn          (first pending)
-                region-spec (region-machine machine rn)
-                region-snap (cond-> {:state (get state-map rn)
-                                     :data  cur-data}
-                              (some? cur-counter)
-                              (assoc :rf/spawn-counter cur-counter))
-                step-result (bootstrap-step region-spec region-snap)]
-            (if (result/fail? step-result)
-              step-result
-              (result/with-ok [reg-snap reg-fx] step-result
-                (let [prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
-                  (recur (rest pending)
-                         (:data reg-snap)
-                         (:rf/spawn-counter reg-snap)
-                         (assoc new-states rn (:state reg-snap))
-                         (vec (concat acc-fx prefixed-fx))))))))))
+    (reduce-regions machine initial-snapshot bootstrap-step)
     (bootstrap-step machine initial-snapshot)))
 
 (declare machine-transition)
@@ -279,59 +316,20 @@
 
   Per Spec 005 §Transition broadcast: each region resolves the event
   through its own active state's deepest-wins lookup; resolved regions
-  transition, undeclined regions stay put. The :data slot is shared —
+  transition, undeclined regions stay put. The `:data` slot is shared —
   each region's actions see the prior region's `:data` writes in
-  declaration order.
+  declaration order. Per rf2-vqubp the broadcast invariant lives in
+  `reduce-regions`; this function closes over `event` to produce a
+  unary step-fn the helper can apply per region.
 
   For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
   delivery is region-scoped — the broadcast routes to the bearing region
   only, identified by the region-name prefix on the in-flight timer's
   invoke-id."
   [machine snapshot event]
-  (let [state-map  (:state snapshot)
-        region-names (vec (keys state-map))
-        ordered-regions
-        (->> (or (keys (:regions machine)) region-names)
-             (filter (fn [rn] (contains? state-map rn)))
-             (vec))]
-    ;; Per rf2-gr8q: thread the snapshot's `:rf/spawn-counter` through each
-    ;; region's transition so declarative `:invoke` inside a region bumps
-    ;; the SAME counter the rest of the machine shares. Region snapshots
-    ;; carry the slot in/out alongside `:state` + `:data`, matching the
-    ;; round-trip pattern already used for `:data`.
-    (loop [pending    ordered-regions
-           cur-data   (:data snapshot)
-           cur-counter (:rf/spawn-counter snapshot)
-           new-states state-map
-           acc-fx     []]
-      (cond
-        (empty? pending)
-        (let [final-state-map (into {} (for [rn region-names] [rn (get new-states rn)]))
-              merged          (cond-> (-> snapshot
-                                          (assoc :state final-state-map)
-                                          (assoc :data  cur-data))
-                                (some? cur-counter)
-                                (assoc :rf/spawn-counter cur-counter))
-              merged-tagged   (commit-tags-parallel machine merged)]
-          (result/ok merged-tagged acc-fx))
-
-        :else
-        (let [rn          (first pending)
-              region-spec (region-machine machine rn)
-              region-snap (cond-> {:state (get state-map rn)
-                                   :data  cur-data}
-                            (some? cur-counter)
-                            (assoc :rf/spawn-counter cur-counter))
-              step-result (machine-transition region-spec region-snap event)]
-          (if (result/fail? step-result)
-            step-result
-            (result/with-ok [reg-snap reg-fx] step-result
-              (let [prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
-                (recur (rest pending)
-                       (:data reg-snap)
-                       (:rf/spawn-counter reg-snap)
-                       (assoc new-states rn (:state reg-snap))
-                       (vec (concat acc-fx prefixed-fx)))))))))))
+  (reduce-regions machine snapshot
+                  (fn [region-spec region-snap]
+                    (machine-transition region-spec region-snap event))))
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
