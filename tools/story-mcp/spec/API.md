@@ -224,11 +224,31 @@ Both tools require `:rf.story-mcp/allow-writes?` to be true; see
  :body       map | string (required — map preferred; string is EDN)}
 ```
 
+When `:body` is a string, it's parsed as EDN under a hardened policy
+(rf2-g9fje):
+
+- **No custom tagged literals.** `:readers {}` is empty and the `:default`
+  handler throws — `#inst` / `#uuid` (EDN built-ins) parse normally;
+  any other `#<tag> ...` form is rejected. The `#=(...)` read-eval form
+  is rejected by `clojure.edn` at the dispatch-macro level (never
+  evaluated).
+- **64 KB payload ceiling.** A legitimate variant body is well under 1 KB;
+  abusive payloads return an `isError: true` `"must be a map or a valid
+  EDN string"` result before `edn/read-string` walks the input.
+- **64-level depth ceiling.** Variant bodies top out at 3-4 levels;
+  deeper inputs short-circuit cleanly.
+
+The JSON-object form is preferred when keywords aren't structurally
+required in the body — the EDN-string form exists for callers whose
+body shape (e.g. `:tags #{:dev}`) can't round-trip through JSON.
+
 **Output.** `{:registered? true :variant-id ...}` on success.
 
 **Errors.**
 - `isError: true` when gate is closed (`{:gated true :reason "..."}`).
 - `isError: true` when `:body` fails `:rf/variant` schema validation.
+- `isError: true` when `:body` is a string that fails the EDN reader
+  hardening above (`"must be a map or a valid EDN string"`).
 - `isError: true` when the parent story is not registered.
 
 ### `unregister-variant`
