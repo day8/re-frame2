@@ -159,6 +159,12 @@ picks up every `*_test.cljs` namespace under `test/` and runs it via
 reactive substrate (no DOM needed). Add more `*_test.cljs` files
 alongside it as your app grows.
 
+**Windows note:** shadow-cljs's `node_modules` resolution can rely on
+filesystem symlinks. Symlink creation on Windows requires either
+**Developer Mode** enabled (Settings → For developers → Developer
+Mode) or an admin-elevated shell. If `npm test` fails with a symlink-
+related error, that's the fix.
+
 ## Project layout
 
 ```
