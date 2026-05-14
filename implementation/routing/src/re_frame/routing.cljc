@@ -409,17 +409,25 @@
   ;; pattern matching and parse query separately. Uses array-map to
   ;; preserve the URL's left-to-right key order so round-trip URLs come
   ;; back byte-identical.
+  ;;
+  ;; Performance (rf2-r1in4): query parsing is deferred behind a `delay`
+  ;; — the URL's query string is only walked once a path-pattern match
+  ;; succeeds. Pre-rf2-r1in4 the parse fired for every URL even when no
+  ;; route matched, and the cost (split + url-decode per pair) hit every
+  ;; URL-driven navigation. The closure captures `query-str`; the delay
+  ;; forces at most once and is held for the lifetime of this call.
   (let [[url-no-frag fragment] (split-fragment url)
         [path query-str]       (clojure.string/split url-no-frag #"\?" 2)
-        raw-query        (when query-str
-                           (reduce
-                             (fn [m pair]
-                               (let [[k v] (clojure.string/split pair #"=" 2)]
-                                 (assoc m
-                                        (keyword (url-decode k))
-                                        (if v (url-decode v) ""))))
-                             (array-map)
-                             (clojure.string/split query-str #"&")))]
+        raw-query-delayed (delay
+                            (when query-str
+                              (reduce
+                                (fn [m pair]
+                                  (let [[k v] (clojure.string/split pair #"=" 2)]
+                                    (assoc m
+                                           (keyword (url-decode k))
+                                           (if v (url-decode v) ""))))
+                                (array-map)
+                                (clojure.string/split query-str #"&"))))]
     ;; Iterate the pre-sorted table; the first pattern that matches is the
     ;; highest-rank winner (Spec 012 §Route ranking algorithm). `reduce` with
     ;; `reduced` short-circuits on the first hit. nil ⇒ no route matched.
@@ -430,6 +438,10 @@
           (when-let [params (match-against compiled path)]
             (let [query-coerce  (:rf.route/query-coerce meta)
                   defaults      (:query-defaults meta)
+                  ;; Force the query parse on the first successful path
+                  ;; match — unmatched URLs and pre-match iterations skip
+                  ;; the work entirely (rf2-r1in4).
+                  raw-query     @raw-query-delayed
                   ;; Coercion: O(M) lookups against the precompiled
                   ;; `query-coerce` map (rf2-yjjrv).
                   coerced       (when raw-query
@@ -490,7 +502,17 @@
   `:rf.error/route-url-validation` when path-params doesn't conform to
   the route's `:params` schema, or query-params doesn't conform to the
   route's `:query` schema (caller bug — not user input). The exception
-  carries `{:route-id :slot :error}` ex-data (rf2-ug2m1)."
+  carries `{:route-id :slot :error}` ex-data (rf2-ug2m1).
+
+  Performance (rf2-r1in4): this fn sits on the render path through
+  `route-link-render` / `route-link-render-ssr` — large link lists
+  re-render at navigation rate, and each link calls `route-url`. The
+  pattern body and `:groups` lookup are read from `:rf.route/compiled`
+  (precomputed at registration time by `parse-pattern`), so the inner
+  loop runs over a fixed-cost lookup table rather than re-walking the
+  pattern source. If a future profile shows `route-url` dominating the
+  render budget, the next step is to precompute URL-emission metadata
+  at `reg-route` time (analogous to `:rf.route/query-coerce`)."
   ([route-id path-params] (route-url route-id path-params {} nil))
   ([route-id path-params query-params] (route-url route-id path-params query-params nil))
   ([route-id path-params query-params fragment]
@@ -1338,7 +1360,13 @@ unknown strategies as :preserve (no-op)."}
      plain-left-click interception is skipped — the caller has taken
      responsibility for the navigation. Otherwise the standard rules
      apply: plain left-click → `preventDefault` + dispatch
-     `:rf/url-requested`; modifier-key or middle-click → no interception."
+     `:rf/url-requested`; modifier-key or middle-click → no interception.
+
+     Performance (rf2-r1in4): this is render-path code — every
+     `[rf/route-link ...]` re-render walks `route-url` for the href.
+     Large nav menus re-rendering frequently amortise the cost over many
+     calls; see `route-url`'s perf note for the precompute follow-on
+     should it become a bottleneck."
      [{:keys [to params query fragment on-click] :as props} & children]
      (let [url   (route-url to (or params {}) (or query {}) fragment)
            attrs (-> props
