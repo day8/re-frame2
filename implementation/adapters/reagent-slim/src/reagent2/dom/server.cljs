@@ -292,12 +292,10 @@
   (let [head      (nth argv 0 nil)
         parsed    (template/parse-tag head)
         tag-str   (.-tag parsed)
-        n         (count argv)
-        first-arg (when (>= n 2) (nth argv 1 nil))
-        has-props (and (>= n 2) (or (nil? first-arg) (map? first-arg)))
+        [first-arg has-props children-pos] (template/hiccup-shape argv 1)
         user-attrs (when (and has-props (some? first-arg)) first-arg)
         attrs      (merge-shorthand parsed user-attrs)
-        children-pos (if has-props 2 1)
+        n          (count argv)
         children     (when (< children-pos n)
                        (subvec argv children-pos))
         void?        (contains? template/void-tags tag-str)
@@ -330,9 +328,7 @@
   "Emit a `:<>` fragment — children only, no surrounding markup."
   [^StringBuffer sb argv]
   (let [n         (count argv)
-        head      (when (>= n 2) (nth argv 1 nil))
-        has-props (and (>= n 2) (or (nil? head) (map? head)))
-        children-pos (if has-props 2 1)]
+        [_head _has-props children-pos] (template/hiccup-shape argv 1)]
     (when (< children-pos n)
       (emit-children sb (subvec argv children-pos)))))
 
