@@ -446,12 +446,18 @@
 ;; ---- the walker ----------------------------------------------------------
 
 (defn- walk
-  "Internal recursion driver for `elide-wire-value`. `path` and
-   `frame-id` ride as positional args so the (otherwise stable) `opts`
-   map isn't re-`assoc`'d at every child — meaningful on deep walks
-   (the elision walker fires per event-emit + per sub-return). All
-   public arities funnel through here after one-shot opts decoding."
-  [v path frame-id opts]
+  "Internal recursion driver for `elide-wire-value`.
+
+  HOT PATH: invoked per node during every wire-emission walk; under
+  prod with event-emit / error-emit listeners installed this fires
+  on every cascade. Per rf2-oetyi the registry lookup and opts-
+  derived locals (`include-large?`, `include-sensitive?`, threshold,
+  …) are hoisted into `elide-wire-value`'s top arity and ride here
+  as `ctx` — a per-walk-call invariant struct. Only `path` changes
+  on recursion. Pre-rf2-oetyi `walk` re-read `(registry-of frame-id)`
+  and destructured `opts` on every recursive node, so a million-node
+  walk did a million map lookups for a value that doesn't change."
+  [v path ctx]
   (cond
     ;; Nil / scalar fast path — never elidable.
     (or (nil? v) (number? v) (boolean? v) (keyword? v) (symbol? v))
@@ -459,12 +465,13 @@
 
     ;; Consult the registry first; declared / schema / runtime-flagged hit?
     :else
-    (let [as-of-epoch        (:as-of-epoch opts)
-          include-large?     (:rf.size/include-large? opts)
-          include-sensitive? (:rf.size/include-sensitive? opts)
-          include-digests?   (:rf.size/include-digests? opts)
-          threshold          (:rf.size/threshold-bytes opts)
-          reg                (registry-of frame-id)
+    (let [reg                (:reg ctx)
+          frame-id           (:frame-id ctx)
+          threshold          (:threshold ctx)
+          include-large?     (:include-large? ctx)
+          include-sensitive? (:include-sensitive? ctx)
+          include-digests?   (:include-digests? ctx)
+          as-of-epoch        (:as-of-epoch ctx)
           decl               (resolve-declaration reg path)
           ;; sensitive? — registry may carry it; the rf2-isdwf
           ;; per-event :sensitive? stamping lands separately. The
@@ -531,26 +538,26 @@
         (map? v)
         (reduce-kv
          (fn [acc k vv]
-           (assoc acc k (walk vv (conj path k) frame-id opts)))
+           (assoc acc k (walk vv (conj path k) ctx)))
          (empty v) v)
 
         (vector? v)
         (mapv (fn [idx vv]
-                (walk vv (conj path idx) frame-id opts))
+                (walk vv (conj path idx) ctx))
               (range) v)
 
         (set? v)
         ;; Sets don't have indices; walk children with the same path so
         ;; a registered set-element predicate still applies. Most
         ;; callers won't declare individual set members.
-        (into #{} (map #(walk % path frame-id opts)) v)
+        (into #{} (map #(walk % path ctx)) v)
 
         (seq? v)
         ;; Sequences (lists / lazy seqs) — walk and return a vector for
         ;; wire stability. Per Tool-Pair, wire payloads are EDN data;
         ;; converting seq -> vector is safe.
         (mapv (fn [idx vv]
-                (walk vv (conj path idx) frame-id opts))
+                (walk vv (conj path idx) ctx))
               (range) v)
 
         :else
@@ -599,14 +606,22 @@
    (let [frame-id  (or (:frame opts) (frame/current-frame) :rf/default)
          threshold (long (or (:rf.size/threshold-bytes opts)
                              @re-frame.elision/threshold-bytes))
-         ;; Normalise opts once: defaults coerced, booleans pre-evaluated,
-         ;; resolved frame-id / threshold cached for the whole recursion.
-         opts'     (-> (or opts {})
-                       (assoc :rf.size/threshold-bytes      threshold
-                              :rf.size/include-large?      (true? (:rf.size/include-large? opts))
-                              :rf.size/include-sensitive?  (true? (:rf.size/include-sensitive? opts))
-                              :rf.size/include-digests?    (true? (:rf.size/include-digests? opts))))]
-     (walk v (vec (:path opts)) frame-id opts'))))
+         ;; Per rf2-oetyi: hoist the registry read and opts-derived
+         ;; locals into one immutable ctx struct, built once here and
+         ;; threaded positionally through `walk` — rather than re-
+         ;; resolving `(registry-of frame-id)` and re-destructuring
+         ;; opts on every recursive node. The registry is constant
+         ;; for the duration of one walk; opts are user input that
+         ;; doesn't mutate mid-recursion. HOT PATH under prod with
+         ;; event-emit / error-emit listeners installed.
+         ctx       {:reg                (registry-of frame-id)
+                    :frame-id           frame-id
+                    :threshold          threshold
+                    :include-large?     (true? (:rf.size/include-large? opts))
+                    :include-sensitive? (true? (:rf.size/include-sensitive? opts))
+                    :include-digests?   (true? (:rf.size/include-digests? opts))
+                    :as-of-epoch        (:as-of-epoch opts)}]
+     (walk v (vec (:path opts)) ctx))))
 
 ;; ---- introspection sugar --------------------------------------------------
 
