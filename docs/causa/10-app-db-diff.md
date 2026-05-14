@@ -18,6 +18,8 @@ It renders **only the slices that changed**, plus any slices you've explicitly *
 
 You pick the rendering mode that fits the diff size. The first cascade after app boot is a big diff (everything went from `{}` to seeded); subsequent cascades are usually a single nested update.
 
+![App-DB panel — the three rendering modes side-by-side](../images/causa/10-app-db-modes.png)
+
 ## Pinning slices
 
 Click the pin icon next to a slice header (or use the *watch path* affordance) and that slice will render on every epoch — even when it didn't change. Useful for "I want to keep an eye on `:auth/state` while I work through a checkout flow."

@@ -2,6 +2,8 @@
 
 A slide-in rail on the right side of the shell. `Ctrl+Shift+/` toggles it.
 
+![Co-pilot rail with the slash-command popover open](../images/causa/06-copilot-rail.png)
+
 The rail is **pull-only**. The agent never volunteers a thought, never interrupts your investigation, never proposes a fix you didn't ask for. You ask; it answers. The rail is for the moments when you want an extra pair of eyes on the cascade, not a co-author.
 
 ## Two modes

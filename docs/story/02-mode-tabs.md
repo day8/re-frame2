@@ -12,7 +12,7 @@ The three core modes are mutually exclusive. The chip you click swaps the canvas
 - **Docs** — an auto-generated documentation pane: the parent story's `:doc`, the variant's `:doc`, the resolved args table, the resolved decorators table, the resolved parameters, the variant's tags. The args table reads from the three-layer args walk; the decorators table reads from the resolved decorator chain. No `MDX` plumbing; the doc surface is read off the registrations.
   ![Docs mode for a variant](../images/story/02-docs-mode.png)
 - **Tests** — the variant auto-runs on entry. The pane shows each `:play` assertion in order, with a green/red chip and the full record (path, expected, actual). The pane is a microcosm of the chrome-level test widget: a Run-all button, a counts headline, per-assertion drill-down.
-  ![Test mode for a variant — every assertion in order](../images/story/03-test-mode.png)
+  ![Test mode for a variant — every assertion in order](../images/story/02-test-mode.png)
 
 Selection is **per-variant** and persists across reload in `localStorage` under `re-frame.story/active-mode-tab/<variant-id>`. Open a variant where you were on *Tests* last time; you're on *Tests* again.
 

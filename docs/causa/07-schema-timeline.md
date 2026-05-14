@@ -4,6 +4,8 @@ When you register a Malli schema at any of re-frame2's documented boundaries —
 
 The panel lights up only when you've registered at least one schema. The companion narrative is [Guide 04a — Schemas](../guide/04a-schemas.md).
 
+![Schema-violation timeline — a coloured dot per epoch, per registered schema](../images/causa/07-schema-timeline.png)
+
 ## What you see
 
 One row per registered schema. Across each row, a coloured dot per epoch:

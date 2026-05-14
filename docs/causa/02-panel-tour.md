@@ -66,9 +66,7 @@ See [chapter 4](04-trace-stream.md).
 
 ## Machines — Stately-grade state-charts
 
-![Machine inspector with state-chart](../images/causa/09-machines.png)
-
-For every registered machine, the panel renders a Stately-quality state-diagram: nodes for states, edges for transitions, guards on edges, actions on entry/exit, parallel regions as side-by-side boxes, hierarchical states nested. The current state is highlighted live; transitions paint as they fire.
+For every registered machine, the panel renders a Stately-quality state-diagram: nodes for states, edges for transitions, guards on edges, actions on entry/exit, parallel regions as side-by-side boxes, hierarchical states nested. The current state is highlighted live; transitions paint as they fire. (Screenshot in [chapter 9](09-machine-inspector.md).)
 
 Embedded under the hood is [`tools/machines-viz/`](https://github.com/day8/re-frame2/tree/main/tools/machines-viz) — a separate visualiser library that Causa composes in.
 

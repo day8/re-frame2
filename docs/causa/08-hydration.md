@@ -6,6 +6,8 @@ When they don't, you get a hydration mismatch. The Hydration panel is what you o
 
 The panel **only appears in the sidebar when hydration actually runs in the page**. A SPA-only build won't see it at all.
 
+![Hydration debugger — server and client trees side-by-side, mismatch highlighted](../images/causa/08-hydration.png)
+
 ## What it shows
 
 Two columns side-by-side: the *server* render tree and the *client* render tree. The mismatch is highlighted — a node that exists on one side and not the other, an attribute that differs, a textual delta. Click any mismatched node to inspect the diff in detail.

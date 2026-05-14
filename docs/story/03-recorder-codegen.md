@@ -19,6 +19,8 @@ This is the hero chapter. Storybook 9's headline feature is the *interaction-tes
 
 That's the whole gesture. The recorder doesn't capture mouse coordinates or DOM-level events; it captures **the re-frame2 events your interactions produced** plus the resulting assertions. The output is portable, readable, and parses by every other tool that consumes Story variants.
 
+![Recorder modal — generated `:play` body, paste-ready EDN](../images/story/03-recorder-modal.png)
+
 ## How the capture works
 
 Story's recorder registers a `:rf.story.recorder/*` listener on the trace bus while recording. Every dispatched event that *originated from canvas interaction* (as distinct from setup events the variant's own `:events` slot fires) is captured into the buffer.
