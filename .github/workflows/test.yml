@@ -1164,6 +1164,19 @@ jobs:
         with:
           cli: latest
 
+      # rf2-ir6a0 — Node.js is required for the
+      # `emitted_test_run_test.clj` slice (compiles + runs the emitted
+      # `events_test.cljs` against the in-repo source tree via
+      # `clojure -M:shadow compile test` + `node out/node-test.js`).
+      # Gated below behind RF2_TEMPLATE_RUN_EMITTED_TESTS=1 so local
+      # fast-loop runs (where Node may be absent) stay green.
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
       - name: Cache Maven / gitlibs
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
@@ -1176,10 +1189,19 @@ jobs:
             ${{ runner.os }}-clj-tools-template-
             ${{ runner.os }}-clj-
 
+      # rf2-ir6a0 — `npm ci` populates implementation/node_modules so
+      # the emitted-app's compiled :node-test bundle can resolve React
+      # at runtime. The emitted-test-run slice symlinks (or NODE_PATHs
+      # to) this tree rather than `npm install`-ing per substrate.
+      - name: npm install (for emitted-test-run smoke)
+        working-directory: implementation
+        run: npm ci
+
       # tools/template is a clj-new template — its tests
-      # (`re_frame2_test.clj`, `template_emission_test.clj`) generate
-      # scaffolded apps into a tmp dir and assert the shape. Pure JVM;
-      # nothing CLJS-side. This is the only PR-time CI surface for this
+      # (`re_frame2_test.clj`, `template_emission_test.clj`,
+      # `emitted_test_run_test.clj`) generate scaffolded apps into a
+      # tmp dir and assert the shape, static parse, AND behavioural
+      # compile+run. This is the only PR-time CI surface for this
       # artefact.
       #
       # The template's `re_frame2_test.clj` opportunistically invokes
@@ -1190,9 +1212,19 @@ jobs:
       # on for CI) so contributors aren't paying ~2s × 3 substrates on
       # every local test run for a smoke that's a known-skip until the
       # alpha artefacts land on Clojars.
+      #
+      # `emitted_test_run_test.clj` compiles + runs the emitted
+      # `events_test.cljs` per substrate against the in-repo source
+      # tree (closes rf2-owbpr / rf2-ir6a0). Gated behind
+      # RF2_TEMPLATE_RUN_EMITTED_TESTS=1 — opt-in because the local
+      # fast loop may lack Node and the smoke costs ~30–60 s per
+      # substrate cold-cache. The `npm ci` step above primes
+      # implementation/node_modules so the emitted bundle's React
+      # imports resolve at run time.
       - name: Run JVM tests (tools/template artefact)
         env:
           RF2_TEMPLATE_DEPS_RESOLVE: "1"
+          RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
         run: clojure -M:test
 
   node-test-tools-pair2-mcp:
