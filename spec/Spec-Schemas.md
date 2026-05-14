@@ -1565,7 +1565,7 @@ Stability invariants the implementation upholds (see [005 §Snapshot shape](005-
 1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean). `:rf/spawn-counter` is a map of keyword→int and round-trips cleanly.
 2. Snapshots represent committed state only; no in-flight microstate is captured.
 3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member.
-4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.warning/machine-snapshot-version-mismatch`.
+4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.error/machine-snapshot-version-mismatch` (per [Spec 009 §Trace events](009-Instrumentation.md); older drafts spelled this `:rf.warning/machine-snapshot-version-mismatch`, the `:rf.error/` form is canonical).
 5. `:tags` is **read-only** for users — actions cannot return `:tags` in their `{:data :fx}` effect map; the runtime owns the slot and recomputes it from `:state` at every commit.
 6. `:rf/spawn-counter` is **read-only** for users (rf2-gr8q) — the runtime owns the slot and bumps it on every declarative-`:invoke` spawn. Apps that need to address a spawned actor by id read it from `[:rf/spawned <parent-id> <invoke-id>]` (the runtime-owned registry) or via `:on-spawn` advisory bookkeeping — never from the counter directly.
 
