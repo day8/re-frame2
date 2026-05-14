@@ -56,6 +56,8 @@ Ran 504 tests containing 2588 assertions.
 
 Failures still emit the full `Testing <ns>` banner + `FAIL in (...)` block + `expected:`/`actual:` lines, byte-for-byte unchanged. The agent reading the output sees three lines on a green pass; on a red run it sees exactly what it needs.
 
+For scale: re-frame2's corpus has ~5,000 tests across 17 runners. Before quieting, a full green run buried the agent in several thousand lines of pass-noise per invocation. After quieting, a green pass per runner is three lines.
+
 ## Regression test
 
 Pin the contract — capture a known-green suite's stdout and assert a line budget:
