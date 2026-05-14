@@ -17,21 +17,21 @@ It focuses on evidence from the session itself: retries, confusion, workarounds,
 
 It can draft a GitHub issue (against `day8/re-frame-pair2` for tool-side friction or `day8/re-frame2` for upstream framework friction), but only if the user wants that.
 
-It is intentionally diagnosis-first: the default outcome is a better understanding of what went wrong and which improvements would matter most, not pressure to contribute code or file beads.
+It is intentionally diagnosis-first: the default outcome is a better understanding of what went wrong and which improvements would matter most, not pressure to contribute code or file issues.
 
 ## Repo contents
 
 - `SKILL.md` — the skill itself
 - `references/analysis-lenses.md` — friction taxonomy and prioritization prompts (re-frame2-aware)
 - `references/known-frictions.md` — recurring classes of product friction to pattern-match against
-- `references/issue-template.md` — bead drafting structure (also usable as a GitHub issue body)
+- `references/issue-template.md` — GitHub-issue drafting structure (with the shell-safety pattern for transcript-derived bodies)
 - `.claude-plugin/plugin.json` — plugin packaging metadata
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
 
 ## Relationship to other repos
 
 - [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) — the pair tool this skill reviews. Sessions with that tool are this skill's input.
-- [`re-frame2`](https://github.com/day8/re-frame2) — the framework. When friction is caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings), beads route here, not to `re-frame-pair2`.
+- [`re-frame2`](https://github.com/day8/re-frame2) — the framework. When friction is caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings), GitHub issues route here, not to `re-frame-pair2`.
 - [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver) — the v1 sibling that targets v1 `re-frame-pair`.
 
 This skill does **not** depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation) replace the v1 reliance on the 10x dev tool.
@@ -44,7 +44,7 @@ A good run of the skill produces:
 2. the main friction points observed in the session
 3. likely root causes
 4. 2-5 high-leverage improvement ideas
-5. optional bead candidates (against `re-frame-pair2` and/or `re-frame2`), with draft text or direct filing only after approval
+5. optional GitHub-issue candidates (against `day8/re-frame-pair2` and/or `day8/re-frame2`), with draft text or direct filing only after approval
 
 ## Status
 

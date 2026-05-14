@@ -103,11 +103,11 @@ Also consider higher-upside redesigns:
 
 ## Routing the fix
 
-Decide where the bead lives before drafting:
+Decide which target repo's GitHub issues the filing lives in before drafting:
 
-- **`re-frame-pair2`** — the friction is in the tool's SKILL.md, scripts, attach logic, recipe selection, structured-result shape, cross-platform handling, or any concern that is not part of the framework's commitment.
-- **`re-frame2`** — the friction is caused by a gap or ambiguity in the Tool-Pair contract itself: a missing trace event category, an under-specified `:rf.epoch/*` failure mode, a missing registrar query, a `data-rf2-source-coord` shape question, a schema-reflection limitation, or a private-namespace reach-through that should be promoted to public.
-- **Both** — sometimes the fastest path is a tool-side workaround now plus an upstream bead for the long-term fix. File both, and reference one from the other.
+- **`day8/re-frame-pair2`** — the friction is in the tool's SKILL.md, scripts, attach logic, recipe selection, structured-result shape, cross-platform handling, or any concern that is not part of the framework's commitment.
+- **`day8/re-frame2`** — the friction is caused by a gap or ambiguity in the Tool-Pair contract itself: a missing trace event category, an under-specified `:rf.epoch/*` failure mode, a missing registrar query, a `data-rf2-source-coord` shape question, a schema-reflection limitation, or a private-namespace reach-through that should be promoted to public.
+- **Both** — sometimes the fastest path is a tool-side workaround now plus an upstream issue for the long-term fix. File both, and reference one from the other.
 
 ## Prioritization
 

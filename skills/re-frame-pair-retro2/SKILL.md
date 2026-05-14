@@ -78,7 +78,7 @@ Diagnostic posture rules (evidence over vibes; symptom vs cause; direct/indirect
 
 ## Analysis workflow
 
-Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, and opt-in bead protocol shared with `re-frame2-improver`. The protocol leaf is the normative source for the workflow shape; the steps below are the pair2-retro specialisation.
+Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, and opt-in issue-filing protocol shared with `re-frame2-improver`. The protocol leaf is the normative source for the workflow shape; the steps below are the pair2-retro specialisation.
 
 1. **Reconstruct the session goal.** The user's intended outcome, plus environment facts (platform, target repo, live runtime state, tooling constraints).
 2. **Build a short timeline.** Turns where progress stalled, restarted, detoured, required a workaround. Tool errors, empty/stale outputs, retries, clarification loops.
@@ -131,12 +131,12 @@ Single-quoted here-doc delimiter (`<<'EOF'`) so `$`, `` ` ``, and `\` inside the
 - Don't reduce every problem to "write more docs". Consider product behavior, tooling, defaults, instrumentation first.
 - Don't confuse a transient local outage with a product gap unless the workflow made recovery harder than it should have.
 - Don't propose vague improvements like "better UX" without naming the concrete missing behavior.
-- Don't force every retro into a code contribution or bead, or pressure the user to file anything.
-- Don't file speculative beads unsupported by the session.
+- Don't force every retro into a code contribution or GitHub issue, or pressure the user to file anything.
+- Don't file speculative issues unsupported by the session.
 
 ## Reference files
 
-- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Extracted by rf2-dhe9v; consumed by both this skill and `re-frame2-improver`.
+- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Extracted by rf2-dhe9v; consumed by both this skill and `re-frame2-improver`.
 - [`references/analysis-lenses.md`](references/analysis-lenses.md) — friction signals (generic + re-frame2-specific), root-cause categories, improvement patterns, routing decisions, prioritization.
 - [`references/known-frictions.md`](references/known-frictions.md) — recurring classes of `re-frame-pair2` pain; sanity-check one-off vs pattern.
-- [`references/issue-template.md`](references/issue-template.md) — bead/issue body template.
+- [`references/issue-template.md`](references/issue-template.md) — GitHub-issue body template (+ shell-safety pattern for transcript-derived bodies).
