@@ -277,7 +277,7 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
     ]])
 ```
 
-`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:spec`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `reg-flow` rejects map shapes missing any required key with `:rf.error/flow-shape-invalid` (per [013 §The registration shape](013-Flows.md)).
+`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:spec`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `reg-flow` rejects malformed maps with one of four distinct error keys — `:rf.error/flow-missing-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md).
 
 #### `:rf/app-schema-meta`
 
