@@ -48,7 +48,7 @@
 
 (defn- resolve-machine-spec
   "Look up `actor-id`'s machine spec via the registrar's `:rf/machine`
-  metadata (per `re-frame.machines.lifecycle-fx/machine-meta`). Returns
+  metadata (per `re-frame.machines/machine-meta`). Returns
   nil if no machine is registered under `actor-id` — the actor was
   already torn down, or the destroy targets a non-machine event id."
   [actor-id]
