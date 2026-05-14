@@ -215,6 +215,8 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 
 Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Causa's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
 
+**`:sensitive?` inheritance.** A flow's `:output` fn runs inside the after-interceptor of the surrounding handler scope; the dirty-check write and any thrown exception are framework-owned but the resolved input values and computed output ride from the **handler whose event triggered the drain**. The runtime therefore stamps `:sensitive? true` at the top level of every `:rf.flow/*` trace event when the in-scope handler's registration meta carries `:sensitive? true` — per the inheritance rule at [009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key). The flow itself does not declare `:sensitive?` directly; the marker rides the cascade. An auth-handler dispatching `[:auth/signed-in token]` whose drain re-evaluates the `:auth/derived-user` flow emits a `:rf.flow/computed` carrying `:sensitive? true`, and the framework-published forwarders (Sentry / Honeybadger / pair2 / Causa-MCP) default-drop it. Apps that need finer-grained per-flow privacy reach for `with-redacted` on the surrounding handler or scrub the `:output` fn's return value at the source.
+
 The whole flow trace surface, like the rest of trace, is compile-time eliminated in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
 
 ## Dynamic toggle via fx
@@ -326,5 +328,6 @@ No opt-out. Stale derived values are confusing; vacating the slot is the natural
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — sub-cache invalidation; flows trigger sub-cache invalidation when they write.
 - [009-Instrumentation §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/flow-cycle` namespace.
 - [009-Instrumentation §Flow trace events](009-Instrumentation.md#flow-trace-events) — full taxonomy and payloads for the `:rf.flow/*` event vocabulary; cross-referenced from [§Flow tracing](#flow-tracing) above.
+- [009-Instrumentation §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key) — `:rf.flow/*` trace events inherit `:sensitive?` from the in-scope handler at drain time; cross-referenced from [§Flow tracing](#flow-tracing) above.
 - [Conventions](Conventions.md) — `:rf.fx/reg-flow` and `:rf.fx/clear-flow` reserved fx-ids.
 - [MIGRATION §M-19](MIGRATION.md) — generic call-shape migration; `:inputs` is positional vector matching the v1 `on-changes` form.
