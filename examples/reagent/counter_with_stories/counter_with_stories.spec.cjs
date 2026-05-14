@@ -863,7 +863,32 @@ module.exports = {
     // initialise` settled to a different value (the scrubber here is
     // the right-pane slider, which IS scoped to the active variant;
     // mismatched canvas + slider was the original "still 4" failure).
+    //
+    // Per the §10/§11 race fix: the §10 inc click dispatches the event
+    // synchronously into re-frame's queue, but the React render that
+    // flips the visible count from "7" to "8" lands a microtask later.
+    // Reading `beforeText` straight after the click can therefore
+    // snapshot the pre-render "7" — and a subsequent scrub-to-epoch-0
+    // restore (which puts :count back at 7) lands on the SAME visible
+    // value, so the test fails with `still "7"`. Poll until the canvas
+    // reflects the post-inc value before establishing the pivot. The
+    // /loaded variant initialised to 7 and §10 fired exactly one
+    // :counter/inc, so the expected pivot is "8".
     const canvasCount = loadedCanvas.locator('[data-test="count"]').first();
+    {
+      const start = Date.now();
+      let txt = '';
+      while (Date.now() - start < 5000) {
+        txt = (await canvasCount.textContent()) || '';
+        if (txt === '8') break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (txt !== '8') {
+        throw new Error(
+          `§10 inc click did not bump :count on :story.counter/loaded — expected canvas to read "8" (initialised 7 + one inc), got "${txt}" after 5s`,
+        );
+      }
+    }
     const beforeText = (await canvasCount.textContent()) || '';
 
     await slider.evaluate((el) => {
