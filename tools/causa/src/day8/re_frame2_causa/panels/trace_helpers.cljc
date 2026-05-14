@@ -45,8 +45,7 @@
   Empty / nil values disable an axis. Composition is AND-wise — the
   canonical `trace-bus/filter-events` does the work; this ns adds
   the panel's projection + per-axis chip enumeration on top."
-  (:require #?(:clj  [clojure.string :as str]
-               :cljs [clojure.string :as str])
+  (:require [clojure.string :as str]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- the canonical 9-axis vocabulary ------------------------------------
