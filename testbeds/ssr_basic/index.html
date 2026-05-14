@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 testbed: ssr-basic (hydration baseline)</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    h1 { margin-top: 0; }
+    h2, h3 { margin: 0.25em 0; }
+    button { margin: 0 0.25em 0.25em 0; padding: 4px 10px; }
+    p { margin: 0.25em 0; }
+  </style>
+</head>
+<body>
+  <!--
+    SERVER-RENDERED markup. Per Spec 011 §The render-tree → HTML emitter,
+    this is the bytes the JVM-side `(rf/render-to-string ((rf/view
+    :ssr-basic.core/root)) {:doctype? true :emit-hash? true})` would have
+    produced if a Clojure server were sitting in front. The companion
+    `<script id="__rf_payload">` below carries the serialised app-db +
+    metadata so the client-side `run` can `:rf/hydrate` against the same
+    state the server's render saw.
+
+    The static page deliberately omits a `data-rf-render-hash` attribute
+    on the root — the matching hash would have to be computed from the
+    full canonical-EDN walk of the resolved hiccup tree, which is JVM-
+    side machinery. The payload's `:rf/render-hash` slot is left nil so
+    `verify-hydration!` no-ops cleanly (server has nothing to compare
+    against). The hash-mismatch path is exercised by the sibling testbed
+    `testbeds/ssr_hydration_mismatch/`; this surface is the no-mismatch
+    baseline.
+  -->
+  <div id="app">
+    <div data-testid="ssr-basic" style="font-family: sans-serif; padding: 1em">
+      <h1>ssr-basic testbed</h1>
+      <!-- Pre-hydrate: the not-hydrated marker is visible. The client
+           overwrites this with the live view tree after first render. -->
+      <div data-testid="not-hydrated" style="padding: 0.25em; color: #700">
+        not-hydrated
+      </div>
+      <div data-testid="counter-panel"
+           style="border: 1px solid #aaa; padding: 0.5em; margin: 0.25em 0">
+        <h2 data-testid="title">seeded</h2>
+        <p>count=<span data-testid="count">7</span></p>
+        <button data-testid="inc">Inc</button>
+        <button data-testid="set-title">Set title</button>
+      </div>
+      <div data-testid="server-response"
+           style="border: 1px solid #ddd; padding: 0.5em; margin: 0.25em 0; font-family: monospace">
+        <h3>Per-request response</h3>
+        <p>status=<span data-testid="resp-status">200</span></p>
+        <p>content-type=<span data-testid="resp-ct">text/html; charset=utf-8</span></p>
+        <p>cookies-count=<span data-testid="resp-cookies-count">1</span></p>
+        <p>first-cookie-name=<span data-testid="resp-cookie-name">session</span></p>
+      </div>
+    </div>
+  </div>
+  <script id="__rf_payload" type="application/edn">
+{:rf/version     1
+ :rf/frame-id    :rf/default
+ :rf/render-hash nil
+ :rf/app-db      {:count 7
+                  :title "seeded"}
+ :rf/response    {:status   200
+                  :headers  {"content-type" "text/html; charset=utf-8"
+                             "x-request-id" "test-req-1"}
+                  :cookies  [{:name      "session"
+                              :value     "abc123"
+                              :http-only true
+                              :secure    true
+                              :same-site :lax
+                              :path      "/"}]
+                  :redirect nil}}
+  </script>
+  <script src="main.js"></script>
+</body>
+</html>
