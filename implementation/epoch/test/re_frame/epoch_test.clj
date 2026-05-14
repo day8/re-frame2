@@ -49,7 +49,10 @@
   (trace/clear-trace-cbs!)
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
-  (epoch/configure! {:depth 50})
+  ;; Reset the config atom directly so :trace-events-keep (rf2-iegsz)
+  ;; doesn't leak between tests — `configure!` merges, so a per-test
+  ;; opt-in to elision would otherwise persist.
+  (reset! @#'epoch/config {:depth 50})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -749,6 +752,73 @@
     (is (= 7 (:depth (epoch/current-config))))
     (rf/configure :epoch-history {:depth 12})
     (is (= 12 (:depth (epoch/current-config))))))
+
+;; ---- rf2-iegsz: :trace-events elision policy ------------------------------
+;;
+;; Per Spec-Schemas §`:rf/epoch-record` line 2224, `:trace-events` is
+;; optional — 'implementations may choose to drop traces from older
+;; epochs'. The default (pre-rf2-iegsz, also the absent-config default)
+;; keeps every record's `:trace-events`. The `:trace-events-keep N` knob
+;; bounds the per-frame trace-event memory to the most-recent N records;
+;; older records keep their cheap structured projections (`:sub-runs` /
+;; `:renders` / `:effects`) but lose the raw trace stream.
+
+(deftest trace-events-keep-elides-older-records
+  (testing "with :trace-events-keep N set, only the most-recent N records
+            carry :trace-events; older records keep :sub-runs / :renders /
+            :effects but drop :trace-events"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (rf/configure :epoch-history {:depth 10 :trace-events-keep 2})
+
+    ;; Drive 5 cascades so the buffer has 5 records and only the last 2
+    ;; should retain :trace-events.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)]
+      (is (= 5 (count history))
+          "all 5 records remain in the ring (depth 10)")
+      (is (every? #(contains? % :sub-runs) history)
+          "every record keeps its :sub-runs projection")
+      (is (every? #(contains? % :effects) history)
+          "every record keeps its :effects projection")
+      (is (every? #(contains? % :renders) history)
+          "every record keeps its :renders projection")
+
+      (let [[r0 r1 r2 r3 r4] history]
+        (is (not (contains? r0 :trace-events))
+            "record 0 (oldest) — :trace-events dropped")
+        (is (not (contains? r1 :trace-events))
+            "record 1 — :trace-events dropped")
+        (is (not (contains? r2 :trace-events))
+            "record 2 — :trace-events dropped")
+        (is (contains? r3 :trace-events)
+            "record 3 — :trace-events kept (penultimate)")
+        (is (contains? r4 :trace-events)
+            "record 4 — :trace-events kept (most-recent)")))))
+
+(deftest trace-events-keep-absent-keeps-all-trace-events
+  (testing "absent :trace-events-keep — every record carries :trace-events
+            (default behaviour preserved)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    ;; Default config — no :trace-events-keep set.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)]
+      (is (= 3 (count history)))
+      (is (every? #(contains? % :trace-events) history)
+          "every record carries :trace-events — no elision applied"))))
 
 ;; ---- restore-epoch reactive surfaces (rf2-2fat) ---------------------------
 ;;
