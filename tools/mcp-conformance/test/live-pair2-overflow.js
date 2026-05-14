@@ -74,8 +74,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { runWithWatchdog } = require('./_runner.js');
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
 
@@ -293,44 +292,41 @@ function isSkip() {
   return !process.env.SHADOW_CLJS_NREPL_PORT;
 }
 
-async function main() {
-  if (isSkip()) {
-    console.log(
-      'SKIP live-pair2-overflow: $SHADOW_CLJS_NREPL_PORT not set.\n' +
-        '      This variant requires a live shadow-cljs nREPL — without\n' +
-        '      one the server runs degraded and the wire-cap cannot be\n' +
-        '      tripped naturally. The sibling end-to-end-pair2.js covers\n' +
-        '      degraded-mode protocol conformance; this variant adds\n' +
-        '      cap-marker conformance under real over-budget conditions.',
-    );
-    return;
-  }
-
-  const env = { ...process.env };
-
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [SERVER],
-    cwd: os.tmpdir(),
-    env,
-    stderr: 'pipe',
-  });
-
-  const client = new Client(
-    { name: 'mcp-conformance-pair2-live-overflow', version: '0.1.0' },
-    { capabilities: {} },
+// Pre-flight SKIP: process.exit(0) BEFORE invoking the runner so we
+// don't spawn a child or install a watchdog. Same posture as the sibling
+// end-to-end-causa.js placeholder.
+if (isSkip()) {
+  console.log(
+    'SKIP live-pair2-overflow: $SHADOW_CLJS_NREPL_PORT not set.\n' +
+      '      This variant requires a live shadow-cljs nREPL — without\n' +
+      '      one the server runs degraded and the wire-cap cannot be\n' +
+      '      tripped naturally. The sibling end-to-end-pair2.js covers\n' +
+      '      degraded-mode protocol conformance; this variant adds\n' +
+      '      cap-marker conformance under real over-budget conditions.',
   );
+  process.exit(0);
+}
 
-  transport.stderr?.on('data', (d) => process.stderr.write('[server] ' + d.toString()));
+// Hard cap so a hung server doesn't wedge CI. nREPL connect + one
+// eval round-trip + tear-down should comfortably fit in 60s.
+runWithWatchdog(
+  {
+    watchdogMs: 60000,
+    clientName: 'mcp-conformance-pair2-live-overflow',
+    transportSpec: {
+      command: process.execPath,
+      args: [SERVER],
+      cwd: os.tmpdir(),
+      env: { ...process.env },
+    },
+  },
+  async (client) => {
+    // 1. The runner already ran the SDK initialize handshake. If that
+    // had thrown it means the server's initialize envelope itself
+    // drifted; not the bug this test is hunting, but a load-bearing
+    // pre-condition.
+    console.log('OK   connect -> server attached on nREPL', process.env.SHADOW_CLJS_NREPL_PORT);
 
-  // 1. Connect via the SDK — the same full initialize handshake the
-  // degraded variant exercises. If this throws here it means the
-  // server's initialize envelope itself drifted; not the bug this
-  // test is hunting, but a load-bearing pre-condition.
-  await client.connect(transport);
-  console.log('OK   connect -> server attached on nREPL', process.env.SHADOW_CLJS_NREPL_PORT);
-
-  try {
     // 2. Fire the over-budget eval. The form returns a 25,000-char
     // string (~6,250 token-estimate) which exceeds the 5,000-token
     // default cap. The server's wire-boundary `apply-cap` MUST
@@ -461,35 +457,7 @@ async function main() {
         ')',
     );
 
-    // 8. Clean disconnect.
-    await client.close();
-    console.log('OK   client.close() -> transport torn down cleanly');
+    // 8. Clean disconnect — runner handles client.close() on success.
     console.log('\nPAIR2-MCP LIVE OVERFLOW CONFORMANCE GREEN');
-  } catch (err) {
-    try {
-      await client.close();
-    } catch (_e) {
-      // best-effort
-    }
-    throw err;
-  }
-}
-
-// Hard cap so a hung server doesn't wedge CI. nREPL connect + one
-// eval round-trip + tear-down should comfortably fit in 60s.
-const watchdog = setTimeout(() => {
-  console.error('FAIL: watchdog timeout (60s)');
-  process.exit(2);
-}, 60000);
-
-main()
-  .then(() => {
-    clearTimeout(watchdog);
-    process.exit(0);
-  })
-  .catch((e) => {
-    clearTimeout(watchdog);
-    console.error('FAIL:', e.message);
-    if (e.stack) console.error(e.stack);
-    process.exit(1);
-  });
+  },
+);
