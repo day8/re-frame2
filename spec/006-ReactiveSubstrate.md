@@ -1029,12 +1029,12 @@ Other-language ports follow the same pattern: each adapter package exports a pub
 
 Two complementary accessors:
 
-- `(rf/current-adapter)` returns a **discriminator keyword** identifying the active adapter (the `:kind` slot of the installed adapter spec map), or `nil` if no adapter is installed. Canonical values:
+- `(rf/current-adapter)` returns a **discriminator keyword** identifying the active adapter (the `:kind` slot of the installed adapter spec map), or `nil` if no adapter is installed. Canonical values live under the `:rf.adapter/*` reserved namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned), per rf2-985ij) so third-party adapters can publish their own unqualified `:kind` keywords without collision risk:
 
-  - `:reagent` — CLJS browser default (bridge adapter)
-  - `:reagent-slim` — CLJS browser, slim adapter (no stock-Reagent dep)
-  - `:uix` — CLJS browser, UIx substrate
-  - `:helix` — CLJS browser, Helix substrate
+  - `:rf.adapter/reagent` — CLJS browser default (bridge adapter)
+  - `:reagent-slim` — CLJS browser, slim adapter (no stock-Reagent dep); namespacing tracked separately
+  - `:rf.adapter/uix` — CLJS browser, UIx substrate
+  - `:rf.adapter/helix` — CLJS browser, Helix substrate
   - `:plain-atom` — CLJS JVM headless / tests / Node-based CLJS
   - `:ssr` — CLJS JVM SSR (re-frame.ssr adapter)
   - `:custom` — user installed a custom adapter that didn't pick one of the canonical kinds

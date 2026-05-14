@@ -118,7 +118,7 @@
   See Spec 006 §CLJS reference: Reagent as default adapter for the
   bridging pseudocode. Per rf2-agql there is no default-adapter
   registry — adapter wiring is explicit at the call site."
-  {:kind                      :reagent
+  {:kind                      :rf.adapter/reagent
    :make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
