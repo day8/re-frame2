@@ -56,3 +56,31 @@
     (is (some? (eu/editor-uri {:custom "jetbrains://idea/{path}:{line}"}      coord)))
     (is (some? (eu/editor-uri {:custom "subl://open?path={path}&line={line}"} coord)))
     (is (some? (eu/editor-uri {:custom "emacsclient://open?file={path}"}      coord)))))
+
+;; ---- positive scheme allowlist (rf2-cm93v / rf2-p887o) -------------------
+
+(deftest allowed-uri-on-cljs
+  (testing "the positive allowlist round-trips identically on CLJS"
+    ;; built-in schemes pass
+    (is (eu/allowed-uri? "vscode://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri? "cursor://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri? "windsurf://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri? "zed://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri? "idea://open?file=src/x.cljs&line=1&column=1"))
+    ;; other catalogued schemes
+    (is (eu/allowed-uri? "subl://open?path=src/x.cljs"))
+    (is (eu/allowed-uri? "emacsclient://src/x.cljs"))
+    (is (eu/allowed-uri? "file:///abs/path/src/x.cljs"))
+    ;; rejected schemes
+    (is (not (eu/allowed-uri? "javascript:alert(1)")))
+    (is (not (eu/allowed-uri? "data:text/html,xxx")))
+    (is (not (eu/allowed-uri? "vbscript:msgbox(1)")))
+    (is (not (eu/allowed-uri? "http://evil.example/x")))
+    (is (not (eu/allowed-uri? "https://evil.example/x")))
+    ;; non-strings / shape edge cases
+    (is (not (eu/allowed-uri? nil)))
+    (is (not (eu/allowed-uri? "")))
+    (is (not (eu/allowed-uri? "no-scheme-here")))
+    ;; leading whitespace is tolerated
+    (is (not (eu/allowed-uri? " javascript:alert(1)")))
+    (is (eu/allowed-uri? " vscode://file/src/x.cljs:1:1"))))

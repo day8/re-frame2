@@ -130,6 +130,88 @@
           lower   (str/lower-case trimmed)]
       (boolean (some #(str/starts-with? lower %) forbidden-uri-schemes)))))
 
+;; ---- positive scheme allowlist (rf2-cm93v / rf2-p887o) -------------------
+;;
+;; `forbidden-scheme?` (rf2-vwcsq) is a blocklist of three known-bad schemes
+;; — it fails open against `http:` / `https:` and any scheme that hasn't
+;; been catalogued as bad yet. The launch-time seam in each tool (Story's
+;; and Causa's `open!`) layers a positive allowlist on top: anything
+;; outside `allowed-editor-uri-schemes` is refused before `window.location`
+;; gets assigned. Per spec/Security.md §Pragmatic stance the rationale is
+;; "gate accidents, not theoretical attacks" — a `{:custom ...}` template
+;; that resolves to `http://...` would navigate the tab rather than launch
+;; an editor; the allowlist makes that an obvious no-op rather than a
+;; silent surprise.
+;;
+;; Originally lived in `day8.re-frame2-causa.open-in-editor` (rf2-cm93v);
+;; lifted to this shared ns per rf2-p887o so Story consumes the same
+;; predicate Causa does.
+
+(def ^:const allowed-editor-uri-schemes
+  "Positive allowlist of URI schemes the launcher will hand off to the
+  OS. Anything outside the set is refused at each tool's `open!`
+  boundary.
+
+  Members:
+   - `vscode:`            VS Code
+   - `vscode-insiders:`   VS Code Insiders
+   - `cursor:`            Cursor (VS Code fork)
+   - `windsurf:`          Windsurf (VS Code fork)
+   - `zed:`               Zed
+   - `idea:`              JetBrains (IDEA, WebStorm, PyCharm, …)
+   - `jetbrains:`         JetBrains alt scheme
+   - `fleet:`             JetBrains Fleet
+   - `subl:`              Sublime Text
+   - `emacs:` / `emacsclient:` / `org-protocol:`  Emacs family
+   - `vim:` / `nvim:` / `mvim:`                    Vim family
+   - `txmt:`              TextMate
+   - `atom:`              Atom (legacy but still launchable)
+   - `file:`              host-resolved file URL
+
+  Per rf2-cm93v this is intentionally a positive list, not a reject
+  list — pre-cm93v the editor-template surface relied on `editor-uri`'s
+  three-scheme reject (`javascript:` / `data:` / `vbscript:`) which
+  failed open against `http:` / `https:` and any scheme that hadn't
+  been catalogued as bad yet."
+  #{"vscode" "vscode-insiders"
+    "cursor" "windsurf"
+    "zed"
+    "idea" "jetbrains" "fleet"
+    "subl"
+    "emacs" "emacsclient" "org-protocol"
+    "vim" "nvim" "mvim"
+    "txmt"
+    "atom"
+    "file"})
+
+(defn- uri-scheme
+  "Return the URI's leading scheme as a lower-case string, sans the
+  trailing `:`. Returns nil when `uri` is not a string, has no scheme,
+  or the scheme is empty.
+
+  Tolerates leading whitespace so an attacker template like
+  `\" javascript:...\"` (which would `triml` away before the browser
+  parsed it) still produces the right scheme for the allowlist check."
+  [uri]
+  (when (string? uri)
+    (let [trimmed  (str/triml uri)
+          colon-ix (str/index-of trimmed ":")]
+      (when (and colon-ix (pos? colon-ix))
+        (str/lower-case (subs trimmed 0 colon-ix))))))
+
+(defn allowed-uri?
+  "Predicate — true iff `uri`'s scheme is in `allowed-editor-uri-schemes`.
+  Pure data → boolean; safe to call from tests and from the click-time
+  guard in each tool's `open!`. Per rf2-cm93v: positive allowlist,
+  defense-in-depth alongside `editor-uri`'s three-scheme reject.
+
+  Per rf2-p887o lives here (not in Causa) so Story consumes the same
+  predicate — both surfaces gate `{:custom ...}` templates identically."
+  [uri]
+  (boolean
+    (when-let [scheme (uri-scheme uri)]
+      (contains? allowed-editor-uri-schemes scheme))))
+
 (def ^:private default-editor
   "Default editor when no `:editor` config key is set. VS Code is the
   most-installed editor in 2026 (Stack Overflow Developer Survey 2025

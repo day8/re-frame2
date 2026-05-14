@@ -24,6 +24,21 @@
   fallback, per rf2-mdjp). The UI hides the chip entirely so the user
   doesn't click a no-op.
 
+  ## Defense-in-depth scheme allowlist (rf2-cm93v / rf2-p887o)
+
+  `editor-uri/editor-uri` already rejects `javascript:` / `data:` /
+  `vbscript:` for `{:custom ...}` templates (per rf2-vwcsq). The
+  click-time seam below layers a positive-allowlist gate on top
+  (`editor-uri/allowed-uri?`): before assigning to `window.location`
+  we verify the final URI's scheme is in
+  `editor-uri/allowed-editor-uri-schemes`. Anything outside the set
+  (in particular `http:` / `https:` / new schemes we did not
+  anticipate) is rejected at the click-time seam — a custom template
+  that resolves to `https://...` would navigate the tab rather than
+  launch an editor; the allowlist makes that an obvious no-op rather
+  than a silent surprise. The predicate lives in the shared
+  `editor-uri` ns so Causa's parallel surface consumes the same gate.
+
   ## Bundle isolation
 
   Lives in the Story CLJS bundle; production builds elide the entire
@@ -65,11 +80,15 @@
 
   Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
   already rejects `javascript:` / `data:` / `vbscript:` schemes by
-  returning `nil`. The `(when uri ...)` guard below is the call site's
-  enforcement seam — a forbidden custom template never reaches
-  `window.location`."
+  returning `nil`. Per rf2-cm93v / rf2-p887o this fn applies a second,
+  positive allowlist gate (`editor-uri/allowed-uri?`) before handing
+  the URI off — closing the `http:` / `https:` / unknown-scheme path
+  that a `{:custom ...}` template could otherwise resolve to. A
+  rejected URI is a click-time no-op (no navigation, no console noise
+  — the chip's `(when uri ...)` earlier guard handles the absent
+  case; the allowlist handles the shaped-but-disallowed case)."
   [uri]
-  (when (and uri js/window)
+  (when (and uri (editor-uri/allowed-uri? uri) js/window)
     (set! (.-location js/window) uri)
     nil))
 
@@ -80,8 +99,12 @@
   preference from `config/editor`; constructs the URI via
   `editor-uri/editor-uri`; click fires `window.location.href := uri`.
 
-  Returns nil when the source-coord has no usable `:file` slot — the
-  UI hides the chip rather than showing a no-op affordance.
+  Returns nil when the source-coord has no usable `:file` slot, when
+  `editor-uri/editor-uri` returns nil (a scheme rejected by the
+  `editor-uri`-side gate per rf2-vwcsq), or when the resolved URI's
+  scheme is not in `editor-uri/allowed-editor-uri-schemes` (the
+  shared positive allowlist per rf2-cm93v / rf2-p887o). The UI hides
+  the chip rather than rendering an unclickable affordance.
 
   `variant-of-style` is `:title` (default — for the canvas title bar)
   or `:test-detail` (for the per-test failure detail box, slightly
@@ -101,7 +124,7 @@
            style  (case variant-of-style
                     :test-detail (:chip-test chip-styles)
                     (:chip chip-styles))]
-       (when uri
+       (when (and uri (editor-uri/allowed-uri? uri))
          [:a {:style       style
               :href        uri
               :title       (editor-uri/open-button-title source-coord)

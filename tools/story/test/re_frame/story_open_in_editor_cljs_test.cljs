@@ -84,3 +84,53 @@
           props  (second hiccup)]
       (is (= "Open in editor — src/app.cljs:99"
              (:title props))))))
+
+;; ---- rf2-cm93v / rf2-p887o — Story-side allowlist behaviour -----------
+;;
+;; The matrix tests for `allowed-uri?` itself live in the shared editor-uri
+;; test ns. These cases cover the Story chip's wiring: the chip hides when
+;; a `{:custom ...}` template resolves to a disallowed scheme, and renders
+;; normally for safe ones — parity with Causa's surface (rf2-p887o).
+
+(deftest open-chip-hides-when-custom-template-resolves-to-unsafe-scheme
+  (testing "open-chip returns nil when the resolved URI's scheme is not
+            in `editor-uri/allowed-editor-uri-schemes`. Defense-in-depth
+            alongside the editor-uri-side javascript:/data:/vbscript:
+            reject from rf2-vwcsq — closes the http:/https:/etc. surface
+            an upstream {:custom ...} template could otherwise resolve
+            to."
+    ;; editor-uri/editor-uri already gates javascript:/data:/vbscript:
+    ;; — for these the chip is nil regardless of the allowlist. Verify
+    ;; those cases still hide.
+    (config/set-editor! {:custom "javascript:alert(1)"})
+    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
+
+    (config/set-editor! {:custom "data:text/html,xxx"})
+    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
+
+    ;; http: is NOT in editor-uri's reject list — the allowlist is
+    ;; the seam that catches it. Without rf2-p887o this used to render
+    ;; a clickable chip that would navigate the tab.
+    (config/set-editor! {:custom "http://evil.example/{path}"})
+    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
+
+    ;; Same for https:
+    (config/set-editor! {:custom "https://evil.example/{path}"})
+    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))))
+
+(deftest open-chip-renders-when-custom-template-resolves-to-safe-scheme
+  (testing "open-chip renders normally when the resolved URI's scheme
+            is in `editor-uri/allowed-editor-uri-schemes`"
+    (config/set-editor! {:custom "subl://open?path={path}&line={line}"})
+    (let [hiccup (open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
+      (is (vector? hiccup))
+      (is (= "subl://open?path=src/x.cljs&line=5" (:href (second hiccup)))))
+
+    (config/set-editor! {:custom "emacsclient://{path}"})
+    (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))))
+
+(deftest open-chip-for-variant-hides-on-unsafe-scheme
+  (testing "open-chip-for-variant inherits the allowlist gate"
+    (config/set-editor! {:custom "http://evil.example/{path}"})
+    (is (nil? (open-in-editor/open-chip-for-variant
+                {:source {:file "src/x.cljs" :line 1}})))))

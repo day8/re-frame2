@@ -195,3 +195,93 @@
     (is (some? (eu/editor-uri
                  {:custom "myeditor://open?file={path}"}
                  {:file "javascript:not-a-scheme.cljs" :line 1 :column 1})))))
+
+;; ---- positive scheme allowlist (rf2-cm93v / rf2-p887o) -------------------
+;;
+;; The allowlist was lifted from `day8.re-frame2-causa.open-in-editor` into
+;; this shared ns per rf2-p887o so Story and Causa consume the same predicate.
+
+(deftest allowed-uri-accepts-builtin-editor-schemes
+  (testing "the built-in editor schemes pass the allowlist"
+    (is (eu/allowed-uri? "vscode://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri? "cursor://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri? "windsurf://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri? "zed://file/src/x.cljs:1:1"))
+    (is (eu/allowed-uri?
+          "idea://open?file=src/x.cljs&line=1&column=1"))))
+
+(deftest allowed-uri-accepts-other-editor-schemes
+  (testing "other catalogued editor schemes pass — emacs / vim / sublime
+            family, jetbrains alt, file:"
+    (is (eu/allowed-uri? "subl://open?path=src/x.cljs"))
+    (is (eu/allowed-uri? "emacs:src/x.cljs"))
+    (is (eu/allowed-uri? "emacsclient://src/x.cljs"))
+    (is (eu/allowed-uri? "vim://src/x.cljs"))
+    (is (eu/allowed-uri? "nvim://src/x.cljs"))
+    (is (eu/allowed-uri? "txmt://open?url=file://src/x.cljs"))
+    (is (eu/allowed-uri? "jetbrains://idea/src/x.cljs"))
+    (is (eu/allowed-uri? "file:///abs/path/src/x.cljs"))))
+
+(deftest allowed-uri-rejects-javascript-scheme
+  (testing "javascript: is rejected — in-tab script execution vector"
+    (is (not (eu/allowed-uri? "javascript:alert(1)")))
+    (is (not (eu/allowed-uri? "JavaScript:alert(1)")))
+    (is (not (eu/allowed-uri? "JAVASCRIPT:alert(1)")))))
+
+(deftest allowed-uri-rejects-data-scheme
+  (testing "data: is rejected — inline-rendered HTML / script vector"
+    (is (not (eu/allowed-uri?
+               "data:text/html,<script>alert(1)</script>")))
+    (is (not (eu/allowed-uri?
+               "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==")))))
+
+(deftest allowed-uri-rejects-http-scheme
+  (testing "http: is rejected — a custom editor template that resolves
+            to `http://...` would navigate the page rather than launch
+            an editor (rf2-cm93v)"
+    (is (not (eu/allowed-uri? "http://evil.example/x")))
+    (is (not (eu/allowed-uri? "HTTP://evil.example/x")))))
+
+(deftest allowed-uri-rejects-https-scheme
+  (testing "https: is rejected — same navigation vector as http:"
+    (is (not (eu/allowed-uri? "https://evil.example/x")))
+    (is (not (eu/allowed-uri? "HTTPS://evil.example/x")))))
+
+(deftest allowed-uri-rejects-vbscript-scheme
+  (testing "vbscript: is rejected — legacy IE / WebView2 script vector"
+    (is (not (eu/allowed-uri? "vbscript:msgbox(1)")))))
+
+(deftest allowed-uri-handles-non-string-and-empty
+  (testing "non-string / empty / scheme-less URIs are rejected"
+    (is (not (eu/allowed-uri? nil)))
+    (is (not (eu/allowed-uri? "")))
+    (is (not (eu/allowed-uri? "no-scheme-here")))
+    (is (not (eu/allowed-uri? ":leading-colon")))))
+
+(deftest allowed-uri-tolerates-leading-whitespace
+  (testing "leading whitespace doesn't disguise a forbidden scheme"
+    (is (not (eu/allowed-uri? " javascript:alert(1)")))
+    (is (not (eu/allowed-uri? "\thttp://evil.example/x")))
+    (is (eu/allowed-uri? " vscode://file/src/x.cljs:1:1"))))
+
+(deftest allowed-editor-uri-schemes-set-shape
+  (testing "the allowlist enumerates the catalogued editor schemes"
+    (is (contains? eu/allowed-editor-uri-schemes "vscode"))
+    (is (contains? eu/allowed-editor-uri-schemes "cursor"))
+    (is (contains? eu/allowed-editor-uri-schemes "windsurf"))
+    (is (contains? eu/allowed-editor-uri-schemes "zed"))
+    (is (contains? eu/allowed-editor-uri-schemes "idea"))
+    (is (contains? eu/allowed-editor-uri-schemes "subl"))
+    (is (contains? eu/allowed-editor-uri-schemes "emacs"))
+    (is (contains? eu/allowed-editor-uri-schemes "vim"))
+    (is (contains? eu/allowed-editor-uri-schemes "file"))
+    ;; http: / https: must NOT be on the list — that's the whole point.
+    (is (not (contains? eu/allowed-editor-uri-schemes "http")))
+    (is (not (contains? eu/allowed-editor-uri-schemes "https")))))
+
+(deftest builtin-schemes-all-pass-the-allowlist
+  (testing "every built-in scheme builder produces a URI the allowlist accepts"
+    (doseq [editor [nil :vscode :cursor :windsurf :zed :idea]]
+      (let [uri (eu/editor-uri editor sample-coord)]
+        (is (eu/allowed-uri? uri)
+            (str editor " produced a URI the allowlist rejects: " uri))))))
