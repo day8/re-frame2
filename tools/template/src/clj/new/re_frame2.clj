@@ -98,6 +98,16 @@
                             :reagent?          (= substrate :reagent)
                             :uix?              (= substrate :uix)
                             :helix?            (= substrate :helix)
+                            ;; Static-shields badge for the chosen
+                            ;; substrate. Shields.io renders the SVG;
+                            ;; the colour is matched per-substrate so
+                            ;; the README's badge row reads at a
+                            ;; glance which adapter is wired.
+                            :substrate-badge-url
+                            (case substrate
+                              :reagent "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
+                              :uix     "https://img.shields.io/badge/substrate-UIx-3498db.svg"
+                              :helix   "https://img.shields.io/badge/substrate-Helix-9b59b6.svg")
                             ;; The runtime coord version of re-frame2 the
                             ;; generated app should depend on. Kept here
                             ;; in one place — bumped on each alpha

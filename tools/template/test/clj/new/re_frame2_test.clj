@@ -176,6 +176,19 @@
             :helix   (is (.contains views-text "defnc")
                          "Helix views.cljs uses defnc")))
 
+        ;; -- README badges block (rf2-sufwn) --
+        (let [readme-text (slurp (io/file root "README.md"))]
+          (is (.contains readme-text "img.shields.io/badge/built")
+              "README ships a 'built with re-frame2' badge")
+          (is (.contains readme-text
+                         (case substrate
+                           :reagent "substrate-Reagent"
+                           :uix     "substrate-UIx"
+                           :helix   "substrate-Helix"))
+              "README ships the per-substrate badge")
+          (is (.contains readme-text "License-MIT")
+              "README ships a License badge"))
+
         ;; -- best-effort deps-parse with `clojure -P` --
         ;;
         ;; The generated app pins re-frame2 to v0.0.1.alpha (per VERSION
