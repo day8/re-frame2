@@ -206,6 +206,25 @@
           db-in    {:count 42}]
       (is (= db-in (schemas/populate-sensitive-declarations db-in frame-id))))))
 
+(deftest populate-prunes-stale-schema-entry-on-flag-removal
+  (testing "re-registering a schema without :sensitive? prunes the prior :source :schema entry (rf2-kr3vp)"
+    ;; Parallel to the :large? prune test in schemas_elision_test.clj —
+    ;; the parameterised feeder serves both flags so both paths share
+    ;; the prune-on-re-registration contract.
+    (rf/reg-app-schema [:user]
+                       [:map [:password {:sensitive? true :hint "argon2id"} :string]])
+    (let [frame-id (frame/current-frame)
+          db-1     (schemas/populate-sensitive-declarations {} frame-id)]
+      (is (= {[:user :password] {:sensitive? true :source :schema :hint "argon2id"}}
+             (get-in db-1 [:rf/elision :sensitive-declarations]))
+          "baseline: schema-derived entry present")
+      ;; Re-register the same schema with `:sensitive?` removed.
+      (rf/reg-app-schema [:user]
+                         [:map [:password :string]])
+      (let [db-2 (schemas/populate-sensitive-declarations db-1 frame-id)]
+        (is (= {} (get-in db-2 [:rf/elision :sensitive-declarations]))
+            "after flag removal — stale schema entry pruned")))))
+
 ;; ---- nested + edge-case coverage ----------------------------------------
 
 (deftest deeply-nested-sensitive
