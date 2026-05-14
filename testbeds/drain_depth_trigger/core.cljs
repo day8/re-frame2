@@ -3,18 +3,16 @@
   dispatches itself in its `:fx`, with a configurable depth ceiling
   registered on the frame via `:drain-depth`. A consumer (Causa, Story,
   pair2-mcp) observes the runtime's run-to-completion drain hitting
-  the depth limit and emitting `:rf.error/drain-depth-exceeded` per
-  [spec/002 §Run-to-completion rule 3] / [spec/009 §Error catalogue]:
+  the depth limit and the atomic rollback (per [spec/002
+  §Run-to-completion rule 3] / [spec/009 §Error catalogue]):
 
     - Rule 3 — when the drain depth limit is reached, the runtime
                rolls the frame's `app-db` back atomically to the
                value snapshotted at the start of the drain.
-    - The emitted error event carries `:depth`, `:queue-size`, and
-      `:last-event`. The event-handler that produced the runaway
-      cascade is named via `:rf.trace/trigger-handler`.
     - The frame's epoch record for the failed cascade lands with
       outcome `:halted-depth` per [Spec-Schemas §`:rf/epoch-record`
-      Outcomes] (rf2-v0jwt).
+      Outcomes] (rf2-v0jwt). Consumers read this record off
+      `rf/epoch-history`.
 
   Two buttons drive the surface:
 
@@ -24,8 +22,7 @@
                       processes the queue in a tight loop until the
                       frame's `:drain-depth` ceiling fires.
 
-    Reset           → resets `:depth-reached` and `:halted?`. Lets
-                      the surface be re-armed for repeat observation.
+    Reset           → resets `:depth-reached` for re-runs.
 
   An input bound to `:drain-depth` lets the user lower the ceiling
   for fast specs (the default 100 is fine, but a Playwright spec that
@@ -63,10 +60,6 @@
     {;; Counter the recursive handler bumps. After a halt this reads
      ;; back to 0 — positive evidence of the atomic rollback (rule 3).
      :depth-reached 0
-     ;; The DOM mirror flips to true when the error-emit listener (see
-     ;; below) sees the drain-depth-exceeded category fire. Lets a
-     ;; spec assert the halt without scraping the trace stream.
-     :halted?       false
      ;; Frame's :drain-depth, mirrored for the view. Re-registers
      ;; the frame on change via `:rf/reg-frame` so the runtime sees
      ;; the updated ceiling on the next drain.
@@ -99,35 +92,23 @@
      :fx [[:dispatch [::recurse]]]}))
 
 ;; ----------------------------------------------------------------------------
-;; Halt observer — error-emit listener
+;; Reset
 ;; ----------------------------------------------------------------------------
 ;;
-;; The always-on error-emit substrate (per [spec/009 §Error-emit listener])
-;; fires on `:rf.error/drain-depth-exceeded`. The surface registers a
-;; tiny listener whose only job is to flip `:halted?` in app-db so the
-;; DOM mirror reflects the runtime's view without forcing a Playwright
-;; spec to inspect the ring buffer. Per [spec/009 §What IS available in
-;; production] the listener survives `:advanced` + `goog.DEBUG=false`
-;; — a consumer running this testbed in any build mode sees the halt.
-
-(defn install-halt-listener! []
-  (rf/register-error-emit-listener!
-    ::halt-observer
-    (fn [error-record]
-      (when (= :rf.error/drain-depth-exceeded
-               (:error error-record))
-        ;; A second dispatch into the same frame after the halt; the
-        ;; first drain has already rolled back, the second drain runs
-        ;; cleanly and flips the mirror.
-        (rf/dispatch [::halt-observed])))))
-
-(rf/reg-event-db ::halt-observed
-  (fn [db _ev]
-    (assoc db :halted? true)))
+;; Note — this testbed historically registered an error-emit listener
+;; (`register-error-emit-listener!`) intending to flip a `:halted?`
+;; mirror when `:rf.error/drain-depth-exceeded` fired. That listener
+;; never fired: the runtime's depth-exceeded path emits ONLY via
+;; `trace/emit-error!`, not `error-emit/dispatch-on-error!` (the
+;; substrate `register-error-emit-listener!` subscribes to). Per
+;; rf2-86k63 the mirror has been removed — the framework-side
+;; observables (`:depth-reached` rolling back to 0, the `:halted-depth`
+;; epoch record on `rf/epoch-history`) already cover the contract
+;; under test and are what the cross-cutting scenario asserts on.
 
 (rf/reg-event-db ::reset
   (fn [db _ev]
-    (assoc db :depth-reached 0 :halted? false)))
+    (assoc db :depth-reached 0)))
 
 ;; ----------------------------------------------------------------------------
 ;; Drain-depth control
@@ -148,12 +129,10 @@
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-sub :depth-reached (fn [db _] (:depth-reached db)))
-(rf/reg-sub :halted?       (fn [db _] (:halted? db)))
 (rf/reg-sub :drain-depth   (fn [db _] (:drain-depth db)))
 
 (reg-view buttons []
   (let [depth-reached @(subscribe [:depth-reached])
-        halted?       @(subscribe [:halted?])
         drain-depth   @(subscribe [:drain-depth])]
     [:div {:data-testid "drain-depth-trigger"
            :style       {:font-family "sans-serif" :padding "1em"}}
@@ -185,8 +164,6 @@
      [:p {:style {:color "#666" :white-space :pre-wrap}}
       "depth-reached=" [:span {:data-testid "depth-reached"} depth-reached]
       "  (= 0 after halt — rule 3 rollback evidence)"  "\n"
-      "halted?="       [:span {:data-testid "halted"}        (str halted?)]
-      "  (flipped by the error-emit listener)"        "\n"
       "drain-depth="   [:span {:data-testid "drain-depth-mirror"} drain-depth]]]))
 
 (reg-view root []
@@ -206,6 +183,5 @@
   ;; per [spec/002 §Surgical update] re-registering only changes the
   ;; supplied keys (here :drain-depth), the other defaults survive.
   (rf/reg-frame :rf/default {:drain-depth default-drain-depth})
-  (install-halt-listener!)
   (rf/dispatch-sync [::initialise])
   (rdc/render react-root [root]))

@@ -22,13 +22,9 @@ click Start
 halts via the runtime's ceiling. After the halt:
 
 - `:depth-reached` reads back to `0` — rule 3 rollback evidence.
-- The error-emit substrate (per [spec/009 §What IS available in
-  production]) fires `:rf.error/drain-depth-exceeded`; the surface's
-  in-app listener flips `:halted?` to `true` via a second dispatch
-  (which runs on a fresh drain post-rollback).
 - The frame's epoch record for the failed cascade carries outcome
   `:halted-depth` (per [Spec-Schemas §`:rf/epoch-record` Outcomes],
-  rf2-v0jwt).
+  rf2-v0jwt). Consumers read this record off `rf/epoch-history`.
 
 ## Controls
 
@@ -36,15 +32,18 @@ halts via the runtime's ceiling. After the halt:
 |---|---|---|
 | `Drain depth ceiling` | `drain-depth` | The frame's `:drain-depth`. Re-registers the default frame with the new value (a surgical update per [spec/002 §Surgical update] — only the ceiling changes; in-flight events and app-db are not reset). Default 25. |
 | `Start (recurse — halts at depth)` | `start` | Dispatches `[::recurse]`. The handler recurses; the drain halts. |
-| `Reset` | `reset` | Restores `:depth-reached` and `:halted?` to their initial values for re-runs. |
+| `Reset` | `reset` | Restores `:depth-reached` to `0` for re-runs. |
 
 ## DOM mirrors
 
 | Element | What it tells a spec |
 |---|---|
 | `depth-reached` | `0` after a halt — the atomic rollback restored the pre-drain snapshot. |
-| `halted` | `true` after the error-emit substrate fires the `:rf.error/drain-depth-exceeded` category. Allows a Playwright spec to assert on the halt without scraping the ring buffer. |
 | `drain-depth-mirror` | The current ceiling — useful for confirming the input edit propagated to the frame's meta. |
+
+The halt itself is observable on the framework side via `rf/epoch-history`
+(the `:halted-depth` epoch record, see [Spec-Schemas §`:rf/epoch-record`
+Outcomes]) — no DOM mirror is required for the halt observable.
 
 ## Why a configurable ceiling
 

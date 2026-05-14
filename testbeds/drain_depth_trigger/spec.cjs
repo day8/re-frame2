@@ -32,11 +32,9 @@
  *      them).
  *
  * Trigger choice — keep the testbed's default drain-depth of 25 (low
- * enough for sub-second halt). Click Start. After the halt, the
- * surface's `install-halt-listener!` dispatches `::halt-observed`
- * which flips `:halted? true` — that drain runs cleanly AFTER the
- * rollback, so we can also assert the listener-fired mirror to
- * confirm the post-halt state machinery survived.
+ * enough for sub-second halt). Click Start. The framework-side
+ * observables (depth-reached rolling back to 0 + the :halted-depth
+ * epoch record on `rf/epoch-history`) cover the contract end-to-end.
  */
 
 const path = require('path');
@@ -54,10 +52,8 @@ module.exports = {
     await expectVisible(page.locator('[data-testid="drain-depth-trigger"]'), 10000);
 
     // Pre-conditions: the depth-reached mirror starts at 0, the
-    // halted? mirror reads "false", the ceiling is 25 (the testbed's
-    // default — we don't override).
+    // ceiling is 25 (the testbed's default — we don't override).
     await expectTextEquals(page.locator('[data-testid="depth-reached"]'), '0', 5000);
-    await expectTextEquals(page.locator('[data-testid="halted"]'), 'false', 5000);
     await expectTextEquals(page.locator('[data-testid="drain-depth-mirror"]'), '25', 5000);
 
     // Drive Start — `::recurse` dispatches itself in its `:fx`. The
@@ -89,11 +85,6 @@ module.exports = {
     // Per rf2-v0jwt the failing drain commits a partial epoch record
     // with `:outcome :halted-depth`. Read `rf/epoch-history :rf/default`
     // (the testbed runs on the default frame) and walk for the record.
-    //
-    // The post-halt drain (from `::halt-observed`) commits a SECOND
-    // epoch record with `:outcome :ok`; we pin our assertion to the
-    // record whose outcome is `:halted-depth` to isolate from the
-    // post-halt success.
     const records = await pollUntil(async () => {
       const probe = await readEpochHistoryAsEdn(page);
       if (!probe.ok) throw new Error(`could not read epoch history: ${probe.reason}`);
