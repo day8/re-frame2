@@ -50,6 +50,7 @@
             [re-frame.flows.registry :as registry]
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
@@ -89,7 +90,15 @@
   §Flow trace events; this docstring just names the failure-path
   unwind (rf2-rlmla Q11 — the prior docstring claimed `[db false]`
   was returned and downstream flows still walked, which contradicts
-  the actual `(throw e)` impl at the catch site below)."
+  the actual `(throw e)` impl at the catch site below).
+
+  Hot path — runs after every event drain for every registered flow.
+  Trace payload construction sits inside an `interop/debug-enabled?`
+  outer gate so the elision walker (`elide-wire-value`) is not invoked
+  in CLJS production builds (per Spec 009 §Production builds, rf2-drr4z
+  perf slice). Future editors: keep the gate OUTERMOST on each emit
+  site and keep wire-value walks INSIDE it — Closure DCE folds the
+  whole branch under `:advanced` + `goog.DEBUG=false`."
   [frame-id db flow]
   (let [flow-id    (:id flow)
         new-inputs (read-inputs db flow)
@@ -104,11 +113,13 @@
         ;; suppressed recompute (per rf2-719e value-equal recompute
         ;; suppression). Tools use this to surface "flow ran but inputs
         ;; were stable" — distinct from "flow didn't fire at all because
-        ;; nothing wrote".
-        (trace/emit! :flow :rf.flow/skip
-                     {:flow-id flow-id
-                      :reason  :inputs-value-equal
-                      :frame   frame-id})
+        ;; nothing wrote". Outer debug-enabled? gate elides the tag-map
+        ;; construction in prod (rf2-drr4z).
+        (when interop/debug-enabled?
+          (trace/emit! :flow :rf.flow/skip
+                       {:flow-id flow-id
+                        :reason  :inputs-value-equal
+                        :frame   frame-id}))
         [db false])
       (try
         (let [new-output (apply (:output flow) new-inputs)
@@ -136,19 +147,25 @@
           ;; walker reads `[:rf/elision :declarations <path>]` and
           ;; emits the marker for declared-large or auto-detected-
           ;; large slots.
-          (trace/emit! :flow :rf.flow/computed
-                       {:flow-id      flow-id
-                        :input-values (mapv (fn [input-path v]
-                                              (elision/elide-wire-value
-                                                v
-                                                {:frame frame-id :path input-path}))
-                                            (:inputs flow)
-                                            new-inputs)
-                        :result       (elision/elide-wire-value
-                                        new-output
-                                        {:frame frame-id :path (:path flow)})
-                        :path         (:path flow)
-                        :frame        frame-id})
+          ;;
+          ;; Outer `interop/debug-enabled?` gate keeps the elision
+          ;; walker out of CLJS prod builds (rf2-drr4z) — Closure
+          ;; constant-folds the whole branch under `:advanced` +
+          ;; `goog.DEBUG=false`.
+          (when interop/debug-enabled?
+            (trace/emit! :flow :rf.flow/computed
+                         {:flow-id      flow-id
+                          :input-values (mapv (fn [input-path v]
+                                                (elision/elide-wire-value
+                                                  v
+                                                  {:frame frame-id :path input-path}))
+                                              (:inputs flow)
+                                              new-inputs)
+                          :result       (elision/elide-wire-value
+                                          new-output
+                                          {:frame frame-id :path (:path flow)})
+                          :path         (:path flow)
+                          :frame        frame-id}))
           [new-db true])
         (catch #?(:clj Throwable :cljs :default) e
           ;; Per Spec 009 §:op-type vocabulary: :rf.flow/failed fires
@@ -166,17 +183,19 @@
           ;; the value that triggered the throw may itself be a
           ;; large or sensitive blob, and the trace bus is the wire
           ;; boundary. Each entry is walked under its own declared
-          ;; input path so per-path declarations apply.
-          (trace/emit! :flow :rf.flow/failed
-                       {:flow-id flow-id
-                        :ex      e
-                        :inputs  (mapv (fn [input-path v]
-                                         (elision/elide-wire-value
-                                           v
-                                           {:frame frame-id :path input-path}))
-                                       (:inputs flow)
-                                       new-inputs)
-                        :frame   frame-id})
+          ;; input path so per-path declarations apply. Outer debug-
+          ;; enabled? gate elides the walk in CLJS prod (rf2-drr4z).
+          (when interop/debug-enabled?
+            (trace/emit! :flow :rf.flow/failed
+                         {:flow-id flow-id
+                          :ex      e
+                          :inputs  (mapv (fn [input-path v]
+                                           (elision/elide-wire-value
+                                             v
+                                             {:frame frame-id :path input-path}))
+                                         (:inputs flow)
+                                         new-inputs)
+                          :frame   frame-id}))
           (throw e))))))
 
 (defn run-flows!
