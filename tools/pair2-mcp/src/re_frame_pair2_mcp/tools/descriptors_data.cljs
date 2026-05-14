@@ -45,10 +45,16 @@
 
 (def dispatch
   {:name "dispatch"
-   :description "Fire a re-frame2 event tagged with :origin :pair. Default mode is queued dispatch. Set `sync` for dispatch-sync, `trace` for synchronous dispatch returning the assembled :rf/epoch-record."
+   :description (str "Fire a re-frame2 event tagged with :origin :pair. Default mode is queued dispatch. "
+                     "Set `sync` for dispatch-sync, `trace` for synchronous dispatch returning the "
+                     "assembled :rf/epoch-record. The `event` arg is parsed as EDN server-side (rf2-vflrg) — "
+                     "MUST be a vector (e.g. `[:cart/checkout {:reason :user}]`). Non-vector EDN returns "
+                     "`:reason :not-an-event-vector`; unreadable input returns `:reason :invalid-event-edn`. "
+                     "Host-form source (e.g. `(println :x)`) is rejected — use `eval-cljs` for arbitrary "
+                     "evaluation.")
    :typicalTokens 300
    :inputSchema {:type "object"
-                 :properties {:event {:type "string" :description "The event vector, e.g. [:cart/checkout]"}
+                 :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected."}
                               :sync  {:type "boolean"}
                               :trace {:type "boolean"}
                               :frame {:type "string" :description "Operating frame (e.g. :stories)"}
@@ -157,9 +163,13 @@
                      "`epochs-mode \"full\"` for full-pair shape (the time-travel-restore mode, which needs verbatim state). "
                      "Diff-encode runs before the lazy-summary so `bytes` hints reflect post-shrink cost. "
                      "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
-                     "`:sensitive? true`; opt back in with `include-sensitive? true`. App-db / sub-cache / "
-                     "machines slices pass through unchanged — payload redaction is the `with-redacted` "
-                     "interceptor's job, not the forwarder's. "
+                     "`:sensitive? true`; opt back in with `include-sensitive? true`. "
+                     "Per Tool-Pair §Direct-read privacy posture (rf2-vflrg) the `:app-db` and `:sub-cache` "
+                     "slices are routed through `re-frame.core/elide-wire-value` with off-box defaults — "
+                     "declared-sensitive paths return the `:rf/redacted` sentinel and large slots return "
+                     "the `:rf.size/large-elided` marker; the same `include-sensitive? true` flag opts back "
+                     "in to seeing the raw value at sensitive paths. The `:machines` slice passes through "
+                     "unchanged — payload redaction there is the `with-redacted` interceptor's job. "
                      "Each frame's `:epochs` slice is structurally deduped (rf2-obpa9) after diff-encoding — "
                      "repeated subtrees (notably the per-record `:db-before` reference) collapse to a "
                      "`{:rf.mcp/dedup-table ...}` wrapper; agent host reconstructs via `de-dupe.core/expand`. "
@@ -214,7 +224,11 @@
                               :dedup    knobs/dedup-property
                               :elision  knobs/elision-property
                               :include-sensitive? {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items in the :traces / :epochs slices. Default false."}
+                                                   :description (str "Opt back in to BOTH (a) forwarding `:sensitive? true` "
+                                                                     "items in the :traces / :epochs slices AND (b) seeing "
+                                                                     "the raw value at declared-sensitive paths in the "
+                                                                     ":app-db / :sub-cache slices (the walker's "
+                                                                     "`:rf.size/include-sensitive?` opt). Default false.")}
                               :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
                  :additionalProperties false}})
 
@@ -233,7 +247,10 @@
                      "slot or an over-threshold leaf returns a `{:rf.size/large-elided ...}` marker "
                      "with a `:handle [:rf.elision/at <path>]` fetch handle, not the raw bytes. Drill "
                      "into a non-elided child by re-calling with a deeper `path`. Pass `elision false` "
-                     "to bypass the walk and receive the raw value.")
+                     "to bypass the walk and receive the raw value. "
+                     "Privacy (rf2-vflrg, per Tool-Pair §Direct-read privacy posture): declared-sensitive "
+                     "paths return the `:rf/redacted` sentinel by default — opt in to seeing the raw "
+                     "value at sensitive paths via `include-sensitive? true`.")
    :typicalTokens 500
    :inputSchema {:type "object"
                  :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
@@ -245,6 +262,11 @@
                               :frame   {:type "string"
                                         :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame."}
                               :elision knobs/elision-property
+                              :include-sensitive? {:type "boolean"
+                                                   :description (str "Opt in to seeing the raw value at declared-sensitive "
+                                                                     "paths (the walker's `:rf.size/include-sensitive?` opt). "
+                                                                     "Default false ⇒ sensitive paths return the `:rf/redacted` "
+                                                                     "sentinel.")}
                               :build   {:type "string"}}
                  :required ["path"]
                  :additionalProperties false}})

@@ -28,7 +28,14 @@
   (let [build-id  (wire/arg-build raw-args)
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         path      (args/parse-path-arg (wire/arg raw-args :path))
-        elision?  (args/parse-bool-arg raw-args :elision)]
+        elision?  (args/parse-bool-arg raw-args :elision)
+        ;; rf2-vflrg — `:include-sensitive?` threads into the walker's
+        ;; `:rf.size/include-sensitive?` opt. Off-box default per
+        ;; Tool-Pair §`Direct-read privacy posture for sub-cache and
+        ;; get-path`: declared-sensitive slots redact unless the caller
+        ;; opts in explicitly. The shared `parse-bool-arg` table
+        ;; (rf2-c4fmh) gates the default at `false`.
+        incl?     (args/parse-bool-arg raw-args :include-sensitive?)]
     (cond
       (nil? path)
       (js/Promise.resolve
@@ -64,7 +71,7 @@
             frame-edn     (if frame
                             (pr-str frame)
                             (ef/emit (ef/rt-call 'current-frame)))
-            elision-opts  (elision/elision-opts-edn elision?)
+            elision-opts  (elision/elision-opts-edn elision? incl?)
             elide-call    (if elision?
                             (str "(re-frame.core/elide-wire-value v"
                                  "  (merge {:path path :frame " frame-edn "}"

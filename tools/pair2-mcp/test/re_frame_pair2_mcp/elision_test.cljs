@@ -83,28 +83,34 @@
   elision on/off. Keep in lockstep with `snapshot-tool` in
   `tools/snapshot.cljs`. Post-rf2-e35a5 both arms wrap the snapshot
   in `{:value <snap> :elided-count N}` so the count piggybacks on
-  the same nREPL round-trip — no separate client-side walk."
-  [opts elision?]
-  (let [elision-opts-form (elision/elision-opts-edn elision?)]
-    (if elision?
-      (str "(let [snap (re-frame-pair2.runtime/snapshot-state "
-           (pr-str opts) ")"
-           "      walked (reduce-kv"
-           "               (fn [m fid fmap]"
-           "                 (assoc m fid"
-           "                        (if (and (map? fmap) (contains? fmap :app-db))"
-           "                          (update fmap :app-db"
-           "                                  (fn [db] (re-frame.core/elide-wire-value db"
-           "                                             (merge {:frame fid} "
-           elision-opts-form
-           "))))"
-           "                          fmap)))"
-           "               {} snap)]"
-           "  {:value walked"
-           "   :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-           "                                (tree-seq coll? seq walked)))})")
-      (str "{:value (re-frame-pair2.runtime/snapshot-state "
-           (pr-str opts) ") :elided-count 0}"))))
+  the same nREPL round-trip — no separate client-side walk.
+
+  Post-rf2-vflrg the walker fires on BOTH `:app-db` and `:sub-cache`
+  slices and threads `include-sensitive?` into the walker's
+  `:rf.size/include-sensitive?` opt."
+  ([opts elision?] (build-snapshot-form opts elision? false))
+  ([opts elision? include-sensitive?]
+   (let [elision-opts-form (elision/elision-opts-edn elision? include-sensitive?)]
+     (if elision?
+       (str "(let [snap (re-frame-pair2.runtime/snapshot-state "
+            (pr-str opts) ")"
+            "      walked (reduce-kv"
+            "               (fn [m fid fmap]"
+            "                 (if (map? fmap)"
+            "                   (let [opts (merge {:frame fid} " elision-opts-form ")"
+            "                         f    (fn [v] (re-frame.core/elide-wire-value v opts))"
+            "                         fmap (if (contains? fmap :app-db)"
+            "                                (update fmap :app-db f) fmap)"
+            "                         fmap (if (contains? fmap :sub-cache)"
+            "                                (update fmap :sub-cache f) fmap)]"
+            "                     (assoc m fid fmap))"
+            "                   (assoc m fid fmap)))"
+            "               {} snap)]"
+            "  {:value walked"
+            "   :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+            "                                (tree-seq coll? seq walked)))})")
+       (str "{:value (re-frame-pair2.runtime/snapshot-state "
+            (pr-str opts) ") :elided-count 0}")))))
 
 (deftest snapshot-form-elision-off-wraps-bare-snap-with-zero-count
   ;; Post-rf2-e35a5: even with elision off, the form returns the
@@ -130,24 +136,46 @@
     (is (re-find #"re-frame-pair2\.runtime/snapshot-state" form))
     (is (re-find #"re-frame\.core/elide-wire-value" form))
     ;; Per-frame walking, not whole-snapshot walking — the walker is
-    ;; applied to each :app-db slice with that frame's id, so the
+    ;; applied to each slice with that frame's id, so the
     ;; `[:rf/elision]` registry lookup hits the right frame.
     (is (re-find #":frame fid" form))
     ;; The walker is invoked with `:rf.size/include-large? false` so
     ;; markers actually fire.
     (is (re-find #":rf\.size/include-large\? false" form))))
 
-(deftest snapshot-form-only-walks-app-db-slice
-  ;; The other slices (:sub-cache :machines :epochs :traces) have their
-  ;; own wire-protocol mechanisms (dedup, diff-encode). Elision is
-  ;; scoped to :app-db — the slice whose payload can blow the cap on a
-  ;; single large slot.
+(deftest snapshot-form-walks-both-app-db-and-sub-cache
+  ;; rf2-vflrg — the snapshot eval form now walks BOTH `:app-db` AND
+  ;; `:sub-cache` slices through `elide-wire-value`. Per Tool-Pair
+  ;; §Direct-read privacy posture, the `sub-cache` direct-read surface
+  ;; MUST route through the wire walker with off-box defaults.
+  ;;
+  ;; The other slices (:machines :epochs :traces) have their own
+  ;; wire-protocol mechanisms (dedup, diff-encode, sensitive-strip);
+  ;; the walker fires only on the two direct-read slices that need it.
   (let [form (build-snapshot-form {:frames :all
-                                   :include [:app-db :epochs]}
+                                   :include [:app-db :sub-cache :machines :epochs]}
                                   true)]
-    ;; The walker is invoked once, with the :app-db slot.
-    (is (= 1 (count (re-seq #"elide-wire-value" form))))
-    (is (re-find #"contains\? fmap :app-db" form))))
+    ;; The form's `f` binding is the walker call; we check both
+    ;; `update` arms cite the two direct-read slices by key.
+    (is (re-find #"contains\? fmap :app-db" form))
+    (is (re-find #"contains\? fmap :sub-cache" form))
+    ;; Machines / epochs / traces are not walked here — they have
+    ;; their own wire mechanisms.
+    (is (not (re-find #"contains\? fmap :machines" form)))
+    (is (not (re-find #"contains\? fmap :epochs" form)))))
+
+(deftest snapshot-form-threads-include-sensitive
+  ;; rf2-vflrg — `:include-sensitive?` flows through to the walker's
+  ;; `:rf.size/include-sensitive?` opt so the same MCP arg that opts
+  ;; in to forwarding sensitive traces / epochs also opts in to seeing
+  ;; the raw value at sensitive paths in the :app-db / :sub-cache
+  ;; slices.
+  (let [form-default   (build-snapshot-form {:frames :all :include [:app-db]} true false)
+        form-opted-in  (build-snapshot-form {:frames :all :include [:app-db]} true true)]
+    (is (re-find #":rf\.size/include-sensitive\? false" form-default)
+        "default ⇒ sensitive slots redact")
+    (is (re-find #":rf\.size/include-sensitive\? true" form-opted-in)
+        "include-sensitive? true ⇒ sensitive slots pass through")))
 
 (deftest snapshot-form-counts-elision-markers-server-side
   ;; rf2-e35a5: the eval form returns `{:value <snap> :elided-count N}`
@@ -177,43 +205,47 @@
   "Mirror of the get-path-tool's eval-form composition. Keep in
   lockstep with `get-path-tool` in tools.cljs. Post-rf2-e35a5: the
   happy-path envelope carries `:elided-count` so the wire-pipeline
-  reads the count from opts instead of re-walking the scalar."
-  [path frame elision?]
-  (let [path-edn      (pr-str path)
-        snapshot-call (if frame
-                        (str "(re-frame-pair2.runtime/snapshot " (pr-str frame) ")")
-                        "(re-frame-pair2.runtime/snapshot)")
-        frame-edn     (if frame (pr-str frame) "(re-frame-pair2.runtime/current-frame)")
-        elision-opts  (elision/elision-opts-edn elision?)
-        elide-call    (if elision?
-                        (str "(re-frame.core/elide-wire-value v"
-                             "  (merge {:path path :frame " frame-edn "}"
-                             "         " elision-opts "))")
-                        "v")
-        count-expr    (if elision?
-                        (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-                             "               (tree-seq coll? seq elided-v)))")
-                        "0")]
-    (str "(let [db " snapshot-call
-         "      path " path-edn
-         "      missing #js {}"
-         "      v (get-in db path missing)"
-         "      elided-v " elide-call
-         "      n " count-expr "]"
-         "  (if (identical? v missing)"
-         "    {:ok? false :reason :path-not-found"
-         "     :path path"
-         "     :deepest-valid-prefix"
-         "     (loop [acc [] cur db rem path]"
-         "       (cond"
-         "         (empty? rem) acc"
-         "         (and (map? cur) (contains? cur (first rem)))"
-         "         (recur (conj acc (first rem)) (get cur (first rem)) (rest rem))"
-         "         (and (sequential? cur) (integer? (first rem))"
-         "              (<= 0 (first rem) (dec (count cur))))"
-         "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
-         "         :else acc))}"
-         "    {:ok? true :exists? true :path path :value elided-v :elided-count n}))")))
+  reads the count from opts instead of re-walking the scalar.
+
+  Post-rf2-vflrg the four-arity form takes `include-sensitive?` and
+  threads it into the walker's `:rf.size/include-sensitive?` opt."
+  ([path frame elision?] (build-get-path-form path frame elision? false))
+  ([path frame elision? include-sensitive?]
+   (let [path-edn      (pr-str path)
+         snapshot-call (if frame
+                         (str "(re-frame-pair2.runtime/snapshot " (pr-str frame) ")")
+                         "(re-frame-pair2.runtime/snapshot)")
+         frame-edn     (if frame (pr-str frame) "(re-frame-pair2.runtime/current-frame)")
+         elision-opts  (elision/elision-opts-edn elision? include-sensitive?)
+         elide-call    (if elision?
+                         (str "(re-frame.core/elide-wire-value v"
+                              "  (merge {:path path :frame " frame-edn "}"
+                              "         " elision-opts "))")
+                         "v")
+         count-expr    (if elision?
+                         (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+                              "               (tree-seq coll? seq elided-v)))")
+                         "0")]
+     (str "(let [db " snapshot-call
+          "      path " path-edn
+          "      missing #js {}"
+          "      v (get-in db path missing)"
+          "      elided-v " elide-call
+          "      n " count-expr "]"
+          "  (if (identical? v missing)"
+          "    {:ok? false :reason :path-not-found"
+          "     :path path"
+          "     :deepest-valid-prefix"
+          "     (loop [acc [] cur db rem path]"
+          "       (cond"
+          "         (empty? rem) acc"
+          "         (and (map? cur) (contains? cur (first rem)))"
+          "         (recur (conj acc (first rem)) (get cur (first rem)) (rest rem))"
+          "         (and (sequential? cur) (integer? (first rem))"
+          "              (<= 0 (first rem) (dec (count cur))))"
+          "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
+          "         :else acc))}"
+          "    {:ok? true :exists? true :path path :value elided-v :elided-count n}))"))))
 
 (deftest get-path-form-elision-off-bypasses-walker
   ;; Elision off = the raw value rides the wire. Backwards-compatible
@@ -257,6 +289,17 @@
         form  (build-get-path-form path nil true)
         edn   (pr-str path)]
     (is (not= -1 (.indexOf form edn)))))
+
+(deftest get-path-form-threads-include-sensitive
+  ;; rf2-vflrg — `include-sensitive?` threads through to the walker's
+  ;; `:rf.size/include-sensitive?` opt. Default is off (sensitive paths
+  ;; redact); opt in with `true`.
+  (let [form-default  (build-get-path-form [:user :token] :rf/default true false)
+        form-opted-in (build-get-path-form [:user :token] :rf/default true true)]
+    (is (re-find #":rf\.size/include-sensitive\? false" form-default)
+        "default ⇒ sensitive paths redact")
+    (is (re-find #":rf\.size/include-sensitive\? true" form-opted-in)
+        "include-sensitive? true ⇒ raw value at sensitive paths")))
 
 ;; ---------------------------------------------------------------------------
 ;; Composition × wire-cap (rf2-rvyzy fallback).
@@ -386,7 +429,53 @@
   ;; render this verbatim into the EDN sent over nREPL. The kw shape
   ;; is normative per the walker's docstring; a rename in the framework
   ;; surface needs a co-ordinated update here.
-  (is (= "{:rf.size/include-large? false}"
-         (elision/elision-opts-edn true)))
-  (is (= "{:rf.size/include-large? true}"
-         (elision/elision-opts-edn false))))
+  ;; Post-rf2-vflrg both opts ride the same map; assert against the
+  ;; parsed form so map-key-order doesn't matter.
+  (let [parsed-on  (cljs.reader/read-string (elision/elision-opts-edn true))
+        parsed-off (cljs.reader/read-string (elision/elision-opts-edn false))]
+    (is (false? (:rf.size/include-large? parsed-on)))
+    (is (true?  (:rf.size/include-large? parsed-off)))
+    (is (false? (:rf.size/include-sensitive? parsed-on)))
+    (is (false? (:rf.size/include-sensitive? parsed-off)))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-vflrg — `:include-sensitive?` threads through `elision-opts-edn`.
+;;
+;; Per Tool-Pair §Direct-read privacy posture, the `snapshot` and
+;; `get-path` direct-read surfaces MUST honour
+;; `:rf.size/include-sensitive?`. The two-arity form lifts the MCP arg
+;; `:include-sensitive?` into the walker's namespace-prefixed opt.
+;; ---------------------------------------------------------------------------
+
+(deftest elision-opts-edn-include-sensitive-defaults-false
+  ;; The single-arity legacy form preserves the off-box-safe default:
+  ;; sensitive slots redact unless the caller opts in explicitly.
+  (let [parsed (cljs.reader/read-string (elision/elision-opts-edn true))]
+    (is (false? (:rf.size/include-sensitive? parsed))
+        "single-arity ⇒ include-sensitive? false (the default per Tool-Pair §Direct-read privacy posture)")))
+
+(deftest elision-opts-edn-include-sensitive-true-opts-in
+  ;; The documented opt-in flow: `:include-sensitive? true` flows into
+  ;; the walker opt of the same shape. Sensitive slots then pass through
+  ;; unmodified.
+  (let [parsed (cljs.reader/read-string (elision/elision-opts-edn true true))]
+    (is (true? (:rf.size/include-sensitive? parsed))
+        "two-arity true ⇒ walker passes sensitive values through")))
+
+(deftest elision-opts-edn-include-sensitive-false-explicit
+  ;; Explicit `false` matches the single-arity default.
+  (let [parsed-explicit (cljs.reader/read-string (elision/elision-opts-edn true false))
+        parsed-default  (cljs.reader/read-string (elision/elision-opts-edn true))]
+    (is (= parsed-explicit parsed-default))))
+
+(deftest elision-opts-edn-include-sensitive-orthogonal-to-elision-switch
+  ;; The two knobs are orthogonal: elision-off + sensitive-on is a
+  ;; valid (if unusual) combo — the agent has explicitly opted into both
+  ;; raw values (`elision false`) and raw sensitive values
+  ;; (`include-sensitive? true`).
+  (doseq [enabled?           [true false]
+          include-sensitive? [true false]]
+    (let [parsed (cljs.reader/read-string
+                   (elision/elision-opts-edn enabled? include-sensitive?))]
+      (is (= (not enabled?) (:rf.size/include-large? parsed)))
+      (is (= include-sensitive? (:rf.size/include-sensitive? parsed))))))

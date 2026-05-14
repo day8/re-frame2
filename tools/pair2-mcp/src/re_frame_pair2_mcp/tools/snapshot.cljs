@@ -34,16 +34,26 @@
         dedup?      (args/parse-bool-arg raw-args :dedup)
         elision?    (args/parse-bool-arg raw-args :elision)
         opts        {:frames frames :include include}
-        ;; Eval form composition (rf2-urjnc + rf2-e35a5). The snapshot
-        ;; composer returns a per-frame map; we wrap each frame's
-        ;; `:app-db` slice with `re-frame.core/elide-wire-value` so
-        ;; large / sensitive slots get the `:rf.size/large-elided`
-        ;; marker server-side, before the EDN crosses the wire. The
-        ;; walker reads the `[:rf/elision]` registry from the live
+        ;; Eval form composition (rf2-urjnc + rf2-e35a5 + rf2-vflrg).
+        ;; The snapshot composer returns a per-frame map; we wrap each
+        ;; frame's `:app-db` AND `:sub-cache` slices with
+        ;; `re-frame.core/elide-wire-value` so large / sensitive slots
+        ;; get the `:rf.size/large-elided` / `:rf/redacted` marker
+        ;; server-side, before the EDN crosses the wire.
+        ;;
+        ;; The walker reads the `[:rf/elision]` registry from the live
         ;; app-db — it has to run app-side, where the registry is
-        ;; reachable. When elision is disabled the eval form skips
-        ;; the walk entirely (a value pass-through is cheaper than
-        ;; walking with `:rf.size/include-large? true`).
+        ;; reachable. When elision is disabled the eval form skips the
+        ;; walk entirely (a value pass-through is cheaper than walking
+        ;; with `:rf.size/include-large? true`).
+        ;;
+        ;; rf2-vflrg pins the Tool-Pair §`Direct-read privacy posture
+        ;; for sub-cache and get-path` contract: BOTH the `:app-db` and
+        ;; `:sub-cache` direct-read surfaces MUST honour
+        ;; `:rf.size/include-sensitive?` (default false ⇒ sensitive
+        ;; slots redact). The `include-sensitive?` MCP arg threads into
+        ;; the walker's opt of the same shape via
+        ;; `elision-opts-edn`'s two-arity form. Off-box defaults apply.
         ;;
         ;; Per rf2-e35a5: the eval form now ALSO counts elision
         ;; markers server-side and returns `{:value <snap>
@@ -51,11 +61,11 @@
         ;; count from opts instead of re-walking the post-pipeline
         ;; payload — the walker is the only thing that inserts
         ;; markers, so it can hand the count back as a piggyback on
-        ;; the same round-trip. Dedup never touches the `:app-db`
-        ;; slice (where elision fired) — it only re-shapes `:epochs`
-        ;; — so the pre-dedup server count equals the post-dedup
-        ;; client count.
-        elision-opts-form (elision/elision-opts-edn elision?)
+        ;; the same round-trip. Dedup never touches the `:app-db` /
+        ;; `:sub-cache` slices (where elision fired) — it only
+        ;; re-shapes `:epochs` — so the pre-dedup server count equals
+        ;; the post-dedup client count.
+        elision-opts-form (elision/elision-opts-edn elision? incl?)
         form     (if elision?
                    (ef/emit
                      (ef/rt-let
@@ -63,14 +73,15 @@
                         'walked (ef/rt-raw
                                   (str "(reduce-kv"
                                        " (fn [m fid fmap]"
-                                       "   (assoc m fid"
-                                       "          (if (and (map? fmap) (contains? fmap :app-db))"
-                                       "            (update fmap :app-db"
-                                       "                    (fn [db] (re-frame.core/elide-wire-value db"
-                                       "                               (merge {:frame fid} "
-                                       elision-opts-form
-                                       "))))"
-                                       "            fmap)))"
+                                       "   (if (map? fmap)"
+                                       "     (let [opts (merge {:frame fid} " elision-opts-form ")"
+                                       "           f    (fn [v] (re-frame.core/elide-wire-value v opts))"
+                                       "           fmap (if (contains? fmap :app-db)"
+                                       "                  (update fmap :app-db f) fmap)"
+                                       "           fmap (if (contains? fmap :sub-cache)"
+                                       "                  (update fmap :sub-cache f) fmap)]"
+                                       "       (assoc m fid fmap))"
+                                       "     (assoc m fid fmap)))"
                                        " {} snap)"))]
                        (ef/rt-raw
                          (str "{:value walked"
