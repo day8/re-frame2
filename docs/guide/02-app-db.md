@@ -72,7 +72,7 @@ The lost flexibility — you can't sneak a mutation in from a corner of the app 
 
 ## The data-flow loop
 
-re-frame2 is sometimes described as **six dominoes**. The full version of the story is in [01 — Why re-frame2 §The story](01-why-re-frame2.md#the-story); the abbreviated version, with app-db at the centre:
+re-frame2 is sometimes described as **six dominoes**. The full walkthrough of one event through all six is in [04 — Events, state, and the cycle §Walking one event through every domino](04-events-state-cycle.md#walking-one-event-through-every-domino); the abbreviated version, with app-db at the centre:
 
 ```
    event ─► handler ─► new app-db ─► subs recompute ─► view re-renders ─► DOM

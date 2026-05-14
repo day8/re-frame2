@@ -52,7 +52,7 @@ There are at least three problems with this.
 
 **The success/failure path is awkward.** The `.then` callback fires asynchronously, after the handler returns. By then, `db` is gone — it was the *previous* state. The callback can't update `db` directly; it has to do it by dispatching another event. So the function ends up half-pure-half-effectful, which is the worst possible mix.
 
-**The chain of state changes is invisible.** You can't, from reading the handler, predict what the app will look like after this event resolves. You have to trace through the `.then`, see what it dispatches, find that handler, trace its `.then`, and so on. The "dynamic story" we talked about in [chapter 01](01-why-re-frame2.md) gets harder for every async operation.
+**The chain of state changes is invisible.** You can't, from reading the handler, predict what the app will look like after this event resolves. You have to trace through the `.then`, see what it dispatches, find that handler, trace its `.then`, and so on. The dynamic story — the picture of what happens between one state and the next — gets harder for every async operation.
 
 The solution falls out of the framing above: **don't let the handler do the side-effect. Have it describe the side-effect as data, and let the runtime do it.**
 

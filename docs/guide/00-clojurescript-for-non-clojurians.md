@@ -467,11 +467,11 @@ If that read cleanly, you've got it.
 
 ## 8. Where to go from here
 
-You don't need to read more ClojureScript theory before ch.01. The rest of the guide explains re-frame2 itself, and every CLJS construct it uses has been covered above. If a snippet ever reads oddly, come back here — this chapter is your index.
+You don't need to read more ClojureScript theory before ch.02. The rest of the guide explains re-frame2 itself, and every CLJS construct it uses has been covered above. If a snippet ever reads oddly, come back here — this chapter is your index.
 
 Three paths forward, depending on what you want next:
 
-1. **To read the rest of the guide** — you're done. Head to [01 — Why re-frame2](01-why-re-frame2.md). The guide assumes you can parse the constructs in this chapter and nothing more.
+1. **To read the rest of the guide** — you're done. Head to [02 — app-db](02-app-db.md). The guide assumes you can parse the constructs in this chapter and nothing more.
 
 2. **To run the example apps locally** — see the [`examples/`](https://github.com/day8/re-frame2/tree/main/examples) directory in the repo. Each example has its own `npm install && npm run dev` instructions. The build tool is **shadow-cljs**, which you'll meet there.
 
