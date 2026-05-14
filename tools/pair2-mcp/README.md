@@ -190,6 +190,35 @@ tools/pair2-mcp/
     └── live-nrepl.js                         ; live-nREPL integration test
 ```
 
+## Co-install with browser-substrate MCP servers (rf2-gj1kr)
+
+pair2-mcp is intentionally **re-frame2-runtime-only** — every tool
+routes through one of the eight [Tool-Pair primitives](../../spec/Tool-Pair.md)
+on the JVM-side nREPL socket. It does **not** drive the browser
+directly. The absence of "click this button" / "screenshot this
+viewport" / "navigate to this URL" tools is by design: browser
+substrate is the concern of a peer MCP server.
+
+For a fuller agent workflow, co-install one of the browser-substrate
+MCP servers alongside pair2-mcp. Each layer carries its own slice of
+the surface:
+
+| Layer | Server | Tools |
+|---|---|---|
+| Browser substrate | [Chrome DevTools MCP](https://github.com/anthropics/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Click, type, navigate, screenshot, viewport |
+| re-frame2 runtime | **pair2-mcp** (this artefact) | `dispatch`, `snapshot`, `get-path`, `subscribe`, `eval-cljs`, … |
+
+The split mirrors the framing in [causa-mcp's
+DESIGN-RATIONALE](../causa-mcp/spec/DESIGN-RATIONALE.md) — browser-substrate
+ops and re-frame2-runtime ops are different contracts, and bundling
+them into one server would force every re-frame2 developer to take
+on the heavyweight Chromium dep just to read `app-db`.
+
+Example session: the browser MCP clicks a button → pair2-mcp's
+`subscribe` receives the resulting `:rf/epoch-record` → the agent
+inspects the new app-db slice via `get-path`. Each server stays
+single-purpose; the agent host glues them at the workflow level.
+
 ## Back-compat with the bash shims
 
 The shims under `skills/re-frame-pair2/scripts/` still work and are
