@@ -535,13 +535,16 @@
                    {:sub-id  query-id
                     :query-v query-v})
       (let [body-fn (:handler-fn meta)
-            inputs  (:input-signals meta)]
+            inputs  (:input-signals meta)
+            ;; Bind n once — `(empty? inputs)` then `(= 1 (count inputs))`
+            ;; counted twice on the multi-input path (rf2-r1rma).
+            n       (count inputs)]
         (try
           (let [v (cond
-                    (empty? inputs)
+                    (zero? n)
                     (body-fn db query-v)
 
-                    (= 1 (count inputs))
+                    (= 1 n)
                     (body-fn (compute-sub (first inputs) db) query-v)
 
                     :else
