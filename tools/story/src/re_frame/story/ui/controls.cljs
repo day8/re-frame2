@@ -30,9 +30,9 @@
   Lists the variant's resolved decorators; each can be skipped at
   runtime by name (the toggle writes a `:disabled-decorators` shell-
   state slot the canvas reads). Stage 4 ships the toggle UI; the
-  disable-by-name routing through `resolve-decorators` is a Stage 6
-  refinement when the decorator stack grows more complex. For Stage 4
-  the toggle is informational + a 'save layout' hook."
+  disable-by-name routing through `resolve-decorators` is a future
+  refinement when the decorator stack grows more complex; today the
+  toggle is informational."
   (:require [re-frame.story.registrar          :as registrar]
             [re-frame.story.args               :as args]
             [re-frame.story.decorators         :as decorators]
@@ -580,27 +580,11 @@
           [:span {:style (:label styles)} (str id)]
           [:span (str ":kind " (or (:kind body) "?"))]]))]))
 
-(defn save-layout-button
-  "Emit a stub 'save layout as :Workspace' action. Per IMPL-SPEC §2.5
-  the workspace persistence has two modes: local-storage (default) and
-  the explicit save-as which writes a transit-shareable registration.
-  Stage 4 stubs the save-as button; the transit emission lands in
-  Stage 6 alongside the QR code share affordance."
-  []
-  [:button {:style    (:button styles)
-            :on-click (fn [_]
-                        ;; Stage 4: no-op visual affordance — the
-                        ;; transit-emission lives behind the §2.5
-                        ;; surface that lands in Stage 6.
-                        (when js/window
-                          (js/console.log "[story] save-layout: Stage 6 ships transit emission")))}
-   "save layout as :Workspace.x/y"])
-
 (defn panel
-  "The full controls panel — args editor + decorator list + save-layout
-  + save-as-variant actions. Per rf2-xi9zk the per-variant mode-picker
-  moved to the chrome-level toolbar (`re-frame.story.ui.toolbar`); the
-  controls panel keeps args / decorator sections only.
+  "The full controls panel — args editor + decorator list + save-as-variant
+  action. Per rf2-xi9zk the per-variant mode-picker moved to the
+  chrome-level toolbar (`re-frame.story.ui.toolbar`); the controls panel
+  keeps args / decorator sections only.
 
   rf2-one3t: the 'save as new variant' button captures the live canvas
   state (effective args after the five-layer precedence chain) and
@@ -613,5 +597,4 @@
      [args-editor variant-id])
    (when variant-id
      [decorator-list variant-id])
-   [save-variant-ui/save-variant-button variant-id]
-   [save-layout-button]])
+   [save-variant-ui/save-variant-button variant-id]])
