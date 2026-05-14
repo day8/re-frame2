@@ -88,6 +88,7 @@
   [:rf.causa/active-route-slice
    :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
+   :rf.causa/cascades
    :rf.causa/causality-graph-data
    :rf.causa/effects-data
    :rf.causa/epoch-history
@@ -241,9 +242,8 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 64 subs + 60 events + 3 fxs (rf2-5zl7l;
-            +2 events for rf2-0vxdn; -3 events for rf2-e9s81)"
-    (is (= 64 (count all-sub-names)))
+  (testing "registry holds exactly 65 subs + 60 events + 3 fxs"
+    (is (= 65 (count all-sub-names)))
     (is (= 60 (count all-event-names)))
     (is (= 3  (count all-fx-names)))))
 
@@ -257,6 +257,25 @@
       (is (identical? h1 (registrar/handler :sub :rf.causa/selected-panel)))
       (is (identical? e1 (registrar/handler :event :rf.causa/select-panel)))
       (is (identical? f1 (registrar/handler :fx :rf.causa.fx/restore-epoch))))))
+
+(deftest registers-every-canonical-rf-causa-sub
+  ;; Holistic subscribe-side smoke. The handler-resolution smokes above
+  ;; assert that the registrar holds a handler for each id; this test
+  ;; takes the subscriber's view — `(rf/subscribe [q-v])` returns a
+  ;; non-nil reaction for every canonical sub-id once the registrar has
+  ;; run. The two smokes catch different drift: handler-resolution
+  ;; catches a missing registration; subscribe-resolution catches a sub
+  ;; whose subscribe path throws (e.g. a downstream `install!` that
+  ;; depends on a not-yet-registered upstream).
+  (testing "every :rf.causa/* sub-id resolves through rf/subscribe after
+            register-causa-handlers! runs (panel migrations should not
+            silently drop a registration from the orchestrator)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (doseq [q-v all-sub-names]
+        (is (some? (rf/subscribe [q-v]))
+            (str q-v " must resolve through rf/subscribe after
+                 register-causa-handlers!"))))))
 
 ;; ---- (2) high-value sub contracts: defaults on a fresh frame ------------
 
