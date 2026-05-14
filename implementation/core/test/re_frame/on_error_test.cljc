@@ -273,3 +273,90 @@
         (is (integer? (:elapsed-ms r))
             ":elapsed-ms is integer on every platform (no float leak from
              CLJS performance.now())")))))
+
+;; ============================================================================
+;; rf2-vnjfg — handler-meta :sensitive? enforces redaction on the error path
+;; ============================================================================
+
+(deftest sensitive-handler-meta-redacts-error-record-event
+  (testing "Per rf2-vnjfg (security audit): when a thrown handler's
+            registered handler-meta carries `:sensitive? true`, the
+            always-on error-emit substrate replaces the corpus-wide
+            listener's `:event` slot with `:rf/redacted`. The raw
+            event payload — which may carry credentials, payment
+            details, PII — does NOT reach off-box listeners even
+            when `with-redacted` was not declared on the handler's
+            interceptor chain. Mirrors the rf2-6hklf event-emit
+            policy but redacts (vs. drops) because errors are a
+            recovery surface that MUST be observable."
+    (let [seen (atom nil)]
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (reset! seen record)))
+      (rf/reg-event-db :err/sensitive-throw
+                       {:sensitive? true
+                        ;; opt out of the registration-time warning;
+                        ;; this test pins the substrate behaviour, not
+                        ;; the with-redacted advisory.
+                        :no-redaction-needed? true}
+                       (fn [_db _]
+                         (throw (ex-info "boom" {:cause :test}))))
+      (rf/dispatch-sync [:err/sensitive-throw {:password "shhh"
+                                                :token    "abc123"}])
+      (let [r @seen]
+        (is (some? r) "listener fired for the sensitive-handler throw")
+        (is (= :rf/redacted (:event r))
+            "the event slot is the redaction sentinel — the raw
+             payload is NOT shipped to listeners")
+        (is (= :err/sensitive-throw (:event-id r))
+            "the event-id flows through for triage")
+        (is (some? (:exception r))
+            "the exception flows through for triage")
+        (is (= :rf.error/handler-exception (:error r))
+            "the category flows through for triage")))))
+
+(deftest sensitive-handler-meta-redacts-policy-fn-tags-event
+  (testing "Per rf2-vnjfg: the per-frame `:on-error` policy fn's
+            structured error-event MUST carry `:rf/redacted` in
+            `:tags :event` when the failing handler is sensitive.
+            Operators read the exception, the event-id, the frame
+            for triage; they do NOT see the raw payload."
+    (let [seen (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (reset! seen ev) nil)})
+      (rf/reg-event-db :err/sensitive-policy
+                       {:sensitive? true
+                        :no-redaction-needed? true}
+                       (fn [_db _]
+                         (throw (ex-info "policy redaction" {}))))
+      (rf/dispatch-sync [:err/sensitive-policy {:secret "leakable"}])
+      (let [ev @seen]
+        (is (some? ev) ":on-error policy fn fired")
+        (is (= :rf/redacted (get-in ev [:tags :event]))
+            ":tags :event is the redaction sentinel — the raw
+             payload does NOT reach the policy fn either")
+        (is (= :err/sensitive-policy (get-in ev [:tags :event-id]))
+            "event-id, exception, frame ride through for recovery
+             decisions")
+        (is (= :rf.error/handler-exception (:operation ev))
+            "operation category flows through")))))
+
+(deftest non-sensitive-handler-error-payload-flows-through
+  (testing "The rf2-vnjfg redaction MUST fire only for handlers
+            carrying `:sensitive? true`. Non-sensitive handlers
+            continue to surface the elided event vector (subject
+            to the per-path wire-walker, not handler-meta) so
+            off-box error observability sees the event taxonomy."
+    (let [seen (atom nil)]
+      (rf/register-error-emit-listener!
+        :test/recorder
+        (fn [record] (reset! seen record)))
+      (rf/reg-event-db :err/normal-throw
+                       (fn [_db _] (throw (ex-info "boom" {}))))
+      (rf/dispatch-sync [:err/normal-throw {:k "v"}])
+      (let [r @seen]
+        (is (some? r))
+        (is (vector? (:event r))
+            "non-sensitive handler: event vector flows through (subject
+             only to per-path wire elision)")
+        (is (= :err/normal-throw (first (:event r))))))))
