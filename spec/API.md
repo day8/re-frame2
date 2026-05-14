@@ -356,7 +356,7 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 | `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | 010 |
 | `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` / `(set-schema-validator! {:validate validate-fn :explain explain-fn})` — install the validator (and optionally the explainer) every dev-time schema-validation site routes through. `nil` disables validation entirely. Default ships Malli's `validate`/`explain` pair; this seam lets apps swap in their own validator to drop the Malli dep. Per [010 §Non-Malli validators (rf2-froe)](010-Schemas.md). | v1 | 010 |
 | `set-schema-explainer!` | Fn | `(set-schema-explainer! explain-fn)` — install the explainer used to enrich `:rf.error/schema-validation-failure` traces' `:explain` key. Companion to `set-schema-validator!`. Per [010 §Non-Malli validators (rf2-froe)](010-Schemas.md). | v1 | 010 |
-| `:spec/validate-at-boundary` (interceptor) | — | Add to a `reg-event-*`'s positional interceptor vector for production-boundary validation | v1 | 010 |
+| `validate-at-boundary` | Var (interceptor value) | `validate-at-boundary` — a **pre-built interceptor value**, not a fn. Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/validate-at-boundary ...)` raises `ArityException`). | v1 | 010 |
 
 See [010 §Schemas](010-Schemas.md) for `:spec` metadata, validation timing, and dev/prod elision.
 
