@@ -346,6 +346,42 @@
 
 ;; ---- registration entry --------------------------------------------------
 
+(defonce restore-epoch-last-result
+  ;; Captures the most-recent `:rf.causa.fx/restore-epoch` outcome —
+  ;; `{:ok? <bool> :frame-id <kw> :epoch-id <opaque>}` or `nil` before
+  ;; any restore has been attempted. Lives outside `install!` so a
+  ;; shadow-cljs `:after-load` reload doesn't clobber an in-flight
+  ;; failure record (and so the eviction-test corpus can `reset!` it
+  ;; deterministically per case). See the long comment on the
+  ;; `:rf.causa/last-restore-failure` sub in `install!` for why this
+  ;; lives at module-scope and not inside app-db. rf2-o94sp /
+  ;; audit 4b.
+  (atom nil))
+
+(defn restore-epoch-fx-fn
+  "Body of the `:rf.causa.fx/restore-epoch` reg-fx, exposed as a
+  top-level fn so the failure-surfacing contract (rf2-o94sp; audit 4b)
+  is unit-testable in isolation. The reg-fx call inside `install!`
+  delegates here.
+
+  Failure surfacing: `rf/restore-epoch` returns `false` on any of its
+  six failure modes (aged-out epoch, schema mismatch, drain-in-flight,
+  etc.) and emits its own structured `:rf.epoch/restore-*` trace event.
+  This wrapper writes the boolean + identifiers to
+  `restore-epoch-last-result`, dispatches the bump-tick so the
+  reactive `:rf.causa/last-restore-failure` sub re-fires, and on
+  failure clears the now-stuck `:selected-epoch-id` so the panel
+  doesn't render a confirmed-rewind that didn't actually land. The
+  structured trace event has already flowed through the trace bus
+  and surfaced on the Issues ribbon."
+  [_ctx {:keys [frame-id epoch-id]}]
+  (let [ok? (rf/restore-epoch frame-id epoch-id)]
+    (reset! restore-epoch-last-result
+            {:ok? ok? :frame-id frame-id :epoch-id epoch-id})
+    (rf/dispatch [:rf.causa/bump-restore-epoch-tick])
+    (when-not ok?
+      (rf/dispatch [:rf.causa/clear-selected-epoch]))))
+
 (defn install!
   "Idempotent install for the Time Travel scrubber panel's Causa-side
   registrations (Phase 3, rf2-t53ze). Owns the cross-panel scrubber
@@ -392,6 +428,51 @@
   (rf/reg-sub :rf.causa/selected-epoch-id
     (fn [db _query]
       (get db :selected-epoch-id)))
+
+  ;; The most-recent `restore-epoch` failure, captured by the
+  ;; `:rf.causa.fx/restore-epoch` fx wrapper when `rf/restore-epoch`
+  ;; returns `false` (rf2-o94sp, audit 4b). Reads from the
+  ;; `restore-epoch-last-result` atom — keyed on the boolean return
+  ;; rather than on app-db state because the fx layer is the only
+  ;; point that sees the return value, and writing into the Causa
+  ;; frame's app-db from inside an fx that's mid-cascade is not the
+  ;; framework's expected shape (fx are leaf-level side-effects, not
+  ;; cascade re-entrants).
+  ;;
+  ;; The structured `:rf.epoch/restore-*` failure trace event is the
+  ;; canonical signal; this sub exists so panel views can render an
+  ;; inline notice without scanning the trace ribbon. Shape (or nil
+  ;; when no failure has been observed):
+  ;;   {:frame-id <kw> :epoch-id <opaque>}
+  (rf/reg-sub :rf.causa/last-restore-failure
+    :<- [:rf.causa/restore-epoch-tick]
+    (fn [_tick _query]
+      (let [{:keys [ok? frame-id epoch-id]} @restore-epoch-last-result]
+        (when (and (some? ok?) (not ok?))
+          {:frame-id frame-id :epoch-id epoch-id}))))
+
+  ;; Reactivity-anchor sub for `:rf.causa/last-restore-failure`. The
+  ;; fx-wrapper writes to `restore-epoch-last-result` (an atom outside
+  ;; the reactive substrate); the wrapper bumps `:restore-epoch-tick`
+  ;; in Causa's app-db on every write, and this sub depends on that
+  ;; tick so the substrate's reactive surface sees the change.
+  (rf/reg-sub :rf.causa/restore-epoch-tick
+    (fn [db _query]
+      (get db :restore-epoch-tick 0)))
+
+  ;; Internal event the fx wrapper dispatches to bump the tick.
+  ;; Carries `:rf.trace/no-emit? true` so the bump itself doesn't
+  ;; flood the trace ribbon (per rf2-qsjda).
+  (rf/reg-event-db :rf.causa/bump-restore-epoch-tick
+    {:rf.trace/no-emit? true}
+    (fn [db _]
+      (update db :restore-epoch-tick (fnil inc 0))))
+
+  ;; Clear the panel's scrub selection — used by the fx wrapper on a
+  ;; failed restore to drop the now-stuck pointer.
+  (rf/reg-event-db :rf.causa/clear-selected-epoch
+    (fn [db _]
+      (assoc db :selected-epoch-id nil)))
 
   ;; Per-frame pin store, keyed by target-frame. Persisted into
   ;; Causa's app-db only — never localStorage / disk (Lock 4 per
@@ -558,9 +639,12 @@
   ;; this is the confirmed-rewind branch. Per re-frame v2's reg-fx
   ;; contract (Spec API.md §reg-fx) the handler signature is
   ;; (fn [ctx args] ...).
-  (rf/reg-fx :rf.causa.fx/restore-epoch
-    (fn [_ctx {:keys [frame-id epoch-id]}]
-      (rf/restore-epoch frame-id epoch-id)))
+  ;; Failure surfacing (rf2-o94sp; audit 4b) — body lives in
+  ;; `restore-epoch-fx-fn` above so the contract is unit-testable
+  ;; without going through the framework's effect-handler dispatch
+  ;; (a `with-redefs` over `rf/restore-epoch` doesn't reach a
+  ;; closure captured at reg-fx time; the top-level fn route does).
+  (rf/reg-fx :rf.causa.fx/restore-epoch restore-epoch-fx-fn)
 
   ;; Reset to pinned — uses reset-frame-db! (the value-direct path).
   ;; Per spec §Why reset-frame-db! not restore-epoch — pins hold the
@@ -587,4 +671,28 @@
                                target epoch-id)]
         (when pin
           {:fx [[:rf.causa.fx/reset-frame-db!
-                 {:frame-id target :frame-db (:frame-db pin)}]]})))))
+                 {:frame-id target :frame-db (:frame-db pin)}]]}))))
+
+  ;; Failure-surfacing for the confirmed-rewind path. Fired by the
+  ;; `:rf.causa.fx/restore-epoch` fx when `rf/restore-epoch` returns
+  ;; `false` (any of its six failure modes — aged-out epoch, schema
+  ;; mismatch, drain-in-flight, etc.). The structured failure
+  ;; trace event itself was already emitted by re-frame.epoch and
+  ;; flowed through Causa's trace bus into the Issues ribbon; this
+  ;; event clears the stuck selection so the panel doesn't display
+  ;; a confirmed-rewind that didn't actually land, and stamps the
+  ;; failure into Causa's app-db so panel state can react. Per
+  ;; rf2-o94sp + audit 4b.
+  (rf/reg-event-db :rf.causa/restore-epoch-failed
+    (fn [db [_ {:keys [frame-id epoch-id] :as args}]]
+      (-> db
+          ;; Clear the now-stuck selection — there's no scrub position
+          ;; that corresponds to a successful rewind.
+          (assoc :selected-epoch-id nil)
+          ;; Record the most-recent restore failure so panel views
+          ;; can render an inline notice. A map (not a list) — only
+          ;; the latest failure is interesting; older ones flow
+          ;; through the trace bus and the Issues ribbon.
+          (assoc :last-restore-failure
+                 {:frame-id frame-id
+                  :epoch-id epoch-id})))))

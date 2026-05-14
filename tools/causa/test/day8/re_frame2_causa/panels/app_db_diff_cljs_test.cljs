@@ -47,7 +47,12 @@
 (defn- causa-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
-  (trace-bus/clear-buffer!))
+  (trace-bus/clear-buffer!)
+  ;; The `:rf.causa/selected-epoch-diff` cache is a top-level
+  ;; `defonce` (lifted from let-local for rf2-o94sp testability —
+  ;; see app_db_diff.cljs §diff-cache). Reset between tests so
+  ;; cache-size assertions are reproducible across the corpus.
+  (reset! app-db-diff/diff-cache {}))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
@@ -244,6 +249,46 @@
           (is (= [{:op :modified :path [:n] :before 2 :after 3}]
                  diff)
               "newest-epoch (:e-3) diff is fresh; :e-1's entry is gone"))))))
+
+(deftest selected-epoch-diff-cache-size-tracks-live-history-length
+  (testing "audit rf2-i0veg §4c — cache size never exceeds the live
+            history depth; aged-out epoch-ids are pruned on the very
+            next read, not on a deferred sweep"
+    ;; Seed 4 epochs, warm the cache by selecting each in turn so the
+    ;; cache holds all 4 entries.
+    (let [hist-a [(mk-record :e-1 [:a] {}     {:n 1})
+                  (mk-record :e-2 [:b] {:n 1} {:n 2})
+                  (mk-record :e-3 [:c] {:n 2} {:n 3})
+                  (mk-record :e-4 [:d] {:n 3} {:n 4})]]
+      (seed-causa! {:n 4} hist-a)
+      (rf/with-frame :rf/causa
+        (doseq [eid [:e-1 :e-2 :e-3 :e-4]]
+          (rf/dispatch-sync [:rf.causa/select-epoch eid])
+          @(rf/subscribe [:rf.causa/selected-epoch-diff]))
+        (is (= 4 (count @app-db-diff/diff-cache))
+            "after warming all four selections, cache holds four entries")
+        (is (= #{:e-1 :e-2 :e-3 :e-4} (set (keys @app-db-diff/diff-cache)))
+            "cache keys match the live history's epoch-ids exactly"))
+      ;; Rotate to a 2-epoch history; :e-1/:e-2 age out.
+      (let [hist-b [(mk-record :e-5 [:e] {:n 4} {:n 5})
+                    (mk-record :e-6 [:f] {:n 5} {:n 6})]]
+        (rf/with-frame :rf/causa
+          (rf/dispatch-sync [:rf.causa-test/seed-history hist-b])
+          ;; Read newest diff — triggers the prune-on-read step.
+          (rf/dispatch-sync [:rf.causa/select-epoch nil])
+          @(rf/subscribe [:rf.causa/selected-epoch-diff])
+          (is (<= (count @app-db-diff/diff-cache) 2)
+              "after rotation + one read, cache size ≤ live history depth")
+          (is (not (contains? @app-db-diff/diff-cache :e-1))
+              ":e-1 (aged out) is no longer in the cache")
+          (is (not (contains? @app-db-diff/diff-cache :e-2))
+              ":e-2 (aged out) is no longer in the cache")
+          (is (not (contains? @app-db-diff/diff-cache :e-3))
+              ":e-3 (aged out) is no longer in the cache")
+          (is (not (contains? @app-db-diff/diff-cache :e-4))
+              ":e-4 (aged out) is no longer in the cache")
+          (is (contains? @app-db-diff/diff-cache :e-6)
+              ":e-6 (just read) is in the cache"))))))
 
 (deftest selected-epoch-diff-cache-distinguishes-distinct-epochs
   (testing "different :epoch-id selections each get their own cached diff"

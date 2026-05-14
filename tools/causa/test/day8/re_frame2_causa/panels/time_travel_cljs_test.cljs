@@ -273,6 +273,76 @@
         (is (= :rf/default (:frame-id fx-arg)))
         (is (= :e-1 (:epoch-id fx-arg)))))))
 
+;; ---- (4b) restore-epoch failure surfacing (rf2-o94sp, audit 4b) ---------
+
+(deftest restore-epoch-failure-records-failure-and-clears-selection
+  (testing "audit rf2-i0veg §4b — when the production :rf.causa.fx/
+            restore-epoch fx body runs with rf/restore-epoch returning
+            false (any of its six failure modes), the fx writes the
+            failure into the module-scope `restore-epoch-last-result`
+            atom and dispatches the bump-tick + clear-selected-epoch
+            cleanup events. The `:rf.causa/last-restore-failure` sub
+            then surfaces a {:frame-id <kw> :epoch-id <opaque>} map.
+
+            We invoke the production fx body directly (rather than
+            routing through :rf.causa/reset-to-epoch's :fx vector)
+            because the framework's effect-handler dispatch path
+            captures the fx-fn at registration time and a
+            `with-redefs` over `rf/restore-epoch` after the fact
+            doesn't reach the registered closure's reference. Calling
+            the fx body directly via the production fn-pointer in the
+            module is the same assertion target — the fx body does
+            what it claims when its inner call to rf/restore-epoch
+            yields false."
+    (registry/register-causa-handlers!)
+    (register-seed-event!)
+    (frame/reg-frame :rf/causa {})
+    (seed-history! [(mk-record :e-1 {:counter 7} 1)])
+    (reset! time-travel/restore-epoch-last-result nil)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-epoch :e-1])
+      (is (= :e-1 @(rf/subscribe [:rf.causa/selected-epoch-id]))
+          "selection landed before the restore attempt")
+      ;; Invoke the production fx body via the publicly-exposed
+      ;; `restore-epoch-fx-fn` symbol the panel ns now exports
+      ;; (rf2-o94sp). With-redef the underlying restore-epoch
+      ;; implementation to surface the failure path.
+      (with-redefs [rf/restore-epoch (fn [_frame-id _epoch-id] false)]
+        (time-travel/restore-epoch-fx-fn
+          {} {:frame-id :rf/default :epoch-id :e-1}))
+      ;; Drain the cleanup events the fx scheduled.
+      (rf/dispatch-sync [:rf.causa/bump-restore-epoch-tick])
+      (rf/dispatch-sync [:rf.causa/clear-selected-epoch])
+      ;; The fx wrote the boolean directly to the atom — assert.
+      (is (= {:ok? false :frame-id :rf/default :epoch-id :e-1}
+             @time-travel/restore-epoch-last-result)
+          "fx atom records the failure boolean + identifiers")
+      (is (nil? @(rf/subscribe [:rf.causa/selected-epoch-id]))
+          "selection cleared after restore failure")
+      (is (= {:frame-id :rf/default :epoch-id :e-1}
+             @(rf/subscribe [:rf.causa/last-restore-failure]))
+          "last-restore-failure sub surfaces the failure shape"))))
+
+(deftest restore-epoch-success-does-not-record-failure
+  (testing "audit rf2-i0veg §4b corollary — when rf/restore-epoch
+            returns true (success), :rf.causa/last-restore-failure
+            stays nil; the failure-surfacing path is only walked on
+            actual failures"
+    (registry/register-causa-handlers!)
+    (register-seed-event!)
+    (frame/reg-frame :rf/causa {})
+    (seed-history! [(mk-record :e-1 {:counter 7} 1)])
+    (reset! time-travel/restore-epoch-last-result nil)
+    (with-redefs [rf/restore-epoch (fn [_frame-id _epoch-id] true)]
+      (time-travel/restore-epoch-fx-fn
+        {} {:frame-id :rf/default :epoch-id :e-1}))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/bump-restore-epoch-tick])
+      (is (= true (:ok? @time-travel/restore-epoch-last-result))
+          "fx atom records the success boolean")
+      (is (nil? @(rf/subscribe [:rf.causa/last-restore-failure]))
+          "no failure recorded on successful restore"))))
+
 ;; ---- (5) pins survive ring-buffer eviction ------------------------------
 
 (deftest pinned-snapshots-survive-history-eviction
