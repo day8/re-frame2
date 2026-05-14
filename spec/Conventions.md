@@ -328,7 +328,7 @@ Process-level state mutation outside the registrar — installing or tearing dow
 
 - `install-adapter!`, `dispose-adapter!`
 - `set-schema-validator!`, `set-schema-explainer!`
-- `clear-subscription-cache!`
+- `clear-sub-cache!`
 
 ```clojure
 (rf/install-adapter!     reagent-adapter/adapter)           ;; bang — installs runtime

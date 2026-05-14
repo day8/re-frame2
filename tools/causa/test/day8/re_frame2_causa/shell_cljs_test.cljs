@@ -20,7 +20,7 @@
        attribute are asserted here. Includes the 1 → 2 transition.
        Per rf2-0vxdn the counter is reactive — bumping via the
        `:rf.causa/note-sensitive-suppressed` event re-renders the
-       indicator immediately (no `clear-subscription-cache!`
+       indicator immediately (no `clear-sub-cache!`
        workaround required).
 
     3. The hydration sidebar entry's dormant-flag drop (rf2-pzxsr —
@@ -246,7 +246,7 @@
 ;; collector dispatches `:rf.causa/note-sensitive-suppressed` to bump
 ;; it, so the sub re-fires on the standard app-db-write reactive path
 ;; — bumping immediately drives an indicator re-render with no
-;; `(rf/clear-subscription-cache! :rf/causa)` workaround.
+;; `(rf/clear-sub-cache! :rf/causa)` workaround.
 
 (deftest redacted-indicator-absent-when-count-zero
   (testing "(pos? 0) is false — the indicator is NOT rendered when
@@ -305,7 +305,7 @@
   (testing "the indicator appears on the first suppressed event and
             stays until the counter is reset. Per rf2-0vxdn the
             reactive sub re-fires on every bump — no
-            clear-subscription-cache! workaround between steps."
+            clear-sub-cache! workaround between steps."
     (causa-setup!)
     ;; T0 — no indicator
     (rf/with-frame :rf/causa

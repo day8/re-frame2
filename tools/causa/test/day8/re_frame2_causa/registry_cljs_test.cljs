@@ -363,7 +363,7 @@
             "events are oldest-first, matching trace-bus/push algebra"))
       ;; Bump once more — the reaction re-fires on the same dispatch
       ;; path the production trace-collector takes. No
-      ;; clear-subscription-cache! workaround needed.
+      ;; clear-sub-cache! workaround needed.
       (rf/dispatch-sync [:rf.causa/note-trace-event
                          {:id 3 :op-type :event :operation :rf.test/c :tags {}}])
       (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
@@ -430,7 +430,7 @@
             app-db at `:suppressed-counters` (rf2-0vxdn) — first deref
             returns 0; each `:rf.causa/note-sensitive-suppressed`
             dispatch re-fires the sub on the standard write path
-            (immediate reactive update, no clear-subscription-cache!
+            (immediate reactive update, no clear-sub-cache!
             workaround required)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
