@@ -26,6 +26,7 @@
 // Run with: `node test/end-to-end-story.cjs` from this directory. Exits
 // 0 on success. Source: rf2-cum40.
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
@@ -42,29 +43,14 @@ const CLOJURE = process.env.STORY_MCP_CMD
   ? process.env.STORY_MCP_CMD
   : resolveTrustedExe('clojure', { workspaceRoot: REPO_ROOT });
 
-// Per-server tool catalogue. Same set as tools/story-mcp/test/stdio-roundtrip.js
-// — pin exact so accidental renames / additions / deletions surface here.
-const EXPECTED_TOOLS = [
-  'get-docs-markdown',
-  'get-story',
-  'get-story-instructions',
-  'get-variant',
-  'list-assertions',
-  'list-decorators',
-  'list-modes',
-  'list-stories',
-  'list-substrates',
-  'list-tags',
-  'preview-variant',
-  'read-failures',
-  'record-as-variant',
-  'register-variant',
-  'run-a11y',
-  'run-variant',
-  'snapshot-identity',
-  'unregister-variant',
-  'variant->edn',
-];
+// Canonical tool-name list — sourced from story-mcp's own fixture
+// (rf2-36upq TE7) so this conformance harness and the upstream
+// `tools/story-mcp/test/stdio-roundtrip.js` / JVM `tools_test.clj`
+// agree on the expected `tools/list` response without three hand-
+// maintained lists drifting. A registry change updates one file.
+const EXPECTED_TOOLS = JSON.parse(
+  fs.readFileSync(path.join(STORY_MCP_CWD, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
+).names;
 
 // Fixture variant — namespaced under `story.mcp-conformance` so it
 // won't collide with anything the canonical-vocabulary install

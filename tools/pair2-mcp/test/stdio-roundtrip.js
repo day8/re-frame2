@@ -24,9 +24,19 @@
 // `shadow-cljs compile server`. Exits 0 on success.
 
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const SERVER = path.join(__dirname, '..', 'out', 'server.js');
+
+// Canonical tool-name list (rf2-drke0, mirrors story-mcp's rf2-36upq TE7)
+// — single source of truth shared with the cross-server conformance
+// harness (`tools/mcp-conformance/test/end-to-end-pair2.cjs`). Both
+// consumers parse this JSON; a drift in the registry surfaces in one
+// place rather than two (or three).
+const EXPECTED_TOOLS = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'tool-names.json'), 'utf8'),
+).names;
 
 function run() {
   return new Promise((resolve, reject) => {
@@ -130,35 +140,16 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all fourteen tools (six original + snapshot
-      // mega-op from rf2-x70e + subscribe/unsubscribe streaming pair
-      // from rf2-hq49 + get-path read-by-path primitive from rf2-tygdv
-      // + subscription-info read-side wrapper from rf2-zjz9q +
-      // get-pair2-instructions agent-onboarding text from rf2-fnpqg +
-      // handler-meta registry-introspection from rf2-cibp8 +
-      // registry-list registry-enumeration from rf2-pctf8).
-      // rf2-7dvg cut inject-runtime in favour of a shadow-cljs
-      // :preloads entry; see SKILL.md §Setup.
+      // 2. tools/list — confirm catalogue matches the canonical fixture
+      // at `test/fixtures/tool-names.json` (rf2-drke0). The fixture is
+      // the single source of truth shared with the cross-server
+      // conformance harness (`tools/mcp-conformance/test/
+      // end-to-end-pair2.cjs`) — a registry change updates one file,
+      // not two.
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
-      const expected = [
-        'discover-app',
-        'dispatch',
-        'eval-cljs',
-        'get-pair2-instructions',
-        'get-path',
-        'handler-meta',
-        'registry-list',
-        'snapshot',
-        'subscribe',
-        'subscription-info',
-        'tail-build',
-        'trace-window',
-        'unsubscribe',
-        'watch-epochs',
-      ];
-      if (JSON.stringify(names) !== JSON.stringify(expected)) {
-        throw new Error('tools/list mismatch:\n  expected ' + expected + '\n  got ' + names);
+      if (JSON.stringify(names) !== JSON.stringify(EXPECTED_TOOLS)) {
+        throw new Error('tools/list mismatch:\n  expected ' + EXPECTED_TOOLS + '\n  got ' + names);
       }
       console.log('OK   tools/list ->', names.join(', '));
 
