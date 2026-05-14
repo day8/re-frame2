@@ -448,6 +448,17 @@ Panels are registered against the story-tool's own registry; the tool reads `(st
 
 Story maintains its kind-shaped registrations in a tool-owned side-table at `tools.story.registry/*`. This is internal to the `tools/story/` artefact and stays out of production bundles. The bridge fn `story/handlers` exposes the §Public-query-surfaces parity (e.g. `(story/handlers :story)` enumerates the side-table). The framework registrar's closed-kinds discipline ([001-Registration.md](001-Registration.md)) is preserved — Story does not register with `re-frame.registrar`.
 
+### Third-party egress in story tooling (rf2-su313)
+
+Story tooling makes two documented network calls to third-party endpoints:
+
+- **QR-code generation hits `api.qrserver.com`.** The story-tool's "share this variant" affordance posts the current URL to a public QR-rendering endpoint and inlines the returned PNG. User-triggered, off by default unless the dev clicks the action.
+- **Axe-core loads from a public CDN.** The accessibility-inspector panel pulls axe-core's runtime from a public CDN rather than bundling it into the story artefact. Story bundles stay small for the a11y-disabled majority; the a11y-using minority takes the runtime CDN hop on first open.
+
+These are **dev-tool conveniences with documented egress, not gated**. Both endpoints are unauthenticated; neither carries app-db state, framework secrets, or variant payloads. Apps that need air-gapped story tooling bundle local replacements on the user side — the story library does not ship a feature flag for swapping them out. Per rf2-su313 and [Security.md §Pragmatic stance](Security.md#pragmatic-stance) ("third-party egress in story tooling — documented, not gated").
+
+> Cross-reference: see [Security.md §Threat model + scope](Security.md#threat-model--scope) — "Third-party egress in dev tooling" is one of the framework's named out-of-scope categories.
+
 ## What the framework supplies vs. what the library adds
 
 **Framework hooks (in 002):** `make-frame`/`destroy-frame`/`reset-frame`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`handlers`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
