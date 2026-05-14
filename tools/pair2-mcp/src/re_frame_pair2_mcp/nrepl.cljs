@@ -114,15 +114,22 @@
 (defn make-conn
   "Build a fresh connection record. `:socket` is filled in by `connect!`.
   `:pending` is `{id resolve-fn}` for in-flight requests. `:closed?` is
-  set when the socket terminates so subsequent calls re-open."
+  set when the socket terminates so subsequent calls re-open.
+
+  `:probed-builds` is the set of build-ids for which the pair2 runtime
+  preload has been confirmed live on this socket generation (rf2-sjpx0).
+  Cleared on connect / reconnect — a full page reload destroys the CLJS
+  heap (and thus the `__re_frame_pair2_runtime` marker); we re-probe
+  on the first tool call after that boundary."
   [port host]
-  (atom {:port    port
-         :host    (or host "127.0.0.1")
-         :socket  nil
-         :buf     nil
-         :pending {}
-         :closed? true
-         :session nil}))
+  (atom {:port          port
+         :host          (or host "127.0.0.1")
+         :socket        nil
+         :buf           nil
+         :pending       {}
+         :closed?       true
+         :session       nil
+         :probed-builds #{}}))
 
 (defn- attach-handlers!
   "Wire up `data` / `error` / `close` on the freshly-connected socket.
@@ -179,7 +186,11 @@
                 sock (net/createConnection #js {:host host :port port})]
             (j/call sock :on "connect"
               (fn []
-                (swap! conn-atom assoc :socket sock :closed? false :buf (js/Buffer.alloc 0))
+                ;; Reset `:probed-builds` on (re)connect — a page reload
+                ;; destroys the CLJS heap and the
+                ;; `__re_frame_pair2_runtime` marker with it (rf2-sjpx0).
+                (swap! conn-atom assoc :socket sock :closed? false
+                       :buf (js/Buffer.alloc 0) :probed-builds #{})
                 (attach-handlers! conn-atom sock)
                 (resolve conn-atom)))
             (j/call sock :once "error"
@@ -188,11 +199,12 @@
                 (reject err)))))))))
 
 (defn close!
-  "Close the persistent socket. Idempotent."
+  "Close the persistent socket. Idempotent. Drops the per-socket probe
+  cache (`:probed-builds`) so a fresh connect re-probes the preload."
   [conn-atom]
   (when-let [^js sock (:socket @conn-atom)]
     (try (.end sock) (catch :default _ nil)))
-  (swap! conn-atom assoc :socket nil :closed? true :pending {}))
+  (swap! conn-atom assoc :socket nil :closed? true :pending {} :probed-builds #{}))
 
 ;; ---------------------------------------------------------------------------
 ;; Op send / receive — multiplex by request id.
