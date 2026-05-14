@@ -16,7 +16,7 @@
 // Workflow (canonical write-loop with --allow-writes enabled):
 //
 //   1. connect (initialize + notifications/initialized via SDK)
-//   2. tools/list — confirm 17 tools advertised (mirrors live-server.js)
+//   2. tools/list — confirm 19 tools advertised (mirrors live-server.js)
 //   3. register-variant — write a fixture variant
 //   4. run-variant — exercise lifecycle, assert :passing?=true
 //   5. read-failures — zero failures expected
@@ -36,10 +36,12 @@ const CLOJURE = process.env.STORY_MCP_CMD || 'clojure';
 // Per-server tool catalogue. Same set as tools/story-mcp/test/stdio-roundtrip.js
 // — pin exact so accidental renames / additions / deletions surface here.
 const EXPECTED_TOOLS = [
+  'get-docs-markdown',
   'get-story',
   'get-story-instructions',
   'get-variant',
   'list-assertions',
+  'list-decorators',
   'list-modes',
   'list-stories',
   'list-substrates',
