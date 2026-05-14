@@ -341,9 +341,10 @@ filter-addressed slice reads (`get-trace-buffer`, `get-epoch-history`,
 `get-app-db`, `get-app-db-diff`, `get-machine-state`,
 `get-machine-list`, `get-issues`, `get-handlers`, `get-source-coord`)
 plus the mutating triple (`restore-epoch`, `reset-frame-db`,
-`dispatch`), the streaming pair, the escape hatch, and the meta tools
-(`discover-app`, `tail-build`). All are conformant to the canonical
-table.
+`dispatch`), the streaming triple (`subscribe`, `unsubscribe`,
+`list-subscriptions`), the escape hatch, and the meta tools
+(`discover-app`, `tail-build`). All eighteen are conformant to the
+canonical table.
 
 This pin is **load-bearing for the impl pass**: when
 `tools/causa-mcp/src/` lands and the catalogue prose migrates from
