@@ -55,6 +55,7 @@
             [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- private-state accessors --------------------------------------------
@@ -213,8 +214,7 @@
 ;; transition test doesn't poison neighbours via stale singleton state.
 
 (defn- causa-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
+  (causa-test-support/reset-all!)
   ;; Per rf2-in6l2 the registry installs the trace-buffer mirror
   ;; events (note-trace-event / clear-trace-buffer / sync-trace-buffer).
   ;; `ensure-causa-frame!` (called inside `open!`) dispatches

@@ -32,14 +32,14 @@
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- causa-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
+  (causa-test-support/reset-all!)
   (trace-bus/clear-buffer!)
   ;; Reset the :sensitive? privacy gate to its default (suppress) so the
   ;; redaction-state tests below start from a known baseline regardless

@@ -28,6 +28,7 @@
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 (defn reset-editor! []
@@ -40,8 +41,7 @@
 ;; cheap snapshot/restore cost; the rf2-g5q8d tests below need the
 ;; clean runtime so registrations don't bleed between tests.
 (defn- causa-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
+  (causa-test-support/reset-all!)
   (trace-bus/clear-buffer!)
   (reset-editor!))
 

@@ -65,6 +65,7 @@
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -77,8 +78,7 @@
 ;; flag so each test starts from the baseline.
 
 (defn- causa-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
+  (causa-test-support/reset-all!)
   (registry/register-causa-handlers!)
   ;; Allocate the :rf/causa frame so `note-suppressed!`'s dispatch
   ;; guard passes. Without the frame, `note-suppressed!` skips the
