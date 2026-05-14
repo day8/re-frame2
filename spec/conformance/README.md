@@ -346,8 +346,12 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `ssr-head-hydration.edn` | `:ssr/head-hydration` | Hydration payload carries the unified `:rf/render-hash` (covering head + body in v1); client recomputes; matches; no `:rf.ssr/hydration-mismatch` (`:failing-id :rf.ssr/head-mismatch`) emitted. A dedicated `:rf/head` / `:rf/head-hash` payload channel is reserved for the post-v1 `reg-head` extension. |
 | `ssr-error-sanitisation.edn` | `:ssr/error-sanitisation` | Handler throws; trace carries full detail; public response shape is locked generic-500; rendered HTML contains no internal detail |
 | `ssr-error-known-mapping.edn` | `:ssr/error-known-mapping` | Default projector maps `:rf.error/no-such-handler` (routing context) → `{:status 404 :code :not-found ...}` public-error |
+| `epoch-record-shape.edn` | `:epoch/record-shape` | Per-dispatch `:rf/epoch-record` carries `:event-id`, `:trigger-event`, `:db-before` / `:db-after` snapshot pair, and `:outcome :ok` — the Tool-Pair time-travel contract |
+| `epoch-ring-multi-dispatch.edn` | `:epoch/ring-multi-dispatch` | Multiple settled drains append to the epoch-history ring in oldest-first order; each record's `:db-before` chains from the previous `:db-after` |
+| `trace-buffer-filter-categories.edn` | `:trace-buffer/filter-categories` | One cascade reaches all four trace-bus categories — `:event` (lifecycle), `:rf.fx/handled`, `:sub/run`, `:rf.error/handler-exception` — so the trace-buffer's filter axes (`:op-type` / `:operation` / `:severity`) have reachable data per category |
+| `view-registration.edn` | `:view/registration` | `reg-view` registers a view body that consumes a sub; the registrar accepts the registration and the dependent sub returns the live post-drain value (the data a render-trigger would consume). Render-time observables remain out of scope per the §Render-time observables note below |
 
-Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration.
+Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, and view registration.
 
 ## Render-time observables (out of scope)
 

@@ -1,0 +1,57 @@
+;; Conformance fixture: epoch/record-shape
+;; Pin the per-dispatch :rf/epoch-record contract: every settled drain
+;; commits one record carrying :event-id, :trigger-event, :db-before /
+;; :db-after, and :outcome :ok.
+;;
+;; A second-host implementation that wires events / subs / fx correctly
+;; can still fail this fixture if its epoch-history ring isn't recording
+;; settled drains (or is recording the wrong db-snapshot pair). Per
+;; Spec 009 §Epoch history and rf2-v0jwt: the record is the load-bearing
+;; observable for Tool-Pair time-travel and the conformance corpus
+;; pinning is the contract a port must satisfy.
+
+{:fixture/id           :epoch/record-shape
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace}
+ :fixture/doc          "A single drain commits one :rf/epoch-record with :event-id, :trigger-event, :outcome :ok, and the canonical :db-before / :db-after snapshot pair. The on-create cascade is its own settled drain (position 0); the user dispatch is position 1."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed the counter."}
+          :counter/inc        {:doc "Increment."}}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ [[:counter/inc]]
+
+ :fixture/expect
+ {:final-app-db {:count 1}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :counter/initialise}}
+   {:operation :event :tags {:event-id :counter/inc}}]
+
+  ;; Two settled drains: the :on-create cascade (position 0) and the
+  ;; user :counter/inc (position 1). Both commit an :ok record carrying
+  ;; the :db-before / :db-after pair. Partial-submap match — extra slots
+  ;; (`:effects`, `:sub-runs`, `:renders`, `:trace-events`, `:epoch-id`,
+  ;; `:duration-ms`) are not asserted but MUST be present per the
+  ;; :rf/epoch-record schema.
+  :epoch-records
+  [{:frame  :rf/default
+    :record {:event-id      :counter/initialise
+             :trigger-event [:counter/initialise]
+             :db-before     {}
+             :db-after      {:count 0}
+             :outcome       :ok}}
+   {:frame  :rf/default
+    :record {:event-id      :counter/inc
+             :trigger-event [:counter/inc]
+             :db-before     {:count 0}
+             :db-after      {:count 1}
+             :outcome       :ok}}]}}

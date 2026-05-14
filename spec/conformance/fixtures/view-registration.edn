@@ -1,0 +1,66 @@
+;; Conformance fixture: view/registration
+;; A view is registered via reg-view, depends on a sub, and the
+;; underlying app-db mutates. The portable-corpus contract is:
+;;
+;;  1. The registrar accepts a :view registration without error
+;;     (so the load-time wiring path doesn't crash).
+;;  2. The view's hiccup body is a fn-of-the-event-args that the
+;;     harness can realise via the conformance handler-body DSL —
+;;     i.e. reflection forms (`[:event-arg n]`, `[:db-get path]`)
+;;     resolve at call time and the body returns the expected
+;;     hiccup tree.
+;;  3. The sub the view depends on returns the live value after the
+;;     app-db mutates — the value a render-trigger would consume.
+;;
+;; Render-time observables (component lifecycle, React re-render
+;; firing) are out of scope for the host-agnostic corpus per
+;; spec/conformance/README.md §Render-time observables (out of
+;; scope). This fixture pins the data the view would receive; the
+;; substrate-level render trigger is covered by host-side unit tests
+;; (see implementation/adapters/reagent/test/.../view_render_trigger_handler_cljs_test.cljs).
+
+{:fixture/id           :view/registration
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub}
+ :fixture/doc          "Register a view that subscribes to :count, mutate app-db via :counter/inc, and pin the sub's post-drain value to what the view would render. The view body's hiccup tree carries the bound :count value via the conformance DSL's `[:db-get [:count]]` reflection form (the runner realises it as a render-time read)."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed."}
+          :counter/inc        {:doc "Increment."}}
+  :sub   {:count {:doc "Layer-1 sub the view consumes."}}
+  :view  {:counter-display {:doc "A read-only display of :count. Per Spec 004 reg-view; the view body's render fn is realised by the conformance DSL's `realise-view-handler`."}}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]]}
+  :sub   {:count [[:get [:count]]]}
+
+  ;; View body — the conformance DSL realises this into a render fn
+  ;; whose `[:db-get [:count]]` reflection form resolves at call
+  ;; time. The body shape is `[:hiccup <tree>]`; the tree is the
+  ;; literal returned hiccup with reflection forms substituted.
+  :view  {:counter-display
+          [[:hiccup
+            [:div.counter
+             [:span.label "count:"]
+             [:span.value [:db-get [:count]]]]]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ [[:counter/inc]
+  [:counter/inc]
+  [:counter/inc]]
+
+ :fixture/expect
+ {:final-app-db {:count 3}
+
+  ;; The sub the view consumes carries the live post-drain value.
+  ;; A render-trigger that read this sub would re-render with the
+  ;; new value; the portable-corpus pin is that the sub returns it.
+  :sub-values {[:count] 3}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :counter/initialise}}
+   {:operation :event :tags {:event-id :counter/inc}}]}}

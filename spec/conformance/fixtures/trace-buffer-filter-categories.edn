@@ -1,0 +1,90 @@
+;; Conformance fixture: trace-buffer/filter-categories
+;; The trace bus emits events spanning four reserved op-type categories
+;; — :event (event lifecycle), :fx (fx routing), :sub/run (sub
+;; computation), and :error (structured failures). A second-host
+;; implementation whose trace bus only emits the :event category would
+;; pass every event-handler fixture in the corpus and still leave the
+;; trace-buffer filter API (filter by :op-type / :operation) without
+;; reachable data on the other three axes.
+;;
+;; Per Spec 009 §Trace operations / §Retain-N trace ring buffer
+;; (`(trace-buffer {:op-type :fx})`, `{:operation :rf.error/...}`,
+;; `{:severity :error}`): the filter axes presuppose the trace bus
+;; emits at least one event per category in canonical app cascades.
+;; This fixture drives one cascade that fires events in all four
+;; categories and pins the per-category operation/op-type pairings.
+
+{:fixture/id           :trace-buffer/filter-categories
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/fx
+                         :core/error :core/trace}
+ :fixture/doc          "One cascade reaches all four trace-bus categories — :event (lifecycle), :rf.fx/handled (fx routing), :sub/run (sub computation, triggered by the runner's :sub-values check), and :rf.error/handler-exception (structured failure). The trace stream MUST carry at least one event per category so the trace-buffer's filter-by-op-type / filter-by-operation axes have reachable data on each."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed."}
+          :counter/inc        {:doc "Increment + side fx."}
+          :counter/will-throw {:doc "Always throws — exercises :rf.error/*."}}
+  :sub   {:count {:doc "Layer-1 sub used by the runner's :sub-values check, exercising :sub/run."}}
+  :fx    {:log {:doc "Pure side-fx that logs to app-db. Exercises :rf.fx/handled."}}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]
+                                [:fx :log {:msg "incremented"}]]
+          :counter/will-throw [[:throw "boom"]]}
+  :sub   {:count [[:get [:count]]]}
+  :fx    {:log [[:update [:log] [:fn :conj [:get-event-arg 1 :msg]]]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ [[:counter/inc]
+  [:counter/will-throw]]
+
+ :fixture/expect
+ {:final-app-db {:count 1
+                 :log   ["incremented"]}
+
+  ;; The runner's :sub-values check triggers a fresh sub run — that
+  ;; emit lands in the trace stream and lets the partial-match below
+  ;; succeed for the :sub/run category.
+  :sub-values {[:count] 1}
+
+  :trace-emissions
+  [;; :rf.event/* category — event lifecycle. The :on-create
+   ;; :counter/initialise is the first hit; the explicit :event matcher
+   ;; covers the canonical lifecycle emit point (Spec 009 §:event
+   ;; trace-event vocabulary).
+   {:operation :event
+    :op-type   :event
+    :tags      {:event-id :counter/initialise}}
+
+   ;; :rf.fx/* category — fx routing. The :log fx the :counter/inc
+   ;; handler emitted lands on the trace bus as :rf.fx/handled with
+   ;; :op-type :fx. This is what the trace-buffer's `{:op-type :fx}`
+   ;; filter selects on (Spec 009 §Retain-N trace ring buffer).
+   {:operation :rf.fx/handled
+    :op-type   :fx
+    :tags      {:fx-id :log}}
+
+   ;; :rf.error/* category — structured failures. :will-throw throws;
+   ;; the runtime emits :rf.error/handler-exception with :op-type :error.
+   ;; The trace-buffer's `{:severity :error}` filter selects on
+   ;; :op-type :error (Spec 009 §Retain-N trace ring buffer).
+   {:operation :rf.error/handler-exception
+    :op-type   :error
+    :tags      {:category   :rf.error/handler-exception
+                :handler-id :counter/will-throw}}
+
+   ;; :rf.sub/* category — sub computation. The runner's :sub-values
+   ;; check below invokes rf/subscribe-value, which the runtime
+   ;; instruments with a :sub/run emit (Spec 009 §:sub/run trace event,
+   ;; rf2-i7eb). The :op-type is :sub/run; trace-buffer's
+   ;; `{:op-type :sub/run}` filter selects on that.
+   {:operation :sub/run
+    :op-type   :sub/run
+    :tags      {:sub-id :count}}]
+
+  :effects-routed
+  [{:fx-id :log :args {:msg "incremented"}}]}}
