@@ -199,6 +199,16 @@
           ;; are isolated. Continue notifying.
           nil)))))
 
+;; Forward-declare `capture-buffers` for `on-frame-destroyed!` below.
+;; The defonce lands in the per-cascade capture section further down
+;; (kept there because every other consumer — `buffer-event!`,
+;; `harvest-buffer!`, `in-flight-buffer`, `capture-event!` — co-locates
+;; with the defonce). The destroy hook also needs to clear stragglers
+;; (rf2-zzper), but the destroy-hook section reads more clearly here
+;; alongside `observed-frames-by-cb` cleanup, so we forward-declare
+;; rather than re-ordering the whole capture section.
+(declare capture-buffers)
+
 (defn on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
 
@@ -209,12 +219,16 @@
     2. Drop the destroyed frame's per-frame ring buffer so subsequent
        `(rf/epoch-history frame-id)` calls return the empty vector
        (the read-empty shape the contract commits to).
+    3. Drop any in-flight capture buffer entry for `frame-id`
+       (rf2-zzper) so a mid-drain destroy can't leak its pre-destroy
+       events into the first cascade of the next same-keyed frame.
 
   Called from `re-frame.frame/destroy-frame!` via the
   `:epoch/on-frame-destroyed` late-bind hook. Idempotent across
   repeated destroys of the same frame — once a cb's entry no longer
   contains the frame-id, no further trace fires for that pair, and
-  the (already-cleared) ring-buffer entry stays absent."
+  the (already-cleared) ring-buffer / capture-buffer entries stay
+  absent."
   [frame-id]
   (when interop/debug-enabled?
     (let [silenced-cbs (->> @observed-frames-by-cb
@@ -238,7 +252,19 @@
     ;; here on. (`reset-frame :app/main` calls destroy-frame! followed
     ;; by reg-frame, so the ring buffer for the new same-keyed frame
     ;; starts empty per Spec 002 §reset-frame.)
-    (swap! histories dissoc frame-id)))
+    (swap! histories dissoc frame-id)
+    ;; Per rf2-zzper: also drop any in-flight capture buffer. The
+    ;; router's `discard-buffer!` call handles the cascade-abort path
+    ;; for routine drains, but a destroy that races a mid-flight
+    ;; drain (e.g. a hot-reload firing while the drain has buffered
+    ;; events but has not yet settled) would otherwise leave a stale
+    ;; partial buffer hanging on `frame-id`. The next cascade that
+    ;; registers a same-keyed frame would then harvest those
+    ;; pre-destroy events as belonging to its first record — a silent
+    ;; cross-contamination from the destroyed frame's previous life.
+    ;; Drop the buffer entry here as a belt-and-braces guarantee
+    ;; symmetric to the ring-buffer drop above.
+    (swap! capture-buffers dissoc frame-id)))
 
 ;; ---- per-cascade trace capture --------------------------------------------
 ;;
