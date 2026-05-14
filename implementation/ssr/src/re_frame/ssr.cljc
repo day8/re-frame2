@@ -54,6 +54,13 @@
             [re-frame.ssr.hydrate :as hydrate]
             [re-frame.ssr.request :as request]
             [re-frame.ssr.response :as response]
+            ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR primitive
+            ;; (:rf/suspense-boundary). Loaded eagerly so the three
+            ;; late-bind hooks (:ssr.streaming/render-shell!,
+            ;; :ssr.streaming/render-continuation!,
+            ;; :ssr.streaming/build-final-payload) land at ns-load time
+            ;; before any host adapter calls them.
+            re-frame.ssr.streaming
             [re-frame.trace :as trace]))
 
 ;; ---- public-surface re-exports --------------------------------------------
@@ -104,6 +111,19 @@
 (def get-request                     request/get-request)
 (def clear-request!                  request/clear-request!)
 (def on-frame-destroyed!             request/on-frame-destroyed!)
+
+;; ---- streaming SSR public surface (rf2-ojakd / rf2-olb64 (a)) -------------
+;;
+;; Per Spec 011 §Streaming SSR — the `:rf/suspense-boundary` hiccup marker
+;; ships through these three façade fns. Host adapters (ssr-ring/streaming)
+;; consume them via the late-bind hooks the streaming ns also publishes.
+(def streaming-render-shell         re-frame.ssr.streaming/render-shell)
+(def streaming-render-continuation  re-frame.ssr.streaming/render-continuation)
+(def streaming-build-final-payload  re-frame.ssr.streaming/build-final-payload)
+(def streaming-fallback-template    re-frame.ssr.streaming/fallback-template)
+(def streaming-resolved-template    re-frame.ssr.streaming/resolved-template)
+(def streaming-failed-template      re-frame.ssr.streaming/failed-template)
+(def streaming-hydrate-delta-script re-frame.ssr.streaming/hydrate-delta-script)
 
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
 ;;
