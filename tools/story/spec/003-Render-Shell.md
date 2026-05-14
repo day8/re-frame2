@@ -73,9 +73,9 @@ the registry level; stale variants re-mount.
 
 ## Multi-substrate side-by-side rendering
 
-For a variant declaring `:substrates #{:reagent :uix :helix
-:reagent-slim}` (or any subset; default = the host frame's adapter),
-the render shell renders each substrate **inline** in its own pane.
+For a variant declaring `:substrates #{:reagent :uix :helix}` (or any
+subset; default = the host frame's adapter), the render shell renders
+each substrate **inline** in its own pane.
 
 - Each per-substrate render runs in a try/catch boundary.
 - A substrate-specific failure renders inline alongside the other

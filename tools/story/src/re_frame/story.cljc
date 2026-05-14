@@ -100,7 +100,7 @@
       :argtypes   {<arg-key> {...}}
       :tags       #{...}
       :modes      #{...}
-      :substrates #{:reagent :uix :helix :reagent-slim}
+      :substrates #{:reagent :uix :helix}
       :platforms  #{:server :client}
       :variants   {<variant-name> <variant-body>}}   ;; Form-B sugar
      ```

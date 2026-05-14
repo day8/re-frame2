@@ -57,7 +57,7 @@ required by the
 
 - **Visual development.** Iterate on a component in isolation; see
   every state side-by-side; flip between substrates (Reagent, UIx,
-  Helix, reagent-slim) when the view is substrate-portable.
+  Helix) when the view is substrate-portable.
 - **Test fixtures.** A `:test`-tagged variant *is* a complete component
   test; `(run-variant id)` returns
   `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` —
