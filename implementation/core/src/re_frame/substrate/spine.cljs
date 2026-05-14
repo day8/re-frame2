@@ -163,17 +163,62 @@
 ;; doesn't expose hydrate-root in every version; Helix ships no DOM
 ;; wrapper at all). createRoot + .render for fresh mounts; hydrateRoot
 ;; for the SSR-hydrate path. Both shapes return an unmount thunk.
+;;
+;; Active roots are tracked in a per-spine atom (rf2-9fdkb). Each mount
+;; adds the React root to the active set; the returned unmount thunk
+;; removes itself from the set and calls `.unmount` on the root. The
+;; spine's `dispose-adapter!` drains the set so torn-down adapters
+;; release every root they spun up — Spec 006 §Adapter disposal
+;; lifecycle requires browser adapters to unmount active roots.
 
-(defn render
-  "React 18+ root render. Returns an unmount thunk."
-  [render-tree mount-point opts]
-  (let [hydrate? (boolean (:hydrate? opts))
-        root     (if hydrate?
-                   (react-dom-client/hydrateRoot mount-point render-tree)
-                   (let [r (react-dom-client/createRoot mount-point)]
-                     (.render r render-tree)
-                     r))]
-    (fn unmount [] (.unmount root))))
+(defn make-active-roots-cell
+  "Return a fresh `(atom #{})` cell holding React roots the spine
+  currently keeps mounted. Each adapter owns its own cell so multiple
+  React-shaped adapters can coexist in a test bundle without
+  clobbering each other's tracking. Per rf2-9fdkb."
+  []
+  (atom #{}))
+
+(defn make-render
+  "Build a `render` fn that registers every mounted React root in
+  `active-roots-cell` and returns an unmount thunk that removes the
+  root from the cell before calling `.unmount`. Per rf2-9fdkb."
+  [active-roots-cell]
+  (fn render [render-tree mount-point opts]
+    (let [hydrate? (boolean (:hydrate? opts))
+          root     (if hydrate?
+                     (react-dom-client/hydrateRoot mount-point render-tree)
+                     (let [r (react-dom-client/createRoot mount-point)]
+                       (.render r render-tree)
+                       r))]
+      (swap! active-roots-cell conj root)
+      (fn unmount []
+        (swap! active-roots-cell disj root)
+        (.unmount root)))))
+
+(defn make-dispose-adapter!
+  "Build a `dispose-adapter!` fn that drains `active-roots-cell` by
+  calling `.unmount` on every tracked React root and clears the
+  spine's per-adapter caches:
+
+    * the active-roots set is emptied (post-unmount),
+    * the warn-once cache is emptied (so a subsequent install does not
+      inherit stale warn-once state from a prior lifecycle),
+    * the hiccup-emitter cell is cleared.
+
+  Per Spec 006 §Adapter disposal lifecycle (rf2-9fdkb). React's
+  `.unmount` is idempotent / no-op on already-unmounted roots; we
+  swallow any unmount throw so one misbehaving root does not strand
+  the rest of the drain."
+  [{:keys [active-roots-cell warn-cache emitter-cell]}]
+  (fn dispose-adapter! []
+    (doseq [root @active-roots-cell]
+      (try (.unmount root)
+           (catch :default _ nil)))
+    (reset! active-roots-cell #{})
+    (when warn-cache   (reset! warn-cache #{}))
+    (when emitter-cell (reset! emitter-cell nil))
+    nil))
 
 (defn make-hiccup-emitter-cell
   "Return a fresh `(atom nil)` cell that will hold the substrate's
@@ -457,13 +502,19 @@
            use-memo
            use-callback
            use-context]}]
-  (let [warn-cache       (make-warn-once-cache)
-        clear-warned     (make-clear-warned-fn warn-cache)
-        warn-fn          (make-warn-non-dom-root-fn warn-cache substrate-name)
-        emitter-cell     (make-hiccup-emitter-cell)
-        subscribe-cont   (make-subscribe-container gensym-prefix-sub)
-        make-derived     (make-derived-value-fn gensym-prefix-derived)
-        wrap-view-fn     (make-wrap-view warn-fn)
+  (let [warn-cache         (make-warn-once-cache)
+        clear-warned       (make-clear-warned-fn warn-cache)
+        warn-fn            (make-warn-non-dom-root-fn warn-cache substrate-name)
+        emitter-cell       (make-hiccup-emitter-cell)
+        active-roots-cell  (make-active-roots-cell)
+        subscribe-cont     (make-subscribe-container gensym-prefix-sub)
+        make-derived       (make-derived-value-fn gensym-prefix-derived)
+        wrap-view-fn       (make-wrap-view warn-fn)
+        render-fn          (make-render active-roots-cell)
+        dispose-fn         (make-dispose-adapter!
+                             {:active-roots-cell active-roots-cell
+                              :warn-cache        warn-cache
+                              :emitter-cell      emitter-cell})
         use-current-frame
         (fn use-current-frame []
           (use-context adapter-context/frame-context))
@@ -499,15 +550,16 @@
           ([frame-kw query-v] (use-subscribe-2 frame-kw query-v)))]
     {:emitter-cell                emitter-cell
      :warn-cache                  warn-cache
+     :active-roots-cell           active-roots-cell
      :make-state-container        make-state-container
      :read-container              read-container
      :replace-container!          replace-container!
      :subscribe-container         subscribe-cont
      :make-derived-value          make-derived
-     :render                      render
+     :render                      render-fn
      :render-to-string            (make-render-to-string emitter-cell)
      :register-context-provider   register-context-provider
-     :dispose-adapter!            (fn dispose-adapter! [] nil)
+     :dispose-adapter!            dispose-fn
      :set-hiccup-emitter!         (fn set-it! [f]
                                     (set-hiccup-emitter! emitter-cell f))
      :use-current-frame           use-current-frame

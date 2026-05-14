@@ -51,6 +51,13 @@
     (fn [] (apply compute-fn (map deref source-containers)))))
 
 ;; ---- render ---------------------------------------------------------------
+;;
+;; Active roots are tracked in a per-adapter atom so `dispose-adapter!`
+;; can drain them (rf2-9fdkb). Each mount adds the Reagent Root to the
+;; active set; the returned unmount thunk removes itself from the set
+;; before calling `(rdc/unmount root)`.
+
+(defonce ^:private active-roots (atom #{}))
 
 (defn- render [render-tree mount-point opts]
   ;; React 18+ uses the root API: `reagent.dom.client/render` takes a Root
@@ -67,13 +74,16 @@
   ;; The unmount thunk closes over the Root so the runtime can release
   ;; it without consulting the DOM element again. Hydrate path mirrors
   ;; the slim adapter (rf2-6hyy) — `hydrate-root` returns its own Root.
-  (let [hydrate? (boolean (:hydrate? opts))]
-    (if hydrate?
-      (let [root (rdc/hydrate-root mount-point render-tree)]
-        (fn unmount [] (rdc/unmount root)))
-      (let [root (rdc/create-root mount-point)]
-        (rdc/render root render-tree)
-        (fn unmount [] (rdc/unmount root))))))
+  (let [hydrate? (boolean (:hydrate? opts))
+        root     (if hydrate?
+                   (rdc/hydrate-root mount-point render-tree)
+                   (let [r (rdc/create-root mount-point)]
+                     (rdc/render r render-tree)
+                     r))]
+    (swap! active-roots conj root)
+    (fn unmount []
+      (swap! active-roots disj root)
+      (rdc/unmount root))))
 
 (defonce ^:private hiccup-emitter (atom nil))
 
@@ -105,8 +115,16 @@
 ;; ---- disposal -------------------------------------------------------------
 
 (defn- dispose-adapter! []
-  ;; Reagent's reaction caches GC themselves when their owners go away.
-  ;; Nothing special to do here.
+  ;; Reagent's reaction caches GC themselves when their owners go away,
+  ;; but mounted React 18+ Roots do not — Spec 006 §Adapter disposal
+  ;; lifecycle (rf2-9fdkb) requires the adapter to unmount any roots
+  ;; it spun up. Drain the active-roots set; swallow per-root unmount
+  ;; throws so one misbehaving root cannot strand the rest of the drain.
+  (doseq [root @active-roots]
+    (try (rdc/unmount root)
+         (catch :default _ nil)))
+  (reset! active-roots #{})
+  (reset! hiccup-emitter nil)
   nil)
 
 (def adapter
