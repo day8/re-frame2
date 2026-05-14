@@ -37,23 +37,11 @@
   the in-app-db slot directly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.machines :as machines]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (rf/init! plain-atom/adapter)
-  ;; Re-evaluate machines.cljc so the `:rf/machine` sub, `:rf.machine/spawn` /
-  ;; `:rf.machine/destroy` reserved fxs, and the late-bind hook table get
-  ;; reinstalled after `clear-all!` wiped them.
-  (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."

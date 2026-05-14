@@ -25,22 +25,12 @@
   JVM-only — the dynamic-var binding is platform-agnostic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.machines :as machines]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-trace-cbs!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- record-traces
   [body-fn]
