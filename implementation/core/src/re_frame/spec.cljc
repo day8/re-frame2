@@ -54,7 +54,8 @@
   `:schemas/explain-with-registered-fn` late-bind hooks. When the
   schemas artefact is not on the classpath the hooks return nil and
   the interceptor falls through as a no-op."
-  (:require [re-frame.interceptor :as interceptor]
+  (:require [re-frame.error :as error]
+            [re-frame.interceptor :as interceptor]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -112,22 +113,6 @@
   trace surface itself reads."
   []
   interop/debug-enabled?)
-
-(defn- type-of-value
-  "Best-effort short tag for the failing value's type — surfaced in the
-  failure trace's `:reason` string. Mirrors the same private helper in
-  re-frame.schemas."
-  [v]
-  (cond
-    (string? v)  "string"
-    (integer? v) "integer"
-    (number? v)  "number"
-    (boolean? v) "boolean"
-    (keyword? v) "keyword"
-    (map? v)     "map"
-    (vector? v)  "vector"
-    (nil? v)     "nil"
-    :else        (str (type v))))
 
 ;; ---- :spec/validate-at-boundary -------------------------------------------
 ;;
@@ -230,7 +215,7 @@
                                           :reason     (str "Event " event-id
                                                            " payload failed boundary "
                                                            "schema " schema ", got "
-                                                           (type-of-value event) ".")
+                                                           (error/type-of-value event) ".")
                                           :recovery   :no-recovery})
                       ;; Per Spec 010 §Per-step recovery step 1: handler
                       ;; is not invoked. The handler-as-interceptor
