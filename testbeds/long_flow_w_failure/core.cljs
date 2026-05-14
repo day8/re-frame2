@@ -121,6 +121,26 @@
 ;; Flows — three in topo order
 ;; ----------------------------------------------------------------------------
 ;;
+;; Topology pin (rf2-sabm5). Spec 013 §Topological sort orders a flow
+;; map by path-prefix overlap between one flow's `:path` and another's
+;; `:inputs` — two flows that don't share such an overlap are
+;; topologically *parallel*, and Kahn's algorithm picks an unspecified
+;; order between them. The four-rule failure contract talks about
+;; PRIOR flows (those scheduled earlier in topo order); to assert
+;; Rule 1 ("prior-flow writes preserved") against :flow-a when
+;; :flow-b throws, the testbed must pin :flow-a → :flow-b in topo
+;; order. We do that by listing `[:a-result]` in :flow-b's :inputs
+;; — the path-prefix overlap with :flow-a's :path forces the edge.
+;; The same `[:a-result] [:b-result]` pair already pins :flow-c after
+;; both upstreams.
+;;
+;; The :input itself stays in :flow-b's :inputs so the read-from-app-
+;; db dirty-check still fires when the tick handler bumps :input —
+;; without that input edge, :flow-b would still re-evaluate on every
+;; tick (because :a-result advanced), but the input value used inside
+;; :output would not be the trigger. Listing both keeps the value
+;; flow honest and the ordering pinned.
+;;
 ;; Rule-1 / Rule-3 evidence: when :flow-b throws on tick N, :flow-a's
 ;; output for tick N IS flushed to :a-result (prior writes preserved);
 ;; :flow-c's output for tick N is NOT computed (cascade halts).
@@ -134,12 +154,18 @@
              ;; positive evidence of rule 1.
              (* 2 input))
    :path   [:a-result]
-   :doc    "Doubles :input. Watched by :flow-c."})
+   :doc    "Doubles :input. Watched by :flow-b (topo-order pin) and
+            :flow-c (math)."})
 
 (rf/reg-flow
   {:id     ::flow-b
-   :inputs [[:input]]
-   :output (fn flow-b [input]
+   ;; Two inputs — :input drives the math; :a-result is the topo-
+   ;; order pin (see flows-block comment above). The :output fn
+   ;; ignores the a-result value; its only job is to declare the
+   ;; dependency edge so :flow-a's write is observably PRIOR when
+   ;; this flow throws.
+   :inputs [[:input] [:a-result]]
+   :output (fn flow-b [input _a-result]
              ;; HOT PATH — the failure-injection site for the
              ;; cascade. The throw fires whenever this fn is called
              ;; with input == :fail-at. The flow's last-inputs is
@@ -156,17 +182,12 @@
                    ;; The :input value the :tick handler bumps to
                    ;; coincides with the tick index — tick 5
                    ;; bumps :input to 5. So we throw iff input >=
-                   ;; :fail-at (the runtime reads :fail-at out of
-                   ;; app-db at flow-eval time via a closure capture
-                   ;; below — flows take their inputs by path, but
-                   ;; the throwing fn can read any closure-captured
-                   ;; state).
-                   ;;
-                   ;; We close over `(fn ...)` rather than reading
-                   ;; another path so :flow-b stays single-input
-                   ;; (matches the realworld failure shape where
-                   ;; ONE of N flow inputs is the failure trigger,
-                   ;; not the failure config itself).
+                   ;; :fail-at. We close over `(fn ...)` via the
+                   ;; module-level atom rather than reading another
+                   ;; app-db path so the failure threshold isn't
+                   ;; tangled with the dirty-check graph (matches
+                   ;; the realworld shape where the failure config
+                   ;; rides out-of-band, not in app-db).
                    @fail-at-atom]
                (if (and (some? fail-at-input)
                         (>= input fail-at-input))
@@ -177,7 +198,8 @@
                  (* 3 input))))
    :path   [:b-result]
    :doc    "Triples :input — UNLESS input ≥ fail-at, in which case
-            throws every recompute past that threshold."})
+            throws every recompute past that threshold. Reads
+            :a-result for topo-order only (math uses :input)."})
 
 (rf/reg-flow
   {:id     ::flow-c
