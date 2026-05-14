@@ -188,10 +188,24 @@
      ;; / hot-reload hooks can read the owning frame. `register!`
      ;; returns `{:was previous :now metadata}` — `:was` is nil on
      ;; first-time registration, non-nil on hot-reload re-registration.
+     ;; Per rf2-v5ttb: stamp `:handler-fn` so the registrar's
+     ;; `:different-fn?` calculation (registrar.cljc) can tell a real
+     ;; body change from an idempotent reload. The registrar reads
+     ;; `:handler-fn` uniformly across kinds; events / subs / fx all
+     ;; populate it at their registration sites, but flows historically
+     ;; stored the body under `:output` only — so `(not= nil nil)` was
+     ;; the answer for every flow re-registration and `:different-fn?`
+     ;; was always `false` (re-frame-10x's flow panel / Causa / pair2
+     ;; missed every real body swap). The `:output` slot is preserved
+     ;; for the flow-eval site that reads it; the additional
+     ;; `:handler-fn` stamp aligns the cross-kind hot-reload trace
+     ;; surface Spec 001 standardises.
      (let [{:keys [was]} (registrar/register!
                            :flow flow-id
                            (source-coords/merge-coords
-                             (assoc flow :frame frame-id)))]
+                             (assoc flow
+                                    :frame      frame-id
+                                    :handler-fn (:output flow))))]
        (swap! flows assoc-in [frame-id flow-id] flow)
        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires
        ;; on FIRST-TIME registration only. On re-registration the
