@@ -34,15 +34,20 @@ const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.j
 
 // Expected tools advertised by pair2-mcp's tools/list. Pinned exact so
 // accidental renames / additions / deletions surface here. Mirrors the
-// upstream stdio-roundtrip baseline (twelve tools post-rf2-fnpqg, which
-// added `get-pair2-instructions` as an agent-paste preamble tool on top
-// of the eleven-tool post-rf2-zjz9q baseline).
+// upstream stdio-roundtrip baseline (fourteen tools post-rf2-cibp8 +
+// rf2-pctf8, which added `handler-meta` and `registry-list` as the
+// registry-introspection pair on top of the twelve-tool post-rf2-fnpqg
+// baseline; that earlier expansion added `get-pair2-instructions` as an
+// agent-paste preamble tool on top of the eleven-tool post-rf2-zjz9q
+// baseline).
 const EXPECTED_TOOLS = [
   'discover-app',
   'dispatch',
   'eval-cljs',
   'get-pair2-instructions',
   'get-path',
+  'handler-meta',
+  'registry-list',
   'snapshot',
   'subscribe',
   'subscription-info',

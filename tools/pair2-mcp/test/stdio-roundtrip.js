@@ -89,11 +89,13 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all twelve tools (six original + snapshot
+      // 2. tools/list — expect all fourteen tools (six original + snapshot
       // mega-op from rf2-x70e + subscribe/unsubscribe streaming pair
       // from rf2-hq49 + get-path read-by-path primitive from rf2-tygdv
       // + subscription-info read-side wrapper from rf2-zjz9q +
-      // get-pair2-instructions agent-onboarding text from rf2-fnpqg).
+      // get-pair2-instructions agent-onboarding text from rf2-fnpqg +
+      // handler-meta registry-introspection from rf2-cibp8 +
+      // registry-list registry-enumeration from rf2-pctf8).
       // rf2-7dvg cut inject-runtime in favour of a shadow-cljs
       // :preloads entry; see SKILL.md §Setup.
       const list = await call('tools/list', {});
@@ -104,6 +106,8 @@ function run() {
         'eval-cljs',
         'get-pair2-instructions',
         'get-path',
+        'handler-meta',
+        'registry-list',
         'snapshot',
         'subscribe',
         'subscription-info',
