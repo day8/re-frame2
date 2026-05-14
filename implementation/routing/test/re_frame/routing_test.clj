@@ -825,6 +825,55 @@
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           "fragment in the URL-string target round-trips through the push"))))
 
+;; ---- rf2-d60go: :rf.route/handle-url-change writes the full slice shape -
+;;
+;; Per Spec 012 §The :rf/route slice and §URL changes are events the slice
+;; carries `{:id :params :query :fragment :transition :error :nav-token}`
+;; on every URL-driven write. Pre-fix this handler omitted :fragment and
+;; :nav-token; the slice diverged in shape from the programmatic-nav path.
+
+(deftest handle-url-change-writes-full-slice-shape
+  (testing ":rf.route/handle-url-change writes :fragment and :nav-token
+            into the slice (the seven-key canonical shape)"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; URL with a fragment so we can assert :fragment is populated.
+    (rf/dispatch-sync [:rf.route/handle-url-change
+                       "/docs/routing#scroll-restoration"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :route/docs (:id slice))
+          "slice id is the matched route")
+      (is (= {:page "routing"} (:params slice))
+          "params from the matched route")
+      (is (= "scroll-restoration" (:fragment slice))
+          ":fragment now populates the slice (pre-fix: missing)")
+      (is (= :idle (:transition slice))
+          "no :on-match → :transition :idle")
+      (is (nil? (:error slice))
+          ":error is nil on a clean nav")
+      (is (some? (:nav-token slice))
+          ":nav-token is allocated on every URL-driven nav (pre-fix: missing)"))))
+
+(deftest handle-url-change-allocates-nav-token-trace
+  (testing ":rf.route/handle-url-change emits :rf.route.nav-token/allocated"
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::handle-url-token
+                             (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/handle-url-change "/"])
+      (rf/remove-trace-cb! ::handle-url-token)
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/allocated (:operation ev))
+                       (= :route/home (-> ev :tags :route-id))
+                       (string? (-> ev :tags :nav-token))))
+                @traces)
+          ":rf.route.nav-token/allocated trace fires with the route-id and a fresh token"))))
+
 ;; ---- rf2-h4r9n: unmatched URL writes :rf.route/not-found slice -----------
 ;;
 ;; Per Spec 012 §Route-not-found an unmatched URL routes to
