@@ -25,6 +25,10 @@
 ;;                          records (rf2-1wdzp, used at the wire
 ;;                          boundary inside pair2-mcp; the encoding
 ;;                          contract is a cross-MCP convention).
+;;                          Pinned via Malli `patch-schema` /
+;;                          `patches-schema` at the encoder boundary
+;;                          (rf2-rgg7d) so a future tuple-grammar
+;;                          drift trips the dev-build gate.
 ;;   - `overflow.cljc`  — overflow-marker payload builder (rf2-rvyzy).
 ;;
 ;; What deliberately does NOT live here:
@@ -64,9 +68,23 @@
  :deps  {org.clojure/clojure {:mvn/version "1.12.0"}}
 
  :aliases
+ ;; metosin/malli is TEST-ONLY (rf2-rgg7d). mcp-base's runtime sources
+ ;; stay Malli-free at the dep boundary; the encoder's validation gate
+ ;; (`diff-encode/validate-patches!`) resolves `malli.core/validate` at
+ ;; runtime via `requiring-resolve` / `resolve` and soft-passes when
+ ;; Malli is absent. The test alias here puts Malli on the classpath so
+ ;; the diff-encode tests can hard-assert schema acceptance and
+ ;; rejection. Consumers (pair2-mcp, story-mcp, causa-mcp) bring Malli
+ ;; themselves via their implementation deps; production CLJS bundles
+ ;; can flip the goog-define `validate-patches?` to false to DCE the
+ ;; validation branch outright. Pinning the same version used by
+ ;; tools/mcp-conformance/wire-vocab so schema syntax stays aligned
+ ;; across the conformance gates.
  {:test {:extra-paths ["test"]
          :extra-deps  {io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                       metosin/malli
+                       {:mvn/version "0.16.4"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
 
   ;; Clojars deploy — mirrors tools/story-mcp/deps.edn.
