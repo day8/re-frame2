@@ -371,6 +371,70 @@
                (:join-event (:data snap)))
             "resolution event carries decisive child-id and forwarded payload")))))
 
+;; ---- late-completion safety net (rf2-1tt9q) -----------------------------
+;;
+;; intercept-invoke-all-event has a post-resolution branch (join.cljc:134-141)
+;; that fires when a child-done event arrives AFTER the join already
+;; resolved. The contract surface is the :rf.machine.invoke-all/late-completion
+;; trace — the return-value is a no-op {:db db :fx []}.
+;;
+;; To exercise the branch we use :cancel-on-decision? false so siblings
+;; survive past resolution and can fire their terminal-state dispatches.
+
+(deftest late-completion-after-resolution-emits-trace-and-is-no-op
+  (testing "child-done events arriving after join resolution emit late-completion trace"
+    (let [traces (atom [])
+          child  (mk-child :sup/late :asset/loaded :asset/failed)
+          ;; Parent stays in :hydrating across resolution by NOT
+          ;; declaring an :on for the resolution event. The runtime
+          ;; still dispatches it, but no transition fires — the join
+          ;; slot survives so late children flow through the
+          ;; :resolved? branch.
+          parent {:initial :idle
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:invoke-all
+                    {:children            [{:id :a :machine-id :child/la :start [:set-id :a]}
+                                           {:id :b :machine-id :child/lb :start [:set-id :b]}
+                                           {:id :c :machine-id :child/lc :start [:set-id :c]}]
+                     :join                :any
+                     :cancel-on-decision? false
+                     :on-child-done       :asset/loaded
+                     :on-child-error      :asset/failed
+                     :on-some-complete    [:race/won]}}}}]
+      (rf/reg-machine :child/la child)
+      (rf/reg-machine :child/lb child)
+      (rf/reg-machine :child/lc child)
+      (rf/reg-machine :sup/late parent)
+      (rf/register-trace-cb! ::late-cb
+                             (fn [ev] (swap! traces conj ev)))
+      (try
+        (rf/dispatch-sync [:sup/late [:start]])
+        (let [ids (get-in (frame-db) [:rf/spawned :sup/late [:hydrating] :children])]
+          ;; First child resolves the :any join.
+          (rf/dispatch-sync [(:a ids) [:go]])
+          (let [j (get-in (frame-db) [:rf/spawned :sup/late [:hydrating]])]
+            (is (true? (:resolved? j)) ":any resolved on first :go")
+            (is (= #{:a} (:done j))))
+          ;; Sibling b completes AFTER resolution — late-completion path.
+          (rf/dispatch-sync [(:b ids) [:go]])
+          (let [j (get-in (frame-db) [:rf/spawned :sup/late [:hydrating]])]
+            (is (= #{:a} (:done j))
+                "late-completion does NOT mutate :done")
+            (is (true? (:resolved? j)) ":resolved? stays true")))
+        (let [late-traces (->> @traces
+                               (filter #(= :rf.machine.invoke-all/late-completion
+                                           (:operation %))))]
+          (is (= 1 (count late-traces))
+              "exactly one late-completion trace fired")
+          (is (= :b (:child-id (:tags (first late-traces))))
+              "trace carries the late child's id")
+          (is (= :done (:kind (:tags (first late-traces))))
+              "trace carries the resolution kind"))
+        (finally
+          (rf/remove-trace-cb! ::late-cb))))))
+
 (deftest any-failed-trace-carries-reason-payload
   (testing ":rf.machine.invoke-all/any-failed trace carries :reason from decisive failure"
     (let [traces (atom [])
