@@ -309,13 +309,19 @@
 
 (defn compute-backoff-ms
   "Per Spec 014 §Retry and backoff. Returns the delay in ms before the
-  next attempt. `attempt` is the failing attempt number (1-based)."
+  next attempt. `attempt` is the failing attempt number (1-based).
+
+  Per Spec 014 line 250 — `:jitter true` adds random ±25% jitter to
+  each delay (offset uniformly in [-0.25 × capped, +0.25 × capped])."
   [{:keys [base-ms factor max-ms jitter] :or {base-ms 250 factor 2 max-ms 5000}} attempt]
-  (let [raw     (* base-ms (Math/pow factor (max 0 (dec attempt))))
-        capped  (min raw max-ms)
+  (let [raw      (* base-ms (Math/pow factor (max 0 (dec attempt))))
+        capped   (min raw max-ms)
+        ;; (- 1.0 (* 2.0 (rand))) is uniform in [-1.0, +1.0]; scaled by
+        ;; 0.25 × capped this yields a true ±25% offset matching the
+        ;; spec's stated range. (The earlier impl used (- 0.5 (rand)) ×
+        ;; 0.25 × capped which is only ±12.5%.)
         jittered (if jitter
-                   (let [j (* capped 0.25)
-                         offset (* j (- 0.5 (rand)))]
+                   (let [offset (* capped 0.25 (- 1.0 (* 2.0 (rand))))]
                      (max 0 (+ capped offset)))
                    capped)]
     (long jittered)))
