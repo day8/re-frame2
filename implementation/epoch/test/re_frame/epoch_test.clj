@@ -1195,6 +1195,150 @@
         (finally
           (late-bind/set-fn! hook-key original))))))
 
+;; ---- capture-event! skip-ops cross-contamination (rf2-htf28) ---------------
+;;
+;; Every `:rf.epoch/*` op this namespace emits with a `:frame` tag fires
+;; OUTSIDE a cascade (the drain has either not started, or has just
+;; settled and the buffer has been harvested). If `capture-event!`
+;; failed to skip them they would accrete into `capture-buffers` and
+;; leak into the NEXT cascade's harvested record for the same frame —
+;; phantom `:trace-events` and a wrong `:trigger-event` from
+;; `find-trigger-event`'s fallback arm.
+;;
+;; This catalogue test pins the `skip-ops` set against every
+;; `:rf.epoch/*` op the namespace emits. If a future op is added (e.g.
+;; an in-drain `:rf.epoch/cascade-rollback`) and forgotten in
+;; `skip-ops`, OR a stale op is left there, the diff between
+;; observed-and-skipped ops vs the registry will tell. Keeps the
+;; deliberate-enumeration choice right-by-construction.
+
+(deftest reset-frame-db-does-not-leak-into-next-cascade
+  (testing "after reset-frame-db! on a frame, the NEXT cascade on that
+            frame harvests a record whose :trace-events excludes the
+            out-of-drain :rf.epoch/db-replaced emit, and whose
+            :trigger-event is the actual next dispatched event (NOT
+            [:rf.epoch/db-replaced] picked from a leaked buffer)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+
+    ;; Cascade 1: a real event, lands a clean record.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    ;; Out-of-drain emit: :rf.epoch/db-replaced fires with a :frame tag.
+    ;; Pre-fix, capture-event! would buffer it into capture-buffers[:test/main].
+    (rf/reset-frame-db! :test/main {:n 100})
+
+    ;; Cascade 2: a real event. Post-fix, its harvested record reflects
+    ;; only the :bump cascade. Pre-fix, the leaked :rf.epoch/db-replaced
+    ;; event would be the FIRST event in the buffer, and
+    ;; find-trigger-event's fallback arm would pick its :epoch-id over
+    ;; the real :bump event.
+    (rf/dispatch-sync [:bump] {:frame :test/main})
+
+    (let [history    (rf/epoch-history :test/main)
+          ;; Skip the :rf.epoch/db-replaced synthetic record itself —
+          ;; we're checking the cascade that ran AFTER it.
+          post-reset (last history)]
+      (is (= :bump (:event-id post-reset))
+          ":event-id is the real cascade trigger, not :rf.epoch/db-replaced")
+      (is (= [:bump] (:trigger-event post-reset))
+          ":trigger-event is the real event vector, not the leaked sentinel")
+      (is (not-any? (fn [ev] (= :rf.epoch/db-replaced (:operation ev)))
+                    (:trace-events post-reset))
+          ":trace-events does NOT contain the out-of-drain :rf.epoch/db-replaced emit")
+      ;; project-effects has no fx in :bump, but project-sub-runs /
+      ;; project-renders walking a leaked event with op :rf.epoch/db-replaced
+      ;; would silently be empty anyway — the strong signal is the trigger-
+      ;; event check above plus the trace-events absence.
+      (is (empty? (:effects post-reset))
+          "no leaked effects from the out-of-drain emit"))))
+
+(deftest reset-frame-db-failure-does-not-leak-into-next-cascade
+  (testing "the two reset-frame-db! failure-mode emits
+            (:rf.epoch/reset-frame-db-during-drain,
+             :rf.epoch/reset-frame-db-schema-mismatch) fire outside a
+            cascade with :frame tags. They MUST be filtered out of
+            capture-event!'s buffering — otherwise a failed
+            reset-frame-db! attempt leaks a phantom event into the next
+            real cascade for that frame."
+    ;; Use the schema-mismatch path — easier to drive than during-drain.
+    (rf/reg-frame :test/sm {})
+    (rf/reg-app-schema [:n] [:int] {:frame :test/sm})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/sm})
+
+    ;; This fails — new-db doesn't validate. Emits
+    ;; :rf.epoch/reset-frame-db-schema-mismatch with :frame :test/sm.
+    (is (false? (rf/reset-frame-db! :test/sm {:n "not-an-int"})))
+
+    ;; Next cascade — should NOT carry the failure emit.
+    (rf/dispatch-sync [:bump] {:frame :test/sm})
+
+    (let [post-fail (last (rf/epoch-history :test/sm))]
+      (is (= :bump (:event-id post-fail)))
+      (is (= [:bump] (:trigger-event post-fail)))
+      (is (not-any? (fn [ev]
+                      (= :rf.epoch/reset-frame-db-schema-mismatch
+                         (:operation ev)))
+                    (:trace-events post-fail))
+          "failure-mode emit is filtered from the next cascade's trace stream"))))
+
+(deftest restore-epoch-emits-do-not-leak-into-next-cascade
+  (testing "restore-epoch's success emit (:rf.epoch/restored) and its
+            five documented failure-mode emits all fire outside a
+            cascade with :frame tags. None may bleed into the next
+            real cascade's :trace-events for that frame."
+    (rf/reg-frame :test/r {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/r})
+    (rf/dispatch-sync [:bump] {:frame :test/r})
+    (let [seed-epoch (first (rf/epoch-history :test/r))]
+      ;; Successful restore — emits :rf.epoch/restored out-of-drain.
+      (is (true? (rf/restore-epoch :test/r (:epoch-id seed-epoch))))
+      ;; Failed restore — unknown epoch-id emits
+      ;; :rf.epoch/restore-unknown-epoch out-of-drain.
+      (is (false? (rf/restore-epoch :test/r 999999)))
+
+      ;; Next cascade — should NOT carry either emit.
+      (rf/dispatch-sync [:bump] {:frame :test/r})
+      (let [post (last (rf/epoch-history :test/r))
+            ops  (into #{} (map :operation (:trace-events post)))]
+        (is (= :bump (:event-id post)))
+        (is (= [:bump] (:trigger-event post)))
+        (is (not (contains? ops :rf.epoch/restored))
+            ":rf.epoch/restored does not leak from a prior successful restore")
+        (is (not (contains? ops :rf.epoch/restore-unknown-epoch))
+            ":rf.epoch/restore-unknown-epoch does not leak from a prior failed restore")))))
+
+(deftest skip-ops-catalogue-pins-every-rf-epoch-op
+  (testing "skip-ops covers every :rf.epoch/* op this namespace emits
+            with a :frame tag (catalogue test — adds a fail-loudly
+            signal if a new in-namespace :rf.epoch/* op is introduced
+            and forgotten in `skip-ops`)"
+    ;; The exhaustive set as of rf2-htf28. Update both this catalogue
+    ;; AND `skip-ops` when adding/removing an op the namespace emits.
+    ;; (`:rf.epoch.cb/silenced-on-frame-destroy` is op-type :rf.epoch.cb,
+    ;; not :rf.epoch — and it emits AFTER the frame's ring buffer has
+    ;; been dropped so it can't race a future cascade. Not in skip-ops.)
+    (let [expected #{:rf.epoch/snapshotted
+                     :rf.epoch/restored
+                     :rf.epoch/restore-unknown-epoch
+                     :rf.epoch/restore-schema-mismatch
+                     :rf.epoch/restore-missing-handler
+                     :rf.epoch/restore-version-mismatch
+                     :rf.epoch/restore-during-drain
+                     :rf.epoch/db-replaced
+                     :rf.epoch/reset-frame-db-during-drain
+                     :rf.epoch/reset-frame-db-schema-mismatch}
+          actual   @#'epoch/skip-ops]
+      (is (= expected actual)
+          "skip-ops catalogue matches the documented set of
+           out-of-cascade :rf.epoch/* emits"))))
+
 ;; ---- destroyed-frame contract (rf2-d656) -----------------------------------
 ;;
 ;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
