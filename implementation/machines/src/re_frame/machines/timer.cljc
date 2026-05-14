@@ -323,9 +323,8 @@
   through the standard transition cascade.
 
   No-op under `:platform :server` (per Spec 005 §SSR mode)."
-  [{:keys [frame]} args]
-  (let [frame-id   (or frame :rf/default)
-        parent-id  (:rf/parent-id args)
+  [{frame-id :frame :or {frame-id :rf/default}} args]
+  (let [parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
         state      (:state args)
         delay-key  (:delay-key args)
@@ -360,9 +359,8 @@
   so the only cross-key axis we still iterate is `:delay` (one entry
   per :after map entry on the bearing state node — typically 1-3
   entries)."
-  [{:keys [frame]} args]
-  (let [frame-id  (or frame :rf/default)
-        parent-id (:rf/parent-id args)
+  [{frame-id :frame :or {frame-id :rf/default}} args]
+  (let [parent-id (:rf/parent-id args)
         invoke-id (vec (:rf/invoke-id args))]
     (doseq [[k _entry] (get @after-timers frame-id)
             :when (and (= parent-id (:parent k))

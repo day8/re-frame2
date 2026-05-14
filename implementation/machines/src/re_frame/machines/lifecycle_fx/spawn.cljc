@@ -167,9 +167,8 @@
       the runtime dispatches a synthetic `[<spawned-id>
       [:rf.machine/spawned]]` so generic child machines may declare a
       leaf-level `:on :rf.machine/spawned :target ...` transition."
-  [{:keys [frame]} args]
-  (let [frame-id   (or frame :rf/default)
-        ;; Per rf2-gr8q: prefer the pre-allocated id (declarative :invoke
+  [{frame-id :frame :or {frame-id :rf/default}} args]
+  (let [;; Per rf2-gr8q: prefer the pre-allocated id (declarative :invoke
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
         ;; no pre-allocated id; the frame's app-db spawn-counter slot
@@ -257,9 +256,8 @@
   Subsequent `:on-child-done` / `:on-child-error` events arrive at the
   parent's `create-machine-handler` boundary and are intercepted by
   `intercept-invoke-all-event` (in `lifecycle-fx.join`)."
-  [{:keys [frame]} args]
-  (let [frame-id   (or frame :rf/default)
-        parent-id  (:rf/parent-id args)
+  [{frame-id :frame :or {frame-id :rf/default}} args]
+  (let [parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
         join-state (:join-state args)
         children   (:children join-state)]

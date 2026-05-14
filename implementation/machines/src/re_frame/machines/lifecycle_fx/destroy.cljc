@@ -141,9 +141,8 @@
   `:invoke-all` children-iteration teardown
   (`destroy-invoke-all-children!`) per the `args` shape. See the ns
   docstring for the form semantics."
-  [{:keys [frame]} args]
-  (let [frame-id    (or frame :rf/default)
-        invoke-all? (and (map? args) (true? (:rf/invoke-all args)))]
+  [{frame-id :frame :or {frame-id :rf/default}} args]
+  (let [invoke-all? (and (map? args) (true? (:rf/invoke-all args)))]
     (if invoke-all?
       (destroy-invoke-all-children! frame-id
                                     (:rf/parent-id args)
