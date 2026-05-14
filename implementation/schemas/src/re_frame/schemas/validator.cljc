@@ -185,18 +185,12 @@
   Last-write-wins on re-registration. Returns the validator that was
   installed (may be nil)."
   [validate-fn-or-map]
-  (cond
-    (map? validate-fn-or-map)
-    (let [{:keys [validate explain print]
-           :or   {validate ::unset
-                  explain  ::unset
-                  print    ::unset}} validate-fn-or-map]
-      (when-not (= ::unset validate) (reset! validator-fn validate))
-      (when-not (= ::unset explain)  (reset! explainer-fn  explain))
-      (when-not (= ::unset print)    (reset! printer-fn    print))
+  (if (map? validate-fn-or-map)
+    (let [m validate-fn-or-map]
+      (when (contains? m :validate) (reset! validator-fn (:validate m)))
+      (when (contains? m :explain)  (reset! explainer-fn (:explain m)))
+      (when (contains? m :print)    (reset! printer-fn   (:print m)))
       @validator-fn)
-
-    :else
     (do (reset! validator-fn validate-fn-or-map)
         @validator-fn)))
 
