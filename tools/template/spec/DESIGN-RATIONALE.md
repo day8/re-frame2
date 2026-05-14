@@ -121,9 +121,12 @@ the first cut.
   `subs.cljs`, host HTML) is identical across substrates. Only
   `core.cljs`, `views.cljs`, `deps.edn`, and the npm pins
   differ. The per-substrate resource sub-tree is ~5 files.
-- **CI exercises all three.** The JVM test
-  (`test/clj/new/re_frame2/core_test.clj`) runs every substrate
-  end-to-end, so adding a substrate has a low maintenance tax.
+- **CI exercises all three.** The three-file JVM test suite
+  (`test/clj/new/re_frame2_test.clj` plus the
+  `template_emission_test.clj` static-parse and
+  `emitted_test_run_test.clj` behavioural slices) runs every
+  substrate end-to-end, so adding a substrate has a low maintenance
+  tax.
 
 Reagent remains the default — it's the canonical substrate every
 re-frame example targets first. UIx and Helix are equal citizens,
@@ -242,11 +245,13 @@ per-variant top-level tree (no shared tree at all).
 
 ## §8 — JVM test (no clj-new harness in the test path)
 
-**Decision.** The JVM test
-(`test/clj/new/re_frame2/core_test.clj`) invokes the template's
-entry fn directly, bypassing clj-new's `create` harness. It does
-three things per substrate: generate to a tmp dir, walk the
-file tree, run `clojure -P` against the generated `deps.edn`.
+**Decision.** The JVM tests (`test/clj/new/re_frame2_test.clj`
+and its two siblings, `template_emission_test.clj` and
+`emitted_test_run_test.clj`) invoke the template's entry fn
+directly, bypassing clj-new's `create` harness. The layered shape:
+generate to a tmp dir, walk the file tree, parse-and-audit the
+emitted cljs against framework surface, and optionally compile +
+run the emitted tests via shadow-cljs.
 
 **Why.**
 
@@ -261,9 +266,13 @@ file tree, run `clojure -P` against the generated `deps.edn`.
 
 The `clojure -P` deps-parse is a "best-effort" check — it confirms
 the generated `deps.edn` is well-formed and that re-frame2 coords
-resolve. It requires a `clojure` CLI on PATH; if absent, the test
-logs and skips. Deps-parse is a nice-to-have signal; the harder
-contract is the file-tree shape.
+resolve. It is gated behind `RF2_TEMPLATE_DEPS_RESOLVE=1` (CI sets
+this; local fast-loop default-off so a missing alpha publish on
+Clojars doesn't fail every run). The behavioural compile+run slice
+(`emitted_test_run_test.clj`) is similarly opt-in via
+`RF2_TEMPLATE_RUN_EMITTED_TESTS=1`. Deps-parse and behavioural-run
+are nice-to-have signals; the harder contract is the file-tree
+shape + the static-parse framework-surface audit.
 
 ## §9 — Forgiving substrate coercion
 

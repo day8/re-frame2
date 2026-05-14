@@ -126,6 +126,9 @@ Adding a variant requires:
 2. A new resource sub-tree at
    `src/clj/new/re_frame2/<substrate>/` (matching the existing
    reagent/uix/helix shape).
-3. A test entry in `test/clj/new/re_frame2/core_test.clj`.
+3. A test entry in each of `test/clj/new/re_frame2_test.clj`,
+   `test/clj/new/template_emission_test.clj`, and
+   `test/clj/new/emitted_test_run_test.clj` (per-substrate runs in
+   the existing deftests).
 
 The substrate-agnostic `shared/` tree is reused as-is.
