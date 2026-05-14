@@ -386,7 +386,11 @@
                           :decode-supplied? decode-supplied?
                           :request-id       request-id
                           :url              url
-                          :sensitive?       (:sensitive? ctx)})
+                          :sensitive?       (:sensitive? ctx)
+                          ;; rf2-wu1n5 — thread the keyword-cap from the
+                          ;; normalised ctx into the decoder; nil means
+                          ;; the reader uses its default.
+                          :max-decoded-keys (:max-decoded-keys ctx)})
               accepted (encoding/run-accept accept decoded {:status status})]
           (finalise-success! (assoc ctx :decoded decoded) accepted))
         (catch #?(:clj Throwable :cljs :default) e

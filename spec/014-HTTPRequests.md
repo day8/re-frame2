@@ -207,6 +207,27 @@ Then `(rf/handler-meta :event :article/load)` returns a map carrying `:rf.http/d
 
 For handlers that issue multiple `:rf.http/managed` requests with different schemas, list all of them: `:rf.http/decode-schemas [ArticleResponse CommentList Profile]`.
 
+### Keyword-interning cap (rf2-wu1n5)
+
+JSON object keys are decoded as Clojure keywords. On the JVM, keywords are interned and never garbage-collected — a compromised upstream returning N unique-key JSON per response would permanently burn N keyword slots per response. Long-running JVMs (SSR, webhook receivers, agent-controlled fetches) are the worst case.
+
+The decoder enforces a per-request cap on the number of unique object keys decoded. Overflow throws `:rf.http/decode-failure` with `:reason :too-many-keys` and the configured `:limit`.
+
+| Args-map key | Default | Notes |
+|---|---|---|
+| `:rf.http/max-decoded-keys` | 10000 | Per-request cap on unique JSON object keys. Throws `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
+
+The cap applies to both the Cheshire path and the pure-Clojure fallback reader. 10000 is generous — legitimate APIs typically expose tens to low-hundreds of distinct key names per response. Apps that knowingly consume larger-cardinality payloads can raise the cap per request:
+
+```clojure
+{:fx [[:rf.http/managed
+       {:request                  {:url "/api/bigmap"}
+        :decode                   :json
+        :rf.http/max-decoded-keys 50000}]]}
+```
+
+The cap is the SECOND line of defence; the FIRST line is `:request-content-type` / `:decode :text` for endpoints that don't need keywordization (`(get response "key")` works fine over string-keyed maps). For untrusted-origin JSON, prefer `:decode :text` + explicit parsing into a string-keyed map.
+
 ## `:accept` — domain-failure normalisation
 
 After decoding, the user's `:accept` fn classifies the decoded value:
