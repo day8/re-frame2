@@ -67,7 +67,8 @@
             [applied-science.js-interop :as j]
             [re-frame-pair2-mcp.cache :as cache]
             [re-frame-pair2-mcp.nrepl :as nrepl]
-            [re-frame-pair2-mcp.tools :as tools]))
+            [re-frame-pair2-mcp.tools :as tools]
+            [re-frame-pair2-mcp.tools.eval-cljs :as eval-cljs]))
 
 ;; ---------------------------------------------------------------------------
 ;; Test infrastructure — args coercion, result extraction, stub installation.
@@ -298,9 +299,25 @@
     {:edn-submap {:ok? false :reason :runtime-not-preloaded}}}
 
    ;; ---------- eval-cljs --------------------------------------------------
-   {:fixture/id    :eval-cljs/happy
-    :fixture/doc   "eval-cljs returns {:ok? true :value v} on a successful runtime eval."
+   ;; The launch-flag gate (rf2-cxx5s, cascade from rf2-czv3p) ships
+   ;; DEFAULT-OFF in published builds — the operator passes `--allow-eval`
+   ;; to opt in. Fixtures that drive the post-gate logical paths
+   ;; (`:happy`, `:missing-form`) set `:fixture/allow-eval? true`; the
+   ;; `:disabled` fixture pins the default-off envelope.
+   {:fixture/id    :eval-cljs/disabled-default
+    :fixture/doc   "eval-cljs with the launch-flag OFF returns :rf.error/eval-cljs-disabled."
     :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "(+ 1 2)"}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :rf.error/eval-cljs-disabled}}
+
+   {:fixture/id    :eval-cljs/happy
+    :fixture/doc   "eval-cljs with --allow-eval returns {:ok? true :value v} on a successful runtime eval."
+    :fixture/tool  "eval-cljs"
+    :fixture/allow-eval? true
     :fixture/args  {:form "(+ 1 2)"}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
@@ -311,8 +328,9 @@
      :edn-submap {:ok? true :value 3}}}
 
    {:fixture/id    :eval-cljs/missing-form
-    :fixture/doc   "eval-cljs without :form surfaces :missing-form."
+    :fixture/doc   "eval-cljs with --allow-eval but without :form surfaces :missing-form."
     :fixture/tool  "eval-cljs"
+    :fixture/allow-eval? true
     :fixture/args  {}
     :fixture/eval-script
     [[:default nil]]
@@ -529,10 +547,17 @@
 (defn- run-one-fixture
   "Drive one fixture through `tools/invoke` and check its result.
   Returns a Promise resolving to `{:fixture-id ... :passed? bool
-  :failure ...}`."
-  [{:fixture/keys [id tool args eval-script expect]}]
+  :failure ...}`.
+
+  Honors `:fixture/allow-eval?` — flips the eval-cljs launch-flag gate
+  (rf2-cxx5s) for this fixture's invocation and restores it afterward.
+  Default OFF mirrors the published-build posture; opt-in fixtures
+  exercise the post-gate paths."
+  [{:fixture/keys [id tool args eval-script expect allow-eval?]}]
   (cache/clear!)
-  (let [js-args (args->js args)]
+  (let [js-args   (args->js args)
+        prev-gate (eval-cljs/allow-eval-enabled?)]
+    (eval-cljs/set-allow-eval! (boolean allow-eval?))
     (with-stubbed-eval! eval-script
       (fn []
         (-> (tools/invoke nil tool js-args nil)
@@ -547,7 +572,8 @@
                       {:fixture-id id
                        :passed?    false
                        :failure    (str "invoke threw: " (.-message err))
-                       :exception  err})))))))
+                       :exception  err}))
+            (.finally (fn [] (eval-cljs/set-allow-eval! prev-gate))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The single deftest — walks the corpus serially (each fixture's stub

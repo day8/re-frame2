@@ -61,6 +61,8 @@
   atom for the lifetime of a `subscribe-tool` call; merged once per
   drain. Indicator slots (`:dropped-sensitive`, `:elided-large`) feed
   `wire/with-indicators` at terminal-summary emit time."
+  ;; :elided-large counts upstream-pre-elided markers per
+  ;; Spec 009 §Indicator field (rf2-8cntr) — cumulative across drains.
   {:tick              0
    :delivered         0
    :dropped-events    0
@@ -254,6 +256,8 @@
                             ov-reason      (:overflow-reason drain-resp)
                             [evts dropped] (sensitive/strip-sensitive
                                              (vec raw-evts) incl?)
+                            ;; :elided-large counts upstream-pre-elided markers per
+                            ;; Spec 009 §Indicator field (rf2-8cntr) — per-tick contribution.
                             tick-elided    (base-elision/count-elided-markers evts)
                             n              (count evts)
                             drain-delta    {:n           n

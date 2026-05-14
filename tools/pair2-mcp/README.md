@@ -74,6 +74,34 @@ The server auto-discovers the nREPL port from (in order):
 3. `.shadow-cljs/nrepl.port`
 4. `.nrepl-port`
 
+### Launch flags
+
+| Flag           | Default | What it does                                                                         |
+|----------------|---------|--------------------------------------------------------------------------------------|
+| `--allow-eval` | OFF     | Enable the `eval-cljs` tool. Default-OFF gate (rf2-cxx5s); see "eval-cljs gate" below. |
+
+#### eval-cljs gate (rf2-cxx5s)
+
+`eval-cljs` executes arbitrary CLJS / Clojure source against the live
+runtime — qualitatively different authority from the named-mutation
+tools (`dispatch`, etc.) which mirror in-panel affordances. Published
+builds ship the tool DISABLED; the operator opts in at server launch:
+
+```json
+{
+  "mcpServers": {
+    "re-frame-pair2": {
+      "command": "re-frame-pair2-mcp",
+      "args": ["--allow-eval"]
+    }
+  }
+}
+```
+
+Without the flag, calls to `eval-cljs` return the structured error
+`{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
+touching the nREPL socket. Same posture as causa-mcp's split (rf2-zyoj2).
+
 ### First call
 
 ```text

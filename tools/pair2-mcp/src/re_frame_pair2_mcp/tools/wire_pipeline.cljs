@@ -102,6 +102,8 @@
         [sliced path-status]  (pipeline/slice-app-db-in-snapshot scrubbed path app-db-mode)
         diff-encoded          (pipeline/diff-encode-epochs-in-snapshot sliced mode)
         deduped               (pipeline/dedup-epochs-in-snapshot diff-encoded dedup?)
+        ;; :elided-large counts upstream-pre-elided markers per
+        ;; Spec 009 §Indicator field (rf2-8cntr).
         elided                (if (some? server-elided)
                                 server-elided
                                 (base-elision/count-elided-markers deduped))
@@ -134,6 +136,9 @@
   (let [[kept dropped] (sensitive/strip-sensitive epochs incl?)
         encoded        (dedup/diff-encode-epochs kept mode)
         deduped        (dedup/dedup-value encoded dedup?)
+        ;; :elided-large counts upstream-pre-elided markers per
+        ;; Spec 009 §Indicator field (rf2-8cntr) — shared by
+        ;; `trace-window` and `watch-epochs`.
         elided         (base-elision/count-elided-markers deduped)]
     {:value      deduped
      :indicators {:dropped dropped
@@ -160,6 +165,8 @@
 
   Returns `{:value v :indicators {:elided N}}`."
   [v {:keys [server-elided]}]
+  ;; :elided-large counts upstream-pre-elided markers per
+  ;; Spec 009 §Indicator field (rf2-8cntr).
   {:value      v
    :indicators {:elided (if (some? server-elided)
                           server-elided

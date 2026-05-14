@@ -28,6 +28,7 @@
             [clojure.string :as str]
             [re-frame-pair2-mcp.nrepl :as nrepl]
             [re-frame-pair2-mcp.tools :as tools]
+            [re-frame-pair2-mcp.tools.eval-cljs :as eval-cljs]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
             ["@modelcontextprotocol/sdk/types.js" :as mcp-types]))
@@ -129,7 +130,27 @@
                                              :reason :nrepl-port-not-found
                                              :hint   (-> boot-error ex-data :hint)})}]})))
 
-(defn main [& _args]
+(defn parse-launch-flags
+  "Pluck the named boolean launch flags out of the raw process argv. Today's
+  surface is one flag — `--allow-eval` — which opts in to the `eval-cljs`
+  tool per the rf2-cxx5s gate (cascade from rf2-czv3p). Default OFF in
+  published builds.
+
+  Returns `{:allow-eval? bool}`. Unknown flags are ignored — node's
+  shadow-cljs entry passes its own argv prelude (script path), and
+  future flags can land here without breaking older invocations."
+  [argv]
+  {:allow-eval? (boolean (some #{"--allow-eval"} argv))})
+
+(defn- apply-launch-flags!
+  "Wire launch-flag state into the relevant tool gates. Called once
+  before the dispatcher accepts requests."
+  [{:keys [allow-eval?]}]
+  (eval-cljs/set-allow-eval! allow-eval?)
+  (log! "eval-cljs:" (if allow-eval? "ENABLED (--allow-eval)" "disabled (default; pass --allow-eval to opt in)")))
+
+(defn main [& args]
+  (apply-launch-flags! (parse-launch-flags (vec args)))
   (try
     (let [conn   (new-conn)
           server (boot! conn)]
