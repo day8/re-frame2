@@ -71,25 +71,34 @@
 (defn- police-effect-map-shape!
   "Emit :rf.error/effect-map-shape for each non-:db / non-:fx top-level key
   in `effects`. Per Spec migration M-8 the effect-map is closed at the top
-  level. Returns the list of offending keys (which the caller drops)."
+  level. Returns the list of offending keys (which the caller drops).
+
+  Hot-path short-circuit (rf2-4ymm0 EV4): the well-shaped case is the
+  overwhelming majority — handlers return `{}`, `{:db ...}`, `{:fx ...}`,
+  or `{:db ... :fx ...}`. Allocating an `offending` vector per dispatch
+  for the every-key-walks-the-closed-set check is wasted work. Pre-check
+  via `every?` (no allocation), and fall through to the doseq/vec build
+  only when at least one key is offending."
   [effects event]
-  (let [event-id (when (vector? event) (first event))
-        offending (->> (keys effects)
-                       (remove #{:db :fx})
-                       (vec))]
-    (doseq [k offending]
-      (let [v      (get effects k)
-            reason (str "Effect-map for `" event-id "` returned top-level key `" k
-                        "`; only `:db` and `:fx` are allowed at the top level.")]
-        (trace/emit-error! :rf.error/effect-map-shape
-                           {:failing-id    event-id
-                            :event-id      event-id
-                            :event         event
-                            :offending-key k
-                            :value         v
-                            :reason        reason
-                            :recovery      :logged-and-skipped})))
-    offending))
+  (if (every? #{:db :fx} (keys effects))
+    nil
+    (let [event-id (when (vector? event) (first event))
+          offending (->> (keys effects)
+                         (remove #{:db :fx})
+                         (vec))]
+      (doseq [k offending]
+        (let [v      (get effects k)
+              reason (str "Effect-map for `" event-id "` returned top-level key `" k
+                          "`; only `:db` and `:fx` are allowed at the top level.")]
+          (trace/emit-error! :rf.error/effect-map-shape
+                             {:failing-id    event-id
+                              :event-id      event-id
+                              :event         event
+                              :offending-key k
+                              :value         v
+                              :reason        reason
+                              :recovery      :logged-and-skipped})))
+      offending)))
 
 ;; ---- handler-as-interceptor wrappers --------------------------------------
 ;;

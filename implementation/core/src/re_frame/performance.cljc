@@ -67,38 +67,35 @@
 
 ;; ---- name builder (used by the macro expansion at the call site) ----------
 
-#?(:clj
-   (defn build-name
-     "Build a `rf:<bucket>:<id>` entry name from the bucket keyword and
-     the registered id keyword/symbol/string. Stable shape across every
-     emit site so consumers filter on the `rf:` prefix without parsing
-     per-bucket shapes.
+(defn build-name
+  "Build a `rf:<bucket>:<id>` entry name from the bucket keyword and the
+  registered id keyword/symbol/string. Stable shape across every emit
+  site so consumers filter on the `rf:` prefix without parsing per-
+  bucket shapes.
 
-     Per Spec 009 §Performance instrumentation §Naming convention."
-     [bucket id]
-     (str "rf:" (name bucket) ":"
-          (cond
-            (keyword? id) (if-let [n (namespace id)]
-                            (str n "/" (name id))
-                            (name id))
-            (symbol? id)  (str id)
-            :else         (str id)))))
+  Per Spec 009 §Performance instrumentation §Naming convention.
 
-#?(:cljs
-   (defn build-name
-     "Build a `rf:<bucket>:<id>` entry name. Mirror of the JVM fn above
-     so it is callable at runtime when the gate is on (the macro
-     embeds a call to it inside the gated branch). At expansion time
-     under :advanced + enabled?=false, every call to this fn lives
-     inside the gated dead branch and DCEs."
-     [bucket id]
-     (str "rf:" (name bucket) ":"
-          (cond
-            (keyword? id) (if-let [n (namespace id)]
-                            (str n "/" (name id))
-                            (name id))
-            (symbol? id)  (str id)
-            :else         (str id)))))
+  Two scopes use this fn:
+
+    1. The CLJS macro body, expanded at compile time on the JVM — it
+       emits `(build-name ~bucket ~id)` inside the gated branch. The
+       call is JVM-runnable so test fixtures can predict the entry name
+       without booting CLJS.
+    2. CLJS runtime callers reached when the perf gate is on (the
+       call lives inside the gated branch). Under `:advanced +
+       enabled?=false` the entire branch DCEs and this fn vanishes
+       from the production bundle.
+
+  The body is pure data-shaping with no platform-specific calls — the
+  pre-rf2-4ymm0 JVM/CLJS twins held identical bodies."
+  [bucket id]
+  (str "rf:" (name bucket) ":"
+       (cond
+         (keyword? id) (if-let [n (namespace id)]
+                         (str n "/" (name id))
+                         (name id))
+         (symbol? id)  (str id)
+         :else         (str id))))
 
 ;; ---- the macro -------------------------------------------------------------
 

@@ -14,6 +14,7 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.frame :as frame]
+            [re-frame.fx :as fx]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
@@ -29,16 +30,18 @@
 
 ;; ---- the platform predicate -----------------------------------------------
 ;;
-;; Mirror of `re-frame.fx/fx-runs-on-platform?`. Per Spec 011 §634-642 the
-;; `:platforms` metadata applies to BOTH `reg-fx` AND `reg-cofx`; a cofx
-;; tagged `:platforms #{:client}` must no-op when injected on a server-
-;; side frame (the SSR contract — request-cofx like browser locale,
-;; localStorage, navigator-info etc. would otherwise blow up under JVM
-;; render or produce nonsense values).
+;; Per Spec 011 §634-642 the `:platforms` metadata applies to BOTH
+;; `reg-fx` AND `reg-cofx`; a cofx tagged `:platforms #{:client}` must
+;; no-op when injected on a server-side frame (the SSR contract —
+;; request-cofx like browser locale, localStorage, navigator-info etc.
+;; would otherwise blow up under JVM render or produce nonsense
+;; values).
+;;
+;; Single definition lives in `re-frame.fx/runs-on-platform?` (rf2-4ymm0
+;; SP6); we alias it here so internal call sites read in the cofx
+;; vocabulary.
 
-(defn- cofx-runs-on-platform? [meta active-platform]
-  (let [platforms (:platforms meta #{:client :server})]
-    (contains? platforms active-platform)))
+(def ^:private cofx-runs-on-platform? fx/runs-on-platform?)
 
 (defn- active-platform-for-frame
   "Resolve the active platform for a cofx injection. Mirrors the resolution
@@ -250,16 +253,17 @@
 ;; ---- standard cofx --------------------------------------------------------
 
 (reg-cofx :db
-  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the drain loop before the interceptor chain runs; explicit `(inject-cofx :db)` is rarely needed and is a no-op. Exists for symmetry with `:event`."}
+  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :db)` is a no-op. Registered for symmetry with `:event` and so `(handlers :cofx)` enumerates the standard cofx."}
   (fn [ctx]
-    ;; The drain loop has already populated :coeffects :db with the frame's
-    ;; current app-db value before invoking the chain — so this cofx is
-    ;; usually a no-op. It exists for symmetry with `:event`.
+    ;; The runtime pre-populates :coeffects :db with the frame's current
+    ;; app-db value before invoking the chain — so this cofx is a no-op.
+    ;; Registered for symmetry with `:event`.
     ctx))
 
 (reg-cofx :event
-  {:doc "Inject the dispatched event vector under `:coeffects :event`. Pre-populated by the dispatch envelope before the chain runs; explicit `(inject-cofx :event)` is a no-op."}
+  {:doc "Inject the dispatched event vector under `:coeffects :event`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :event)` is a no-op. Registered for symmetry with `:db` and so `(handlers :cofx)` enumerates the standard cofx."}
   (fn [ctx]
-    ;; Same as :db — the dispatch envelope wires the event into :coeffects
-    ;; before the chain runs.
+    ;; The runtime pre-populates :coeffects :event with the dispatched
+    ;; event vector before invoking the chain — so this cofx is a no-op.
+    ;; Registered for symmetry with `:db`.
     ctx))

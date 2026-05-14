@@ -147,6 +147,19 @@
               (finally
                 (re-frame.frame/destroy-frame! ~sym)))))
 
+       ;; Shape 2 disambiguator: a vector that is NOT 2-element is
+       ;; almost certainly a typo of the binding form (e.g. `[]` or
+       ;; `[f x y]`). Reject at compile time per Spec 002 §with-frame —
+       ;; falling through to Shape 1 would silently bind
+       ;; `*current-frame*` to a vector value, producing a confusing
+       ;; runtime error far from the call site.
+       (vector? bindings)
+       (throw (ex-info
+                (str "with-frame: vector binding must be [sym expr] (Shape 2). "
+                     "Got " (count bindings) " element"
+                     (when-not (= 1 (count bindings)) "s") ".")
+                {:got bindings :count (count bindings)}))
+
        :else
        `(binding [re-frame.frame/*current-frame* ~bindings]
           ~@body))))
