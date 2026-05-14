@@ -248,6 +248,18 @@ internals.
   callers that have already paginated or genuinely need the
   full payload). The knob surfaces in `tools/list` so clients
   can discover it.
+
+  The arg name is fixed cross-server: **`max-tokens`** as the
+  JSON-RPC `arguments` key (string, kebab-case — the wire
+  shape an agent host sends); **`:max-tokens`** as the parsed
+  CLJS keyword inside the runtime. The pairing is normative —
+  pair2-mcp, story-mcp, and causa-mcp all parse the same wire
+  slot to the same in-process key, so a forwarder that learned
+  one pairing on one server gets the same pairing on the
+  others. Per
+  [causa-mcp Wire-Pipeline §1 Token budget cap](../../causa-mcp/spec/004-Wire-Pipeline.md)
+  and
+  [TOKEN-BUDGETS.md](../../mcp-conformance/TOKEN-BUDGETS.md).
 - **Overflow shape**: a tool that would exceed the cap MUST NOT
   silently truncate. Instead it MUST return a structured
   overflow marker as the entire payload:
@@ -379,6 +391,34 @@ and a **cap-reached** behaviour note (the structured-overflow
 marker described above, optionally with tool-specific hint
 text). The hints surface in `list-tools` so the agent can
 plan ahead.
+
+**Catalogue-entry contract (normative).** Every tool entry in
+[`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) MUST declare:
+
+1. **Which of the eight mechanisms apply** to the tool (cap,
+   path-slice, cursor, lazy-summary, dedup, elision, diff-
+   encode, streaming-budget). A tool that ships a tree-typed
+   payload but doesn't apply mechanisms 4 / 6 (lazy-summary /
+   size-elision) is the load-bearing exception that has to be
+   called out in the entry.
+2. **The `:typicalTokens` hint** — the worst-case ballpark in
+   tokens. AI clients budget calls and pick size-conscious
+   args (`max-tokens`, `cache`, `cursor`) without trial-and-
+   error using this slot.
+3. **The cap-reached behaviour** — what the tool returns when
+   the post-shrink payload would still trip the cap. Default
+   is `{:rf.mcp/overflow ...}` with the tool-specific hint
+   string; tools that paginate (`trace-window`, `watch-epochs`)
+   instead emit `:has-more? true` + `:next-cursor` and never
+   trip the cap on a single page.
+4. **The default mode / limit / dedup / elision values** for
+   every applicable knob. No tool ships without these slots.
+
+The contract aligns with causa-mcp
+[Wire-Pipeline §catalogue-entry contract](../../causa-mcp/spec/004-Wire-Pipeline.md);
+the two catalogues use the same hint-slot vocabulary so an
+agent's per-tool budget projections work uniformly across both
+servers.
 
 This is the load-bearing budget posture for pair2-mcp's
 agent-host workflow: keep the per-op cost predictable, push
