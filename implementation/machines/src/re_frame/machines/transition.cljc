@@ -158,8 +158,9 @@
 ;; the snapshot's counter via update-in and the bumped value is the
 ;; allocated id.
 ;;
-;; `synthesise-initial-snapshot` (in re-frame.machines.lifecycle-fx)
-;; stamps `{:rf/spawn-counter {}}` on every freshly-registered machine's
+;; `build-initial-snapshot` (in re-frame.machines.parallel — unified per
+;; rf2-fgqs4 across the singleton-registration and spawn paths) stamps
+;; `{:rf/spawn-counter {}}` on every freshly-registered machine's
 ;; initial snapshot so the slot is always present for live runtime
 ;; spawns. Hand-built snapshots (the conformance fixtures) may omit the
 ;; key — the reducer uses `(fnil inc 0)` so absent slots default to 0.

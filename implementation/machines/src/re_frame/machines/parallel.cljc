@@ -93,6 +93,51 @@
       (dissoc snapshot :tags)
       (assoc snapshot :tags tags))))
 
+(defn build-initial-snapshot
+  "Build the freshly-derived initial snapshot for `machine` (rf2-fgqs4).
+  The single source of truth used by both the singleton-registration path
+  (`lifecycle-fx.registration/create-machine-handler`) and the spawn path
+  (`lifecycle-fx.spawn/install-spawn!`). Steps:
+
+   1. Compute `:state` — for parallel-region machines, a map of
+      region-name → that region's cascaded initial; for flat / compound
+      machines, the root `:initial` cascade denormalised to a leaf path.
+      Per Spec 005 §Initial-state cascading and §Parallel regions.
+   2. Seed `:data` — `(:data machine)` or `{}`.
+   3. Seed `:rf/spawn-counter {}` — per rf2-gr8q the in-snapshot
+      allocator MUST be present on live snapshots so
+      `:entry`-declared `:invoke`s allocate ids through the contract path
+      (not `allocate-spawned-id`'s defensive `(fnil inc 0)` backstop).
+   4. Propagate `:meta` when the spec declares it — per Spec 005 §Snapshot
+      shape, so the 3-arity ctx and downstream version checks see the
+      same `:meta` the spec declares. Spawned actors that declare `:meta`
+      MUST carry it through to the snapshot.
+   5. Stamp the initial tag union via `commit-tags-parallel` — per Spec
+      005 §State tags (rf2-ee0d) / §Tags compose across regions
+      (rf2-l67o); the slot is elided when the union is empty.
+   6. Optionally stamp `:rf/bootstrap-pending? true` (per rf2-0z73) when
+      `bootstrap-pending?` is truthy — the spawn path needs this so the
+      actor's first dispatch fires the initial-entry cascade. The
+      singleton-registration path stamps the marker lazily inside
+      `prepare-machine-ctx` instead (when `existing-snap` is nil), so it
+      passes `bootstrap-pending? false` here."
+  [machine {:keys [bootstrap-pending?]}]
+  (let [initial-state (if (parallel? machine)
+                        (into {}
+                              (for [[rn region-body] (:regions machine)]
+                                [rn (region-initial-state region-body)]))
+                        (let [decl (:initial machine)]
+                          (transition/denormalise-state
+                            (transition/initial-cascade machine (transition/state-path decl))
+                            decl)))
+        base          (cond-> {:state            initial-state
+                               :data             (or (:data machine) {})
+                               :rf/spawn-counter {}}
+                        (some? (:meta machine)) (assoc :meta (:meta machine)))
+        tagged        (commit-tags-parallel machine base)]
+    (cond-> tagged
+      bootstrap-pending? (assoc :rf/bootstrap-pending? true))))
+
 (defn- prefix-region-invoke-id
   "Per Spec 005 §Per-region `:invoke` / `:after` / `:always` scoping:
   spawn / destroy / after-schedule / after-cancel fxs emitted by a region

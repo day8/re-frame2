@@ -10,8 +10,10 @@
       `re-frame.machines.lifecycle-fx.validation`: parallel shape,
       `:invoke-all` shape, dropped `:timeout-ms` slots, guard/action
       ref resolution, final-state shape).
-    - `synthesise-initial-snapshot` — initial-state cascade, `:data` /
-      `:meta` seeding, tag union stamping (lazily, on first event).
+    - `parallel/build-initial-snapshot` (rf2-fgqs4) — initial-state
+      cascade, `:data` / `:meta` / `:rf/spawn-counter` seeding, tag union
+      stamping (lazily, on first event). Single source of truth shared
+      with the spawn path.
     - the returned handler fn — frame stamping, `intercept-invoke-all-
       event` branch (in `lifecycle-fx.join`), bootstrap-pending
       detection + initial-entry cascade, machine-transition dispatch,
@@ -28,46 +30,12 @@
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
-(defn- synthesise-initial-snapshot
-  "Build the lazily-synthesised initial snapshot for `machine` (rf2-f9tu).
-
-  Per Spec 005 §Initial-state cascading and §Parallel regions: for flat /
-  compound machines, descends the root `:initial` cascade to a leaf path;
-  for parallel-region machines, `:state` becomes a map of region-name →
-  that region's cascaded initial.
-
-  Per Spec 005 §Snapshot shape (`{:state :data :meta?}`): the spec's
-  optional `:meta` propagates onto the snapshot so the 3-arity ctx and
-  any downstream version-check see the same `:meta` the spec declares.
-
-  Per Spec 005 §State tags (rf2-ee0d) / §Tags compose across regions
-  (rf2-l67o): the initial tag union is stamped via
-  `commit-tags-parallel`; the slot is elided when the union is empty."
-  [machine]
-  (let [initial-state (cond
-                        (parallel/parallel? machine)
-                        (into {}
-                              (for [[rn region-body] (:regions machine)]
-                                [rn (parallel/region-initial-state region-body)]))
-
-                        :else
-                        (let [decl (:initial machine)]
-                          (transition/denormalise-state
-                            (transition/initial-cascade machine (transition/state-path decl))
-                            decl)))
-        initial    (cond-> {:state            initial-state
-                            :data             (or (:data machine) {})
-                            ;; Per rf2-gr8q: the spawn-id allocator lives
-                            ;; in-snapshot at `:rf/spawn-counter` so that
-                            ;; `machine-transition` is an honest pure
-                            ;; function. The slot is always present on
-                            ;; live snapshots (seeded here at registration
-                            ;; time); pure-call snapshots (the conformance
-                            ;; harness) may omit it — the reducer treats
-                            ;; absent slots as 0 via fnil-update.
-                            :rf/spawn-counter {}}
-                     (some? (:meta machine)) (assoc :meta (:meta machine)))]
-    (parallel/commit-tags-parallel machine initial)))
+;; Per rf2-fgqs4 the initial-snapshot builder lives in `parallel.cljc` as
+;; `build-initial-snapshot` — single source of truth for both the
+;; singleton-registration path (here) and the spawn path
+;; (`lifecycle-fx.spawn/install-spawn!`). The two used to drift: the spawn
+;; path silently omitted `:rf/spawn-counter` and `:meta`. See
+;; `parallel/build-initial-snapshot` for the canonical 6-step shape.
 
 ;; ---- handler factory ------------------------------------------------------
 
@@ -251,8 +219,9 @@
 
   Per rf2-f9tu the body is decomposed into:
     - `validation/validate-machine!` — every registration-time check.
-    - `synthesise-initial-snapshot` — initial-state cascade, `:data` /
-      `:meta` seeding, tag union stamping.
+    - `parallel/build-initial-snapshot` — initial-state cascade, `:data` /
+      `:meta` seeding, `:rf/spawn-counter` seeding, tag union stamping
+      (rf2-fgqs4 unified this with the spawn path).
     - the returned handler fn — frame stamping, intercept-invoke-all-
       event branch (in `lifecycle-fx.join`), bootstrap-pending detection
       + initial-entry cascade, machine-transition dispatch, action-failure
@@ -264,7 +233,7 @@
   event short-circuit branching off after step 1."
   [machine]
   (validation/validate-machine! machine)
-  ;; Per rf2-f9tu — `synthesise-initial-snapshot` runs lazily INSIDE the
+  ;; Per rf2-f9tu — `build-initial-snapshot` runs lazily INSIDE the
   ;; returned handler, not at registration time. The initial-state
   ;; computation reaches through `:initial` / `:states` / `:regions`;
   ;; running it at registration time would force every registered spec
@@ -273,7 +242,12 @@
   ;; `:initial` derives from a fn-form computed at dispatch time) to
   ;; satisfy the snapshot shape at reg-machine call time. The original
   ;; (pre-split) implementation deferred this work; preserve that.
-  (let [base-initial (delay (synthesise-initial-snapshot machine))]
+  ;;
+  ;; Pass `:bootstrap-pending? false` — the singleton path stamps the
+  ;; marker lazily inside `prepare-machine-ctx` (when `existing-snap` is
+  ;; nil); only the spawn path needs it stamped here.
+  (let [base-initial (delay (parallel/build-initial-snapshot
+                              machine {:bootstrap-pending? false}))]
     (fn [{:keys [db frame] :as _cofx} event]
       ;; Per Spec 009 §:op-type vocabulary: `:rf.machine/event-received`
       ;; fires at the top of the handler so consumers see the inbound
