@@ -373,6 +373,84 @@
       ;; The orphan is not in the denylist and is preserved; api_key is redacted.
       (is (= "https://api.example.com/x?orphan&api_key=:rf/redacted" url)))))
 
+;; ---- 9b. redact-url-query-string — round-2 audit edge cases (rf2-e5h1b) --
+;;
+;; Hand-written split/walk parser territory: fragment-only URLs (no
+;; query), empty `?`-only query string, fragments alongside denylisted
+;; params, and sensitive-true with a fragment present. These cases are
+;; precisely where coverage matters most for a hand-rolled splitter.
+
+(deftest redact-url-fragment-only-no-query
+  (testing "URL with a fragment but no query string is returned unchanged"
+    (let [[url any?] (url/redact-url-query-string
+                       "https://api.example.com/x#section-3" false)]
+      (is (= "https://api.example.com/x#section-3" url))
+      (is (false? any?)))))
+
+(deftest redact-url-empty-query-string
+  (testing "URL with `?` but no params is returned unchanged"
+    (let [[url any?] (url/redact-url-query-string
+                       "https://api.example.com/x?" false)]
+      (is (= "https://api.example.com/x?" url))
+      (is (false? any?)))))
+
+(deftest redact-url-denylisted-param-with-fragment
+  (testing "denylisted param value redacted; fragment preserved verbatim"
+    (let [[url any?] (url/redact-url-query-string
+                       "https://api.example.com/x?api_key=SECRET#section-3" false)]
+      (is (= "https://api.example.com/x?api_key=:rf/redacted#section-3" url))
+      (is (true? any?)))))
+
+(deftest redact-url-empty-value-denylisted-param
+  (testing "denylisted param with empty value still has value slot replaced"
+    (let [[url any?] (url/redact-url-query-string
+                       "https://api.example.com/x?api_key=&page=2" false)]
+      (is (= "https://api.example.com/x?api_key=:rf/redacted&page=2" url))
+      (is (true? any?)
+          "the denylisted param itself is the signal — flag still set even when value is empty"))))
+
+(deftest redact-url-sensitive-true-preserves-fragment
+  (testing "sensitive? true redacts ALL params and still preserves the fragment"
+    (let [[url _] (url/redact-url-query-string
+                    "https://api.example.com/x?user_id=42&page=2#section-3" true)]
+      (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted#section-3" url)))))
+
+(deftest redact-url-fragment-containing-equals-and-ampersand
+  (testing "characters inside a fragment that look like query separators are not parsed"
+    ;; The fragment is verbatim everything after the first `#` — even if it
+    ;; contains `=` or `&` that would look like query syntax. The splitter
+    ;; uses index-of `#`, not regex; this asserts the round-trip is clean.
+    (let [[url _] (url/redact-url-query-string
+                    "https://api.example.com/x?token=abc#k=v&also=x" false)]
+      (is (= "https://api.example.com/x?token=:rf/redacted#k=v&also=x" url)))))
+
+;; ---- 9c. redact-url convenience wrapper (rf2-e5h1b) ----------------------
+;;
+;; `redact-url` is the single-value form used inside generic tag walkers
+;; (`redact-url-in`) that don't need the any-redacted? flag. Pin the
+;; wrapper's shape so a refactor that swaps the underlying impl doesn't
+;; silently change the caller's reading.
+
+(deftest redact-url-wrapper-returns-string
+  (testing "redact-url returns only the redacted URL string (not the [url flag] tuple)"
+    (is (= "https://api.example.com/x?api_key=:rf/redacted&page=2"
+           (url/redact-url
+             "https://api.example.com/x?api_key=SECRET&page=2" false))
+        "denylist hit — value redacted")
+    (is (= "https://api.example.com/x?page=2"
+           (url/redact-url
+             "https://api.example.com/x?page=2" false))
+        "no denylist hit — unchanged")
+    (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted"
+           (url/redact-url
+             "https://api.example.com/x?user_id=42&page=2" true))
+        "sensitive? true — all params redacted")
+    (is (nil? (url/redact-url nil false))
+        "nil input passes through")
+    (is (= "https://api.example.com/x#frag"
+           (url/redact-url "https://api.example.com/x#frag" false))
+        "fragment-only URL passes through")))
+
 ;; ---- 10. redact-request-tags integrates URL redaction --------------------
 
 (deftest redact-request-tags-redacts-url-denylist-always
