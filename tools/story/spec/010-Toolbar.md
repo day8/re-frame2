@@ -283,18 +283,21 @@ The Storybook 8 toolbar primitives map onto `reg-mode` as follows:
 
 | Storybook addon | re-frame2 form                                       | Axis            |
 |-----------------|------------------------------------------------------|-----------------|
-| Theme switcher  | `(reg-mode :M.theme/<name> {:axis :theme :args {:theme ...}})` | `:theme`   |
-| Viewport addon  | `(reg-mode :M.viewport/<name> {:axis :viewport :args {:viewport ...}})` | `:viewport` |
-| Locale switcher | `(reg-mode :M.locale/<name> {:axis :locale :args {:locale ...}})` | `:locale` |
-| Backgrounds     | `(reg-mode :M.bg/<name> {:axis :background :args {:background ...}})` | `:background` |
+| Theme switcher  | `(reg-mode :Mode.theme/<name> {:axis :theme :args {:theme ...}})` | `:theme`   |
+| Viewport addon  | `(reg-mode :Mode.viewport/<name> {:axis :viewport :args {:viewport ...}})` | `:viewport` |
+| Locale switcher | `(reg-mode :Mode.locale/<name> {:axis :locale :args {:locale ...}})` | `:locale` |
+| Backgrounds     | `(reg-mode :Mode.background/<name> {:axis :background :args {:background ...}})` | `:background` |
 
 Each is a **registered mode tuple**, not a separate primitive. rf2-wk41
 (Backgrounds + Viewport addon UX) ships canonical `reg-mode`
 registrations for the four standard viewports (mobile / tablet / desktop
 / ultra-wide) and the three standard backgrounds (light / dark /
 transparent), bundled as opt-in registrations a project pulls in
-with `(re-frame.story.modes.standard/register-all!)`. That's a v1.1
-UX-polish bead; the toolbar surface this spec specifies is v1.
+with `(re-frame.story.modes.standard/register-all!)`. The mode-ids
+follow the canonical `:Mode.<path>/<name>` grammar
+(`schemas/mode-id?`) — `:Mode.viewport/mobile` and
+`:Mode.background/dark` rather than the informal `:M.viewport/...`
+shorthand the table above sketched in early drafts.
 
 ## `with-mode` accessor — programmatic + reactive
 
