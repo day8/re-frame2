@@ -18,10 +18,14 @@ description: >
   full disqualifier list and routing to sibling skills, see
   `skills/README.md` §Skill routing — single source.
 allowed-tools:
-  - Bash(clojure *)
-  - Bash(npm *)
-  - Bash(npx *)
-  - Bash(shadow-cljs *)
+  - Bash(clojure -Stree)
+  - Bash(clojure -Stree:*)
+  - Bash(npm install)
+  - Bash(npm view * version)
+  - Bash(npx shadow-cljs watch *)
+  - Bash(npx shadow-cljs compile *)
+  - Bash(shadow-cljs watch *)
+  - Bash(shadow-cljs compile *)
   - Read
   - Edit
   - Write
@@ -43,11 +47,12 @@ Any non-setup question → route to the right skill; don't improvise here.
 
 ## Cardinal rules
 
-1. **Never hardcode artefact versions in suggestions written to disk.** Ten artefacts ship in lockstep; look up the current VERSION first (see [`reference/deps-versions.md`](reference/deps-versions.md)).
-2. **All ten artefacts ship at the same VERSION.** Mixing versions across `day8/re-frame2-*` artefacts is unsupported.
+1. **Default to the re-frame2 repo's pinned baseline; never silently chase "latest from npm".** The greenfield baseline is the set of versions the re-frame2 repo itself builds against (`implementation/package.json`, `implementation/deps.edn`) at the **author-supplied pin** of `day8/re-frame2`. Treat that pinned baseline as known-good. The author may explicitly opt into "latest from npm" — but the skill never picks `latest` on its behalf. See [`reference/deps-versions.md`](reference/deps-versions.md).
+2. **All ten artefacts ship at the same VERSION.** Mixing versions across `day8/re-frame2-*` artefacts is unsupported. Use the single `<VERSION>` the author pinned at kickoff.
 3. **Only add per-feature artefacts the author actually uses.** Core + adapter are mandatory; `-schemas` / `-machines` / `-routing` / `-flows` / `-http` / `-ssr` / `-epoch` are pay-as-you-go.
 4. **Reagent adapter is the default reference substrate.** Unless the author explicitly says UIx or Helix, scaffold against Reagent.
 5. **Don't write tests for the author.** This skill stops at "the counter mounts."
+6. **nREPL is dev-only and bound to localhost.** Anywhere this skill mentions nREPL (shadow-cljs's default REPL, `re-frame-pair2` attachment), it must remind the author: nREPL is a remote-evaluation surface — never expose it on `0.0.0.0` or a public interface. shadow-cljs binds to localhost by default; do not override that without an isolated, trusted-network reason.
 
 ## Canonical greenfield path (seven steps)
 

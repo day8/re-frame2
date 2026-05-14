@@ -74,25 +74,34 @@ skills/re-frame2-setup/
 
 ## Install the skill in Claude Code
 
-`re-frame2-setup` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry yet — clone re-frame2 and reference the skill from `skills/re-frame2-setup/`.
+`re-frame2-setup` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry yet — clone re-frame2, **check out a specific release tag or commit**, **review the skill's `SKILL.md` and reference leaves before installing** (the skill grants `Bash(...)` access to a small set of build/install commands; you should know what you're authorising), and then reference the skill from `skills/re-frame2-setup/`.
+
+Skills under `~/.claude/skills/` and project `.claude/skills/` are agent instructions with shell access. Treat installation the same way you would treat installing any other plugin — pin a version, read the code, commit deliberately.
 
 ### Global — for you, across any project
 
-Symlink (or copy) the skill into your user Claude config:
+Clone, check out a release tag, review, then **copy** (not symlink) into your user Claude config. Copying from a pinned checkout means a `git pull` in the working tree later can't silently change the installed skill under your feet:
 
 ```bash
-git clone https://github.com/day8/re-frame2.git    # one-time, anywhere
-ln -s "$(pwd)/re-frame2/skills/re-frame2-setup" ~/.claude/skills/re-frame2-setup
+# One-time, anywhere
+git clone https://github.com/day8/re-frame2.git
+cd re-frame2
+git checkout <release-tag-or-commit>     # pin to a specific version you've reviewed
+# Review skills/re-frame2-setup/SKILL.md and reference/*.md before the next line
+cp -r skills/re-frame2-setup ~/.claude/skills/re-frame2-setup
 ```
+
+To upgrade: re-checkout to a newer pin, re-review the diff, and re-copy. The symlink shortcut (`ln -s ...`) is **not recommended** — it makes the installed skill follow whatever you happen to check out in the working tree.
 
 Best when you spin up new re-frame2 projects regularly.
 
 ### Project-local — for the new project itself
 
-After step 1 of the canonical path (the project directory exists), copy the skill into `.claude/skills/re-frame2-setup/` and commit it. Useful if you want teammates following along on the same project to share the same setup guidance.
+After step 1 of the canonical path (the project directory exists), copy the skill from a pinned checkout into `.claude/skills/re-frame2-setup/` and commit it. Useful if you want teammates following along on the same project to share the same setup guidance — and pinning the version means everyone reviews the same code.
 
 ```bash
 cd your-new-project
+# /path/to/re-frame2 already checked out at a reviewed release tag — see above
 cp -r /path/to/re-frame2/skills/re-frame2-setup .claude/skills/re-frame2-setup
 git add .claude/skills/re-frame2-setup
 ```
