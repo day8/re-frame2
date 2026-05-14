@@ -203,6 +203,7 @@
    :rf.causa/set-schema-filter
    :rf.causa/set-schema-timeline-window
    :rf.causa/set-sub-cache-override-for-test
+   :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
    :rf.causa/show-invalidation-chain
    :rf.causa/toggle-issues-prefix
@@ -242,9 +243,12 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 65 subs + 60 events + 3 fxs"
+  (testing "registry holds exactly 65 subs + 61 events + 3 fxs"
     (is (= 65 (count all-sub-names)))
-    (is (= 60 (count all-event-names)))
+    ;; 61 events after rf2-13bx9 added :rf.causa/set-target-frame (the
+    ;; companion to time-travel's :rf.causa/target-frame sub; consumed
+    ;; by the `core.cljs` facade's `set-active-frame!`).
+    (is (= 61 (count all-event-names)))
     (is (= 3  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
