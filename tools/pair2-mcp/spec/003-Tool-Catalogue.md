@@ -6,7 +6,7 @@
 > `register-epoch-cb!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The nine MCP tools.
+The eleven MCP tools.
 
 ## Universal: wire-boundary token cap
 
@@ -709,6 +709,14 @@ upper-bounds fire.
 - `:reason :runtime-not-preloaded` if the preload hasn't run.
 - `:reason :subscribe-failed` on any other failure during subscribe.
 
+### Diagnostics
+
+When a stream seems quiet or stalled, the `subscription-info` tool
+below lists every currently-registered subscription with its
+queue-depth, drop counts, and overflow-reason — without draining
+queues. Use it to confirm the sub is still alive and to check
+whether the byte / event budget is evicting under pressure.
+
 ## unsubscribe
 
 Close a streaming subscription out-of-band. Idempotent — closing an
@@ -720,3 +728,77 @@ agent host can't propagate cancellation cleanly).
 **Args**: `sub-id` (string, **required**), `build` (string).
 
 **Returns**: `{:ok? true :sub-id <id> :existed? <bool>}`.
+
+## subscription-info
+
+Diagnostic listing of currently-registered streaming subscriptions —
+the "what streams are open right now?" surface. Pure read over the
+runtime's `subscriptions` atom; **does NOT drain any queues** and
+does NOT alter the stream contents that `subscribe` will see on its
+next tick. Wraps the `re-frame-pair2.runtime/subscription-info`
+runtime fn directly (one cheap nREPL eval — no `eval-cljs`
+round-trip needed). Useful when a streaming probe seems to have gone
+quiet: confirm the sub is still registered, inspect `:queue-depth` /
+`:queue-bytes` for evidence of a stuck consumer, or check
+`:overflow-reason` for budget pressure that needs tuning on the next
+`subscribe` call.
+
+Unlike the other read tools, `subscription-info` reads the runtime's
+internal subscription registry rather than routing through one of the
+Tool-Pair primitives listed in the intro — its peer surface is the
+streaming registry that `subscribe` / `unsubscribe` mutate, not the
+frame-db / epoch-history / trace-buffer surfaces.
+
+**Args** (all optional):
+
+- `topic` (string, optional) — narrow to one topic. One of `"trace"`,
+  `"epoch"`, `"fx"`, `"error"`.
+- `sub-id` (string, optional) — return only the sub with this uuid
+  (the uuid returned by `subscribe`). Convenient for "is this
+  specific stream still alive?" checks.
+- `build` (string, optional, default `"app"`) — shadow-cljs build id.
+
+Both filters compose with AND: passing both `topic` and `sub-id`
+returns the sub only if it matches on both axes.
+
+**Returns**:
+
+```clojure
+{:ok? true
+ :subs [{:id              <uuid-string>
+         :topic           :trace | :epoch | :fx | :error
+         :filter          <filter-map-as-supplied-to-subscribe>
+         :queue-depth     <integer>       ; events buffered server-side
+         :queue-bytes     <integer>       ; pr-str chars buffered server-side
+         :dropped-events  <integer>       ; cumulative drops by event-budget
+         :dropped-bytes   <integer>       ; cumulative drops by byte-budget
+         :overflow-reason :max-buffered-events | :max-buffered-bytes | nil
+         :created-at      <ms-since-epoch>}
+        ...]}
+```
+
+`:subs` is an empty vector when no streams are open (or when the
+filters match nothing) — never `:ok? false` for the empty case. A
+non-nil `:overflow-reason` is the load-bearing signal: the queue has
+been evicting older events under the byte or event budget configured
+on its `subscribe` call. Tune `max-buffered-events` /
+`max-buffered-bytes` on the next `subscribe` call when this fires
+unexpectedly; see `subscribe` above for the budget vocabulary and
+[`Principles.md` §Streaming subscribe byte+event budget](Principles.md#streaming-subscribe-byteevent-budget-rf2-ho4ve)
+for the policy.
+
+The output is **not** routed through the universal dedup / elision /
+cache pipeline at the top of this catalogue — the payload is
+already a small flat vector of metadata records (no `:app-db`
+slices, no event vectors), so the wire-cap is the only universal
+that applies. `subscription-info` does NOT carry sensitive event
+bodies; only registration metadata crosses the wire.
+
+`:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :subscription-info-failed` (with `:message`) on any other
+failure.
+
+The causa-mcp peer is `list-subscriptions` (see causa-mcp
+[`DESIGN-RATIONALE.md` §Lock #12](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-12--subscription-info-parity-list-subscriptions-is-the-eighteenth-tool))
+— same diagnostic shape, NAMING.md-conformant verb in causa-mcp's
+catalogue.

@@ -9,7 +9,7 @@
 - **[000-Vision.md](000-Vision.md)** — Why an MCP server beats the bash-shim chain: pay cold-connect cost once per session, not per op (~700ms → ~5–50ms).
 - **[001-Wire-Protocol.md](001-Wire-Protocol.md)** — Newline-delimited JSON-RPC 2.0 over stdio per the MCP 2025-06-18 transport spec; framed by `@modelcontextprotocol/sdk`.
 - **[002-nREPL-Transport.md](002-nREPL-Transport.md)** — Persistent TCP socket to `127.0.0.1:<nrepl-port>`; multiplexed by UUID `id`; held for session lifetime.
-- **[003-Tool-Catalogue.md](003-Tool-Catalogue.md)** — The nine MCP tools: `discover-app`, `eval-cljs`, `dispatch`, `trace-window`, `watch-epochs`, `tail-build`, `snapshot`, plus the streaming pair `subscribe` / `unsubscribe` (rf2-hq49).
+- **[003-Tool-Catalogue.md](003-Tool-Catalogue.md)** — The eleven MCP tools: `discover-app`, `eval-cljs`, `dispatch`, `trace-window`, `watch-epochs`, `tail-build`, `snapshot`, `get-path`, plus the streaming triad `subscribe` / `unsubscribe` / `subscription-info` (rf2-hq49, rf2-zjz9q).
 - **[API.md](API.md)** — Consolidated user-facing reference for installing, configuring, launching, and calling pair2-mcp.
 - **[Principles.md](Principles.md)** — pair2-mcp-specific load-bearing principles, downstream of framework `Principles.md`.
 - **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — Direction-setting decisions: question, options, pick, why, date locked.
