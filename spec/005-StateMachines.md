@@ -2561,6 +2561,33 @@ The framework exposes two surfaces, both equivalent:
 @(rf/subscribe [:rf/machine :drawer/editor])
 ```
 
+### The `:rf/machine-has-tag?` predicate sub
+
+Alongside `:rf/machine` the framework ships **`:rf/machine-has-tag?`** — a predicate sub that answers the containment question for one tag without forcing the view to read (and depend on) the whole snapshot:
+
+```clojure
+(rf/reg-sub :rf/machine-has-tag?
+  (fn [db [_ machine-id tag]]
+    (contains? (get-in db [:rf/machines machine-id :tags]) tag)))
+```
+
+**Arguments.** Two: the `machine-id` keyword and the `tag` keyword. Both are required; neither varies — there is no varargs form, no path-drilling, no default. The sub vector is `[:rf/machine-has-tag? <machine-id> <tag>]`.
+
+**Return contract.** Strictly `true` | `false`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`. Returns `false` for every other case — `tag` absent, snapshot present but `:tags` elided (no active state declares tags), or no snapshot at all (unknown or not-yet-initialised machine). Never returns `nil`; the predicate shape is total over `(machine-id, tag)` pairs.
+
+**Re-render granularity.** The sub is **derived** — it reads the snapshot via `get-in` rather than chaining off `:rf/machine` — so the reaction emits only when *this tag's containment-bit* flips. A view that asks `(rf/has-tag? :ui/nine-states :data/loading)` does not re-render when `:state`, `:data`, `:meta`, or *other* tags change; only when `:data/loading` is added to or removed from `:tags`. Reagent's built-in equality dedup gates the boolean return.
+
+```clojure
+;; canonical sugar — single call site
+@(rf/has-tag? :ui/nine-states :data/loading)
+;; => true | false
+
+;; equivalent explicit form
+@(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :data/loading])
+```
+
+For the full tag-set narrative — what `:tags` is, how the runtime computes it at every transition, what the user-vs-runtime ownership boundary looks like — see [§State tags](#state-tags). This section catalogues only the subscription surface.
+
 ### Granularity is via derived subs
 
 The framework provides the entry point — `:rf/machine` returns the whole snapshot. Users write Layer-3 (signal-graph chained) subs for fine-grained reactivity, multi-source combinations, or computed projections:
