@@ -718,4 +718,17 @@
    :output-dir "out/testbeds/large-dispatcher"
    :asset-path "."
    :modules    {:main {:init-fn large-dispatcher.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim Tier 4 — known-bad-a11y testbed (Story-mode surface
+  ;; with one parent story + two variants — known-bad packs five
+  ;; deliberate axe-core violations; known-good has zero. Verifies
+  ;; the a11y panel scopes axe-core to data-rf-story-variant-root
+  ;; per rf2-qgms1 PR #1080 — flags variant body only, never Story
+  ;; chrome).
+  :testbeds/known-bad-a11y
+  {:target     :browser
+   :output-dir "out/testbeds/known-bad-a11y"
+   :asset-path "."
+   :modules    {:main {:init-fn known-bad-a11y.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
