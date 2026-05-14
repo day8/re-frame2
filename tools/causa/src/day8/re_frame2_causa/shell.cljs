@@ -169,23 +169,20 @@
   Phase 2: the active panel is driven by `:rf.causa/selected-panel`.
   Clicking a row dispatches `:rf.causa/select-panel`.
 
-  ## Hydration dormant gate (rf2-pzxsr)
+  ## Hydration dormant gate (rf2-pzxsr / rf2-qym6e)
 
   Per `tools/causa/spec/006-Hydration-Debugger.md` §Visibility the
   Hydration sidebar entry is dormant (`◌`) until at least one
   `:rf.ssr/hydration-mismatch` trace lands. The gate reads the
-  panel's composite — if `:has-mismatch?` is truthy the dormant flag
-  is dropped and the entry behaves like every other live panel.
-
-  The lift here is intentionally a one-line override rather than a
-  per-item subscribe — the composite already exists for the panel,
-  re-using it keeps the reactive graph minimal."
+  cheap presence sub `:rf.causa/hydration-has-mismatch?` (rf2-qym6e)
+  — boolean-only, so the sidebar's reactive path doesn't pull the
+  full mismatch-detail composite (which resolves selection, computes
+  the side-by-side detail, and walks the source-coord) on every
+  shell re-render."
   []
   (let [active (or @(rf/subscribe [:rf.causa/selected-panel])
                    registry/default-panel-id)
-        hydration-awake? (boolean
-                           (get @(rf/subscribe [:rf.causa/hydration-debugger-data])
-                                :has-mismatch?))
+        hydration-awake? @(rf/subscribe [:rf.causa/hydration-has-mismatch?])
         items-resolved
         (mapv (fn [item]
                 (cond-> item

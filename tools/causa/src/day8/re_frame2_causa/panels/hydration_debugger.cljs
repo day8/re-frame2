@@ -447,6 +447,24 @@
     (fn [db _query]
       (get db :hydration-reroot-path)))
 
+  ;; ---- Phase 5 (rf2-qym6e) — sidebar presence sub --------------
+  ;;
+  ;; Cheap boolean for the sidebar's dormant-gate. The shell renders
+  ;; on every Causa interaction; reading the full mismatch-detail
+  ;; composite (which resolves selection, builds the side-by-side
+  ;; detail, and computes the source-coord) just to read
+  ;; `:has-mismatch?` is wasted reactive work. This sub answers the
+  ;; sidebar's only question (`is there at least one mismatch?`) for
+  ;; the cost of one `seq` over the projection.
+  ;;
+  ;; The full composite below (`:rf.causa/hydration-debugger-data`)
+  ;; stays exactly as-is so the panel view's contract is unchanged.
+  (rf/reg-sub :rf.causa/hydration-has-mismatch?
+    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/target-frame]
+    (fn [[buffer target-frame] _query]
+      (boolean (seq (h/mismatches-for-frame buffer target-frame)))))
+
   ;; The composite the panel consumes. Shape:
   ;;
   ;;     {:has-mismatch?        <bool>
@@ -465,6 +483,13 @@
   ;; scrubber uses) and falls back to nil (= all frames) when the
   ;; user hasn't pinned one. The behaviour matches Phase 3 / 4 —
   ;; the picker drops in without rewiring consumers.
+  ;;
+  ;; Note (rf2-qym6e): consumers that only need the boolean presence
+  ;; of a mismatch (the sidebar dormant gate) read
+  ;; `:rf.causa/hydration-has-mismatch?` above instead of this
+  ;; composite — every shell render derefs the dormant gate, and the
+  ;; full composite resolves the side-by-side detail + source-coord
+  ;; work that the sidebar never needs.
   (rf/reg-sub :rf.causa/hydration-debugger-data
     :<- [:rf.causa/trace-buffer]
     :<- [:rf.causa/selected-mismatch-id]

@@ -116,7 +116,49 @@
     (is (some? (registrar/handler :sub :rf.causa/selected-mismatch-id))
         "selected-mismatch-id sub is registered")
     (is (some? (registrar/handler :sub :rf.causa/hydration-reroot-path))
-        "hydration-reroot-path sub is registered")))
+        "hydration-reroot-path sub is registered")
+    (is (some? (registrar/handler :sub :rf.causa/hydration-has-mismatch?))
+        "cheap presence sub for the sidebar dormant gate is registered (rf2-qym6e)")))
+
+;; ---- (1b) sidebar presence sub (rf2-qym6e) ------------------------------
+
+(deftest hydration-has-mismatch-sub-is-false-on-empty-buffer
+  (testing "with no mismatches in the buffer, the presence sub is false"
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (is (false? @(rf/subscribe [:rf.causa/hydration-has-mismatch?]))))))
+
+(deftest hydration-has-mismatch-sub-true-once-mismatch-lands
+  (testing "after a mismatch trace lands, the presence sub flips to true"
+    (seed-buffer! [(mismatch-ev 1 [:div :main]
+                                [:p "3 items"]
+                                [:p "0 items"])])
+    (rf/with-frame :rf/causa
+      (is (true? @(rf/subscribe [:rf.causa/hydration-has-mismatch?]))))))
+
+(deftest hydration-has-mismatch-sub-respects-target-frame
+  (testing "the presence sub filters by :target-frame, matching the full
+            composite's frame-awareness — a mismatch tagged on a
+            different frame does not wake the default target"
+    (seed-buffer! [(mismatch-ev 1 [:p] [:a] [:b] {:frame :rf/other})])
+    (rf/with-frame :rf/causa
+      ;; Default target-frame is :rf/default — no mismatches for it.
+      (is (false? @(rf/subscribe [:rf.causa/hydration-has-mismatch?]))
+          "wrong-frame mismatches do not wake the sidebar"))))
+
+(deftest hydration-has-mismatch-sub-matches-composite-boolean
+  (testing "the cheap presence sub and the full composite agree on the
+            boolean — they're the same projection, one returns just the
+            slot the sidebar reads"
+    (seed-buffer! [(mismatch-ev 1 [:div :main]
+                                [:p "3 items"]
+                                [:p "0 items"])])
+    (rf/with-frame :rf/causa
+      (let [presence @(rf/subscribe [:rf.causa/hydration-has-mismatch?])
+            full     @(rf/subscribe [:rf.causa/hydration-debugger-data])]
+        (is (= presence (:has-mismatch? full))
+            "cheap-presence sub agrees with the full composite's boolean")))))
 
 (deftest registry-installs-hydration-debugger-events
   (testing "the Phase 5 events are registered"
