@@ -337,7 +337,7 @@
       (fn [_ _] {}))
 
     (rf/reg-view* :pages/broken
-      (fn [] (throw (ex-info "boom" {}))))
+      (fn [] (throw (ex-info "boom-internal-jdbc-url-secret" {}))))
 
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok]
@@ -345,8 +345,16 @@
           response (handler {:uri "/broken" :request-method :get})]
       (is (= 500 (:status response))
           "the default :on-error returns 500")
-      (is (str/includes? (:body response) "SSR error")
-          "default :on-error body carries the error message"))))
+      ;; rf2-kzvwq / security audit §P2.1 — the default body MUST NOT
+      ;; carry the exception's message. .getMessage is documented as
+      ;; carrying internal topology (JDBC URLs, file paths, SQL
+      ;; fragments); leaking it publicly is the bug.
+      (is (= "Internal error" (:body response))
+          "rf2-kzvwq: default :on-error body is the fixed generic
+           'Internal error' — no .getMessage leak")
+      (is (not (str/includes? (:body response) "boom-internal-jdbc-url-secret"))
+          "the throwable's message text MUST NOT appear in the
+           default 500 body (topology disclosure surface)"))))
 
 (deftest handler-custom-on-error
   (testing ":on-error opt overrides the default 500 path"

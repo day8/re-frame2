@@ -15,14 +15,23 @@
   during drain; this hook covers exceptions the projector can't see
   (Ring-layer throws, render-time CLJ exceptions).
 
-  Falls back to the exception's class name when `getMessage` returns
-  nil (some throwable types throw `null` from `.getMessage`) so the
-  body never renders as `\"SSR error: null\"` on the wire — audit
-  rf2-asmj1 R5 / cluster rf2-sljs1."
-  [_request ^Throwable t]
+  rf2-kzvwq / security audit 2026-05-14 §P2.1 — the body MUST NOT leak
+  the throwable's message. `.getMessage` carries internal topology that
+  has no business reaching the wire: JDBC URLs (host, port, database
+  name), file paths under deploy roots, partial SQL fragments, server-
+  internal class names. Pre-fix, an attacker who could trigger any
+  unhandled JVM exception would see e.g.
+  `\"SSR error: Connection refused: jdbc:postgresql://internal-db.svc:5432/auth\"`
+  on the public wire — direct topology disclosure.
+
+  We now emit a fixed generic body matching the projector's
+  `fallback-public-error` shape. Apps that want dev-mode detail
+  override via `:on-error` (the recommended pattern is
+  `(if dev? log-and-detail log-only-quietly)`)."
+  [_request ^Throwable _t]
   {:status  500
    :headers {"Content-Type" "text/plain; charset=utf-8"}
-   :body    (str "SSR error: " (or (.getMessage t) (.getName (class t))))})
+   :body    "Internal error"})
 
 (def handler-defaults
   {:emit-hash?   true
