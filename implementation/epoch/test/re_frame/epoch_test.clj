@@ -1645,6 +1645,56 @@
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
+;; ---- rf2-zzper: on-frame-destroyed! drops in-flight capture-buffer --------
+;;
+;; The router calls `discard-buffer!` for the routine cascade-abort case
+;; (depth-exceeded, dispatch-sync rejection, etc.). But a destroy that
+;; races a mid-flight drain — e.g. a hot-reload firing while the drain
+;; has buffered events but has not yet settled — would otherwise leave
+;; a stale partial buffer hanging on `capture-buffers[frame-id]`. The
+;; next cascade against a same-keyed frame would harvest those
+;; pre-destroy events as belonging to its first record. Pin the
+;; contract: `on-frame-destroyed!` clears the capture-buffer entry
+;; symmetric to the ring-buffer drop.
+
+(deftest on-frame-destroyed-drops-in-flight-capture-buffer
+  (testing "on-frame-destroyed! drops :capture-buffers[frame-id] so a
+            mid-drain destroy can't leak pre-destroy events into the
+            first cascade of the next same-keyed frame"
+    (rf/reg-frame :test/main {})
+
+    ;; Synthesize a mid-flight capture-buffer entry directly. The
+    ;; private capture-buffers atom holds frame-id → vector of trace
+    ;; events that were buffered between drain-start and drain-settle.
+    ;; A real-world race would have at least one event in this vector
+    ;; when the destroy lands; pin the contract by inserting a
+    ;; synthetic entry.
+    ;;
+    ;; (`rf/reg-frame` above emits a `:frame/created` trace which
+    ;; capture-event! buffers since the tag carries `:frame`. Reset
+    ;; explicitly so the test starts from a known-empty buffer
+    ;; rather than relying on the reg-frame side-effect.)
+    (let [buffers-atom @#'epoch/capture-buffers]
+      (reset! buffers-atom {})
+
+      (swap! buffers-atom assoc :test/main
+             [{:op-type   :event
+               :operation :event
+               :tags      {:event    [:pre-destroy]
+                           :event-id :pre-destroy
+                           :frame    :test/main
+                           :phase    :run-start}}])
+
+      (is (some? (get @buffers-atom :test/main))
+          "sanity: the synthetic capture-buffer entry is present pre-destroy")
+
+      (epoch/on-frame-destroyed! :test/main)
+
+      (is (nil? (get @buffers-atom :test/main))
+          "the capture-buffer entry was dropped on destroy — no
+           pre-destroy event can leak into a same-keyed frame's next
+           cascade"))))
+
 ;; ---- rf2-eo4pr: record-observation! guards its swap -----------------------
 ;;
 ;; `notify-listeners!` invokes `record-observation!` once per listener per
