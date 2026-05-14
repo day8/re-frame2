@@ -350,8 +350,9 @@ Captured as Lock #2 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 ## Status
 
 **Spec scaffold.** No source yet. The implementation work begins
-after Causa's panel ratifies; the four pair2-mcp-shape capability
-files (`001-Wire-Protocol`, `002-nREPL-Transport`,
+once [`tools/causa/`](../../causa/) ships its v1.0 panel; the four
+pair2-mcp-shape capability files (`001-Wire-Protocol`,
+`002-nREPL-Transport`,
 `003-Tool-Catalogue`, plus an `API.md`) land at that point. The
 locked design decisions accumulated to date live in
 [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md); the load-bearing
