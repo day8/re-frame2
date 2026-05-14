@@ -1109,3 +1109,93 @@
                 ":ex-class carries the throwable's class name")
             (is (= :warned-and-skipped (:recovery ev))
                 ":recovery names the policy")))))))
+
+;; ===========================================================================
+;; rf2-2n5gg — :body-end CSP-host allowlist warning (security audit 2026-05-14 §P3.4)
+;;
+;; `:body-end` is the documented escape hatch for analytics / third-party
+;; scripts the shell injects raw. When the caller supplies
+;; `:csp-script-src-allowlist`, the shell scans for `<script src=...>` and
+;; emits `:rf.ssr/csp-allowlist-violation` for hosts not in the allowlist.
+;; The check is debug-gated; no allowlist → no scan.
+;; ===========================================================================
+
+(defn- capture-traces
+  "Run `body-fn` with a trace listener attached; return the captured trace
+  events. Mirrors the `register-trace-cb!` pattern used by the
+  :rf.ssr/destroy-frame-failed test above."
+  [body-fn]
+  (let [traces (atom [])]
+    (rf/register-trace-cb! ::csp-watch (fn [ev] (swap! traces conj ev)))
+    (try (body-fn)
+         (finally (rf/remove-trace-cb! ::csp-watch)))
+    @traces))
+
+(deftest body-end-csp-allowlist-warns-on-disallowed-host
+  (testing "rf2-2n5gg: a :body-end <script src=\"...\"> whose host is NOT in
+            :csp-script-src-allowlist triggers :rf.ssr/csp-allowlist-violation"
+    (let [check! (requiring-resolve 're-frame.ssr.ring.shell/check-body-end-csp-hosts!)
+          body-end (str "<script src=\"https://evil.example.com/track.js\"></script>"
+                        "<script src=\"https://cdn.allowed.com/ok.js\"></script>")
+          traces (capture-traces
+                   #(check! body-end #{"cdn.allowed.com"}))
+          hits   (filterv #(= :rf.ssr/csp-allowlist-violation (:operation %)) traces)]
+      (is (= 1 (count hits))
+          (str "expected exactly one :rf.ssr/csp-allowlist-violation trace; saw: "
+               (pr-str (mapv :operation traces))))
+      (when (seq hits)
+        (let [ev (first hits)]
+          (is (= "evil.example.com" (-> ev :tags :host))
+              "tags :host names the disallowed origin")
+          (is (str/includes? (-> ev :tags :message) "rf2-2n5gg")
+              ":message references the bead for traceability"))))))
+
+(deftest body-end-csp-allowlist-no-warning-on-allowed-host
+  (testing "rf2-2n5gg: every <script src> host IS in the allowlist → no warning"
+    (let [check! (requiring-resolve 're-frame.ssr.ring.shell/check-body-end-csp-hosts!)
+          body-end "<script src=\"https://cdn.allowed.com/ok.js\"></script>"
+          traces (capture-traces
+                   #(check! body-end #{"cdn.allowed.com"}))]
+      (is (zero? (count (filterv #(= :rf.ssr/csp-allowlist-violation (:operation %))
+                                 traces)))
+          "no violation when every script-src host is allowlisted"))))
+
+(deftest body-end-csp-allowlist-skip-when-allowlist-absent
+  (testing "rf2-2n5gg: no :csp-script-src-allowlist supplied → check is a
+            no-op even when :body-end carries scripts; preserves the
+            opt-in nature of the feature"
+    (let [check! (requiring-resolve 're-frame.ssr.ring.shell/check-body-end-csp-hosts!)
+          body-end "<script src=\"https://anything.example.com/track.js\"></script>"
+          traces (capture-traces
+                   #(check! body-end nil))]
+      (is (zero? (count (filterv #(= :rf.ssr/csp-allowlist-violation (:operation %))
+                                 traces)))
+          "nil allowlist short-circuits the scan"))))
+
+(deftest body-end-csp-allowlist-relative-srcs-pass
+  (testing "rf2-2n5gg: relative / same-origin <script src> URLs have no
+            host — they can't violate a remote-host allowlist by
+            definition, so the scanner skips them"
+    (let [check! (requiring-resolve 're-frame.ssr.ring.shell/check-body-end-csp-hosts!)
+          body-end "<script src=\"/main.js\"></script><script src=\"./app.js\"></script>"
+          traces (capture-traces
+                   #(check! body-end #{"cdn.allowed.com"}))]
+      (is (zero? (count (filterv #(= :rf.ssr/csp-allowlist-violation (:operation %))
+                                 traces)))
+          "relative srcs skip the host check"))))
+
+(deftest body-end-csp-allowlist-multiple-violations
+  (testing "rf2-2n5gg: a :body-end carrying multiple disallowed-host
+            scripts produces one warning per violating script — each
+            host is independently flagged"
+    (let [check! (requiring-resolve 're-frame.ssr.ring.shell/check-body-end-csp-hosts!)
+          body-end (str "<script src=\"https://bad1.example.com/a.js\"></script>"
+                        "<script src=\"https://bad2.example.com/b.js\"></script>")
+          traces (capture-traces
+                   #(check! body-end #{"good.example.com"}))
+          hits   (filterv #(= :rf.ssr/csp-allowlist-violation (:operation %)) traces)
+          hosts  (mapv #(-> % :tags :host) hits)]
+      (is (= 2 (count hits))
+          "two violating scripts → two traces")
+      (is (= #{"bad1.example.com" "bad2.example.com"} (set hosts))
+          "each violating host is flagged independently"))))
