@@ -162,6 +162,80 @@
     (is (= "pointer" (template/convert-prop-value :pointer)))))
 
 ;; ---------------------------------------------------------------------------
+;; warn-once-keyword-prop! — one-shot DEBUG warning contract
+;;
+;; Per IMPL-SPEC §7.2 D2: a keyword value on a non-HTML-attribute prop
+;; passes through unchanged AND fires a one-shot console.warn keyed on
+;; [k name-of-v]. The cache lives in a private defonce'd atom; tests
+;; use fresh (k, v-name) pairs each assertion to remain robust against
+;; cache state from sibling tests. js/console.warn is redirected via
+;; set! to count invocations.
+;; ---------------------------------------------------------------------------
+
+(defn- with-warn-spy
+  "Run `f` with js/console.warn redirected to record invocations onto
+  `calls` (an atom holding a vector of arg strings). Restores the
+  original on exit."
+  [calls f]
+  (let [orig (.-warn js/console)]
+    (try
+      (set! (.-warn js/console)
+            (fn [& args] (swap! calls conj (apply str args))))
+      (f)
+      (finally
+        (set! (.-warn js/console) orig)))))
+
+(deftest warn-once-keyword-prop-fires-on-non-html-attr
+  (testing "non-HTML prop name + keyword value triggers a console.warn
+            (the rf2-6hyy §7.2 D2 informational notice)"
+    (let [calls (atom [])]
+      (with-warn-spy calls
+        #(template/convert-prop-value :rf2-warn-test-k1 :rf2-v1))
+      (is (= 1 (count @calls))
+          "warn fired exactly once on first encounter")
+      (is (re-find #"keyword value" (first @calls))
+          "warn message names the offence shape")
+      (is (re-find #"rf2-warn-test-k1" (first @calls))
+          "warn message names the prop key")
+      (is (re-find #"rf2-v1" (first @calls))
+          "warn message names the keyword value"))))
+
+(deftest warn-once-keyword-prop-suppresses-repeat-same-pair
+  (testing "second call with same (k, v) does NOT re-warn — keyed on
+            [k name-of-v] so the cache deduplicates"
+    (let [calls (atom [])]
+      (with-warn-spy calls
+        (fn []
+          (template/convert-prop-value :rf2-warn-test-k2 :rf2-v2)
+          (template/convert-prop-value :rf2-warn-test-k2 :rf2-v2)
+          (template/convert-prop-value :rf2-warn-test-k2 :rf2-v2)))
+      (is (= 1 (count @calls))
+          "three calls with same pair: warn fired exactly once"))))
+
+(deftest warn-once-keyword-prop-fresh-pair-fires
+  (testing "different v under same k → fresh cache key → warn fires
+            (the cache discriminates on v-name as well as k)"
+    (let [calls (atom [])]
+      (with-warn-spy calls
+        (fn []
+          (template/convert-prop-value :rf2-warn-test-k3 :rf2-v3a)
+          (template/convert-prop-value :rf2-warn-test-k3 :rf2-v3b)))
+      (is (= 2 (count @calls))
+          "different v-name fired a separate warn"))))
+
+(deftest warn-once-keyword-prop-html-attr-no-warn
+  (testing "HTML-attribute prop name with keyword value stringifies
+            WITHOUT a warn — the warn fires only on the non-HTML path"
+    (let [calls (atom [])]
+      (with-warn-spy calls
+        (fn []
+          (template/convert-prop-value :class :rf2-warn-test-html)
+          (template/convert-prop-value :data-foo :rf2-warn-test-data)
+          (template/convert-prop-value :aria-label :rf2-warn-test-aria)))
+      (is (= 0 (count @calls))
+          "HTML-attribute paths stringified silently (no warn fired)"))))
+
+;; ---------------------------------------------------------------------------
 ;; as-element — primitive cases
 ;; ---------------------------------------------------------------------------
 
