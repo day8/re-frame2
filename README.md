@@ -61,7 +61,7 @@ And, yes, relax, you can set policies to elide sensitive things, as well as too-
 
 Your app talks async with the outside world — HTTP, websockets, postMessage, socket.io, IPC, push notifications, background workers, server-side fetches during SSR. Every framework lets you do this, but treats each as its own integration story: different retry shape, different abort dance, different error taxonomy, different (or no) privacy-redaction story. The integrations don't compose. The bugs don't transfer.
 
-re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, fannout, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
+re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, fan-out, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
 
 `:rf.http/managed` is HTTP. `:rf.ws/managed` is WebSockets. `:invoke` / `:invoke-all` on state machines are managed effects. SSR per-request lifecycle is one. **The next surface — postMessage relays, file watchers, Service Worker channels — inherits the shape by name.** Or you can roll your own from the primitives.
 
@@ -92,28 +92,30 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
 
   - **Privacy + Size Elision** — `:sensitive?` (drop-and-forget) and `:large?` (elide-with-fetch-handle) traverse the same boundary walker. Composition rule: sensitive wins. End-to-end stack — cap × path-slice × diff-encode (50%) × dedup (89.5%) × elision (99.985%) × lazy-summary — produces a **38,689× wire-payload shrink** on the worked example. Sensitive things stay out of trace, story, MCP transports, and remote logs by default.
   - **MCP triplet** — three Model Context Protocol servers ([pair2-mcp](tools/pair2-mcp/), [story-mcp](tools/story-mcp/), [causa-mcp](tools/causa-mcp/)) that expose the running app, the story playground, and the devtools surface to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
-  - 
-## The Reference Implementation 
 
-The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end.
+## The Reference Implementation
+
+The repo ships a working **ClojureScript reference implementation, with tooling** that validates the spec end-to-end.
 
 This implementation includes all of the above, plus:
   - **view substrate adaptors** for three popular CLJS-flavoured libraries and one new one:
     - **Reagent** — canonical.
     - **UIx** — modern hooks-based React layer.
     - **Helix** — minimal React wrapper.
-    - **Reagent-slim** — a re-frame2-optimised Reagent rewrite with a reducdused API surface. React 19 native.
+    - **Reagent-slim** — a re-frame2-optimised Reagent rewrite with a reduced API surface. React 19 native.
   - **[Migration tooling](spec/MIGRATION.md)** — re-frame v1.x → re-frame2 shipped via the `re-frame-migration` Claude skill.
 
 ## Status
 
-**Beta adjacent** 
+The narrative is production grade.
 
-The specification itself is pretty stable now. It has been audited end-to-end endless times — precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
+**The spec is Beta.** It has been audited end-to-end endless times — security passes, precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
 
-To smoke test, we are building apps on the reference implementation today however out of an abundance of caution we have not yet published artifacts to Clojars and NPM. Soon.
+The reference implementation and tooling is **Beta adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
 
-You should absolutely not use it yet - it is certainly stabilising but it yet may change at any time.  If you are a dare deveil,  add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. After using re-frame-migration, use [re-frame-pair] and then [re-frame-pair-retro] to file issues.
+To smoke test, we are building apps on the reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
+
+You should absolutely not use it yet — it is certainly stabilising but may yet change at any time. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. Use the Skills, Luke: [re-frame-migration] for you-know-what, then [re-frame-pair] for coding. Finally, use [re-frame-pair-retro] to file an issue if you find friction.
 
 
 ## AI first
