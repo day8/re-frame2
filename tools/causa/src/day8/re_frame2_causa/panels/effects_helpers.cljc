@@ -43,7 +43,8 @@
   fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf/handlers`
   on a populated registrar) are read by the composite sub in
   `registry.cljs`; the result is handed to this ns as a plain map."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-causa.panels.common-helpers :as common]))
 
 ;; ---- design tokens (mirrors view tokens — kept here for tests) ----------
 ;;
@@ -112,13 +113,10 @@
   [events]
   (filterv fx-trace-event? (or events [])))
 
-(defn- tag
-  "Pull a tag value off a trace event. Trace events nest per-event
-  metadata under `:tags`; the helper reads the slot defensively so
-  test fixtures that supply a flat shape (no `:tags`) also work."
-  [ev k]
-  (or (get-in ev [:tags k])
-      (get ev k)))
+;; Re-export `tag-of` under the local name `tag` so existing call sites
+;; (`(tag ev :fx-id)`, etc.) keep working without churn. Body lives in
+;; `common-helpers`.
+(def ^:private tag common/tag-of)
 
 (defn- event-fx-id
   "The fx-id this event refers to. `:rf.fx/handled` and friends carry
