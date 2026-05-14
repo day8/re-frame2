@@ -40,6 +40,17 @@
      [form-meta ns-sym file]
      (source-coords/coords-form form-meta file ns-sym)))
 
+#?(:clj
+   (defn- gate
+     "Emit `(if interop/debug-enabled? stamped plain)` — wraps each call-
+     site macro's gate in a single shape so Closure-DCE still elides the
+     `stamped` branch under `:advanced` + `goog.DEBUG=false` (the gate
+     must be OUTERMOST per Spec 009). `gate` is a CLJ-time fn that
+     PRODUCES the if-form at expansion-time; it does not itself gate at
+     CLJS runtime, so DCE remains intact by construction."
+     [stamped plain]
+     `(if re-frame.interop/debug-enabled? ~stamped ~plain)))
+
 ;; ---- per-macro form builders ---------------------------------------------
 ;;
 ;; Each `build-…-form` is a plain CLJ fn invoked from the matching
@@ -50,55 +61,56 @@
 #?(:clj
    (defn build-dispatch-form
      [form-meta ns-sym file event-vec opts-form]
-     (let [cs-form (call-site-form form-meta ns-sym file)]
-       (if opts-form
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.core/dispatch* ~event-vec
-                                     (assoc ~opts-form :rf.trace/call-site ~cs-form))
-            (re-frame.core/dispatch* ~event-vec ~opts-form))
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.core/dispatch* ~event-vec {:rf.trace/call-site ~cs-form})
-            (re-frame.core/dispatch* ~event-vec))))))
+     (let [cs-form (call-site-form form-meta ns-sym file)
+           stamped (if opts-form
+                     `(re-frame.core/dispatch* ~event-vec
+                                               (assoc ~opts-form :rf.trace/call-site ~cs-form))
+                     `(re-frame.core/dispatch* ~event-vec {:rf.trace/call-site ~cs-form}))
+           plain   (if opts-form
+                     `(re-frame.core/dispatch* ~event-vec ~opts-form)
+                     `(re-frame.core/dispatch* ~event-vec))]
+       (gate stamped plain))))
 
 #?(:clj
    (defn build-dispatch-sync-form
      [form-meta ns-sym file event-vec opts-form]
-     (let [cs-form (call-site-form form-meta ns-sym file)]
-       (if opts-form
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.core/dispatch-sync* ~event-vec
-                                          (assoc ~opts-form :rf.trace/call-site ~cs-form))
-            (re-frame.core/dispatch-sync* ~event-vec ~opts-form))
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.core/dispatch-sync* ~event-vec {:rf.trace/call-site ~cs-form})
-            (re-frame.core/dispatch-sync* ~event-vec))))))
+     (let [cs-form (call-site-form form-meta ns-sym file)
+           stamped (if opts-form
+                     `(re-frame.core/dispatch-sync* ~event-vec
+                                                    (assoc ~opts-form :rf.trace/call-site ~cs-form))
+                     `(re-frame.core/dispatch-sync* ~event-vec {:rf.trace/call-site ~cs-form}))
+           plain   (if opts-form
+                     `(re-frame.core/dispatch-sync* ~event-vec ~opts-form)
+                     `(re-frame.core/dispatch-sync* ~event-vec))]
+       (gate stamped plain))))
 
 #?(:clj
    (defn build-subscribe-form
      [form-meta ns-sym file frame-form query-v]
-     (let [cs-form (call-site-form form-meta ns-sym file)]
-       (if frame-form
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.trace/with-call-site ~cs-form
-              (re-frame.core/subscribe* ~frame-form ~query-v))
-            (re-frame.core/subscribe* ~frame-form ~query-v))
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.trace/with-call-site ~cs-form
-              (re-frame.core/subscribe* ~query-v))
-            (re-frame.core/subscribe* ~query-v))))))
+     (let [cs-form (call-site-form form-meta ns-sym file)
+           stamped (if frame-form
+                     `(re-frame.trace/with-call-site ~cs-form
+                        (re-frame.core/subscribe* ~frame-form ~query-v))
+                     `(re-frame.trace/with-call-site ~cs-form
+                        (re-frame.core/subscribe* ~query-v)))
+           plain   (if frame-form
+                     `(re-frame.core/subscribe* ~frame-form ~query-v)
+                     `(re-frame.core/subscribe* ~query-v))]
+       (gate stamped plain))))
 
 #?(:clj
    (defn build-inject-cofx-form
      [form-meta ns-sym file cofx-id value-form]
-     (let [cs-form (call-site-form form-meta ns-sym file)]
-       (if value-form
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.core/inject-cofx* ~cofx-id ~value-form ~cs-form)
-            (re-frame.core/inject-cofx* ~cofx-id ~value-form))
-         ;; 1-arity routes through the 3-arity with the cofx/no-value
-         ;; sentinel so the call-site can ride; the 3-arity branch in
-         ;; cofx/inject-cofx detects the sentinel via `identical?` and
-         ;; takes the no-value path through the cofx fn body.
-         `(if re-frame.interop/debug-enabled?
-            (re-frame.core/inject-cofx* ~cofx-id re-frame.cofx/no-value ~cs-form)
-            (re-frame.core/inject-cofx* ~cofx-id))))))
+     (let [cs-form (call-site-form form-meta ns-sym file)
+           stamped (if value-form
+                     `(re-frame.core/inject-cofx* ~cofx-id ~value-form ~cs-form)
+                     ;; 1-arity routes through the 3-arity with the
+                     ;; cofx/no-value sentinel so the call-site can
+                     ;; ride; the 3-arity branch in cofx/inject-cofx
+                     ;; detects the sentinel via `identical?` and takes
+                     ;; the no-value path through the cofx fn body.
+                     `(re-frame.core/inject-cofx* ~cofx-id re-frame.cofx/no-value ~cs-form))
+           plain   (if value-form
+                     `(re-frame.core/inject-cofx* ~cofx-id ~value-form)
+                     `(re-frame.core/inject-cofx* ~cofx-id))]
+       (gate stamped plain))))
