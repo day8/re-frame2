@@ -85,8 +85,10 @@ nav:
     - "19 — Adapters": guide/19-adapters.md
     - "20 — Where to go next": guide/20-where-next.md
     - "21 — Stories": guide/21-stories.md
-    - "22 — Production observability": guide/22-trace-to-datadog.md
-    - "23 — Privacy and size elision": guide/23-privacy-and-elision.md
+    - "Useful patterns":
+      - "22 — Production observability": guide/22-trace-to-datadog.md
+      - "23a — Privacy: keeping secrets out of traces": guide/23a-privacy-secrets.md
+      - "23b — Large blobs: keeping the wire small": guide/23b-large-blobs.md
 
   - Skills:
     - Overview: skills/index.md

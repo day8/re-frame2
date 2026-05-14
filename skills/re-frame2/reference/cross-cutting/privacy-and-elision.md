@@ -147,7 +147,7 @@ Per-call opt-out via the opts map (`:rf.size/include-large? true` passes large v
 
 ## Cross-references
 
-- Guide chapter: [`docs/guide/23-privacy-and-elision.md`](../../../../docs/guide/23-privacy-and-elision.md) — narrative walkthrough with worked examples.
+- Guide chapters: [`docs/guide/23a-privacy-secrets.md`](../../../../docs/guide/23a-privacy-secrets.md) (the `:sensitive?` half) and [`docs/guide/23b-large-blobs.md`](../../../../docs/guide/23b-large-blobs.md) (the `:large?` half) — narrative walkthroughs with worked examples.
 - Spec normative: [`spec/009-Instrumentation.md §Privacy / sensitive data in traces`](../../../../spec/009-Instrumentation.md) (lines 1149-1268), §Size elision in traces (line 1325).
 - Reserved namespace catalogue: [`spec/Conventions.md §Reserved namespaces`](../../../../spec/Conventions.md#reserved-namespaces-framework-owned) — `:rf.size/*`, `:rf/redacted`, `:rf/elision`.
 - Production listener composition: [`production-observability.md`](production-observability.md) — `:sensitive?` is honoured BEFORE elision at the listener boundary.
