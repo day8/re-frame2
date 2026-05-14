@@ -201,30 +201,58 @@
 
       :else nil)))
 
-(defn- defined-symbols
-  "Read a framework .cljc/.cljs source and return the set of symbols it
-  introduces with a top-level `def` / `defn` / `defn-` / `defmacro` /
-  `defmulti` / `defonce`. Reader conditionals (cljc) are not stripped —
-  we scan raw source text, so a symbol defined in *either* the :clj or
-  :cljs branch is treated as defined. That's exactly what we want for a
-  surface-existence check: cljs consumers of a cljc namespace see the
-  :cljs branch's defs.
+(def ^:private ^java.util.regex.Pattern def-pattern
+  ;; Reader conditionals (cljc) are not stripped — we scan raw source
+  ;; text, so a symbol defined in *either* the :clj or :cljs branch is
+  ;; treated as defined. That's exactly what we want for a
+  ;; surface-existence check: cljs consumers of a cljc namespace see
+  ;; the :cljs branch's defs.
+  ;;
+  ;; The regex tolerates one or more leading metadata clauses
+  ;; (`^:private`, `^:no-doc`, `^{...}`, `^TypeHint`) between the
+  ;; defining form and the symbol name.
+  ;;
+  ;; Compiled once at ns-load — the previous shape rebuilt the
+  ;; java.util.regex.Pattern per call (×N framework files × N
+  ;; references × 3 substrates = thousands of compiles per suite run).
+  (let [meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{[^}]*\\})\\s+)*"
+        sym-char    "[a-zA-Z*+!?<>=$%_\\-][\\w*+!?<>=$%\\-]*"]
+    (re-pattern
+      (str "\\(def(?:n-?|macro|multi|once|protocol|record|type)?\\s+"
+           meta-clause
+           "(" sym-char ")"))))
 
-  The regex tolerates one or more leading metadata clauses
-  (`^:private`, `^:no-doc`, `^{...}`, `^TypeHint`) between the
-  defining form and the symbol name."
+(defn- scan-defined-symbols
+  "Slurp+regex a single framework .cljc/.cljs source and return the
+  set of symbols it introduces with a top-level `def` / `defn` /
+  `defn-` / `defmacro` / `defmulti` / `defonce` / `defprotocol` /
+  `defrecord` / `deftype`. Memoised entry point is `defined-symbols`
+  below — direct callers should prefer that."
   [^java.io.File f]
-  (let [src         (slurp f)
-        ;; Build the pattern in pieces for readability.
-        meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{[^}]*\\})\\s+)*"
-        sym-char    "[a-zA-Z*+!?<>=$%_\\-][\\w*+!?<>=$%\\-]*"
-        def-pattern (re-pattern
-                      (str "\\(def(?:n-?|macro|multi|once|protocol|record|type)?\\s+"
-                           meta-clause
-                           "(" sym-char ")"))]
-    (into #{}
-          (map (fn [[_ sym]] (symbol sym)))
-          (re-seq def-pattern src))))
+  (into #{}
+        (map (fn [[_ sym]] (symbol sym)))
+        (re-seq def-pattern (slurp f))))
+
+(def ^:private defined-symbols-cache
+  ;; Keyed by canonical absolute path. The framework source tree is
+  ;; immutable for the lifetime of a test JVM (no hot-reload mid-suite
+  ;; under `clojure -M:test`), so path is a sufficient key — mtime is
+  ;; not required. Cleared automatically when the JVM exits.
+  (atom {}))
+
+(defn- defined-symbols
+  "Memoised wrapper over `scan-defined-symbols`. The audit loop calls
+  this with the same framework source file once per (substrate ×
+  referenced-symbol) pair — without memoisation each emitted-file's
+  audit re-slurps and re-regexes every framework `.cljc`/`.cljs` it
+  references. With memoisation the cost collapses to one slurp+regex
+  per framework source file per JVM."
+  [^java.io.File f]
+  (let [k (.getAbsolutePath f)]
+    (or (get @defined-symbols-cache k)
+        (let [v (scan-defined-symbols f)]
+          (swap! defined-symbols-cache assoc k v)
+          v))))
 
 ;; --- The events_test.cljs assertions ------------------------------------
 
