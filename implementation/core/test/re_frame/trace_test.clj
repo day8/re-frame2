@@ -339,13 +339,39 @@
           (is (keyword? (:frame (:tags (find-op events :frame :frame/destroyed))))))
 
         ;; ---- :registry op-type ---------------------------------------------
-        (testing ":registry :rf.registry/handler-replaced fires when a handler-fn changes on re-reg"
+        (testing ":registry :rf.registry/handler-replaced fires on EVERY re-registration (rf2-6w7zn)"
+          ;; Per Spec 001 §Hot-reload trace surface the emit is
+          ;; unconditional on re-registration — the prior `different-fn?`
+          ;; gate dropped events for kinds like `:frame` whose slot
+          ;; replacement need not rotate `:handler-fn`. Tools branch on
+          ;; the `:different-fn?` tag (preserved below) to suppress
+          ;; idempotent reload noise on their side.
           (is (has-op? events :registry :rf.registry/handler-replaced)
               "expected :registry :rf.registry/handler-replaced")
-          (let [t (:tags (find-op events :registry :rf.registry/handler-replaced))]
-            (is (keyword? (:kind t)))
-            (is (some?    (:id t)))
-            (is (true?    (:different-fn? t)))))
+          ;; The flow re-registers BOTH `:test/main` (a frame, same
+          ;; handler-fn) and `:inc` (an event, different fn body) so
+          ;; both events fire. Find the `:inc` event explicitly so the
+          ;; `:different-fn?` assertion targets the real fn-change case.
+          (let [different-events (filterv (fn [ev]
+                                            (and (= :registry (:op-type ev))
+                                                 (= :rf.registry/handler-replaced
+                                                    (:operation ev))
+                                                 (true? (get-in ev [:tags :different-fn?]))))
+                                          events)
+                idempotent-events (filterv (fn [ev]
+                                             (and (= :registry (:op-type ev))
+                                                  (= :rf.registry/handler-replaced
+                                                     (:operation ev))
+                                                  (false? (get-in ev [:tags :different-fn?]))))
+                                           events)]
+            (is (seq different-events)
+                "expected at least one handler-replaced with :different-fn? true")
+            (is (seq idempotent-events)
+                "expected at least one handler-replaced with :different-fn? false (frame re-reg)")
+            (let [t (:tags (first different-events))]
+              (is (keyword? (:kind t)))
+              (is (some?    (:id t)))
+              (is (true?    (:different-fn? t))))))
 
         ;; ---- :machine op-type ----------------------------------------------
         (testing ":machine :rf.machine/transition fires on a machine event"
