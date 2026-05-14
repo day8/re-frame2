@@ -64,6 +64,40 @@ Stability invariants — every conformant implementation upholds these so snapsh
 
 See [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot).
 
+### Reserved snapshot-internal keys (rf2-33y0y)
+
+Beyond the user-facing `{:state :data :tags? :meta?}` shape above, the runtime stamps a **closed** set of `:rf/*`-prefixed slots inside the snapshot (some at the snapshot root, some inside `:data`, one inside `:meta`) to thread per-machine bookkeeping through pure transitions and the SSR-survivable persisted state. These slots are framework-owned: user code MUST NOT write under them; conformance fixtures that pin them MUST treat them as the runtime's by-product. The set is **fixed-and-additive** — existing names cannot be repurposed; new keys are added by Spec change.
+
+| Reserved key | Location | Value | When written / cleared |
+|---|---|---|---|
+| `:rf/spawn-counter` | snapshot root | `{<id-prefix> <int>}` per-prefix integer-counter map | Bumped by the pure spawn-id allocator on every `:invoke` / `:invoke-all` / hand-emitted `:rf.machine/spawn` so id sequencing is deterministic from the snapshot. Stamped as `{}` at snapshot synthesis; persists across `pr-str` / `read-string`. |
+| `:rf/bootstrap-pending?` | snapshot root | `true` (else absent) | Stamped at snapshot synthesis (singletons) and by the spawn-fx (spawned actors). The first event addressed to the machine runs the initial-entry cascade, then clears the slot via `dissoc`. NEVER `true` on a snapshot that has already processed an event. The slot survives `pr-str` round-trip so a snapshot persisted mid-bootstrap (the SSR boundary case) resumes correctly. Per [§Initial-state `:entry` fires on machine bootstrap (rf2-0z73)](#initial-state-entry-fires-on-machine-bootstrap-rf2-0z73). |
+| `:rf/finished?` | snapshot root | `true` (else absent) | **Transient.** Set by the lifecycle-handler boundary (NOT by `apply-transition-once`) when the post-transition snapshot's active leaf declares `:final? true` — or, for parallel-region machines, when every region's active leaf is `:final?`. The lifecycle handler reads it to fire `:on-done` + auto-destroy, then the snapshot is dissoc'd from `[:rf/machines <id>]`. Pure `machine-transition` calls (conformance corpus, JVM pure-fn tests) see snapshots free of this flag. Per [§Final states](#final-states-final--on-done--output-key) and rf2-gn80. |
+| `:rf/after-epoch` | inside `:data` | non-negative `int` | The wall-clock epoch counter for flat / compound machines, per [§Delayed `:after` transitions](#delayed-after-transitions). Bumped by `commit-snapshot` on any external transition whose entered / exited states declare `:after`. The synthetic `:rf.machine.timer/after-elapsed` event carries the epoch it was scheduled at; the runtime fires the transition iff the carried epoch equals the snapshot's current `:rf/after-epoch`. |
+| `:rf/after-epoch-by-region` | inside `:data` | `{<region-name> <non-negative int>}` | Per-region `:after`-timer epoch counter for parallel-region machines, per [§Per-region `:always` / `:after` / `:invoke` scoping](#per-region-always--after--invoke-scoping). Replaces `:rf/after-epoch` when `:type :parallel` — a sibling region's transition does not invalidate this region's in-flight timers via the shared `:data` slot. |
+| `:rf/self-id` | inside `:data` | `<spawned-machine-id>` keyword | Stamped by the spawn-fx on a spawned actor's initial `:data` so the actor knows its own address (e.g. for self-`:dispatch`). Equal to the gensym'd spawned id; absent on singleton-machine snapshots. Per rf2-ijm7. |
+| `:rf/parent-id` | inside `:data` | `<parent-machine-id>` keyword | Stamped by the spawn-fx on a declarative-`:invoke` / `:invoke-all` spawned actor's initial `:data`. The finalize-cascade reads it to locate the parent's snapshot for `:on-done`. Absent on hand-emitted (non-declarative) spawns. Per rf2-t07u. |
+| `:rf/invoke-id` | inside `:data` | `<vector-of-keywords>` — absolute prefix-path of the `:invoke`-bearing state node | Stamped by the spawn-fx on a declarative-`:invoke` / `:invoke-all` spawned actor's initial `:data`. Together with `:rf/parent-id` it addresses the runtime spawn-registry slot at `[:rf/spawned <parent-id> <invoke-id>]`. Per rf2-t07u. |
+| `:rf/invoke-all-id` | inside `:data` | `<vector-of-keywords>` — `:invoke-all`-bearing state's prefix-path | Stamped by the spawn-fx on each child of an `:invoke-all`. The finalize-cascade uses it to locate the parent's join bookkeeping at `[:rf/spawned <parent-id> <invoke-all-id>]`. Per rf2-6vmw. |
+| `:rf/invoke-all-child-id` | inside `:data` | child-machine-id keyword (the `:id` of the child in the parent's `:invoke-all` `:children` map) | Stamped alongside `:rf/invoke-all-id` so the finalize-cascade can mark exactly which child finished. Per rf2-6vmw. |
+| `:rf/snapshot-version` | inside `:meta` | `int` | Versioning slot for snapshot/definition compatibility (invariant 4 above). When a definition's transition shape changes incompatibly, the author bumps `:meta :rf/snapshot-version`; restore compares the snapshot's version against the definition's and emits `:rf.warning/machine-snapshot-version-mismatch` (or, on the epoch-restore path, `:rf.epoch/restore-version-mismatch`) on disagreement. Per [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) and [Tool-Pair §Time-travel](Tool-Pair.md#time-travel). |
+
+**Persistence posture.** The transient slots are `:rf/bootstrap-pending?` (cleared on first event) and `:rf/finished?` (set transiently at the lifecycle-handler boundary; never persisted because the snapshot is dissoc'd on the same drain). All other slots ride the snapshot across `pr-str` / `read-string` and through SSR hydration ([011](011-SSR.md)) and Tool-Pair epoch replay.
+
+**Sibling vocabulary — runtime-stamped machine-spec keys (NOT snapshot-internal).** The runtime ALSO stamps a small set of `:rf/*` slots on the live machine-spec value (the runtime's record threaded through `apply-transition-once` and the lifecycle handlers) — these are NOT snapshot-internal and do NOT persist; they are reconstructed at handler-call time from the registrar and the dispatched event:
+
+- `:rf/frame` — the owning frame's id (defaulting to `:rf/default`)
+- `:rf/platform` — the active platform (`:client` / `:server`) per [011](011-SSR.md)
+- `:rf/parent-id` — the machine's own id (or the parent's id for spawned actors), used for trace addressing
+- `:rf/region` — present iff the spec is a synthetic region-machine of a `:type :parallel` parent; the region-name keyword scoping `:after`-epochs per [§Per-region scoping](#per-region-always--after--invoke-scoping)
+- `:rf/transition-pure` — the sentinel parent-id used by the pure-transition path so `intercept-invoke-all-event` (and analogous join-bookkeeping interceptors) recognises a no-op call and short-circuits without consulting `app-db`. Stamped only by callers exercising the pure-fn `machine-transition` (conformance corpus, JVM pure-fn tests, SSR machine-pure surface); absent during normal handler-driven drains.
+
+These spec-level keys are visible to the 3-arity `^:rf.machine/wants-ctx` introspection slot via the `ctx` argument's `:meta` projection where exposed.
+
+**Open-map invariant.** Snapshots are open maps: user `:data` keys at any depth are fine. The runtime-reserved set above is the **closed** subset of `:rf/*`-prefixed slots the runtime owns inside the snapshot. The migration agent flags any user write to `[:rf/machines <id> :data :rf/<reserved>]` or to `[:rf/machines <id> :rf/<reserved>]` as a collision.
+
+The same catalogue is mirrored in [Conventions §Reserved snapshot-internal keys (machine runtime)](Conventions.md#reserved-snapshot-internal-keys-machine-runtime) for cross-spec discoverability.
+
 ## Where snapshots live
 
 Every machine snapshot lives at a fixed reserved path: **`[:rf/machines <machine-id>]`** in the frame's `app-db`. The runtime owns this path; users do not pick a path per machine and `create-machine-handler` does not accept a `:path` key.
