@@ -72,6 +72,29 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 | `SHADOW_CLJS_BUILD_ID` | `"app"` | Default build id passed to `cljs-eval`. Overridable per-op via the `build` argument. |
 | `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; takes precedence over port-file discovery. |
 
+### Launch flags
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--allow-eval`      | OFF | Enable the `eval-cljs` tool (rf2-cxx5s). Without the flag, `eval-cljs` calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
+| `--allow-raw-state` | OFF | Honour caller-supplied `:include-sensitive? true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). |
+
+Both flags pass after the binary name:
+
+```json
+{
+  "mcpServers": {
+    "re-frame-pair2": {
+      "command": "re-frame-pair2-mcp",
+      "args": ["--allow-eval", "--allow-raw-state"]
+    }
+  }
+}
+```
+
+The normative contract for both gates lives in
+[`003-Tool-Catalogue.md` §Universal: server launch flags](./003-Tool-Catalogue.md#universal-server-launch-flags).
+
 ### nREPL port discovery
 
 The server walks the following sources in order:

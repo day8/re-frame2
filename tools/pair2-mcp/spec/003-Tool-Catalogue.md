@@ -204,12 +204,55 @@ preload installs) and refuses with a setup hint when missing. There
 is no fallback inject path; see the skill's SKILL.md §Setup for the
 two-line preload entry.
 
+## Universal: server launch flags
+
+Two default-OFF boot gates control authority surfaces (rf2-cxx5s,
+rf2-c2dtu). Operators pass them as MCP-server CLI flags:
+
+| Flag                | Default | Effect when ON |
+|---------------------|---------|----------------|
+| `--allow-eval`      | OFF     | Enables `eval-cljs`. Without the flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
+| `--allow-raw-state` | OFF     | Honours caller-supplied `:include-sensitive? true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. |
+
+When `--allow-raw-state` is OFF (the published-build default), the
+direct-read tools above:
+
+1. Force `:include-sensitive? false` on every call. Caller-supplied
+   `:include-sensitive? true` is dropped before reaching the walker —
+   declared-sensitive slots in `:app-db` / `:sub-cache` reads return
+   the `:rf/redacted` sentinel; sensitive trace events / epochs are
+   stripped from streaming payloads.
+2. Force `:elision true` on every call. Caller-supplied
+   `:elision false` is dropped — large slots return the
+   `:rf.size/large-elided` marker.
+3. Signal the preload runtime via
+   `(re-frame-pair2.runtime/configure-raw-state! {:allow-raw-state? false})`
+   once per build per server lifetime. The runtime's `app-db-reset!`
+   then wraps both `:previous` and `:next` slots in the `tap>` payload
+   through `re-frame.core/elide-wire-value` — the same redaction the
+   wire path applies — so any registered tap consumer sees the
+   pre-redacted shape rather than the raw state.
+
+Operators who need raw state for offline debug opt in at server launch
+by passing `--allow-raw-state`. The per-call args then win again
+(`:include-sensitive? true` / `:elision false` pass through to the
+walker unchanged).
+
+Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx) and
+causa-mcp's `--allow-eval` (rf2-zyoj2 — same gate as pair2-mcp's
+`eval-cljs`). The same pattern across MCP servers gives operators one
+posture vocabulary.
+
 ## eval-cljs
 
 Evaluate a CLJS form in the connected browser runtime via
 `shadow.cljs.devtools.api/cljs-eval`. Returns the EDN value.
 
 **Args**: `form` (string, required), `build` (string, optional).
+
+**Launch-flag gate**: `--allow-eval` (rf2-cxx5s). Default OFF; calls
+return `{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
+touching the nREPL socket. See §Universal: server launch flags.
 
 **Returns**: `{:ok? true :value <edn-value>}` on success;
 `{:ok? false :reason :eval-error :message "..."}` on failure.

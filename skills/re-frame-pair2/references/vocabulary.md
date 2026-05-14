@@ -86,14 +86,49 @@ deliberate request and can pre-filter with `(rf/trace-buffer {:sensitive? false}
 
 ### Asking for the unmasked view
 
-When the user explicitly wants sensitive cascades visible to the pair
-tool — rare; only when the pair tool is itself the trust boundary, e.g.
-a self-hosted MCP server inside a private network — they opt in via:
+Per rf2-c2dtu, pair2-mcp ships with a **`--allow-raw-state` boot gate
+that is OFF by default**. When OFF (the published-build posture), the
+following surfaces ride the redacted/elided shape regardless of any
+per-call MCP arg or in-runtime `configure-privacy!` toggle:
+
+- `snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs` —
+  forced `:include-sensitive? false` + forced `:elision true`.
+- The preload's `app-db-reset!` — both `:previous` and `:next` slots in
+  the `tap>` emission default-elide through `re-frame.core/elide-wire-value`
+  before any registered tap consumer sees them.
+
+Operators who explicitly want the unmasked view — rare; only when the
+pair tool is itself the trust boundary, e.g. a self-hosted MCP server
+inside a private network — opt in at server launch:
+
+```json
+{
+  "mcpServers": {
+    "re-frame-pair2": {
+      "command": "re-frame-pair2-mcp",
+      "args": ["--allow-raw-state"]
+    }
+  }
+}
+```
+
+With `--allow-raw-state` on, the per-call args win — `:include-sensitive?
+true` and `:elision false` pass through to the walker. Inside the
+runtime, the secondary toggle is:
 
 ```clojure
 (re-frame-pair2.runtime/configure-privacy! {:include-sensitive? true})
 ```
 
-The setting persists for the session; the next page reload resets it
-to the default-suppress posture. State the trade-off plainly when
-proposing the change; this is not a knob to flip casually.
+— but this only affects the trace-streaming layer's per-event drop; the
+boot gate above is the load-bearing posture. The next page reload
+resets `configure-privacy!` to the default-suppress shape; the boot
+gate persists for the server's lifetime. State the trade-off plainly
+when proposing the change; this is not a knob to flip casually.
+
+Same architecture across the day8 MCP family:
+
+- pair2-mcp `--allow-eval` (rf2-zyoj2) — gates the `eval-cljs` tool.
+- pair2-mcp `--allow-raw-state` (rf2-c2dtu) — this gate.
+- story-mcp `--allow-sensitive-reads` (rf2-uaymx) — the parallel
+  story-side gate (in flight via rf2-g9fje).
