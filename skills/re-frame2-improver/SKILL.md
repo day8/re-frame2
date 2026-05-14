@@ -29,7 +29,7 @@ allowed-tools:
 
 # re-frame2-improver
 
-Critique-mode for existing re-frame2 code. Reads a body of source files, detects re-frame2 anti-patterns from a small catalogue, surfaces findings with concrete file/line evidence, cross-links to the canonical idiom under `skills/re-frame2/patterns/`, and — when the agent is confident — may propose an inline fix via `Edit`.
+Critique-mode for existing re-frame2 code. Reads a body of source files, detects re-frame2 anti-patterns from a small catalogue, surfaces findings with concrete file/line evidence, cross-links to the canonical idiom under `skills/re-frame2/patterns/`, and — subject to the Edit-gate split below — may propose or apply an inline fix via `Edit`.
 
 This skill **does not write new code from scratch** (that's `re-frame2`), **does not operate on a live runtime** (that's `re-frame-pair2`), and **does not retro on tool sessions** (that's `re-frame-pair-retro2`). It is **explicit-pull-only**: the user asks for a review, the skill activates, the skill exits when findings have been presented (and optional fixes applied).
 
@@ -54,7 +54,7 @@ Deliver a structured critique:
 - The shape of the code under review (what frames / events / subs / views are in scope).
 - Anti-patterns detected, each with concrete file/line evidence.
 - The canonical re-frame2 idiom that replaces each anti-pattern, cross-linked to its leaf under `skills/re-frame2/patterns/` (or `spec/`).
-- Optional inline fix proposals (`Edit`) when the rewrite is mechanical and the agent is confident.
+- Optional inline fix proposals (`Edit`) — applied directly when the rewrite is canonical-idiom-shaped, surfaced as a proposal-awaiting-approval when evidence-shaped (see the Edit-gate split below).
 - Bolder redesigns separated from grounded fixes when the framework offers a higher-leverage shape.
 
 ## Trigger semantics (locked)
