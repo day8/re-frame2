@@ -94,11 +94,26 @@
   tag-name)
 
 ;; Tag-name parsing for the :div#id.cls syntax. Reagent / Hiccup convention.
-(defn parse-tag-name
-  "Split a keyword like :div#main.col-12.bold into [:div {:id \"main\"
-  :class \"col-12 bold\"}] components. Throws `:rf.error/invalid-tag-name`
-  (rf2-z7gor) if the tag component is not a well-formed HTML5/SVG/MathML
-  element name."
+;;
+;; Per rf2-ezdwh (perf-sweep H1, ai/findings/perf-sweep-2026-05-15.md):
+;; `parse-tag-name` is called once per DOM-tag emission. Repeated heads
+;; (`:div`, `:span`, `:p`, `:div#main.col-12`, …) appear thousands of
+;; times in a single render and re-parsed every time — `(name kw)` +
+;; `re-matches` + optional `string/split` + `remove empty?` + `join` +
+;; a second `re-matches` inside `validate-tag-name!`. The result
+;; depends solely on keyword identity.
+;;
+;; The memo is per-render (bound at `render-to-string` /
+;; `streaming/render-shell` / `streaming/render-continuation` entry)
+;; rather than process-wide so cache size never outlives one render
+;; pass. A volatile! map `{kw [tag-name tag-attrs]}` is fine — emit is
+;; single-threaded per render. When the cache is unbound (caller
+;; invokes `parse-tag-name` outside an emit pass — tests, custom
+;; consumers, the streaming `walk-dom-tag`) the call falls through to
+;; the uncached parse, so the public surface is unchanged.
+
+(defn- parse-tag-name*
+  "Pure parse — the body the memo wraps."
   [tag-kw]
   (let [s     (name tag-kw)
         ;; Match: tag-name optionally followed by #id and .class fragments.
@@ -114,6 +129,30 @@
      (cond-> {}
        id         (assoc :id id)
        class-list (assoc :class class-list))]))
+
+(def ^:dynamic *tag-name-cache*
+  "Per-render volatile! holding `{tag-kw [tag-name tag-attrs]}`. Bound
+  at the public emit entry points; nil outside a render pass (cold
+  callers fall through to the uncached parse). Per rf2-ezdwh."
+  nil)
+
+(defn parse-tag-name
+  "Split a keyword like :div#main.col-12.bold into [:div {:id \"main\"
+  :class \"col-12 bold\"}] components. Throws `:rf.error/invalid-tag-name`
+  (rf2-z7gor) if the tag component is not a well-formed HTML5/SVG/MathML
+  element name.
+
+  When called inside a render pass (`*tag-name-cache*` bound), the
+  result is memoised by keyword identity and reused on subsequent
+  emissions of the same head — typical SSR shells repeat `:div`,
+  `:span`, `:p` thousands of times. Per rf2-ezdwh."
+  [tag-kw]
+  (if-let [cache *tag-name-cache*]
+    (or (get @cache tag-kw)
+        (let [parsed (parse-tag-name* tag-kw)]
+          (vswap! cache assoc tag-kw parsed)
+          parsed))
+    (parse-tag-name* tag-kw)))
 
 (defn merge-class-attrs
   "Merge the class from the tag-name into the attrs map's :class."
@@ -309,15 +348,20 @@
   stamper. Spec 011's hash/emit separation is preserved (no combined
   walker)."
   [render-tree opts]
-  (let [supplied-hash (:render-hash opts)
-        root-attrs    (cond
-                        supplied-hash {:data-rf-render-hash supplied-hash}
-                        (:emit-hash? opts)
-                        {:data-rf-render-hash (hash/render-tree-hash render-tree)})
-        body          (emit-element render-tree root-attrs)]
-    (if (:doctype? opts)
-      (str "<!DOCTYPE html>" body)
-      body)))
+  ;; Per rf2-ezdwh — bind the per-render parse-tag-name memo so
+  ;; repeated heads (`:div`, `:span`, `:p`, …) parse once instead of
+  ;; once per emission. Cache lives only for the duration of this
+  ;; render call.
+  (binding [*tag-name-cache* (volatile! {})]
+    (let [supplied-hash (:render-hash opts)
+          root-attrs    (cond
+                          supplied-hash {:data-rf-render-hash supplied-hash}
+                          (:emit-hash? opts)
+                          {:data-rf-render-hash (hash/render-tree-hash render-tree)})
+          body          (emit-element render-tree root-attrs)]
+      (if (:doctype? opts)
+        (str "<!DOCTYPE html>" body)
+        body))))
 
 ;; Wire render-to-string into the plain-atom adapter so callers using
 ;; rf/render-to-string (delegating through the substrate adapter) get
