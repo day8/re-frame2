@@ -66,11 +66,21 @@
             next-dep (first (sort-by hash (filter remaining (graph node))))]
         (cond
           (nil? next-dep)
-          ;; Dead end within `remaining` — shouldn't happen because
-          ;; every stuck node has at least one stuck dep (that's why
-          ;; it's stuck), but defensively return the stack closed
-          ;; against itself.
-          (conj stack start)
+          ;; Dead end within `remaining` — by Kahn's algorithm every
+          ;; stuck node has at least one stuck dep (that's why Kahn
+          ;; couldn't peel it). Reaching this branch means the topo
+          ;; state is internally inconsistent: a stuck node found no
+          ;; stuck dep to follow. Fail loud rather than silently
+          ;; returning a malformed cycle path — a closing-repeat
+          ;; vector built from a dead end would lie to tools (Causa,
+          ;; the flow panel) about the offending chain.
+          (throw (ex-info ":rf.error/flow-cycle-extract-invariant"
+                          {:reason   ":rf.error/flow-cycle-extract-invariant"
+                           :node     node
+                           :stack    stack
+                           :seen     seen
+                           :remaining remaining
+                           :recovery :no-recovery}))
 
           (contains? seen next-dep)
           ;; Cycle found. Slice the stack from the revisited node
