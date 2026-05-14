@@ -9,6 +9,7 @@
   flows both depend on."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]))
 
 ;; ---- parse-variant-id-string ---------------------------------------------
@@ -192,9 +193,9 @@
 
 (deftest indent-after-matches-prefix-width
   (testing "indent-after returns \\n + N spaces equal to the prefix length"
-    (is (= "\n" (review-dialog/indent-after "")))
-    (is (= "\n          " (review-dialog/indent-after "   :play [")))
-    (is (= "\n          " (review-dialog/indent-after "   :args {")))
-    (is (= (review-dialog/indent-after "   :play [")
-           (review-dialog/indent-after "   :args {"))
+    (is (= "\n" (pred/indent-after "")))
+    (is (= "\n          " (pred/indent-after "   :play [")))
+    (is (= "\n          " (pred/indent-after "   :args {")))
+    (is (= (pred/indent-after "   :play [")
+           (pred/indent-after "   :args {"))
         "both flows' prefixes collapse to the same indent")))

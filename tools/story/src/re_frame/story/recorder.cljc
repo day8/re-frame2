@@ -110,7 +110,6 @@
   (:require [clojure.string :as str]
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
-            [re-frame.story.review-dialog :as review-dialog]
             [re-frame.trace :as trace]))
 
 ;; ---------------------------------------------------------------------------
@@ -184,10 +183,10 @@
   round-trips through re-frame's registrar machinery."
   [events {:keys [variant-id doc extends alias]
            :or   {alias "story"}}]
-  (let [;; The shared `indent-after` helper aligns events on continuation
-        ;; lines directly under the `[` of `:play [` — derived from the
-        ;; literal first-line prefix so the geometry is self-documenting.
-        ;; See `review-dialog/indent-after` for the unification rationale.
+  (let [;; The shared `indent-after` helper (predicates leaf) aligns events
+        ;; on continuation lines directly under the `[` of `:play [` —
+        ;; derived from the literal first-line prefix so the geometry is
+        ;; self-documenting. See `predicates/indent-after`.
         play-prefix "   :play ["
         body-keys   (cond-> []
                       doc     (conj [:doc (pr-str doc)])
@@ -195,7 +194,7 @@
                       true    (conj [:play
                                      (if (seq events)
                                        (str "["
-                                            (str/join (review-dialog/indent-after play-prefix)
+                                            (str/join (pred/indent-after play-prefix)
                                                       (map pr-str events))
                                             "]")
                                        "[]")]))

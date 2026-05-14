@@ -200,7 +200,7 @@
   (set-draft-id state (or (parse-variant-id-string s) s)))
 
 ;; ---------------------------------------------------------------------------
-;; Pure: snippet-format helpers
+;; Snippet-format helper — `indent-after` moved to predicates leaf
 ;;
 ;; The two save-as flows render multi-line EDN where successive items
 ;; (event vectors / map kv pairs) align directly under the opening
@@ -210,35 +210,10 @@
 ;;       {:play [[:counter/inc]
 ;;               [:counter/dec]]})
 ;;
-;; The continuation indent on the second line is geometric — N spaces
-;; that line `[:counter/dec]` up under `[:counter/inc]`. Pre-unification
-;; the recorder and save-variant carried separate hard-coded strings
-;; for that indent (`"\n           "` 11 spaces / `"\n            "` 12
-;; spaces), both off-by-one in opposite directions from the correct 10.
-;; The shared helper derives the indent from the rendered first-line
-;; prefix so the alignment is self-documenting and any future tweak to
-;; the wrapping shape stays consistent across flows.
-;; ---------------------------------------------------------------------------
-
-(defn indent-after
-  "Continuation indent that lines successive items up directly under
-  the character immediately following `prefix` on the previous line.
-  Returns `\"\\n<count(prefix) spaces>\"`. Pure data → string.
-
-  Used by `recorder/gen-play-snippet` and `save-variant/gen-variant-
-  snippet` to join multi-line EDN bodies. The argument is the literal
-  first-line text preceding the items (e.g. `\"   :play [\"` or
-  `\"   :args {\"`) — passing the rendered prefix verbatim keeps the
-  geometry obvious and breakage-resistant.
-
-  Example:
-
-      (str \"   :play [item1\" (indent-after \"   :play [\") \"item2]\")
-      ;; => \"   :play [item1\\n          item2]\"
-      ;;                  ^---------- item2 aligns under item1"
-  [prefix]
-  (str "\n" (apply str (repeat (count prefix) \space))))
-
+;; Per rf2-ar0t9: `indent-after` lives in `re-frame.story.predicates`
+;; so producers (recorder, save-variant) don't have to `:require`
+;; review-dialog (the consumer) for a 4-line helper. The dep direction
+;; recorder → review-dialog was upside-down.
 ;; ---------------------------------------------------------------------------
 ;; CLJS-only: Reagent ratom factory + adapter glue
 ;;

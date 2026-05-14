@@ -43,3 +43,29 @@
   (boolean (and (sequential? event)
                 (seq event)
                 (assertion-id? (first event)))))
+
+;; ---- EDN-format helpers --------------------------------------------------
+
+(defn indent-after
+  "Continuation indent that lines successive items up directly under
+  the character immediately following `prefix` on the previous line.
+  Returns `\"\\n<count(prefix) spaces>\"`. Pure data → string.
+
+  Used by `recorder/gen-play-snippet`, `save-variant/gen-variant-
+  snippet`, and `review-dialog`'s snippet renderer to join multi-line
+  EDN bodies. The argument is the literal first-line text preceding
+  the items (e.g. `\"   :play [\"` or `\"   :args {\"`) — passing the
+  rendered prefix verbatim keeps the geometry obvious and
+  breakage-resistant.
+
+  Example:
+
+      (str \"   :play [item1\" (indent-after \"   :play [\") \"item2]\")
+      ;; => \"   :play [item1\\n          item2]\"
+      ;;                  ^---------- item2 aligns under item1
+
+  Lives in the predicates leaf (rf2-ar0t9) so producers
+  (recorder / save-variant) don't have to `:require` the consumer
+  (review-dialog) just for this 4-line helper."
+  [prefix]
+  (str "\n" (apply str (repeat (count prefix) \space))))
