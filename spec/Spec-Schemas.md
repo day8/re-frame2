@@ -634,7 +634,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category        [:= :rf.error/schema-validation-failure]]
    [:failing-id      :keyword]
    [:reason          {:optional true} :string]
-   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :cofx-args :on-create]]
+   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :on-create]]
    [:path            {:optional true} [:vector :any]]
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
