@@ -67,6 +67,7 @@
             [re-frame-pair2-mcp.tools.subscribe :as subscribe]
             [re-frame-pair2-mcp.tools.unsubscribe :as unsubscribe]
             [re-frame-pair2-mcp.tools.subscription-info :as subscription-info]
+            [re-frame-pair2-mcp.tools.get-pair2-instructions :as get-pair2-instructions]
             [re-frame-pair2-mcp.tools.descriptors-data :as data]))
 
 ;; ---------------------------------------------------------------------------
@@ -86,7 +87,7 @@
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. Ten of the eleven
+  3-arity convention `(fn [conn args _extra])`. Eleven of the twelve
   registered tools ignore `extra` (only `subscribe` consults it);
   this adapter collapses the verbatim `(fn [conn args _extra]
   (per-tool-fn conn args))` boilerplate at the call sites.
@@ -108,13 +109,13 @@
 ;; ---------------------------------------------------------------------------
 
 (def tools
-  "The eleven-tool catalogue. Single source of truth for the
+  "The twelve-tool catalogue. Single source of truth for the
   `tools/list` descriptors, the `tools/call` dispatcher, and the
   per-tool cache opt-in. See ns docstring for the entry shape.
 
   Each `:handler` is a thin late-binding wrapper around the per-tool
-  fn — `ignoring-extra` for the ten tools that ignore `extra`, or an
-  inline `(fn [conn args extra] ...)` for `subscribe`. Both shapes
+  fn — `ignoring-extra` for the eleven tools that ignore `extra`, or
+  an inline `(fn [conn args extra] ...)` for `subscribe`. Both shapes
   resolve the underlying fn per-call so test seams that `set!` the
   var (rf2-nogok) take effect on the next dispatch."
   [{:name       "discover-app"
@@ -160,7 +161,11 @@
    {:name       "subscription-info"
     :handler    (ignoring-extra #(subscription-info/subscription-info-tool %1 %2))
     :cacheable? false
-    :descriptor data/subscription-info}])
+    :descriptor data/subscription-info}
+   {:name       "get-pair2-instructions"
+    :handler    (ignoring-extra #(get-pair2-instructions/get-pair2-instructions-tool %1 %2))
+    :cacheable? true
+    :descriptor data/get-pair2-instructions}])
 
 ;; ---------------------------------------------------------------------------
 ;; Derived views — generated once at load time from `tools`. Consumers
@@ -190,10 +195,12 @@
 
   True for read tools whose return value is a function of state
   (`snapshot`, `get-path`, `trace-window`, `watch-epochs`,
-  `discover-app`). False for action tools (`dispatch`, `eval-cljs`,
-  `tail-build`) and streaming tools (`subscribe`, `unsubscribe`,
-  `subscription-info`) — their return value is the result of an
-  action, not a read of state.
+  `discover-app`) and for the inline `get-pair2-instructions`
+  onboarding text (which is a pure-data function with no state
+  whatsoever — once is forever). False for action tools (`dispatch`,
+  `eval-cljs`, `tail-build`) and streaming tools (`subscribe`,
+  `unsubscribe`, `subscription-info`) — their return value is the
+  result of an action, not a read of state.
 
   Unknown names return false."
   [tool]

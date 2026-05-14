@@ -38,6 +38,7 @@ cljs-eval compile.
 | `subscribe`    | _(new — no bash equivalent)_ | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe`  | _(new — no bash equivalent)_ | Close a streaming subscription out-of-band. Idempotent — closing an unknown sub-id returns `:existed? false` rather than an error. |
 | `subscription-info` | _(new — no bash equivalent)_ | List active streaming subscriptions with per-sub queue depth, drop counts, and `:overflow-reason` (rf2-zjz9q). Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps the runtime fn directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. |
+| `get-pair2-instructions` | _(new — no bash equivalent)_ | Return the agent-onboarding prose for pair2-mcp (rf2-fnpqg): tool catalogue, EDN posture, tagged-mutation conventions, streaming subscribe semantics, wire-boundary pipeline. Inline text, no nREPL round-trip — call at session start to orient. Mirrors story-mcp's `get-story-instructions`. |
 
 ## Quick start
 
@@ -136,7 +137,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The nine tools (seven per-op + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` pair), their argument schemas, EDN result shape. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The twelve tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `subscription-info` triad + `get-path` direct-read + `get-pair2-instructions` agent-onboarding), their argument schemas, EDN result shape. |
 
 ## Development
 
@@ -182,7 +183,7 @@ tools/pair2-mcp/
 ├── pilot/                                    ; pre-port toolchain pilot
 └── src/re_frame_pair2_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools.cljs                            ; the 9 MCP tools (7 per-op + snapshot mega-op + subscribe/unsubscribe streaming pair)
+    ├── tools.cljs                            ; the twelve MCP tools (per-op + snapshot + get-path + subscribe/unsubscribe/subscription-info + get-pair2-instructions)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame_pair2_mcp/nrepl_test.cljs    ; bencode framing unit tests

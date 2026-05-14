@@ -3,7 +3,7 @@
 //
 // This test does NOT need a live shadow-cljs nREPL — it exercises:
 //   - initialize handshake
-//   - tools/list (expects all eleven tools: nine original + get-path
+//   - tools/list (expects all twelve tools: original ten + get-pair2-instructions
 //     under rf2-tygdv + subscription-info under rf2-zjz9q)
 //   - tools/call eval-cljs against an absent nREPL (expects graceful
 //     :nrepl-port-not-found degraded mode)
@@ -83,10 +83,11 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all eleven tools (six original + snapshot
+      // 2. tools/list — expect all twelve tools (six original + snapshot
       // mega-op from rf2-x70e + subscribe/unsubscribe streaming pair
       // from rf2-hq49 + get-path read-by-path primitive from rf2-tygdv
-      // + subscription-info read-side wrapper from rf2-zjz9q).
+      // + subscription-info read-side wrapper from rf2-zjz9q +
+      // get-pair2-instructions agent-onboarding text from rf2-fnpqg).
       // rf2-7dvg cut inject-runtime in favour of a shadow-cljs
       // :preloads entry; see SKILL.md §Setup.
       const list = await call('tools/list', {});
@@ -95,6 +96,7 @@ function run() {
         'discover-app',
         'dispatch',
         'eval-cljs',
+        'get-pair2-instructions',
         'get-path',
         'snapshot',
         'subscribe',

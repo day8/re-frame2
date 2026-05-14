@@ -8,7 +8,7 @@
 
   Per rf2-zkca8's carve-out for catalogue-shaped leaves, this file
   is permitted to exceed the standard ≤250-line ceiling — splitting
-  it per-tool would force readers to chase across eleven files when
+  it per-tool would force readers to chase across twelve files when
   comparing descriptor shapes.
 
   Universal knobs (`max-tokens`, `cache`) are spliced via
@@ -327,4 +327,17 @@
                               :sub-id {:type "string"
                                        :description "Optional filter — only return the sub with this uuid."}
                               :build  {:type "string"}}
+                 :additionalProperties false}})
+
+(def get-pair2-instructions
+  {:name "get-pair2-instructions"
+   :description (str "Return the pair2-mcp agent-onboarding text (rf2-fnpqg): tool catalogue, EDN posture, "
+                     "tagged-mutation conventions, streaming subscribe semantics, the wire-boundary "
+                     "pipeline. Inline prose, no nREPL round-trip — call this at session start to orient "
+                     "before the first real op. Mirrors story-mcp's `get-story-instructions`. Returns "
+                     "`{:ok? true :tool \"get-pair2-instructions\" :text <string>}` — a single text slot "
+                     "the agent host renders verbatim.")
+   :typicalTokens 1500
+   :inputSchema {:type "object"
+                 :properties {}
                  :additionalProperties false}})
