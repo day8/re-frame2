@@ -147,11 +147,20 @@
 
 #?(:clj
    (defn- jvm-headers->map
-     "Flatten Java HttpHeaders into a plain Clojure map of string->string."
+     "Flatten Java HttpHeaders into a plain Clojure map of string->string.
+
+     Header names are lower-cased at the boundary, matching the CLJS
+     Fetch path (`fetch-headers->map` consumes Fetch's `Headers` object,
+     which iterates with normalised lower-case names). Per Spec 014
+     §Request envelope, HTTP header names are case-insensitive — fixing
+     casing at the transport boundary keeps every downstream consumer
+     (decode sniffer, failure-map headers ridden by `:on-failure` reply
+     payloads, privacy redactor) on a single canonical shape across
+     hosts."
      [^java.net.http.HttpHeaders hh]
      (into {}
            (for [[k vs] (.map hh)]
-             [k (str/join "," vs)]))))
+             [(str/lower-case k) (str/join "," vs)]))))
 
 #?(:clj
    (defn- jvm-fetch
@@ -416,8 +425,7 @@
         [enc-body ct] (encoding/encode-body (encoding/realise-body (:body request))
                                             (:request-content-type request))
         headers  (cond-> (or (:headers request) {})
-                   (and ct (not (get (or (:headers request) {}) "content-type"))
-                        (not (get (or (:headers request) {}) "Content-Type")))
+                   (and ct (nil? (encoding/content-type-of (:headers request))))
                    (assoc "Content-Type" ct))
         ctx-no-handle (assoc ctx :url url)
         ;; CLJS: an internal AbortController backs the Fetch signal when

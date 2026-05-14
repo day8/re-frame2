@@ -14,6 +14,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
+            [re-frame.http-encoding :as http-encoding]
             [re-frame.http-managed :as http-managed]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace])
@@ -254,6 +255,75 @@
           (is (= :rf.http/decode-failure (:kind failure))
               "decode runs on 2xx; a thrown decoder surfaces as :rf.http/decode-failure"))
         (finally (stop-server! srv))))))
+
+;; ---- 5d. Content-Type lookup is case-insensitive (rf2-6hbo8) -------------
+;;
+;; Per Spec 014 §Request envelope, HTTP header names are case-insensitive.
+;; The old `decode-response-body` only checked the two literal spellings
+;; "content-type" and "Content-Type"; any other casing (e.g.
+;; "CONTENT-TYPE", "Content-type") returned nil and `sniff-decoder` fell
+;; through to :blob — JSON arriving as raw text.
+;;
+;; The CLJS Fetch path normalises (lower-case in `fetch-headers->map`) so
+;; the bug only manifested when a hand-constructed headers map reached
+;; `decode-response-body`. The fix is two-layered: the JVM transport
+;; (`jvm-headers->map`) lower-cases at the boundary so the JVM path matches
+;; the Fetch path, AND `http-encoding/content-type-of` performs a
+;; case-insensitive scan so any future code path that synthesises a
+;; headers map (interceptors, middleware, tests) decodes correctly.
+;;
+;; These unit tests exercise the helper and `decode-response-body`
+;; directly with mixed-case headers — they fail deterministically against
+;; the pre-fix code regardless of transport. (A full JVM transport e2e
+;; test would pass vacuously because `java.net.http.HttpHeaders.map()`
+;; already returns lower-case keys.)
+
+(deftest content-type-of-case-insensitive
+  (testing "lowercase key"
+    (is (= "application/json"
+           (http-encoding/content-type-of {"content-type" "application/json"}))))
+  (testing "canonical Title-Case key"
+    (is (= "application/json"
+           (http-encoding/content-type-of {"Content-Type" "application/json"}))))
+  (testing "all-caps key (the original bug — CONTENT-TYPE)"
+    (is (= "application/json"
+           (http-encoding/content-type-of {"CONTENT-TYPE" "application/json"}))))
+  (testing "mixed casing"
+    (is (= "application/json"
+           (http-encoding/content-type-of {"Content-type" "application/json"})))
+    (is (= "text/plain"
+           (http-encoding/content-type-of {"cOnTeNt-TyPe" "text/plain"}))))
+  (testing "keyword key (some middlewares use keywords)"
+    (is (= "application/json"
+           (http-encoding/content-type-of {:content-type "application/json"})))
+    (is (= "application/json"
+           (http-encoding/content-type-of {:Content-Type "application/json"}))))
+  (testing "absent / unrelated headers"
+    (is (nil? (http-encoding/content-type-of {})))
+    (is (nil? (http-encoding/content-type-of {"X-Foo" "bar"})))
+    (is (nil? (http-encoding/content-type-of nil)))
+    (is (nil? (http-encoding/content-type-of "not-a-map")))))
+
+(deftest decode-response-body-resolves-content-type-case-insensitively
+  (testing "JSON decode under :auto fires when Content-Type has non-canonical casing"
+    ;; This is the original bug: the response headers carry "CONTENT-TYPE"
+    ;; (or any non-canonical casing); the pre-fix code's two-spelling `get`
+    ;; returned nil; `sniff-decoder` fell through to :blob; the caller
+    ;; received the raw body string. Post-fix, the helper resolves the
+    ;; header regardless of casing and JSON decodes correctly.
+    (doseq [ct-key ["CONTENT-TYPE" "Content-type" "content-type" "Content-Type" "cOnTeNt-TyPe"]]
+      (testing (str "casing: " ct-key)
+        (let [decoded (http-encoding/decode-response-body
+                        {:body-text        "{\"ok\":true}"
+                         :headers          {ct-key "application/json"}
+                         :decode           :auto
+                         :decode-supplied? false
+                         :request-id       :test/req
+                         :url              "/test"
+                         :sensitive?       false})]
+          (is (= {:ok true} decoded)
+              (str "non-canonical Content-Type casing " (pr-str ct-key)
+                   " must sniff to :json, not :blob")))))))
 
 ;; ---- 6. retry exhaustion --------------------------------------------------
 
