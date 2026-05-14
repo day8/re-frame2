@@ -82,36 +82,46 @@ Per Phase 2 §5.2 #6. Tiny implementation, high signal. Adds `qr-code`
 dep. Surfaces the share affordance: tap the QR on a phone, get the
 current variant URL with all cell-local overrides encoded.
 
-### Third-party network egress (rf2-su313)
+### Third-party network egress (rf2-20w5i)
 
-Story is a **developer-session tool**, not a production runtime — by
-design it contacts two third-party services from the browser when
-specific affordances are exercised. Per rf2-su313 (pragmatic stance,
-2026-05-14): both egress paths stay in v1; the alternatives (bundling
-axe-core, shipping a JS QR codec) would balloon the Story bundle for
-the minority of devs using those features. Both paths are
-**user-triggered**, never load on shell mount, and are clearly
-documented so devs can decide whether the egress is acceptable in
-their environment.
+Story is a **developer-session tool**, not a production runtime — but
+the v1 SOTA features it ships (QR share, a11y panel) must not leak
+the dev's variant state or load remote-hosted code without the dev's
+consent. Per rf2-20w5i (security audit, 2026-05-14):
 
-| Endpoint | Triggered by | Carries | Avoid by |
-|---|---|---|---|
-| `https://api.qrserver.com/v1/create-qr-code/` | User opens the per-variant share popover | The full share URL (variant id + active modes + cell-override EDN, percent-encoded) | Don't open the popover. URL fallback is always rendered alongside the QR. |
-| `https://cdn.jsdelivr.net/npm/axe-core@4.10.0/axe.min.js` | User opens the a11y panel for the first time in a session | None (one-way script load) | Don't open the panel. |
+| Pre-fix endpoint | Post-fix |
+|---|---|
+| Per-variant share popover sourced its QR image from a third-party service, carrying the full share URL (variant state + author-typed cell-overrides) as a query param. | **Eliminated** — local SVG generation via `qrcode-generator` (npm, MIT, ~52 KB unpacked, zero deps). The encoder lives in `re-frame.story.qr/qr-svg-string`; the popover splices the SVG inline via `:dangerouslySetInnerHTML`. No network request fires when the popover opens. |
+| a11y panel injected `axe.min.js` from a public CDN at first panel open, unconditionally. | **Gated behind explicit opt-in.** First scan triggers a consent prompt explaining the egress; clicking 'enable axe-core + scan' persists the approval in `localStorage` (`:rf.story.a11y/cdn-opt-in`). The `<script>` carries SRI `integrity` + `crossorigin="anonymous"` so a compromised mirror fails closed. |
 
-Hosts on offline / air-gapped / strict-CSP networks see the URL
-fallback for the share popover and a load-failure message in the a11y
-panel; the rest of the Story shell is unaffected. The share URL itself
-is constructed locally (`re-frame.story.share/variant-share-url`) and
-carries no app-db payload — only variant identity + author-declared
-`cell-overrides` round-trip through it.
+Why isn't axe-core vendored as a static `:require`? The audit's
+preferred fix (`:require ["axe-core" :as axe]`) trips Closure
+:advanced's strict ECMAScript parser on axe-core's UMD wrapper
+(`function te(e){return(te=...)(e)}` reads as a duplicate
+block-scoped declaration). Until shadow-cljs upgrades Closure or
+axe-core ships a clean ESM build, the alternative fallback the audit
+allows (axe-core opt-in CDN + SRI) lands here. The share-URL leak —
+the High-severity finding — is eliminated outright; the a11y panel's
+CDN load is now default-OFF and explicit, with tamper-detection.
+
+The share URL itself is constructed locally
+(`re-frame.story.share/variant-share-url`) and carries no app-db
+payload — only variant identity + author-declared `cell-overrides`
+round-trip through it. With the QR rendered locally, that URL never
+leaves the dev's machine.
 
 Production builds (`:rf.story/enabled?` false under `:advanced`) elide
-the entire Story UI shell; neither endpoint is reached when the shell
-is disabled. Static-build deploys (rf2-8wgpm, see
-[`013-Static-Build.md`](013-Static-Build.md)) keep both endpoints
-live — the a11y panel + share QR are dev affordances that ride into
-the static playground.
+the entire Story UI shell; the vendored QR encoder and the a11y panel
+are both reachable only from the disabled tree, so Closure DCE drops
+them. The bundle-isolation contract
+(`scripts/check-bundle-isolation.cjs`) verifies the Story sentinels
+are absent from `examples/counter`'s release bundle, which
+transitively covers `qrcode-generator` and the a11y panel.
+Static-build deploys (rf2-8wgpm, see
+[`013-Static-Build.md`](013-Static-Build.md)) carry the QR encoder
+into the static playground; the axe-core opt-in prompt rides into the
+static site too, so a visitor running an a11y scan there sees the
+same consent dialog before any CDN load.
 
 ### Causa epoch panel embed (stub + contract)
 

@@ -13,20 +13,32 @@
   active variant's frame so a play sequence with
   `[:rf.assert/no-warnings]` records the violation as a failure.
 
-  ## Lazy loading
+  ## axe-core source: opt-in CDN (rf2-20w5i)
 
-  axe-core is heavy (~700KB). The script tag injects on first panel
-  open; subsequent opens reuse the loaded global. Production builds
-  with `:rf.story/enabled?` false never reach this ns (the require
-  graph from the disabled shell is DCE-pruned), so the lazy-load logic
-  doesn't ship to prod.
+  Per rf2-20w5i (security audit): axe-core is **opt-in only**. Pre-fix
+  the panel injected `axe.min.js` from a public CDN on first panel
+  open, unconditionally. Post-fix the CDN fetch is **default-OFF**;
+  the panel surfaces a clear consent prompt explaining that running
+  the scan loads remote JS with full DOM access to the dev's session,
+  and the dev must click 'enable' to proceed. The opt-in survives
+  reloads (persisted in `localStorage` under `:rf.story.a11y/cdn-opt-in`).
 
-  ## Bundle isolation
+  Why not vendor axe-core directly? The audit's preferred fix
+  (`:require [\"axe-core\" ...]` static-bundling) trips Closure
+  :advanced's strict ECMAScript parser on axe-core's UMD wrapper
+  (`function te(e){return(te=...)(e)}` reads as a duplicate
+  block-scoped declaration). Closure 2025-vintage rejects this with
+  `Block-scoped variable _typeof declared more than once`. Until
+  shadow-cljs upgrades Closure (or axe-core ships an ESM build), the
+  pragmatic path is opt-in-CDN: the dev's first scan is gated on
+  explicit consent, the variant's app-db never traverses the wire
+  (axe-core's protocol is one-way: the dev's browser loads the JS,
+  there is no telemetry channel back), and the load only fires when
+  the dev clicks 'enable'.
 
-  - axe-core itself is fetched from a CDN (`cdn.jsdelivr.net`) so the
-    Story bundle stays lean.
-  - The CLJS wrapper is part of the Story bundle but DCE'd when
-    disabled.
+  Production builds (`:rf.story/enabled?` false under `:advanced`)
+  never reach this ns; Closure DCE drops the panel along with the
+  rest of the Story UI shell, so the opt-in path is dev-only.
 
   ## State
 
@@ -51,15 +63,12 @@
   (r/atom {}))
 
 (defonce
-  ^{:doc "Per-frame run state. `{frame-id → :idle|:loading|:running|:done|:error}`."}
+  ^{:doc "Per-frame run state.
+         `{frame-id → :idle|:loading|:running|:done|:error|:no-root|:no-consent}`.
+         `:no-consent` means the dev hasn't approved the CDN load yet
+         (per rf2-20w5i)."}
   run-state
   (r/atom {}))
-
-(defonce
-  ^{:doc "True once axe-core's `<script>` tag has been injected and
-         the global `js/axe` is available. Idempotent loader."}
-  axe-loaded?
-  (atom false))
 
 (defn drop-frame-state!
   "Clear all a11y state for `frame-id`. Called from the canvas /
@@ -70,56 +79,154 @@
   nil)
 
 (defn reset-state!
-  "Clear every per-frame slot. Test-fixture helper."
+  "Clear every per-frame slot. Test-fixture helper. Note that the
+  CDN opt-in is NOT cleared here — the opt-in is a persisted user
+  decision, not per-frame state. Tests that need to assert against
+  a specific opt-in shape should call `set-cdn-opt-in!` explicitly."
   []
   (reset! violations-by-frame {})
   (reset! run-state {})
   nil)
 
-;; ---- lazy load axe-core --------------------------------------------------
+;; ---- axe-core CDN load (opt-in per rf2-20w5i) ---------------------------
+;;
+;; Per the security audit, axe-core is loaded from a public CDN only
+;; when the dev explicitly opts in. The opt-in is persisted in
+;; `localStorage` under `cdn-opt-in-key` so a single click per session
+;; (and not per panel-open) gives consent. The pinned version is
+;; `axe-core@4.10.0`; the URL uses the `integrity` attribute pre-fix
+;; was omitted, post-fix is added so a compromised mirror is detected
+;; client-side.
 
 (def ^:const axe-cdn-url
-  "axe-core's CDN URL. Pin to a recent stable version (4.x line).
-  Per IMPL-SPEC §6.2 only loads on first panel open — the script tag
-  injects from `ensure-axe-loaded!`.
-
-  Per rf2-su313 (pragmatic stance, 2026-05-14): kept as a third-party
-  CDN fetch in v1. Bundling axe-core (~700 KB minified) would balloon
-  the Story bundle for the minority of devs who open the a11y panel;
-  the lazy-load shape means the bundle pays nothing until the first
-  panel open. Hosts on offline / strict-CSP networks see a load-failure
-  message in the panel; the rest of the Story shell is unaffected.
-  Documented at the v1 SOTA tier in
-  `tools/story/spec/005-SOTA-Features.md` §Third-party network egress."
+  "URL the panel loads axe-core from when the dev has opted in. Pinned
+  to a specific version + carries an SRI integrity hash so a mirror
+  serving altered content fails closed."
   "https://cdn.jsdelivr.net/npm/axe-core@4.10.0/axe.min.js")
+
+(def ^:const axe-cdn-integrity
+  "Subresource Integrity hash for `axe-cdn-url`'s 4.10.0 axe.min.js.
+  Computed from the published bytes via:
+
+      curl -s https://cdn.jsdelivr.net/npm/axe-core@4.10.0/axe.min.js \\
+        | openssl dgst -sha384 -binary | openssl base64 -A
+
+  Without this, a compromised CDN could serve altered JS to the
+  dev's session and Story would happily execute it. With it, the
+  browser rejects the load on hash mismatch — the supply-chain
+  trust boundary lands at the byte-level, not at the URL."
+  "sha384-hU7+BBSOB5dIfLKxLW/kXBTPxNWTSmiQ8F4jiCU0++kNwNoOt7zVkEum1ZqDhASc")
+
+(def ^:const cdn-opt-in-key
+  "localStorage key under which the dev's CDN opt-in lives. A string
+  `\"true\"` means the load is approved; absent / any other value means
+  the panel shows the consent prompt."
+  "rf.story.a11y/cdn-opt-in")
+
+(defonce
+  ^{:doc "In-memory mirror of the persisted opt-in. Initialised from
+         `localStorage` on first read; falls back to this when the
+         host environment lacks `localStorage` (node-runtime tests,
+         strict-CSP browsers with storage blocked). Wrapped in an
+         `r/atom` so the panel re-renders when the opt-in flips."}
+  cdn-opt-in-atom
+  (r/atom false))
+
+(defonce ^:private cdn-opt-in-bootstrapped? (atom false))
+
+(defn- read-storage-opt-in
+  "Best-effort read from `localStorage`. Returns true iff the key
+  exists with value `\"true\"`; returns nil (NOT false) on any error,
+  so the in-memory atom stays authoritative when storage is blocked."
+  []
+  (try
+    (let [ls (.-localStorage js/globalThis)]
+      (when ls
+        (= "true" (.getItem ls cdn-opt-in-key))))
+    (catch :default _ nil)))
+
+(defn- write-storage-opt-in!
+  "Best-effort write to `localStorage`. Silently no-ops if storage is
+  unavailable. The in-memory atom is always written by the caller; this
+  is purely for persistence across reloads."
+  [approve?]
+  (try
+    (let [ls (.-localStorage js/globalThis)]
+      (when ls
+        (if approve?
+          (.setItem ls cdn-opt-in-key "true")
+          (.removeItem ls cdn-opt-in-key))))
+    (catch :default _ nil))
+  nil)
+
+(defn cdn-opt-in?
+  "Read the dev's CDN opt-in. Returns true iff the dev has approved
+  the load in this session. On first call the value is bootstrapped
+  from `localStorage` (so a prior session's approval survives a
+  reload); subsequent calls read the in-memory atom."
+  []
+  (when-not @cdn-opt-in-bootstrapped?
+    (when-let [stored (read-storage-opt-in)]
+      (reset! cdn-opt-in-atom stored))
+    (reset! cdn-opt-in-bootstrapped? true))
+  @cdn-opt-in-atom)
+
+(defn set-cdn-opt-in!
+  "Persist the dev's opt-in decision. `approve?` true approves; false
+  retracts. The in-memory atom always reflects the choice; the
+  `localStorage` write is best-effort (no-op when storage is blocked)."
+  [approve?]
+  (let [v (boolean approve?)]
+    (reset! cdn-opt-in-atom v)
+    (reset! cdn-opt-in-bootstrapped? true)
+    (write-storage-opt-in! v))
+  nil)
+
+(defonce
+  ^{:doc "True once axe-core's `<script>` tag has been injected and
+         the global `js/axe` is available. Idempotent loader."}
+  axe-loaded?
+  (atom false))
 
 (defn ensure-axe-loaded!
   "Inject the axe-core `<script>` tag if not already present. Returns
   a `js/Promise` that resolves once `js/axe` is available.
 
-  Idempotent — subsequent calls return a resolved promise immediately."
+  The injection only fires when the dev has opted in via
+  `set-cdn-opt-in!`. Without the opt-in the returned promise rejects
+  with `:rf.story.a11y/cdn-not-opted-in` so callers surface the
+  consent prompt rather than silently loading remote code.
+
+  The injected `<script>` carries an SRI `integrity` attribute pinning
+  the expected hash + `crossorigin=\"anonymous\"` so the browser
+  enforces hash verification."
   []
   (js/Promise.
     (fn [resolve reject]
       (cond
         @axe-loaded?
-        (resolve js/axe)
+        (resolve (.-axe js/window))
 
         (some? (.-axe js/window))
         (do (reset! axe-loaded? true)
-            (resolve js/axe))
+            (resolve (.-axe js/window)))
+
+        (not (cdn-opt-in?))
+        (reject (js/Error. "rf.story.a11y/cdn-not-opted-in"))
 
         :else
         (let [script (.createElement js/document "script")]
           (set! (.-src script) axe-cdn-url)
           (set! (.-async script) true)
+          (.setAttribute script "integrity" axe-cdn-integrity)
+          (.setAttribute script "crossorigin" "anonymous")
           (set! (.-onload script)
                 (fn [_]
                   (reset! axe-loaded? true)
                   (resolve (.-axe js/window))))
           (set! (.-onerror script)
-                (fn [e]
-                  (reject (str "axe-core failed to load: " e))))
+                (fn [_]
+                  (reject (js/Error. "rf.story.a11y/cdn-load-failed"))))
           (.appendChild (.-head js/document) script))))))
 
 ;; ---- running axe --------------------------------------------------------
@@ -237,6 +344,15 @@
          "[story.a11y] no variant root found for"
          (pr-str frame-id)
          "— switch to :dev mode to mount the variant, or pass an explicit context.")
+       (js/Promise.resolve nil))
+
+     ;; CDN opt-in gate (rf2-20w5i): surface the consent prompt instead
+     ;; of silently triggering the load. Callers must call `set-cdn-opt-in!`
+     ;; (typically wired to a 'enable axe-core' button in the panel
+     ;; that explains the egress) before re-invoking `run-axe!`.
+     (not (cdn-opt-in?))
+     (do
+       (swap! run-state assoc frame-id :no-consent)
        (js/Promise.resolve nil))
 
      :else
@@ -370,6 +486,43 @@
      [:div {:style {:color "#9a9a9a" :font-size "10px"}}
       (str ":" (.-id v) " · " (or impact "moderate"))]]))
 
+(defn- consent-prompt
+  "Rendered when the dev hasn't yet opted in to the CDN load (per
+  rf2-20w5i). Clicking 'enable' persists the approval to
+  `localStorage` so subsequent panel opens re-use it. The text is
+  load-bearing — it describes the egress in plain words so the dev
+  can decide whether their environment permits it."
+  [variant-id]
+  [:div {:style {:padding "8px 0"
+                 :border-top "1px dashed #555"
+                 :margin-top "4px"
+                 :color "#cccccc"}}
+   [:div {:style {:font-weight "bold"
+                  :color "#fdd"
+                  :margin-bottom "6px"}}
+    "axe-core not loaded"]
+   [:div {:style {:font-size "10px"
+                  :line-height "1.4"
+                  :color "#b0b0b0"
+                  :margin-bottom "6px"}}
+    "Running an a11y scan loads "
+    [:code {:style {:color "#9cdcfe"}} "axe-core@4.10.0"]
+    " from a public CDN ("
+    [:code {:style {:color "#9cdcfe"}} "cdn.jsdelivr.net"]
+    "). The remote JS gets full DOM access to this Story page; the SRI "
+    "hash pinned in the loader detects tampering, but the dependency "
+    "itself is a trust call. No variant state leaves the browser."]
+   [:div {:style {:font-size "10px"
+                  :color "#b0b0b0"
+                  :margin-bottom "8px"}}
+    "Approve once per browser; the opt-in is remembered in "
+    [:code {:style {:color "#9cdcfe"}} "localStorage"] "."]
+   [:button {:style    (:run-button styles)
+             :on-click (fn [_]
+                         (set-cdn-opt-in! true)
+                         (when variant-id (run-axe! variant-id)))}
+    "enable axe-core + scan"]])
+
 (defn panel
   "The a11y panel. Renders into the right panel of the shell. Stage 6
   (rf2-zhwd) — registers as `:rf.story.panel/a11y`."
@@ -387,21 +540,26 @@
                 :on-click (fn [_] (when (and variant-id (not busy?))
                                     (run-axe! variant-id)))}
        (case state
-         :loading  "loading…"
-         :running  "running…"
-         :error    "retry"
-         :no-root  "retry"
-         :idle     "run"
+         :loading    "loading…"
+         :running    "running…"
+         :error      "retry"
+         :no-root    "retry"
+         :no-consent "approve…"
+         :idle       "run"
          "re-run")]]
      [:div {:style (:status styles)}
       (case state
-        :idle    "click run to scan the variant (Story chrome is excluded)"
-        :loading "fetching axe-core…"
-        :running "scanning…"
-        :error   "axe-core failed to load (offline or CSP)"
-        :no-root "no variant mounted — switch to :dev mode and re-run"
-        :done    (str (count vs) " violation(s) found in variant"))]
+        :idle       "click run to scan the variant (Story chrome is excluded)"
+        :loading    "fetching axe-core from CDN…"
+        :running    "scanning…"
+        :error      "axe-core failed to load (offline, CSP, or SRI mismatch)"
+        :no-root    "no variant mounted — switch to :dev mode and re-run"
+        :no-consent "axe-core load needs your approval (see below)"
+        :done       (str (count vs) " violation(s) found in variant"))]
      (cond
+       (= state :no-consent)
+       [consent-prompt variant-id]
+
        (= state :idle)
        nil
 

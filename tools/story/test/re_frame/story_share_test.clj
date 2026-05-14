@@ -86,17 +86,26 @@
       (is (re-find #"variant=" url))
       (is (re-find #"modes=" url)))))
 
-;; ---- QR endpoint ---------------------------------------------------------
+;; ---- No QR endpoint --------------------------------------------------------
+;;
+;; Per rf2-20w5i (security audit): the QR is rendered locally via the
+;; vendored `qrcode-generator` npm package (see `re-frame.story.qr`,
+;; CLJS-only). Pre-fix this ns exposed `qr-image-url` + `qr-endpoint`
+;; which built a URL pointing at api.qrserver.com; both have been
+;; removed. The contract test below pins the removal: no Var, no
+;; `https://api.qrserver.com` literal anywhere in the share module.
 
-(deftest qr-image-url-shape
-  (testing "qr-image-url returns a URL embedding the share URL as data="
-    (let [share-url "https://example.test/?variant=story.x%2Fy"
-          qr-url    (share/qr-image-url share-url)]
-      (is (str/starts-with? qr-url share/qr-endpoint))
-      (is (re-find #"size=180x180" qr-url))
-      (is (re-find #"data=" qr-url)))))
+(deftest no-third-party-qr-endpoint
+  (testing "share namespace no longer exposes a remote-QR endpoint Var
+            (pre-fix `qr-endpoint` pointed at api.qrserver.com; the
+            audit eliminated it in favour of local SVG generation)"
+    (is (nil? (resolve 'share/qr-endpoint)))
+    (is (nil? (resolve 'share/qr-image-url)))))
 
-(deftest qr-image-url-custom-size
-  (testing "qr-image-url accepts a custom square size"
-    (let [qr (share/qr-image-url "https://x" 240)]
-      (is (re-find #"size=240x240" qr)))))
+(deftest no-qrserver-literal-in-share-source
+  (testing "share.cljc carries no `api.qrserver.com` URL literal — the
+            string must not appear in the source so a future regression
+            (someone copy-pasting the old endpoint back in) is caught."
+    (let [src (slurp (clojure.java.io/resource "re_frame/story/share.cljc"))]
+      (is (not (str/includes? src "api.qrserver.com"))
+          "share.cljc must not reference api.qrserver.com"))))
