@@ -126,6 +126,94 @@
                        :recovery :no-recovery})))
     s))
 
+;; rf2-z7gor / security audit 2026-05-14 — header-name + cookie-field
+;; gates at the fx boundary. The rf2-hbty2 work validated header
+;; VALUES; header NAMES and the structured cookie map were still trusted.
+;; The ring host adapter happens to re-validate at materialisation time
+;; (rf2-rpedl in ssr-ring/cookie.clj), but the SSR layer is also the
+;; integration boundary for Pedestal / HttpKit / other custom adapters
+;; that consume the response shape directly — so the fx boundary is the
+;; right place to enforce the invariant once, with the dispatching event
+;; still in scope rather than as a deep adapter exception.
+;;
+;; RFC 7230 §3.2.6 token grammar (header names + RFC 6265 §4.1.1
+;; cookie-name): `1*tchar` where `tchar` ∈ the visible US-ASCII set
+;; MINUS the separators `( ) < > @ , ; : \ " / [ ] ? = { }` and
+;; whitespace. The regex below encodes that set explicitly so the
+;; grammar is auditable in place; empty names are rejected by the `+`
+;; quantifier.
+
+(def ^:private token-grammar-re
+  #"[!#$%&'*+\-.0-9A-Z\^_`a-z|~]+")
+
+(defn- validate-header-name!
+  "Throw `:rf.error/header-invalid-name` if the header name violates the
+  RFC 7230 §3.2.6 token grammar — empty, contains CR / LF / NUL,
+  whitespace, or separators. Same gate as the cookie-name validator.
+  Per rf2-z7gor §security-audit-2026-05-14."
+  [n]
+  (let [s (str n)]
+    (when-not (re-matches token-grammar-re s)
+      (throw (ex-info ":rf.error/header-invalid-name"
+                      {:reason   (str "header :name " (pr-str s)
+                                      " violates RFC 7230 §3.2.6 token grammar"
+                                      " (no CTLs, whitespace, or separators"
+                                      " ()<>@,;:\\\"/[]?={})")
+                       :header   n
+                       :recovery :no-recovery})))
+    s))
+
+(defn- validate-cookie-name!
+  "Throw `:rf.error/cookie-invalid-name` if the cookie name violates the
+  RFC 6265 §4.1.1 token grammar. Same shape as the rf2-rpedl validator
+  in `ssr-ring/cookie.clj` — applied here at the fx boundary so non-ring
+  host adapters get the same gate. Per rf2-z7gor."
+  [n]
+  (when (nil? n)
+    (throw (ex-info ":rf.error/cookie-invalid-name"
+                    {:reason   "cookie :name is required"
+                     :name     n
+                     :recovery :no-recovery})))
+  (let [s (#?(:clj clojure.core/name :cljs cljs.core/name) n)]
+    (when-not (re-matches token-grammar-re s)
+      (throw (ex-info ":rf.error/cookie-invalid-name"
+                      {:reason   (str "cookie :name " (pr-str s)
+                                      " violates RFC 6265 §4.1.1 token grammar"
+                                      " (no CTLs, whitespace, or separators"
+                                      " ()<>@,;:\\\"/[]?={})")
+                       :name     n
+                       :recovery :no-recovery})))
+    s))
+
+(defn- validate-cookie-attr!
+  "Throw `:rf.error/cookie-invalid-<field>` if the cookie attribute
+  string contains CR / LF / NUL. Applied to `:value`, `:path`, `:domain`
+  — the string-typed fields that are concatenated verbatim into the
+  Set-Cookie wire form by host adapters. Per rf2-z7gor."
+  [field-key v]
+  (let [s (str v)]
+    (when (re-find header-injection-chars-re s)
+      (throw (ex-info (str ":rf.error/cookie-invalid-" (name field-key))
+                      {:reason   (str "cookie " field-key " " (pr-str s)
+                                      " contains CR/LF/NUL — forbidden by"
+                                      " RFC 7230 §3.2.4 (header-splitting"
+                                      " injection)")
+                       :field    field-key
+                       :value    v
+                       :recovery :no-recovery})))
+    s))
+
+(defn- validate-cookie!
+  "Run name + field validators across the cookie map. Per rf2-z7gor —
+  gate the structured cookie at the fx boundary so misuse surfaces with
+  the dispatching event in scope rather than as a deep adapter exception."
+  [cookie]
+  (validate-cookie-name! (:name cookie))
+  (when (some? (:value  cookie)) (validate-cookie-attr! :value  (:value  cookie)))
+  (when (some? (:path   cookie)) (validate-cookie-attr! :path   (:path   cookie)))
+  (when (some? (:domain cookie)) (validate-cookie-attr! :domain (:domain cookie)))
+  cookie)
+
 (def status-writes-key   :rf.server/_status-writes)
 (def redirect-writes-key :rf.server/_redirect-writes)
 
@@ -228,9 +316,11 @@
 (defn set-header-fx
   "Handler fn for `:rf.server/set-header`. Replaces any existing header
   with the same name (case-insensitive). Throws
-  `:rf.error/header-invalid-value` on a value carrying CR/LF/NUL
-  (rf2-hbty2)."
+  `:rf.error/header-invalid-name` on a name violating the RFC 7230
+  §3.2.6 token grammar (rf2-z7gor), and `:rf.error/header-invalid-value`
+  on a value carrying CR/LF/NUL (rf2-hbty2)."
   [{:keys [frame]} {:keys [name value]}]
+  (validate-header-name!  name)
   (validate-header-value! name value)
   (swap-response!
     frame
@@ -239,9 +329,12 @@
 (defn append-header-fx
   "Handler fn for `:rf.server/append-header`. Preserves any existing
   header with the same name — required for Set-Cookie-style multi-valued
-  headers. Throws `:rf.error/header-invalid-value` on a value carrying
-  CR/LF/NUL (rf2-hbty2)."
+  headers. Throws `:rf.error/header-invalid-name` on a name violating the
+  RFC 7230 §3.2.6 token grammar (rf2-z7gor), and
+  `:rf.error/header-invalid-value` on a value carrying CR/LF/NUL
+  (rf2-hbty2)."
   [{:keys [frame]} {:keys [name value]}]
+  (validate-header-name!  name)
   (validate-header-value! name value)
   (swap-response!
     frame
@@ -250,21 +343,29 @@
 (defn set-cookie-fx
   "Handler fn for `:rf.server/set-cookie`. Cookie attributes are stored
   as a structured map (RFC 6265 wire-form serialisation is host-adapter
-  business)."
+  business). Throws `:rf.error/cookie-invalid-name` on a name violating
+  the RFC 6265 §4.1.1 token grammar, and
+  `:rf.error/cookie-invalid-{value,path,domain}` on a CRLF/NUL-bearing
+  attribute string — rf2-z7gor gates the structured cookie at the fx
+  boundary so non-ring host adapters get the same safety the ring
+  materialiser (rf2-rpedl) provides at wire-write time."
   [{:keys [frame]} cookie-map]
+  (validate-cookie! cookie-map)
   (swap-response!
     frame
     (fn [r] (update r :cookies (fnil conj []) cookie-map))))
 
 (defn delete-cookie-fx
   "Handler fn for `:rf.server/delete-cookie`. Sugar over set-cookie
-  with :max-age 0 and an empty :value."
+  with :max-age 0 and an empty :value. Same rf2-z7gor name + path +
+  domain validation as `set-cookie-fx`."
   [{:keys [frame]} {:keys [name path domain]}]
   (let [cookie (cond-> {:name    name
                         :value   ""
                         :max-age 0}
                  path   (assoc :path   path)
                  domain (assoc :domain domain))]
+    (validate-cookie! cookie)
     (swap-response!
       frame
       (fn [r] (update r :cookies (fnil conj []) cookie)))))
