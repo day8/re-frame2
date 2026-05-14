@@ -38,7 +38,7 @@
         "the adapter ns exports its spec as the public `adapter` var")
     (is (= 9 (count (filter fn? (vals reagent-adapter/adapter))))
         "the exported adapter map carries the full nine-fn contract")
-    (is (= :reagent (:kind reagent-adapter/adapter))
+    (is (= :rf.adapter/reagent (:kind reagent-adapter/adapter))
         "the adapter map carries its discriminator keyword under :kind")))
 
 (deftest init-explicit-installs-reagent
@@ -48,7 +48,7 @@
     (rf/init! reagent-adapter/adapter)
     (is (identical? reagent-adapter/adapter (adapter/current-adapter-spec))
         "explicit init! installed the Reagent adapter (map identity)")
-    (is (= :reagent (adapter/current-adapter))
+    (is (= :rf.adapter/reagent (adapter/current-adapter))
         "current-adapter returns the discriminator keyword per Spec 006")))
 
 (deftest init-no-arg-raises-arity-error
