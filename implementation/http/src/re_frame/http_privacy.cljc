@@ -17,8 +17,8 @@
 
   - `re-frame.http-privacy-headers` — header denylist + `redact-headers`.
   - `re-frame.http-url` — query-param denylist + `redact-url` /
-    `redact-url-query-string` / `query-denylist-hit?` (and future home
-    of `url-encode` / `params->query` / `merge-params` per rf2-5ijhk).
+    `redact-url-query-string` (and future home of `url-encode` /
+    `params->query` / `merge-params` per rf2-5ijhk).
 
   Three cooperating mechanisms, mirroring Spec 009's `:sensitive?` /
   `with-redacted` split:
@@ -74,6 +74,41 @@
 
 ;; ---- trace-event redaction helpers ----------------------------------------
 
+(defn- redact-url-in
+  "Internal helper: if `m` carries a string `:url`, redact it and return
+  `[m' any-redacted?]`. The flag captures whether the query-string walk
+  scrubbed any param value — callers use this to stamp `:sensitive?`
+  on the trace event (a denylisted param name is itself a signal that
+  the request carries a secret) without re-walking the URL.
+
+  Per rf2-02vzz — fuses the redact + denylist-hit lookups so the URL's
+  query string is parsed exactly once per trace emit."
+  [m sensitive?]
+  (if (string? (:url m))
+    (let [[redacted any?] (url/redact-url-query-string (:url m) sensitive?)]
+      [(assoc m :url redacted) any?])
+    [m false]))
+
+(defn redact-request-tags-with-flag
+  "Like `redact-request-tags` but returns `[tags url-redacted?]` so
+  callers (`prepare-emit-tags`) can decide whether to stamp
+  `:sensitive?` without re-walking the URL. Per rf2-02vzz."
+  [tags sensitive?]
+  (let [[tags url-hit?] (redact-url-in tags sensitive?)
+        tags' (cond-> tags
+                ;; Always-on header redaction (denylist).
+                (map? (:headers tags))
+                (update :headers headers/redact-headers)
+
+                ;; Sensitive-request redaction — body becomes the sentinel.
+                (and sensitive? (contains? tags :body))
+                (assoc :body redacted-sentinel)
+
+                ;; Sensitive-request redaction — params (URL query string) too.
+                (and sensitive? (contains? tags :params))
+                (assoc :params redacted-sentinel))]
+    [tags' url-hit?]))
+
 (defn redact-request-tags
   "Given a tags map about to ride a `:rf.http/*` trace event, redact
   the request-side payload when `sensitive?` is true. Always redacts
@@ -84,23 +119,33 @@
 
   Idempotent and total: missing slots are left alone."
   [tags sensitive?]
-  (cond-> tags
-    ;; Always-on header redaction (denylist).
-    (map? (:headers tags))
-    (update :headers headers/redact-headers)
+  (first (redact-request-tags-with-flag tags sensitive?)))
 
-    ;; URL query-string redaction — always-on for denylisted params
-    ;; (rf2-2p8wr); when sensitive? true ALL params are scrubbed.
-    (string? (:url tags))
-    (update :url url/redact-url sensitive?)
+(defn redact-failure-with-flag
+  "Like `redact-failure` but returns `[failure url-redacted?]` so callers
+  (`prepare-emit-failure`, `prepare-emit-tags`) can decide whether to
+  stamp `:sensitive?` without re-walking the URL. Per rf2-02vzz."
+  [failure sensitive?]
+  (when failure
+    (let [[failure url-hit?] (redact-url-in failure sensitive?)
+          failure' (cond-> failure
+                     (map? (:headers failure))
+                     (update :headers headers/redact-headers)
 
-    ;; Sensitive-request redaction — body becomes the sentinel.
-    (and sensitive? (contains? tags :body))
-    (assoc :body redacted-sentinel)
+                     (and sensitive? (contains? failure :body))
+                     (assoc :body redacted-sentinel)
 
-    ;; Sensitive-request redaction — params (URL query string) too.
-    (and sensitive? (contains? tags :params))
-    (assoc :params redacted-sentinel)))
+                     (and sensitive? (contains? failure :body-text))
+                     (assoc :body-text redacted-sentinel)
+
+                     (and sensitive? (contains? failure :decoded))
+                     (assoc :decoded redacted-sentinel)
+
+                     ;; Accept-failure carries the user's domain failure-map at :detail
+                     ;; — opaque to us; redact wholesale when sensitive.
+                     (and sensitive? (contains? failure :detail))
+                     (assoc :detail redacted-sentinel))]
+      [failure' url-hit?])))
 
 (defn redact-failure
   "Given a failure map (per Spec 014 §Failure categories) about to ride
@@ -110,28 +155,7 @@
   param denylist (rf2-2p8wr) — denylisted param names are the signal."
   [failure sensitive?]
   (when failure
-    (cond-> failure
-      (map? (:headers failure))
-      (update :headers headers/redact-headers)
-
-      ;; URL query-string redaction — always-on for denylisted params
-      ;; (rf2-2p8wr); when sensitive? true ALL params are scrubbed.
-      (string? (:url failure))
-      (update :url url/redact-url sensitive?)
-
-      (and sensitive? (contains? failure :body))
-      (assoc :body redacted-sentinel)
-
-      (and sensitive? (contains? failure :body-text))
-      (assoc :body-text redacted-sentinel)
-
-      (and sensitive? (contains? failure :decoded))
-      (assoc :decoded redacted-sentinel)
-
-      ;; Accept-failure carries the user's domain failure-map at :detail
-      ;; — opaque to us; redact wholesale when sensitive.
-      (and sensitive? (contains? failure :detail))
-      (assoc :detail redacted-sentinel))))
+    (first (redact-failure-with-flag failure sensitive?))))
 
 (defn stamp-sensitive
   "Stamp the `:sensitive?` flag onto a tags map when `sensitive?` is true.
@@ -207,16 +231,22 @@
   - **Whether to stamp `:sensitive?`** OR-combines `sensitive?` with a
     denylist-hit check on `:url` / `:failure :url`. A denylisted query-
     param name alone is enough to stamp the event — the name is the
-    signal that the request carries a secret."
+    signal that the request carries a secret.
+
+  Per rf2-02vzz the redact + denylist-hit are computed in a single URL
+  walk: `redact-request-tags-with-flag` and `redact-failure-with-flag`
+  return the redacted shape paired with a flag telling us whether any
+  query-string value was scrubbed. Earlier the helpers ran two walks
+  per trace emit (denylist-hit then redact)."
   [tags sensitive?]
-  (let [denylist-hit? (or (url/query-denylist-hit? (:url tags))
-                          (url/query-denylist-hit? (get-in tags [:failure :url])))
-        stamp?        (or (true? sensitive?) denylist-hit?)]
-    (-> tags
-        (redact-request-tags (true? sensitive?))
-        (cond-> (contains? tags :failure)
-                (update :failure redact-failure (true? sensitive?)))
-        (stamp-sensitive stamp?))))
+  (let [s?                          (true? sensitive?)
+        [tags' tag-url-hit?]        (redact-request-tags-with-flag tags s?)
+        [tags'' fail-url-hit?]      (if (contains? tags :failure)
+                                      (let [[f' h?] (redact-failure-with-flag (:failure tags) s?)]
+                                        [(assoc tags' :failure f') h?])
+                                      [tags' false])
+        stamp?                      (or s? tag-url-hit? fail-url-hit?)]
+    (stamp-sensitive tags'' stamp?)))
 
 (defn prepare-emit-failure
   "Compose `redact-failure` + `stamp-sensitive` for an error-side trace
@@ -226,9 +256,13 @@
   Two distinct decisions per rf2-2p8wr — same split as `prepare-emit-
   tags`: URL redaction uses the explicit `sensitive?` arg; `:sensitive?`
   stamping OR-combines that arg with a query-param denylist hit on the
-  failure's `:url`."
+  failure's `:url`.
+
+  Per rf2-02vzz the URL walk happens once: `redact-failure-with-flag`
+  returns `[failure url-hit?]` so we don't re-parse the query string."
   [failure sensitive?]
-  (let [denylist-hit? (url/query-denylist-hit? (:url failure))
-        stamp?        (or (true? sensitive?) denylist-hit?)]
-    (-> (redact-failure failure (true? sensitive?))
-        (stamp-sensitive stamp?))))
+  (let [s?                  (true? sensitive?)
+        [failure' url-hit?] (redact-failure-with-flag failure s?)
+        stamp?              (or s? url-hit?)]
+    (when failure'
+      (stamp-sensitive failure' stamp?))))
