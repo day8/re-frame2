@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 testbed: ssr-hydration-mismatch</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    h1 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <!--
+    Server-rendered HTML — a placeholder shape. The pre-rendered
+    `not-hydrated` marker is intentional: the post-hydrate render
+    replaces this subtree with the live view (which then transitions
+    to `hydrated`). Per Spec 011, the test is about the *hash*
+    comparison — the visible HTML doesn't need to mismatch byte-for-
+    byte to drive the trace.
+  -->
+  <div id="app">
+    <div data-testid="ssr-hydration-mismatch"
+         style="font-family: sans-serif; padding: 1em">
+      <h1>ssr-hydration-mismatch testbed</h1>
+      <div data-testid="not-hydrated" style="padding: 0.25em; color: #700">
+        not-hydrated
+      </div>
+    </div>
+  </div>
+  <!--
+    The payload bakes a deliberately-wrong :rf/render-hash. The
+    8-char-lowercase-hex shape matches the spec's FNV-1a output (per
+    Spec 011 §Hydration-mismatch detection: "lowercase hex of the raw
+    hash bytes; no prefix"); 'deadbeef' will not equal the
+    client's computed hash for the seeded {:count 0} tree.
+
+    On first render verify-hydration! reads this hash, computes the
+    client tree's hash, and emits :rf.ssr/hydration-mismatch with
+    :recovery :warned-and-replaced. The trace listener captures the
+    event onto window.__rf_trace_events() AND dispatches
+    ::record-mismatch so the dev-mode banner renders the payload
+    inline (data-testid='mismatch-banner').
+  -->
+  <script id="__rf_payload" type="application/edn">
+{:rf/version     1
+ :rf/frame-id    :rf/default
+ :rf/render-hash "deadbeef"
+ :rf/app-db      {:count 0}}
+  </script>
+  <script src="main.js"></script>
+</body>
+</html>
