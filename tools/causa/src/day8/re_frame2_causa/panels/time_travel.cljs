@@ -46,19 +46,15 @@
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
-;; ---- view atoms ----------------------------------------------------------
+;; ---- input state ---------------------------------------------------------
 ;;
-;; The label input is local UI state — kept in a defonce atom so a
-;; hot-reload doesn't drop the user's in-progress label. The dispatch
-;; only fires on submit.
-
-(defonce ^:private label-input-atom (atom ""))
-
-(defn- read-label-input []
-  @label-input-atom)
-
-(defn- set-label-input! [v]
-  (reset! label-input-atom (or v "")))
+;; The pin-label input box's text is per-session UI state. Pre-rf2-qvz85
+;; this was a `defonce` plain atom deref'd inside the view; since plain
+;; atoms are NOT a reactive primitive in any substrate, every keystroke
+;; updated the atom but the panel did not re-render. The input now lives
+;; at `:label-input` in `:rf/causa`'s db; the view subscribes via
+;; `:rf.causa/time-travel-label-input` so a keystroke → event →
+;; db-write → sub re-fire → re-render.
 
 ;; ---- sub-views -----------------------------------------------------------
 
@@ -229,13 +225,17 @@
       (str (inc cur-idx) "/" n " epochs")]]))
 
 (defn- actions-row
-  "The pin + reset buttons. Pin uses a label input bound to a local
-  atom — submitting fires `:rf.causa/pin-current` with the resolved
-  selected-epoch-id + label. Reset to current uses restore-epoch via
-  the `:rf.causa.fx/restore-epoch` effect."
-  [{:keys [selected-epoch-id history cap-reached?] :as _data}]
+  "The pin + reset buttons. Pin uses a label input bound to
+  `:rf.causa/time-travel-label-input` (rf2-1barg — pre-fix this was a
+  plain `defonce` atom which is not a reactive substrate primitive, so
+  keystrokes did not re-render the row). Submitting fires
+  `:rf.causa/pin-current` with the resolved selected-epoch-id + label.
+  Reset to current uses restore-epoch via the
+  `:rf.causa.fx/restore-epoch` effect."
+  [{:keys [selected-epoch-id history cap-reached? label-input] :as _data}]
   (let [target-eid (or selected-epoch-id (h/newest-epoch-id history))
-        history-empty? (empty? history)]
+        history-empty? (empty? history)
+        label       (or label-input "")]
     [:div {:data-testid "rf-causa-time-travel-actions"
            :style       {:padding "8px 12px"
                          :display "flex"
@@ -246,8 +246,10 @@
      [:input {:data-testid "rf-causa-pin-label-input"
               :type        "text"
               :placeholder "pin label (optional)"
-              :value       (read-label-input)
-              :on-change   #(set-label-input! (.. % -target -value))
+              :value       label
+              :on-change   #(rf/dispatch [:rf.causa/time-travel-set-label-input
+                                          (.. % -target -value)]
+                                         {:frame :rf/causa})
               :style       {:flex "1 1 160px"
                             :min-width "120px"
                             :background  (:bg-3 tokens)
@@ -261,9 +263,11 @@
                :disabled    (or history-empty? cap-reached?)
                :on-click    #(when target-eid
                                (rf/dispatch
-                                 [:rf.causa/pin-current target-eid
-                                  (read-label-input)] {:frame :rf/causa})
-                               (set-label-input! ""))
+                                 [:rf.causa/pin-current target-eid label]
+                                 {:frame :rf/causa})
+                               (rf/dispatch
+                                 [:rf.causa/time-travel-set-label-input ""]
+                                 {:frame :rf/causa}))
                :style       {:background  (if cap-reached?
                                             (:bg-3 tokens)
                                             (:accent-violet tokens))
@@ -405,6 +409,16 @@
     (fn [[pin-store target-frame] _query]
       (h/epoch-pins-for-frame pin-store target-frame)))
 
+  ;; The pin-label input box's current text (rf2-1barg). Pre-fix this
+  ;; was a `defonce` plain atom; plain atoms are not a substrate-
+  ;; reactive primitive, so keystrokes updated state without re-
+  ;; rendering the actions row. Routing through the app-db slot makes
+  ;; the panel's React-context-tier subscribe re-fire on every set-
+  ;; label dispatch.
+  (rf/reg-sub :rf.causa/time-travel-label-input
+    (fn [db _query]
+      (get db :label-input "")))
+
   ;; Composite for the panel — one read produces every slot the
   ;; view needs. Mirrors the Phase-2 `:rf.causa/event-detail`
   ;; composite shape. The :chip-states projection runs chip-state
@@ -415,7 +429,8 @@
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/selected-epoch-id]
     :<- [:rf.causa/pinned-snapshots]
-    (fn [[target-frame history selected-id pins] _query]
+    :<- [:rf.causa/time-travel-label-input]
+    (fn [[target-frame history selected-id pins label-input] _query]
       (let [selected-record (when selected-id
                               (h/find-epoch-in-history
                                 history selected-id))]
@@ -426,6 +441,7 @@
          :selected-index  (h/epoch-index-in-history
                             history selected-id)
          :pins            pins
+         :label-input     label-input
          :chip-states     (h/chip-states history pins)
          :cap-reached?    (>= (count pins) h/default-pin-cap)})))
 
@@ -440,12 +456,49 @@
   ;; record is appended; a stale arg would be off-by-one only on
   ;; the boundary, but threading the live read keeps the contract
   ;; simple).
+  ;; Per rf2-1barg: carries `:rf.trace/no-emit? true` (per rf2-qsjda).
+  ;; Without the flag every host-side settle fires this handler under
+  ;; `:rf/causa` AND its cascade is captured by the epoch artefact —
+  ;; which snapshots `:rf/causa`'s app-db at db-before / db-after.
+  ;; Causa's app-db contains the trace-buffer + a copy of the host's
+  ;; epoch-history; the snapshot pair grows O(N) per write so the
+  ;; recorded ring buffer cost is O(N²) and the browser OOMs after
+  ;; a few host dispatches. With the flag the trace surface short-
+  ;; circuits before allocation, no events are captured for the
+  ;; cascade, no record is appended, and `:rf/causa` stays out of
+  ;; the epoch ring buffer entirely (the correct shape — Causa is
+  ;; the inspector, not the inspected).
   (rf/reg-event-db :rf.causa/epoch-recorded
+    {:rf.trace/no-emit? true}
     (fn [db [_ frame-id]]
       (let [target (get db :target-frame defaults/default-target-frame)]
         (if (= frame-id target)
           (assoc db :epoch-history (vec (rf/epoch-history target)))
           db))))
+
+  ;; Wholesale overwrite of the `:epoch-history` slot (rf2-1barg).
+  ;; Dispatched from `mount.cljs/open!` on first Ctrl+Shift+C to seed
+  ;; the slot with the framework's accumulated history for the
+  ;; default target frame. Host dispatches that fired before the user
+  ;; opened Causa landed in the framework's ring buffer but couldn't
+  ;; flow through the epoch-cb (the cb short-circuits pre-mount per
+  ;; preload.cljs §Pre-mount guard); this seed lifts those records
+  ;; into Causa's reactive slot. Per rf2-qsjda `:rf.trace/no-emit?
+  ;; true` opts out of trace emission for the seed dispatch — pure
+  ;; bookkeeping, no user signal.
+  (rf/reg-event-db :rf.causa/sync-epoch-history
+    {:rf.trace/no-emit? true}
+    (fn [db [_ history]]
+      (assoc db :epoch-history (vec history))))
+
+  ;; Replace the pin-label input text (rf2-1barg). Fires from every
+  ;; `<input on-change>` keystroke and on submit-clears the slot.
+  ;; Carries `:rf.trace/no-emit?` (per rf2-qsjda) so keystroke-rate
+  ;; updates don't flood the trace ribbon.
+  (rf/reg-event-db :rf.causa/time-travel-set-label-input
+    {:rf.trace/no-emit? true}
+    (fn [db [_ text]]
+      (assoc db :label-input (or text ""))))
 
   ;; Set the view's selected-epoch (passive scrub). Per spec §The
   ;; passive-scrubbing rule — this DOES NOT call restore-epoch.

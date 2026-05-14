@@ -163,32 +163,31 @@
   absent — those count under `:global`.
 
   In CLJS, also dispatches `:rf.causa/note-sensitive-suppressed`
-  so the bottom-rail's `[● REDACTED N]` indicator updates
-  IMMEDIATELY via the reactive sub-graph (the event handler updates
-  the active frame's app-db `:suppressed-counters` slot; the sub
-  reads off the same db). The atom-bump stays as the JVM-runnable
-  data primitive (CLJC tests assert it directly); the dispatch is
-  the reactive surface for CLJS.
+  into `:rf/causa` so the bottom-rail's `[● REDACTED N]` indicator
+  updates IMMEDIATELY via the reactive sub-graph (the event handler
+  updates Causa's app-db `:suppressed-counters` slot; the
+  `:rf.causa/suppressed-sensitive-count` sub reads off the same
+  db). The atom-bump stays as the JVM-runnable data primitive
+  (CLJC tests assert it directly); the dispatch is the reactive
+  surface for CLJS.
 
-  The dispatch follows the active frame chain rather than binding
-  to `:rf/causa` explicitly. The shell's bottom-rail is a plain
-  Reagent fn (not `reg-view`-registered) so its subscribe resolves
-  through the chain to `:rf/default`. Pairing the dispatch's write
-  target with the read's read target (both chain-resolved) keeps
-  the indicator reactive without requiring an explicit `reg-frame
-  :rf/causa` at preload time (which would fail — `reg-frame` needs
-  a substrate adapter installed via `rf/init!`, and the preload
-  runs at ns-load time before that).
-
-  Guarded on `:rf/default`'s existence so JVM / pre-`init!` callers
-  (test fixtures with no frames registered) bump the atom without
-  emitting an `:rf.error/frame-destroyed` trace into the bus."
+  Per rf2-1barg: dispatch is explicit `{:frame :rf/causa}` (was
+  active-frame-chain pre-rf2-in6l2, which routed to `:rf/default`
+  back when the bottom-rail was a plain Reagent fn). Post-rf2-in6l2
+  the bottom-rail is `reg-view`-wrapped so its subscribe routes
+  through React-context to `:rf/causa`; the dispatch's target now
+  matches the sub's target. Guarded on `:rf/causa`'s existence so
+  pre-mount callers (Causa shell not yet opened) bump the atom
+  without emitting an `:rf.error/frame-destroyed` trace into the
+  bus — the seed in `ensure-causa-frame!` lifts the atom's contents
+  on first Ctrl+Shift+C."
   [frame-id]
   (let [k (or frame-id :global)]
     (swap! suppressed-counters update k (fnil inc 0)))
   #?(:cljs
-     (when (frame/frame :rf/default)
-       (rf/dispatch [:rf.causa/note-sensitive-suppressed frame-id])))
+     (when (frame/frame :rf/causa)
+       (rf/dispatch [:rf.causa/note-sensitive-suppressed frame-id]
+                    {:frame :rf/causa})))
   nil)
 
 (defn suppressed-count

@@ -36,7 +36,25 @@
   catastrophic — but the right answer is to keep the preload out of
   production builds via shadow-cljs's `:dev`-only `:devtools` block."
   (:require [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            ;; Pull `re-frame.epoch` into the dev classpath via the
+            ;; Causa preload (rf2-1barg). The Causa Time Travel panel
+            ;; reads epoch records via `rf/epoch-history` +
+            ;; `rf/register-epoch-cb!`; those wrappers late-bind into
+            ;; `re-frame.epoch`'s seed table. When the host example
+            ;; omits the artefact (the counter example does, by
+            ;; design — it's the smallest reference app), the wrappers
+            ;; degrade silently to `[]` / no-op and the panel sits
+            ;; empty even though the user has just opened Causa
+            ;; specifically to look at epoch history. Loading the
+            ;; epoch artefact as part of Causa's preload anchors the
+            ;; integration: every Causa-enabled build has working
+            ;; time-travel without the host having to add a separate
+            ;; dependency. Bundle-isolation still holds — Causa's
+            ;; preload is dev-only and is excluded from production
+            ;; bundles by the `:devtools/preloads` shadow-cljs gate.
+            [re-frame.epoch]
             [day8.re-frame2-causa.keybinding :as keybinding]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
@@ -82,6 +100,19 @@
   `:rf.causa/epoch-history` sub then re-fires off the standard
   app-db-write reactive path.
 
+  ## Pre-mount guard (rf2-1barg)
+
+  The preload runs at app boot but `:rf/causa` is lazy-registered by
+  `mount.cljs/open!` on the first Ctrl+Shift+C keypress. Host
+  dispatches that fire BEFORE the user opens Causa would otherwise
+  flow through this cb and dispatch into a frame that doesn't yet
+  exist — the runtime would emit `:rf.error/frame-destroyed` and the
+  record would be lost. The `frame/frame :rf/causa` guard makes
+  pre-mount cbs a silent no-op; `ensure-causa-frame!` seeds the
+  panel's `:epoch-history` slot with the framework's current
+  `(rf/epoch-history target)` snapshot at first open, so the
+  pre-mount window's records still surface.
+
   Idempotent via the `epoch-cb-registered?` sentinel. No-op when the
   `day8/re-frame2-epoch` artefact is not on the classpath
   (`rf/register-epoch-cb!` is itself a no-op in that case)."
@@ -89,13 +120,18 @@
   (when (compare-and-set! epoch-cb-registered? false true)
     (rf/register-epoch-cb! :rf.causa/epoch-collector
       (fn [record]
-        ;; Wrap the dispatch in :rf/causa so the registry's handler
-        ;; writes to Causa's app-db, not the host's. The cb's record
-        ;; carries :frame — pass it as the dispatch arg so the
-        ;; handler can compare against its target-frame and skip
-        ;; updates for non-target frames.
-        (rf/with-frame :rf/causa
-          (rf/dispatch [:rf.causa/epoch-recorded (:frame record)])))))
+        ;; Pre-mount no-op — see the docstring's §Pre-mount guard.
+        ;; Resolved against the framework's frame registry (NOT a
+        ;; Causa-side flag) so a teardown / re-register cycle stays
+        ;; correctly tracked without our needing extra state.
+        (when (frame/frame :rf/causa)
+          ;; Wrap the dispatch in :rf/causa so the registry's handler
+          ;; writes to Causa's app-db, not the host's. The cb's
+          ;; record carries :frame — pass it as the dispatch arg so
+          ;; the handler can compare against its target-frame and
+          ;; skip updates for non-target frames.
+          (rf/with-frame :rf/causa
+            (rf/dispatch [:rf.causa/epoch-recorded (:frame record)]))))))
   nil)
 
 (defn reset-for-test!
