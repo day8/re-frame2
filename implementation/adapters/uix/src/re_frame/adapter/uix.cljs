@@ -23,13 +23,20 @@
   come from `re-frame.substrate.spine` — that ns hosts the
   React-shaped-substrate spine UIx and Helix share byte-for-byte. The
   UIx-specific configuration here is the gensym-prefix triple, the
-  substrate-name (\"UIx\") used in warn-once text, and the uix.core
-  use-memo/use-callback (which UIx accepts as JS arrays just as the
-  spine passes them)."
-  (:require [reagent.core     :as r]
-            [reagent.ratom    :as ratom]
-            [uix.core         :as uix]
-            [re-frame.frame   :as frame]
+  substrate-name (\"UIx\") used in warn-once text, and the runtime
+  hook fns from `uix.hooks.alpha`. We bind the runtime fns rather than
+  the `uix.core` namespace's `use-memo` / `use-callback` because those
+  are macros (with no runtime counterpart Var) — passing a macro
+  symbol as a config value yields `undefined` at runtime, which broke
+  every UIx-substrate example after rf2-3vwbx until it was fixed by
+  the `uix.hooks.alpha` switch. `uix.hooks.alpha/use-memo` and
+  `use-callback` are the runtime fns the `uix.core` macros themselves
+  expand to (they take JS-array deps — exactly what the spine passes)."
+  (:require [reagent.core      :as r]
+            [reagent.ratom     :as ratom]
+            [uix.core          :as uix]
+            [uix.hooks.alpha   :as uix-hooks]
+            [re-frame.frame    :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.spine   :as spine]
@@ -43,8 +50,8 @@
      :gensym-prefix-sub     "rf-uix-sub-"
      :gensym-prefix-derived "rf-uix-derived-"
      :gensym-prefix-use-sub "rf-uix-use-sub-"
-     :use-memo              uix/use-memo
-     :use-callback          uix/use-callback
+     :use-memo              uix-hooks/use-memo
+     :use-callback          uix-hooks/use-callback
      :use-context           uix/use-context}))
 
 ;; ---- public surface (UIx-named) -------------------------------------------
