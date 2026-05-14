@@ -34,9 +34,12 @@
   — production builds with the flag false see an empty state map and
   the shell entry point short-circuits before any subscription / mount
   call. Per IMPL-SPEC §6.3."
-  (:require [re-frame.story.config     :as config]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar  :as registrar]
+  (:require [re-frame.story.config                :as config]
+            [re-frame.story.predicates            :as pred]
+            [re-frame.story.ui.state.filters      :as state.filters]
+            [re-frame.story.ui.state.snapshot     :as state.snapshot]
+            [re-frame.story.ui.state.tests        :as state.tests]
+            [re-frame.story.ui.state.transitions  :as state.transitions]
             #?(:cljs [reagent.core :as r])))
 
 ;; ---- pure data: the default shape ----------------------------------------
@@ -112,315 +115,41 @@
                          :watch-mode?    false
                          :content-hashes {}}})
 
-;; ---- pure transition fns (JVM-testable) ----------------------------------
+;; ---- pure transitions (extracted to state.transitions, rf2-gcpon) -------
 
-(defn select-variant
-  "Set the focused variant id (or nil to deselect)."
-  [state variant-id]
-  (assoc state :selected-variant variant-id))
+(def select-variant            state.transitions/select-variant)
+(def select-workspace          state.transitions/select-workspace)
+(def toggle-tag-filter         state.transitions/toggle-tag-filter)
+(def set-active-modes          state.transitions/set-active-modes)
+(def toggle-mode               state.transitions/toggle-mode)
+(def clear-active-modes        state.transitions/clear-active-modes)
+(def group-modes-by-axis       state.transitions/group-modes-by-axis)
+(def set-cell-override         state.transitions/set-cell-override)
+(def set-cell-override-scalar  state.transitions/set-cell-override-scalar)
+(def clear-cell-overrides      state.transitions/clear-cell-overrides)
+(def bump-hot-reload-tick      state.transitions/bump-hot-reload-tick)
+(def record-fingerprints       state.transitions/record-fingerprints)
+(def pin-snapshot              state.transitions/pin-snapshot)
+(def toggle-panel              state.transitions/toggle-panel)
 
-(defn select-workspace
-  "Set the focused workspace id (or nil to deselect)."
-  [state workspace-id]
-  (assoc state :selected-workspace workspace-id))
+;; ---- mode-tab (rf2-9hc8) re-exports --------------------------------------
 
-(defn toggle-tag-filter
-  "Flip `tag` in the `:tag-filter` set."
-  [state tag]
-  (update state :tag-filter
-          (fn [s] (if (contains? s tag) (disj s tag) (conj (or s #{}) tag)))))
+(def mode-tabs                 state.transitions/mode-tabs)
+(def mode-tab-labels           state.transitions/mode-tab-labels)
+(def default-mode-tab          state.transitions/default-mode-tab)
+(def valid-mode-tab?           state.transitions/valid-mode-tab?)
+(def active-mode-tab           state.transitions/active-mode-tab)
+(def set-active-mode-tab       state.transitions/set-active-mode-tab)
 
-(defn set-active-modes
-  "Replace the active modes vector."
-  [state modes]
-  (assoc state :active-modes (vec modes)))
+;; ---- pure derivations (extracted to state.filters, rf2-gcpon) -----------
 
-(defn- mode-axis
-  "Resolve `mode-id`'s `:axis` (if any) via the registrar. Pure data →
-  data; isolated as a helper so `toggle-mode` is trivially JVM-
-  testable (the helper consults the registrar; pass an explicit
-  `axis-fn` to bypass it in pure tests)."
-  [mode-id]
-  (:axis (registrar/handler-meta :mode mode-id)))
-
-(defn toggle-mode
-  "Toggle `mode-id` against the current `active-modes` vector. Honors
-  `:axis` semantics per spec/010 §Selection semantics — by axis:
-
-  - Currently active → deactivate (regardless of axis).
-  - Axis-grouped     → drop siblings sharing the axis, then add.
-  - Un-grouped       → multi-select, append.
-
-  Pure data → data; JVM-testable. The `axis-fn` arity injects the
-  axis-lookup for tests that don't want a live registrar.
-
-  Returns the new active-modes vector — caller is responsible for
-  writing it back via `set-active-modes`."
-  ([active-modes mode-id]
-   (toggle-mode active-modes mode-id mode-axis))
-  ([active-modes mode-id axis-fn]
-   (let [active (vec (or active-modes []))]
-     (cond
-       (some #(= % mode-id) active)
-       (vec (remove #(= % mode-id) active))
-
-       (some? (axis-fn mode-id))
-       (let [axis     (axis-fn mode-id)
-             siblings (set (filter
-                             (fn [mid] (= axis (axis-fn mid)))
-                             active))]
-         (conj (vec (remove siblings active)) mode-id))
-
-       :else
-       (conj active mode-id)))))
-
-(defn clear-active-modes
-  "Drop every active mode — implements the toolbar's `[reset]` action."
-  [state]
-  (assoc state :active-modes []))
-
-(defn group-modes-by-axis
-  "Build the toolbar's chip layout. Pure data → data; JVM-testable.
-
-  `id->body` is the `{mode-id → mode-body}` map from
-  `(registrar/registrations :mode)`. Returns
-
-      {:axes   [[axis [mode-id ...]] ...]  ; sorted alphabetically by axis-name
-       :unaxed [mode-id ...]}              ; un-grouped modes, sorted alphabetically
-
-  — an explicit two-slot map (no sentinels). The caller renders the
-  axis-tagged groups left-to-right and the un-grouped chips at the
-  trailing edge. Within each bucket the ids are sorted alphabetically."
-  [id->body]
-  (let [axed   (->> id->body
-                    (filter (fn [[_ b]] (some? (:axis b))))
-                    (group-by (fn [[_ b]] (:axis b)))
-                    (map (fn [[axis pairs]]
-                           [axis (vec (sort (map first pairs)))]))
-                    (sort-by (fn [[axis _]] (str axis)))
-                    vec)
-        unaxed (->> id->body
-                    (filter (fn [[_ b]] (nil? (:axis b))))
-                    (map first)
-                    sort
-                    vec)]
-    {:axes axed :unaxed unaxed}))
-
-(defn set-cell-override
-  "Set a single arg override for `variant-id`. `path` is a vector
-  `[arg-key & sub-path]` — the first element is the top-level arg-key,
-  the remaining elements address into the nested value via `assoc-in`
-  semantics. Used by the nested Malli walker per rf2-agshe.
-
-  An empty path is a no-op (caller error; the state is returned
-  unchanged). For top-level scalar overrides use `set-cell-override-
-  scalar`, a thin wrapper that wraps the arg-key in a singleton vector."
-  [state variant-id path value]
-  (if (seq path)
-    (assoc-in state (into [:cell-overrides variant-id] path) value)
-    state))
-
-(defn set-cell-override-scalar
-  "Set a top-level arg override for `variant-id`. Thin wrapper around
-  `set-cell-override` for the scalar case (no nested walk). Equivalent
-  to `(set-cell-override state variant-id [arg-key] value)`."
-  [state variant-id arg-key value]
-  (set-cell-override state variant-id [arg-key] value))
-
-(defn clear-cell-overrides
-  "Drop every override for `variant-id`."
-  [state variant-id]
-  (update state :cell-overrides dissoc variant-id))
-
-(defn bump-hot-reload-tick
-  "Increment the hot-reload tick — variant components observe this slot
-  and re-mount on change. Returns the new state map."
-  [state]
-  (update state :hot-reload-tick (fnil inc 0)))
-
-(defn record-fingerprints
-  "Stamp the current decorator fingerprints for `variant-id`. Stage 4's
-  hot-reload trigger reads the previous map and compares against the
-  current registry; a mismatch bumps `:hot-reload-tick`."
-  [state variant-id fingerprints]
-  (assoc-in state [:fingerprints variant-id] fingerprints))
-
-(defn pin-snapshot
-  "Record a pinned snapshot label/epoch pair for `variant-id`."
-  [state variant-id label epoch-id]
-  (update-in state [:pinned-snapshots variant-id]
-             (fnil conj [])
-             {:label label :epoch-id epoch-id}))
-
-(defn toggle-panel
-  "Flip a panel's visibility."
-  [state panel-id]
-  (update-in state [:panel-visibility panel-id] not))
-
-;; ---- mode-tab (rf2-9hc8) -------------------------------------------------
-
-(def mode-tabs
-  "Ordered vector of canonical render-shell mode tabs. Stable id order
-  drives the chip strip's left-to-right layout. `:dev` is the canvas
-  view (rendered by `re-frame.story.ui.canvas`), `:docs` is the
-  read-only AutoDocs-equivalent (rf2-rodx), `:test` is the
-  in-canvas aggregated pass/fail view (rf2-qmjo)."
-  [:dev :docs :test])
-
-(def mode-tab-labels
-  "Human-readable label per mode-tab id. Used by the chip strip."
-  {:dev  "Canvas"
-   :docs "Docs"
-   :test "Tests"})
-
-(def default-mode-tab
-  "Default mode-tab when no per-variant selection is recorded. `:dev`
-  preserves Story v1's existing behaviour — the variant renders in the
-  canvas as soon as it's selected."
-  :dev)
-
-(defn valid-mode-tab?
-  "Is `tab` one of the canonical mode-tabs?"
-  [tab]
-  (boolean (some #{tab} mode-tabs)))
-
-(defn active-mode-tab
-  "Look up the currently-active mode-tab for `variant-id`. Falls back
-  to `default-mode-tab` when no selection is recorded."
-  [state variant-id]
-  (or (get-in state [:active-mode-tab variant-id])
-      default-mode-tab))
-
-(defn set-active-mode-tab
-  "Record the active mode-tab for `variant-id`. `tab` MUST be one of
-  `mode-tabs`; an unrecognised value is silently ignored so callers
-  can't poison the state."
-  [state variant-id tab]
-  (if (valid-mode-tab? tab)
-    (assoc-in state [:active-mode-tab variant-id] tab)
-    state))
-
-;; ---- pure derivations ----------------------------------------------------
-
-(defn group-tags-by-axis
-  "Pure data → data: split a seq of tags into `{axis-kw → [tag …]}`
-  using `tag->axis` (a `{tag-id → axis-kw}` map). Each per-axis
-  vector is sorted by `name` so the chip layout is stable across
-  re-renders. Tags missing from `tag->axis` land under
-  `:re-frame.story.registrar/no-axis` (the same sentinel
-  `registrar/tag->axis` returns for un-axis-grouped tags).
-
-  rf2-7ncf9 — faceted tag-filter UI. The sidebar's filter row walks
-  this result to render one labelled chip row per axis."
-  [tags tag->axis]
-  (->> tags
-       (reduce (fn [acc t]
-                 (let [axis (get tag->axis t :re-frame.story.registrar/no-axis)]
-                   (update acc axis (fnil conj []) t)))
-               {})
-       (reduce-kv (fn [acc axis ts]
-                    (assoc acc axis (vec (sort-by name ts))))
-                  {})))
-
-(def axis-display-order
-  "Pure data → data: the canonical chip-row order. Mirrors spec/001
-  §reg-tag's documented facet axes — `:status` first, then `:role`,
-  `:team`, `:feature`, then any project-defined axes (alphabetical),
-  with the no-axis bucket last."
-  [:status :role :team :feature])
-
-(defn ordered-axes
-  "Pure data → data: return the axes present in `by-axis` (a
-  `{axis-kw → [tag …]}` map) in stable display order. Canonical axes
-  appear first in `axis-display-order`; project-defined axes follow
-  alphabetically; the no-axis sentinel is always last."
-  [by-axis]
-  (let [present       (set (keys by-axis))
-        canonical     (filter present axis-display-order)
-        extras        (->> present
-                           (remove (set axis-display-order))
-                           (remove #{:re-frame.story.registrar/no-axis})
-                           (sort-by name))
-        trailing      (when (contains? present
-                                       :re-frame.story.registrar/no-axis)
-                        [:re-frame.story.registrar/no-axis])]
-    (vec (concat canonical extras trailing))))
-
-(defn partition-tag-filter-by-axis
-  "Pure data → data: split a `tag-filter` set into `{axis-kw → #{tag …}}`
-  using `tag->axis` (a `{tag-id → axis-kw}` map; see
-  `registrar/tag->axis-index`). Tags missing from `tag->axis` are
-  bucketed under `:re-frame.story.registrar/no-axis` — the same
-  sentinel `registrar/tag->axis` returns for un-axis-grouped tags. The
-  faceted-filter predicate (`variant-tag-match?`) consumes the result.
-
-  Faceted-filter semantics (rf2-7ncf9, SB9 parity): AND across axes,
-  OR within an axis. Partitioning is the first half — the predicate
-  enforces the AND-across rule by requiring every per-axis subset to
-  intersect the variant's `:tags`."
-  [tag-filter tag->axis]
-  (reduce (fn [acc tag]
-            (let [axis (get tag->axis tag :re-frame.story.registrar/no-axis)]
-              (update acc axis (fnil conj #{}) tag)))
-          {}
-          tag-filter))
-
-(defn variant-tag-match?
-  "True iff `variant-body`'s `:tags` set satisfies the `tag-filter`.
-
-  Faceted filter semantics (rf2-7ncf9 SB9 parity):
-
-  - **OR within an axis** — if the filter activates `:status/alpha`
-    AND `:status/beta`, a variant tagged with either passes that
-    axis.
-  - **AND across axes** — activating `:status/stable` AND `:role/design`
-    narrows to variants carrying BOTH a `:status`-axis match AND a
-    `:role`-axis match.
-  - Tags without an `:axis` slot form a synthetic
-    `:re-frame.story.registrar/no-axis` pseudo-axis with the same
-    OR-within rule.
-  - Empty filter → every variant passes (Stage-4 behaviour preserved).
-
-  The pure 2-arity (without `tag->axis`) keeps the legacy OR-only
-  semantics so existing callers that don't have an axis-index handy
-  (tests, downstream tools) keep working. The 3-arity is the
-  facet-aware form the sidebar uses.
-
-  Stage 4 ignores the `:!`-prefix removal syntax — that's resolved at
-  registration time in `re-frame.story.registrar` via
-  `validate-tag-membership!`."
-  ([variant-body tag-filter]
-   (or (empty? tag-filter)
-       (let [tset (or (:tags variant-body) #{})]
-         (some #(contains? tset %) tag-filter))))
-  ([variant-body tag-filter tag->axis]
-   (or (empty? tag-filter)
-       (let [tset       (or (:tags variant-body) #{})
-             per-axis   (partition-tag-filter-by-axis tag-filter tag->axis)]
-         ;; Every axis bucket must intersect the variant's tag set
-         ;; (AND across axes; OR within an axis).
-         (every? (fn [[_ active-on-axis]]
-                   (some #(contains? tset %) active-on-axis))
-                 per-axis)))))
-
-(defn filter-variants
-  "Return the subset of `id->body` whose `:tags` match the filter.
-  Pure data → data; JVM-testable.
-
-  The 2-arity preserves legacy OR-across-tags semantics. The 3-arity
-  takes a `tag->axis` map (see `registrar/tag->axis-index`) and
-  applies the faceted AND-across / OR-within rule (rf2-7ncf9). The
-  sidebar calls the 3-arity with a registrar-derived axis-index; the
-  legacy 2-arity stays for the bare-data callers that don't carry
-  registrar context."
-  ([id->body tag-filter]
-   (into {}
-         (filter (fn [[_ body]] (variant-tag-match? body tag-filter)))
-         id->body))
-  ([id->body tag-filter tag->axis]
-   (into {}
-         (filter (fn [[_ body]] (variant-tag-match? body tag-filter tag->axis)))
-         id->body)))
+(def group-tags-by-axis           state.filters/group-tags-by-axis)
+(def axis-display-order           state.filters/axis-display-order)
+(def ordered-axes                 state.filters/ordered-axes)
+(def partition-tag-filter-by-axis state.filters/partition-tag-filter-by-axis)
+(def variant-tag-match?           state.filters/variant-tag-match?)
+(def filter-variants              state.filters/filter-variants)
+(def group-variants-by-story      state.filters/group-variants-by-story)
 
 (def parent-story-id
   "Cheap parent-story derivation. Canonical definition lives in
@@ -428,43 +157,11 @@
   sites keep their `state/parent-story-id` shape."
   pred/parent-story-id)
 
-(defn group-variants-by-story
-  "Build a sorted vector of `{:story-id ... :variants [...]}` entries
-  from the variants map. Variants whose parent story is unregistered
-  still appear under their derived parent id — the sidebar surfaces them
-  with a 'no story' indicator.
+;; ---- registry snapshot (extracted to state.snapshot, rf2-gcpon) ---------
 
-  Sorted by story id (alphabetic on the keyword name) so the sidebar is
-  stable across re-renders."
-  [id->body]
-  (let [by-story (group-by (comp parent-story-id key) id->body)]
-    (->> by-story
-         (map (fn [[story-id variants]]
-                {:story-id story-id
-                 :variants (vec (sort-by key variants))}))
-         (sort-by (fn [{:keys [story-id]}]
-                    (if story-id (str story-id) "")))
-         vec)))
-
-;; ---- registry snapshot ---------------------------------------------------
-;;
-;; The shell takes a fresh snapshot of the Story registrar on every
-;; render — variants/stories/workspaces/modes/decorators/panels/tags are
-;; what's currently registered, and the sidebar / control panel /
-;; workspace panes consume the snapshot.
-
-(defn registry-snapshot
-  "Return a single map containing every Story-side artefact kind. Used
-  by the shell's render fns to walk the registry without N atom-deref
-  calls (and to support future memoisation if perf becomes an issue)."
-  []
-  {:stories      (registrar/registrations :story)
-   :variants     (registrar/registrations :variant)
-   :workspaces   (registrar/registrations :workspace)
-   :modes        (registrar/registrations :mode)
-   :decorators   (registrar/registrations :decorator)
-   :story-panels (registrar/registrations :story-panel)
-   :tags         (registrar/registrations :tag)})
+(def registry-snapshot
+  "Re-export of `re-frame.story.ui.state.snapshot/registry-snapshot`."
+  state.snapshot/registry-snapshot)
 
 ;; ---- the reactive bag (CLJS-only) ----------------------------------------
 
@@ -501,218 +198,23 @@
   (when config/enabled?
     (apply swap! shell-state-atom f args)))
 
-;; ---- test-runs (rf2-q0irb) ----------------------------------------------
+;; ---- test-runs + watch-mode (extracted to state.tests, rf2-gcpon) -------
 ;;
-;; Cross-variant aggregation surface: each variant's last `run-variant`
-;; outcome is folded into `[:tests :runs]`. The chrome-level test
-;; widget reads it as a summary; the sidebar's per-variant rows read
-;; individual entries as a status dot. Both surfaces are pure
-;; derivations of this one slot.
-;;
-;; The test-mode pane's local `results-atom` (in
-;; `re-frame.story.ui.test-mode.state`) keeps the full result-map
-;; (assertion records + expanded-row UI state); this shell-state slot
-;; carries only the aggregate counts the chrome widget + sidebar dots
-;; need. Two stores, two read paths, no contention — the pane's local
-;; atom drives the detail view, the shell-state slot drives the global
-;; surfaces.
+;; The cross-variant test-run aggregation surface (rf2-q0irb) and the
+;; watch-mode helpers (rf2-z1h0f) live in `re-frame.story.ui.state.tests`
+;; — split out per rf2-gcpon to honor the rf2-zkca8 leaf-size ceiling.
+;; Re-exported here so consumer requires of `re-frame.story.ui.state`
+;; keep working unchanged.
 
-(def test-run-statuses
-  "Canonical run-state ids, in render order.
-
-  - `:pass`     last run: every assertion passed (and at least one assertion).
-  - `:fail`     last run: ≥1 assertion failed.
-  - `:running`  run currently in flight.
-  - `:pending`  no run recorded yet (or run produced zero assertions)."
-  [:pass :fail :running :pending])
-
-(defn mark-test-running
-  "Stamp `variant-id` as :running. Idempotent."
-  [state variant-id]
-  (assoc-in state [:tests :runs variant-id] {:status :running}))
-
-(defn aggregate-summary
-  "Walk `assertions` (the vector pulled off a `run-variant` result map)
-  and produce the aggregated pass/fail/skip counts:
-
-      {:total       <n>
-       :passed      <n>
-       :failed      <n>
-       :skipped     <n>
-       :all-passed? <bool>}
-
-  `:skipped` counts records carrying `:assertion :rf.assert/skipped` —
-  re-frame2's v1 runtime doesn't emit this id, but the slot stays open
-  so spec/004 additions flow through without a pane refactor.
-  `:all-passed?` is true iff `:total > 0 AND :failed = 0 AND :skipped = 0`.
-
-  Lives in `state.cljc` (not `test-mode.pure`) so both the test-mode
-  pane AND the sidebar / chrome-level test widget can call one
-  canonical fold without a require cycle (sidebar can't require
-  test-mode, which would loop back through shell-state). Pure data →
-  data; JVM-testable."
-  [assertions]
-  (let [items     (or assertions [])
-        skipped?  (fn [r] (= :rf.assert/skipped (:assertion r)))
-        skipped   (count (filter skipped? items))
-        active    (remove skipped? items)
-        passed    (count (filter :passed? active))
-        failed    (- (count active) passed)
-        total     (count items)]
-    {:total       total
-     :passed      passed
-     :failed      failed
-     :skipped     skipped
-     :all-passed? (and (pos? total) (zero? failed) (zero? skipped))}))
-
-(defn record-test-run
-  "Write the aggregate of a `run-variant` result into `[:tests :runs]`.
-
-  `summary` is the map returned by `aggregate-summary` —
-  `{:total :passed :failed :skipped :all-passed?}` — extended with
-  optional `:ran-at-ms` and `:elapsed-ms`. A run that recorded zero
-  assertions lands as `:pending` (rather than `:pass`/`:fail`) so the
-  sidebar dot reads grey — the variant ran but produced no signal."
-  [state variant-id summary]
-  (let [{:keys [total passed failed skipped all-passed?
-                ran-at-ms elapsed-ms]} (or summary {})
-        status (cond
-                 (zero? (or total 0)) :pending
-                 all-passed?          :pass
-                 :else                :fail)]
-    (assoc-in state [:tests :runs variant-id]
-              {:status     status
-               :total      (or total 0)
-               :passed     (or passed 0)
-               :failed     (or failed 0)
-               :skipped    (or skipped 0)
-               :ran-at-ms  ran-at-ms
-               :elapsed-ms elapsed-ms})))
-
-(defn clear-test-run
-  "Drop the run record for `variant-id`."
-  [state variant-id]
-  (update-in state [:tests :runs] dissoc variant-id))
-
-(defn variant-test-status
-  "Return the canonical status keyword for `variant-id` (one of
-  `test-run-statuses`). Variants with no recorded run read `:pending`.
-  Pure data → data; JVM-testable."
-  [state variant-id]
-  (or (get-in state [:tests :runs variant-id :status])
-      :pending))
-
-(defn test-summary
-  "Aggregate the chrome-level test widget's headline counts across the
-  given seq of variant-ids — the variants tagged `:test` registered at
-  the time of call. Returns:
-
-      {:total      <count of variant-ids>
-       :passed     <count whose last run was :pass>
-       :failed     <count whose last run was :fail>
-       :running    <count currently in flight>
-       :pending    <count with no recorded run>
-       :all-green? <bool — total > 0 AND failed = 0 AND running = 0
-                          AND pending = 0>}
-
-  Pure data → data; the JVM corpus exercises it against a fixture map
-  without booting Reagent. `all-green?` mirrors `aggregate-summary`'s
-  `:all-passed?` — true only when every variant has a recorded green
-  run; a sea of `:pending` reads as 'not green yet', not 'all green'."
-  [state variant-ids]
-  (let [runs    (get-in state [:tests :runs])
-        ;; Single O(N) frequencies pass — read each variant's status
-        ;; once and bucket by keyword. Missing entries default to :pending.
-        buckets (frequencies
-                  (map (fn [vid] (or (get-in runs [vid :status]) :pending))
-                       variant-ids))
-        total   (count variant-ids)
-        passed  (get buckets :pass    0)
-        failed  (get buckets :fail    0)
-        running (get buckets :running 0)
-        pending (get buckets :pending 0)]
-    {:total      total
-     :passed     passed
-     :failed     failed
-     :running    running
-     :pending    pending
-     :all-green? (and (pos? total)
-                      (zero? failed)
-                      (zero? running)
-                      (zero? pending))}))
-
-(defn testable-variant-ids
-  "Return the seq of variant-ids tagged `:test`, in stable (alphabetical)
-  order. The chrome widget + sidebar dots key off this seq.
-
-  Variants are testable iff (a) their `:tags` contains `:test`, AND
-  (b) they declare a non-empty `:play` slot. The second filter prunes
-  variants tagged `:test` but without any assertions to run — those
-  contribute neither to the headline counts nor to the 'Run all'
-  iteration. Pure data → data; JVM-testable. `id->body` is the
-  `{variant-id → body}` map from `(registrar/registrations :variant)`."
-  [id->body]
-  (->> id->body
-       (filter (fn [[_ body]]
-                 (and (contains? (or (:tags body) #{}) :test)
-                      (seq (or (:play body) [])))))
-       (map first)
-       sort
-       vec))
-
-;; ---- watch mode (rf2-z1h0f) ---------------------------------------------
-;;
-;; Storybook 9 ships a Vitest-addon watch-mode toggle (eye icon) that
-;; re-runs the changed stories on file save. Story's parity surface is
-;; this: an opt-in toggle on the chrome-level test widget that
-;; subscribes to per-variant snapshot-identity drift and re-fires
-;; `run-variant` for the variants whose identity changed. The detection
-;; signal is the variant's snapshot-identity content-hash
-;; (re-frame.story.identity/snapshot-identity); a delta against the
-;; recorded [:tests :content-hashes] slot triggers the re-run.
-
-(defn set-test-watch-mode
-  "Toggle/set the chrome-level watch-mode flag. When `on?` is true the
-  shell auto-re-runs testable variants whose snapshot identity drifts;
-  when false the toggle is off and the recorded hashes are cleared (the
-  next toggle-on seeds them fresh from the current registry). Pure data
-  → data; JVM-testable."
-  [state on?]
-  (if on?
-    (assoc-in state [:tests :watch-mode?] true)
-    (update state :tests assoc
-            :watch-mode?    false
-            :content-hashes {})))
-
-(defn test-watch-mode?
-  "Return `true` iff watch mode is currently on. Pure."
-  [state]
-  (boolean (get-in state [:tests :watch-mode?])))
-
-(defn record-test-content-hashes
-  "Stamp the current snapshot-identity content hashes for every testable
-  variant. `id->hash` is `{variant-id → hex-string}`. The detector
-  reads this slot on the next tick to decide which variants drifted."
-  [state id->hash]
-  (assoc-in state [:tests :content-hashes] (or id->hash {})))
-
-(defn watch-mode-drift
-  "Pure data → data: given the previous `[:tests :content-hashes]` map and a
-  freshly-computed `current` `{variant-id → hex}` map, return the
-  ordered vector of variant-ids whose hash differs from `prev` (i.e.
-  the variants the watch-mode detector should re-run on this tick).
-
-  Variants present in `current` but absent from `prev` are treated as
-  drifted — the seed call to `record-test-content-hashes` happens on
-  toggle-on so a missing prev entry signals a fresh registration that
-  the user wants exercised. Variants present in `prev` but absent from
-  `current` (deregistered) are silently dropped — there's nothing to
-  re-run. JVM-testable."
-  [prev current]
-  (let [prev    (or prev {})
-        current (or current {})]
-    (->> current
-         (filter (fn [[vid hex]] (not= hex (get prev vid))))
-         (map first)
-         sort
-         vec)))
+(def test-run-statuses           state.tests/test-run-statuses)
+(def mark-test-running           state.tests/mark-test-running)
+(def aggregate-summary           state.tests/aggregate-summary)
+(def record-test-run             state.tests/record-test-run)
+(def clear-test-run              state.tests/clear-test-run)
+(def variant-test-status         state.tests/variant-test-status)
+(def test-summary                state.tests/test-summary)
+(def testable-variant-ids        state.tests/testable-variant-ids)
+(def set-test-watch-mode         state.tests/set-test-watch-mode)
+(def test-watch-mode?            state.tests/test-watch-mode?)
+(def record-test-content-hashes  state.tests/record-test-content-hashes)
+(def watch-mode-drift            state.tests/watch-mode-drift)
