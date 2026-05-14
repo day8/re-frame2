@@ -843,6 +843,36 @@
             "X-Audit append-header reached the wire (multi-valued)")))))
 
 ;; ===========================================================================
+;; rf2-depii — ensure-content-type case-insensitive normalisation
+;;
+;; The helper documents itself as case-insensitive but the prior check
+;; only matched "content-type" / "Content-Type", so any other casing
+;; (CONTENT-TYPE, CoNtEnT-TyPe) would duplicate the header. RFC 7230 §3.2
+;; — header names are tokens; tokens are case-insensitive.
+;; ===========================================================================
+
+(deftest ensure-content-type-no-duplicate-on-mixed-case
+  (testing "rf2-depii: a preexisting Content-Type pair in ANY casing
+            short-circuits ensure-content-type — no duplicate appended"
+    (let [headers-ns (requiring-resolve 're-frame.ssr.ring.headers/ensure-content-type)]
+      (doseq [casing ["content-type"
+                      "Content-Type"
+                      "CONTENT-TYPE"
+                      "CoNtEnT-TyPe"
+                      "content-Type"]]
+        (let [pairs   [[casing "application/json"]]
+              result  (headers-ns pairs "text/html; charset=utf-8")]
+          (is (= pairs result)
+              (str "casing " (pr-str casing)
+                   " short-circuits — pairs returned unchanged, no duplicate"))
+          (is (= 1 (count (filter
+                            (fn [[k _v]]
+                              (= "content-type" (str/lower-case (str k))))
+                            result)))
+              (str "casing " (pr-str casing)
+                   " — exactly one content-type pair after ensure-content-type")))))))
+
+;; ===========================================================================
 ;; rf2-7ksyr — hydration payload </script> injection (security audit §P1)
 ;;
 ;; A user-controlled string round-tripping through app-db that contains
