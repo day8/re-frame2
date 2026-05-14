@@ -52,7 +52,7 @@ When the cascade hits the ceiling, the runtime does **three** things, in order:
 2. **Restore frame-local registrations** that the cascade made. A handler that ran `(rf/dispatch [:rf.machine/spawn ...])` inside the cascade — which registered a frame-local handler at the spawned actor's `[:rf/machines <id>]` slot — has that registration reverted along with the `app-db` rollback. Otherwise an aborted drain would leave orphaned handlers attached to a frame at a value that never references them.
 3. **Surface the failure.** `:rf.error/drain-depth-exceeded` is emitted with `:tags {:depth :queue-size :last-event :rollback? true}` and routed through your frame's `:on-error` policy.
 
-The remaining queued events — the ones the cascade hadn't yet reached when the ceiling tripped — are discarded. The epoch buffer ([chapter 15](../15-devtools-and-pair-tools.md)) records nothing for the failed drain. The frame is at the last settled state, which is always reachable by replay.
+The remaining queued events — the ones the cascade hadn't yet reached when the ceiling tripped — are discarded. The epoch buffer ([chapter 15](../../causa/)) records nothing for the failed drain. The frame is at the last settled state, which is always reachable by replay.
 
 This is the "events are atomic" principle scaled up to the cascade boundary. A handler is atomic with respect to its own side effects ([ch.04](../04-events-state-cycle.md)); a *cascade* is atomic with respect to depth-exceeded aborts. If you've thought about events as "either all the effects happen or none of them do," the same model now applies to cascades: either the whole cascade settles or it's rolled back.
 
@@ -92,7 +92,7 @@ Default `:drain-depth 100` is right for almost every frame. Cases for tuning:
 
 - **Don't bump in production unless you've audited why your cascade is long.** A production frame routinely hitting 50+ depth is a code smell — usually a state machine ping-ponging, or an unintended self-dispatch. Bumping the ceiling masks the design issue; fixing the dispatch loop is the right move.
 
-If you're not sure what depth your cascades typically reach, the trace surface tells you: every successful drain records its depth as part of the per-cascade trace ([ch.15](../15-devtools-and-pair-tools.md)). Check the trace for your typical user actions; pick a ceiling at 5x the observed maximum.
+If you're not sure what depth your cascades typically reach, the trace surface tells you: every successful drain records its depth as part of the per-cascade trace ([ch.15](../../causa/)). Check the trace for your typical user actions; pick a ceiling at 5x the observed maximum.
 
 ## A note on `:always`-depth and `:raise`-depth
 
@@ -102,7 +102,7 @@ Inside a state machine, `:always` (eventless transitions) and `:raise` (action-s
 
 - [Chapter 06a — Frames](../06a-frames.md) — `:drain-depth` as a frame-metadata key.
 - [Chapter 14 — Errors](../14-errors.md) — the full `:on-error` story.
-- [Chapter 15 — Tooling](../15-devtools-and-pair-tools.md) — the trace surface that lets you observe drain depth in legitimate cascades.
+- [Chapter 15 — Tooling](../../causa/) — the trace surface that lets you observe drain depth in legitimate cascades.
 - [Spec 002 — Frames §Drain loop](../../../spec/002-Frames.md) — the normative description of the depth-limited drain and the atomic rollback.
 - [Security.md §DoS by input](../../../spec/Security.md#dos-by-input) — drain-depth as one of the bounded-resource defenses.
 - [§06 — Machine substrate features](06-state-machine-substrate-features.md) — `:always`-depth and `:raise`-depth.

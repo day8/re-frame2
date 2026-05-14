@@ -18,7 +18,7 @@ There are four. Each is a plain-data setting that applies to the framework runti
 (rf/configure :epoch-history {:depth 0})         ;; disable
 ```
 
-Every dispatched event's full cascade is recorded as an *epoch record* — `:db-before`, `:db-after`, `:sub-runs`, `:renders`, `:effects`, `:trace-events` — and stored in a ring buffer. That buffer is what powers [chapter 15](../15-devtools-and-pair-tools.md)'s time-travel debugging, `restore-epoch`, `reset-frame-db!`, and the Tool-Pair surface.
+Every dispatched event's full cascade is recorded as an *epoch record* — `:db-before`, `:db-after`, `:sub-runs`, `:renders`, `:effects`, `:trace-events` — and stored in a ring buffer. That buffer is what powers [chapter 15](../../causa/)'s time-travel debugging, `restore-epoch`, `reset-frame-db!`, and the Tool-Pair surface.
 
 50 epochs is enough for a typical debug session (you almost never want to rewind further than 50 user actions). 200 is reasonable for long-running stress tests. 0 disables history entirely — useful in SSR production where you have no replayer attached and the per-cascade allocation is wasted work.
 
@@ -117,6 +117,6 @@ The third bucket is per-frame metadata. Anything whose lifetime is "as long as t
 - [API.md §Configure keys](../../../spec/API.md#configure-keys) — the normative key table.
 - [Conventions §Configuration surfaces](../../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) — the three-bucket model.
 - [Chapter 06a — Frames](../06a-frames.md) — the per-frame metadata grammar.
-- [Chapter 15 — Tooling](../15-devtools-and-pair-tools.md) — the consumers of `:epoch-history` and `:trace-buffer`.
+- [Chapter 15 — Tooling](../../causa/) — the consumers of `:epoch-history` and `:trace-buffer`.
 - [Chapter 19 — Adapters](../19-adapters.md) — `install-adapter!`, `dispose-adapter!`, and friends.
 - [Chapter 23b — Large blobs](../23b-large-blobs.md) — the consumer of `:elision`.

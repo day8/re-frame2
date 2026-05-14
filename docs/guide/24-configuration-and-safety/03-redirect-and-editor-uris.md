@@ -49,7 +49,7 @@ See [Security.md §CRLF injection at HTTP-response boundaries](../../../spec/Sec
 
 ## Editor URI templates — the scheme allowlist
 
-This one's about the dev-tools surface, not user-facing HTTP. When [chapter 15](../15-devtools-and-pair-tools.md)'s click-to-source affordance opens your editor at a file:line, it builds a URI string and hands it to the browser:
+This one's about the dev-tools surface, not user-facing HTTP. When [chapter 15](../../causa/)'s click-to-source affordance opens your editor at a file:line, it builds a URI string and hands it to the browser:
 
 ```
 vscode://file/path/to/foo.cljs:42:7
@@ -112,6 +112,6 @@ What you *do* have to handle is the allowlist of return URLs — the framework c
 
 - [§02 — HTTP safety primitives](02-http-safety.md) — the broader CRLF fail-fast story; `:rf.server/redirect` inherits its CRLF check from there.
 - [Chapter 11 — The server side](../11-server-side.md) — `:rf.server/*` fx narrative.
-- [Chapter 15 — Tooling](../15-devtools-and-pair-tools.md) — where click-to-source surfaces live (Story, Causa, pair2-mcp).
+- [Chapter 15 — Tooling](../../causa/) — where click-to-source surfaces live (Story, Causa, pair2-mcp).
 - [Security.md §Editor URI scheme allowlist](../../../spec/Security.md) — the normative description (and the rf2-vwcsq + rf2-cm93v decisions).
 - [Security.md §CRLF injection at HTTP-response boundaries](../../../spec/Security.md#crlf-injection-at-http-response-boundaries) — the redirect's CRLF check site.
