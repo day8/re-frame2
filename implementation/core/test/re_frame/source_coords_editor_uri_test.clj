@@ -124,3 +124,74 @@
     (is (contains? eu/known-editors :idea))
     ;; :custom is a map-shape, not a member of the keyword set.
     (is (not (contains? eu/known-editors :custom)))))
+
+;; ---- forbidden schemes (rf2-vwcsq) --------------------------------------
+
+(deftest custom-rejects-javascript-scheme
+  (testing "{:custom javascript:...} returns nil (in-tab script execution gate)"
+    (is (nil? (eu/editor-uri
+                {:custom "javascript:alert('xss')"}
+                sample-coord)))
+    (is (nil? (eu/editor-uri
+                {:custom "javascript:fetch('/exfil',{method:'POST',body:document.cookie})"}
+                sample-coord)))))
+
+(deftest custom-rejects-data-scheme
+  (testing "{:custom data:...} returns nil"
+    (is (nil? (eu/editor-uri
+                {:custom "data:text/html,<script>alert(1)</script>"}
+                sample-coord)))
+    (is (nil? (eu/editor-uri
+                {:custom "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="}
+                sample-coord)))))
+
+(deftest custom-rejects-vbscript-scheme
+  (testing "{:custom vbscript:...} returns nil"
+    (is (nil? (eu/editor-uri
+                {:custom "vbscript:msgbox(\"xss\")"}
+                sample-coord)))))
+
+(deftest forbidden-schemes-case-insensitive
+  (testing "scheme detection is case-insensitive"
+    (is (nil? (eu/editor-uri {:custom "JavaScript:alert(1)"}    sample-coord)))
+    (is (nil? (eu/editor-uri {:custom "JAVASCRIPT:alert(1)"}    sample-coord)))
+    (is (nil? (eu/editor-uri {:custom "Data:text/html,xxx"}     sample-coord)))
+    (is (nil? (eu/editor-uri {:custom "DATA:text/html,xxx"}     sample-coord)))
+    (is (nil? (eu/editor-uri {:custom "VBScript:msgbox(1)"}     sample-coord)))
+    (is (nil? (eu/editor-uri {:custom "VBSCRIPT:msgbox(1)"}     sample-coord)))))
+
+(deftest forbidden-schemes-tolerate-leading-whitespace
+  (testing "leading whitespace doesn't disguise a forbidden scheme"
+    (is (nil? (eu/editor-uri {:custom " javascript:alert(1)"}   sample-coord)))
+    (is (nil? (eu/editor-uri {:custom "\tdata:text/html,xxx"}   sample-coord)))
+    (is (nil? (eu/editor-uri {:custom "  vbscript:msgbox(1)"}   sample-coord)))))
+
+(deftest legitimate-custom-schemes-still-pass
+  (testing "ordinary custom editor schemes round-trip cleanly"
+    (is (some? (eu/editor-uri {:custom "jetbrains://idea/{path}:{line}"}      sample-coord)))
+    (is (some? (eu/editor-uri {:custom "subl://open?path={path}&line={line}"} sample-coord)))
+    (is (some? (eu/editor-uri {:custom "emacsclient://open?file={path}"}      sample-coord)))
+    (is (some? (eu/editor-uri {:custom "org-protocol://capture?path={path}"}  sample-coord)))
+    (is (some? (eu/editor-uri {:custom "vscode-insiders://file/{path}:{line}"} sample-coord)))
+    (is (some? (eu/editor-uri {:custom "file://{path}"}                       sample-coord)))))
+
+(deftest builtin-schemes-cannot-trip-the-gate
+  (testing "the built-in scheme builders never produce a forbidden scheme"
+    (doseq [editor [nil :vscode :cursor :windsurf :zed :idea]]
+      (let [uri (eu/editor-uri editor sample-coord)]
+        (is (string? uri))
+        (is (not (#'eu/forbidden-scheme? uri))
+            (str editor " produced a URI that trips the forbidden-scheme gate: "
+                 uri))))))
+
+(deftest forbidden-scheme-substring-is-not-rejected
+  (testing "the gate matches the LEADING scheme only — substrings elsewhere are fine"
+    ;; A path that contains "javascript:" deep inside is not the scheme.
+    (is (some? (eu/editor-uri
+                 :custom-fallback ; unknown -> vscode default
+                 {:file "src/has-javascript:keyword.cljs" :line 1 :column 1})))
+    ;; Custom template whose substitution lands "javascript:" mid-URI but
+    ;; not at the start.
+    (is (some? (eu/editor-uri
+                 {:custom "myeditor://open?file={path}"}
+                 {:file "javascript:not-a-scheme.cljs" :line 1 :column 1})))))

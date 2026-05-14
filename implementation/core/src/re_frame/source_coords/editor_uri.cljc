@@ -89,6 +89,47 @@
   not a member — `editor-uri` matches it via map-shape detection."
   #{:vscode :cursor :windsurf :zed :idea})
 
+;; ---- forbidden schemes (rf2-vwcsq) ---------------------------------------
+;;
+;; Per rf2-vwcsq (pragmatic stance, 2026-05-14): the `{:custom ...}` editor
+;; template surface stays — devs legitimately point it at JetBrains URI
+;; handlers, sublime, org-tooling deep-links, etc. The minimum gate is a
+;; reject-list for the three schemes that turn a "launch the editor"
+;; affordance into in-tab script execution via `set! window.location`:
+;;
+;;   - `javascript:` — runs arbitrary JS in the current origin
+;;   - `data:`       — can serve HTML/script that the browser renders inline
+;;   - `vbscript:`   — legacy IE script scheme (still honoured in some
+;;                     embedded WebView2 / Edge-compat surfaces)
+;;
+;; The built-in scheme builders (vscode/cursor/windsurf/zed/idea) cannot
+;; emit any of these — the reject only ever fires on `{:custom <template>}`.
+;; Detection is leading-token-only and case-insensitive so a template
+;; whose scheme casing has been munged (`JavaScript:`, `DATA:`, leading
+;; whitespace) still trips the gate. A rejected URI causes `editor-uri`
+;; to return `nil`; the UI layer's existing `(when uri ...)` wrapper then
+;; hides the chip rather than rendering a no-op link.
+
+(def ^:const forbidden-uri-schemes
+  "Leading URI schemes the launcher refuses. Matched case-insensitively
+  against the URI's leading token (everything up to and including the
+  first `:`). Per rf2-vwcsq."
+  #{"javascript:" "data:" "vbscript:"})
+
+(defn- forbidden-scheme?
+  "Predicate — true iff `uri` carries one of `forbidden-uri-schemes` as
+  its leading scheme. Tolerates leading whitespace and arbitrary scheme
+  casing. Pure data → boolean.
+
+  Per rf2-vwcsq: gates the `:custom` template surface against the three
+  schemes that would turn the editor-launch affordance into in-tab
+  script execution."
+  [uri]
+  (when (string? uri)
+    (let [trimmed (str/triml uri)
+          lower   (str/lower-case trimmed)]
+      (boolean (some #(str/starts-with? lower %) forbidden-uri-schemes)))))
+
 (def ^:private default-editor
   "Default editor when no `:editor` config key is set. VS Code is the
   most-installed editor in 2026 (Stack Overflow Developer Survey 2025
@@ -197,33 +238,41 @@
   editor handlers expect raw paths; URL-encoding `/` to `%2F` confuses
   the file resolver in every editor tested. Spaces in paths are the one
   edge case (rare in a Clojure project; absent from re-frame2 + its
-  examples)."
+  examples).
+
+  Per rf2-vwcsq: returns `nil` when a `{:custom <template>}` resolves to
+  a URI whose leading scheme is `javascript:`, `data:`, or `vbscript:` —
+  the three schemes that turn `window.location =` into in-tab script
+  execution. The built-in scheme builders cannot produce any of these,
+  so the gate only ever fires on the `:custom` surface."
   [editor source-coord]
   (when-let [path (coord-file source-coord)]
     (let [line   (coord-line source-coord)
-          column (coord-column source-coord)]
-      (cond
-        ;; Custom template: `{:custom "<uri-template>"}`. Validate the
-        ;; template is a string; anything else falls through to the
-        ;; default editor.
-        (and (map? editor) (string? (:custom editor)))
-        (substitute-template (:custom editor) path line column)
+          column (coord-column source-coord)
+          uri    (cond
+                   ;; Custom template: `{:custom "<uri-template>"}`. Validate the
+                   ;; template is a string; anything else falls through to the
+                   ;; default editor.
+                   (and (map? editor) (string? (:custom editor)))
+                   (substitute-template (:custom editor) path line column)
 
-        (= :cursor editor)
-        (cursor-uri path line column)
+                   (= :cursor editor)
+                   (cursor-uri path line column)
 
-        (= :windsurf editor)
-        (windsurf-uri path line column)
+                   (= :windsurf editor)
+                   (windsurf-uri path line column)
 
-        (= :zed editor)
-        (zed-uri path line column)
+                   (= :zed editor)
+                   (zed-uri path line column)
 
-        (= :idea editor)
-        (idea-uri path line column)
+                   (= :idea editor)
+                   (idea-uri path line column)
 
-        ;; :vscode is the default; any unknown keyword also lands here.
-        :else
-        (vscode-uri path line column)))))
+                   ;; :vscode is the default; any unknown keyword also lands here.
+                   :else
+                   (vscode-uri path line column))]
+      (when-not (forbidden-scheme? uri)
+        uri))))
 
 (defn open-button-title
   "Build the `title` attribute string an 'Open' button should carry.

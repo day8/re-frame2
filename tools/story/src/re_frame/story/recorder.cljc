@@ -34,6 +34,36 @@
   - The listener consults `recording?` per emit — toggling off STOPS
     recording without tearing down anything else.
 
+  ## `:sensitive?` events — record-but-redact (rf2-hdadz)
+
+  Per rf2-hdadz (pragmatic stance, 2026-05-14): events flagged
+  `:sensitive? true` are STILL captured into the `:play` body, but the
+  event payload is replaced with the framework's `:rf/redacted`
+  sentinel so the credential / PII / auth-token doesn't ride into the
+  snippet text. Mirrors rf2-vnjfg's enforcement on the always-on
+  error-emit path — record-but-redact, don't refuse-to-record. Two
+  reasons:
+
+  1. **Correlation matters.** Dropping the row entirely loses the
+     temporal ordering of dispatches; a recording that goes `:click`
+     → `<dropped>` → `:click` is harder to read than `:click` →
+     `[:rf/redacted]` → `:click`.
+  2. **Re-play stays well-formed.** A `:play` body of `[<vec> ... <vec>]`
+     stays a vector-of-vectors; round-trip through `read-string` and
+     re-dispatch find a `[:rf/redacted]` event vector rather than a bare
+     sentinel keyword (no handler registered for `:rf/redacted`, so the
+     re-play raises a clean dispatch error rather than a malformed
+     event-vector error).
+
+  The `[:rf/redacted]` placeholder still bumps the suppressed-events
+  counter (`config/note-suppressed!`) so the UI's redaction-indicator
+  hint stays accurate — the user sees an N-redacted-rows hint
+  alongside the placeholders themselves. Hosts that want the
+  unscrubbed payload in the recording (their own machine, dev loop)
+  flip `:trace/show-sensitive?` true via `story/configure!`; with
+  that flag set the listener captures the verbatim event vector
+  (existing behaviour, unchanged).
+
   ## Pure / impure split
 
   This namespace is `.cljc` so the snippet-generation logic and the
@@ -113,6 +143,19 @@
        (let [id (first event)]
          (and (keyword? id)
               (not (internal-namespace? (namespace id)))))))
+
+(def ^:const redacted-event
+  "The placeholder event vector the recorder appends in place of a
+  `:sensitive? true` event when the show-sensitive? flag is false
+  (default). Per rf2-hdadz: record-but-redact preserves the row's
+  temporal position in the captured `:play` body without leaking the
+  credential / PII / auth-token. The single-element vector keeps the
+  `:play` shape (vector-of-event-vectors) intact so the snippet
+  round-trips through `read-string` cleanly; re-play sees a well-
+  formed event vector whose id (`:rf/redacted`, the framework sentinel
+  from `re-frame.privacy`) has no registered handler — the resulting
+  dispatch error is clean rather than a malformed-event-vector error."
+  [:rf/redacted])
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: code-gen — `(reg-variant ... :play [...])` snippet
@@ -481,27 +524,50 @@
   "Trace-bus callback. Routes a single trace event through the
   recorder's filter chain:
 
-    1. Must NOT be a `:sensitive? true` event (per Spec 009 §Privacy
-       + rf2-bclgj — Story is a framework-published trace consumer
-       that default-suppresses sensitive events; otherwise the
-       recorder would capture an event vector that the surrounding
-       cascade is trying to keep out of off-box egress).
-    2. Must be a `:event/dispatched` emission.
-    3. Must target the recorder's `:variant-id` (skip cross-frame
+    1. Must be a `:event/dispatched` emission.
+    2. Must target the recorder's `:variant-id` (skip cross-frame
        traffic — interactions in another canvas shouldn't show up).
-    4. Must carry an event vector on `:tags :event`.
+    3. Must carry an event vector on `:tags :event`.
+
+  Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED per
+  rf2-hdadz: the placeholder `redacted-event` vector replaces the
+  event payload so the credential / PII / auth-token doesn't ride into
+  the captured `:play` body, while the row's temporal position is
+  preserved for correlation. The suppressed-events counter is still
+  bumped (Spec 009 §Privacy + rf2-bclgj — Story is a framework-
+  published trace consumer that default-suppresses sensitive events)
+  so the UI's redaction-indicator hint stays accurate.
+
+  Hosts that explicitly opted in via `:trace/show-sensitive? true`
+  (via `story/configure!`) get the verbatim event vector — existing
+  in-box debug behaviour, unchanged.
 
   `record-event!` applies the `recordable-event?` filter (assertion
-  events, internal helpers) before appending."
+  events, internal helpers) before appending; the redact path also
+  goes through `record-event!` so the same filter applies (a sensitive
+  `:rf.assert/*` event still gets dropped, not redacted-and-recorded,
+  because assertions are an authored not observed surface).
+
+  Per rf2-hdadz cross-reference: this mirrors the always-on error
+  path's enforcement in rf2-vnjfg — sensitive events are not warning-
+  only at this consumer."
   [ev]
   (when (recording?)
-    (if (config/suppress-sensitive? ev)
-      (config/note-suppressed! (get-in ev [:tags :frame]))
-      (let [{:keys [op-type operation tags]} ev]
-        (when (and (= op-type :event)
-                   (= operation :event/dispatched)
-                   (= (:frame tags) (recording-variant))
-                   (vector? (:event tags)))
+    (let [{:keys [op-type operation tags]} ev]
+      (when (and (= op-type :event)
+                 (= operation :event/dispatched)
+                 (= (:frame tags) (recording-variant))
+                 (vector? (:event tags)))
+        (if (config/suppress-sensitive? ev)
+          (do
+            ;; Record-but-redact (rf2-hdadz): append the redacted
+            ;; placeholder so the row's position survives, and bump the
+            ;; suppressed-events counter so the UI's REDACTED hint
+            ;; reflects the count of placeholder rows. The placeholder
+            ;; carries the `:rf/redacted` framework sentinel as its
+            ;; event id; no payload survives.
+            (config/note-suppressed! (:frame tags))
+            (record-event! redacted-event))
           (record-event! (:event tags)))))))
 
 (defn install-trace-listener!

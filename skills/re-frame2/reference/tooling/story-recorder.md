@@ -38,6 +38,25 @@ The trace-bus callback short-circuits unless a recording is in flight, so it's f
 2. **Frame scope** — emission `:frame` must match the recording's target variant. Typing in another canvas while a recording is active is dropped.
 3. **Event vocabulary** — `:rf.assert/*` events and Story-internal helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Recorded `:play` bodies capture user intent; assertions get added by hand afterwards.
 
+## Sensitive events — record-but-redact
+
+A handler registered `:sensitive? true` (an auth flow, a 2FA verify, a password change) still appears in the recording, but as the placeholder vector `[:rf/redacted]` rather than the verbatim event payload. Per rf2-hdadz (pragmatic stance, 2026-05-14): the row's temporal position survives so the dev can see "click → auth happened → click", but the credential / PII / auth-token never rides into the snippet text.
+
+```clojure
+;; A recording that includes a sensitive dispatch lands like this:
+[[:counter/inc]
+ [:rf/redacted]                ;; placeholder for an :auth/login dispatch
+ [:counter/inc]]
+```
+
+Properties:
+
+- **Round-trips cleanly.** `[:rf/redacted]` is a well-formed event vector; `read-string` survives. Re-playing the snippet finds no handler for `:rf/redacted`, so dispatch raises a clean `:rf.error/handler-not-found` rather than a malformed-event-vector error — the dev sees they need to replace the placeholder before re-play works.
+- **The redaction counter still bumps.** The recording overlay's REDACTED indicator shows "N rows redacted" alongside the placeholders themselves, so the dev knows how many slots are pasteholders even before scrolling.
+- **`:trace/show-sensitive? true` keeps the verbatim event.** In-box debug only; never enable for snippets that ride into source control. Set via `(story/configure! :trace/show-sensitive? true)` early in dev boot.
+
+Authoring rule: do NOT publish a `:play` body containing `[:rf/redacted]` slots into committed source — they're recordings of credential flows, not reproducible tests. Either hand-author the equivalent dispatch with a synthetic credential, or scope the recording away from the sensitive step.
+
 ## Worked example — recorded `:play` body
 
 The author starts with a `happy-path` variant. They want a new variant that exercises three increments and a `:by 7`. They click `REC` in the toolbar (right of the strip, just before `[reset]`), drive the canvas, click `REC` again. The save-as-variant modal shows the generated form:

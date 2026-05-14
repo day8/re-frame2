@@ -250,17 +250,34 @@
 ;; Recorder listener — sensitive events skipped
 ;; ---------------------------------------------------------------------------
 
-(deftest recorder-listener-suppresses-sensitive-dispatches
-  (testing "by default the recorder drops :sensitive? events from the capture"
+(deftest recorder-listener-redacts-sensitive-dispatches
+  (testing "by default the recorder records-but-redacts :sensitive? events (rf2-hdadz)"
     (recorder/clear!)
     (recorder/start-recording! :story.recorder/sens 0)
     (let [listen @#'recorder/trace-listener
           ev     (sensitive-dispatch-event :story.recorder/sens
                                            [:auth/login {:password "x"}])]
       (listen ev)
-      (is (= [] (recorder/recorded-events))
-          "the recorder's captured-events vector stays empty")
-      (is (pos? (config/suppressed-count :story.recorder/sens))))
+      (is (= [[:rf/redacted]] (recorder/recorded-events))
+          "the redacted placeholder lands in the captured trace — preserves correlation, drops payload")
+      (is (pos? (config/suppressed-count :story.recorder/sens))
+          "the suppressed-events counter still bumps so the UI redaction hint stays accurate"))
+    (recorder/clear!)))
+
+(deftest recorder-listener-preserves-temporal-ordering-around-redacted
+  (testing "redacted placeholder sits inline between non-sensitive captures"
+    (recorder/clear!)
+    (recorder/start-recording! :story.recorder/sens 0)
+    (let [listen @#'recorder/trace-listener]
+      (listen (plain-dispatch-event     :story.recorder/sens [:counter/inc]))
+      (listen (sensitive-dispatch-event :story.recorder/sens
+                                        [:auth/login {:password "x"}]))
+      (listen (plain-dispatch-event     :story.recorder/sens [:counter/inc])))
+    (is (= [[:counter/inc] [:rf/redacted] [:counter/inc]]
+           (recorder/recorded-events))
+        "the redacted slot preserves the row position so dev correlation survives")
+    (is (= 1 (config/suppressed-count :story.recorder/sens))
+        "one redaction, one counter bump")
     (recorder/clear!)))
 
 (deftest recorder-listener-captures-sensitive-when-opted-in

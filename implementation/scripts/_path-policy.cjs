@@ -1,5 +1,5 @@
 /*
- * Shared path-policy helper (rf2-o38lb).
+ * Shared path-policy helper (rf2-o38lb, policy-confirmed by rf2-21rfv).
  *
  * The implementation root carries several scripts that accept env-var
  * overrides for filesystem paths they then read or write:
@@ -10,10 +10,13 @@
  *     `STORY_BUILD_INDEX_HTML`, then writes `${OUTPUT_DIR}/index.html`
  *     and `${OUTPUT_DIR}/manifest.json`.
  *
- * In ordinary local use these env vars are trusted, but in CI or any
- * wrapper that inherits environment state from a less-trusted parent,
- * an attacker-controlled env var becomes an arbitrary file-write
- * primitive outside the repo / worktree.
+ * Per rf2-21rfv (pragmatic stance, 2026-05-14): these env vars are
+ * **CI-internal knobs**, not a stable public configuration surface.
+ * re-frame2 reserves the right to rename / drop them between releases.
+ * The path-policy check below is a safety net against accidents — a
+ * mistyped path or unset env var that would otherwise turn a normal
+ * build run into a `rm -rf` outside the repo — not a hardened sandbox.
+ * The devs running these scripts already control the process.
  *
  * Policy:
  *
@@ -23,7 +26,9 @@
  *     `<repo>/implementation` (per-feature index.html templates).
  *   - Out-of-tree paths require explicit opt-in via the environment
  *     variable `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1`. The flag is
- *     intentionally noisy to discourage accidental enablement.
+ *     intentionally noisy to discourage accidental enablement;
+ *     downstream consumers publishing into a sibling staging area
+ *     (docs-site preview, etc.) set it explicitly.
  *
  * `enforcePolicy(label, candidate, opts)` returns the absolute,
  * normalised path if approved; throws (with a clear, actionable
