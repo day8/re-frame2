@@ -16,7 +16,7 @@
     - `(rf/dispatch-sync [...])` runs handlers normally yet
       `trace/emit!` becomes a no-op (its body sits inside the gate);
       hence the callback never fires.
-    - `(rf/emit-trace! ...)` is not a public surface — but
+    - `(rf/emit-trace-event! ...)` is not a public surface — but
       `re-frame.trace/emit!` IS. Calling it directly under prod-mode
       must also be a no-op.
 

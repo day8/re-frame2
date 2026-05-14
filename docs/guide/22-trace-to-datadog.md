@@ -167,7 +167,7 @@ The full recipe:
     (if-let [reply (:rf/reply msg)]
       (case (:kind reply)
         :success {}
-        :failure {:fx [[:rf.fx/emit-trace!
+        :failure {:fx [[:rf.fx/emit-trace-event!
                        [:warning :my-app.observability/datadog-send-failed
                         {:failure (:failure reply)}]]]})
       {:fx [[:rf.http/managed

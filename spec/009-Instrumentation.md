@@ -335,7 +335,7 @@ Why this is a framework primitive (not a Causa-specific concern): pair-shaped to
 
 ## Emitting trace events
 
-The framework emits trace events through one entry point: `re-frame.trace/emit!`. User code may also call it (re-exported as `rf/emit-trace!`) to add custom events to the stream.
+The framework emits trace events through one entry point: `re-frame.trace/emit!`. User code may also call it (re-exported as `rf/emit-trace-event!`) to add custom events to the stream.
 
 ```clojure
 (re-frame.trace/emit! op-type operation tags)
@@ -398,7 +398,7 @@ The framework emits trace events from these call sites:
 - `std_interceptors.cljc` — `:rf.error/unwrap-bad-event-shape`.
 - `http_managed.cljc` + `http_encoding.cljc` (the HTTP artefact ships eight `http_*.cljc` files; emits cited here come from `http_managed.cljc` unless noted) — `:warning :rf.http/cljs-only-key-ignored-on-jvm`, `:warning :rf.warning/decode-defaulted` (emitted from `http_encoding.cljc`), `:info :rf.http/retry-attempt`, `:info :rf.http/aborted-on-actor-destroy` (per [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy), rf2-wvkn), `:info :rf.http.interceptor/registered`, `:info :rf.http.interceptor/cleared`, `:error :rf.error/http-interceptor-failed` (request-side interceptor `:before` threw, per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q), plus the Spec 014 failure categories.
 
-User code can also emit traces — `re-frame.trace/emit!` is public and re-exported as `rf/emit-trace!`.
+User code can also emit traces — `re-frame.trace/emit!` is public and re-exported as `rf/emit-trace-event!`.
 
 ## Production builds: zero overhead, zero code
 
@@ -501,7 +501,7 @@ The motivating concern is the audit finding (rf2-vnjfg / rf2-0la4f): an SSR / he
 
 The contract above is enforced by an automated test in CI:
 
-1. `implementation/core/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-trace-cb!`, `emit-trace!`, the trace ring buffer (`trace-buffer` / `clear-trace-buffer!` / `(configure :trace-buffer …)`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-cb!` / `epoch-history` / `restore-epoch` / `(configure :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
+1. `implementation/core/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-trace-cb!`, `emit-trace-event!`, the trace ring buffer (`trace-buffer` / `clear-trace-buffer!` / `(configure :trace-buffer …)`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-cb!` / `epoch-history` / `restore-epoch` / `(configure :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
 2. `implementation/shadow-cljs.edn` declares two `:advanced` builds with `re-frame.elision-probe/run` as the entry point:
    - `:elision-probe` — `:closure-defines {goog.DEBUG false}` (production)
    - `:elision-probe-control` — `:closure-defines {goog.DEBUG true}` (control)
