@@ -1142,6 +1142,40 @@ unknown strategies as :preserve (no-op)."}
 (subs/reg-sub :rf.route/error
   {:doc "Subscribe to the current route's `:error` (nil when no error). Per Spec 012."}
   :<- [:rf/route] (fn [route _] (:error route)))
+(subs/reg-sub :rf.route/fragment
+  {:doc "Subscribe to the current route's URL `#fragment` (string or nil). Per Spec 012 §Fragments."}
+  :<- [:rf/route] (fn [route _] (:fragment route)))
+
+(defn- chain-from-meta
+  "Walk the `:parent` chain from `id` to the root, returning a vector
+  [parent-most ... id]. Routes without a `:parent` produce a single-
+  element chain. Cycles are guarded by a `seen` set; a route id whose
+  `:parent` ultimately points back to itself terminates at the cycle's
+  entry point (defensive — Spec 012 §Nested layouts does not address
+  cycle handling explicitly, but a bad-faith registration must not
+  hang the runtime)."
+  [id]
+  (when id
+    (loop [cur  id
+           acc  (list)
+           seen #{}]
+      (cond
+        (nil? cur)      (vec acc)
+        (seen cur)      (vec acc)
+        :else           (recur (:parent (registrar/lookup :route cur))
+                               (conj acc cur)
+                               (conj seen cur))))))
+
+(subs/reg-sub :rf.route/chain
+  {:doc "Subscribe to the `:parent`-chain of the active route, returned
+  as a vector `[parent-most ... current]`. Per Spec 012 §Nested layouts."}
+  :<- [:rf.route/id] (fn [id _] (chain-from-meta id)))
+
+(subs/reg-sub :rf/pending-navigation
+  {:doc "Subscribe to the `:rf/pending-navigation` slot (nil when no
+  navigation is pending). Per Spec 012 §Navigation blocking — pending-nav
+  protocol."}
+  (fn [db _] (:rf/pending-navigation db)))
 
 ;; ---- route-link registered view ------------------------------------------
 ;;
