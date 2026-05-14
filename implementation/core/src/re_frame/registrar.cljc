@@ -65,6 +65,35 @@
   (swap! replacement-hooks conj f)
   nil)
 
+;; ---- trace-emit helper ----------------------------------------------------
+;;
+;; The four :registry trace sites below share the late-bind lookup of
+;; `:trace/emit!` (re-frame.trace depends on re-frame.registrar, so
+;; `:require` would cycle). `:trace/emit!` is published once at
+;; re-frame.trace load and never withdrawn, so the resolution is sticky
+;; — the cache below memoises it.
+;;
+;; Each call site keeps its OUTERMOST `(when interop/debug-enabled? ...)`
+;; gate. That gate is the load-bearing condition Closure constant-folds
+;; under `:advanced + goog.DEBUG=false` (Spec 009 §Production builds),
+;; and the `:rf.registry/*` operation keywords are literal args at the
+;; call sites — moving the gate inside this helper would leave those
+;; literals reachable from the unconditional helper call and defeat the
+;; elision-probe sentinels.
+
+(defonce ^:private emit!-cache (atom nil))
+
+(defn- emit!
+  "Invoke `:trace/emit!` with the `:registry` op-type, memoising the
+  late-bind resolution. Callers MUST wrap invocations in
+  `(when interop/debug-enabled? ...)` so Closure DCE elides the call
+  and its literal args under `:advanced + goog.DEBUG=false`."
+  [operation tags]
+  (when-let [f (or @emit!-cache
+                   (when-let [resolved (late-bind/get-fn :trace/emit!)]
+                     (reset! emit!-cache resolved)))]
+    (f :registry operation tags)))
+
 (defn register!
   "Register an id under kind with the given metadata. Re-registering the
   same id replaces the slot atomically (per Spec 001 §Hot-reload semantics
@@ -104,17 +133,14 @@
         ;; rule out `different?`.
         (when interop/debug-enabled?
           (when different?
-            (when-let [emit! (late-bind/get-fn :trace/emit!)]
-              (emit! :registry :rf.registry/handler-replaced
-                     {:kind kind :id id :different-fn? true})))))
+            (emit! :rf.registry/handler-replaced
+                   {:kind kind :id id :different-fn? true}))))
       ;; First-time registration — emit handler-registered per Spec 009
       ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
       ;; this to track when fresh ids appear in the registry.
       :else
       (when interop/debug-enabled?
-        (when-let [emit! (late-bind/get-fn :trace/emit!)]
-          (emit! :registry :rf.registry/handler-registered
-                 {:kind kind :id id}))))
+        (emit! :rf.registry/handler-registered {:kind kind :id id})))
     {:was previous :now metadata}))
 
 (defn unregister!
@@ -128,9 +154,7 @@
     ;; views. Only emit when something was actually present.
     (when interop/debug-enabled?
       (when previous
-        (when-let [emit! (late-bind/get-fn :trace/emit!)]
-          (emit! :registry :rf.registry/handler-cleared
-                 {:kind kind :id id})))))
+        (emit! :rf.registry/handler-cleared {:kind kind :id id}))))
   nil)
 
 (defn clear-kind!
@@ -142,10 +166,8 @@
     ;; fires for each id so consumers see consistent registry transitions.
     (when interop/debug-enabled?
       (when (seq previous-ids)
-        (when-let [emit! (late-bind/get-fn :trace/emit!)]
-          (doseq [id previous-ids]
-            (emit! :registry :rf.registry/handler-cleared
-                   {:kind kind :id id}))))))
+        (doseq [id previous-ids]
+          (emit! :rf.registry/handler-cleared {:kind kind :id id})))))
   nil)
 
 (defn clear-all!
