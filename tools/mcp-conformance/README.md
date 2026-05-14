@@ -107,7 +107,7 @@ npm test
 ### `end-to-end-pair2.js`
 
 1. Connect — full SDK handshake against the freshly spawned bundle
-2. `tools/list` — confirm the eleven advertised tools match the pinned
+2. `tools/list` — confirm the twelve advertised tools match the pinned
    catalogue
 3. Spot-check every descriptor carries an `inputSchema`
 4. Walk degraded-mode `dispatch` / `watch-epochs` / `snapshot` /
@@ -205,7 +205,7 @@ fixture's location and entry script in the orchestrator's preamble.
 ### `end-to-end-story.js`
 
 1. Connect — `clojure -M -m re-frame.story-mcp.server --allow-writes`
-2. `tools/list` — confirm the 17 advertised tools
+2. `tools/list` — confirm the 19 advertised tools
 3. Spot-check every descriptor carries an `inputSchema`
 4. `register-variant` → `run-variant` (vacuous pass) →
    `read-failures` (total=0) → `unregister-variant` + verify
