@@ -452,12 +452,12 @@ module.exports = {
     // interactive (the surface of the contract); the actual host
     // rewind requires the epoch artefact (covered by section 3).
     await clickSidebar(page, 'time-travel', 'rf-causa-time-travel');
-    const slider = page.locator('[data-testid="rf-causa-time-travel-slider"]');
-    if ((await slider.count()) > 0) {
+    const tt9bSlider = page.locator('[data-testid="rf-causa-time-travel-slider"]');
+    if ((await tt9bSlider.count()) > 0) {
       // The slider exists — Time Travel populated. Section 3 already
       // pinned the slider population contract; here we just assert
       // the panel's scrub baseline is observable.
-      await expectVisible(slider.first(), 5000);
+      await expectVisible(tt9bSlider.first(), 5000);
     }
 
     // 9c. app-db diff — the diff panel renders for the most-recent
