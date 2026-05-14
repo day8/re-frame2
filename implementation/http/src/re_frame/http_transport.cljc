@@ -99,7 +99,6 @@
                                      (catch :default _ nil)))
                               #js {:once true}))))
            timeout-handle (atom nil)
-           timeout-fired? (atom false)
            promise
            (-> (js/Promise.race
                  #js [(js/fetch url init)
@@ -108,7 +107,6 @@
                                        (reset! timeout-handle
                                                (js/setTimeout
                                                  (fn []
-                                                   (reset! timeout-fired? true)
                                                    (try (.abort internal-controller "timeout")
                                                         (catch :default _ nil))
                                                    (reject (ex-info "timeout"
