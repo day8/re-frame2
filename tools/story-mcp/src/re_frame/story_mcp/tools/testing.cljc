@@ -30,12 +30,7 @@
   [args]
   (h/with-variant args
     (fn [vk _body]
-      (let [opts     (cond-> {}
-                       (some? (:substrate args))     (assoc :substrate (args/parse-keyword (:substrate args)))
-                       (some? (:active-modes args))  (assoc :active-modes
-                                                            (mapv args/parse-keyword (:active-modes args)))
-                       (some? (:cell-overrides args)) (assoc :cell-overrides
-                                                             (:cell-overrides args)))
+      (let [opts     (h/read-run-opts args)
             timeout  (args/parse-positive-int (:timeout-ms args) 10000)
             result   (try
                        (async/deref-blocking (story/run-variant vk opts) timeout)
@@ -63,11 +58,7 @@
   [args]
   (h/with-variant args
     (fn [vk _body]
-      (let [opts    (cond-> {}
-                      (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
-                      (some? (:active-modes args)) (assoc :active-modes
-                                                          (mapv args/parse-keyword (:active-modes args))))
-            payload (story/snapshot-identity vk opts)]
+      (let [payload (story/snapshot-identity vk (h/read-run-opts args))]
         (h/text-result (h/pr-edn payload) payload)))))
 
 ;; `re-frame.story.ui.a11y/violations-by-frame` is the CLJS-side panel
