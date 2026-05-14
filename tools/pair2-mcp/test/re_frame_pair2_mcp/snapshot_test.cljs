@@ -10,7 +10,11 @@
   contract.
 
   Tests require the public parsers directly from
-  `re-frame-pair2-mcp.tools.args` — the source ns is the contract."
+  `re-frame-pair2-mcp.tools.args` — the source ns is the contract.
+
+  Production-form integration coverage for rf2-vflrg lives in
+  `re-frame-pair2-mcp.elision-test` (via the `build-snapshot-form`
+  mirror); see the note at the bottom of this file."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
             [re-frame-pair2-mcp.tools.args :as args]
@@ -58,3 +62,17 @@
     (is (= :all (-> edn second :frames)))
     (is (= [:app-db :sub-cache :machines :epochs :traces]
            (-> edn second :include)))))
+
+;; ---------------------------------------------------------------------------
+;; Note on rf2-vflrg integration coverage:
+;;
+;; Eval-form composition for the snapshot tool (now walking BOTH `:app-db`
+;; and `:sub-cache` through `re-frame.core/elide-wire-value`, threading
+;; `:include-sensitive?` into the walker's opt) is pinned in
+;; `re-frame-pair2-mcp.elision-test` via the production `build-snapshot-form`
+;; mirror — see `snapshot-form-walks-both-app-db-and-sub-cache` and
+;; `snapshot-form-threads-include-sensitive`. Driving `snapshot-tool`
+;; directly here would race against `invoke-test`'s var-swap stubs of
+;; `snapshot/snapshot-tool` itself (their `.finally` restores can outrun
+;; the next async test's start), so we keep the mirror approach.
+;; ---------------------------------------------------------------------------

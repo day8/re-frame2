@@ -24,24 +24,55 @@
 
   ## Where it fires
 
-  - `snapshot` tool: each frame's `:app-db` slice is run through the
-    walker before slice-app-db-in-snapshot sees it.
+  - `snapshot` tool: each frame's `:app-db` AND `:sub-cache` slices are
+    run through the walker before slice-app-db-in-snapshot sees them.
+    The `:sub-cache` arm pins the Tool-Pair contract that direct reads
+    of `(rf/sub-cache frame-id)` MUST route through `elide-wire-value`
+    (rf2-vflrg).
   - `get-path` tool: the value at the requested path is run through
     the walker before pr-str.
 
   ## `:elision` MCP arg
 
   Boolean opt-out. Default `true`. The arg is parsed by the shared
-  `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh)."
+  `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh).
+
+  ## `:include-sensitive?` MCP arg (rf2-vflrg)
+
+  The same `:include-sensitive?` flag that gates trace / epoch
+  forwarding (spec/009 §Privacy) also gates whether the walker treats
+  declared-sensitive slots as pass-through (`:rf.size/include-sensitive?
+  true`) or substitutes them with the `:rf/redacted` sentinel
+  (`:rf.size/include-sensitive? false`, the default). Off-box default
+  per Tool-Pair §`Direct-read privacy posture for sub-cache and
+  get-path`: sensitive slots are dropped unless the caller opts in
+  explicitly."
   (:require [re-frame.mcp-base.vocab :as base-vocab]))
 
 (defn elision-opts-edn
   "Render the elision opts map as an EDN string for inlining into a
-  CLJS eval form sent over nREPL. Today the only knob is the
-  on/off boolean (`base-vocab/include-large-opt`): when elision is
-  enabled we pass `{:rf.size/include-large? false}` so the walker
-  emits markers; when disabled we set `:rf.size/include-large? true`
-  so values pass through unmodified. `:frame` and `:path` are
-  caller-supplied at the call-site inside the form."
-  [enabled?]
-  (pr-str {base-vocab/include-large-opt (not enabled?)}))
+  CLJS eval form sent over nREPL.
+
+  Knobs:
+
+  - `enabled?`            — when true, `:rf.size/include-large?` is
+                            `false` so the walker emits markers; when
+                            false, `true` so values pass through
+                            unmodified.
+  - `include-sensitive?`  — when true, `:rf.size/include-sensitive?` is
+                            `true` so the walker passes declared-
+                            sensitive slots through unmodified; when
+                            false (the default), `false` so the walker
+                            substitutes the `:rf/redacted` sentinel.
+
+  Both knobs default off-box-safe per the Tool-Pair §Direct-read
+  privacy posture contract — large slots elide, sensitive slots
+  redact, unless the caller opts in explicitly.
+
+  Single-arity form retains the legacy default (`include-sensitive?`
+  false) so legacy call-sites don't need to spell it out."
+  ([enabled?]
+   (elision-opts-edn enabled? false))
+  ([enabled? include-sensitive?]
+   (pr-str {base-vocab/include-large-opt     (not enabled?)
+            base-vocab/include-sensitive-opt (boolean include-sensitive?)})))
