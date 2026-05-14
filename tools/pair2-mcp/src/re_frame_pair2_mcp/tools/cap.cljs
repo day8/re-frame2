@@ -141,7 +141,21 @@
   `invoke` pipeline (rf2-3z0zi) already short-circuits before this
   fn runs in the orchestrated path, but the guard here makes the
   invariant local to `apply-cap` too — direct callers (tests, future
-  consumers) get the same skip."
+  consumers) get the same skip.
+
+  ## `:isError` is NOT a short-circuit (intentional asymmetry vs cache)
+
+  Unlike `cache/apply-cache` — which passes `:isError` through
+  untouched so a transient failure can't poison the cache —
+  `apply-cap` measures and (if over budget) wraps an `:isError`
+  result in `:rf.mcp/overflow` like any other payload. An error
+  response can itself carry an oversize `:message` blob (e.g. a
+  stack trace pretty-printed from a deep CLJS exception) and silent
+  over-budget egress would violate the rf2-rvyzy contract that
+  every response is the wire-cap-respecting marker OR a sub-cap
+  payload — never a verbatim over-budget body. The cache only
+  cares about identity; the cap cares about byte count, and an
+  error's bytes count just like a success's."
   [result-js {:keys [tool cap strategy]
               :or   {strategy :truncate-with-marker}}]
   (if (wire/marker? result-js)
