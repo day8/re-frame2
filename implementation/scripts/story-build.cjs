@@ -38,37 +38,66 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-
-// __dirname is <repo>/implementation/scripts. IMPL_ROOT is
-// <repo>/implementation; REPO_ROOT is <repo>.
-const IMPL_ROOT = path.resolve(__dirname, '..');
-const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
+const {
+  enforcePolicy,
+  DEFAULT_OUT_ROOT,
+  DEFAULT_HTML_ROOTS,
+  IMPL_ROOT,
+  REPO_ROOT,
+} = require('./_path-policy.cjs');
 
 // The build target the driver compiles. Override via STORY_BUILD_TARGET
-// if the consumer has their own static-export build.
-const BUILD_TARGET =
+// if the consumer has their own static-export build. The target itself
+// is a shadow-cljs build name (kebab-case keyword form); it ultimately
+// becomes a path segment under `out/`. Per rf2-o38lb we sanity-check
+// it doesn't contain path-traversal segments — defensive belt over the
+// path-policy enforcement below.
+const BUILD_TARGET_RAW =
   process.env.STORY_BUILD_TARGET || 'story-static/counter-with-stories';
+if (/(^|[\\/])\.\.([\\/]|$)/.test(BUILD_TARGET_RAW)) {
+  throw new Error(
+    `STORY_BUILD_TARGET: '${BUILD_TARGET_RAW}' contains '..' traversal; ` +
+      `refusing. Per rf2-o38lb security audit.`,
+  );
+}
+const BUILD_TARGET = BUILD_TARGET_RAW;
 
 // Match shadow-cljs's output-dir convention — `out/<build-target>/`
 // (note: shadow strips the leading `:` from the keyword and keeps the
 // slash). The driver computes this from the build target so a custom
 // target maps to a custom output directory automatically.
-const OUTPUT_DIR =
+//
+// Per rf2-o38lb: the resolved output dir MUST land inside
+// `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1` is
+// set. Downstream consumers publishing to a non-repo location (e.g. a
+// docs-site staging area) set the opt-in flag explicitly.
+const OUTPUT_DIR = enforcePolicy(
+  'STORY_BUILD_OUTPUT_DIR',
   process.env.STORY_BUILD_OUTPUT_DIR ||
-  path.join(IMPL_ROOT, 'out', BUILD_TARGET);
+    path.join(IMPL_ROOT, 'out', BUILD_TARGET),
+  { allowedRoots: [DEFAULT_OUT_ROOT] },
+);
 
 // The HTML source to stage as index.html. The canonical example is
 // the counter_with_stories story_static.index.html; override for
 // downstream apps.
-const HTML_SRC =
+//
+// Per rf2-o38lb: STORY_BUILD_INDEX_HTML must point at a file under
+// `<repo>/examples` or `<repo>/implementation` (the two locations
+// where per-feature index.html templates legitimately live). Out-of-
+// tree paths require the opt-in flag.
+const HTML_SRC = enforcePolicy(
+  'STORY_BUILD_INDEX_HTML',
   process.env.STORY_BUILD_INDEX_HTML ||
-  path.join(
-    REPO_ROOT,
-    'examples',
-    'reagent',
-    'counter_with_stories',
-    'story_static.index.html',
-  );
+    path.join(
+      REPO_ROOT,
+      'examples',
+      'reagent',
+      'counter_with_stories',
+      'story_static.index.html',
+    ),
+  { allowedRoots: DEFAULT_HTML_ROOTS },
+);
 
 function release() {
   const isWin = process.platform === 'win32';
