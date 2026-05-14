@@ -494,18 +494,26 @@
                    (let [start (inc i)
                          end   (segment-end pattern n start)
                          k     (keyword (subs pattern start end))
-                         v     (or (get path-params k)
-                                   (throw (ex-info ":rf.error/missing-route-param"
-                                                   {:param k :route-id route-id})))]
+                         ;; Per Spec 012 §Bidirectional URL ↔ params: an
+                         ;; absent or `nil` value raises; a present-but-falsy
+                         ;; value (`false`, `0`, `""`) is a legitimate
+                         ;; segment and round-trips through url-encode.
+                         ;; `(or v throw)` mis-classifies falsy as absent;
+                         ;; `if-some` discriminates correctly.
+                         v     (if-some [v (get path-params k)]
+                                 v
+                                 (throw (ex-info ":rf.error/missing-route-param"
+                                                 {:param k :route-id route-id})))]
                      (recur end (conj parts (url-encode v))))
 
                    (= ch \*)
                    (let [start (inc i)
                          end   (segment-end pattern n start)
                          k     (keyword (subs pattern start end))
-                         v     (or (get path-params k)
-                                   (throw (ex-info ":rf.error/missing-route-param"
-                                                   {:param k :route-id route-id})))]
+                         v     (if-some [v (get path-params k)]
+                                 v
+                                 (throw (ex-info ":rf.error/missing-route-param"
+                                                 {:param k :route-id route-id})))]
                      (recur end (conj parts (url-encode-splat v))))
 
                    :else

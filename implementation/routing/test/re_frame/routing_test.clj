@@ -570,6 +570,33 @@
       (is (= ":rf.error/missing-route-param" (ex-message ex))
           "splat absence uses the same structured error id"))))
 
+;; ---- rf2-6iam6: falsy path params (false / 0 / "") are legitimate values
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params an absent or nil path param
+;; raises :rf.error/missing-route-param; a present-but-falsy value is a
+;; legitimate segment that must round-trip through url-encode. The pre-fix
+;; `(or v throw)` form mis-classified false / 0 / "" as missing.
+
+(deftest route-url-accepts-falsy-path-params
+  (testing "route-url accepts false, 0, and empty-string path params —
+            present-but-falsy is NOT the same as absent"
+    (rf/reg-route :route/page {:path "/page/:flag"})
+    (is (= "/page/false"
+           (routing/route-url :route/page {:flag false}))
+        "false renders as the literal segment \"false\"")
+    (is (= "/page/0"
+           (routing/route-url :route/page {:flag 0}))
+        "0 renders as the literal segment \"0\""))
+
+  (testing "empty-string path params encode to an empty segment (no throw)"
+    (rf/reg-route :route/slug {:path "/articles/:slug"})
+    ;; The encoded form of "" is "" — round-trippable, but renders as
+    ;; "/articles/" which the caller is free to detect; the routing
+    ;; helper does not pre-empt that decision.
+    (is (= "/articles/"
+           (routing/route-url :route/slug {:slug ""}))
+        "\"\" path param renders as an empty segment, not a thrown error")))
+
 (deftest route-url-no-such-route-throws
   (testing "route-url against an unregistered route id raises
             :rf.error/no-such-route"
