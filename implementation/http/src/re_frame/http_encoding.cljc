@@ -24,6 +24,7 @@
   (:require [clojure.string  :as str]
             [re-frame.interop :as interop]
             [re-frame.http-privacy :as privacy]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace   :as trace]
             [re-frame.util-json :as util-json])
   #?(:clj (:import [java.net URLEncoder])))
@@ -283,6 +284,23 @@
   (or (:event frame-ctx)
       (:rf.http/origin-event args-map)
       [:rf.http/managed]))
+
+(declare build-reply-event)
+
+(defn dispatch-reply-via-late-bind!
+  "Compose `build-reply-event` with a late-bind `:router/dispatch!` lookup
+  and fire the dispatch. The single truth point for 'how does http
+  dispatch its reply' — shared by `http-transport/dispatch-reply!` and
+  the canned-stub handlers in `http-machine-wrapper`. Per rf2-2utlm.
+
+  `args` is the same map `build-reply-event` consumes; `frame` (optional)
+  is threaded as `{:frame <id>}` onto the dispatch options when present.
+  No-op when the registered router is absent or `build-reply-event`
+  returns nil (silenced reply)."
+  [args frame]
+  (when-let [ev (build-reply-event args)]
+    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+      (dispatch! ev (cond-> {} frame (assoc :frame frame))))))
 
 (defn build-reply-event
   "Per Spec 014 §Reply addressing. Returns the event vector to dispatch,

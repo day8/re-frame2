@@ -28,7 +28,6 @@
             [re-frame.http-privacy  :as privacy]
             [re-frame.http-registry :as registry]
             [re-frame.interop       :as interop]
-            [re-frame.late-bind     :as late-bind]
             [re-frame.trace         :as trace])
   #?(:clj (:import [java.net URI]
                    [java.net.http HttpClient HttpRequest
@@ -233,14 +232,13 @@
            kind reply-payload frame]}]
   (let [explicit (case kind
                    :success explicit-on-success
-                   :failure explicit-on-failure)
-        ev (encoding/build-reply-event {:origin-event  origin-event
-                                        :explicit-on   explicit
-                                        :reply-payload reply-payload
-                                        :kind          kind})]
-    (when ev
-      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-        (dispatch! ev (cond-> {} frame (assoc :frame frame)))))))
+                   :failure explicit-on-failure)]
+    (encoding/dispatch-reply-via-late-bind!
+      {:origin-event  origin-event
+       :explicit-on   explicit
+       :reply-payload reply-payload
+       :kind          kind}
+      frame)))
 
 (defn- finalise-success! [ctx accepted]
   (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
