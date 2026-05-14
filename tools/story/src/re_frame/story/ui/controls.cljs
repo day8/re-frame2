@@ -216,41 +216,50 @@
 
   Per rf2-agshe the inference recurses into nested `:map` / `:vector` /
   `:set` / `:tuple` shapes, producing widget descriptors the renderer
-  expands into nested rows."
-  [variant-id]
-  (let [vb      (registrar/handler-meta :variant variant-id)
-        story   (args/parent-story-id variant-id)
-        sb      (when story (registrar/handler-meta :story story))
-        types   (merge (normalize-argtypes (:argtypes sb))
-                       (normalize-argtypes (:argtypes vb)))
-        ;; Prefer an explicit `:schema` slot on the variant/story body
-        ;; (forward-compatible — Spec 010 will land an `:rf/schema` slot
-        ;; on variants for the auto-derivation path). Fall back to the
-        ;; registered :view's `:schema` slot (when reg-view starts
-        ;; carrying one). Per spec/001 §Schema-derivation pipeline.
-        component-id (or (:component vb) (:component sb))
-        component-body (when component-id
-                         (registrar/handler-meta :view component-id))
-        derive-schema (or (:schema vb)
-                          (:schema sb)
-                          (:schema component-body))
-        schema-entries (when (and (vector? derive-schema)
-                                  (= :map (schema-op derive-schema)))
-                         (into {}
-                               (map (fn [entry]
-                                      [(map-entry-key entry)
-                                       (map-entry-schema entry)]))
-                               (schema-children derive-schema)))
-        eff     (args/resolve-args variant-id)]
-    (reduce-kv
-      (fn [acc k v]
-        (if (contains? acc k)
-          acc
-          (let [from-schema (when-let [s (get schema-entries k)]
-                              (infer-widget s))]
-            (assoc acc k (or from-schema (infer-value-shape v))))))
-      (or types {})
-      eff)))
+  expands into nested rows.
+
+  HOT PATH (rf2-wb4y3): `args-editor` is keystroke-sensitive — every
+  controls-panel edit re-renders, which re-runs this fn. The optional
+  `eff-args` arg threads the caller's already-resolved args through so
+  we don't re-run `args/resolve-args` (which itself deep-merges five
+  precedence layers and re-reads the registrar). The single-arity
+  overload preserves the canonical surface for tests + non-render
+  callers; the render path threads its own resolution."
+  ([variant-id]
+   (resolve-argtypes variant-id (args/resolve-args variant-id)))
+  ([variant-id eff-args]
+   (let [vb      (registrar/handler-meta :variant variant-id)
+         story   (args/parent-story-id variant-id)
+         sb      (when story (registrar/handler-meta :story story))
+         types   (merge (normalize-argtypes (:argtypes sb))
+                        (normalize-argtypes (:argtypes vb)))
+         ;; Prefer an explicit `:schema` slot on the variant/story body
+         ;; (forward-compatible — Spec 010 will land an `:rf/schema`
+         ;; slot on variants for the auto-derivation path). Fall back
+         ;; to the registered :view's `:schema` slot (when reg-view
+         ;; starts carrying one). Per spec/001 §Schema-derivation pipeline.
+         component-id (or (:component vb) (:component sb))
+         component-body (when component-id
+                          (registrar/handler-meta :view component-id))
+         derive-schema (or (:schema vb)
+                           (:schema sb)
+                           (:schema component-body))
+         schema-entries (when (and (vector? derive-schema)
+                                   (= :map (schema-op derive-schema)))
+                          (into {}
+                                (map (fn [entry]
+                                       [(map-entry-key entry)
+                                        (map-entry-schema entry)]))
+                                (schema-children derive-schema)))]
+     (reduce-kv
+       (fn [acc k v]
+         (if (contains? acc k)
+           acc
+           (let [from-schema (when-let [s (get schema-entries k)]
+                               (infer-widget s))]
+             (assoc acc k (or from-schema (infer-value-shape v))))))
+       (or types {})
+       eff-args))))
 
 ;; ---- widget renderers ----------------------------------------------------
 
@@ -507,7 +516,14 @@
   `args/resolve-args` and walks every key, rendering a widget per the
   inferred argtype. Top-level keys render as flat rows; collection
   argtypes (`:map` / `:vector` / `:set` / `:tuple`) recurse into nested
-  rows (rf2-agshe)."
+  rows (rf2-agshe).
+
+  HOT PATH (rf2-wb4y3): every keystroke in a control row writes through
+  `:cell-overrides`, the shell-state ratom re-renders this component,
+  which re-runs the whole derivation. We resolve args ONCE here and
+  thread the result into `resolve-argtypes` — without the thread the
+  resolution ran twice (once here, once inside `resolve-argtypes`'s
+  fallback-inference branch). Same precedence chain, no duplicated work."
   [variant-id]
   (let [shell      @state/shell-state-atom
         eff-args   (args/resolve-args
@@ -515,7 +531,7 @@
                      {:active-modes (:active-modes shell)
                       :cell-overrides
                       (get-in shell [:cell-overrides variant-id])})
-        argtypes   (resolve-argtypes variant-id)]
+        argtypes   (resolve-argtypes variant-id eff-args)]
     [:div {:style (:section styles)}
      [:div {:style (:section-h styles)} "Args"]
      (if (empty? eff-args)
