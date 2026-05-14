@@ -404,9 +404,6 @@
    {:key         :epoch/discard-buffer!
     :producer-ns 're-frame.epoch
     :description "Discard the in-flight epoch buffer without committing."}
-   {:key         :epoch/in-flight-buffer
-    :producer-ns 're-frame.epoch
-    :description "Return the in-flight epoch buffer (introspection)."}
    {:key         :epoch/capture-event
     :producer-ns 're-frame.epoch
     :description "Capture an event into the in-flight epoch buffer."}
