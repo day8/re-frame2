@@ -24,6 +24,7 @@
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]
             [re-frame.adapter.helix :as helix-adapter]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -38,6 +39,15 @@
 (defn- before! []
   (reset! registrar-snapshot (test-support/snapshot-registrar))
   (reset! frame/frames {})
+  ;; Per rf2-wkxng / rf2-6m0se: clear the per-frame schema registry so
+  ;; ns-load `reg-app-schema` calls from sibling test namespaces (e.g.
+  ;; the elision demo's `:user/avatar-pdf` schema) don't fire post-
+  ;; commit validation rollbacks against this test's frames. The
+  ;; canonical `reset-runtime-fixture` includes this clear via the
+  ;; `:schemas/clear-by-frame!` late-bind hook; the ad-hoc fixture
+  ;; here mirrors that step.
+  (when-let [clear! (late-bind/get-fn :schemas/clear-by-frame!)]
+    (clear!))
   (substrate-adapter/dispose-adapter!)
   (trace/clear-trace-cbs!)
   (substrate-adapter/install-adapter! helix-adapter/adapter)

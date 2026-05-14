@@ -94,6 +94,7 @@
 (def snapshot-schemas-by-frame storage/snapshot-schemas-by-frame)
 (def restore-schemas-by-frame! storage/restore-schemas-by-frame!)
 (def clear-schemas-by-frame!   storage/clear-schemas-by-frame!)
+(def on-frame-destroyed!       storage/on-frame-destroyed!)
 
 ;; Per-slot flag walker (rf2-nwv63 / rf2-kj51z / rf2-oghml).
 (def walk-flagged-schema              walker/walk-flagged-schema)
@@ -145,6 +146,9 @@
 (late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)
 (late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
 (late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)
+;; Frame-destroy cleanup hook (consumed by frame/destroy-frame!,
+;; mirrors :machines/on-frame-destroyed! and :ssr/on-frame-destroyed).
+(late-bind/set-fn! :schemas/on-frame-destroyed!  on-frame-destroyed!)
 
 ;; Boundary-validation seam (rf2-r2uh integration).
 (late-bind/set-fn! :schemas/validate-with-registered-fn validate-with-registered-fn)

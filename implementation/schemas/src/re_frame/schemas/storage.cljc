@@ -215,3 +215,20 @@
   and by `reset-runtime-fixture`'s `:clear-kinds [:app-schema]` path."
   []
   (reset! schemas-by-frame {}))
+
+(defn on-frame-destroyed!
+  "Per Spec 002 §Destroy: drop every schema registered against the
+  destroyed frame so a subsequent `reg-frame` of the same id starts
+  with a clean schema slate. Called from `frame/destroy-frame!`
+  through the `:schemas/on-frame-destroyed!` late-bind hook
+  (mirrors the `:machines/on-frame-destroyed!` /
+  `:ssr/on-frame-destroyed` cleanup contract).
+
+  Without this cleanup, schemas registered against a destroyed
+  frame would persist and re-fire when the frame is re-registered
+  — under the rf2-wkxng / rf2-6m0se rollback contract that
+  manifests as spurious rollbacks against orphan paths the new
+  frame's :on-create never wrote. Idempotent — a missing frame
+  entry is a no-op `dissoc`."
+  [frame-id]
+  (swap! schemas-by-frame dissoc frame-id))

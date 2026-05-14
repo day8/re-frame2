@@ -31,9 +31,11 @@
  [[:counter/set-bad]]
 
  :fixture/expect
- ;; In dev mode, default recovery is :no-recovery — the cascade halts and
- ;; the offending app-db update IS still applied (validation runs after the
- ;; handler returns); production default is :replaced-with-default.
+ ;; Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se):
+ ;; recovery is :no-recovery AND the :db effect is rolled back to the
+ ;; pre-handler value. The trace tag carries :rollback? true so
+ ;; consumers see both signals (the trace fires; the bad commit does
+ ;; not stand).
  {:trace-emissions
   [{:operation :event :tags {:event-id :counter/init}}
    {:operation :event :tags {:event-id :counter/set-bad}}
@@ -44,5 +46,6 @@
                 :where      :app-db
                 :path       [:count]
                 :value      "not-a-number"
+                :rollback?  true
                 :reason     "App-db at path [:count] failed schema [:int], got string."}
-    :recovery  :no-recovery}]}}                      ;; dev default; prod uses :replaced-with-default
+    :recovery  :no-recovery}]}}

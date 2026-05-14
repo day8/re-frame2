@@ -3,8 +3,10 @@
 ;; the slice at the registered path AFTER the handler's :db effect commits.
 ;; A handler that violates the slice's shape triggers
 ;; :rf.error/schema-validation-failure with :where :app-db and the
-;; offending :path. Recovery defaults to :no-recovery in dev (the bad
-;; commit is observable) — production switches to :replaced-with-default.
+;; offending :path. Per Spec 010 §Per-step recovery row 4 (rf2-wkxng /
+;; rf2-6m0se) the :db effect is ROLLED BACK to the pre-handler value
+;; and the dispatch is treated as failed; the trace tag carries
+;; :rollback? true and :recovery :no-recovery.
 ;;
 ;; This fixture pairs with error-schema-failure.edn (same surface, different
 ;; framing): error-schema-failure focuses on the error trace shape; this
@@ -43,11 +45,13 @@
   [:user/set-bad]]
 
  :fixture/expect
- ;; Final app-db reflects the bad commit — recovery is :no-recovery, so the
- ;; offending :db effect IS still applied; the trace records the violation.
- {:final-app-db {:user {:id "not-an-int" :email "carol@example.com"}}
+ ;; Final app-db reflects the LAST WELL-TYPED commit — per rf2-wkxng /
+ ;; rf2-6m0se the malformed :user/set-bad commit is rolled back to the
+ ;; pre-handler value ({:id 2 :email "bob@example.com"}, set by
+ ;; :user/set-good).
+ {:final-app-db {:user {:id 2 :email "bob@example.com"}}
 
-  :sub-values   {[:user] {:id "not-an-int" :email "carol@example.com"}}
+  :sub-values   {[:user] {:id 2 :email "bob@example.com"}}
 
   :trace-emissions
   [{:operation :event :tags {:event-id :user/init}}

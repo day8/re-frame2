@@ -324,10 +324,31 @@
               meta    (get fx-registry id {})
               handler (conformance/realise-fx-handler id body helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
-    ;; ---- app-schemas (Spec 010 §step 4 — the baseline `:schemas/runtime`
-    ;; surface) ---------------------------------------------------------
-    (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
-      (rf/reg-app-schema path schema))))
+    ;; NOTE: app-schemas are intentionally NOT registered here — see
+    ;; `realise-app-schemas` below. Per rf2-wkxng / rf2-6m0se,
+    ;; `destroy-frame!` now drops the frame's app-db schemas
+    ;; (parity with the machines / SSR / privacy destroy hooks), so
+    ;; schema registration must follow the runner's destroy+reg-frame
+    ;; cycle. Event / sub / cofx / fx registrations are global on
+    ;; the registrar and survive destroy-frame, so they continue to
+    ;; live here so `:on-create` can fire against them.
+    nil))
+
+(defn- realise-app-schemas
+  "Register the fixture's app-db schemas. Called AFTER the runner's
+  destroy+reg-frame cycle so the new frame's slate carries exactly
+  the fixture's declarations and nothing else.
+
+  Per rf2-wkxng / rf2-6m0se the destroy step now drops every schema
+  registered against the frame (parity with the machines / SSR /
+  privacy destroy hooks). Pre-fix the runner relied on the leak —
+  registering app-schemas inside `realise-handlers` BEFORE
+  `destroy-frame` and counting on the schemas to survive. With the
+  leak closed, app-schema registration is sequenced explicitly
+  after `reg-frame`."
+  [fixture]
+  (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
+    (rf/reg-app-schema path schema)))
 
 ;; ---- trace capture -------------------------------------------------------
 
@@ -432,6 +453,15 @@
           ;; Destroy first so the fixture's :on-create cascade fires
           ;; under its declared frame config.
           _            (rf/destroy-frame :rf/default)
+          ;; Per rf2-wkxng / rf2-6m0se: register app-db schemas
+          ;; AFTER the destroy step (the new
+          ;; `:schemas/on-frame-destroyed!` hook drops the frame's
+          ;; schemas on destroy, so registering them BEFORE the
+          ;; destroy would leak them through). Schemas must also
+          ;; precede `reg-frame` so the :on-create cascade fires
+          ;; with the schemas in place — the on-create's db commit
+          ;; will trigger validate-app-db! against the new slate.
+          _            (realise-app-schemas fixture)
           _            (rf/reg-frame :rf/default frame-config)
           dispatches   (or (:fixture/dispatches fixture) [])]
       (doseq [ev dispatches]

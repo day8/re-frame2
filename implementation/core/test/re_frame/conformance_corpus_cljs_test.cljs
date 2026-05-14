@@ -430,9 +430,14 @@
       (registrar/register!
         :view id
         {:handler-fn (conformance/realise-view-handler steps)}))
-    ;; app-schema registrations
-    (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
-      (rf/reg-app-schema path schema))
+    ;; NOTE: app-schema registrations are intentionally NOT registered here
+    ;; — see `realise-app-schemas!` below. Per rf2-wkxng / rf2-6m0se,
+    ;; `destroy-frame!` now drops the frame's app-db schemas (parity with
+    ;; the machines / SSR / privacy destroy hooks). Schemas registered
+    ;; before the runner's destroy+reg-frame cycle would be cleared by
+    ;; the new hook; the runner registers them after `destroy-frame` and
+    ;; before `reg-frame` so the :on-create cascade fires with the
+    ;; fixture's declared schema slate.
     ;; machine registrations
     (let [machine-registry (get-in fixture [:fixture/registry :machine] {})]
       (when (seq machine-registry)
@@ -445,6 +450,16 @@
                              (update :guards           #(merge guards %))
                              (update :on-spawn-actions #(merge on-spawn-actions %)))]
               (reg-machine machine-id merged))))))))
+
+(defn- realise-app-schemas!
+  "Register the fixture's app-db schemas. Called AFTER the runner's
+  destroy-frame step (so the new `:schemas/on-frame-destroyed!` hook
+  doesn't wipe them) and BEFORE `reg-frame` (so the :on-create cascade
+  validates the seeded state against the schemas). Per rf2-wkxng /
+  rf2-6m0se."
+  [fixture]
+  (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
+    (rf/reg-app-schema path schema)))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
@@ -766,6 +781,12 @@
           ;; reg-frame against an existing id is a surgical update; destroy
           ;; first so :on-create fires when re-registered.
           _            (rf/destroy-frame :rf/default)
+          ;; Per rf2-wkxng / rf2-6m0se: register schemas AFTER the
+          ;; destroy (the new `:schemas/on-frame-destroyed!` hook drops
+          ;; the frame's schema entries on destroy) and BEFORE the
+          ;; re-create so the :on-create cascade validates against the
+          ;; fixture's declared slate.
+          _            (realise-app-schemas! fixture)
           _            (cond
                          (seq frames-spec)
                          (doseq [f frames-spec]
