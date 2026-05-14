@@ -151,11 +151,16 @@
   `(if interop/debug-enabled? ...)` gate of its public wrapper.
   Closure's reachability proof under :advanced + goog.DEBUG=false
   finds every call-site dead and DCEs this fn — along with every
-  literal reason string and tag keyword passed through it."
+  literal reason string and tag keyword passed through it.
+
+  Per rf2-1o6ax the registered validator-fn is deref'd ONCE at the
+  gate and invoked directly — `validator/run-validator` would deref
+  the same atom a second time on every pass, which is wasted work
+  on a path that runs per-event / per-cofx / per-fx / per-sub-return."
   [meta value sensitive?-fn build-base-tags extra-redact]
-  (if @validator/validator-fn
+  (if-let [vf @validator/validator-fn]
     (if-let [schema (:spec meta)]
-      (if (validator/run-validator schema value)
+      (if (vf schema value)
         true
         (let [explanation (validator/run-explainer schema value)
               sensitive?  (sensitive?-fn meta schema)
@@ -203,12 +208,17 @@
    ;; keyword, validator deref, and trace call. The `@validator-fn`
    ;; check is a runtime atom deref and must NOT be combined into the
    ;; gate predicate (the deref defeats Closure's reachability proof).
+   ;;
+   ;; Per rf2-1o6ax the validator-fn is deref'd ONCE outside the doseq
+   ;; and invoked directly per entry; `validator/run-validator` would
+   ;; re-deref the atom on every iteration (2N derefs for N entries),
+   ;; which is wasted work on the post-handler-commit hot path.
    (when interop/debug-enabled?
-     (when @validator/validator-fn
+     (when-let [vf @validator/validator-fn]
        (doseq [[path m] (storage/frame-schema-entries frame-id)]
          (let [val-at (get-in db path)
                schema (:schema m)]
-           (when-not (validator/run-validator schema val-at)
+           (when-not (vf schema val-at)
              ;; Per Spec 010 §`:sensitive?` — privacy in schema-
              ;; validation error traces (rf2-kj51z). Consult the
              ;; schema's per-slot `:sensitive?` props before
