@@ -2111,25 +2111,26 @@ Per-fx args validation runs as part of the standard fx-arg validation (per [010 
 
 > **Layer:** Public
 
-Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records which preset was applied (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)); the *expanded* keys are the effective metadata map.
+Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records which preset was applied (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)); the *expanded* keys are the effective metadata map. Composes with `:rf/registration-metadata` the same way every other per-kind shape does — base `:doc` / `:tags` / `:spec` / `:ns` / `:line` / `:column` / `:file` / `:platforms` / `:sensitive?` come from the merge; the keys below are the frame-specific additions.
 
 ```clojure
 (def FrameMeta
-  [:map
-   [:id           :keyword]
-   [:created-at   :any]                                                    ;; timestamp
-   [:preset       {:optional true} [:enum :default :test :story :ssr-server]] ;; per 002 §Frame presets
-   [:on-create    {:optional true} [:vector :any]]                         ;; the init event vector
-   [:on-destroy   {:optional true} [:vector :any]]
-   [:fx-overrides {:optional true} [:map-of :keyword :any]]
-   [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
-   [:interceptors {:optional true} [:vector :any]]
-   [:drain-depth  {:optional true} :int]
-   [:doc          {:optional true} :string]
-   [:tags         {:optional true} [:set :keyword]]
-   [:url-bound?   {:optional true} :boolean]                                ;; per [012-Routing.md](012-Routing.md)
-   [:platform     {:optional true} :keyword]                                ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
-   [:on-error     {:optional true} :keyword]])                              ;; error-projection target; per [011-SSR.md](011-SSR.md). The `:ssr-server` preset wires `:rf.error/server-projection`.
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:id           :keyword]
+    [:created-at   :any]                                                   ;; timestamp
+    [:preset       {:optional true} [:enum :default :test :story :ssr-server]] ;; per 002 §Frame presets
+    [:on-create    {:optional true} [:vector :any]]                        ;; the init event vector
+    [:on-destroy   {:optional true} [:vector :any]]
+    [:fx-overrides {:optional true} [:map-of :keyword :any]]
+    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
+    [:interceptors {:optional true} [:vector :any]]
+    [:drain-depth  {:optional true} :int]
+    [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
+    [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
+    [:on-error     {:optional true} :keyword]                              ;; error-projection target; per [011-SSR.md](011-SSR.md). The `:ssr-server` preset wires `:rf.error/server-projection`.
+    ]])
 ```
 
 ### `:rf/preset-expansion`
