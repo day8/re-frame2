@@ -5,7 +5,7 @@
 
   The panel view in `trace.cljs` paints a scrollable, timestamped
   ribbon of raw trace events and dispatches into the Causa frame.
-  The *logic* — applying the 9-axis filter vocabulary from Spec 009
+  The *logic* — applying the 13-axis filter vocabulary from Spec 009
   §Filter vocabulary, projecting raw events into row shape,
   enumerating per-axis distinct values for the chip rows, and
   classifying the empty state — is pure data → data. Splitting the
@@ -15,11 +15,11 @@
 
   ## Substrate (per `spec/009-Instrumentation.md` §Filter vocabulary)
 
-  The Trace panel is the UI consumer of the canonical 9-axis filter
+  The Trace panel is the UI consumer of the canonical 13-axis filter
   vocabulary documented in Spec 009 §Filter vocabulary (the algebra
   itself is implemented in `re-frame.trace/trace-buffer` and exposed
-  pure-data via `day8.re-frame2-causa.trace-bus/filter-events` per
-  rf2-qi8au). Where the Issues ribbon collapses the stream to issues
+  pure-data via `day8.re-frame2-causa.trace-bus/filter-events`).
+  Where the Issues ribbon collapses the stream to issues
   only, the Trace panel surfaces the *raw* stream — every op-type,
   every operation — so a programmer can grep across the full
   vocabulary.
@@ -48,7 +48,7 @@
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
-;; ---- the canonical 9-axis vocabulary ------------------------------------
+;; ---- the canonical 13-axis vocabulary -----------------------------------
 
 (def filter-axes
   "The canonical filter-vocabulary axes Spec 009 §Filter vocabulary
@@ -198,7 +198,7 @@
   (boolean (seq (normalise-filters filters))))
 
 (defn apply-filters
-  "Apply the 9-axis filter vocabulary to `events`. Pure data →
+  "Apply the 13-axis filter vocabulary to `events`. Pure data →
   vector; JVM-testable. Delegates to `trace-bus/filter-events` so
   the algebra stays in lockstep with the framework's canonical
   filter. Returns a vector in chronological order (oldest first)."
@@ -250,7 +250,7 @@
        :any-filter?       <bool>
        :empty-kind        <:no-events / :no-matches / nil>}
 
-  `events` is the raw trace-buffer. `filters` is the 9-axis filter
+  `events` is the raw trace-buffer. `filters` is the 13-axis filter
   map (per Spec 009 §Filter vocabulary).
 
   `:empty-kind` discriminates the two empty-state branches:

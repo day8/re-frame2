@@ -1363,12 +1363,11 @@
 
     ;; ---- Phase 5 (rf2-argrj) — Trace panel ------------------------------
     ;;
-    ;; The Trace panel is the UI consumer of the canonical 9-axis filter
+    ;; The Trace panel is the UI consumer of the canonical 13-axis filter
     ;; vocabulary documented in spec/009-Instrumentation.md §Filter
-    ;; vocabulary (rf2-97ah0). Where the Issues ribbon collapses the
-    ;; stream to issues only, this panel surfaces the raw stream so a
-    ;; programmer can grep across every op-type / operation / source /
-    ;; origin / frame / etc.
+    ;; vocabulary. Where the Issues ribbon collapses the stream to issues
+    ;; only, this panel surfaces the raw stream so a programmer can grep
+    ;; across every op-type / operation / source / origin / frame / etc.
     ;;
     ;; Shape of `:rf.causa/trace-feed`:
     ;;
@@ -1381,7 +1380,7 @@
     ;;      :any-filter?  <bool>
     ;;      :empty-kind   <:no-events / :no-matches / nil>}
 
-    ;; The current 9-axis filter map. Each axis is independent; the
+    ;; The current 13-axis filter map. Each axis is independent; the
     ;; helper's `normalise-filters` drops nil / empty values before
     ;; applying — the view sets axis = nil to clear an axis.
     (rf/reg-sub :rf.causa/trace-filters
