@@ -125,15 +125,25 @@
                  :font-family      "monospace"
                  :font-size        "11px"
                  :padding          "0"}
-   :tab         {:padding          "6px 14px"
-                 :cursor           "pointer"
-                 :color            "#b0b0b0"
-                 :background       "#2d2d30"
-                 :border           "none"
-                 :border-right     "1px solid #444"
-                 :font-family      "monospace"
-                 :font-size        "11px"
-                 :letter-spacing   "0.3px"}
+   ;; rf2-c4m8x: longhand-only border sides on every chip. The
+   ;; `:tab-active` overlay below adds a `:border-bottom`; mixing the
+   ;; shorthand `:border "none"` with longhand `:border-bottom` on the
+   ;; same React element across renders triggers React's reconcile
+   ;; warning ("Removing a style property during rerender (borderBottom)
+   ;; when a conflicting property is set (border) can lead to styling
+   ;; bugs"). Spell every side longhand so React reconciles a stable
+   ;; set of keys. Same shape as the trace.cljs fix in rf2-fq1yg.
+   :tab         {:padding             "6px 14px"
+                 :cursor              "pointer"
+                 :color               "#b0b0b0"
+                 :background          "#2d2d30"
+                 :border-top          "none"
+                 :border-right        "1px solid #444"
+                 :border-bottom       "none"
+                 :border-left         "none"
+                 :font-family         "monospace"
+                 :font-size           "11px"
+                 :letter-spacing      "0.3px"}
    :tab-active  {:color            "white"
                  :background       "#1e1e1e"
                  :border-bottom    "1px solid #1e1e1e"
