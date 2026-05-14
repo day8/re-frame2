@@ -4,29 +4,22 @@
   registrar side-table, schemas, extends resolution) live under
   `re-frame.story.<sub-ns>`.
 
-  This namespace re-exports the seven `reg-*` macros and the runtime
-  query helpers that Stage 3+ consume. Stage 2 (rf2-32dk) lands:
-
-  - `reg-story` / `reg-variant` / `reg-workspace` / `reg-mode` /
-    `reg-story-panel` / `reg-decorator` / `reg-tag` macros.
-  - `handlers` / `handler-meta` / `ids` query helpers (mirror of
-    re-frame.registrar's spec/001 public query API).
-  - `variants-of` / `variants-with-tags` lookup convenience.
-  - Programmatic helpers `reg-story*` / `reg-variant*` etc. for tooling
-    that synthesises registrations (the MCP write surface in v1.1
-    consumes these; Stage 7).
-
-  Stage 3 (rf2-von3) adds: `run-variant`, `reset-variant`,
-  `watch-variant`, `variant->edn`, `snapshot-identity`. Stage 2's
-  authoring surface stops at registration; the runtime is the next
-  layer.
+  This namespace re-exports the seven `reg-*` macros, the registry
+  query helpers (`handlers` / `handler-meta` / `ids` /
+  `variants-of` / `variants-with-tags`), the runtime entry points
+  (`run-variant` / `reset-variant` / `watch-variant` / `variant->edn` /
+  `snapshot-identity`), and the shell mount/unmount surface
+  (`mount-shell!` / `unmount-shell!` / `active-shell`, CLJS-only).
 
   ## Boot
 
   Call `(re-frame.story/install-canonical-vocabulary!)` once at app
   startup (typically from your `app.core` ns or your stories ns root)
-  to register the seven canonical tags. Without this, variants tagged
-  `:dev` / `:docs` / etc. will fail registration with `:rf.error/unknown-tag`.
+  to register the seven canonical tags, the runtime helpers, the
+  canonical `:rf.assert/*` event handlers, the built-in
+  `:rf.story/force-fx-stub` decorator, the lifecycle machine, and the
+  v1.0 SOTA panel set. Without this, variants tagged `:dev` / `:docs` /
+  etc. fail registration with `:rf.error/unknown-tag`.
 
   ## Elision
 
@@ -34,51 +27,37 @@
   ...)` wrapper. Production CLJS builds set
   `:closure-defines {re-frame.story.config/enabled? false}` and every
   registration form elides to `nil`. The public query helpers are plain
-  fns; production code calling them sees an empty side-table.
-
-  ## File contract
-
-  - `re-frame.story.macros` — macro-expansion helpers (`.clj` only).
-  - `re-frame.story.registrar` — the side-table + runtime helpers (`.cljc`).
-  - `re-frame.story.schemas` — Malli schemas (`.cljc`).
-  - `re-frame.story.extends` — `:extends` resolution (`.cljc`).
-  - `re-frame.story.config` — the compile-time `enabled?` flag (`.cljc`)."
-  (:require [re-frame.story.config    :as config]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.schemas   :as schemas]
-            ;; Stage 3 (rf2-von3) — runtime modules.
-            [re-frame.story.args      :as args]
-            [re-frame.story.decorators :as decorators]
-            [re-frame.story.identity  :as identity]
-            [re-frame.story.late-bind :as late-bind]
-            [re-frame.story.loaders   :as loaders]
-            [re-frame.story.frames    :as frames]
-            [re-frame.story.runtime   :as runtime]
-            ;; Stage 5 (rf2-h8et) — assertions + play + force-fx-stub.
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.fx-stubs  :as fx-stubs]
-            [re-frame.story.play      :as play]
-            ;; rf2-5fc15 — Test Codegen recorder. Pure-data state +
-            ;; snippet generator; the CLJS-only UI surface
-            ;; (`re-frame.story.ui.recorder`) wires the trace listener.
-            [re-frame.story.recorder  :as recorder]
-            ;; rf2-one3t — save-current-canvas-state-as-variant.
-            ;; Pure-data args snapshot + EDN-form code-gen; the CLJS-
-            ;; only UI surface (`re-frame.story.ui.save-variant`) wires
-            ;; the controls-panel button + modal dialog.
+  fns; production code calling them sees an empty side-table."
+  (:require [re-frame.story.config      :as config]
+            [re-frame.story.registrar   :as registrar]
+            [re-frame.story.schemas     :as schemas]
+            ;; Runtime modules — args resolution, decorators, snapshot
+            ;; identity, lifecycle / loader / frame helpers.
+            [re-frame.story.args        :as args]
+            [re-frame.story.decorators  :as decorators]
+            [re-frame.story.identity    :as identity]
+            [re-frame.story.late-bind   :as late-bind]
+            [re-frame.story.loaders     :as loaders]
+            [re-frame.story.frames      :as frames]
+            [re-frame.story.runtime     :as runtime]
+            ;; Assertions + play + force-fx-stub.
+            [re-frame.story.assertions  :as assertions]
+            [re-frame.story.fx-stubs    :as fx-stubs]
+            [re-frame.story.play        :as play]
+            ;; Test Codegen recorder (pure-data state + snippet generator).
+            [re-frame.story.recorder    :as recorder]
+            ;; save-current-canvas-state-as-variant (pure-data snapshot
+            ;; + EDN-form code-gen).
             [re-frame.story.save-variant :as save-variant]
-            ;; Stage 6 (rf2-zhwd) — SOTA features. layout-debug + share
-            ;; live in .cljc; multi-substrate / a11y / panels are
-            ;; CLJS-only so the JVM classpath stays lean.
+            ;; SOTA features — layout-debug + share live in .cljc;
+            ;; multi-substrate / a11y / panels are CLJS-only so the
+            ;; JVM classpath stays Reagent-free.
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.share        :as share]
-            ;; rf2-xi9zk: chrome-level toolbar's cofx + subscriptions
-            ;; (`:story/active-modes`, `:story/active-args`) — pure
-            ;; .cljc so the cofx are exercisable from JVM tests.
+            ;; Chrome-level toolbar's cofx + subs.
             [re-frame.story.ui.cofx      :as ui-cofx]
-            ;; Stage 4 (rf2-ekai) — UI shell. CLJS-only require so JVM
-            ;; consumers (tests, REPL exploration) don't pull Reagent /
-            ;; reagent.dom.client into their classpath.
+            ;; UI shell — CLJS-only require so JVM consumers don't pull
+            ;; Reagent / reagent.dom.client into their classpath.
             #?(:cljs [re-frame.story.ui.shell :as ui-shell])
             #?(:cljs [re-frame.story.ui.panels :as ui-panels])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
@@ -400,70 +379,53 @@
 
 ;; ---- canonical vocabulary boot ------------------------------------------
 
-(defn install-canonical-vocabulary!
-  "Install the seven canonical Story tags + the runtime's internal
-  helper events / lifecycle machine + the seven canonical `:rf.assert/*`
-  assertion handlers + the built-in `:rf.story/force-fx-stub` decorator.
-  Call this once at boot before any `reg-story` / `reg-variant` /
-  `run-variant` calls. Idempotent.
-
-  Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 the canonical seven
-  tags are registered by the Story library at load time — projects
-  don't have to. Per IMPL-SPEC §5.4 the lifecycle machine
-  (`:rf.story.lifecycle/machine`) is registered here too — without it
-  `run-variant` cannot drive the four-phase lifecycle.
-
-  Stage 5 (rf2-h8et) adds:
-  - The seven canonical `:rf.assert/*` event handlers.
-  - The built-in `:rf.story/force-fx-stub` decorator.
-  - The late-bound stub-event tap so emitted fx-ids reach the
-    assertion accumulator (for `:rf.assert/effect-emitted`).
-
-  Stage 6 (rf2-zhwd) adds:
-  - The three layout-debug decorators (`:rf.story/layout-debug.measure`
-    / `.outline` / `.pseudo`).
-  - The v1.0 built-in story panels: a11y, layout-debug toggles, and the
-    10x epoch panel STUB.
-  - The Reagent substrate is registered against the multi-substrate
-    grid renderer (so `:substrates #{:reagent ...}` works out of the box).
-
-  Project-specific tags must register via `reg-tag` *before* use; an
-  unregistered tag on a variant's `:tags` set raises `:rf.error/unknown-tag`."
+(defn- install-late-bind-shims!
+  "Wire the late-bound shims so the frames runtime can tap into the
+  assertion + play modules without a circular require. The hub lives in
+  `re-frame.story.late-bind` (mirroring the framework's pattern)."
   []
-  (registrar/install-canonical-tags!)
-  (loaders/install!)
-  (loaders/install-mirror-writer!)
-  (frames/install-helpers!)
-  (runtime/install-helpers!)
-  ;; Stage 5 — assertions + play + force-fx-stub.
-  (assertions/install-canonical-assertions!)
-  (fx-stubs/install-canonical-fx-stubs!)
-  ;; rf2-one3t — `:rf.story/save-current-as-variant` event handler.
-  ;; Registers a global event-fx handler so the save flow is
-  ;; dispatchable from agent / chrome surfaces alongside the controls-
-  ;; panel button.
-  (save-variant/install-canonical-event-handlers!)
-  ;; Wire the late-bound shims so the frames runtime can tap into the
-  ;; assertion module without a circular require. The hub lives in
-  ;; `re-frame.story.late-bind` (mirroring the framework's pattern).
   (late-bind/set-fn! :tap-stub-event fx-stubs/tap-stub-event!)
   (late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
       (assertions/drop-trace-accumulators! frame-id)
-      (play/drop-pending-exceptions! frame-id)))
-  ;; Stage 6 — SOTA features.
-  ;; Layout-debug decorators register on both JVM and CLJS (the .cljc
-  ;; module declares the three :hiccup-kind decorators against the
-  ;; story registrar).
-  (layout-debug/install-canonical-layout-debug!)
-  ;; rf2-xi9zk — chrome-level toolbar's cofx + subs. Register the
-  ;; `:story/active-modes` and `:story/active-args` coeffect handlers +
-  ;; matching subscriptions backed by the shell-state-atom.
-  (ui-cofx/install-canonical-cofx!)
-  ;; CLJS-only Stage 6 surfaces: multi-substrate Reagent default +
-  ;; the v1.0 panel set.
-  #?(:cljs (ui-multi-substrate/install-reagent-substrate!))
-  #?(:cljs (ui-panels/install-canonical-panels!)))
+      (play/drop-pending-exceptions! frame-id))))
+
+(def ^:private canonical-installers
+  "Ordered vector of installer fns invoked by `install-canonical-vocabulary!`.
+  Each takes zero args and is idempotent. The CLJS-only Stage 6 surfaces
+  (multi-substrate Reagent default + the v1.0 panel set) gate on the
+  reader so the JVM classpath stays Reagent-free."
+  [registrar/install-canonical-tags!
+   loaders/install!
+   loaders/install-mirror-writer!
+   frames/install-helpers!
+   runtime/install-helpers!
+   assertions/install-canonical-assertions!
+   fx-stubs/install-canonical-fx-stubs!
+   save-variant/install-canonical-event-handlers!
+   install-late-bind-shims!
+   layout-debug/install-canonical-layout-debug!
+   ui-cofx/install-canonical-cofx!
+   #?@(:cljs [ui-multi-substrate/install-reagent-substrate!
+              ui-panels/install-canonical-panels!])])
+
+(defn install-canonical-vocabulary!
+  "Install the canonical Story tags, runtime helpers, lifecycle machine,
+  `:rf.assert/*` assertion handlers, built-in `:rf.story/force-fx-stub`
+  decorator, layout-debug decorator trio, toolbar cofx + subs, and the
+  v1.0 SOTA panel set (CLJS only).
+
+  Call this once at boot before any `reg-story` / `reg-variant` /
+  `run-variant` calls. Idempotent.
+
+  Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 / §5.4 the canonical
+  vocabulary is registered by the Story library at load time — projects
+  don't have to. Project-specific tags must register via `reg-tag`
+  *before* use; an unregistered tag on a variant's `:tags` set raises
+  `:rf.error/unknown-tag`."
+  []
+  (doseq [install! canonical-installers]
+    (install!)))
 
 ;; ---- configure! ---------------------------------------------------------
 
@@ -488,8 +450,7 @@
   hint. Set to `true` while debugging redaction policy to see the raw
   cascade.
 
-  Other keys are accepted for forward compatibility but ignored at
-  Stage 3."
+  Unrecognised keys are accepted (for forward compat) but ignored."
   [{:keys [global-args editor]
     show-sensitive? :trace/show-sensitive?
     :as opts}]
@@ -772,25 +733,10 @@
   config/static-mode?)
 
 (def stage
-  "Sentinel that names which Stage's surface is loaded.
-
-  - Stage 2 — `:authoring` (registration macros only).
-  - Stage 3 — `:runtime` (adds `run-variant` family, decorator
-    composition, args resolution, snapshot-identity, lifecycle).
-  - Stage 4 — `:render-shell` (adds `mount-shell!` / `unmount-shell!`,
-    the sidebar / canvas / scrubber / trace panes, hot-reload trigger).
-  - Stage 5 — `:assertions+play` (adds the seven `:rf.assert/*` event
-    handlers, play sequence execution wired into `run-variant`, the
-    built-in `:rf.story/force-fx-stub` decorator, `assertions-passing?`,
-    and the non-default `:loaders-complete-when` forms).
-  - Stage 6 — `:sota-features` (adds the layout-debug decorator trio,
-    per-variant QR share, multi-substrate side-by-side renderer, the
-    a11y / layout-debug / 10x-epoch story panels, and the
-    `reg-story-panel` contract documented in IMPL-SPEC §4.5).
-  - Stage 7+ extends — MCP, examples + guide.
-
-  Tools that adapt to the loaded surface read this; agents can ask
-  the runtime which Stage is live."
+  "Sentinel naming the loaded feature surface. Read by tools that
+  adapt to which Story surface is live; v1.0 is `:sota-features` —
+  every public surface (authoring + runtime + render-shell +
+  assertions+play + sota-features) is present."
   :sota-features)
 
 ;; ---- Stage 4 (rf2-ekai) UI shell mount / unmount surface ----------------
