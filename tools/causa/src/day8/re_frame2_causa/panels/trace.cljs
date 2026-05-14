@@ -3,7 +3,7 @@
 
   Per `tools/causa/spec/000-Vision.md` L89 (panel-inventory row) the
   Trace panel is the raw-event ribbon — every trace event in the
-  buffer renders as one timestamped row, filterable along the 9-axis
+  buffer renders as one timestamped row, filterable along the 13-axis
   vocabulary documented in `spec/009-Instrumentation.md` §Filter
   vocabulary. Where the Issues ribbon collapses the stream to
   issues only, this panel surfaces every op-type so a programmer
