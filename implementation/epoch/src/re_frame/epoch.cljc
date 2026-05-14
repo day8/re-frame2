@@ -50,13 +50,31 @@
   (atom {:depth default-depth}))
 
 (defn configure!
-  "Update the epoch-history configuration. Currently supports {:depth N}.
-  N must be a non-negative integer; 0 disables recording (assembled
-  records can still fire on listeners but nothing lands in the ring
-  buffer)."
+  "Update the epoch-history configuration. Supported keys:
+
+    :depth              N — non-negative integer; ring-buffer depth
+                        per frame. 0 disables recording (assembled
+                        records can still fire on listeners but
+                        nothing lands in the ring buffer).
+    :trace-events-keep  N — non-negative integer; cap how many of
+                        the MOST-RECENT records per frame retain
+                        their raw `:trace-events` vector. Older
+                        records keep the cheap structured
+                        projections (`:sub-runs` / `:renders` /
+                        `:effects`) but drop `:trace-events` to
+                        bound memory. Per Spec-Schemas
+                        §`:rf/epoch-record` line 2224
+                        (`:trace-events` is optional —
+                        'implementations may choose to drop traces
+                        from older epochs') and refactor-audit r2
+                        (rf2-lwn4t) §F3.1.
+
+  Absent / nil `:trace-events-keep` keeps every record's
+  `:trace-events` slot (the default, pre-rf2-iegsz behaviour);
+  the cap kicks in only when explicitly configured."
   [opts]
   (when (map? opts)
-    (swap! config merge (select-keys opts [:depth])))
+    (swap! config merge (select-keys opts [:depth :trace-events-keep])))
   nil)
 
 (defn current-config
@@ -68,6 +86,9 @@
 (defn- depth []
   (:depth @config default-depth))
 
+(defn- trace-events-keep []
+  (:trace-events-keep @config))
+
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
 ;; Per Tool-Pair §Time-travel "Bounded history": last N epochs per frame.
@@ -78,22 +99,43 @@
 (defonce ^:private histories
   (atom {}))
 
-(defn- append-record [history record d]
+(defn- elide-older-trace-events
+  "Strip the `:trace-events` vector from records older than the most-
+  recent `keep` entries. Records keep their structured projections
+  (`:sub-runs` / `:renders` / `:effects`) but lose the raw trace
+  stream. nil `keep` means 'keep every record's :trace-events'."
+  [history keep]
+  (if (and (some? keep) (nat-int? keep))
+    (let [n        (count history)
+          boundary (max 0 (- n keep))]
+      (if (zero? boundary)
+        history
+        (into [] (map-indexed (fn [i r]
+                                (if (< i boundary)
+                                  (dissoc r :trace-events)
+                                  r)))
+              history)))
+    history))
+
+(defn- append-record [history record d keep]
   (let [history+ (conj (or history []) record)
-        n        (count history+)]
-    (if (and (pos? d) (> n d))
-      (subvec history+ (- n d))
-      history+)))
+        n        (count history+)
+        capped   (if (and (pos? d) (> n d))
+                   (subvec history+ (- n d))
+                   history+)]
+    (elide-older-trace-events capped keep)))
 
 (defn- record!
-  "Append a record into the frame's history. The depth cap is read from
-  the config atom on each append so runtime (rf/configure ...) takes
-  effect immediately."
+  "Append a record into the frame's history. The depth cap and the
+  `:trace-events-keep` cap are read from the config atom on each
+  append so runtime `(rf/configure :epoch-history ...)` takes effect
+  immediately."
   [record]
-  (let [d (depth)]
+  (let [d    (depth)
+        keep (trace-events-keep)]
     (when (pos? d)
       (let [frame-id (:frame record)]
-        (swap! histories update frame-id append-record record d)))))
+        (swap! histories update frame-id append-record record d keep)))))
 
 (defn epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
