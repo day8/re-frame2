@@ -418,11 +418,21 @@
   nil)
 
 (defn reset-flows!
-  "Test-only: clear the per-frame flow registry. Pairs with
-  `reset-last-inputs!` for the test-fixture reset bracket. Per
-  rf2-tfw3 — exposed via the late-bind hook table so
-  `re-frame.test-support` can reset state without a static require on
-  this namespace."
+  "Test-only: clear the per-frame flow registry AND the paired
+  dirty-check `last-inputs` map. Per rf2-tfw3 — exposed via the
+  late-bind hook table so `re-frame.test-support` can reset state
+  without a static require on this namespace.
+
+  Per rf2-mb65w: resets BOTH atoms in lockstep. Pre-fix, the function
+  cleared only `flows` and left `last-inputs` standing. A test fixture
+  / pair2 / Causa harness calling `reset-flows!` standalone (the
+  function's name suggests \"reset all flow state\") then re-registered
+  the same flow-id would silently no-op the first evaluation when
+  new-inputs `=`-equalled a leftover entry. The two-atom reset is the
+  single sound invariant — anything calling `reset-flows!` wants flow
+  state cleared, and `last-inputs` is downstream cache for the same
+  registry."
   []
   (reset! flows {})
+  (reset! last-inputs {})
   nil)

@@ -673,6 +673,57 @@
     (is (nil? (registrar/lookup :flow :one)))
     (is (nil? (registrar/lookup :flow :two)))))
 
+(deftest reset-flows-clears-both-flows-and-last-inputs
+  ;; Per rf2-mb65w. `reset-flows!` must reset BOTH the flow registry
+  ;; AND the dirty-check `last-inputs` map. Pre-fix it cleared only
+  ;; `flows`; a fixture / harness calling `reset-flows!` standalone
+  ;; then re-registering the same flow-id would silently no-op the
+  ;; first evaluation when new-inputs =-equalled a leftover entry.
+  (testing "reset-flows! drops both flow registry AND last-inputs in lockstep"
+    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:doubled]})
+    (rf/dispatch-sync [:init])
+    (is (= 10 (:doubled (rf/get-frame-db :rf/default)))
+        "flow evaluated; last-inputs row populated for [:double :rf/default]")
+    (let [li-var (resolve 're-frame.flows/last-inputs)]
+      (is (some? (get-in @(deref li-var) [:double :rf/default]))
+          "last-inputs has the dirty-check entry before reset")
+      (flows/reset-flows!)
+      (is (empty? @flows/flows)
+          "flow registry is empty after reset-flows!")
+      (is (empty? @(deref li-var))
+          "last-inputs is ALSO empty after reset-flows! (rf2-mb65w)"))))
+
+(deftest reset-flows-allows-re-registration-without-stale-skip
+  ;; The footgun: re-register the same flow id with the same inputs
+  ;; after a `reset-flows!`. Pre-fix, the stale `last-inputs` entry
+  ;; would =-equal new inputs and the first drain would silently emit
+  ;; `:rf.flow/skip` instead of `:rf.flow/computed` — the new body
+  ;; never ran.
+  (testing "after reset-flows! the re-registered flow re-evaluates on next drain"
+    (let [calls (atom 0)]
+      (rf/reg-event-db :init (fn [_ _] {:n 5}))
+      ;; First registration + drain — populates last-inputs.
+      (rf/reg-flow {:id     :double
+                    :inputs [[:n]]
+                    :output (fn [n] (swap! calls inc) (* 2 n))
+                    :path   [:doubled]})
+      (rf/dispatch-sync [:init])
+      (is (= 1 @calls) "flow body ran on the first drain")
+      ;; Reset BOTH atoms via the public reset-flows! — then re-register
+      ;; the IDENTICAL flow against the IDENTICAL inputs.
+      (flows/reset-flows!)
+      (rf/reg-flow {:id     :double
+                    :inputs [[:n]]
+                    :output (fn [n] (swap! calls inc) (* 2 n))
+                    :path   [:doubled]})
+      (rf/dispatch-sync [:init])
+      (is (= 2 @calls)
+          "after reset-flows! the freshly-registered flow evaluates again — last-inputs was cleared so no stale skip"))))
+
 (deftest reset-flows-atom-clears-per-frame-state
   (testing "resetting flows/flows clears the per-frame registry; reg-flow repopulates fresh"
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
