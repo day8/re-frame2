@@ -265,8 +265,8 @@
     (is (= [[:c] [:a] [:b]] (get s1 :rf/default))
         "user-supplied permutation overwrites the previous order")))
 
-(deftest pins-for-frame-defaults-to-empty
-  (is (= [] (h/pins-for-frame {} :rf/default))))
+(deftest slice-pins-for-frame-defaults-to-empty
+  (is (= [] (h/slice-pins-for-frame {} :rf/default))))
 
 (deftest live-pinned-slices-derefs-against-current-db
   (testing "live-pinned-slices projects per-pin :path + current :value"
