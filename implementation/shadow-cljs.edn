@@ -22,7 +22,12 @@
 ;; implementation/adapters/<name>/ (renamed from substrates/ per
 ;; rf2-0imy); per-feature artefacts (schemas, machines, ...) stay flat
 ;; under implementation/<name>/.
-{:source-paths ["core/src"
+{:source-paths [;; rf2-try1x — silent-on-success reporter source (CLJC).
+                ;; Defines re-frame.test-quiet (the cljs.test/report
+                ;; defmethod overrides) and re-frame.test-quiet.shadow-node
+                ;; (the :node-test runner wired via :main above).
+                "test-quiet/src"
+                "core/src"
                 "core/test"
                 "adapters/reagent/src"
                 "adapters/reagent/test"
@@ -103,6 +108,12 @@
   {:target    :node-test
    :output-to "out/node-test.js"
    :ns-regexp "cljs-test$"
+   ;; rf2-try1x — silent-on-success reporter. Custom runner installs
+   ;; the cljs.test/report defmethod overrides before discovery. Source
+   ;; ns lives at
+   ;; ../test-quiet/src/re_frame/test_quiet/shadow_node.cljs and is
+   ;; on the classpath via the source-paths list below.
+   :main      re-frame.test-quiet.shadow-node/main
    :compiler-options {:warnings {:redef false}}}
 
   :browser-test
