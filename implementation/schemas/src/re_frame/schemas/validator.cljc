@@ -74,6 +74,13 @@
   (when-let [e (late-bind/get-fn :schemas/malli-explain)]
     (e schema value)))
 
+(defn- compare-by-pr-str
+  "Spec 010 §Digest algorithm step 1 ordering — total order on EDN
+  values via `(compare (pr-str a) (pr-str b))`. Stable across runtimes
+  because `pr-str` over EDN is a syntactic projection."
+  [a b]
+  (compare (pr-str a) (pr-str b)))
+
 (defn- canonicalise-schema-form
   "Per Spec 010 §Digest algorithm step 1 — normalise a schema EDN form for
   stable byte serialisation: metadata is stripped, and map keys are
@@ -82,21 +89,18 @@
   Sequences and vectors recurse element-wise. Non-collection values
   pass through unchanged."
   [form]
-  (letfn [(canon [x]
-            (cond
-              (map? x)
-              (into (sorted-map-by (fn [a b]
-                                     (compare (pr-str a) (pr-str b))))
-                    (map (fn [[k v]] [(canon k) (canon v)]))
-                    x)
-              (vector? x) (mapv canon x)
-              (set? x)    (into (sorted-set-by (fn [a b]
-                                                 (compare (pr-str a) (pr-str b))))
-                                (map canon)
-                                x)
-              (seq? x)    (doall (map canon x))
-              :else       x))]
-    (canon form)))
+  (cond
+    (map? form)    (into (sorted-map-by compare-by-pr-str)
+                         (map (fn [[k v]]
+                                [(canonicalise-schema-form k)
+                                 (canonicalise-schema-form v)]))
+                         form)
+    (vector? form) (mapv canonicalise-schema-form form)
+    (set? form)    (into (sorted-set-by compare-by-pr-str)
+                         (map canonicalise-schema-form)
+                         form)
+    (seq? form)    (doall (map canonicalise-schema-form form))
+    :else          form))
 
 (defn default-edn-print
   "The default schema-print companion (rf2-wla45). Per Spec 010 §Schema

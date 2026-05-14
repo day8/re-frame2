@@ -25,8 +25,8 @@
       the client compares its own digest at hydrate time.
     - Pair tools — flag attached REPL sessions whose runtime schemas
       have shifted under them."
-  (:require #?(:cljs [goog.crypt :as gcrypt])
-            #?(:cljs [goog.crypt.Sha256])
+  (:require #?@(:cljs [[goog.crypt :as gcrypt]
+                       [goog.crypt.Sha256]])
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validator :as validator])
   #?(:clj (:import [java.security MessageDigest]
