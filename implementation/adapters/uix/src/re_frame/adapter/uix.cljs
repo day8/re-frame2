@@ -67,7 +67,12 @@
   React context, or `:rf/default` when no frame-provider sits above.
   Decision 2 mandates every React-shaped adapter resolves the same
   context, so a UIx subtree under a Reagent frame-provider sees the
-  right frame and vice versa."
+  right frame and vice versa.
+
+  React-context tier only. For the full resolution chain
+  (dynamic-var → React-context → :rf/default) use `(rf/current-frame)`;
+  the routed `:adapter/current-frame` hook (registered below) covers
+  that chain. Per rf2-84myk."
   (:use-current-frame spine-fns))
 
 (def frame-provider
@@ -159,10 +164,12 @@
 ;;   :adapter/current-frame  — rf2-d4sf. UIx renders function
 ;;     components — they have no class-component (.-context cmp) slot,
 ;;     so the shared impl in `re-frame.adapter.context` reads
-;;     `_currentValue` directly. UIx's own `use-current-frame` hook is
-;;     sugar over the same read, so subscribe / dispatch and
-;;     `use-context` agree on the active frame. Chain-bottom fallback
-;;     is `frame/current-frame`.
+;;     `_currentValue` directly. The chain-bottom fallback
+;;     `frame/current-frame` covers the dynamic-var tier of the full
+;;     resolution chain (per rf2-84myk: this hook is the WIDER surface
+;;     — `(rf/current-frame)` reaches it; the per-adapter
+;;     `use-current-frame` hook above is the NARROWER React-context-
+;;     tier-only read).
 ;;   :adapter/ratom etc. — rf2-s36l. UIx's derived values reify stock
 ;;     reagent.ratom/IDisposable directly, so these hooks delegate to
 ;;     stock Reagent's r/atom, ratom/make-reaction, etc. UIx itself
