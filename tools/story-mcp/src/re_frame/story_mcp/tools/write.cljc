@@ -38,6 +38,36 @@
            "should leave it off.")
       {:gated true :tool tool-name})))
 
+(defn- coerce-body
+  "Normalise the `:body` arg to a Clojure map, or return one of two
+  sentinel keywords on parse / shape failure:
+
+    `::edn-error` — `:body` was a string but `edn/read-string` threw.
+    `::not-a-map` — `:body` was not a map nor a map-string."
+  [body]
+  (cond
+    (map? body)    body
+    (string? body) (try (let [v (edn/read-string body)]
+                          (if (map? v) v ::not-a-map))
+                        (catch Throwable _ ::edn-error))
+    :else          ::not-a-map))
+
+(defn- register-or-error
+  "Invoke `reg-variant*` with `:origin` stamped. Returns the success
+  result, or an `error-result` wrapping the registrar's throw."
+  [vk body-v]
+  (try
+    ;; Stamp `:origin :story-mcp` per spec/Cross-Cutting-Designs.md §5
+    ;; — every write surface tags its writes so post-mortem queries
+    ;; can identify which actor produced the registration.
+    (let [id      (story/reg-variant* vk (assoc body-v :origin config/origin))
+          payload {:variant-id id :registered? true}]
+      (h/text-result (h/pr-edn payload) payload))
+    (catch Throwable e
+      (h/error-result (str "Registration failed: " (ex-message e))
+                      (merge {:variant-id vk}
+                             (select-keys (ex-data e) [:rf.error :explain]))))))
+
 (defn tool-register-variant
   "Write: programmatically register a variant. Gated behind
   `allow-writes?` per IMPL-SPEC §7.3.
@@ -46,44 +76,26 @@
     :variant-id  required — `:story.<path>/<variant>` keyword id.
     :body        required — the variant body (a map; will be read as
                  EDN via `clojure.edn/read-string` if a string is sent
-                 over the wire)."
+                 over the wire).
+
+  Pipeline (short-circuits at the first error-result):
+
+    gate → required-arg :variant-id → required-arg :body →
+    coerce-body → reg-variant* + stamp :origin."
   [arguments]
   (or (assert-writes-allowed "register-variant")
-      (let [[vid e1] (h/required-arg arguments :variant-id)
-            [body e2] (h/required-arg arguments :body)]
-        (cond
-          e1 e1
-          e2 e2
-          :else
-          (let [vk      (args/parse-keyword vid)
-                body-v  (cond
-                          (map? body)    body
-                          (string? body) (try
-                                           (edn/read-string body)
-                                           (catch Throwable _
-                                             ::edn-error))
-                          :else          nil)]
-            (cond
-              (= body-v ::edn-error)
-              (h/error-result (str "Could not parse :body as EDN. Send a map or a valid EDN string."))
+      (let [[vid err-vid]   (h/required-arg arguments :variant-id)
+            [body err-body] (when-not err-vid (h/required-arg arguments :body))]
+        (or err-vid err-body
+            (let [body-v (coerce-body body)]
+              (case body-v
+                ::edn-error
+                (h/error-result ":body must be a map or a valid EDN string.")
 
-              (not (map? body-v))
-              (h/error-result (str ":body must be a map; got " (some-> body-v class .getName)))
+                ::not-a-map
+                (h/error-result (str ":body must be a map; got " (some-> body class .getName)))
 
-              :else
-              (try
-                ;; Stamp `:origin :story-mcp` per
-                ;; spec/Cross-Cutting-Designs.md §5 — every write
-                ;; surface tags its writes so post-mortem queries can
-                ;; identify which actor produced the registration.
-                (let [stamped (assoc body-v :origin config/origin)
-                      id      (story/reg-variant* vk stamped)]
-                  (let [payload {:variant-id id :registered? true}]
-                    (h/text-result (h/pr-edn payload) payload)))
-                (catch Throwable e
-                  (h/error-result (str "Registration failed: " (ex-message e))
-                                  (merge {:variant-id vk}
-                                         (select-keys (ex-data e) [:rf.error :explain])))))))))))
+                (register-or-error (args/parse-keyword vid) body-v)))))))
 
 (defn tool-unregister-variant
   "Write: programmatically unregister a variant. Gated behind

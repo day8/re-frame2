@@ -5,8 +5,7 @@
 
   `story-instructions-text` ships inline as a single string to keep
   this jar self-contained — no external resource read needed at boot."
-  (:require [re-frame.mcp-base.args :as args]
-            [re-frame.story :as story]
+  (:require [re-frame.story :as story]
             [re-frame.story.async :as async]
             [re-frame.story-mcp.tools.helpers :as h]
             [re-frame.story-mcp.tools.schemas :as s]))
@@ -79,12 +78,7 @@
   [args]
   (h/with-variant args
     (fn [vk _body]
-      (let [opts       (cond-> {}
-                         (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
-                         (some? (:active-modes args)) (assoc :active-modes
-                                                             (mapv args/parse-keyword (:active-modes args)))
-                         (some? (:cell-overrides args)) (assoc :cell-overrides
-                                                               (:cell-overrides args)))
+      (let [opts       (h/read-run-opts args)
             base-url   (or (:base-url args) "")
             share-url  (story/variant-share-url vk base-url opts)
             result     (try

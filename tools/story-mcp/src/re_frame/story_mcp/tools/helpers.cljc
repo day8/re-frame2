@@ -110,6 +110,23 @@
       [nil (error-result (str "Missing required argument: " (name k)))]
       [v nil])))
 
+(defn read-run-opts
+  "Build the `re-frame.story/run-variant` opts map from the standard MCP
+  arg slots (`:substrate`, `:active-modes`, `:cell-overrides`). Each
+  slot lands only when present, so the resulting map is the minimal
+  shape `run-variant` / `snapshot-identity` / `variant-share-url`
+  expect.
+
+  Shared by `tool-preview-variant`, `tool-run-variant`, and
+  `tool-snapshot-identity` (the latter omits `:cell-overrides`, but
+  the absent-slot-not-present rule keeps the helper general)."
+  [arguments]
+  (cond-> {}
+    (some? (:substrate arguments))      (assoc :substrate (args/parse-keyword (:substrate arguments)))
+    (some? (:active-modes arguments))   (assoc :active-modes
+                                               (mapv args/parse-keyword (:active-modes arguments)))
+    (some? (:cell-overrides arguments)) (assoc :cell-overrides (:cell-overrides arguments))))
+
 (defn with-variant
   "Resolve `:variant-id` from `arguments` (required), parse it as a
   keyword, and probe `story/variant->edn` for the body. When both

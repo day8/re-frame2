@@ -38,6 +38,33 @@
   #?(:clj  (System/currentTimeMillis)
      :cljs (.now js/Date)))
 
+(defn- write-back!
+  "Re-register the target variant with the captured `:play` body.
+  Preserves the source variant's existing body keys (so `:component`,
+  `:args`, `:decorators` survive) and overwrites `:play` with the
+  captured `events`. Stamps `:origin :story-mcp` per
+  `spec/Cross-Cutting-Designs.md §5` — the write-back produces a new
+  variant body and the origin tag identifies the MCP write surface as
+  its producer.
+
+  Returns the structured success result on the happy path, or an
+  `error-result` whose `:structuredContent` merges the base recorder
+  payload, the failure flag, and the registrar's `ex-data`."
+  [base body events target-vid]
+  (try
+    (let [id      (story/reg-variant*
+                    target-vid
+                    (assoc body :play events :origin config/origin))
+          payload (assoc base :written-back? true :new-variant-id id)]
+      (h/text-result (h/pr-edn payload) payload))
+    (catch #?(:clj Throwable :cljs :default) e
+      (h/error-result (str "Write-back failed: " (ex-message e))
+                      (merge base
+                             {:written-back?  false
+                              :new-variant-id target-vid}
+                             (select-keys (ex-data e)
+                                          [:rf.error :explain]))))))
+
 (defn tool-record-as-variant
   "Dev (or Write when `:write-back?` is true): bridge the recorder's
   start → capture → snippet pipeline across the MCP boundary.
@@ -91,58 +118,32 @@
   [arguments]
   (h/with-variant arguments
     (fn [vk body]
-      (let [write-back? (args/parse-boolean (:write-back? arguments) false)
-            gate-err    (when write-back? (write/assert-writes-allowed "record-as-variant"))]
-        (if gate-err gate-err
-          (let [duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)
-                new-vid     (some-> (:new-variant-id arguments) args/parse-keyword)
-                target-vid  (or new-vid vk)
-                doc         (:doc arguments)
-                extends     (or (some-> (:extends arguments) args/parse-keyword) vk)
-                alias-arg   (:alias arguments)
-                started     (now-ms)
-                _           (story/start-recording! vk)
-                _           (sleep-ms duration-ms)
-                final-state (story/stop-recording!)
-                actual-ms   (- (now-ms) started)
-                events      (vec (:events final-state))
-                snippet-opts (cond-> {:variant-id target-vid
-                                      :extends    extends}
-                               (string? doc)       (assoc :doc doc)
-                               (string? alias-arg) (assoc :alias alias-arg))
-                snippet     (story/gen-play-snippet events snippet-opts)
-                base-payload {:variant-id           vk
-                              :play-snippet         snippet
-                              :recorded-event-count (count events)
-                              :duration-ms          actual-ms
-                              :captured             events
-                              :written-back?        false}]
-            (if-not write-back?
-              (h/text-result (h/pr-edn base-payload) base-payload)
-              ;; Write-back: re-register the target variant with the
-              ;; captured :play body. We preserve the source variant's
-              ;; existing body keys (so :component, :args, :decorators
-              ;; survive) and overwrite :play with the captured events.
-              ;; Stamp `:origin :story-mcp` per
-              ;; spec/Cross-Cutting-Designs.md §5 — the write-back
-              ;; produces a new variant body, and the origin tag
-              ;; identifies the MCP write surface as its producer.
-              (try
-                (let [new-body (-> body
-                                   (assoc :play events)
-                                   (assoc :origin config/origin))
-                      id       (story/reg-variant* target-vid new-body)
-                      payload  (assoc base-payload
-                                      :written-back?   true
-                                      :new-variant-id  id)]
-                  (h/text-result (h/pr-edn payload) payload))
-                (catch #?(:clj Throwable :cljs :default) e
-                  (h/error-result (str "Write-back failed: " (ex-message e))
-                                  (merge base-payload
-                                         {:written-back? false
-                                          :new-variant-id target-vid}
-                                         (select-keys (ex-data e)
-                                                      [:rf.error :explain]))))))))))))
+      (let [write-back? (args/parse-boolean (:write-back? arguments) false)]
+        (or (when write-back? (write/assert-writes-allowed "record-as-variant"))
+            (let [duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)
+                  target-vid  (or (some-> (:new-variant-id arguments) args/parse-keyword) vk)
+                  extends     (or (some-> (:extends arguments) args/parse-keyword) vk)
+                  doc         (:doc arguments)
+                  alias-arg   (:alias arguments)
+                  started     (now-ms)
+                  _           (story/start-recording! vk)
+                  _           (sleep-ms duration-ms)
+                  final-state (story/stop-recording!)
+                  events      (vec (:events final-state))
+                  snippet     (story/gen-play-snippet
+                                events
+                                (cond-> {:variant-id target-vid :extends extends}
+                                  (string? doc)       (assoc :doc doc)
+                                  (string? alias-arg) (assoc :alias alias-arg)))
+                  base        {:variant-id           vk
+                               :play-snippet         snippet
+                               :recorded-event-count (count events)
+                               :duration-ms          (- (now-ms) started)
+                               :captured             events
+                               :written-back?        false}]
+              (if-not write-back?
+                (h/text-result (h/pr-edn base) base)
+                (write-back! base body events target-vid))))))))
 
 (def descriptors
   "Registry descriptors for the recorder's MCP surface — the single
