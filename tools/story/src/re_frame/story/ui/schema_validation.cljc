@@ -74,6 +74,7 @@
   `:rf.story.panel/schema-validation-view`, registered against the
   framework view registry."
   (:require [clojure.string :as str]
+            [re-frame.story.malli-schema-utils :as msu]
             #?@(:cljs [[reagent.core              :as r]
                        [re-frame.core             :as rf]
                        [re-frame.late-bind        :as late-bind]
@@ -156,30 +157,15 @@
 
 ;; ---- pure: Malli walk over `:map` schemas ------------------------------
 ;;
-;; Mirrors the helpers in `re-frame.story.ui.controls` — but kept
-;; in-namespace so this file stands on its own under the JVM test
-;; target.
+;; Canonical helpers live in `re-frame.story.malli-schema-utils` (a pure
+;; leaf ns shared with `controls`). Aliased privately here so in-file
+;; call sites stay textually identical.
 
-(defn- properties? [x] (map? x))
-
-(defn- schema-op [s] (when (vector? s) (first s)))
-
-(defn- schema-children
-  "Return the child schemas of a vector schema, skipping the optional
-  properties map."
-  [s]
-  (when (vector? s)
-    (let [r (rest s)]
-      (if (properties? (first r)) (rest r) r))))
-
-(defn- map-entry-key   [entry] (first entry))
-
-(defn- map-entry-schema
-  [entry]
-  (let [r (rest entry)]
-    (if (properties? (first r))
-      (second r)
-      (first r))))
+(def ^:private properties?      msu/properties?)
+(def ^:private schema-op        msu/schema-op)
+(def ^:private schema-children  msu/schema-children)
+(def ^:private map-entry-key    msu/map-entry-key)
+(def ^:private map-entry-schema msu/map-entry-schema)
 
 (defn map-schema?
   "True iff `schema` is a Malli `[:map ...]` vector form. The arg-
