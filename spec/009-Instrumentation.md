@@ -114,9 +114,9 @@ Additional values for re-frame2 concerns:
     | `:reason` | Emitted by | Meaning |
     |---|---|---|
     | `:parent-frame-destroyed` | `frame.cljc` (`destroy-frame!`) | The actor's owning frame was destroyed; its snapshot was reaped as part of the frame-exit cascade. |
-    | `:rf.machine/finished` | `lifecycle_fx.cljc` | The actor reached a `:final?` state and the runtime auto-destroyed it after firing the parent's `:on-done`. |
-    | `:explicit` | `lifecycle_fx.cljc` | The actor was destroyed by an explicit `[:rf.machine/destroy <id>]` fx. |
-    | `:parent-unmount-cascade` | `lifecycle_fx.cljc` | The actor was a spawned child whose parent state exited (per [005 §Cancellation cascade](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts)). |
+    | `:rf.machine/finished` | `lifecycle_fx/finalize.cljc` | The actor reached a `:final?` state and the runtime auto-destroyed it after firing the parent's `:on-done`. |
+    | `:explicit` | `lifecycle_fx/destroy.cljc` | The actor was destroyed by an explicit `[:rf.machine/destroy <id>]` fx. |
+    | `:parent-unmount-cascade` | `lifecycle_fx/destroy.cljc` | The actor was a spawned child whose parent state exited (per [005 §Cancellation cascade](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts)). |
 
     The enum is open per [§`:tags` is the open-ended bag](#tags-is-the-open-ended-bag); future causes are additive.
 - `:rf.frame/drain-interrupted` — lifecycle event emitted by `router.cljc` when the drain loop detects `(:destroyed? (:lifecycle frame))` mid-cycle and drops remaining queued events. `:op-type :frame` (the frame-lifecycle family — see `:frame/created` / `:frame/destroyed` siblings; **not** `:op-type :event`, which is reserved for "an event was dispatched"). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning).

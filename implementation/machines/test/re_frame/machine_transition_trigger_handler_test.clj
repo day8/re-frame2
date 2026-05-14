@@ -5,7 +5,7 @@
   handler's execution scope carries the in-scope handler's registration
   coord under the top-level `:rf.trace/trigger-handler` slot. Machines
   register as event handlers via `reg-event-fx` (per
-  `reg-machine*` in `lifecycle_fx.cljc`), so when a machine transition
+  `reg-machine*` in `lifecycle_fx/registration.cljc`), so when a machine transition
   trace fires inside the machine's event-handler scope it picks up the
   machine's own registration coord via `emit!`'s hoist of
   `*current-trigger-handler*`.

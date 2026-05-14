@@ -14,10 +14,10 @@
   The fx vectors built here name `:rf.machine/spawn`,
   `:rf.machine/destroy`, `:rf.machine/invoke-all-init`,
   `:rf.machine/after-schedule`, and `:rf.machine/after-cancel`; the
-  actual fx handlers live in `re-frame.machines.lifecycle-fx` and
-  `re-frame.machines.timer`. This namespace stays effect-free so it
-  can be loaded and exercised on the JVM by the conformance fixtures
-  (Spec 005 §Conformance fixtures)."
+  actual fx handlers live in `re-frame.machines.lifecycle-fx.{spawn,
+  destroy,registration}` and `re-frame.machines.timer`. This namespace
+  stays effect-free so it can be loaded and exercised on the JVM by
+  the conformance fixtures (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.result :as result
@@ -809,7 +809,7 @@
   parent is `:final?` only when EVERY region's active leaf is `:final?`.
   This fn answers the per-state question; the parallel-region union is
   computed by the orchestrator (`re-frame.machines.parallel` /
-  `re-frame.machines.lifecycle-fx`)."
+  `re-frame.machines.lifecycle-fx.finalize`)."
   [machine state]
   (let [node (node-at machine (state-path state))]
     (final-state-node? node)))

@@ -35,27 +35,41 @@
 
   Public surface re-exported from the sub-namespaces:
     - `reg-machine*`, `create-machine-handler` —
-      `re-frame.machines.lifecycle-fx`
+      `re-frame.machines.lifecycle-fx.registration`
     - `machine-transition` — `re-frame.machines.parallel` (the public
       dispatch; flat / compound delegates to
       `re-frame.machines.transition`'s `machine-transition-single`)
-    - `machines`, `machine-meta`, `machine-by-system-id` —
-      `re-frame.machines.lifecycle-fx`
-    - `spawn-fx`, `destroy-machine-fx`, `invoke-all-init-fx` —
-      `re-frame.machines.lifecycle-fx`
+    - `machines`, `machine-meta`, `machine-by-system-id` — owned
+      directly on this façade (Spec 005 §Querying machines)
+    - `spawn-fx`, `invoke-all-init-fx` —
+      `re-frame.machines.lifecycle-fx.spawn`
+    - `destroy-machine-fx` — `re-frame.machines.lifecycle-fx.destroy`
     - `after-schedule-fx`, `after-cancel-fx` — `re-frame.machines.timer`
+
+  Per rf2-zkca8.2 the former `re-frame.machines.lifecycle-fx` façade was
+  dissolved (façade-of-a-façade — its 5 def re-exports were re-exported
+  again from here, adding a hop without semantic value). The 3 query
+  fns it carried (`machines`, `machine-meta`, `machine-by-system-id`)
+  moved verbatim into this namespace where they belong on the public
+  artefact surface; the 5 def re-exports now reach directly to the
+  concrete leaves (`registration`, `spawn`, `destroy`). The 7 cohesive
+  leaves under `lifecycle_fx/` stand — each owns a Spec 005 surface.
 
   Conformance fixtures cover all of the above (machine-transition,
   hierarchical-{compound,cross-level,parent-fallthrough}-transition,
   always-{single-microstep,depth-exceeded}, after-{single-delay,
   stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit,
   invoke-all-{join-all-completes,join-any-fails-cancels,n-of-cancels-extras})."
-  (:require [re-frame.fx :as fx]
+  (:require [re-frame.frame :as frame]
+            [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
-            [re-frame.machines.lifecycle-fx :as lifecycle-fx]
+            [re-frame.machines.lifecycle-fx.destroy :as destroy]
+            [re-frame.machines.lifecycle-fx.registration :as registration]
+            [re-frame.machines.lifecycle-fx.spawn :as spawn]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.timer :as timer]
             [re-frame.machines.transition :as transition]
+            [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -77,17 +91,59 @@
 ;; module-level mutable state, deterministic from its (machine snapshot
 ;; event) arguments.
 
-(def reg-machine*           lifecycle-fx/reg-machine*)
-(def create-machine-handler lifecycle-fx/create-machine-handler)
-(def machines               lifecycle-fx/machines)
-(def machine-meta           lifecycle-fx/machine-meta)
-(def machine-by-system-id   lifecycle-fx/machine-by-system-id)
-(def spawn-fx               lifecycle-fx/spawn-fx)
-(def destroy-machine-fx     lifecycle-fx/destroy-machine-fx)
-(def invoke-all-init-fx     lifecycle-fx/invoke-all-init-fx)
+(def reg-machine*           registration/reg-machine*)
+(def create-machine-handler registration/create-machine-handler)
+(def spawn-fx               spawn/spawn-fx)
+(def invoke-all-init-fx     spawn/invoke-all-init-fx)
+(def destroy-machine-fx     destroy/destroy-machine-fx)
 (def machine-transition     parallel/machine-transition)
 (def after-schedule-fx      timer/after-schedule-fx)
 (def after-cancel-fx        timer/after-cancel-fx)
+
+;; ---- query API (Spec 005 §Querying machines) -----------------------------
+;;
+;; Three thin lookup fns over the existing event registry and the
+;; runtime-owned `[:rf/system-ids]` reverse index — derived views, not a
+;; new registry kind. `(rf/machines)` filters event handlers whose
+;; registration metadata carries `:rf/machine? true`; `(rf/machine-meta
+;; id)` returns the registered machine's spec map; `(rf/machine-by-
+;; system-id sid)` resolves the spawned-machine id currently bound to
+;; `sid` in the active frame's `[:rf/system-ids]` reverse index.
+;;
+;; Per rf2-zkca8.2 these fns moved here from the former
+;; `re-frame.machines.lifecycle-fx` (dissolved as a façade-of-a-façade):
+;; they belong on the public artefact surface, not a level below it.
+
+(defn machines
+  "Return a sequence of machine-ids — every event handler whose
+  registration metadata carries `:rf/machine? true`. Per Spec 005
+  §Querying machines."
+  []
+  (->> (registrar/handlers :event)
+       (keep (fn [[id m]] (when (:rf/machine? m) id)))
+       (vec)))
+
+(defn machine-meta
+  "Return the registered machine's spec map (`:initial`, `:data`,
+  `:guards`, `:actions`, `:states`, `:doc`, source coords) for
+  `machine-id`, or nil if no machine is registered under that id. Per
+  Spec 005 §Querying machines."
+  [machine-id]
+  (let [m (registrar/lookup :event machine-id)]
+    (when (:rf/machine? m)
+      (:rf/machine m))))
+
+(defn machine-by-system-id
+  "Look up the spawned-machine id currently bound to `system-id` in the
+  active frame's `[:rf/system-ids]` reverse index, or nil. The `frame`
+  arg defaults to the current frame (per `frame/current-frame`); pass
+  an explicit frame-id for cross-frame lookups.
+
+  Per Spec 005 §Named addressing via :system-id."
+  ([system-id]
+   (machine-by-system-id system-id (frame/current-frame)))
+  ([system-id frame-id]
+   (get-in (frame/frame-app-db-value frame-id) [:rf/system-ids system-id])))
 
 ;; Per Spec 005 §3-arity escape hatch — `:state` / `:meta` introspection
 ;; (rf2-2yupx): explicit opt-in via the `:rf.machine/wants-ctx` metadata
