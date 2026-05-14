@@ -1,92 +1,22 @@
 (ns re-frame.util-json-test
-  "Unit tests for `re-frame.util-json`.
-
-  Targets the JVM-only fallback reader (`json-read*` reached when
-  Cheshire is absent) and the keyword-cap guard rails on both readers
-  (the Cheshire branch and the fallback). The Cheshire branch is
-  exercised through `json-parse` directly; the fallback reader is
-  exercised by binding the resolved Cheshire vars to nil for the
-  duration of the test (see `with-fallback-reader`).
+  "Unit tests for `re-frame.util-json` on JVM (Cheshire path).
 
   Beads:
-   - rf2-263km — truncated `\\uXXXX` escape near EOF surfaces a clean
-                 `:rf.error/malformed-json :reason :truncated-unicode-escape`
-                 (was: `StringIndexOutOfBoundsException`).
    - rf2-wu1n5 — JSON keyword-interning DoS: cap on unique keys decoded
-                 (configurable via `re-frame.util-json/*max-decoded-keys*`).
-                 Overflow throws `:rf.http/decode-failure :reason :too-many-keys`."
+                 (configurable via `:max-decoded-keys` option per call).
+                 Overflow throws `:rf.error/malformed-json :reason :too-many-keys`,
+                 which the `:rf.http/managed` cascade classifies as
+                 `:rf.http/decode-failure`.
+   - rf2-dgsu1 — Cheshire is a hard JVM dep (no fallback reader). Native
+                 Cheshire `JsonParseException`s propagate to the transport
+                 catch site, which classifies them as
+                 `:rf.http/decode-failure`. Earlier `rf2-263km` covered
+                 the hand-rolled fallback reader's bounds-checking; with
+                 the fallback removed those manual-parser regressions
+                 are moot — Cheshire is RFC-8259-conforming and bulletproof
+                 around `\\uXXXX` escapes by construction."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.util-json :as util-json]))
-
-(defmacro with-fallback-reader
-  "Force `json-parse` to take the pure-Clojure fallback path by binding
-  the resolved Cheshire vars (held in delays) to a stubbed pair whose
-  parse-string is nil. Restores after the body."
-  [& body]
-  `(let [orig-parse#    @#'re-frame.util-json/cheshire-parse-string
-         orig-generate# @#'re-frame.util-json/cheshire-generate-string]
-     (try
-       ;; Replace the private delays with delays whose deref returns nil
-       ;; so `json-parse`'s `(some? @cheshire-parse-string)` branch fails
-       ;; and the fallback reader runs.
-       (alter-var-root #'re-frame.util-json/cheshire-parse-string
-                       (constantly (delay nil)))
-       ~@body
-       (finally
-         (alter-var-root #'re-frame.util-json/cheshire-parse-string
-                         (constantly orig-parse#))
-         (alter-var-root #'re-frame.util-json/cheshire-generate-string
-                         (constantly orig-generate#))))))
-
-;; ---- rf2-263km — truncated unicode escape --------------------------------
-
-(deftest fallback-reader-truncated-unicode-escape-throws-cleanly
-  (testing "rf2-263km — a `\\u` escape that runs past EOF throws a clean
-  `:rf.error/malformed-json :reason :truncated-unicode-escape`
-  ex-info rather than StringIndexOutOfBoundsException"
-    (with-fallback-reader
-      ;; Inputs whose 4-char hex window runs PAST the end-of-string: the
-      ;; raw window is `(subs s (+ p 2) (+ p 6))`, which is the SIOOBE
-      ;; surface absent the bounds check.
-      (doseq [s ["\"x\\u\""        ; window 4..8, n=5 — overflow by 3
-                 "\"x\\u1\""        ; window 4..8, n=6 — overflow by 2
-                 "\"x\\u12\""]]     ; window 4..8, n=7 — overflow by 1
-        (let [thrown (try (util-json/json-parse s) ::no-throw
-                          (catch clojure.lang.ExceptionInfo e e))
-              data   (when (instance? clojure.lang.ExceptionInfo thrown)
-                       (ex-data thrown))]
-          (is (instance? clojure.lang.ExceptionInfo thrown)
-              (str "expected ex-info for input " (pr-str s) " — got " thrown))
-          (is (= :rf.error/malformed-json (:kind data))
-              (str "input " (pr-str s) " — wrong :kind"))
-          (is (= :truncated-unicode-escape (:reason data))
-              (str "input " (pr-str s) " — wrong :reason")))))))
-
-(deftest fallback-reader-invalid-unicode-escape-throws-cleanly
-  (testing "rf2-263km — a `\\u` escape whose 4-char window IS in-bounds but
-  contains non-hex characters (e.g. the closing quote inside the window)
-  throws `:rf.error/malformed-json :reason :invalid-unicode-escape`
-  rather than NumberFormatException"
-    (with-fallback-reader
-      (doseq [s ["\"x\\u123\""      ; window 4..8, hex = `123"` — bad
-                 "\"\\uXYZ0\""      ; window 3..7, hex = `XYZ0` — bad
-                 "\"\\u123g\""]]    ; window 3..7, hex = `123g` — bad
-        (let [thrown (try (util-json/json-parse s) ::no-throw
-                          (catch clojure.lang.ExceptionInfo e e))
-              data   (when (instance? clojure.lang.ExceptionInfo thrown)
-                       (ex-data thrown))]
-          (is (instance? clojure.lang.ExceptionInfo thrown)
-              (str "expected ex-info for input " (pr-str s) " — got " thrown))
-          (is (= :rf.error/malformed-json (:kind data))
-              (str "input " (pr-str s) " — wrong :kind"))
-          (is (= :invalid-unicode-escape (:reason data))
-              (str "input " (pr-str s) " — wrong :reason")))))))
-
-(deftest fallback-reader-full-unicode-escape-still-works
-  (testing "rf2-263km — a well-formed `\\uXXXX` escape still parses"
-    (with-fallback-reader
-      (is (= "A" (util-json/json-parse "\"\\u0041\"")))
-      (is (= "AB" (util-json/json-parse "\"\\u0041\\u0042\""))))))
 
 ;; ---- rf2-wu1n5 — keyword-interning cap -----------------------------------
 
@@ -119,33 +49,13 @@
         (is (= :too-many-keys (:reason data)))
         (is (= 10 (:limit data)))))))
 
-(deftest fallback-reader-respects-keyword-cap
-  (testing "rf2-wu1n5 — pure-Clojure fallback reader caps unique-key cardinality"
-    (with-fallback-reader
-      (let [s (big-json 50)]
-        (is (map? (util-json/json-parse s {:max-decoded-keys 100})))
-        (is (map? (util-json/json-parse s {:max-decoded-keys 50})))
-        (let [thrown (try (util-json/json-parse s {:max-decoded-keys 10}) ::no-throw
-                          (catch clojure.lang.ExceptionInfo e e))
-              data   (when (instance? clojure.lang.ExceptionInfo thrown)
-                       (ex-data thrown))]
-          (is (instance? clojure.lang.ExceptionInfo thrown))
-          (is (= :rf.error/malformed-json (:kind data)))
-          (is (= :too-many-keys (:reason data)))
-          (is (= 10 (:limit data))))))))
-
 (deftest default-cap-enforced-at-default-max
   (testing "rf2-wu1n5 — default cap (`default-max-decoded-keys`) fires
-  when no opts supplied. Uses a small synthetic cap by temporarily
-  bumping the request opts above the synthetic input size, then back
-  below it, to confirm cap arithmetic without building a 10001-key
-  string (slow) in the default path."
+  when no opts supplied."
     ;; Sanity: the documented constant is what we say it is.
     (is (= 10000 util-json/default-max-decoded-keys))
-    ;; The interesting regression — a payload one-over the documented
-    ;; default trips the cap when no per-call override is supplied.
-    ;; We synthesise the over-default payload exactly once and reuse it
-    ;; in both branches.
+    ;; A payload one-over the documented default trips the cap when no
+    ;; per-call override is supplied.
     (let [s (big-json (inc util-json/default-max-decoded-keys))
           thrown (try (util-json/json-parse s) ::no-throw
                       (catch clojure.lang.ExceptionInfo e e))
@@ -159,9 +69,59 @@
 
 (deftest cap-counts-unique-not-total
   (testing "rf2-wu1n5 — repeated keys don't multiply the count"
-    (with-fallback-reader
-      ;; 1000 entries but only 5 unique key strings: {"a":1,"a":2,...}
-      (let [pairs (clojure.string/join "," (repeat 200 "\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5"))
-            s     (str "{" pairs "}")]
-        (is (map? (util-json/json-parse s {:max-decoded-keys 10}))
-            "5 unique keys under cap=10 should succeed even with 1000 entries")))))
+    ;; 1000 entries but only 5 unique key strings: {\"a\":1,\"a\":2,...}
+    (let [pairs (clojure.string/join "," (repeat 200 "\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5"))
+          s     (str "{" pairs "}")]
+      (is (map? (util-json/json-parse s {:max-decoded-keys 10}))
+          "5 unique keys under cap=10 should succeed even with 1000 entries"))))
+
+;; ---- rf2-dgsu1 — Cheshire is mandatory; malformed JSON propagates --------
+
+(deftest cheshire-handles-well-formed-unicode-escape
+  (testing "rf2-dgsu1 — Cheshire (the now-mandatory JVM JSON dep) parses
+  `\\uXXXX` escapes correctly. The previous hand-rolled fallback's
+  `\\uXXXX` bounds-checking (rf2-263km) is moot — Cheshire is
+  RFC-8259-conforming."
+    (is (= "A"   (util-json/json-parse "\"\\u0041\"")))
+    (is (= "AB"  (util-json/json-parse "\"\\u0041\\u0042\"")))
+    (is (= "café" (util-json/json-parse "\"caf\\u00e9\"")))))
+
+(deftest cheshire-rejects-malformed-input-cleanly
+  (testing "rf2-dgsu1 — malformed JSON (truncated escape, unterminated
+  string, invalid token) raises a Cheshire/Jackson `JsonParseException`.
+  The `:rf.http/managed` cascade's `decode-response-body` catch site
+  surfaces this as `:rf.http/decode-failure` with the parser message at
+  `:cause` — no per-test fixture needed; the contract is simply 'parse
+  errors throw'. Earlier the hand-rolled fallback masked malformed
+  input behind a custom `:rf.error/malformed-json` ex-info; that
+  layering is no longer necessary."
+    ;; Inputs Cheshire/Jackson rejects with a parse exception. (Jackson
+    ;; is tolerant of some shapes by design — trailing-comma arrays and
+    ;; missing-close-brace objects fall through to its end-of-stream
+    ;; handler rather than throwing — so we pick inputs that are
+    ;; definitively malformed: truncated escapes, unterminated string
+    ;; literals, and invalid tokens.)
+    (doseq [s ["{not-a-key:1}"      ; bareword key
+               "\"unterminated"     ; unterminated string
+               "{\"x\":\"\\u\"}"   ; truncated unicode escape
+               "{\"x\":\"\\uZZ"   ; invalid unicode hex
+               "tru"               ; truncated `true`
+               "{\"x\":nul}"]]      ; misspelt null
+      (let [thrown (try (util-json/json-parse s) ::no-throw
+                        (catch Exception e e))]
+        (is (instance? Exception thrown)
+            (str "expected a parse exception for " (pr-str s)
+                 " — got " thrown))))))
+
+(deftest json-stringify-uses-cheshire
+  (testing "rf2-dgsu1 — `json-stringify` produces real JSON via Cheshire
+  (not `pr-str`). The earlier shape fell back to `pr-str` when
+  Cheshire was absent; with Cheshire mandatory the output is always
+  valid JSON."
+    ;; Cheshire emits standard JSON: keys quoted, strings double-quoted,
+    ;; no edn-isms.
+    (is (= "{\"a\":1,\"b\":\"hello\"}"
+           (util-json/json-stringify {:a 1 :b "hello"})))
+    (is (= "[1,2,3]" (util-json/json-stringify [1 2 3])))
+    (is (= "true" (util-json/json-stringify true)))
+    (is (= "null" (util-json/json-stringify nil)))))
