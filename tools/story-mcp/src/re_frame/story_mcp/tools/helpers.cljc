@@ -177,7 +177,17 @@
   events both honour the same convention, so a single primitive covers
   both surfaces.
 
+  Two short-circuits avoid pointless work on the opt-in / empty paths:
+
+    - `include? true` returns `(vec (or records []))` directly — the
+      walker would yield the input unchanged anyway (no drops with the
+      escape hatch open), so we skip the traversal.
+    - `nil`/empty records short-return `[]`.
+
   Returns the kept-vec (the `dropped-count` second slot is suppressed
   here; the caller is the wire egress, not an audit surface)."
   [records include?]
-  (first (sensitive/strip-sensitive (vec (or records [])) include?)))
+  (cond
+    include?       (vec (or records []))
+    (nil? records) []
+    :else          (first (sensitive/strip-sensitive records false))))
