@@ -328,6 +328,45 @@
     (is (= "<head></head>"
            (rf/head-model->html {} {:wrap? true})))))
 
+(deftest head-model->html-attr-name-validation
+  (testing "rf2-vl8ir / security audit 2026-05-14 §P2.5 — attribute KEYS
+            are gated by the HTML5 grammar `[A-Za-z][A-Za-z0-9_:-]*`. A
+            key that violates the grammar throws
+            `:rf.error/ssr-invalid-attribute-name` rather than emitting
+            attacker-controlled `<meta>` / `<link>` attributes that
+            could carry event-handler payloads."
+    (testing "valid keys pass through unchanged"
+      (let [html (rf/head-model->html
+                   {:meta [{:name        "viewport"
+                            :content     "width=device-width"
+                            :data-theme  "dark"}]})]
+        (is (str/includes? html "name=\"viewport\""))
+        (is (str/includes? html "data-theme=\"dark\""))))
+
+    (testing "a key with an `=`-injection payload throws"
+      ;; The exploit shape: a key like "onclick=alert(1) data-x" would
+      ;; (without validation) render as ` onclick=alert(1) data-x=\"…\"`,
+      ;; injecting an event-handler attribute.
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/ssr-invalid-attribute-name"
+            (rf/head-model->html
+              {:meta [{(keyword "onclick=alert(1) data-x") "v"}]}))))
+
+    (testing "a key starting with a digit throws (HTML5 first-char rule)"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/ssr-invalid-attribute-name"
+            (rf/head-model->html
+              {:meta [{(keyword "1bad") "v"}]}))))
+
+    (testing "a key with whitespace throws"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/ssr-invalid-attribute-name"
+            (rf/head-model->html
+              {:meta [{(keyword "bad attr") "v"}]}))))))
+
 (deftest head-model->html-escaping
   (testing "title and attribute values are HTML/attribute escaped — no raw
             tag injection"
