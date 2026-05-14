@@ -724,12 +724,41 @@
         (swap! router update :queue pop)
         envelope))))
 
+(defn- handle-drain-interrupted!
+  "Per rf2-68kok / Spec 002 §Edge cases worth pinning §Frame disposal
+  mid-drain: the drain-loop detected the frame was destroyed before
+  the next dequeue. Drop the remaining queue ONCE, clear `:scheduled?`,
+  and emit a single `:rf.frame/drain-interrupted` lifecycle trace
+  carrying `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
+  and Spec-Schemas §DrainInterruptedTags).
+
+  In-flight events are not affected — they have already been dequeued
+  and `process-event!` ran them to completion before this check fires
+  (run-to-completion per Spec 002 §Rules rule 1). Only events still
+  in the queue at the moment of the check are dropped.
+
+  The check fires AFTER `process-event!` returns and BEFORE the next
+  `take-event!` — same seam as `handle-depth-exceeded!`."
+  [frame-id router]
+  (let [dropped (count (:queue @router))]
+    (swap! router assoc :queue interop/empty-queue :scheduled? false)
+    (trace/emit! :frame :rf.frame/drain-interrupted
+                 {:frame         frame-id
+                  :dropped-count dropped})))
+
 (defn- run-one-pass!
   "Process events from the queue to fixed point or until `drain-depth` is
   exceeded. Returns `::settled` when the queue empties cleanly or
-  `::halt` when the depth limit is reached (the depth-exceeded handler
-  has already cleared the queue and the `:scheduled?` flag in that
-  case).
+  `::halt` when the depth limit is reached OR the frame was destroyed
+  mid-pass (the depth-exceeded / drain-interrupted handler has already
+  cleared the queue and the `:scheduled?` flag in either halt case).
+
+  Per rf2-68kok / Spec 002 §Frame disposal mid-drain: the destroyed-
+  frame check fires BEFORE each dequeue, so an in-flight event runs to
+  completion (run-to-completion per Spec 002 §Rules rule 1) but events
+  still in the queue at the check point are dropped, with one
+  `:rf.frame/drain-interrupted` lifecycle trace emitted carrying the
+  dropped count.
 
   Each pass takes its pre-cascade `db-before` snapshot from the caller
   so the epoch settle callback (Tool-Pair §Time-travel) sees the right
@@ -740,6 +769,20 @@
     (cond
       (>= depth drain-depth)
       (do (handle-depth-exceeded! frame-id router db-before depth last-event)
+          ::halt)
+
+      ;; Per rf2-68kok: destroyed-frame check fires BEFORE the next
+      ;; dequeue. A handler in the just-completed event may have
+      ;; called `destroy-frame!` on its own frame; the spec calls for
+      ;; interrupting the drain at this exact seam — drop the
+      ;; remaining queue, emit one `:rf.frame/drain-interrupted`
+      ;; lifecycle event, halt. The just-completed event already ran
+      ;; in full (run-to-completion). Skip the epoch settle on
+      ;; interrupt — destroy-frame's `:epoch/on-frame-destroyed` hook
+      ;; covers epoch cleanup and a half-cascade settle record would
+      ;; mislead time-travel consumers.
+      (frame/frame-disposed-for-drain? frame-id)
+      (do (handle-drain-interrupted! frame-id router)
           ::halt)
 
       :else

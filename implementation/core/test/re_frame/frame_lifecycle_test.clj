@@ -336,6 +336,145 @@
           (is (< run-end-idx created-idx)
               ":on-create's :run-end precedes :frame/created — frame is fully booted before listeners observe it"))))))
 
+;; ---- rf2-68kok — destroy-frame interrupts active drain on next dequeue --
+;;
+;; Per Spec 002 §Edge cases worth pinning §Frame disposal mid-drain: the
+;; drain loop checks `(:destroyed? (:lifecycle frame))` before each
+;; dequeue; on detect it stops, drops the remaining queue, and emits one
+;; `:rf.frame/drain-interrupted` with the dropped count. In-flight events
+;; finish (run-to-completion); only events not yet dequeued are dropped.
+
+(deftest destroy-from-handler-interrupts-drain-and-emits-interrupted
+  (testing "a handler that destroys its own frame mid-drain stops the
+            drain, drops the remaining queue, and emits exactly one
+            :rf.frame/drain-interrupted carrying the dropped count.
+            The just-completed event runs to completion (run-to-
+            completion); only later queued events are dropped"
+    (rf/reg-frame :drain-int/worker {:doc "rf2-68kok drain-interrupt frame"})
+    (let [ran (atom [])
+          traces (atom [])]
+      ;; Plain mutator — runs whenever the drain dequeues.
+      (rf/reg-event-db :drain-int/tick
+        (fn [db _]
+          (swap! ran conj :tick)
+          (update db :n (fnil inc 0))))
+      ;; Handler that destroys its own frame mid-cascade. The first
+      ;; tick has already run; destroy mid-drain MUST interrupt the
+      ;; remainder.
+      (rf/reg-event-fx :drain-int/self-destruct
+        (fn [_ _]
+          (swap! ran conj :self-destruct)
+          ;; Call destroy-frame! directly — bypasses the
+          ;; `dispatch-sync-in-handler` policy that would otherwise
+          ;; bite us if we tried to dispatch destruction through the
+          ;; router. Spec 002 says destroy-frame interrupts the
+          ;; ACTIVE drain; the trigger can be anything.
+          (frame/destroy-frame! :drain-int/worker)
+          {}))
+      (rf/register-trace-cb! ::drain-int (fn [ev] (swap! traces conj ev)))
+      ;; Sync-drain a sequence: two ticks, the self-destruct, then two
+      ;; more ticks. The first two ticks AND the self-destruct must run;
+      ;; the two trailing ticks must be dropped with one
+      ;; :rf.frame/drain-interrupted emitted.
+      ;;
+      ;; Note: the seed event of `dispatch-sync!` is the self-destruct;
+      ;; pre-seed the queue with the other events as plain async
+      ;; dispatches first. dispatch-sync's drain runs against the front-
+      ;; seeded queue and drains to settled (or interrupted).
+      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+      (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
+      ;; Now sync-drain the self-destruct AT THE FRONT — it runs first,
+      ;; destroys the frame, and the remaining 4 ticks (still queued)
+      ;; must be dropped.
+      (rf/dispatch-sync [:drain-int/self-destruct] {:frame :drain-int/worker})
+      (rf/remove-trace-cb! ::drain-int)
+
+      ;; The self-destruct ran first (dispatch-sync seeds at the front);
+      ;; the trailing ticks did NOT run.
+      (is (= [:self-destruct] @ran)
+          "the only handler that ran was the self-destruct seed itself")
+
+      ;; The frame is gone.
+      (is (nil? (frame/frame :drain-int/worker))
+          "destroy-frame! removed the frame from the registry")
+
+      ;; Exactly one :rf.frame/drain-interrupted trace fired carrying
+      ;; the dropped count (4 ticks queued before the seed).
+      (let [interrupts (filterv (fn [ev]
+                                  (= :rf.frame/drain-interrupted (:operation ev)))
+                                @traces)]
+        (is (= 1 (count interrupts))
+            "exactly one :rf.frame/drain-interrupted trace")
+        (let [ev (first interrupts)]
+          (is (= :frame (:op-type ev))
+              ":op-type is :frame (lifecycle family, not :error)")
+          (is (= :drain-int/worker (:frame (:tags ev)))
+              ":tags carries the destroyed frame id")
+          (is (= 4 (:dropped-count (:tags ev)))
+              ":dropped-count reflects the 4 trailing ticks left in the queue"))))))
+
+(deftest destroy-from-handler-in-flight-event-still-completes
+  (testing "the in-flight event finishes (run-to-completion) — destroy
+            interrupts AFTER the current handler returns, not in
+            the middle of it"
+    (rf/reg-frame :rtc/worker {})
+    (let [completed (atom false)]
+      ;; This handler:
+      ;;   (a) destroys the frame partway through
+      ;;   (b) keeps running — does more work after the destroy call
+      ;;   (c) sets the completion flag at the very end
+      ;; Per run-to-completion, ALL of (a)-(c) must observe in order;
+      ;; the drain interrupt only fires AFTER this handler returns.
+      (rf/reg-event-fx :rtc/work-then-destroy
+        (fn [_ _]
+          (frame/destroy-frame! :rtc/worker)
+          ;; Post-destroy bookkeeping still runs inside this handler.
+          (reset! completed true)
+          {}))
+      (rf/dispatch-sync [:rtc/work-then-destroy] {:frame :rtc/worker})
+      (is (true? @completed)
+          "handler ran to completion AFTER calling destroy-frame!"))))
+
+(deftest destroy-from-different-thread-also-interrupts-drain-on-next-pass
+  (testing "if another thread (or the same thread between passes)
+            destroys the frame, the next pass's destroyed-check fires
+            and interrupts the drain just the same"
+    (rf/reg-frame :cross-thread/worker {})
+    (let [traces (atom [])
+          captured-tick (atom [])]
+      (rf/reg-event-db :cross-thread/tick (fn [db _] db))
+      (rf/register-trace-cb! ::xt (fn [ev] (swap! traces conj ev)))
+      ;; Capture the executor's tick so we can land destroy BETWEEN
+      ;; the async dispatch and the actual drain.
+      (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
+        (rf/dispatch [:cross-thread/tick] {:frame :cross-thread/worker})
+        (rf/dispatch [:cross-thread/tick] {:frame :cross-thread/worker})
+        (rf/dispatch [:cross-thread/tick] {:frame :cross-thread/worker})
+        ;; All 3 in queue, drain captured (not yet run).
+        )
+      ;; Destroy BEFORE the drain runs. drain-try!'s outer guard
+      ;; (`when frame-record`) catches this case and never enters
+      ;; the drain loop at all — that's the existing rf2-dpny
+      ;; contract and our new interrupt-handler doesn't fire here
+      ;; (the drain pass never starts).
+      (frame/destroy-frame! :cross-thread/worker)
+      ;; Run captured ticks. Pre-destroy drain-try! sees nil
+      ;; frame-record and short-circuits without emitting
+      ;; :rf.frame/drain-interrupted (the drain never started).
+      (doseq [tick @captured-tick] (tick))
+      (rf/remove-trace-cb! ::xt)
+      ;; The pre-existing rf2-dpny contract: NO trace at all from the
+      ;; drain itself. The interrupt trace only fires when a drain
+      ;; pass actually STARTED on a live frame and then detected
+      ;; destruction mid-pass.
+      (let [interrupts (filter #(= :rf.frame/drain-interrupted (:operation %))
+                               @traces)]
+        (is (zero? (count interrupts))
+            "no :rf.frame/drain-interrupted — the drain never started
+             on the already-destroyed frame")))))
+
 ;; ---- rf2-cufbh — child-frame :on-create is queued asynchronously --------
 ;;
 ;; Per Spec 002 §`reg-frame` / `make-frame` called from inside a handler:
