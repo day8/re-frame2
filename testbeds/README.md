@@ -19,6 +19,11 @@ testbeds/
   multi_frame/             <-- three frames coexisting; cross-frame :dispatch fan-out from one click
   deep_machine/            <-- one machine: parallel regions + 5-deep compound + :always/:after/:invoke/:invoke-all
   long_flow_w_failure/     <-- 5-second cascade driving 3 flows in topo order with configurable mid-flow throw
+  drain_depth_trigger/     <-- handler that recursively dispatches itself; configurable depth ceiling
+  non_trivial_app_db/      <-- 55-leaf app-db nested 5 deep; six diff shapes one per button
+  sensitive_dispatcher/    <-- :sensitive? handlers — event-emit drop / with-redacted / error-emit redact
+  large_dispatcher/        <-- four nomination paths for :rf.size/large-elided (auto / declared / fx / schema)
+  known_bad_a11y/          <-- Story-mode surface; bad+good variants verify the a11y panel scope (rf2-qgms1)
 ```
 
 Per-surface conventions (every testbed in this directory follows them):
@@ -37,6 +42,14 @@ From `implementation/`:
 shadow-cljs watch testbeds/deliberate-throw
 shadow-cljs watch testbeds/schema-violation
 shadow-cljs watch testbeds/http-toggle
+shadow-cljs watch testbeds/multi-frame
+shadow-cljs watch testbeds/deep-machine
+shadow-cljs watch testbeds/long-flow-w-failure
+shadow-cljs watch testbeds/drain-depth-trigger
+shadow-cljs watch testbeds/non-trivial-app-db
+shadow-cljs watch testbeds/sensitive-dispatcher
+shadow-cljs watch testbeds/large-dispatcher
+shadow-cljs watch testbeds/known-bad-a11y
 ```
 
 Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed index.html served from `implementation/out/testbeds/<name>/`). The Causa preload is wired on every testbed build (mirroring the examples convention) so the trace panel and dev-tools are live on each surface.
@@ -51,6 +64,11 @@ Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed
 | `multi_frame/` | Separate epoch ring buffers per frame; the Cross-bump click produces three distinct epoch records (one per frame) with `:frame` tag intact; time-travel scrubs each frame independently | Time-travel scrub within a Story variant mounting this surface preserves per-frame isolation; the recorder captures the cross-frame fan-out as one envelope-rooted sequence | `:dispatch` MCP call with `{:frame ...}` opt arrives at the addressed frame; the response envelope carries the resolved `:frame` verbatim; cross-frame fan-out visible in the cascade's epoch record |
 | `deep_machine/` | `:rf.machine/*` events for every transition / spawn / destroy / invoke-all-init / invoke-all-join visible in the trace stream; the `:state` snapshot reads correctly at every compound rung; click-to-source resolves every named action / guard | Recorder captures the deep cascade deterministically; replay reproduces the same `:rf.machine/*` shape | Snapshot-restore round-trip preserves the full `:state` map for parallel regions and the deep compound path; `:rf/after-epoch-by-region` survives `pr-str` |
 | `long_flow_w_failure/` | Trace panel grows on subsequent dispatch over 60+ trace events from one Start click; `:rf.flow/failed → :rf.error/flow-eval-exception` pairs highlighted; ring-buffer budget enforced under cascade saturation when `total-ticks` dialled up | Recorder captures the timed cascade deterministically (timers are data, flows are pure) | The four-rule contract observable over the MCP wire as ordered trace events — `:rf.flow/computed` for `:flow-a` survives every drain; `:rf.flow/failed` for `:flow-b` appears at the threshold |
+| `drain_depth_trigger/` | Partial epoch record (drain-halt) shows up with non-`:ok` outcome (`:halted-depth`, rf2-v0jwt); the failed cascade's N `:event/dispatched` traces leading up to the halt are visible; the post-halt second drain (the in-app listener's flip) reads cleanly on the next epoch | Recorder captures the Start click + halt deterministically; replay reproduces the same N-deep cascade + rollback shape | `:rf.error/drain-depth-exceeded` event arrives over the wire with `:depth`, `:queue-size`, `:last-event` carried verbatim; the post-rollback `app-db` snapshot reads back to the pre-drain shape via `get-path` |
+| `non_trivial_app_db/` | Six distinct `:event/db-changed` shapes per click against a 55-leaf app-db nested 5 deep; diff renderer drills into vector indices and 5-level subtrees; time-travel scrubs preserve every depth | Snapshot identity reproducible across runs — the deterministic 6-click sequence produces a bit-identical snapshot on replay; variants mounting this surface verify the chrome doesn't choke on realistic app-db | Snapshot-restore round-trip preserves all 55 leaves; `get-path` resolves at every depth without elision (no slot is `:large?`) |
+| `sensitive_dispatcher/` | `:sensitive?` event arrives with `:event` redacted to `:rf/redacted` (Button B); error-emit substrate's redacted `:event` slot on Button C's throw; event-emit substrate drops the per-event record entirely on Button A | Recorder redacts secret-bearing events (rf2-hdadz) — Button B's click is captured with `:rf/redacted` in place of the password/totp slots | The MCP wire applies the same redaction posture; `:dropped-sensitive` indicator surfaces when the wire walker dropped a leaf |
+| `large_dispatcher/` | `:large?` value arrives as `:rf.size/large-elided` marker — four `:source` values discriminate the nomination path (`:runtime-flagged` on Button A, `:declared` on B+C, `:schema` on D); `:rf.warning/runtime-large-elision` fires once on Button A's first emit | Recorder captures the click deterministically; replay reproduces the same elision marker on each emit | The marker's `:handle` shape is `get-path`-callable; the wire-cap budget stays under 5K-token cap regardless of payload size |
+| `known_bad_a11y/` | n/a (Causa doesn't consume a11y output) | A11y panel surfaces violations on `:story.a11y/known-bad` (≥5) and reports 0 on `:story.a11y/known-good` — the pairwise contract that proves axe-core's scan is scoped to the variant root per rf2-qgms1 / PR #1080 | n/a (the a11y contract is Story-local) |
 
 ## Tier roadmap (rf2-kzcim)
 
@@ -60,15 +78,22 @@ Tier 1 — load-bearing trio:
 - ✅ `schema_violation/`
 - ✅ `http_toggle/`
 
-Tier 2 — state-machine + frame surfaces (this commit set):
+Tier 2 — state-machine + frame surfaces:
 
 - ✅ `multi_frame/`
 - ✅ `deep_machine/`
 - ✅ `long_flow_w_failure/`
 
-Tier 3 (devtools edge cases): `drain_depth_trigger/`, `non_trivial_app_db/`, `sensitive_dispatcher/`, `large_dispatcher/`.
+Tier 3 — devtools edge cases:
 
-Tier 4 (a11y): `known_bad_a11y/` — a Story variant with a deliberate a11y violation; the variant root carries the violation, not the Story chrome (cross-ref rf2-qgms1).
+- ✅ `drain_depth_trigger/`
+- ✅ `non_trivial_app_db/`
+- ✅ `sensitive_dispatcher/`
+- ✅ `large_dispatcher/`
+
+Tier 4 — a11y:
+
+- ✅ `known_bad_a11y/`
 
 ## Cross-references
 
@@ -78,4 +103,9 @@ Tier 4 (a11y): `known_bad_a11y/` — a Story variant with a deliberate a11y viol
 - [`spec/010-Schemas.md` §Per-step recovery](../spec/010-Schemas.md) — the five validation points the `schema_violation/` surface walks one button per.
 - [`spec/013-Flows.md` §Failure semantics](../spec/013-Flows.md) — the four-rule flow-failure contract the `long_flow_w_failure/` surface exercises over a multi-second cascade.
 - [`spec/014-HTTPRequests.md` §Failure categories](../spec/014-HTTPRequests.md) — the eight `:rf.http/*` categories the `http_toggle/` outcome dropdown enumerates.
+- [`spec/002-Frames.md` §Run-to-completion](../spec/002-Frames.md) — the depth-bounded drain rule 3 the `drain_depth_trigger/` surface forces the runtime to hit.
+- [`spec/009-Instrumentation.md` §Privacy / sensitive data in traces](../spec/009-Instrumentation.md) — the `:sensitive?` registration meta + `with-redacted` interceptor + always-on substrate enforcement the `sensitive_dispatcher/` surface exercises three buttons against.
+- [`spec/009-Instrumentation.md` §Size elision in traces](../spec/009-Instrumentation.md) — the three nomination paths + `:rf.size/large-elided` marker shape the `large_dispatcher/` surface exercises four buttons against.
+- [`spec/Spec-Schemas.md` §`:rf/epoch-record` Outcomes](../spec/Spec-Schemas.md) — the `:halted-depth` outcome key the `drain_depth_trigger/` surface produces (rf2-v0jwt).
+- **rf2-qgms1 / PR #1080** — the a11y-panel scope fix the `known_bad_a11y/` surface regression-tests against (axe-core's `context` parameter scopes the scan to `data-rf-story-variant-root`).
 - [`spec/Ownership.md`](../spec/Ownership.md) — where every contract surface this directory exercises is owned.
