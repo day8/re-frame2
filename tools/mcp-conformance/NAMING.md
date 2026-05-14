@@ -3,14 +3,19 @@
 Source: rf2-mzf1r.
 
 The re-frame2 MCP triplet — `tools/pair2-mcp/`, `tools/story-mcp/`,
-and `tools/causa-mcp/` (spec-only today) — exposes ~50 tools today
-(14 + 19 + 18), trending upwards. An agent
-host with two or three servers attached at once sees the union as
-one surface. **The verb a tool uses is the first signal the agent
-parses**; verb drift across siblings makes that signal lossy
-(snapshot in pair2 ≠ snapshot-identity in story; `read-` in story ≠
-`get-` in causa) and pushes the agent towards trial-and-error rather
-than pattern-match.
+and `tools/causa-mcp/` (spec-only today) — exposes a deliberately
+bounded surface, catalogued per-server at
+[`tools/pair2-mcp/spec/003-Tool-Catalogue.md`](../pair2-mcp/spec/003-Tool-Catalogue.md),
+[`tools/story-mcp/spec/002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md),
+and (when its impl lands)
+[`tools/causa-mcp/spec/`](../causa-mcp/spec/). Per the
+§"Single source of truth for tool counts" rule below, every count
+sits in one place: the catalogue. An agent host with two or three
+servers attached at once sees the union as one surface.
+**The verb a tool uses is the first signal the agent parses**; verb
+drift across siblings makes that signal lossy (snapshot in pair2 ≠
+snapshot-identity in story; `read-` in story ≠ `get-` in causa) and
+pushes the agent towards trial-and-error rather than pattern-match.
 
 This doc locks the verb vocabulary the triplet picks from. New tools
 land against an existing verb; novel verbs require a Lock entry in
