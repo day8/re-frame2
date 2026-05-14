@@ -155,6 +155,27 @@
   (when-let [f (late-bind/get-fn hook-key)]
     (f args {:frame frame-id})))
 
+;; Inheritable envelope fields — copied from parent to child when
+;; `:dispatch` / `:dispatch-later` queue a new envelope. Per Spec 002
+;; §Cascade propagation (line 1162) and §Drain-loop pseudocode
+;; `inheritable-envelope-keys` (lines 947-952). `:event` and
+;; `:dispatched-at` are NOT inherited — the child gets its own.
+(def ^:private inheritable-envelope-keys
+  [:frame :fx-overrides :interceptor-overrides :trace-id :origin :source])
+
+(defn- child-dispatch-opts
+  "Project the parent envelope's inheritable keys onto the opts map for a
+  child dispatch. Per Spec 002 §Cascade propagation: the dispatched
+  child inherits `:frame`, `:fx-overrides`, `:interceptor-overrides`,
+  `:trace-id`, `:origin`, `:source`. When `parent-envelope` is nil
+  (caller did not thread one through — legacy routing-artefact callers
+  or test fixtures), falls back to `{:frame frame-id}` so single-key
+  propagation still holds."
+  [frame-id parent-envelope]
+  (if parent-envelope
+    (select-keys parent-envelope inheritable-envelope-keys)
+    {:frame frame-id}))
+
 (def ^:private reserved-fx-handlers
   "Reserved fx-id → body-fn `(fn [frame-id parent-envelope args])`.
   Driven by `handle-one-fx`; emit of `:rf.fx/handled` lives in the
@@ -163,24 +184,32 @@
 
   `parent-envelope` is the dispatch envelope of the event that produced
   this fx vector. Per Spec 002 §The binary fx-handler signature (line
-  603) and §Drain-loop pseudocode (lines 916, 961-963), the slot is
-  available to reserved-fx defmethods for `:dispatch` / `:dispatch-later`
-  so they can copy parent-envelope fields onto the child dispatch — see
-  the cascade-propagation work that consumes this seam in a follow-up
-  commit. Flows fxs ignore it."
+  603) and §Drain-loop pseudocode (lines 916, 961-963), the reserved-fx
+  defmethods for `:dispatch` / `:dispatch-later` read the parent envelope
+  to propagate inheritable keys (`:fx-overrides`, `:interceptor-overrides`,
+  `:trace-id`, `:origin`, `:source`) onto the child dispatch — per
+  Spec 002 §Cascade propagation."
   {:dispatch
-   ;; Append to back of the frame's router queue.
-   (fn [frame-id _parent-envelope args]
-     (call-frame-scoped-hook! :router/dispatch! frame-id args))
+   ;; Append to back of the frame's router queue. Per Spec 002
+   ;; §Cascade propagation, the child envelope inherits the parent's
+   ;; `:fx-overrides` / `:interceptor-overrides` / `:trace-id` /
+   ;; `:origin` / `:source`.
+   (fn [frame-id parent-envelope args]
+     (when-let [f (late-bind/get-fn :router/dispatch!)]
+       (f args (child-dispatch-opts frame-id parent-envelope))))
 
    :dispatch-later
    ;; Delayed dispatch — wraps the same router hook in `set-timeout!`.
-   (fn [frame-id _parent-envelope {:keys [ms event]}]
-     (interop/set-timeout!
-       (fn []
-         (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-           (dispatch! event {:frame frame-id})))
-       ms))
+   ;; Inheritable keys are projected at fx-firing time and captured in
+   ;; the closure so the deferred dispatch carries the parent envelope's
+   ;; overrides into the eventual child cascade.
+   (fn [frame-id parent-envelope {:keys [ms event]}]
+     (let [opts (child-dispatch-opts frame-id parent-envelope)]
+       (interop/set-timeout!
+         (fn []
+           (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+             (dispatch! event opts)))
+         ms)))
 
    ;; Per Spec 013 — flows are frame-scoped. The flow registers against
    ;; the dispatching frame.
