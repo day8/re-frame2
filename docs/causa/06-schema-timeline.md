@@ -1,4 +1,4 @@
-# 7. Schema-violation timeline
+# 6. Schema-violation timeline
 
 You shipped a refactor on Monday — a small change to the `:cart/items` shape, added a `:line-id` slot, nothing your tests caught. By Wednesday afternoon Sentry has three rows that look like the same problem on three different users' machines: a red error toast on the checkout page. You can't reproduce locally. The stack trace is in a sub two hops downstream of the slot you touched.
 
@@ -6,7 +6,7 @@ This is what schemas are for, and the Schemas panel is what you open. You'd regi
 
 The panel lights up only when you've registered at least one schema. The companion narrative is [Guide 04a — Schemas](../guide/04a-schemas.md).
 
-![Schema-violation timeline — a coloured dot per epoch, per registered schema](../images/causa/07-schema-timeline.png)
+![Schema-violation timeline — a coloured dot per epoch, per registered schema](../images/causa/06-schema-timeline.png)
 
 ## What you see
 
@@ -59,4 +59,4 @@ Schemas catch contract drift over time. A schema that's been green for a week an
 
 The point isn't to ship a panel that handles schemas; it's that schemas were already going to fail visibly through the bus, and the panel just paints what's there.
 
-Next: [the hydration debugger](08-hydration.md).
+Next: [the hydration debugger](07-hydration.md).

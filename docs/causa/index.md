@@ -40,11 +40,11 @@ The chapters:
 - [3. Time-travel scrubbing](03-time-travel.md) — walk the epoch buffer; rewind; replay.
 - [4. Trace stream](04-trace-stream.md) — every fx, every sub, every render, filtered.
 - [5. Click-to-source](05-click-to-source.md) — the hero feature: any DOM element back to its line.
-- [6. AI co-pilot rail](06-ai-copilot.md) — pull-only Q&A and slash commands.
-- [7. Schema-violation timeline](07-schema-timeline.md) — Malli failures over time.
-- [8. Hydration debugger](08-hydration.md) — server vs client render diff.
-- [9. Machine inspector](09-machine-inspector.md) — Stately-grade state-chart per machine.
-- [10. App-DB diff](10-app-db-diff.md) — slice-centric diff per epoch.
+- [6. Schema-violation timeline](06-schema-timeline.md) — Malli failures over time.
+- [7. Hydration debugger](07-hydration.md) — server vs client render diff.
+- [8. Machine inspector](08-machine-inspector.md) — Stately-grade state-chart per machine.
+- [9. App-DB diff](09-app-db-diff.md) — slice-centric diff per epoch.
+- [10. AI co-pilot rail](10-ai-copilot.md) — pull-only Q&A and slash commands.
 - [11. MCP-server panel](11-mcp-server.md) — Causa as an agent surface.
 
 ---

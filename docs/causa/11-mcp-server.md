@@ -60,7 +60,7 @@ This is the chapter that's most *spec-as-of-shipping*. The next pass through the
 
 That's the tour. You've seen:
 
-- The eleven panel walkthrough — Event detail, Time travel, Trace, Click-to-source, AI co-pilot, Schemas, Hydration, Machines, App-DB, MCP.
+- The eleven panel walkthrough — Event detail, Time travel, Trace, Click-to-source, Schemas, Hydration, Machines, App-DB, AI co-pilot, MCP.
 - The single observation surface they all share.
 - The contracts the framework commits to — trace bus, epoch records, source coords, machine indices.
 - The escape hatches — pair tools for writes, the Performance API for production timing, the off-box trace pipeline for APM.

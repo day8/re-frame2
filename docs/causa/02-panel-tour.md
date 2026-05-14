@@ -46,7 +46,7 @@ See the dedicated [chapter 3](03-time-travel.md).
 
 Not a full `app-db` tree dump. **The slices that changed in the current epoch**, plus any slices you've pinned with a *watch* gesture. Read-only — Causa never writes to `app-db` for you (use `re-frame-pair2` for that, or dispatch a real event).
 
-See [chapter 10](10-app-db-diff.md).
+See [chapter 9](09-app-db-diff.md).
 
 ## Subscriptions
 
@@ -66,11 +66,11 @@ See [chapter 4](04-trace-stream.md).
 
 ## Machines — Stately-grade state-charts
 
-For every registered machine, the panel renders a Stately-quality state-diagram: nodes for states, edges for transitions, guards on edges, actions on entry/exit, parallel regions as side-by-side boxes, hierarchical states nested. The current state is highlighted live; transitions paint as they fire. (Screenshot in [chapter 9](09-machine-inspector.md).)
+For every registered machine, the panel renders a Stately-quality state-diagram: nodes for states, edges for transitions, guards on edges, actions on entry/exit, parallel regions as side-by-side boxes, hierarchical states nested. The current state is highlighted live; transitions paint as they fire. (Screenshot in [chapter 8](08-machine-inspector.md).)
 
 Embedded under the hood is [`tools/machines-viz/`](https://github.com/day8/re-frame2/tree/main/tools/machines-viz) — a separate visualiser library that Causa composes in.
 
-See [chapter 9](09-machine-inspector.md).
+See [chapter 8](08-machine-inspector.md).
 
 ## Flows
 
@@ -92,13 +92,13 @@ The unified feed: errors, warnings, schema violations, hydration mismatches. One
 
 The schema-violation timeline. One row per registered schema (`app-db` slot, sub return, event payload, cofx). Coloured dots per failure with recovery mode. Lit up only if you've registered any Malli schemas — see [Guide 04a — Schemas](../guide/04a-schemas.md).
 
-See [chapter 7](07-schema-timeline.md).
+See [chapter 6](06-schema-timeline.md).
 
 ## Hydration
 
 The server-vs-client hydration debugger. Only visible when SSR hydration actually runs in the page. Side-by-side render trees with the diff highlighted.
 
-See [chapter 8](08-hydration.md).
+See [chapter 7](07-hydration.md).
 
 ## MCP
 
@@ -108,7 +108,7 @@ A panel that exposes Causa's surfaces over the planned `causa-mcp` JSON-RPC serv
 
 The pull-only AI rail. `Ctrl+Shift+/` toggles it. The agent runs against Causa's read surface — `epoch-history`, `(rf/sub-topology)`, the current trace stream — and answers questions in-context. No writes; no auto-action.
 
-See [chapter 6](06-ai-copilot.md).
+See [chapter 10](10-ai-copilot.md).
 
 ---
 

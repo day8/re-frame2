@@ -128,4 +128,4 @@ The fix is a one-token edit on line 207: change `:<- [:cart/subtotal-WRONG]` to 
 
 You just walked the 3pm scenario in five minutes.
 
-Next: [the AI co-pilot rail](06-ai-copilot.md).
+Next: [the schema-violation timeline](06-schema-timeline.md).

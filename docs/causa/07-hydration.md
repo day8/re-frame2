@@ -1,4 +1,4 @@
-# 8. Hydration debugger
+# 7. Hydration debugger
 
 Your tester refreshes the page and the count flips from 12 to 0. Server-rendered HTML said one number; the client booted up and said another. They send you a screenshot of the half-second of flicker — the SSR'd value visible until the React reconciler stamps over it with the wrong one.
 
@@ -6,7 +6,7 @@ That's a hydration mismatch, and the Hydration panel is the focused view. The Is
 
 The panel **only appears in the sidebar when hydration actually runs in the page**. A SPA-only build won't see it at all. SSR ships at [Guide 11](../guide/11-server-side.md).
 
-![Hydration debugger — server and client trees side-by-side, mismatch highlighted](../images/causa/08-hydration.png)
+![Hydration debugger — server and client trees side-by-side, mismatch highlighted](../images/causa/07-hydration.png)
 
 ## What it shows
 
@@ -55,4 +55,4 @@ It's not a hydration *prevention* — re-frame2 doesn't try to stop you from wri
 
 For when *not* to hydrate at all — view components that should opt out of SSR entirely — see the SSR chapter's coverage of the `:client-only?` view metadata. The panel respects that flag; opted-out views don't show up as mismatches.
 
-Next: [the machine inspector](09-machine-inspector.md).
+Next: [the machine inspector](08-machine-inspector.md).

@@ -43,13 +43,15 @@ PLACEHOLDERS = [
     ("causa", "03-time-travel.png",     "Time-travel scrubber with epoch history"),
     ("causa", "04-trace.png",           "Trace panel with live event count + filter bar"),
     ("causa", "05-dom-attribute.png",   "data-rf2-source-coord on every rendered element"),
-    ("causa", "09-machines.png",        "Machine inspector with state-chart"),
-    ("causa", "10-app-db-diff.png",     "App-DB diff for a cascade"),
-    # rf2-duat7 new Causa scenes:
-    ("causa", "06-copilot-rail.png",    "AI co-pilot rail — pull-only, slash commands"),
-    ("causa", "07-schema-timeline.png", "Schema-violation timeline — dot per epoch"),
-    ("causa", "08-hydration.png",       "Hydration debugger — server vs client trees"),
-    ("causa", "10-app-db-modes.png",    "App-DB diff — three rendering modes"),
+    ("causa", "08-machines.png",        "Machine inspector with state-chart"),
+    ("causa", "09-app-db-diff.png",     "App-DB diff for a cascade"),
+    # rf2-duat7 new Causa scenes (renumbered under rf2-hhwcm — the
+    # AI co-pilot moved from ch 6 to ch 10; the conditional-band
+    # chapters shifted one slot down to absorb the move):
+    ("causa", "10-copilot-rail.png",    "AI co-pilot rail — pull-only, slash commands"),
+    ("causa", "06-schema-timeline.png", "Schema-violation timeline — dot per epoch"),
+    ("causa", "07-hydration.png",       "Hydration debugger — server vs client trees"),
+    ("causa", "09-app-db-modes.png",    "App-DB diff — three rendering modes"),
 
     # rf2-6e53j originals:
     ("story", "01-shell-overview.png",  "The Story shell — sidebar / canvas / inspectors"),

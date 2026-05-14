@@ -1,8 +1,8 @@
-# 6. AI co-pilot rail
+# 10. AI co-pilot rail
 
 A slide-in rail on the right side of the shell. `Ctrl+Shift+/` toggles it.
 
-![Co-pilot rail with the slash-command popover open](../images/causa/06-copilot-rail.png)
+![Co-pilot rail with the slash-command popover open](../images/causa/10-copilot-rail.png)
 
 The rail is **pull-only**. The agent never volunteers a thought, never interrupts your investigation, never proposes a fix you didn't ask for. You ask; it answers. The rail is for the moments when you want an extra pair of eyes on the cascade, not a co-author.
 
@@ -59,4 +59,4 @@ Three escape routes:
 - **You want the agent to *do* something** (dispatch, hot-swap, reset-frame-db!). The rail won't; `re-frame-pair2` will. The skill's recipe is "open a session, the agent dispatches a probe, you read the trace, you ask the agent to refine." The skill is editor-side because the writes are editor-anchored.
 - **You want to drive Causa from an external agent**. That's what the planned `causa-mcp` server is for — same surfaces, MCP-protocol wrapper. See [chapter 11](11-mcp-server.md).
 
-Next: [the schema-violation timeline](07-schema-timeline.md).
+Next: [the MCP-server panel](11-mcp-server.md).

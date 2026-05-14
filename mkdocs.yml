@@ -115,11 +115,11 @@ nav:
     - "3. Time-travel scrubbing": causa/03-time-travel.md
     - "4. Trace stream": causa/04-trace-stream.md
     - "5. Click-to-source": causa/05-click-to-source.md
-    - "6. AI co-pilot rail": causa/06-ai-copilot.md
-    - "7. Schema-violation timeline": causa/07-schema-timeline.md
-    - "8. Hydration debugger": causa/08-hydration.md
-    - "9. Machine inspector": causa/09-machine-inspector.md
-    - "10. App-DB diff": causa/10-app-db-diff.md
+    - "6. Schema-violation timeline": causa/06-schema-timeline.md
+    - "7. Hydration debugger": causa/07-hydration.md
+    - "8. Machine inspector": causa/08-machine-inspector.md
+    - "9. App-DB diff": causa/09-app-db-diff.md
+    - "10. AI co-pilot rail": causa/10-ai-copilot.md
     - "11. MCP-server panel": causa/11-mcp-server.md
 
   - Skills:

@@ -416,7 +416,7 @@ SCENES.push({
 
 SCENES.push({
   id: 'causa-app-db-diff',
-  out: path.join(OUT_CAUSA, '10-app-db-diff.png'),
+  out: path.join(OUT_CAUSA, '09-app-db-diff.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
@@ -440,7 +440,7 @@ SCENES.push({
 
 SCENES.push({
   id: 'causa-machines',
-  out: path.join(OUT_CAUSA, '09-machines.png'),
+  out: path.join(OUT_CAUSA, '08-machines.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
@@ -471,7 +471,7 @@ SCENES.push({
 
 SCENES.push({
   id: 'causa-copilot-rail',
-  out: path.join(OUT_CAUSA, '06-copilot-rail.png'),
+  out: path.join(OUT_CAUSA, '10-copilot-rail.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
@@ -490,7 +490,7 @@ SCENES.push({
 
 SCENES.push({
   id: 'causa-schemas-empty',
-  out: path.join(OUT_CAUSA, '07-schema-timeline.png'),
+  out: path.join(OUT_CAUSA, '06-schema-timeline.png'),
   url: '/counter/',
   before: async (page) => {
     // The counter example registers no schemas — the panel renders its
@@ -505,7 +505,7 @@ SCENES.push({
 
 SCENES.push({
   id: 'causa-hydration-empty',
-  out: path.join(OUT_CAUSA, '08-hydration.png'),
+  out: path.join(OUT_CAUSA, '07-hydration.png'),
   url: '/counter/',
   before: async (page) => {
     // Counter is SPA-only — the hydration panel renders its
@@ -520,7 +520,7 @@ SCENES.push({
 
 SCENES.push({
   id: 'causa-app-db-modes',
-  out: path.join(OUT_CAUSA, '10-app-db-modes.png'),
+  out: path.join(OUT_CAUSA, '09-app-db-modes.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
