@@ -327,50 +327,24 @@
 ;; ---- destruction ----------------------------------------------------------
 ;;
 ;; destroy-frame! runs an ordered teardown. Each step lives in its own
-;; named helper so the body of destroy-frame! reads as documentation; the
-;; helper names ARE the step list. Order matters — see destroy-frame!'s
-;; docstring and Spec 002 §Destroy.
+;; named helper so the body of destroy-frame! reads as a step list. Order
+;; matters — see destroy-frame!'s docstring for the authoritative recipe.
 
 (defn- safe-call-hook!
-  "Fire a late-bound cleanup hook by key. No-op when the hook is unbound
-  (the owning artefact isn't loaded); exceptions from the hook fn are
-  swallowed so one bad cleanup hook can't block the rest of teardown.
-  Every destroy-time cleanup hook in this ns funnels through here so the
-  late-bind + best-effort policy is single-sourced."
+  "Fire a late-bound cleanup hook by key. No-op when unbound; exceptions
+  are swallowed so one bad hook can't block the rest of teardown."
   [hook-key & args]
   (when-let [f (late-bind/get-fn hook-key)]
     (try (apply f args)
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn- fire-on-destroy-event!
-  "Step 1. Fire the user-supplied :on-destroy event before any lifecycle
-  mutation, so handlers still observe an alive frame. No-op when the
-  frame has no :on-destroy or when the router artefact is absent."
   [id f]
   (when-let [on-destroy (get-in f [:config :on-destroy])]
     (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
       (dispatch-sync on-destroy {:frame id}))))
 
 (defn- notify-machine-destruction!
-  "Step 2 (with interleaved 2a). For every machine that has an active
-  snapshot under [:rf/machines ...] in app-db:
-
-    2a. Fire the rf2-wvkn HTTP abort hook (Spec 005 §Cancellation
-        cascade — frame-destroy is a documented destroy trigger).
-        Late-bound; nil when the http artefact is absent. Runs BEFORE
-        the trace event so observers see abort-then-destroy ordering.
-    2.  Emit ONE :rf.machine.lifecycle/destroyed trace per actor
-        snapshot, carrying :reason :parent-frame-destroyed under :tags.
-        Pairs with :rf.machine.lifecycle/created emitted at reg-machine
-        so lifecycle observers see one consistent op-type for create
-        AND destroy across every cause and code path. The :reason tag
-        discriminates why the actor went away — frame-exit emits
-        :parent-frame-destroyed; the fx-substrate's :rf.machine/destroyed
-        emit-site (lifecycle_fx.cljc) carries the other reasons
-        (:rf.machine/finished, :explicit, :parent-unmount-cascade).
-
-  Full automatic exit-cascade would require storing every machine def
-  in a registry, which is out of scope for the v1 closed kind set."
   [id]
   (let [container  (get-frame-db id)
         db         (when container (adapter/read-container container))
@@ -387,17 +361,10 @@
                     :reason     :parent-frame-destroyed}))))
 
 (defn- mark-frame-destroyed!
-  "Step 3. Flip :lifecycle :destroyed? so subsequent dispatch / subscribe
-  against this frame raises :rf.error/frame-destroyed. Done before
-  sub-cache disposal so a racing reaction can't re-enter on a frame
-  that's mid-teardown."
   [id]
   (swap! frames update id assoc-in [:lifecycle :destroyed?] true))
 
 (defn- tear-down-sub-cache!
-  "Step 4. Walk every cached reaction in the frame's sub-cache and
-  dispose it; clear the cache atom. Disposal exceptions are swallowed
-  so one bad on-dispose can't block the rest of teardown."
   [f]
   (when-let [cache (:sub-cache f)]
     (doseq [[_k entry] @cache]
@@ -407,80 +374,47 @@
     (reset! cache {})))
 
 (defn- emit-frame-destroyed-trace!
-  "Step 5. Emit the :frame/destroyed trace, AFTER the per-machine
-  cascade so listeners see machines-then-frame ordering."
   [id]
   (trace/emit! :frame :frame/destroyed
                {:frame id}))
 
 (defn- dissoc-frame!
-  "Step 6. Remove the frame record from the `frames` atom so subsequent
-  lookups return nil."
   [id]
   (swap! frames dissoc id))
 
 (defn- unregister-frame!
-  "Step 7. Per Spec 001 §Hot-reload semantics — drop the frame from the
-  registrar, surfacing :rf.registry/handler-cleared so tools tracking
-  the live registry observe the slot freed."
   [id]
   (registrar/unregister! :frame id))
 
 (defn- notify-epoch-listeners!
-  "Step 8. Per Tool-Pair §Surface behaviour against destroyed frames
-  (rf2-d656): emit a one-shot :rf.epoch.cb/silenced-on-frame-destroy
-  for every register-epoch-cb! listener that previously observed this
-  frame. Late-bound through the hook table so core never statically
-  requires the epoch artefact."
   [id]
   (safe-call-hook! :epoch/on-frame-destroyed id))
 
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
 
-    1. fire-on-destroy-event!       — run the user :on-destroy event
-                                      while the frame is still alive.
+    1. fire-on-destroy-event!       — run user :on-destroy while frame
+                                      is still alive.
     2. notify-machine-destruction!  — for each active machine snapshot:
-                                      (2a) fire the rf2-wvkn HTTP abort
-                                      hook, then emit the unified
+                                      fire the HTTP abort hook then emit
                                       :rf.machine.lifecycle/destroyed
-                                      trace (one per snapshot) carrying
-                                      :reason :parent-frame-destroyed.
+                                      with :reason :parent-frame-destroyed.
     3. mark-frame-destroyed!        — flip :lifecycle :destroyed?.
     4. tear-down-sub-cache!         — dispose every cached reaction.
-    5. emit-frame-destroyed-trace!  — emit :frame/destroyed.
+    *. cleanup hooks (best-effort, no-op when artefact absent):
+         :privacy/clear-suppression-cache!  — reset sensitive-without-
+                                              redaction warn-once cache.
+         :ssr/on-frame-destroyed            — clear SSR side-channel
+                                              atoms for this frame.
+         :machines/on-frame-destroyed!      — clear the machines
+                                              artefact's frame-scoped
+                                              `:after` timer table.
+    5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
+                                      machine cascade.
     6. dissoc-frame!                — remove from the `frames` atom.
     7. unregister-frame!            — drop from the registrar.
-    8. notify-epoch-listeners!      — fire the rf2-d656 epoch hook.
-
-  Two cleanup hooks fire between step 4 and step 5 — both are best-
-  effort and tolerate the hook artefact being absent at runtime:
-
-    :privacy/clear-suppression-cache!   — rf2-isdwf, reset the warn-once
-                                          cache so a re-registered frame
-                                          re-emits the sensitive-without-
-                                          redaction warning if mis-config.
-    :ssr/on-frame-destroyed             — rf2-fcj33, drop the SSR
-                                          side-channel atoms' entries
-                                          for the destroyed frame
-                                          (pending-error-traces +
-                                          request-slots). Without this
-                                          hook those two defonce atoms
-                                          accumulate one entry per
-                                          request under SSR load — a
-                                          slow leak that compounds over
-                                          a long-running server process.
-    :machines/on-frame-destroyed!       — rf2-ysa94, clear the machines
-                                          artefact's frame-scoped
-                                          `:after` timer table for the
-                                          destroyed frame and release
-                                          any in-flight host-clock
-                                          handles / subscription
-                                          watchers belonging to that
-                                          frame. Without this hook the
-                                          destroyed frame's inner table
-                                          would linger and live timers
-                                          would survive teardown.
+    8. notify-epoch-listeners!      — fire the epoch hook so tools see
+                                      :rf.epoch.cb/silenced-on-frame-destroy.
 
   Subsequent dispatch / subscribe against a destroyed frame raises
   :rf.error/frame-destroyed."
@@ -490,30 +424,8 @@
     (notify-machine-destruction! id)
     (mark-frame-destroyed! id)
     (tear-down-sub-cache! f)
-    ;; Per rf2-isdwf / Spec 009 §Privacy: reset the
-    ;; sensitive-without-redaction warning suppression cache so a
-    ;; re-registration after frame teardown (test fixtures, hot
-    ;; reload that destroys and re-creates the frame) re-emits the
-    ;; warning if still mis-configured. No-op when re-frame.privacy
-    ;; hasn't been loaded.
     (safe-call-hook! :privacy/clear-suppression-cache!)
-    ;; Per rf2-fcj33 / Spec 011 §Per-request frame teardown contract:
-    ;; clear the SSR side-channel atoms (pending-error-traces +
-    ;; request-slots) for the destroyed frame. Both live outside app-db
-    ;; for documented design reasons (the buffered-traces sidestep an
-    ;; app-db clobber race; the request slot keeps host-controlled
-    ;; data out of the hydration payload). Neither is otherwise cleared
-    ;; by destroy-frame's app-db / sub-cache teardown, so under SSR
-    ;; load each request would leak one entry in each atom. No-op when
-    ;; re-frame.ssr is absent.
     (safe-call-hook! :ssr/on-frame-destroyed id)
-    ;; Per rf2-ysa94 / Spec 005 §Delayed `:after` transitions: clear the
-    ;; machines artefact's frame-scoped `:after` timer table for the
-    ;; destroyed frame. The table is partitioned per frame; without this
-    ;; hook the destroyed frame's inner-table would linger as dead
-    ;; bookkeeping and any in-flight host-clock handles would survive
-    ;; teardown. No-op when re-frame.machines is absent (the artefact
-    ;; is optional).
     (safe-call-hook! :machines/on-frame-destroyed! id)
     ;; Per rf2-wkxng / rf2-6m0se: drop every schema registered against
     ;; the destroyed frame so a re-registered frame starts with a
