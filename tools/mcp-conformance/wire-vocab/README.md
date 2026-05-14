@@ -9,13 +9,21 @@ The three MCP servers under `tools/` — `pair2-mcp`, `story-mcp`, and
 vocabulary**: namespaced map keys that an agent recognises identically
 across every server it talks to.
 
+There are **five top-level wire markers** plus one embedded fetch-handle
+tag (`:rf.elision/at`, pinned inside the `:rf.size/large-elided` body's
+`:handle` slot — not a standalone marker an agent encounters at the top
+level of a payload):
+
 ```
 :rf.mcp/overflow       — token-budget overflow marker
 :rf.mcp/summary        — tree-summary lazy-mode marker
 :rf.mcp/dedup-table    — structural-dedup wrapper
 :rf.mcp/diff-from      — diff-encoded :db-after marker
 :rf.size/large-elided  — size-elision wire marker
-:rf.elision/at         — size-elision fetch-handle tag
+:rf.elision/at         — embedded fetch-handle tag inside the
+                         :rf.size/large-elided body's :handle slot
+                         (pinned via ElisionMarkerBody, not a
+                         standalone top-level marker)
 ```
 
 Without conformance enforcement, two servers could each ship the

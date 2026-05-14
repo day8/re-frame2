@@ -4,7 +4,11 @@
   Three MCP servers ship under `tools/`: pair2-mcp, story-mcp, and
   causa-mcp (spec-only today). The first and the third share a
   reserved cross-server **wire vocabulary** — namespaced map keys an
-  agent recognises identically across every server:
+  agent recognises identically across every server.
+
+  Five top-level markers, plus the `:rf.elision/at` fetch-handle tag
+  (embedded inside the `:rf.size/large-elided` body's `:handle` slot —
+  not a standalone marker; pinned via the elision-marker body schema):
 
   - `:rf.mcp/overflow`      — token-budget overflow marker
                               (causa-mcp Principles mechanism 1,
@@ -23,8 +27,10 @@
   - `:rf.size/large-elided` — size-elision wire marker
                               (spec/Spec-Schemas §`:rf/elision-marker`,
                                pair2-mcp Principles §\"Size-elision\")
-  - `:rf.elision/at`        — size-elision fetch-handle tag
-                              (same)
+  - `:rf.elision/at`        — size-elision fetch-handle tag, embedded
+                              inside the `:rf.size/large-elided` body's
+                              `:handle` slot per `ElisionMarkerBody`
+                              (NOT a standalone top-level marker)
 
   story-mcp does NOT currently emit any of these markers — it operates
   on small, structured story/variant metadata and stays under the
