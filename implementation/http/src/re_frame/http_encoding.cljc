@@ -98,6 +98,33 @@
 
 ;; ---- decode pipeline ------------------------------------------------------
 
+(defn content-type-of
+  "Per Spec 014 §Request envelope — HTTP header names are case-insensitive.
+  Scan `headers` for a `content-type` key in any casing, returning the
+  value (or nil). Tolerates keyword keys (rare, but used by some
+  middlewares); ignores non-string non-keyword keys.
+
+  Used by `decode-response-body` (response-side sniffing) and by the
+  transport's request-side clash check. The JVM transport additionally
+  normalises response headers to lower-case at the boundary
+  (`jvm-headers->map`) to match the CLJS Fetch path — this helper is the
+  belt to that braces: even a hand-constructed headers map with mixed
+  casing (e.g. an interceptor `:before` that synthesises headers) is
+  resolved correctly."
+  [headers]
+  (when (map? headers)
+    (reduce-kv
+      (fn [_ k v]
+        (let [k-str (cond
+                      (string? k)  k
+                      (keyword? k) (name k)
+                      :else        nil)]
+          (if (and k-str (= "content-type" (str/lower-case k-str)))
+            (reduced v)
+            nil)))
+      nil
+      headers)))
+
 (defn- sniff-decoder
   "Per Spec 014 §`:auto`: sniff the response Content-Type header."
   [content-type]
@@ -161,8 +188,7 @@
   "Per Spec 014 §Decoding. Returns the decoded value or throws an
   ex-info that the caller maps to `:rf.http/decode-failure`."
   [{:keys [body-text headers decode decode-supplied? request-id url sensitive?]}]
-  (let [content-type (or (get headers "content-type")
-                         (get headers "Content-Type"))
+  (let [content-type (content-type-of headers)
         decoder      (cond
                        (nil? decode)        :auto
                        (= :auto decode)     :auto
