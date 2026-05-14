@@ -26,36 +26,22 @@
 // self-contained and reproducible on CI without needing a live
 // shadow-cljs runtime. Source: rf2-cum40.
 
+const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
 
-const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
+const PAIR2_MCP_DIR = path.resolve(__dirname, '..', '..', 'pair2-mcp');
+const SERVER = path.join(PAIR2_MCP_DIR, 'out', 'server.js');
 
-// Expected tools advertised by pair2-mcp's tools/list. Pinned exact so
-// accidental renames / additions / deletions surface here. Mirrors the
-// upstream stdio-roundtrip baseline (fourteen tools post-rf2-cibp8 +
-// rf2-pctf8, which added `handler-meta` and `registry-list` as the
-// registry-introspection pair on top of the twelve-tool post-rf2-fnpqg
-// baseline; that earlier expansion added `get-pair2-instructions` as an
-// agent-paste preamble tool on top of the eleven-tool post-rf2-zjz9q
-// baseline).
-const EXPECTED_TOOLS = [
-  'discover-app',
-  'dispatch',
-  'eval-cljs',
-  'get-pair2-instructions',
-  'get-path',
-  'handler-meta',
-  'registry-list',
-  'snapshot',
-  'subscribe',
-  'subscription-info',
-  'tail-build',
-  'trace-window',
-  'unsubscribe',
-  'watch-epochs',
-];
+// Canonical tool-name list — sourced from pair2-mcp's own fixture
+// (rf2-drke0, mirrors story-mcp's rf2-36upq TE7) so this conformance
+// harness and the upstream `tools/pair2-mcp/test/stdio-roundtrip.js`
+// agree on the expected `tools/list` response without two hand-
+// maintained lists drifting. A registry change updates one file.
+const EXPECTED_TOOLS = JSON.parse(
+  fs.readFileSync(path.join(PAIR2_MCP_DIR, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
+).names;
 
 // Force degraded mode: empty out $SHADOW_CLJS_NREPL_PORT and boot from
 // a tmpdir so the port-file probe misses. Same setup as the pair2-mcp
