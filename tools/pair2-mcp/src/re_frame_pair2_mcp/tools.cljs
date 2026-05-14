@@ -29,7 +29,7 @@
   or `tools/<tool>` files:
 
   - Concerns: `wire`, `probe`, `cap`, `dedup`, `elision`, `sensitive`,
-    `cursor`, `args`, `summary`, `snapshot-pipeline`.
+    `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`.
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
     `watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`
     (+ `subscribe-emit`), `unsubscribe`, `subscription-info`.
@@ -45,8 +45,10 @@
 
   Each MCP tool returns `{:content [{:type \"text\" :text <edn-string>}]}`
   on success, or `{:isError true :content [...]}` on failure."
-  (:require [re-frame-pair2-mcp.cache :as cache]
+  (:require [applied-science.js-interop :as j]
+            [re-frame-pair2-mcp.cache :as cache]
             [re-frame-pair2-mcp.tools.args :as args]
+            [re-frame-pair2-mcp.tools.boundary-step :as bs]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.cap :as cap]
             [re-frame-pair2-mcp.tools.precheck :as precheck]
@@ -75,74 +77,149 @@
     (js/Promise.resolve
       (wire/err-text {:ok? false :reason :unknown-tool :tool name}))))
 
-(defn invoke
-  "Dispatch a `tools/call` invocation to the right tool implementation.
-  Returns a Promise resolving to the MCP result object.
+;; ---------------------------------------------------------------------------
+;; Wire-boundary pipeline (rf2-3z0zi).
+;;
+;; Four steps thread through `boundary-step/run-step-pipeline`. Each
+;; step's `:run` receives the live context (carrying `:result` and
+;; `:precheck-hash`) and returns a Promise of the next context. The
+;; `:short-circuit?` predicates encode the per-step skip rules
+;; declaratively — no inline conditionals in the orchestrator.
+;;
+;; Adding a future step (request-level redaction, metrics, path-prefix
+;; slicing, per-call elision toggle) is one map-entry addition here
+;; plus the step's `:run` body. The orchestration loop and the test
+;; seam stay unchanged.
+;; ---------------------------------------------------------------------------
 
-  ## Wire-boundary pipeline
+(defn- precheck-step
+  "Step 0 — rf2-36xod cheap-hash short-circuit. For precheck-eligible
+  tools (cache enabled AND tool registers a precheck-frame), fetches
+  the runtime-side hash via one bencode round-trip and consults the
+  cache. On a hit, writes the marker to `:result` (which trips
+  subsequent steps' `:short-circuit?` predicates). On a miss, records
+  the fetched hash in `:precheck-hash` so `apply-cache` can attach
+  it to the future entry."
+  [{:keys [conn name args cache-opts] :as ctx}]
+  (if-let [frame (and (:enabled? cache-opts)
+                      (precheck/precheck-frame name args))]
+    (-> (precheck/fetch-precheck-hash conn args frame)
+        (.then (fn [h]
+                 (assoc ctx
+                   :precheck-hash h
+                   :result        (cache/precheck cache-opts h)))))
+    (js/Promise.resolve ctx)))
 
-  When the per-call `cache` arg is enabled, the invocation runs the
-  following:
+(defn- dispatch-step
+  "Step 1 — per-tool dispatch. Runs the actual tool implementation; its
+  Promise resolves to the JS-shape MCP result, which becomes the
+  context's `:result`."
+  [{:keys [conn name args extra] :as ctx}]
+  (-> (dispatch-tool* conn name args extra)
+      (.then (fn [result-js] (assoc ctx :result result-js)))))
 
-  0. `precheck/fetch-precheck-hash` (rf2-36xod) — for precheck-eligible
-     tools (`snapshot` single-frame; `get-path`) issue one cheap nREPL
-     eval `(hash (re-frame-pair2.runtime/snapshot frame))` and compare
-     to the stored `:precheck-hash` for `(tool, args)`. On a match,
-     short-circuit with `{:rf.mcp/cache-hit ... :via :precheck}` — the
-     tool eval is SKIPPED entirely. Saves the full pipeline cost. On a
-     miss (or for tools without precheck wiring), fall through.
+(defn- apply-cache-step
+  "Step 2 — rf2-3rt1f post-eval result-hash cache. On a hash match
+  replaces `:result` with the cache-hit marker; on a miss stores the
+  new hash (plus the precheck-hash from step 0 if present) and leaves
+  `:result` unchanged."
+  [{:keys [result cache-opts precheck-hash] :as ctx}]
+  (->> (cache/apply-cache result (assoc cache-opts :precheck-hash precheck-hash))
+       (assoc ctx :result)))
 
-  1. `cache/apply-cache` (rf2-3rt1f) — per-session response cache
-     keyed on a hash of the result's text payload. On a hit (same hash
-     for `(tool, args)` as the prior call) the full payload is replaced
-     with a tiny `{:rf.mcp/cache-hit ... :via :result-hash}` marker;
-     the agent host already has the byte-identical bytes from the prior
-     `tools/call`. Read-only tools only; `:isError` results bypass
-     entirely. See `cache/apply-cache` for the LRU policy. When a
-     precheck-hash was fetched in step 0, it's recorded alongside the
-     result hash so the NEXT call can short-circuit via the precheck
-     path.
+(defn- apply-cap-step
+  "Step 3 — rf2-rvyzy wire-boundary token-budget enforcement. When
+  `:result` exceeds the per-call cap, replaces it with the
+  `:rf.mcp/overflow` marker."
+  [{:keys [result cap-opts] :as ctx}]
+  (assoc ctx :result (cap/apply-cap result cap-opts)))
 
-  2. `cap/apply-cap` (rf2-rvyzy) — responses whose serialised size
-     exceeds the per-call cap (default 5,000 tokens, configurable via
-     the `max-tokens` MCP arg) are replaced with an
-     `{:rf.mcp/overflow ...}` marker. Silent truncation is not allowed;
-     see the `apply-cap` docstring for the pluggable-strategy design.
+(defn- isError? [result-js]
+  (and (some? result-js)
+       (boolean (j/get result-js :isError))))
+
+(def wire-boundary-pipeline
+  "The four-step wire-boundary pipeline. Order matters — see step
+  docstrings for the per-step semantics.
+
+  | Step              | When the step is skipped (`:short-circuit?`)        |
+  |-------------------|-----------------------------------------------------|
+  | `:precheck`       | never — runs unconditionally; produces a marker     |
+  |                   | result ONLY for eligible cacheable tools            |
+  | `:dispatch`       | a prior step already produced a `:result` (i.e.     |
+  |                   | precheck hit)                                       |
+  | `:apply-cache`    | `:isError` result (errors must not poison cache) OR |
+  |                   | result is already a wire-bounded marker             |
+  | `:apply-cap`      | result is a wire-bounded marker (cache-hit /        |
+  |                   | overflow are sub-cap by construction — rf2-gktyn)   |
 
   Cache before cap is the right order: a cache hit emits a sub-100-
   byte marker that's trivially under any reasonable cap, so flipping
-  the order would never change behaviour but would waste the
-  `sum-text-tokens` walk on the hit path.
+  the order would never change behaviour but would waste a token
+  walk on the hit path."
+  [{:name           :precheck
+    :run            precheck-step}
+   {:name           :dispatch
+    :run            dispatch-step
+    :short-circuit? (fn [{:keys [result]}] (some? result))}
+   {:name           :apply-cache
+    :run            apply-cache-step
+    :short-circuit? (fn [{:keys [result]}]
+                      (or (isError? result) (wire/marker? result)))}
+   {:name           :apply-cap
+    :run            apply-cap-step
+    :short-circuit? (fn [{:keys [result]}] (wire/marker? result))}])
+
+(defn invoke
+  "Dispatch a `tools/call` invocation through the wire-boundary
+  pipeline. Returns a Promise resolving to the MCP result object.
+
+  ## Wire-boundary pipeline
+
+  The four-step pipeline lives in `wire-boundary-pipeline` and is
+  threaded by `boundary-step/run-step-pipeline`:
+
+  0. **`:precheck`** (`precheck/fetch-precheck-hash`, rf2-36xod) —
+     for precheck-eligible tools, issue one cheap nREPL eval to
+     compute the runtime-side hash and compare to the stored
+     `:precheck-hash`. On a match, write the
+     `{:rf.mcp/cache-hit ... :via :precheck}` marker to `:result`
+     — the tool eval is SKIPPED entirely. Saves the full pipeline
+     cost. On a miss (or for tools without precheck wiring),
+     records the fetched hash in `:precheck-hash` for step 2 to
+     attach to the next entry.
+
+  1. **`:dispatch`** — per-tool implementation. Skipped if the
+     precheck step already produced a result.
+
+  2. **`:apply-cache`** (`cache/apply-cache`, rf2-3rt1f) —
+     post-eval per-session response cache keyed on a hash of the
+     result's text payload. On a hit the result is replaced with
+     `{:rf.mcp/cache-hit ... :via :result-hash}` — the agent host
+     already has the byte-identical bytes from the prior call. Read-
+     only tools only; `:isError` results bypass entirely; already-
+     marker results bypass entirely (a precheck hit is already the
+     cache-hit envelope). When a precheck-hash was fetched in step
+     0, it's recorded alongside the result hash so the NEXT call
+     can short-circuit via the precheck path.
+
+  3. **`:apply-cap`** (`cap/apply-cap`, rf2-rvyzy) — responses
+     whose serialised size exceeds the per-call cap (default 5,000
+     tokens, configurable via the `max-tokens` MCP arg) are replaced
+     with `{:rf.mcp/overflow ...}`. Silent truncation is not
+     allowed. Already-marker results bypass — the marker envelopes
+     are sub-cap by construction (rf2-gktyn).
 
   `extra` carries the MCP `extra` payload (signal + sendNotification +
   _meta.progressToken) for streaming tools. Non-streaming tools ignore
   it."
   [conn name args extra]
-  (let [cap-opts    {:tool     name
-                     :cap      (cap/max-tokens-arg args)
-                     :strategy :truncate-with-marker}
-        enabled?    (args/parse-bool-arg args :cache)
-        cache-opts  {:tool     name
-                     :args     args
-                     :enabled? enabled?}
-        ;; Step 0: precheck — only fetch a hash when cache is enabled
-        ;; AND the tool has precheck wiring. Otherwise resolve a
-        ;; sentinel pair `[nil nil]` immediately and skip the round-trip.
-        precheck-pr (if-let [frame (and enabled? (precheck/precheck-frame name args))]
-                      (-> (precheck/fetch-precheck-hash conn args frame)
-                          (.then (fn [h]
-                                   [h (cache/precheck cache-opts h)])))
-                      (js/Promise.resolve [nil nil]))]
-    (-> precheck-pr
-        (.then (fn [[h hit]]
-                 (if hit
-                   ;; Short-circuit — skip the tool entirely.
-                   hit
-                   ;; Miss / no precheck — run the tool and feed the
-                   ;; result + (any) precheck-hash into apply-cache.
-                   (-> (dispatch-tool* conn name args extra)
-                       (.then (fn [result]
-                                (cache/apply-cache
-                                  result
-                                  (assoc cache-opts :precheck-hash h))))))))
-        (.then (fn [result] (cap/apply-cap result cap-opts))))))
+  (let [enabled? (args/parse-bool-arg args :cache)
+        ctx      {:conn       conn
+                  :name       name
+                  :args       args
+                  :extra      extra
+                  :result     nil
+                  :cache-opts {:tool name :args args :enabled? enabled?}
+                  :cap-opts   {:tool name :cap (cap/max-tokens-arg args)}}]
+    (bs/run-and-extract wire-boundary-pipeline ctx)))

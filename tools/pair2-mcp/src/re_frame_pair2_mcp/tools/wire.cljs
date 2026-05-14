@@ -58,3 +58,40 @@
 (defn arg-build [args]
   (or (some-> (arg args :build) keyword)
       (default-build-id)))
+
+;; ---------------------------------------------------------------------------
+;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi).
+;;
+;; The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are
+;; replacement results emitted by the wire-boundary steps themselves.
+;; By construction they are sub-cap size — the cache-hit marker is
+;; ~100 bytes and the overflow marker is the cap-respecting
+;; replacement for an over-budget payload. Re-applying the cap walk
+;; to either is wasted work and the cache check on a hit-marker
+;; would compute a hash of the marker, not the original payload.
+;;
+;; Substring-match on the rendered text is the cheap detector — the
+;; markers always serialise with the namespaced key as the first
+;; key of the outer map, so a `starts-with?` on the trimmed text is
+;; fast and tight. False positives would require an agent-supplied
+;; payload that ALSO renders as `{:rf.mcp/...` at the top level —
+;; not a realistic shape for any tool's result.
+;; ---------------------------------------------------------------------------
+
+(def ^:private marker-prefixes
+  ["{:rf.mcp/cache-hit"
+   "{:rf.mcp/overflow"])
+
+(defn marker?
+  "Is `result-js` a wire-bounded `:rf.mcp/*` marker envelope?
+
+  Returns true for `:rf.mcp/cache-hit` and `:rf.mcp/overflow`
+  results — the two envelopes the cache + cap steps emit
+  themselves. Such envelopes are sub-cap by construction and must
+  not be re-walked by later boundary steps."
+  [result-js]
+  (let [content (when result-js (j/get result-js :content))
+        item    (when (array? content) (aget content 0))
+        text    (when item (j/get item :text))]
+    (and (string? text)
+         (boolean (some #(.startsWith text %) marker-prefixes)))))
