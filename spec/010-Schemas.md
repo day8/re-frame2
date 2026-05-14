@@ -633,9 +633,9 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 
 Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:spec`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md).
 
-### Schema migration on hot-reload
+### Schema migration on hot-reload — RESOLVED (rf2-lb0mx)
 
-When a sub-path schema changes during dev (file save), the live `app-db` may now violate the new schema. Recommendation: log + emit a `:spec/violation` trace event so dev panels highlight it; don't abort the live app.
+When a sub-path schema changes during dev (file save re-evaluates `reg-app-schema` with a different schema for the same path), the live `app-db` value at that path may now violate the new schema. The runtime emits a `:rf.spec/violation` trace event (`:op-type :warning`) so dev panels highlight the stale slice; the live app continues running. The trace event's `:tags` carry `:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, and `:frame` — enumerated authoritatively in [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (row `:rf.spec/violation`). Default recovery is `:logged-and-skipped` — `app-db` is **not** auto-cleared or rewound. Escalation to a frame's `:on-error` policy is a separate design call and is out of scope for this resolution.
 
 ### Boundary-validation interceptor naming
 
