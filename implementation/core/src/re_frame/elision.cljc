@@ -595,10 +595,20 @@
            (assoc acc k (walk vv (conj path k) ctx)))
          (empty v) v)
 
+        ;; Indexed-vector recurse — hand-rolled loop over `(nth v i)`
+        ;; rather than `(mapv (fn [idx vv] ...) (range) v)`. The
+        ;; `(range)` form allocated one lazy-seq cons cell per child to
+        ;; carry the index alongside `mapv`'s walk; for a wide vector
+        ;; slice (large `:items` collections) on every wire-emit walk
+        ;; that adds up (rf2-ioduy). Transient accumulator avoids the
+        ;; per-step persistent-conj path-vector allocation.
         (vector? v)
-        (mapv (fn [idx vv]
-                (walk vv (conj path idx) ctx))
-              (range) v)
+        (let [n (count v)]
+          (loop [i 0 acc (transient [])]
+            (if (< i n)
+              (recur (inc i)
+                     (conj! acc (walk (nth v i) (conj path i) ctx)))
+              (persistent! acc))))
 
         (set? v)
         ;; Sets don't have indices; walk children with the same path so
@@ -606,13 +616,20 @@
         ;; callers won't declare individual set members.
         (into #{} (map #(walk % path ctx)) v)
 
-        (seq? v)
         ;; Sequences (lists / lazy seqs) — walk and return a vector for
         ;; wire stability. Per Tool-Pair, wire payloads are EDN data;
-        ;; converting seq -> vector is safe.
-        (mapv (fn [idx vv]
-                (walk vv (conj path idx) ctx))
-              (range) v)
+        ;; converting seq -> vector is safe. `reduce` with a volatile
+        ;; index counter avoids the `(range)` lazy-seq cons cells the
+        ;; previous `(mapv f (range) v)` form allocated per child
+        ;; (rf2-ioduy).
+        (seq? v)
+        (let [idx (volatile! -1)]
+          (persistent!
+           (reduce (fn [acc vv]
+                     (vswap! idx inc)
+                     (conj! acc (walk vv (conj path @idx) ctx)))
+                   (transient [])
+                   v)))
 
         :else
         v))))
