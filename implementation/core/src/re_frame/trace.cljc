@@ -42,14 +42,11 @@
 (defn- next-event-id []
   (swap! event-counter inc))
 
-;; ---- handler-scope: the five-slot in-scope reading -----------------------
-;;
-;; Per Spec 009 §Handler-scope. Every handler-execution boundary (router,
-;; subs, fx, cofx, views) publishes a HandlerScope record on
-;; `*handler-scope*` so `emit!` / `emit-error!` can hoist the relevant
-;; slots onto each emitted event. See Spec 009 for the slot semantics,
-;; composition rule (innermost wins for meta-derived slots; call-site /
-;; dispatch-id inherit), and elision contract.
+;; ---- handler-scope --------------------------------------------------------
+;; The five-slot in-scope reading consulted by `emit!` / `emit-error!` to
+;; hoist slots onto each event. See Spec 009 §Handler-scope for the
+;; composition rule (innermost-wins for meta-derived slots; call-site /
+;; dispatch-id inherit from the parent scope).
 
 (defrecord HandlerScope [trigger-handler call-site dispatch-id sensitive? no-emit?])
 
@@ -78,11 +75,9 @@
 (defn no-emit?-from-meta
   "True iff `meta` carries `:rf.trace/no-emit? true`. Used at queue-time
   `:event/dispatched` emit, before the handler-scope binding exists.
-  Per Spec 009 §Trace-emission opt-out.
-
-  Sibling reader for `:sensitive?` lives in `re-frame.privacy`
-  (`privacy/sensitive?-from-meta`) per rf2-iwqu9 — privacy owns the
-  policy-locus; trace owns the emit-locus."
+  Per Spec 009 §Trace-emission opt-out. (Sibling `:sensitive?` reader
+  lives in `re-frame.privacy` — privacy owns the policy-locus, trace
+  the emit-locus.)"
   [meta]
   (true? (:rf.trace/no-emit? meta)))
 
@@ -94,9 +89,9 @@
   them from the parent scope on bind. Per Spec 009 §Handler-scope.
 
   The `:sensitive?` reading is inlined here to avoid a require cycle
-  with `re-frame.privacy` (privacy requires trace). The same boolean
+  with `re-frame.privacy` (privacy requires trace); the same boolean
   shape is exposed as `re-frame.privacy/sensitive?-from-meta` for
-  every other consumer (router / event-emit) per rf2-iwqu9."
+  every other consumer."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil
@@ -163,15 +158,14 @@
           ~@body))))
 
 ;; ---- retain-N trace ring buffer (dev-only) -------------------------------
-;;
-;; Per Spec 009 §Retain-N trace ring buffer. Holds the most recent N completed
-;; trace events; queryable via (trace-buffer). All ring-buffer machinery is
-;; gated on interop/debug-enabled? (the same compile-time flag the rest of the
-;; trace surface rides) so production builds drop the buffer entirely — no
-;; allocation, no append, no storage.
+;; Holds the most recent N completed trace events; queryable via
+;; `(trace-buffer)`. Gated on `interop/debug-enabled?` so production
+;; builds DCE the buffer entirely. Per Spec 009 §Retain-N trace ring
+;; buffer.
 
 (def ^:private default-buffer-depth
-  "Per Spec 009 §Retain-N trace ring buffer: default 200 events."
+  ;; 200 — one drained cascade plus prior history without per-frame
+  ;; memory pressure.
   200)
 
 (defonce ^:private buffer-depth (atom default-buffer-depth))
@@ -228,17 +222,17 @@
                      (`:app` / `:pair` / `:story` / `:test` / ...) per
                      Spec 002 §Dispatch origin tagging.
     :dispatch-id   — keep only events whose `:tags :dispatch-id` matches.
-                     Cascade-wide post rf2-g6ih4 — every emit inside a
-                     drain carries the in-flight cascade's dispatch-id.
+                     Every emit inside a drain carries the in-flight
+                     cascade's dispatch-id.
     :since-ms      — keep only events whose :time is strictly greater
                      than this numeric host-clock timestamp.
     :between       — `[t0 t1]` two-element vector — keep only events
                      whose :time falls in [t0, t1] inclusive.
     :sensitive?    — boolean. Match the top-level `:sensitive?` field
-                     (per Spec 009 §Privacy filter-vocab row, rf2-isdwf).
-                     Pass `false` to exclude sensitive events; pass
-                     `true` to select only sensitive events. Absent ⇒
-                     no constraint.
+                     (per Spec 009 §Privacy filter-vocab row). Pass
+                     `false` to exclude sensitive events; pass `true`
+                     to select only sensitive events. Absent ⇒ no
+                     constraint.
     :pred          — `(fn [ev] -> truthy)` arbitrary predicate. Receives
                      the full event map. Returning truthy keeps the event.
 
@@ -285,9 +279,8 @@
                   (or (nil? between-t0)
                       (and (number? (:time ev))
                            (<= between-t0 (:time ev) between-t1)))
-                  ;; Per rf2-isdwf: top-level `:sensitive?` is hoisted
-                  ;; (NOT nested under :tags). Match against the
-                  ;; top-level slot only; absent reads as false.
+                  ;; `:sensitive?` is hoisted to top level (NOT nested
+                  ;; under :tags). Absent reads as false.
                   (or (nil? sensitive-filter)
                       (= (true? sensitive-filter)
                          (true? (:sensitive? ev))))
@@ -346,25 +339,20 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 ;; ---- shared emit substrate ------------------------------------------------
+;; `emit!` / `emit-error!` are thin wrappers carrying the prod-DCE outer
+;; gate; the envelope construction (`build-event`, pure) and delivery
+;; (`deliver!`) sit below.
 ;;
-;; `emit!` (success) and `emit-error!` (error) share an envelope-
-;; construction core (`build-event`, pure; reads `*handler-scope*`) and
-;; a delivery path (`deliver!`, side-effect: ring buffer + epoch capture
-;; + listener fan-out). The two public emit fns are thin wrappers
-;; carrying the prod-DCE outer gate.
-;;
-;; The outer `(when interop/debug-enabled? ...)` and inner `(when-not
-;; (:no-emit? *handler-scope*) ...)` guards stay in the wrappers — NOT
-;; in `build-event` — because Spec 009 §Production builds mandates the
-;; outermost form of an emit call be `(when interop/debug-enabled? ...)`
-;; alone for Closure DCE to elide the expression under `:advanced` +
-;; `goog.DEBUG=false`.
+;; The outermost form of an emit call MUST be `(when
+;; interop/debug-enabled? ...)` alone for Closure DCE to elide it under
+;; `:advanced` + `goog.DEBUG=false` (Spec 009 §Production builds). Do
+;; not fold the gate into `build-event` or move it inside the inner
+;; `:no-emit?` short-circuit.
 
 (defn- compute-sensitive?
   "Hoist `:sensitive?` from the in-scope handler's registration meta,
   with caller-supplied `:sensitive?` in `tags` winning (queue-time
-  `:event/dispatched` computes its own reading). Per Spec 009
-  §Privacy / sensitive data in traces."
+  `:event/dispatched` computes its own reading). Per Spec 009 §Privacy."
   [tags scope]
   (let [tag-sensitive? (:sensitive? tags)]
     (cond
@@ -398,13 +386,10 @@
                       (:recovery tags :no-recovery)
                       (:recovery tags))
         call-site   (when error? (some-> scope :call-site))
-        ;; Strip hoisted slots from `:tags` so they don't double-up at
-        ;; the top level. Exception: the error path KEEPS `:source`
-        ;; under `:tags` because boundary-interceptor / error-emit
-        ;; sites use it as an emission-site discriminator (e.g.
-        ;; `:source :boundary` per Spec 010 §Production builds), and
-        ;; consumers already fall back top-level → `:tags :source`.
-        ;; Error path additionally merges `{:category operation}`.
+        ;; Hoisted slots are stripped from `:tags` so they don't double
+        ;; up at the top level. Error path keeps `:source` under `:tags`
+        ;; (boundary / error-emit sites use it as an emission-site
+        ;; discriminator) and merges `{:category operation}`.
         base-tags   (cond-> (dissoc tags :recovery :sensitive?)
                       (not error?) (dissoc :source)
                       error?       (->> (merge {:category operation})))
@@ -421,8 +406,8 @@
       trigger              (assoc :rf.trace/trigger-handler trigger)
       ;; `:rf.trace/call-site` rides error traces only.
       call-site            (assoc :rf.trace/call-site call-site)
-      ;; Top-level `:sensitive? true` stamp. Absent (not `false`)
-      ;; when not sensitive — consumers treat absent as false.
+      ;; Absent (not `false`) when not sensitive — consumers treat
+      ;; absent as false.
       sensitive?           (assoc :sensitive? true))))
 
 (defn- deliver!
@@ -451,11 +436,10 @@
 
   Per Spec 009 §Emitting trace events and §Handler-scope."
   [op operation tags]
+  ;; `:no-emit?` short-circuit MUST sit inside the outer
+  ;; `interop/debug-enabled?` gate — the outer form must stand alone
+  ;; for Closure DCE under :advanced + goog.DEBUG=false.
   (when interop/debug-enabled?
-    ;; `:no-emit?` short-circuit sits *inside* the outer
-    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
-    ;; (the outer gate must stand alone for Closure DCE — see
-    ;; §Production-elision verification).
     (when-not (true? (some-> *handler-scope* :no-emit?))
       (deliver! (build-event op operation tags)))))
 
@@ -467,21 +451,15 @@
 
   Reads `*handler-scope*` to hoist `:trigger-handler`, `:call-site`,
   and `:dispatch-id` onto the envelope, and to honour the `:no-emit?`
-  short-circuit (symmetric with `emit!`). Per Spec 009 §Error contract
-  and §Handler-scope."
+  short-circuit (symmetric with `emit!`). Per Spec 009 §Error contract."
   [error-operation tags]
   (when interop/debug-enabled?
-    ;; `:no-emit?` short-circuit sits *inside* the outer
-    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds.
     (when-not (true? (some-> *handler-scope* :no-emit?))
       (deliver! (build-event :error error-operation tags)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
-;;
-;; re-frame.registrar emits a trace event when a handler is replaced but
-;; cannot `:require` this namespace without a cyclic load order.
-;; Publish `emit!` through the late-bind hook registry. See
-;; re-frame.late-bind.
+;; re-frame.registrar emits when a handler is replaced but cannot
+;; `:require` this ns without a cyclic load order.
 
 (late-bind/set-fn! :trace/emit!       emit!)
 (late-bind/set-fn! :trace/emit-error! emit-error!)
