@@ -25,6 +25,10 @@
         → dedup               (structural sharing across the wire)
         → indicator-count     (count :rf.size/large-elided markers)
         → summary             (lazy-summary for non-app-db rich slices)
+        → source-uri          (rf2-cibp8: splice :rf.source/uri onto
+                               every :source-coord map; runs after
+                               shrink so no URI build is wasted on
+                               summary-replaced subtrees)
 
   ## Indicator counting (rf2-e35a5)
 
@@ -74,9 +78,11 @@
   collapses from a 20-line `let` of intermediate names to a 5-line
   pipeline call + envelope assembly."
   (:require [re-frame.mcp-base.elision :as base-elision]
+            [re-frame-pair2-mcp.config :as config]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
             [re-frame-pair2-mcp.tools.sensitive :as sensitive]
-            [re-frame-pair2-mcp.tools.snapshot-pipeline :as pipeline]))
+            [re-frame-pair2-mcp.tools.snapshot-pipeline :as pipeline]
+            [re-frame-pair2-mcp.tools.source-uri :as source-uri]))
 
 (defn- run-snapshot-map
   "Full snapshot pipeline. Sequences:
@@ -198,12 +204,20 @@
   silently degrading would mask a programmer typo / a new-payload
   contributor who forgot to register the arm. The post-eval shrink
   pipeline is a fixed surface; a dynamic-dispatch fallback has no
-  legitimate use."
+  legitimate use.
+
+  After the per-kind arm returns, the source-URI decorator (rf2-cibp8)
+  splices `:rf.source/uri` onto every `:source-coord`-bearing map in
+  the result. Runs last so the decoration walks only the
+  post-shrink tree — summary-replaced slices ship as `{:rf.mcp/summary
+  ...}` markers (no `:source-coord` inside), so the walk is short."
   [payload {:keys [kind] :as opts}]
-  (case kind
-    :snapshot-map (run-snapshot-map payload opts)
-    :epoch-vector (run-epoch-vector payload opts)
-    :scalar-value (run-scalar-value payload opts)
-    (throw (ex-info "run-wire-pipeline: unknown :kind"
-                    {:kind  kind
-                     :valid #{:snapshot-map :epoch-vector :scalar-value}}))))
+  (let [{:keys [value] :as out}
+        (case kind
+          :snapshot-map (run-snapshot-map payload opts)
+          :epoch-vector (run-epoch-vector payload opts)
+          :scalar-value (run-scalar-value payload opts)
+          (throw (ex-info "run-wire-pipeline: unknown :kind"
+                          {:kind  kind
+                           :valid #{:snapshot-map :epoch-vector :scalar-value}})))]
+    (assoc out :value (source-uri/decorate value (config/get-editor)))))
