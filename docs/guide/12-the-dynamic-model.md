@@ -113,9 +113,9 @@ Programmers, by habit, focus on **parts** — the dominoes, the handlers, the vi
 
 There's an asymmetry here that's worth saying out loud.
 
-If your team is small, your codebase is small, and you have unlimited senior engineering time, the dynamic-model claim is least valuable. You can hold complex dynamic models in your collective head. You can debug freestyle React with hooks all day. The cost of constraint is real and the benefit is small.
+If your team is small, your codebase is small, and you have unlimited senior engineering time, the dynamic-model claim is least valuable. A small team can hold a lot in collective head. The cost of constraint is real and the benefit is small.
 
-If your team is medium-sized, your codebase is years old, you onboard new people regularly, and you ship features under deadline pressure, the dynamic-model claim is most valuable. The complex dynamic model is the thing that's slowing you down — invisibly, incrementally — and you don't notice until your bug count creeps and your shipping rate drops. The fix isn't a refactor of any individual component. It's a re-shape of the dynamic model.
+If your team is medium-sized, your codebase is years old, you onboard new people regularly, and you ship features under deadline pressure, the dynamic-model claim is most valuable. A predictable dynamic story is what keeps the shipping rate steady through team change and feature growth — invisibly, incrementally — and the architecture is what underwrites it.
 
 re-frame's track record is, in this exact regime, very strong. Day8, the company that maintains re-frame, has a decade-plus of production SPAs running on it. The codebases are large. The teams are stable. The shipping cadence is steady. The bug count is low. The architecture, when you ask the engineers, is a non-issue — they don't think about it because it doesn't fight them. The dynamic story is small enough that they can think about the *feature*, not the *machinery*.
 

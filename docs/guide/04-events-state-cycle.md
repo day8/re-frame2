@@ -220,7 +220,7 @@ A handler returns a map. Some entries in that map fire HTTP requests, write to l
 
 Every `reg-event-fx` handler runs inside a chain, and the runtime silently inserts a built-in interceptor — `do-fx` — at the front of that chain. After your handler returns, `do-fx` walks the effect map and, for each entry, looks up the registered fx handler by id and invokes it. `:db`, `:fx`, `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — they're all entries in the same registry, executed by the same loop. That's why registering a new fx is enough to make every event handler in the app able to use it: there's one dispatcher, looking at the registry, calling whatever it finds.
 
-[Chapter 07 — Interceptors](07-interceptors.md) covers the chain in full — how `do-fx` is just one interceptor among others, how you can insert your own, and how the chain replaces the "middleware" you might expect from other frameworks.
+[Chapter 07 — Interceptors](07-interceptors.md) covers the chain in full — how `do-fx` is just one interceptor among others, how you can insert your own, and how the chain handles the cross-cutting concerns middleware addresses elsewhere.
 
 ### Gotcha: registrations don't fire if the namespace isn't required
 

@@ -1,6 +1,6 @@
 # 16 — Performance
 
-re-frame2 is a fast pattern, but it isn't a magic one. The runtime trims work where the architecture lets it — subs are cached per-frame, drains coalesce renders, views can run pure-equal checks on data because *data is data* — and the rest is up to you. When your app gets slow, the cause is almost always one of four shapes, and the framework has an answer for each.
+re-frame2 is a **fast pattern by design**. The runtime trims work everywhere the architecture lets it — subs are cached per-frame, drains coalesce renders, views run pure-equal checks because *data is data*. When you do need to tune, the cause is almost always one of four shapes, and the framework has a clean answer for each.
 
 This chapter is a deep-dive. The core path doesn't need it — a counter, a form, an HTTP fetch all run at interactive speed without you doing anything special. Pick it up the first time the profiler says you have a problem.
 

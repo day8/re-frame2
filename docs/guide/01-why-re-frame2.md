@@ -5,9 +5,9 @@
 
 You can build an SPA a hundred different ways. The difference between them, mostly, is the **dynamic model** — the story you have to tell yourself about *what happens when something changes*.
 
-Some dynamic models are easy to keep in your head. You can imagine the system going from one state to the next, and the picture is clear. You know what to test. You know what to read when you're debugging. You know where to make a change.
+A good dynamic model is one you can keep in your head. You can imagine the system going from one state to the next, and the picture is clear. You know what to test. You know what to read when you're debugging. You know where to make a change.
 
-Other dynamic models are hard, and the difficulty doesn't go away with practice. There are too many places state can live, too many ways it can change, too many things happening at once. The picture in your head goes fuzzy, and after a while you stop trying to hold it. You start working symptomatically: that file does that thing because someone said it does. You hope.
+re-frame2 picks a dynamic model that *stays* easy as the app grows: a single store, pure event handlers, a deterministic run-to-completion drain, derived data flowing through subs. The shape that holds for a counter is the shape that holds for a thousand-event app.
 
 re-frame2's claim is that **the dynamic model matters more than anything else**. Performance matters. Bundle size matters. Type safety matters. But none of them matter as much as how easy your system is to think about.
 
@@ -50,9 +50,9 @@ When you give up power, you gain something specific in return: **an execution mo
 
 This isn't a soft claim. A finite state machine — to take an extreme — is provably easier to reason about than a Turing machine. Every reachable state is enumerable. Every transition is discrete. Every input has a defined response. You can draw it on paper. re-frame2 isn't a finite state machine, but it lives in the same neighbourhood: it's a small, known set of stages connected in a fixed order, with pure functions inside each stage. You can, in principle, simulate any specific event's path through the system without running the code. People do.
 
-Compare again to a React app written with hooks freestyle. Can you, in your head, predict the exact order of effect-firings, re-renders, and state updates that follow a button click? Most people can't, even on their own code, even today. The dynamic story is too rich. The model defeats the modeller.
+In re-frame2, you can predict every step that follows a button click: the event lands in the queue, the handler runs, the effect map is interpreted, the subs recompute, the views re-render. Five stages, in order, deterministic. That predictability is the dynamic model paying for itself.
 
-re-frame2's bet is that **the simpler dynamic model is worth the lost flexibility**, because the lost flexibility was rarely flexibility you actually needed.
+re-frame2's bet is that **a simpler dynamic model is worth the lost flexibility**, because the lost flexibility was rarely flexibility you actually needed.
 
 ## Five things this buys you
 
@@ -97,13 +97,9 @@ The verbosity is a fixed cost. It buys you predictability — *the same number o
 
 A second objection: "the verbosity is a tax on AIs too." But this is wrong. AIs are excellent at producing verbose, structured, repetitive code that follows a pattern. What slows AIs down (and humans) is not the count of lines but the count of *decisions*. re-frame2 has fewer decisions per line than alternatives. An AI generating an event handler doesn't need to decide which `useEffect` dependency array to use; the pattern tells it. An AI debugging a flaky test doesn't need to figure out which mock didn't fire; there are no mocks.
 
-## The objection: "this isn't how the rest of React/JS does it"
+## Shared shape with the wider ecosystem
 
-Correct. re-frame2 is a deliberate departure from idiomatic React. The departure is intentional.
-
-The original re-frame, on which re-frame2 builds, was created over a decade ago in ClojureScript, and it has powered production SPAs continuously since. Many things "the rest of React/JS does" have been re-invented in the meantime — Redux, MobX, Zustand, Recoil, Jotai, Pinia, the Hooks family, signals, suspense, server components — and at each iteration, the patterns get closer to what re-frame already had: a single store, predictable update rules, explicit effects, derived values. re-frame2 isn't catching up to React. React, fitfully, is approaching re-frame.
-
-This isn't an argument by authority. It's an observation that the architectural ideas re-frame2 commits to are well-validated. They're not new. They've shipped real products. They survive contact with reality.
+re-frame2 isn't alone in this design space. Redux, MobX, Zustand, Recoil, Jotai, Pinia, signals, suspense, server components — many of the widely-loved patterns across the ecosystem share re-frame's bones: a single store, predictable update rules, explicit effects, derived values. The original re-frame, on which re-frame2 builds, was created over a decade ago in ClojureScript and has powered production SPAs continuously since. The architectural ideas are well-validated; they've shipped real products and survived contact with reality.
 
 ## What this chapter isn't going to enumerate
 

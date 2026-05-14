@@ -1,12 +1,10 @@
 # 17 — Routing
 
-**Stop thinking about your routing library. Start thinking about your URL as a sub.**
+**The URL is a sub.**
 
-Most SPAs treat the URL as the output of a separate machine — a routing library wired in alongside the rest of the app, with its own runtime, its own component types, its own context. The framework gets state. The router gets URLs. The two are taught to talk through hooks and props, and most of the bugs you ship are in the conversation between them.
+In re-frame2 the URL is a derivable view of `app-db`. Navigation is an event. Browser back/forward is an event. Deep links and SSR feed the same `:rf.route/handle-url-change` handler that client-side popstate does. The current route lives at the `:rf/route` slice; views read it through subs; the root view dispatches on `:rf.route/id`. Same registry, same dispatch, same time-travel, same tests.
 
-re-frame2 collapses the seam. The URL is a derivable view of `app-db`. Navigation is an event. Browser back/forward is an event. Deep links and SSR feed the same `:rf.route/handle-url-change` handler that client-side popstate does. The current route lives at the `:rf/route` slice; views read it through subs; the root view dispatches on `:rf.route/id`. Same registry, same dispatch, same time-travel, same tests.
-
-There is no separate routing runtime. There are no route-aware components. There is no "router context." It's just data that happens to be reflected in the address bar — and once you see it that way, the rest of routing is consequence.
+There's no separate routing runtime, no route-aware components, no "router context." Routing is just data reflected in the address bar — feature parity with React Router, TanStack Router, and reitit's frontend module, while staying inside re-frame2's one mental model.
 
 This chapter walks the basics top-to-bottom: registering routes, navigating, reading the route in views, the not-found route, and a one-paragraph callout for the navigation token. The per-topic reference half — `:on-error`, the full nav-token walkthrough, the `:can-leave` protocol, query strings, multi-frame routing, the pure helpers, and a RealWorld worked example — lives in [17a — Routing: reference and advanced topics](17a-routing-reference.md). Read this chapter linearly; reach for 17a when the topic comes up.
 

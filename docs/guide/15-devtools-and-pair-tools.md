@@ -1,6 +1,6 @@
 # 15 — Tooling
 
-Most frameworks bolt tooling on at the end. A devtools panel arrives a year after launch, a profiler a year after that, an AI integration somewhere off to the side; each tool reaches into the runtime through whatever crack it can find, and the cracks aren't the same. re-frame2 inverts the order. The runtime is **a predictable pipeline with a single, deeply integrated trace bus**, and every tool — devtools, story playgrounds, AI pair programmers, conformance harnesses, your own in-app debug panel — attaches to that one surface and gets the whole picture for free.
+re-frame2's runtime is **a predictable pipeline with a single, deeply integrated trace bus**, and every tool — devtools, story playgrounds, AI pair programmers, conformance harnesses, your own in-app debug panel — attaches to that one surface and gets the whole picture for free. Time-travel debugging, replay, AI-driven scaffolding, conformance grading: all first-class, all available today, all working off the same wire.
 
 This chapter is the human-facing version of that pitch. What you actually get, what tools already exist or are in design, and how a tool attaches in five lines of code. The contract reference — destroyed-frame behaviour, the full failure-mode tables, the listener-silencing rules — is here too, in a clearly-marked Reference section at the bottom. Read top-down for the story; jump to the bottom when you need the exact shape.
 

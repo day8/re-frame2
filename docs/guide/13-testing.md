@@ -1,8 +1,6 @@
 # 13 — Testing
 
-Tests in a stateful React codebase are painful. You spin up JSDOM, you mock fetch, you wrestle with timers, you reach for `act()`, you write a setup helper, you write a teardown helper, and after all that you've tested that *a button exists*. The tests run slowly. They flake. You write fewer of them than you'd like. After a while you stop, and the codebase starts carrying logic that nothing exercises.
-
-re-frame2's pattern is shaped to make that go away. Pure event handlers, pure machine transitions, sub bodies that compute against an `app-db` value, an effect map that's just data — every load-bearing piece is a function from values to values. There's nothing in the runtime that requires a browser, a network, or a clock to evaluate. You can test the whole dynamic story of your app on the JVM, in milliseconds per case.
+re-frame2's pattern makes the full dynamic story of your app testable on the **JVM, in milliseconds per case** — no JSDOM, no fetch mocks, no timer wrestling, no `act()`. Pure event handlers, pure machine transitions, sub bodies that compute against an `app-db` value, an effect map that's just data — every load-bearing piece is a function from values to values, evaluable without a browser, a network, or a clock. Tests are short, fast, and stable, which means you write more of them and trust them more.
 
 This chapter is about how you write that down as test code: the `re-frame.test-support` artefact, the per-test fixture patterns, the JVM-vs-CLJS boundary, and the conformance harness that grades implementations against the same fixtures used by the framework's own tests.
 
