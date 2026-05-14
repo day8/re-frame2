@@ -1,13 +1,13 @@
 # re-frame2
 
-**Alpha. But it works.**
+## Status
 
-re-frame2 is a pattern for building Single Page Apps on a virtual-DOM substrate — React, in practice. You build with **Reagent v2**, **Reagent-slim** (a Reagent rewrite that knows about re-frame2), **UIx**, or **Helix**. Production apps can be built on it today.
+The narrative is production grade.
 
-## What's novel
+**The spec is Beta.** It has been audited end-to-end endless times — security passes, precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
 
-**Views are derivative, not central.** Events update centralised state. Subscriptions derive data. Views sit at the end as render functions over reactive inputs. No `useState`, no `useEffect`, no "lifting state up" — state was never down there in the first place. Your app is a small virtual machine; handlers are the instruction set; events are the program.
+The reference implementation and tooling is **Beta adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
 
-**Tooling is first-class.** The runtime is a predictable pipeline with a single deeply integrated trace bus. Devtools, AI pair-programmers, story tools, test harnesses — they all attach to one surface and get the whole picture for free. Source-coord stamping on every handler and DOM element gives click-to-source from any panel.
+We are building apps against the reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
-> *Your language of choice should be Turing complete; your architecture shouldn't be.*
+You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration] for you-know-what, then [re-frame-pair] for coding. Finally, use [re-frame-pair-retro] to do a session retrospective and file an issue if you find friction.
