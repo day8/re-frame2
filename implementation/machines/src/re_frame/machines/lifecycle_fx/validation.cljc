@@ -172,7 +172,7 @@
                     (walk (conj path k) (:states n)))))]
         (walk [] (:states region-body))))))
 
-(defn walk-state-nodes
+(defn- walk-state-nodes
   "Yield `[state-key state-node]` pairs for every node under `:states`,
   recursing through `:states` maps. Used by the registration-time
   validators.
