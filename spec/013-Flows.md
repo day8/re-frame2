@@ -181,6 +181,26 @@ Three implications:
 2. **Path-overlap is sufficient, not necessary, for re-firing.** A flow whose inputs sit at `[:user :profile :name]` does not re-fire when an unrelated path like `[:cart :items]` changes. The dirty-check is per-flow, not per-app-db-change.
 3. **First evaluation always fires.** A newly-registered flow's `last-inputs` is uninitialised; its first walk recomputes unconditionally and produces the initial output value.
 
+## Failure semantics
+
+When a flow's `:output` fn throws during `run-flows!`, the runtime applies these four rules atomically (rf2-wyt97 / rf2-hrqvg):
+
+1. **Prior-flow writes are preserved.** Flows scheduled earlier in the same drain that successfully computed and produced dirty writes have their outputs flushed to `app-db` (one `replace-container!` against the loop accumulator) BEFORE the exception propagates. Earlier flows' work is never silently lost.
+2. **The failing flow's own output is not written.** The exception happened during `:output`; there is no usable new-output to assoc-in. Its `last-inputs` slot is NOT advanced, so the flow re-attempts on the next drain.
+3. **The cascade halts at the failing flow.** Downstream flows scheduled later in topo order do NOT run on this drain. They re-attempt naturally on the next drain (with whatever inputs the prior flush left in `app-db`).
+4. **The exception surfaces at the router's outer catch** as `:rf.error/flow-eval-exception` (per [009 §Error contract](009-Instrumentation.md#error-contract)). The per-flow `:rf.flow/failed` trace fires first with the flow-attributed detail; the cascade-level error trace fires when the router catches the propagated throw.
+
+Worked example. Three flows in topo order — `:A`, `:B`, `:C`. Inputs change for all three. `:B` throws. After the drain:
+
+- `:A`'s output is written to `app-db` at its `:path` (rule 1).
+- `:A`'s `last-inputs` is advanced (rule 1 — `:A` computed successfully).
+- `:B`'s `:path` is unchanged from before the drain (rule 2).
+- `:B`'s `last-inputs` is unchanged (rule 2).
+- `:C` did not run; its `:path` is unchanged and its `last-inputs` is unchanged (rule 3).
+- Two trace events fired in order: `:rf.flow/computed` for `:A`, then `:rf.flow/failed` for `:B`. Then the router's outer catch emitted `:rf.error/flow-eval-exception` (rule 4).
+
+**Rationale.** This is the strongest 'no work is silently lost' guarantee compatible with surfacing flow failures as cascade-level errors. The alternative (per-flow isolation: `:C` runs anyway) would prevent the cascade halt that downstream `:fx` and tooling rely on to skip work that depended on a now-invalid derived state. The opposite alternative (discard prior writes too) would silently drop `:A`'s output while its `:rf.flow/computed` trace claimed the write happened — an observability lie. Preserving prior writes and halting the cascade keeps both 'completed work is visible in app-db' and 'failures surface as errors' true at once.
+
 ## Flow tracing
 
 Every flow lifecycle event emits a structured trace event under op-type `:flow`. The full taxonomy lives in [009 §Flow trace events](009-Instrumentation.md#flow-trace-events); the summary:
