@@ -480,6 +480,31 @@
     (is (true? (-> r :structuredContent :unregistered?)))
     (is (nil? (story/variant->edn :story.button/primary)))))
 
+(deftest gated-error-tool-slot-pins-caller
+  ;; Regression for rf2-c52j0. Pre-fix, `assert-writes-allowed` hardcoded
+  ;; `:tool "register-variant"` in its error payload, so the two other
+  ;; callers (`unregister-variant`, `record-as-variant`) returned a gated
+  ;; error whose `:structuredContent :tool` slot LIED about its origin.
+  ;; This test pins the slot to the actual tool name at each callsite so
+  ;; the lie cannot regress.
+  (testing "gated error's :structuredContent :tool matches the invoking tool"
+    (is (false? (config/writes-allowed?))
+        "fixture must leave the gate closed for this test")
+    (let [r (invoke "register-variant" {:variant-id "story.button/danger"
+                                        :body {:doc "x"}})]
+      (is (error? r))
+      (is (true? (-> r :structuredContent :gated)))
+      (is (= "register-variant" (-> r :structuredContent :tool))))
+    (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
+      (is (error? r))
+      (is (true? (-> r :structuredContent :gated)))
+      (is (= "unregister-variant" (-> r :structuredContent :tool))))
+    (let [r (invoke "record-as-variant" {:variant-id  "story.button/primary"
+                                         :write-back? true})]
+      (is (error? r))
+      (is (true? (-> r :structuredContent :gated)))
+      (is (= "record-as-variant" (-> r :structuredContent :tool))))))
+
 ;; ---------------------------------------------------------------------------
 ;; record-as-variant (rf2-luhdu)
 ;;
