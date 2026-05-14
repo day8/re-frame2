@@ -155,21 +155,23 @@
                          :patches        patches})))))
   nil)
 
-(declare collect-patches)
+(declare collect-patches-into)
 
-(defn- collect-map-patches
-  "Generate patches that transform map `a` into map `b` at `path`.
-  Recurses into sub-maps; vectors and scalars are treated as leaves
-  (replaced wholesale via `:assoc` rather than re-diffed element-wise
-  — element-wise vector diff doesn't shrink the wire for the typical
-  app-db where vector values are short).
+(defn- collect-map-patches-into
+  "Like `collect-map-patches`, but threads an explicit accumulator
+  `acc` rather than building a fresh vector and `into`-ing it back at
+  every recursion site. Two-pass: walks `b` once to emit `:assoc`
+  patches for added / changed keys (recursing on map/map pairs), then
+  walks `a` once to emit `:dissoc` patches for keys absent from `b`.
 
-  Two-pass: walks `b` once to emit `:assoc` patches for added /
-  changed keys (recursing on map/map pairs), then walks `a` once to
-  emit `:dissoc` patches for keys absent from `b`. Avoids the
-  intermediate key-union set the naive single-pass form would
-  allocate per call — non-trivial on the hot app-db diff path."
-  [a b path]
+  Threading the accumulator (rf2-c2k9k / F12) avoids the intermediate
+  patches vector each recursion site previously allocated for `into
+  acc` — on deep app-db diffs (5-10 nesting levels typical) every
+  recursion now `conj`s directly into the parent accumulator rather
+  than allocating a fresh vector and copying it back. Big-O is
+  unchanged; the saving is allocation pressure, mostly visible on the
+  hot `watch-epochs` / `trace-window` slice."
+  [acc a b path]
   (let [after-assocs
         (reduce-kv
           (fn [acc k bv]
@@ -182,13 +184,13 @@
                 ;; Unchanged — skip.
                 (= av bv)
                 acc
-                ;; Both maps: recurse.
+                ;; Both maps: recurse, threading acc.
                 (and (map? av) (map? bv))
-                (into acc (collect-patches av bv p))
+                (collect-patches-into acc av bv p)
                 ;; Otherwise: leaf replacement.
                 :else
                 (conj acc [p :assoc bv]))))
-          []
+          acc
           b)]
     (reduce-kv
       (fn [acc k _av]
@@ -198,16 +200,25 @@
       after-assocs
       a)))
 
+(defn- collect-patches-into
+  "Internal accumulator-threading entry point for the recursion. The
+  public `collect-patches` calls this with an empty seed vector; the
+  internal `collect-map-patches-into` calls this for each
+  map-into-map descent, sharing the parent's accumulator rather than
+  allocating a fresh sub-vector."
+  [acc a b path]
+  (cond
+    (= a b) acc
+    (and (map? a) (map? b)) (collect-map-patches-into acc a b path)
+    :else (conj acc [path :assoc b])))
+
 (defn collect-patches
-  "Patch-list factory. Two maps recurse via `collect-map-patches`; any
-  other shape change is a single root-level `:assoc` replacement.
+  "Patch-list factory. Two maps recurse via `collect-map-patches-into`;
+  any other shape change is a single root-level `:assoc` replacement.
   Exposed for tests and for advanced consumers that want to diff
   arbitrary structures (not just `:db-after` vs `:db-before`)."
   [a b path]
-  (cond
-    (= a b) []
-    (and (map? a) (map? b)) (collect-map-patches a b path)
-    :else [[path :assoc b]]))
+  (collect-patches-into [] a b path))
 
 (defn apply-patches
   "Apply a vector of patches to `base`, returning the reconstructed
