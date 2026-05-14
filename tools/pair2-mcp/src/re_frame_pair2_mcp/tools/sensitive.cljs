@@ -75,27 +75,18 @@
       [kept n])))
 
 (defn scrub-snapshot-sensitive
-  "Walk a snapshot's per-frame map and drop `:sensitive? true` items from
-  the `:traces` slice (and, defensively, `:epochs` — epoch records may
-  inherit the stamp in future runtime revisions per spec/009). Returns
-  `[scrubbed dropped-count]`. The non-trace slices (:app-db, :sub-cache,
-  :machines) pass through unchanged — redaction of those payloads is
-  the `with-redacted` interceptor's job, not the forwarder's."
+  "Walk a snapshot's per-frame map and drop `:sensitive? true` items
+  from the `:traces` slice (and, defensively, `:epochs` — epoch
+  records may inherit the stamp). Returns `[scrubbed dropped-count]`.
+  Non-trace slices (:app-db, :sub-cache, :machines) pass through
+  unchanged — redaction of those payloads is the `with-redacted`
+  interceptor's job, not the forwarder's.
+
+  Thin delegate (rf2-zpmmr) to
+  `re-frame.mcp-base.sensitive/scrub-snapshot` with the pair2-mcp
+  union strip-fn (`strip-sensitive`, which gates both
+  `sensitive-event?` and `sensitive-epoch?`). Story-mcp /
+  causa-mcp use the base helper's two-arity form, which defaults to
+  the trace-event-only filter."
   [snapshot include?]
-  (if (or include? (not (map? snapshot)))
-    [snapshot 0]
-    (let [dropped (atom 0)
-          scrub-slice
-          (fn [items]
-            (let [[kept n] (strip-sensitive (vec items) false)]
-              (swap! dropped + n)
-              kept))
-          scrub-frame
-          (fn [frame-map]
-            (cond-> frame-map
-              (contains? frame-map :traces) (update :traces scrub-slice)
-              (contains? frame-map :epochs) (update :epochs scrub-slice)))
-          scrubbed (reduce-kv (fn [m k v]
-                                (assoc m k (if (map? v) (scrub-frame v) v)))
-                              {} snapshot)]
-      [scrubbed @dropped])))
+  (base-sensitive/scrub-snapshot snapshot include? strip-sensitive))
