@@ -1124,7 +1124,12 @@
   in public API terms). The macro form `re-frame.core/dispatch` stamps
   an `:rf.trace/call-site` onto `opts` at compile time; from there it
   rides the envelope and gets bound around the handler chain's
-  invocation in `process-event!`."
+  invocation in `process-event!`.
+
+  Canonical `event` shape is `[<id>]`, `[<id> <single-scalar>]`, or
+  `[<id> <map>]` — best practice, not enforced. Variadic vectors are
+  tolerated for v1-migration / caller convenience. See spec/Conventions.md
+  §Canonical event-vector shape."
   ([event] (dispatch! event {}))
   ([event opts]
    (let [envelope     (build-envelope event opts)

@@ -342,7 +342,15 @@
      "Enqueue `event-vec` on the target frame's router; returns nil
      immediately, BEFORE the handler runs. Captures call-site coords
      (rf2-ts1a) for error-trace attribution. For HoF / programmatic use
-     call `dispatch*`. Per Spec 002 §Routing."
+     call `dispatch*`. Per Spec 002 §Routing.
+
+     Canonical `event-vec` shape (best practice — not enforced):
+       [<event-id>]                   ;; trivial
+       [<event-id> <single-scalar>]   ;; single-argument
+       [<event-id> {<k> <v>}]         ;; multi-argument — single map payload
+     Variadic `[<id> a b c]` is accepted by the runtime for v1-migration
+     and caller convenience; the linter nudges new code toward the map
+     form. See spec/Conventions.md §Canonical event-vector shape."
      ([event-vec]
       (csm/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                event-vec nil))
@@ -356,7 +364,11 @@
      fixed point. For tests / REPL / bootstrap only — never call from
      inside a running event handler (raises `:rf.error/dispatch-sync-
      in-handler`). Captures call-site coords (rf2-ts1a). For HoF /
-     programmatic use call `dispatch-sync*`. Per Spec 002 §dispatch-sync."
+     programmatic use call `dispatch-sync*`. Per Spec 002 §dispatch-sync.
+
+     Canonical `event-vec` shape — see `dispatch` docstring above; same
+     best-practice convention applies (id-first, with at most one
+     trailing map; variadic tolerated, linter nudges)."
      ([event-vec]
       (csm/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                     event-vec nil))

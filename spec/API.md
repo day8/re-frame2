@@ -72,6 +72,8 @@
 
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
 
+**Canonical `event` / `query-v` shape (best practice).** `[<id>]` (trivial), `[<id> <single-scalar>]` (single-arg), `[<id> {<k> <v>}]` (multi-arg → single map payload). Variadic `[<id> a b c]` is tolerated by the runtime for v1-migration and caller convenience; the linter nudges new code toward the map form. Full rationale and cross-refs: [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice).
+
 ---
 
 ## View ergonomics
