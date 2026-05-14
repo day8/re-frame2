@@ -54,12 +54,25 @@
  */
 'use strict';
 
-const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const os = require('node:os');
+const crossSpawn = require('cross-spawn');
+const { resolveTrustedExe, safeUnlinkInside } = require('../lib/exec-safety.cjs');
+
+// We use `cross-spawn` instead of Node's `child_process.spawn` for the
+// two Windows-toolchain spawn sites (`npm` install + `npx shadow-cljs
+// watch`) because Node's spawn refuses to execute `.cmd` / `.bat` with
+// `shell: false` since the CVE-2024-27980 fix (EINVAL). cross-spawn
+// dispatches to cmd.exe under the hood when the resolved target ends
+// in `.cmd`, escapes arguments correctly, and — load-bearing for the
+// rf2-33vvc audit fix — does NOT do a cwd-prefixed PATH walk when the
+// command argument is an absolute path (see `which`'s
+// `cmd.match(/\//)` short-circuit). The accident-gating contract is
+// preserved by passing an absolute path resolved via the host's
+// PATH-only scan (see `lib/exec-safety.cjs`).
 
 const HERE = __dirname;
 const MCP_CONFORMANCE_ROOT = path.resolve(HERE, '..');
@@ -308,17 +321,32 @@ async function waitUntil(label, predicate, timeoutMs) {
   throw new Error(`timeout after ${timeoutMs}ms waiting for: ${label}`);
 }
 
-function spawnNpm(cmd, args, cwd) {
-  const isWin = process.platform === 'win32';
-  const bin = isWin ? `${cmd}.cmd` : cmd;
-  const r = spawnSync(bin, args, {
+// Resolve `npm` / `npx` / etc. to a single trusted absolute path via
+// PATH search, refusing any candidate that resolves under REPO_ROOT.
+// Cached per-name so the PATH walk runs once. See `lib/exec-safety.cjs`
+// for the rationale (rf2-33vvc Windows command-hijack accident-gating).
+const TRUSTED_EXE_CACHE = new Map();
+function trustedExe(name) {
+  if (TRUSTED_EXE_CACHE.has(name)) return TRUSTED_EXE_CACHE.get(name);
+  const resolved = resolveTrustedExe(name, { workspaceRoot: REPO_ROOT });
+  TRUSTED_EXE_CACHE.set(name, resolved);
+  return resolved;
+}
+
+function runTrusted(name, args, cwd) {
+  const bin = trustedExe(name);
+  // cross-spawn.sync handles the `.cmd` -> cmd.exe dispatch on Windows
+  // without re-introducing PATH/cwd lookup ambiguity — see the module
+  // comment at the top of this file for the contract. Passing the
+  // absolute path is what keeps cross-spawn's `which.sync` from doing
+  // its own cwd-relative walk.
+  const r = crossSpawn.sync(bin, args, {
     cwd,
     stdio: 'inherit',
-    shell: isWin,
     env: process.env,
   });
   if (r.status !== 0) {
-    throw new Error(`${cmd} ${args.join(' ')} in ${cwd} exited ${r.status}`);
+    throw new Error(`${name} ${args.join(' ')} in ${cwd} exited ${r.status}`);
   }
 }
 
@@ -364,12 +392,15 @@ async function main() {
   // child will rewrite the appropriate file as part of its boot. Wipe
   // ALL candidate paths so a stale entry at one location can't shadow
   // the fresh file at another.
+  //
+  // Per rf2-33vvc: route every unlink through `safeUnlinkInside` so a
+  // symlinked candidate (or symlinked parent directory) that escapes
+  // FIXTURE_DIR can't be coerced into deleting a file outside the
+  // fixture tree.
   for (const p of NREPL_PORT_FILE_CANDIDATES) {
     try {
-      if (exists(p)) {
-        fs.unlinkSync(p);
-        log(`removed stale port file ${p}`);
-      }
+      const removed = safeUnlinkInside(p, FIXTURE_DIR);
+      if (removed) log(`removed stale port file ${p}`);
     } catch (e) {
       log(`could not remove stale port file ${p} (${e.message}); continuing`);
     }
@@ -378,17 +409,21 @@ async function main() {
   // ---- Install fixture deps --------------------------------------------
   if (!exists(path.join(FIXTURE_DIR, 'node_modules'))) {
     log(`installing fixture deps in ${FIXTURE_DIR}`);
-    spawnNpm('npm', ['install', '--no-audit', '--no-fund'], FIXTURE_DIR);
+    runTrusted('npm', ['install', '--no-audit', '--no-fund'], FIXTURE_DIR);
   }
 
   // ---- Boot shadow-cljs watch ------------------------------------------
-  const isWin = process.platform === 'win32';
-  const shadowBin = isWin ? 'npx.cmd' : 'npx';
-  log(`spawning shadow-cljs watch app in ${FIXTURE_DIR}`);
-  const shadow = spawn(shadowBin, ['shadow-cljs', 'watch', 'app'], {
+  // Resolve `npx` to a trusted absolute path (rejected if it lives
+  // inside REPO_ROOT) and route the spawn through cross-spawn so the
+  // `.cmd`-on-Windows shape works without re-introducing the shell.
+  // Per rf2-33vvc: the pre-fix shape passed `npx.cmd` + `shell: true`
+  // + `cwd = FIXTURE_DIR`, which would have happily executed a
+  // fixture-local `npx.cmd` if one ever landed in the checkout.
+  const npxBin = trustedExe('npx');
+  log(`spawning shadow-cljs watch app in ${FIXTURE_DIR} (npx=${npxBin})`);
+  const shadow = crossSpawn(npxBin, ['shadow-cljs', 'watch', 'app'], {
     cwd: FIXTURE_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: isWin,
     env: { ...process.env, FORCE_COLOR: '0' },
   });
   let shadowExited = false;
@@ -543,7 +578,12 @@ async function main() {
       ...process.env,
       SHADOW_CLJS_NREPL_PORT: String(port),
     };
-    const testRun = spawnSync(process.execPath, [LIVE_TEST], {
+    // `process.execPath` is always an absolute path to the currently-
+    // running node binary; it's outside the workspace by construction.
+    // No PATH walk is performed by cross-spawn for absolute paths
+    // (see `which`'s separator short-circuit), so this stays
+    // accident-safe.
+    const testRun = crossSpawn.sync(process.execPath, [LIVE_TEST], {
       cwd: MCP_CONFORMANCE_ROOT,
       stdio: 'inherit',
       env: testEnv,

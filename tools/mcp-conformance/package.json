@@ -10,10 +10,12 @@
     "test:pair2-live-overflow-hermetic": "node scripts/run-live-pair2-overflow-hermetic.cjs",
     "test:story": "node test/end-to-end-story.js",
     "test:causa": "node test/end-to-end-causa.js",
-    "test": "node test/end-to-end-pair2.js && node test/live-pair2-overflow.js && node test/end-to-end-story.js && node test/end-to-end-causa.js"
+    "test:exec-safety": "node --test test/exec-safety.test.cjs",
+    "test": "node --test test/exec-safety.test.cjs && node test/end-to-end-pair2.js && node test/live-pair2-overflow.js && node test/end-to-end-story.js && node test/end-to-end-causa.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "cross-spawn": "^7.0.6"
   },
   "keywords": [
     "re-frame",
