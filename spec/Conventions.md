@@ -28,6 +28,7 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 | `:rf.ssr/*` | SSR-specific advisories (hydration mismatch, head mismatch, etc.) | 011 |
 | `:rf.server/*` | Server-side response-shape fx (`:rf.server/set-status`, `:rf.server/set-cookie`, `:rf.server/redirect`, `:rf.server/error-projection`) | 011 |
 | `:rf.epoch/*` | Tool-Pair epoch operations | Tool-Pair |
+| `:rf.causa/*` | Canonical-devtools namespace for Causa (per [Tool-Pair §Canonical devtools](Tool-Pair.md)) — events, subs, fxs, app-db keys, and trace operations owned by the Causa devtool family. Framework-distance-zero alongside `:rf.epoch/*`; reserved sub-namespace for canonical devtools under the framework root. Third-party libraries MUST NOT register under `:rf.*` (per [§Library-owned prefixes](#library-owned-prefixes) below). Per rf2-4xvrl. | Tool-Pair |
 | `:rf.assert/*` | Assertion-event vocabulary used by the post-v1 stories library's play functions and test runner | 007 |
 | `:rf.test/*` | Test-runner-internal events and fx-stub ids | 008 |
 | `:rf.http/*` | Managed-HTTP fx ids (`:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`); reply-payload `:kind` values for the closed eight-category failure taxonomy (`:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`, `:rf.http/aborted`); registration metadata key `:rf.http/decode-schemas`; trace operations (`:rf.http/retry-attempt`); the security args-map slot `:rf.http/max-decoded-keys` (per-request keyword-interning cap, rf2-wu1n5 — default 10000). Reserved whether or not the implementation ships Spec 014 — ports that omit `:rf.http/managed` MUST NOT register the namespace for any other purpose. | 014 |
@@ -72,6 +73,8 @@ A handful of canonical libraries reserve prefixes outside the framework `:rf/*` 
 | `:Workspace.<...>` | post-v1 stories library | Workspace ids (`:Workspace.Auth/all-states`) | [007](007-Stories.md) |
 
 Library-owned prefixes do **not** violate the single-root invariant on framework-reserved ids (the rule that framework names live under `:rf/*` only) — they are user-space names that the library claims by convention. The framework's own assertion-event vocabulary used by the stories library's play functions and test runner is `:rf.assert/*` (per the table above) and remains framework-reserved.
+
+Library-owned prefixes live **outside** `:rf.*` (e.g., Story's `:story.*`, Workspace's `:Workspace.*`). The exception is **canonical devtools recognised in [`spec/Tool-Pair.md`](Tool-Pair.md)** — they reserve a sub-namespace **under** `:rf.*` (e.g., `:rf.causa/*` for Causa per rf2-4xvrl, `:rf.epoch/*` for the epoch surface). The reservation rides framework-distance-zero status: canonical devtools ship lockstep with the framework, their wire vocabulary is part of the framework contract, and a third-party library claiming `:rf.<x>/*` would silently collide with framework-owned discriminators. Third-party libraries MUST NOT reserve under `:rf.*`.
 
 ### Discipline
 
