@@ -42,7 +42,7 @@ Failures are classified into a closed, enumerable taxonomy under a single reserv
 | WebSocket connections | `:rf.ws/*` (`:rf.ws/transport`, `:rf.ws/auth`, `:rf.ws/stale-socket`, ...) | [Pattern-WebSocket](Pattern-WebSocket.md) |
 | State-machine actors | `:rf.machine/*` (`:rf.machine/invoke-failed`, `:rf.machine/snapshot-version-mismatch`, ...) | [005 §Error contract](005-StateMachines.md) |
 | SSR per-request | `:rf.ssr/*` (`:rf.ssr/hydration-mismatch`, `:rf.ssr/render-failed`, ...) | [011 §Error contract](011-SSR.md) |
-| Managed flows | `:rf.flow/*` (`:rf.flow/cycle-detected`, `:rf.flow/output-throw`, ...) | [013 §Errors](013-Flows.md) |
+| Managed flows | `:rf.flow/*` per-flow trace operations (`:rf.flow/failed` on `:output` throw, `:rf.flow/computed` / `:rf.flow/skip` on success); cascade-level `:rf.error/flow-eval-exception` at the router's outer catch; registration-time `:rf.error/flow-cycle` ex-info | [013 §Failure semantics](013-Flows.md#failure-semantics) |
 
 Every failure is a structured trace event with `:operation`, `:tags`, and `:recovery` per [009 §Error contract](009-Instrumentation.md#error-contract). No surface invents its own error shape.
 
@@ -88,7 +88,7 @@ Six server-side response-shape fxs (`set-status`, `set-header`, `append-header`,
 
 ### `:rf.flow/*` — managed derived computation ([Spec 013](013-Flows.md))
 
-The internal-effect cousin. The "external system" is the framework's own scheduler — flows are registered rules that compute on input change and materialise their output into `app-db`. They satisfy the eight properties applied to a derived-state surface: effect-as-data (the registration map), framework-owned execution (the scheduler runs them after each event drain in topological order), failure taxonomy (`:rf.flow/cycle-detected`, `:rf.flow/output-throw`), trace-bus observability (`:rf.flow/evaluated` per evaluation), elision composition (`:sensitive?` on flow outputs), retry/abort/teardown (runtime-toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`), in-flight registry (queryable via the registrar), per-frame scoping (flows are frame-local — see [013 §Frame-scoping](013-Flows.md#frame-scoping)).
+The internal-effect cousin. The "external system" is the framework's own scheduler — flows are registered rules that compute on input change and materialise their output into `app-db`. They satisfy the eight properties applied to a derived-state surface: effect-as-data (the registration map), framework-owned execution (the scheduler runs them after each event drain in topological order), failure taxonomy (per-flow `:rf.flow/failed` on `:output` throw under the four-rule contract at [013 §Failure semantics](013-Flows.md#failure-semantics) — prior writes preserved, failing flow's `last-inputs` not advanced, cascade halts, router emits `:rf.error/flow-eval-exception`; registration-time cycles throw `:rf.error/flow-cycle`), trace-bus observability (`:rf.flow/computed` and `:rf.flow/skip` per evaluation, plus `:rf.flow/registered` / `:rf.flow/cleared` lifecycle events), elision composition (`:sensitive?` on flow outputs), retry/abort/teardown (runtime-toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`), in-flight registry (queryable via the registrar), per-frame scoping (flows are frame-local — see [013 §Frame-scoping](013-Flows.md#frame-scoping)).
 
 ## How new managed-effect surfaces inherit the contract
 
