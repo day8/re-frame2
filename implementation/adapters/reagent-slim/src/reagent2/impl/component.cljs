@@ -497,6 +497,13 @@
   [render-fn]
   (fn []
     (this-as ^js this
+      ;; Re-stash argv from current props on every render entry so
+      ;; Form-2's cached render-fn sees fresh args. React-19-stable
+      ;; equivalent of the deprecated componentWillReceiveProps: a
+      ;; static getDerivedStateFromProps cannot side-effect on the
+      ;; instance, so we do the copy here at render entry instead
+      ;; (cheap; no DOM reads).
+      (copy-argv-from-props! this (.-props this))
       (binding [*current-component* this]
         (batching/mark-rendered this)
         (let [^js rea (.-cljsRenderRea this)
@@ -602,31 +609,9 @@
     (set! (.-cljsReagentClass klass) true)
 
     ;; render delegates to wrap-render over the user's :reagent-render.
+    ;; make-render-method's body re-stashes argv from props at render
+    ;; entry, so a single install is sufficient.
     (set! (.. klass -prototype -render) (make-render-method render-fn))
-
-    ;; Static UNSAFE_componentWillReceiveProps replacement: React 19 +
-    ;; class components receive new props through the standard
-    ;; props update; render reads .-cljsArgv via a small re-stash on
-    ;; each render's first call. We set a getDerivedStateFromProps
-    ;; that copies props.__rfArgv onto a per-instance side-channel
-    ;; readable by render. This is the React-19-stable way to keep
-    ;; the argv current across re-renders without using deprecated
-    ;; lifecycles.
-    ;;
-    ;; However, getDerivedStateFromProps is a static method that
-    ;; returns a state patch — it cannot side-effect on the instance.
-    ;; The pragmatic shape: re-copy from props at the top of render
-    ;; (cheap; no DOM reads). Done in make-render-method's body via
-    ;; this small helper installed onto render itself:
-    (let [^js user-render (.. klass -prototype -render)
-          wrapped         (fn []
-                            (this-as ^js this
-                              ;; Re-stash argv from current props on every
-                              ;; render entry so Form-2's cached render-fn
-                              ;; sees fresh args.
-                              (copy-argv-from-props! this (.-props this))
-                              (.call user-render this)))]
-      (set! (.. klass -prototype -render) wrapped))
 
     (install-lifecycle! klass spec)
     klass))
