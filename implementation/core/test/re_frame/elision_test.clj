@@ -476,6 +476,106 @@
       (is (= "blob"   (get-in decls [[:root :nested :pdf] :hint])))
       (is (= :schema  (get-in decls [[:root :nested :zip] :source]))))))
 
+;; ---- 14c. Schema-driven boot population — `:sensitive?` sibling (rf2-ay2kp)
+
+(deftest sensitive-schema-population-walks-nested-sensitive
+  (testing "a `:sensitive?` slot two levels deep lands at the absolute app-db
+            path under `[:rf/elision :sensitive-declarations]` (rf2-ay2kp)"
+    ;; Privacy sibling of `schema-population-walks-nested-large`. Per Spec/010
+    ;; §`:sensitive?` lines 333-349 — the schemas artefact's deep walker is
+    ;; consumed via `:schemas/extract-sensitive-paths-from-schema`, and the
+    ;; sibling slot `[:rf/elision :sensitive-declarations]` is hydrated.
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:a [:map [:b {:sensitive? true :hint "two-level"} :string]]]])
+    (let [populated (rf/populate-sensitive-from-schemas!)
+          decls     (rf/elision-sensitive-declarations)]
+      (is (= [[:root :a :b]] populated))
+      (is (= :schema (get-in decls [[:root :a :b] :source])))
+      (is (true?     (get-in decls [[:root :a :b] :sensitive?])))
+      (is (= "two-level" (get-in decls [[:root :a :b] :hint]))))))
+
+(deftest sensitive-schema-population-walks-three-level-nested
+  (testing "the 3-level nested case for `:sensitive?` (rf2-ay2kp)"
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:a [:map
+                             [:b [:map
+                                  [:c {:sensitive? true :hint "deep"} :string]]]]]])
+    (let [populated (rf/populate-sensitive-from-schemas!)
+          decls     (rf/elision-sensitive-declarations)]
+      (is (= [[:root :a :b :c]] populated))
+      (is (= :schema (get-in decls [[:root :a :b :c] :source])))
+      (is (= "deep"  (get-in decls [[:root :a :b :c] :hint]))))))
+
+(deftest sensitive-schema-population-preserves-declared-entries
+  (testing "an existing `:source :declared` sensitive entry is NOT overwritten
+            by schema-driven population (rf2-ay2kp)"
+    ;; No public REPL/fx surface for declared sensitive paths today (privacy
+    ;; fx surface is reserved for future use per Spec/010:349) — we write the
+    ;; registry slot directly to seed a `:declared` entry, then verify it
+    ;; survives a schema-driven re-populate.
+    (let [c (frame/get-frame-db :rf/default)]
+      (adapter/replace-container! c
+                                  (assoc-in (adapter/read-container c)
+                                            [:rf/elision :sensitive-declarations
+                                             [:root :a :b]]
+                                            {:sensitive? true
+                                             :hint       "app declared this"
+                                             :source     :declared})))
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:a [:map [:b {:sensitive? true :hint "schema declared"}
+                                   :string]]]])
+    (rf/populate-sensitive-from-schemas!)
+    (let [d (get (rf/elision-sensitive-declarations) [:root :a :b])]
+      (is (= :declared           (:source d)) "declared wins over schema")
+      (is (= "app declared this" (:hint d))))))
+
+(deftest sensitive-schema-population-noop-when-extract-walker-absent
+  (testing "with the deep-walker hook absent, population is a no-op (rf2-ay2kp)"
+    ;; Mirrors the `:large?` sibling — both required hooks must be present;
+    ;; absence of either degrades to a no-op so ports / test fixtures that
+    ;; wire one but not the other don't NPE.
+    (rf/reg-app-schema [:secret] [:string {:sensitive? true}])
+    (let [restore-fn (late-bind/get-fn :schemas/extract-sensitive-paths-from-schema)]
+      (late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema nil)
+      (try
+        (is (= [] (rf/populate-sensitive-from-schemas!)))
+        (is (= {} (rf/elision-sensitive-declarations)))
+        (finally
+          (late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema restore-fn))))))
+
+(deftest sensitive-schema-population-orthogonal-with-large
+  (testing "a schema mixing `:large?` and `:sensitive?` slots populates BOTH
+            sibling registries independently (rf2-ay2kp)"
+    ;; Per Spec/010:349 the two flags compose orthogonally on the registry
+    ;; side — `:large?` lands in `:declarations`, `:sensitive?` lands in
+    ;; `:sensitive-declarations`. A slot flagged both rides into both.
+    (rf/reg-app-schema [:user]
+                       [:map
+                        [:pdf        {:large? true :hint "big blob"} :string]
+                        [:password   {:sensitive? true :hint "argon2id"} :string]
+                        [:secret-pdf {:large? true :sensitive? true
+                                      :hint "encrypted-pdf"} :string]])
+    (let [large-populated     (rf/populate-elision-from-schemas!)
+          sensitive-populated (rf/populate-sensitive-from-schemas!)
+          large-decls         (rf/elision-declarations)
+          sensitive-decls     (rf/elision-sensitive-declarations)]
+      (is (= #{[:user :pdf] [:user :secret-pdf]}
+             (set large-populated)))
+      (is (= #{[:user :password] [:user :secret-pdf]}
+             (set sensitive-populated)))
+      (is (= "big blob"      (get-in large-decls [[:user :pdf] :hint])))
+      (is (= "argon2id"      (get-in sensitive-decls [[:user :password] :hint])))
+      (is (= "encrypted-pdf" (get-in large-decls [[:user :secret-pdf] :hint])))
+      (is (= "encrypted-pdf" (get-in sensitive-decls [[:user :secret-pdf] :hint])))
+      (is (= :schema (get-in sensitive-decls [[:user :password] :source])))
+      ;; Sanity: the registries are disjoint slots — the `:large?` write
+      ;; didn't bleed into the sensitive slot and vice versa.
+      (is (nil? (get sensitive-decls [:user :pdf])))
+      (is (nil? (get large-decls     [:user :password]))))))
+
 ;; ---- 15. Snapshot-restore correctness ------------------------------------
 
 (deftest declarations-survive-app-db-snapshot-restore
