@@ -70,6 +70,49 @@
   [hook-key]
   (get @hooks hook-key))
 
+(defn chain-fn!
+  "Wire `step-fn` into the chained hook under `hook-key` so calling the
+  hook runs `step-fn` AND every previously-registered step.
+
+  Pairs with the inline get-prev-and-wrap idiom several chained
+  hooks use (`:adapter/clear-warn-once-caches!` published by the
+  React-shaped adapters + re-frame.views.warn-once; `:reagent/set-hiccup-emitter!`
+  chained across the Reagent / UIx / Helix / reagent-slim adapters
+  per rf2-4z7bp). Each adapter ns previously open-coded:
+
+      (let [previous (late-bind/get-fn hook-key)]
+        (late-bind/set-fn! hook-key
+          (fn chained [& args]
+            (apply step-fn args)
+            (when previous (apply previous args))
+            nil)))
+
+  Replaced by the single-line call:
+
+      (late-bind/chain-fn! hook-key step-fn)
+
+  Semantics:
+    * `step-fn` runs FIRST on every invocation (insertion-order
+      head of the chain — last-registered step is the outer wrapper).
+    * Each previous handler is invoked with the same `args` after
+      `step-fn` returns.
+    * Per-step throws propagate; the chain does NOT swallow them
+      (each contributing ns is responsible for its own try/catch
+      semantics).
+    * Returns nil — chained hooks are side-effecting (cache resets,
+      emitter installs); callers do not consume a return value.
+
+  Per rf2-1fh5h (UIx batch). Sibling for routed hooks is
+  `re-frame.substrate.adapter/route-hook!` (single-step routing,
+  dispatched by installed-adapter identity)."
+  [hook-key step-fn]
+  (let [previous (get-fn hook-key)]
+    (set-fn! hook-key
+      (fn chained-hook [& args]
+        (apply step-fn args)
+        (when previous (apply previous args))
+        nil))))
+
 (defn require-fn!
   "Return the fn registered under `hook-key`, or throw a structured
   `:rf.error/<artefact>-artefact-missing` ex-info when the hook is
