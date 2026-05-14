@@ -56,30 +56,65 @@ docs/images/story/*.png
   `[data-testid="rf-causa-shell"]`.
 - The counter testbed seeds `:count` to a fixed value at boot.
 
-### Annotations
+### Annotations (data-driven, rf2-we013)
 
-Each scene declares a list of rectangles via the `regions(page)` callback;
-the pipeline injects a thin DOM overlay (boxes + coloured labels) just
-before `page.screenshot` fires. The overlay is torn down between scenes.
-No external image-processing dependency — Playwright + a tiny inline
-helper is enough.
+Annotations live in a sibling JSON file —
+[`tutorial-annotation-spec.json`](tutorial-annotation-spec.json) — keyed
+by scene id. The pipeline resolves each region's DOM anchor (selector or
+absolute xy box) via Playwright `boundingBox`, then injects an SVG
+overlay (anti-aliased boxes, drop-shadowed labels, optional arrows)
+just before `page.screenshot` fires. The overlay is torn down between
+scenes. No external image-processing dependency — Playwright + inline
+SVG is enough.
+
+Region shape:
+
+```jsonc
+{
+  // Either a CSS / [data-testid] selector resolved at runtime ...
+  "selector": "[data-testid=\"rf-causa-trace-counts\"]",
+  // ... or absolute xy box (no DOM anchor needed):
+  "xy":       { "x": 1150, "y": 730, "w": 110, "h": 50 },
+  // Optional adjustments:
+  "inset":    { "x": 8, "y": 8, "w": -16, "h": 48 },  // negative w/h trims
+  "padding":  6,                                       // halo around the box
+  // Visual:
+  "colour":   "#e53935",
+  "label":    "thing to call out",
+  "labelPos": "above" | "below" | "left" | "right" | "auto"
+}
+```
+
+Resolved regions paint a 3-px stroke with a white halo for contrast,
+a rounded-corner label background, and (optionally) an SVG arrow with
+arrowhead marker.
 
 ### Adding a new scene
 
-```js
-SCENES.push({
-  id: 'causa-my-new-panel',
-  out: path.join(OUT_CAUSA, '12-my-new-panel.png'),
-  url: '/counter/',
-  before: async (page) => {
-    await page.locator('span').first().waitFor({ state: 'visible' });
-    await openCausa(page);
-    await navCausa(page, 'my-new-panel');
-  },
-  regions: async (page) => [
-    { x: 100, y: 50, w: 300, h: 60, colour: '#e53935', label: 'thing to call out' },
-  ],
-});
-```
-
-Then re-run the script and commit the new PNG alongside its doc page.
+1. Add the scene to `generate-tutorial-screenshots.cjs` `SCENES.push(...)`:
+   ```js
+   SCENES.push({
+     id: 'causa-my-new-panel',
+     out: path.join(OUT_CAUSA, '12-my-new-panel.png'),
+     url: '/counter/',
+     before: async (page) => {
+       await page.locator('span').first().waitFor({ state: 'visible' });
+       await openCausa(page);
+       await navCausa(page, 'my-new-panel');
+     },
+   });
+   ```
+2. Add the matching annotation entry to `tutorial-annotation-spec.json`:
+   ```json
+   "causa-my-new-panel": [
+     { "selector": "[data-testid=\"rf-causa-my-new-panel\"]",
+       "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+       "colour": "#1976d2",
+       "label": "thing to call out",
+       "labelPos": "below" }
+   ]
+   ```
+3. (Optional) Add a placeholder entry to
+   `generate-placeholder-images.py` so the PNG renders before the live
+   pipeline runs in CI.
+4. Re-run the live pipeline and commit the new PNG alongside its doc page.

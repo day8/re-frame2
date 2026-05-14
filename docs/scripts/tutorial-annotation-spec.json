@@ -1,0 +1,192 @@
+{
+  "$comment": [
+    "Data-driven annotation spec for the tutorial screenshot pipeline (rf2-we013).",
+    "Each entry maps a scene-id to a list of regions overlaid on its screenshot.",
+    "",
+    "Region fields:",
+    "  selector  CSS / data-testid selector resolved at runtime by Playwright.",
+    "            The pipeline reads boundingBox() and overlays the region.",
+    "            Use `{ selector: \"...\", inset: { x, y, w, h } }` to nudge.",
+    "  xy        Absolute viewport coordinates `{x,y,w,h}` (for pill / overlay",
+    "            anchors that have no DOM hook — e.g. the Causa launcher pill).",
+    "  label     Caption text painted next to the region.",
+    "  colour    Hex stroke + label background (default `#e53935` red).",
+    "  arrow     Optional `{from: {x,y}, to: {x,y}}` SVG arrow overlay.",
+    "  labelPos  `above` | `below` | `right` | `left` (auto-flips near edges).",
+    "",
+    "Annotation rendering target: SVG overlay injected pre-screenshot, torn",
+    "down after. Crisp anti-aliased strokes, drop-shadowed labels."
+  ],
+
+  "causa-floating-pill": [
+    {
+      "xy": { "x": 1150, "y": 730, "w": 110, "h": 50 },
+      "colour": "#1976d2",
+      "label": "Ctrl+Shift+C  -> open Causa",
+      "labelPos": "above"
+    }
+  ],
+
+  "causa-shell-opened": [
+    {
+      "selector": "[data-testid=\"rf-causa-shell\"]",
+      "inset": { "y": 0, "h": 28 },
+      "colour": "#43a047",
+      "label": "Causa shell — overlays the live app",
+      "labelPos": "below"
+    }
+  ],
+
+  "causa-sidebar-panels": [
+    {
+      "selector": "[data-testid=\"rf-causa-sidebar-item-event-detail\"]",
+      "groupExtendTo": "[data-testid=\"rf-causa-sidebar-item-copilot\"]",
+      "colour": "#fb8c00",
+      "label": "16 panels - three bands",
+      "labelPos": "right"
+    }
+  ],
+
+  "causa-event-detail": [
+    {
+      "selector": "[data-testid=\"rf-causa-event-detail\"]",
+      "inset": { "y": 4, "h": 48 },
+      "colour": "#43a047",
+      "label": "Event vector + diff + cascade",
+      "labelPos": "below"
+    }
+  ],
+
+  "causa-time-travel": [
+    {
+      "selector": "[data-testid=\"rf-causa-time-travel-slider\"]",
+      "colour": "#7e57c2",
+      "label": "Scrubber - drag to rewind",
+      "labelPos": "above"
+    }
+  ],
+
+  "causa-causality": [
+    {
+      "selector": "[data-testid=\"rf-causa-causality-graph\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 60 },
+      "colour": "#0097a7",
+      "label": "Cascade graph - parent-pointer walk",
+      "labelPos": "below"
+    }
+  ],
+
+  "causa-trace": [
+    {
+      "selector": "[data-testid=\"rf-causa-trace-counts\"]",
+      "padding": 6,
+      "colour": "#1976d2",
+      "label": "Live event count",
+      "labelPos": "above"
+    }
+  ],
+
+  "causa-click-to-source-dom-attribute": [
+    {
+      "selector": "button[data-rf2-source-coord]",
+      "padding": 6,
+      "colour": "#e53935",
+      "label": "data-rf2-source-coord — every rendered element carries one",
+      "labelPos": "below"
+    }
+  ],
+
+  "causa-machines": [
+    {
+      "selector": "[data-testid=\"rf-causa-machine-inspector\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+      "colour": "#5d4037",
+      "label": "State chart - current state highlights live",
+      "labelPos": "below"
+    }
+  ],
+
+  "causa-app-db-diff": [
+    {
+      "selector": "[data-testid=\"rf-causa-app-db-diff\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+      "colour": "#388e3c",
+      "label": "Slice-centric diff - only what changed",
+      "labelPos": "below"
+    }
+  ],
+
+  "story-shell-overview": [
+    {
+      "selector": "nav",
+      "inset": { "y": 4, "h": 24 },
+      "colour": "#1976d2",
+      "label": "Sidebar - stories + variants",
+      "labelPos": "below"
+    },
+    {
+      "selector": "main",
+      "inset": { "y": 4, "h": 24 },
+      "colour": "#43a047",
+      "label": "Canvas - the live render",
+      "labelPos": "below"
+    },
+    {
+      "selector": "aside",
+      "inset": { "y": 4, "h": 24 },
+      "colour": "#fb8c00",
+      "label": "Inspectors",
+      "labelPos": "below"
+    }
+  ],
+
+  "story-variant-loaded": [
+    {
+      "selector": "[data-test=\"count\"]",
+      "padding": 8,
+      "colour": "#43a047",
+      "label": "Variant body rendered against its own frame",
+      "labelPos": "below"
+    }
+  ],
+
+  "story-mode-tabs": [
+    {
+      "selector": "[data-test=\"story-mode-tabs\"]",
+      "padding": 6,
+      "colour": "#e53935",
+      "label": "Canvas / Docs / Tests - three core modes",
+      "labelPos": "above"
+    }
+  ],
+
+  "story-docs-mode": [
+    {
+      "selector": "[data-test=\"story-docs-view\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+      "colour": "#1976d2",
+      "label": "Auto-generated docs from registrations",
+      "labelPos": "below"
+    }
+  ],
+
+  "story-test-mode": [
+    {
+      "selector": "[data-test=\"story-test-view\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+      "colour": "#388e3c",
+      "label": "Tests run on entry - per-assertion drill-down",
+      "labelPos": "below"
+    }
+  ],
+
+  "story-workspace-grid": [
+    {
+      "selector": "main",
+      "inset": { "x": 0, "y": 4, "w": 0, "h": 24 },
+      "colour": "#7e57c2",
+      "label": "Workspace - one frame per cell, independent state",
+      "labelPos": "below"
+    }
+  ]
+}
