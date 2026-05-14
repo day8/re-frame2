@@ -664,12 +664,23 @@
    ;; :halted-handler-exception); :halt-reason is a structured
    ;; descriptor populated on halt paths, absent on :ok. The schema
    ;; in Spec-Schemas §:rf/epoch-record is the canonical pin.
+   ;;
+   ;; Per rf2-kl5p1 (audit r3 §F1): `:event-id` and `:trigger-event`
+   ;; are emitted only when `find-trigger-event` resolves them. The
+   ;; schema declares `:event-id :keyword` (required, non-maybe) per
+   ;; Spec-Schemas §`:rf/epoch-record` — emitting `:event-id nil` on a
+   ;; halt path where no `:event/run-start` trace was buffered would
+   ;; violate the schema; the open-map admits the slot's absence but
+   ;; rejects a nil value. The live router halt paths already short-
+   ;; circuit on an empty buffer via `(when (seq events) ...)` in
+   ;; `settle!`, so the only path that can reach this branch with a
+   ;; trigger-less buffer is `on-frame-destroyed!`'s `:halted-destroy`
+   ;; commit; the conditional `cond->` slots make that record valid
+   ;; against the schema.
    (let [{:keys [event-id event]} (find-trigger-event events)]
      (cond-> {:epoch-id      (next-epoch-id)
               :frame         frame-id
               :committed-at  (interop/now-ms)
-              :event-id      event-id
-              :trigger-event event
               :db-before     db-before
               :db-after      db-after
               :outcome       outcome
@@ -683,6 +694,8 @@
               :sub-runs      (project-sub-runs events)
               :renders       (project-renders events)
               :effects       (project-effects events)}
+       event-id    (assoc :event-id event-id)
+       event       (assoc :trigger-event event)
        halt-reason (assoc :halt-reason halt-reason)))))
 
 ;; ---- drain-settle hook ----------------------------------------------------
@@ -701,12 +714,12 @@
       Drain-boundary commit with explicit outcome. `outcome` is one of
       `:ok` / `:halted-depth` / `:halted-destroy` /
       `:halted-handler-exception`; `halt-reason` is a structured
-      descriptor populated on halt paths (nil on `:ok`). For halt
-      outcomes the record is committed even when the captured buffer
-      is empty — devtools want the cascade context surfaced regardless,
-      and the absent `:event-id` / `:trigger-event` slots on an
-      empty-buffer halt are tolerated by the open-map schema (the
-      `find-trigger-event` walk returns nil → those slots are nil).
+      descriptor populated on halt paths (nil on `:ok`). On a buffer
+      with no recoverable trigger (no `:event/run-start` and no
+      `:event-id` tag — e.g. a destroy that races a registration-time
+      emit) `build-record` omits `:event-id` / `:trigger-event`
+      entirely; the schema admits absent slots, rejects nil values
+      (per rf2-kl5p1 / audit r3 §F1).
 
   `db-before` is the app-db value snapshotted before the cascade began;
   `db-after` is the value the runtime settled to — equal to `db-before`

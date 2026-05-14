@@ -1941,6 +1941,77 @@
            pre-destroy event can leak into a same-keyed frame's next
            cascade"))))
 
+;; ---- rf2-kl5p1: build-record omits :event-id / :trigger-event when
+;; ---- find-trigger-event yields nothing -----------------------------------
+;;
+;; Per audit r3 §F1: `:rf/epoch-record` declares `[:event-id :keyword]`
+;; (required, non-maybe per Spec-Schemas §`:rf/epoch-record`). The live
+;; router halt paths short-circuit `build-record` on an empty buffer via
+;; `(when (seq events) ...)` in `settle!`, but `on-frame-destroyed!`'s
+;; `:halted-destroy` path commits a partial record from whatever buffered
+;; events are present — and a degenerate buffer that holds a `:event/
+;; run-start` but no `:event-id` / `:event` tags would otherwise produce
+;; `:event-id nil` / `:trigger-event nil`, violating the schema.
+;;
+;; Contract pin: when `find-trigger-event` returns nil for both fields,
+;; the assembled record carries NEITHER slot (the schema admits the
+;; absent slot, rejects nil values). `build-record` is exercised
+;; directly because driving a real router path with this exact degenerate
+;; buffer requires cooperation with internals the audit-time fix does
+;; not change.
+
+(deftest build-record-omits-event-id-and-trigger-event-on-tag-less-buffer
+  (testing "build-record on a buffer whose only `:event/run-start` trace
+            carries neither :event-id nor :event in :tags omits the
+            :event-id and :trigger-event slots from the record (rather
+            than emitting them as nil, which would violate the
+            :event-id :keyword schema)"
+    (rf/reg-frame :test/main {})
+    ;; Synthetic `:event/run-start` with empty tags — the `in-cascade?`
+    ;; gate at on-frame-destroyed! fires on phase :run-start, but the
+    ;; tags carry no :event-id / :event, so find-trigger-event resolves
+    ;; nothing. This mirrors the degenerate path the audit identified
+    ;; on the :halted-destroy commit.
+    (let [tag-less-events [{:op-type   :event
+                            :operation :event
+                            :tags      {:frame :test/main
+                                        :phase :run-start}}]
+          record          (#'epoch/build-record
+                            :test/main nil nil tag-less-events
+                            :halted-destroy
+                            {:operation :rf.frame/destroyed-mid-drain})]
+      (is (not (contains? record :event-id))
+          "the record does NOT carry :event-id when find-trigger-event
+           yields nil — the slot is absent rather than nil-valued
+           (schema rejects nil; absent is fine on the open map)")
+      (is (not (contains? record :trigger-event))
+          "the record does NOT carry :trigger-event when find-trigger-event
+           yields nil — symmetric to :event-id, the slot is absent
+           rather than nil-valued")
+      ;; Sanity: every required non-conditional slot still landed, and
+      ;; the halt-reason came through.
+      (is (= :test/main (:frame record)))
+      (is (= :halted-destroy (:outcome record)))
+      (is (= {:operation :rf.frame/destroyed-mid-drain}
+             (:halt-reason record))))))
+
+(deftest build-record-emits-event-id-and-trigger-event-when-trigger-resolves
+  (testing "the conditional cond-> slots are emitted when find-trigger-event
+            resolves both — the rf2-kl5p1 fix must not regress the
+            happy-path record shape"
+    (rf/reg-frame :test/main {})
+    (let [events [{:op-type   :event
+                   :operation :event
+                   :tags      {:frame    :test/main
+                               :phase    :run-start
+                               :event-id :seed
+                               :event    [:seed 1 2 3]}}]
+          record (#'epoch/build-record :test/main {} {:n 0} events)]
+      (is (= :seed (:event-id record))
+          ":event-id is the resolved event keyword")
+      (is (= [:seed 1 2 3] (:trigger-event record))
+          ":trigger-event is the full event vector — payload preserved"))))
+
 ;; ---- rf2-eo4pr: record-observation! guards its swap -----------------------
 ;;
 ;; `notify-listeners!` invokes `record-observation!` once per listener per
