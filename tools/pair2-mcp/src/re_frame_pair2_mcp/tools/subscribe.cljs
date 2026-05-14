@@ -48,6 +48,7 @@
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
+            [re-frame-pair2-mcp.tools.elision :as elision]
             [re-frame-pair2-mcp.tools.sensitive :as sensitive]
             [re-frame-pair2-mcp.tools.raw-state :as raw-state]))
 
@@ -194,6 +195,49 @@
       (catch :default _ nil))))
 
 ;; ---------------------------------------------------------------------------
+;; Drain eval-form — server-side elision wrap (rf2-vr2hn).
+;; ---------------------------------------------------------------------------
+;;
+;; `drain-subscription!` returns `{:ok? :sub-id :events [...]
+;; :dropped-events :dropped-bytes :overflow-reason :gone?}`. The `:epoch`
+;; topic ships full epoch records — `:db-after` / `:db-before` / `:app-db`
+;; slices ride verbatim. When the `--allow-raw-state` boot gate is OFF
+;; (the published-build default), each event must flow through
+;; `re-frame.core/elide-wire-value` BEFORE it crosses the nREPL wire —
+;; mirroring the snapshot / get-path gate (rf2-c2dtu) so an operator who
+;; didn't pass `--allow-raw-state` can't be talked into shipping raw
+;; state through a hostile per-call arg.
+;;
+;; The walker reads the live `[:rf/elision]` registry, so it has to run
+;; app-side. We compose `drain-subscription!` server-side with a mapv
+;; over `:events`, returning the same envelope with elided values in
+;; place. When elision is OFF (operator opted in via `--allow-raw-state`
+;; AND passed `:elision false`), the bare drain form ships raw — the
+;; pre-rf2-vr2hn posture.
+
+(defn drain-form
+  "Build the nREPL drain eval form. When `elision?` is true, wraps the
+  drain envelope so `:events` flows through `re-frame.core/elide-wire-value`
+  server-side; when false, emits the bare drain call. `incl?` threads
+  into the walker's `:rf.size/include-sensitive?` opt — gate-OFF callers
+  see redacted sensitive slots regardless of any per-call opt-in.
+
+  Public (not `defn-`) so unit tests can pin the form shape directly —
+  the form-string is the contract surface between MCP server and the
+  app-side runtime."
+  [sub-id elision? incl?]
+  (if elision?
+    (ef/emit
+      (ef/rt-let
+        ['drain (ef/rt-call 'drain-subscription! sub-id)
+         'opts  (ef/rt-raw (elision/elision-opts-edn true incl?))
+         'evts  (ef/rt-raw
+                  (str "(mapv #(re-frame.core/elide-wire-value % opts)"
+                       " (:events drain))"))]
+        (ef/rt-raw "(assoc drain :events evts)")))
+    (ef/emit (ef/rt-call 'drain-subscription! sub-id))))
+
+;; ---------------------------------------------------------------------------
 ;; Streaming controller — termination + poll loop.
 ;; ---------------------------------------------------------------------------
 
@@ -220,8 +264,9 @@
   triggers (client abort, max-events reached, or sub-gone)."
   [{:keys [conn build-id sub-id topic resolve state
            signal send-note progress-tk poll-ms max-events
-           incl? dedup?]}]
-  (let [terminate
+           incl? elision? dedup?]}]
+  (let [drain-src (drain-form sub-id elision? incl?)
+        terminate
         (fn terminate [reason]
           (-> (nrepl/cljs-eval-value
                 conn build-id
@@ -244,9 +289,7 @@
             (terminate :max-events-reached)
 
             :else
-            (-> (nrepl/cljs-eval-value
-                  conn build-id
-                  (ef/emit (ef/rt-call 'drain-subscription! sub-id)))
+            (-> (nrepl/cljs-eval-value conn build-id drain-src)
                 (.then
                   (fn [drain-resp]
                     (if (:gone? drain-resp)
@@ -308,6 +351,16 @@
         incl?              (if (raw-state/force-redact?)
                              false
                              (args/parse-bool-arg raw-args :include-sensitive?))
+        ;; rf2-vr2hn — the `--allow-raw-state` boot gate forces
+        ;; `:elision true` on every streamed event when OFF, mirroring
+        ;; the snapshot / get-path gate. Server-side, the drain envelope's
+        ;; `:events` flow through `re-frame.core/elide-wire-value` before
+        ;; crossing the nREPL wire — declared-large slots elide and
+        ;; declared-sensitive slots redact. `force-elision?` is the
+        ;; single arbiter; a caller's `:elision false` arg is dropped
+        ;; when the gate is OFF.
+        elision?           (or (args/parse-bool-arg raw-args :elision)
+                               (raw-state/force-elision?))
         dedup?             (args/parse-bool-arg raw-args :dedup)
         {:keys [signal send-note progress-tk]} (parse-mcp-extra extra)]
     (cond
@@ -347,7 +400,7 @@
                                  :signal      signal      :send-note   send-note
                                  :progress-tk progress-tk :poll-ms     poll-ms
                                  :max-events  max-events  :incl?       incl?
-                                 :dedup?      dedup?})]
+                                 :elision?    elision?    :dedup?      dedup?})]
                           (when (pos? max-ms)
                             (js/setTimeout #(terminate :max-ms-reached) max-ms))
                           (poll))))))))
