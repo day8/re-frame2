@@ -123,8 +123,17 @@
 
 (defn decode-response-body
   "Per Spec 014 §Decoding. Returns the decoded value or throws an
-  ex-info that the caller maps to `:rf.http/decode-failure`."
-  [{:keys [body-text headers decode decode-supplied? request-id url sensitive?]}]
+  ex-info that the caller maps to `:rf.http/decode-failure`.
+
+  Per rf2-wu1n5 the JSON path enforces a per-call keyword-cap; the
+  `:max-decoded-keys` slot (from the request args' `:rf.http/max-decoded-keys`,
+  defaulted at the handler) is threaded into `util-json/json-parse`.
+  The Malli-schema branch propagates the cap-throw rather than
+  swallowing it — a `:rf.error/malformed-json :reason :too-many-keys`
+  is a security-relevant signal and must surface as
+  `:rf.http/decode-failure`, not be masked behind a malli rejection."
+  [{:keys [body-text headers decode decode-supplied? request-id url sensitive?
+           max-decoded-keys]}]
   (let [content-type (content-type-of headers)
         decoder      (cond
                        (nil? decode)        :auto
@@ -132,7 +141,8 @@
                        :else                decode)
         resolved     (cond
                        (= :auto decoder) (sniff-decoder content-type)
-                       :else             decoder)]
+                       :else             decoder)
+        parse-opts   (when max-decoded-keys {:max-decoded-keys max-decoded-keys})]
     ;; Per Spec 014 §`:auto`: emit `:rf.warning/decode-defaulted` when
     ;; the user did NOT supply `:decode` and we fell back to auto-
     ;; sniffing. Per rf2-2p8wr the URL passes through
@@ -153,7 +163,7 @@
       (decoder body-text headers)
 
       (= :json resolved)
-      (util-json/json-parse body-text)
+      (util-json/json-parse body-text parse-opts)
 
       (= :text resolved)
       body-text
@@ -168,9 +178,18 @@
       body-text
 
       ;; Malli schema (or anything keyword-like that isn't recognised above).
+      ;; rf2-wu1n5 — re-raise a `:rf.error/malformed-json` ex-info
+      ;; (truncated escape, too-many-keys) rather than treating the
+      ;; body as plain text. Only NON-tagged throws fall through to the
+      ;; text path, which preserves the existing tolerant-of-non-JSON
+      ;; semantics for legacy callers.
       (some? resolved)
-      (let [parsed (try (util-json/json-parse body-text)
-                        (catch #?(:clj Throwable :cljs :default) _ body-text))]
+      (let [parsed (try (util-json/json-parse body-text parse-opts)
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (let [d (ex-data e)]
+                            (if (= :rf.error/malformed-json (:kind d))
+                              (throw e)
+                              body-text))))]
         (malli-decode resolved parsed))
 
       :else

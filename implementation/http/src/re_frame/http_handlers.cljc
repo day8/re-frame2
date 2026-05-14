@@ -57,13 +57,20 @@
         ;; handler's registration metadata. The flag rides every
         ;; :rf.http/* trace event emitted within the cascade so
         ;; consumers honour the privacy contract per Spec 009 §Privacy.
-        sensitive?   (privacy/request-sensitive? args-map origin-event)]
+        sensitive?   (privacy/request-sensitive? args-map origin-event)
+        ;; rf2-wu1n5 — keyword-interning DoS guard. The reserved
+        ;; `:rf.http/max-decoded-keys` arg overrides the JSON reader's
+        ;; default cap on unique decoded object keys. Absent → reader
+        ;; default (`util-json/default-max-decoded-keys`, 10000). Per
+        ;; Spec 014 §Decoding.
+        max-keys     (:rf.http/max-decoded-keys args-map)]
     {:request           request
      :decode            decode
      :decode-supplied?  (some? decode)
      :accept            accept
      :retry             retry
      :timeout-ms        timeout-ms
+     :max-decoded-keys  max-keys
      :origin-event      origin-event
      :explicit-on-success
      {:supplied? (contains? args-map :on-success)
