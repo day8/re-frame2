@@ -158,6 +158,7 @@ Because re-frame2 is AI-oriented, **the main body of the repo's documentation is
 
 ```
 spec/                          Full specification (AI-targeted; the primary artefact)
+  README.md                    Spec index — corpus layering + reading order
   000-Vision.md                Goals, hard constraints, the pattern's minimal core
   001-Registration.md          Registration grammar, hot-reload semantics
   002-Frames.md                Frames, dispatch envelope, drain semantics, view ergonomics
@@ -171,6 +172,7 @@ spec/                          Full specification (AI-targeted; the primary arte
   011-SSR.md                   Server-side rendering + hydration
   012-Routing.md               URL ↔ frame state contract
   013-Flows.md                 Registered, toggleable computed-state declarations
+  014-HTTPRequests.md          Managed HTTP effect — retry, abort, taxonomy
   Principles.md                The 9 AI-first practical principles
   Conventions.md               Reserved namespaces, fx-ids, app-db keys
   Ownership.md                 Contract-surface → owning-Spec map (the "where does X live?" reference)
@@ -184,42 +186,78 @@ spec/                          Full specification (AI-targeted; the primary arte
   Tool-Pair.md                 Runtime contract for pair-shaped AI tools (re-frame-pair equivalents)
   Runtime-Architecture.md      Bird's-eye view of the runtime
   Cross-Spec-Interactions.md   Edge cases at Spec boundaries
-  Pattern-*.md                 Worked-example conventions (Forms, RemoteData, ...)
+  Cross-Cutting-Designs.md     Designs that touch multiple specs at once
+  Managed-Effects.md           The managed-external-effect pattern (shape every outbound conforms to)
+  Security.md                  Top-level security posture, threat model, decisions log
+  Pattern-*.md                 Worked-example conventions (Forms, RemoteData, WebSocket, ...)
   conformance/                 EDN fixture corpus
 docs/
   guide/                       Human-facing guide (marketing voice)
   release-process.md           Operational doc — multi-artefact release pipeline
-examples/                      Worked examples
-implementation/                CLJS reference implementation — split into per-artefact subdirs
-                               (per Conventions §Packaging conventions).
+  quiet-tests.md               Recipe for silent-on-success cljs.test / clojure.test reporters
+examples/                      Tutorial-only worked examples (counter, etc.)
+testbeds/                      Shared framework-behavior testbed surfaces (consumed by Causa + Story
+                               + MCP servers). Bundle-isolated from production builds.
+  deliberate_throw/            4 :rf.error/* trigger sites (handler / fx / flow / machine)
+  schema_violation/            4 :where surfaces of schema-validation-failure
+  http_toggle/                 8 :rf.http/* failure categories per Spec 014
+  multi_frame/                 Cross-frame dispatch with per-frame app-db
+  deep_machine/                Hierarchical machine — parallel regions, :after, :always, :invoke
+  long_flow_w_failure/         Multi-second flow with mid-flow failure injection
+  drain_depth_trigger/         Recursive dispatch hitting the drain-depth ceiling
+  non_trivial_app_db/          ~5-level nested app-db for diffing visualisation
+  sensitive_dispatcher/        :sensitive? events for redaction verification
+  large_dispatcher/            Payloads above :rf.size/large-elided threshold
+  known_bad_a11y/              Story variant with deliberate a11y violation
+implementation/                CLJS reference implementation — per-artefact subdirs
+                               (per Conventions §Packaging conventions). Each subdir is its own
+                               jar with its own deps.edn, on the top-level shadow-cljs classpath.
   core/                        day8/re-frame2 — registry, drain, fx, dispatch, subscribe,
-                               frame-provider, trace; today still carries machines, flows, routing,
-                               http, ssr, schemas, epoch (per-feature splits pending — see
-                               Ownership.md "Artefact" column for the per-surface bead).
-  adapters/                    Substrate adapters. Per-feature artefacts (schemas, machines, ...)
-                               stay flat under implementation/ alongside core.
+                               frame-provider, trace, source-coords, substrate, elision
+  adapters/
     reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
     uix/                       day8/re-frame2-uix — the UIx adapter
     helix/                     day8/re-frame2-helix — the Helix adapter
-  shadow-cljs.edn              top-level build coordinator: pulls all artefacts onto one classpath
-                               for the browser/elision/examples builds
-  deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for all
+  schemas/                     day8/re-frame2-schemas — Malli boundary-validation artefact
+  machines/                    day8/re-frame2-machines — state-machine artefact (xstate-flavoured)
+  flows/                       day8/re-frame2-flows — registered computed-state declarations
+  http/                        day8/re-frame2-http — managed :rf.http/* effect
+  routing/                     day8/re-frame2-routing — URL ↔ frame routing
+  ssr/                         day8/re-frame2-ssr — server-side rendering + hydration
+  ssr-ring/                    day8/re-frame2-ssr-ring — Ring adapter for SSR pipeline
+  epoch/                       day8/re-frame2-epoch — epoch ring-buffer + partial-record contract
+  test-quiet/                  Quiet-on-success reporter shared across 17 test runners
+  scripts/                     Build / release scripts
+  shadow-cljs.edn              Top-level build coordinator: pulls all artefacts onto one classpath
+  deps.edn                     Top-level build coordinator (clojure-tools): :local/root deps for all
 tools/                         CLJS dev/inspection tools that consume re-frame2's instrumentation
                                API (Spec 009, Tool-Pair). Sibling of implementation/, not part of
                                it — bundle-isolated from production builds.
   template/                    day8/clj-template.re-frame2 — clj-new template for new re-frame2
                                apps; the v1 re-frame-template's v2 successor. Build-time scaffold.
   story/                       day8/re-frame2-story — Storybook-flavoured playground
-  story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story; separate jar
+  story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story
   pair2-mcp/                   day8/re-frame2-pair2-mcp — MCP agent surface for the re-frame-pair2
                                nREPL companion
   causa/                       day8/re-frame2-causa — Causa, the re-frame2 devtools panel;
                                the structural successor to re-frame-10x
   causa-mcp/                   day8/re-frame2-causa-mcp — MCP agent surface for Causa (spec-only)
-  machines-viz/                day8/re-frame2-machines-viz — state-machine chart renderer
+  machines-viz/                day8/re-frame2-machines-viz — state-machine chart renderer (spec-only)
+  machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP agent surface for machines-viz
                                (spec-only)
-skills/                        Claude skills — re-frame-pair2, re-frame-pair-retro2,
-                               re-frame2, re-frame2-setup, re-frame-migration
+  mcp-base/                    Shared CLJC library for the MCP triplet (arg parsing, redaction,
+                               cap, overflow); bundle-isolated boundary helpers
+  mcp-conformance/             Cross-server MCP conformance harness — gates wire-vocabulary parity
+                               in CI
+skills/                        Claude skills
+  re-frame2/                   Authoring skill — canonical patterns + reference docs
+  re-frame2-setup/             Greenfield-app scaffolding skill
+  re-frame2-implementor/       Skill for porting re-frame2 to a new host language
+  re-frame2-improver/          Critique-mode skill for existing re-frame2 code
+  re-frame-pair2/              Runtime pair-programming skill (nREPL + MCP companion)
+  re-frame-pair-retro2/        Retrospective skill — reviews pair sessions, drafts improvements
+  re-frame-migration/          re-frame v1.x → re-frame2 migration skill
+  shared/                      Cross-skill protocols (retro-protocol, evidence discipline)
 ```
 
 ## Information for AIs
