@@ -59,9 +59,39 @@
                        (= c \\)
                        (let [esc (peek-c (inc p))]
                          (case esc
-                           \u  (let [hex (subs s (+ p 2) (+ p 6))]
-                                 (.append sb (char (Integer/parseInt hex 16)))
-                                 (recur (+ p 6) sb))
+                           \u  (let [hex-start (+ p 2)
+                                     hex-end   (+ p 6)]
+                                 ;; rf2-263km — bounds-check + hex-digit
+                                 ;; check before parseInt. A `\u` escape
+                                 ;; near EOF would otherwise raise
+                                 ;; StringIndexOutOfBoundsException, and a
+                                 ;; non-hex char (e.g. the closing quote
+                                 ;; falling inside the 4-char window) would
+                                 ;; raise NumberFormatException — both
+                                 ;; classified opaquely. Surface as a clean
+                                 ;; `:rf.error/malformed-json` instead so
+                                 ;; the failure-category cascade reports a
+                                 ;; tagged `:rf.http/decode-failure` rather
+                                 ;; than a host-runtime exception string.
+                                 (when (> hex-end n)
+                                   (throw (ex-info "truncated unicode escape"
+                                                   {:kind   :rf.error/malformed-json
+                                                    :reason :truncated-unicode-escape
+                                                    :at     p})))
+                                 (let [hex (subs s hex-start hex-end)]
+                                   (when-not (every? (fn [ch]
+                                                       (let [i (int ch)]
+                                                         (or (and (>= i (int \0)) (<= i (int \9)))
+                                                             (and (>= i (int \a)) (<= i (int \f)))
+                                                             (and (>= i (int \A)) (<= i (int \F))))))
+                                                     hex)
+                                     (throw (ex-info "invalid unicode escape"
+                                                     {:kind   :rf.error/malformed-json
+                                                      :reason :invalid-unicode-escape
+                                                      :hex    hex
+                                                      :at     p})))
+                                   (.append sb (char (Integer/parseInt hex 16)))
+                                   (recur hex-end sb)))
                            (do (.append sb (case esc
                                              \"  \"
                                              \\ \\
@@ -165,11 +195,18 @@
   "JSON string → Clojure data with keyword keys for object keys. JVM
   uses Cheshire's `parse-string` if available, otherwise the pure-
   Clojure reader above. On CLJS uses `js/JSON.parse` +
-  `js->clj :keywordize-keys true`."
+  `js->clj :keywordize-keys true`.
+
+  Per rf2-263km, the fallback reader's `:rf.error/malformed-json`
+  ex-info is propagated rather than swallowed — the previous
+  `(catch Throwable _ s)` masked malformed input as a string return,
+  which then surfaced as an opaque schema-validation failure
+  downstream. Surfacing the tagged ex-info lets the `:rf.http/managed`
+  cascade classify the response as `:rf.http/decode-failure` with a
+  precise `:cause` instead of a noisy schema rejection."
   [s]
   #?(:clj  (cond
              (some? @cheshire-parse-string) (@cheshire-parse-string s true)
-             (string? s)                    (try (json-read* s)
-                                                 (catch Throwable _ s))
+             (string? s)                    (json-read* s)
              :else                          s)
      :cljs (js->clj (js/JSON.parse s) :keywordize-keys true)))
