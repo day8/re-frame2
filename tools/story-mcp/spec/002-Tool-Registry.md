@@ -106,6 +106,17 @@ docs.
 Canonical EDN form, text-only result for byte-stable round-tripping
 (content is text, not JSON, to avoid lossy JSON encoding of EDN).
 
+### `get-docs-markdown` (rf2-i0kyy)
+
+GitHub-flavoured Markdown projection of a story's documentation —
+the story `:doc` + per-variant `:doc` + args / argtypes / tags /
+decorators composed into one paste-ready string. Sibling to
+`get-story` (which returns the same content as EDN); the difference
+is the egress shape an agent host wants when surfacing docs to a
+human collaborator (issue tracker, chat, README excerpt). The
+markdown rides both the wire-canonical `:content` text slot and a
+structured `:markdown` slot for hosts that distinguish.
+
 ## Testing — for agents running stories headlessly
 
 Four execution tools.

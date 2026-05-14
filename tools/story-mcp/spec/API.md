@@ -108,6 +108,17 @@ Per-kind slots: `:has-wrap?` (hiccup, never the closure itself);
 
 **Output.** `{:assertions [{:id keyword :arity ... :semantics "..."}]}`.
 
+### `get-docs-markdown` (rf2-i0kyy)
+
+**Input.** `{:story-id keyword (required)}`.
+
+**Output.** `{:story-id keyword :markdown string :variants [keyword ...]}`.
+The `:markdown` slot rides the wire-canonical `:content` text slot
+verbatim; structured content carries the same string for hosts
+that surface it separately.
+
+**Errors.** `isError: true` when `:story-id` is not registered.
+
 ### `variant->edn`
 
 **Input.** `{:variant-id keyword (required)}`.
