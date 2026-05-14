@@ -196,12 +196,14 @@
                 ;; rf2-lqjbk write-side exception: `register-variant`
                 ;; by definition extends the registry with a fresh
                 ;; keyword id, so `safe-keyword` against an existing
-                ;; bounded set would always reject. The intern here is
-                ;; gate-bounded by `--allow-writes` (operator-only
-                ;; opt-in); the registrar's `assert-id!` enforces the
+                ;; bounded set would always reject. `fresh-keyword`
+                ;; (rf2-xxtrz) is the positive-named primitive for this
+                ;; case — the intern here is gate-bounded by
+                ;; `--allow-writes` (operator-only opt-in); the
+                ;; registrar's `assert-id!` enforces the
                 ;; `:story.<path>/<name>` grammar, which constrains the
                 ;; per-id allocation cost.
-                (register-or-error (args/parse-keyword vid) body-v)))))))
+                (register-or-error (args/fresh-keyword vid) body-v)))))))
 
 (defn tool-unregister-variant
   "Write: programmatically unregister a variant. Gated behind

@@ -188,9 +188,9 @@
                    :extends  (:extends arguments)})
                 (let [target-vid  (cond
                                     ;; write-back path: operator-gated
-                                    ;; intern via parse-keyword.
+                                    ;; intern via fresh-keyword.
                                     (and write-back? (:new-variant-id arguments))
-                                    (args/parse-keyword (:new-variant-id arguments))
+                                    (args/fresh-keyword (:new-variant-id arguments))
 
                                     ;; non-write-back: snippet-only,
                                     ;; safe-keyword against the live

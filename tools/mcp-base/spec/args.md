@@ -9,9 +9,9 @@ This doc is one of seven per-namespace contracts indexed from [`README.md`](READ
 
 `args` owns:
 
-- The cross-MCP parser catalogue (`parse-boolean`, `parse-positive-int`, `parse-non-negative-int`, `parse-keyword`, `safe-keyword`, `parse-mode`).
+- The cross-MCP parser catalogue (`parse-boolean`, `parse-positive-int`, `parse-non-negative-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`).
 - The default-handling posture for each parser (call-sites supply the default; the parser is policy-free).
-- The keyword-interning safety rule (per rf2-ih7g4): unbounded inputs MUST route through `safe-keyword` rather than `parse-keyword`.
+- The keyword-interning safety rule (per rf2-ih7g4): unbounded inputs MUST route through `safe-keyword`; only operator-gated write paths may use `fresh-keyword`.
 
 `args` does NOT own:
 
@@ -32,18 +32,18 @@ The rejection posture (default-suppress vs default-allow) is named at the call-s
 | `parse-boolean` | bools, strings (`"true"`/`"false"`/`"1"`/`"0"`/`"yes"`/`"no"`/`"y"`/`"n"`/`"on"`/`"off"`, case-insensitive), keywords (`:true`/`:false`), nil | boolean | Unrecognised → `default`. Call-sites wrap to bake the default. |
 | `parse-positive-int` | ints, parsable strings | positive int or `default` | Strictly positive; zero falls to `default`. |
 | `parse-non-negative-int` | ints, parsable strings | non-negative int or `default` | Zero allowed. |
-| `parse-keyword` | keywords, strings (leading `:` optional), nil | keyword or `nil` | The `:` prefix is stripped on string input. **Caveat (rf2-ih7g4)**: this fn INTERNS — use only for registry-backed ids whose value is checked against a bounded set at the lookup site. For finite option sets, prefer `safe-keyword`. |
+| `fresh-keyword` | keywords, strings (leading `:` optional), nil | keyword or `nil` | The `:` prefix is stripped on string input. **Positive-named intern (rf2-xxtrz)**: the name signals the call-site is ALLOCATING a new id, not resolving an existing one. INTERNS by design — reserved for operator-gated write paths whose registrar grammar bounds the per-id allocation cost (e.g. story-mcp's `register-variant`). For finite option sets, use `safe-keyword`. |
 | `safe-keyword` | keywords, strings, nil | keyword from `allowed` set, or `nil` | Bounded-allowlist gate — NEVER interns a fresh keyword on rejection. The right primitive for finite option sets and any input that doesn't go straight to a registry lookup with a bounded known set. Per rf2-ih7g4. |
 | `parse-mode` | enum-shaped strings / keywords | one of an allowed set, otherwise `default` | Bakes an `allowed-modes` set; rejected values fall to `default`. Routes through `safe-keyword` so unrecognised input never interns (rf2-ih7g4). |
 
 ## Keyword-interning safety (rf2-ih7g4)
 
-The same threat model that drives `:rf.http/max-decoded-keys` ([`../../../spec/014-HTTPRequests.md` §Keyword-interning cap](../../../spec/014-HTTPRequests.md)) applies to MCP argument parsing. An MCP server is a long-running process; every `parse-keyword` call against unbounded user input grows the host's interned-symbol table for the life of the process. A compromised agent submitting N-unique-string arguments-per-call would permanently burn N slots in the keyword table.
+The same threat model that drives `:rf.http/max-decoded-keys` ([`../../../spec/014-HTTPRequests.md` §Keyword-interning cap](../../../spec/014-HTTPRequests.md)) applies to MCP argument parsing. An MCP server is a long-running process; every `(keyword raw-agent-string)` call against unbounded user input grows the host's interned-symbol table for the life of the process. A compromised agent submitting N-unique-string arguments-per-call would permanently burn N slots in the keyword table.
 
 The cross-MCP rule:
 
 1. **`safe-keyword` is the default primitive.** Every cross-MCP arg whose set of valid values is *bounded* — modes, enum-like opts, registered tool ids — uses `safe-keyword` with the allowlist passed in.
-2. **`parse-keyword` is reserved for registry-backed ids.** When the arg's value goes straight into a registry lookup whose key set is *itself* bounded by the registrar (e.g. `(registrations :event)` filtered by id), `parse-keyword` is acceptable — the interning is bounded by the registry's existing size.
+2. **`fresh-keyword` is reserved for operator-gated write paths.** When the arg's value is by design a NEW identifier (story-mcp's `register-variant` / `record-as-variant`), `fresh-keyword` is the positive-named primitive. The intern is bounded by an operator gate (`--allow-writes`) AND a registrar grammar (`:story.<path>/<name>` per `assert-id!`). The name carries the "I am allocating, not resolving" posture; no warning-laden docstring needed at the call site.
 3. **`parse-mode` routes through `safe-keyword`.** The convention's enum-shaped parser is internally safe; consumers should use it rather than rolling their own.
 
 The keyword-interning cap (`:rf.http/max-decoded-keys`) defends against the body-decode threat; this convention defends against the argument-parse threat. Both close the same DoS / keyword-table-poisoning vector.

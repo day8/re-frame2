@@ -100,13 +100,17 @@
 ;;                       keyword. The right primitive for finite option
 ;;                       sets and registry-backed lookups.
 ;;
-;;   - `parse-keyword` — the legacy permissive parser. Still INTERNS;
-;;                       documented as a registry-backed-id helper.
-;;                       Callers MUST gate by membership against a
-;;                       bounded set at the lookup site (e.g. probe
-;;                       the registry; absent ⇒ reject). Eventually a
-;;                       follow-on bead retires this in favour of
-;;                       `safe-keyword` everywhere.
+;;   - `fresh-keyword` — the policy-gated intern. INTERNS by design (the
+;;                       call site is allocating a new identifier, not
+;;                       resolving an existing one). Only callable when
+;;                       the surrounding context has already bounded the
+;;                       allocation cost — typically an operator-gated
+;;                       write path (`--allow-writes`) whose registrar
+;;                       enforces a grammar over the input. The
+;;                       positive-named successor to the retired
+;;                       `parse-keyword` (rf2-xxtrz); the fresh-id
+;;                       posture is on the name rather than in a
+;;                       warning-laden docstring.
 ;;
 ;; `parse-mode` is fixed here — every existing caller passes a finite
 ;; `recognised` set, so the gate lifts cleanly with no surface change.
@@ -186,25 +190,33 @@
 
     :else nil))
 
-(defn parse-keyword
-  "Read a keyword from an agent-supplied argument. MCP arguments
-  arrive as JSON, so keyword-typed ids come in as strings. Strips a
-  leading `:` if present (some agents may serialise EDN-ish). Returns
-  nil for nil / blank input.
+(defn fresh-keyword
+  "Coerce an agent-supplied id into a keyword, INTERNING it. The
+  positive-named primitive for write paths that allocate a new
+  identifier rather than resolve an existing one (e.g.
+  `register-variant`'s `:variant-id` arg, `record-as-variant`'s
+  `:new-variant-id` arg). Strips a leading `:` if present (some agents
+  may serialise EDN-ish). Returns nil for nil / blank input.
 
   Namespaced keywords are supported (`\"ns/name\"` ⇒ `:ns/name`).
 
-  ## Interning caveat (rf2-ih7g4)
+  ## When to call (rf2-ih7g4 / rf2-xxtrz)
 
-  This fn INTERNS — `(keyword raw-string)` on the JVM permanently
-  enlarges the global keyword table. Use ONLY where the value is
-  destined for a registry lookup with a bounded known set (variant-id,
-  substrate id, etc.) and the caller probes the registry immediately
-  after parsing. For finite option sets (e.g. `:diff`/`:full` modes),
-  prefer `safe-keyword` — which never interns outside the allowlist.
+  JVM keywords are interned in a never-shrinking global table. Every
+  `fresh-keyword` call permanently grows that table by one slot for a
+  hitherto-unseen input. Reserve this primitive for sites that have
+  ALREADY bounded the allocation by some other gate:
 
-  Callers SHOULD treat the result as a candidate that MUST be checked
-  against a bounded set before being used as a long-lived identifier."
+    - An operator-gated write path (story-mcp's `--allow-writes` flag,
+      pair2-mcp's read-side frame-id coercion against a runtime-bounded
+      frame registry).
+    - A registrar that enforces a grammar over the id (e.g.
+      `:story.<path>/<name>` in `assert-id!`) — this constrains the
+      per-id allocation cost.
+
+  For finite option sets (mode keywords, slice keywords), use
+  `safe-keyword` against a finite allowlist; `fresh-keyword` is the
+  wrong primitive there — it would intern every typo the agent sent."
   [v]
   (cond
     (keyword? v) v
@@ -228,11 +240,11 @@
   ## Bounded-allowlist gate (rf2-ih7g4)
 
   Routes through `safe-keyword` so an unrecognised agent-supplied
-  string never interns a fresh JVM keyword. The previous implementation
-  called `parse-keyword` on every input (interning), then membership-
-  checked. With this fix the membership check happens BEFORE the
-  intern, eliminating the unbounded-growth DoS path for mode-shaped
-  args (which are the vast majority of finite-set MCP args)."
+  string never interns a fresh JVM keyword. An earlier implementation
+  interned every input first and membership-checked after; the fix
+  flipped the order so the bounded check happens BEFORE the intern,
+  eliminating the unbounded-growth DoS path for mode-shaped args
+  (which are the vast majority of finite-set MCP args)."
   [raw default recognised]
   (cond
     (nil? raw)                       default
