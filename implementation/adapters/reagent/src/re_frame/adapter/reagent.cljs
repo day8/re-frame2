@@ -33,8 +33,25 @@
 ;; ---- derived (reactions) --------------------------------------------------
 
 (defn- make-derived-value [source-containers compute-fn]
-  (ratom/make-reaction
-    (fn [] (apply compute-fn (map deref source-containers)))))
+  ;; Per recompute we want zero lazy-seq allocation and zero `apply`
+  ;; cost on the dominant arities. Subs typically chain off 1 input
+  ;; (layer-1 always; layer-n usually 1–2); specialise those, fall
+  ;; back to `mapv` (eager, vector-backed) + `apply` for ≥3.
+  ;; rf2-v1nu0; sourced from the rf2-fzrav perf sweep findings.
+  ;;
+  ;; `count` is captured once at construction (source-containers is a
+  ;; vector — see `inputs` in `re-frame.subs`) so the recompute closure
+  ;; pays no per-tick count.
+  (let [n (count source-containers)
+        recompute (case n
+                    0 (fn [] (compute-fn))
+                    1 (let [s0 (nth source-containers 0)]
+                        (fn [] (compute-fn @s0)))
+                    2 (let [s0 (nth source-containers 0)
+                            s1 (nth source-containers 1)]
+                        (fn [] (compute-fn @s0 @s1)))
+                    (fn [] (apply compute-fn (mapv deref source-containers))))]
+    (ratom/make-reaction recompute)))
 
 ;; ---- render ---------------------------------------------------------------
 ;;
