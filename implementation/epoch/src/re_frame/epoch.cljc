@@ -795,24 +795,19 @@
     (entries frame-id)
     {}))
 
-(defn- schema-validate-ok?
-  "True when the recorded db validates against every app-schema
-  registered against frame-id. Defensive: when no schemas are
-  registered or Malli is not on the path, we consider the db valid
-  (we can't disprove it)."
-  [frame-id db]
-  (let [schemas  (registered-app-schemas frame-id)
-        validate (malli-validate-fn)]
-    (or (empty? schemas)
-        (nil? validate)
-        (every? (fn [[path meta]]
-                  (let [schema (:schema meta)
-                        v      (get-in db path)]
-                    (try (validate schema v)
-                         (catch #?(:clj Throwable :cljs :default) _ true))))
-                schemas))))
+(defn- failing-schema-paths
+  "Return a vector of failing schema-paths for `db` against `frame-id`'s
+  registered app-schemas. Empty vector means valid — either every
+  registered schema accepted the path's value, OR no schemas are
+  registered, OR no Malli validator is on the classpath. The latter
+  two are soft-pass: we can't disprove validity, so we treat the db
+  as valid.
 
-(defn- failing-paths-for [frame-id db]
+  Single walk over the schema set — callers that previously chained
+  `schema-validate-ok?` + `failing-paths-for` paid two walks where one
+  suffices. The validity question is `(empty? (failing-schema-paths
+  frame-id db))`."
+  [frame-id db]
   (let [schemas  (registered-app-schemas frame-id)
         validate (malli-validate-fn)]
     (if (or (empty? schemas) (nil? validate))
@@ -1012,7 +1007,7 @@
             ;; Each helper is called once and its result bound, so the
             ;; failure path walks the recorded db / schema set / machine
             ;; map exactly once per check (rf2-081zk).
-            (if-let [failing-paths (seq (failing-paths-for frame-id db-target))]
+            (if-let [failing-paths (seq (failing-schema-paths frame-id db-target))]
               ;; (4) Schema mismatch?
               ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
               ;; the trace carries both the digest pinned on the
@@ -1133,15 +1128,18 @@
        :op      :rf.epoch/reset-frame-db-during-drain
        :tags    {:frame frame-id}}
 
-      ;; (3) Schema mismatch?
-      (not (schema-validate-ok? frame-id new-db))
-      {:outcome :fail
-       :op      :rf.epoch/reset-frame-db-schema-mismatch
-       :tags    {:frame         frame-id
-                 :failing-paths (failing-paths-for frame-id new-db)}}
-
       :else
-      {:outcome :ok})))
+      ;; (3) Schema mismatch? Single walk — `failing-schema-paths`
+      ;; returns the failing paths (or [] for the valid / soft-pass
+      ;; cases), folding what was previously a two-helper / two-walk
+      ;; chain into one.
+      (let [failing (failing-schema-paths frame-id new-db)]
+        (if (seq failing)
+          {:outcome :fail
+           :op      :rf.epoch/reset-frame-db-schema-mismatch
+           :tags    {:frame         frame-id
+                     :failing-paths failing}}
+          {:outcome :ok})))))
 
 (defn- perform-reset-frame-db!
   "Carry out the `app-db` replacement once preconditions have passed.
