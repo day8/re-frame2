@@ -22,9 +22,20 @@
   ;; can exercise the algorithm without dragging the CLJS runtime in.
   )
 
-(defn- prefix? [a b]
-  (and (>= (count b) (count a))
-       (= a (vec (take (count a) b)))))
+(defn- prefix?
+  "True iff `a` is a path-prefix of `b`. Both must be Clojure vectors —
+  `valid-path?` in registry.cljc enforces this before any path reaches
+  topo, so `subvec` is safe.
+
+  Implementation note: `subvec` is O(1) and allocates only a thin view
+  on `b`; the older `(= a (vec (take (count a) b)))` materialised a
+  fresh vector per call. `prefix?` is called O(n² · k) times per
+  topo-sort invocation (n = flow count, k = inputs per flow); zero-
+  alloc matters here even at v1's tiny per-frame node counts."
+  [a b]
+  (let [n (count a)]
+    (and (<= n (count b))
+         (= a (subvec b 0 n)))))
 
 (defn depends-on?
   "Per Spec 013 §Topological sort: B depends on A iff A's :path and any
