@@ -1,20 +1,12 @@
 (ns re-frame.core-schemas
   "Public-API wrappers for the optional schemas artefact (Spec 010).
-  Implementation ships in `day8/re-frame2-schemas`
-  (`re-frame.schemas` ns) per rf2-p7va.
+  Implementation ships in `day8/re-frame2-schemas` (`re-frame.schemas`).
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention).
 
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
-
-  Per-feature carve-out: the schemas artefact pulls Malli (the default
-  validator) onto the classpath — apps that want to drop the ~24 KB
-  gzipped Malli surface omit the artefact and either use a substitute
-  validator (per rf2-froe) or skip schema validation entirely.
-
-  Per rf2-h824v the wrappers below are emitted by the
-  `re-frame.core-artefact/defwrapper` factory from a declarative table —
-  one row per public surface."
+  The schemas artefact pulls Malli (the default validator) onto the
+  classpath — apps that want to drop the ~24 KB gzipped Malli surface
+  omit the artefact and either substitute another validator or skip
+  schema validation entirely."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 

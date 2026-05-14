@@ -1,21 +1,7 @@
 (ns re-frame.core-routing
   "Public-API wrappers for the optional routing artefact (Spec 012).
-  Implementation ships in `day8/re-frame2-routing`
-  (`re-frame.routing` ns) per rf2-k682.
-
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
-
-  Per-feature carve-out (relative to the canonical convention): the
-  routing artefact pulls the route-rank / pattern-compile / nav-token
-  machinery, the `:rf/route` reg-sub family, and every `:rf.route/*` /
-  `:rf.nav/*` keyword string — none of which appear on a consumer's
-  classpath when this wrapper's hooks are unregistered.
-
-  Per rf2-h824v the wrappers below are emitted by the
-  `re-frame.core-artefact/defwrapper` factory from a declarative table —
-  one row per public surface."
+  Implementation ships in `day8/re-frame2-routing` (`re-frame.routing`).
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
