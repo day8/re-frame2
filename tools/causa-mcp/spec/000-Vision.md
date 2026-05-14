@@ -289,7 +289,7 @@ Causa-MCP is the **debugger-side** counterpart to pair2-mcp's
 | Axis | [`tools/pair2-mcp/`](../../pair2-mcp/) | `tools/causa-mcp/` |
 |---|---|---|
 | Audience | Editor-side AI workflows (build/edit/test). | Debugger-side AI workflows (inspect/time-travel). |
-| Surface | 9 tools (dispatch, eval, hot-swap, trace, streaming). | 18 tools (inspection + mutation + streaming + escape hatch + session lifecycle). |
+| Surface | 10 tools (editor-side: discover/eval/dispatch/snapshot/trace + streaming pair). | 18 tools (inspection + mutation + streaming + escape hatch + meta). |
 | `:origin` tag | `:pair` | `:causa-mcp` |
 | MCP-server ns (Node-side) | `re-frame-pair2-mcp.*` (e.g. `re-frame-pair2-mcp.server`, `.tools`, `.nrepl`, `.cache`) | `day8.re-frame2-causa-mcp.*` (when impl lands) |
 | Injected-runtime ns (browser-side) | `re-frame-pair2.runtime` | `day8.re-frame2-causa.runtime` (rides Causa's preload) |
