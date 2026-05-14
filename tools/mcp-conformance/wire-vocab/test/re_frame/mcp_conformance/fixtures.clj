@@ -67,14 +67,29 @@
         .getParentFile                                      ; <repo-root>
         .getAbsolutePath)))
 
-(defn read-source
+(def read-source
   "Slurp a source file inside the repo. `rel-path` is a string path
   segment relative to the repo root, using `/` as the separator. The
   test fails loudly (via `slurp`'s default IOException) if the path
   doesn't resolve — that's the right signal: a source file under
-  conformance was moved or removed."
-  [rel-path]
-  (slurp (io/file repo-root rel-path)))
+  conformance was moved or removed.
+
+  ## Memoisation (rf2-re2tv)
+
+  Callers iterate `doseq` over the same files dozens of times across
+  the three conformance test namespaces (`wire-vocab-test`,
+  `slot-name-test`, `indicator-field-test`); the wire-vocab suite was
+  ~4356ms wall-clock and almost entirely I/O-bound on a cold disk
+  cache. Wrapping in `memoize` keyed on the rel-path drops the
+  re-slurp cost to zero for every repeated access. Source files do
+  not change mid-test-run, so cache invalidation is a non-concern.
+
+  The bound name stays `read-source` (no underscore prefix or
+  `read-source*` indirection) so the call sites read identically to
+  the un-memoised form."
+  (memoize
+    (fn read-source* [rel-path]
+      (slurp (io/file repo-root rel-path)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-server registry. The three MCP servers under the triplet's
@@ -129,23 +144,19 @@
   (re-pattern (str (java.util.regex.Pattern/quote variant-str)
                    "(?![\\w\\-?/!*+'<>=])")))
 
-(defn strip-comments-and-strings
-  "Return `src` with Clojure line comments (`;` to EOL) and string
-  literals (`\"...\"`, including docstrings) replaced by single
-  spaces. Preserves line structure for accurate error reporting up
-  the stack.
-
-  Implementation: simple state machine over the raw text. Tracks two
-  states (in-string vs in-comment) with `\\` escape handling inside
-  strings. Not a full Clojure reader — character literals (`\\;`),
-  regex literals (`#\"...\"`), and `#_` reader-discards are not
-  modelled. Those edge cases don't matter for the conformance pins:
-  we strip conservatively (false-positive whitelisting would be the
-  bug; a missed string is OK because the marker still wouldn't appear
-  in a bare character literal or a regex pattern targeting it)."
-  [src]
-  (let [n  (count src)
-        sb (StringBuilder. n)]
+(def ^:private strip-comments-and-strings*
+  "Uncached implementation — exposed only so the public memoised
+  `strip-comments-and-strings` can delegate. State machine over raw
+  text; tracks in-string and in-comment with `\\` escape handling.
+  Not a full Clojure reader — character literals (`\\;`), regex
+  literals (`#\"...\"`), and `#_` reader-discards are not modelled.
+  Conservative-strip semantics make those edge cases harmless: a
+  missed string would only matter if a canonical marker appeared
+  inside it, and those cases don't occur in the repo source under
+  conformance."
+  (fn [src]
+    (let [n  (count src)
+          sb (StringBuilder. n)]
     (loop [i 0, in-string? false, in-comment? false]
       (if (>= i n)
         (.toString sb)
@@ -183,4 +194,13 @@
 
             :else
             (do (.append sb c)
-                (recur (inc i) false false))))))))
+                (recur (inc i) false false)))))))))
+
+(def strip-comments-and-strings
+  "Memoised wrapper over `strip-comments-and-strings*` (rf2-re2tv).
+  Every conformance test reaches for this on top of `read-source`
+  output; both caches together collapse the wire-vocab suite's
+  ~4356ms wall-clock by avoiding repeated state-machine walks of
+  the same source text. Keyed on the input string itself — pure
+  function of `src`, so identity-keyed equality is fine."
+  (memoize strip-comments-and-strings*))
