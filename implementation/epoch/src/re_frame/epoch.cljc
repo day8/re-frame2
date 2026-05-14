@@ -521,11 +521,19 @@
                         :event-id (:event-id record)})
           (notify-listeners! record))))))
 
-(defn discard-buffer!
+(defn- discard-buffer!
   "Drop the in-flight capture buffer for frame-id. Used when a drain
   is aborted (e.g. depth-exceeded, frame destroyed mid-drain) to
   avoid leaking a partial buffer into the next cascade. No record
-  is committed."
+  is committed.
+
+  Per rf2-hul9q: the only consumer is `router.cljc`'s drain-abort
+  path via the `:epoch/discard-buffer!` late-bind hook (see the
+  registration at the foot of this namespace). The fn itself takes
+  no direct callers, so the visibility stays `defn-` to keep the
+  late-bind seam the sole public access path — matches the
+  `capture-event!` and `in-flight-buffer` pattern used elsewhere
+  in this ns for hook-only producers."
   [frame-id]
   (when interop/debug-enabled?
     (harvest-buffer! frame-id))
