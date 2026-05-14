@@ -203,9 +203,8 @@
 ;; hash matches the first, marker replaces it.
 ;;
 ;; `snapshot` with the default :all `frames` is precheck-ineligible —
-;; the precheck-frame returns nil and the precheck round-trip is
-;; skipped (sentinel `[nil nil]`). Perfect probe for the post-eval
-;; cache slot.
+;; the precheck-target returns nil and the precheck round-trip is
+;; skipped. Perfect probe for the post-eval cache slot.
 ;; ---------------------------------------------------------------------------
 
 (deftest result-hash-hit-when-precheck-ineligible

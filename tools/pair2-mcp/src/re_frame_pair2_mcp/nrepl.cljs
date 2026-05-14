@@ -127,14 +127,27 @@
 (defn- attach-handlers!
   "Wire up `data` / `error` / `close` on the freshly-connected socket.
   Resolves pending requests on matching `:done` status; logs errors;
-  marks the conn closed on disconnect."
+  marks the conn closed on disconnect.
+
+  The `data` handler folds the incoming chunk into the buffer AND
+  splits off any complete frames in a single `swap!` — two-swap
+  variants left a window where a second `data` callback (or a
+  Buffer.concat racing) could observe the freshly-accumulated bytes
+  but not yet the trimmed trailer, double-decoding the same frame.
+  One atomic swap closes that window."
   [conn-atom ^js socket]
   (j/call socket :on "data"
     (fn [chunk]
-      (let [conn (swap! conn-atom update :buf #(js/Buffer.concat #js [(or % (js/Buffer.alloc 0)) chunk]))
-            [frames rest] (decode-all-frames (:buf conn))]
-        (swap! conn-atom assoc :buf rest)
-        (doseq [frame (array-seq frames)]
+      (let [frames* (atom nil)
+            _       (swap! conn-atom
+                           (fn [c]
+                             (let [buf'           (js/Buffer.concat
+                                                    #js [(or (:buf c) (js/Buffer.alloc 0))
+                                                         chunk])
+                                   [frames rest'] (decode-all-frames buf')]
+                               (reset! frames* frames)
+                               (assoc c :buf rest'))))]
+        (doseq [frame (array-seq @frames*)]
           (let [id      (j/get frame "id")
                 resolve (get (:pending @conn-atom) id)]
             (when resolve
@@ -275,8 +288,19 @@
                         build-pr " " code-pr " {})")]
      (jvm-eval conn-atom wrapped opts))))
 
-(defn- read-edn-safe [s]
-  (try (edn/read-string s) (catch :default _ s)))
+(defn- read-edn-safe
+  "Best-effort EDN read of the nREPL value string. On parse failure we
+  return the raw string so the caller can decide what to do with the
+  unparseable shape — but we log to stderr first because a silent
+  drop-back hides genuine wire-shape regressions (a runtime that
+  shipped malformed EDN gets surfaced by inspection of the dev
+  console, not by a mute branch)."
+  [s]
+  (try
+    (edn/read-string s)
+    (catch :default e
+      (log! "read-edn-safe: parse failed —" (.-message e))
+      s)))
 
 (defn cljs-eval-value
   "Like cljs-eval but unwraps to the actual CLJS value. shadow's

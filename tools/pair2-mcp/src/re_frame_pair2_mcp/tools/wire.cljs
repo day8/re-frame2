@@ -14,10 +14,19 @@
 ;; Config — build id.
 ;; ---------------------------------------------------------------------------
 
-(defn default-build-id []
-  (or (some-> (j/get-in js/process [:env :SHADOW_CLJS_BUILD_ID])
-              keyword)
-      :app))
+(def ^:private cached-default-build-id
+  "Cached at namespace load — the `SHADOW_CLJS_BUILD_ID` env var
+  doesn't change at runtime, and re-reading it on every tool
+  dispatch (11+ reads per call across `arg-build` and friends) is
+  wasted cycles. A delay defers the read until the first call —
+  important for shadow-cljs hot-reload paths where the file may
+  load before `js/process.env` is fully populated."
+  (delay
+    (or (some-> (j/get-in js/process [:env :SHADOW_CLJS_BUILD_ID])
+                keyword)
+        :app)))
+
+(defn default-build-id [] @cached-default-build-id)
 
 ;; ---------------------------------------------------------------------------
 ;; MCP result helpers.
@@ -55,8 +64,17 @@
   (let [v (j/get args (name k))]
     (when-not (or (nil? v) (undefined? v)) v)))
 
+(defn arg-keyword
+  "Pluck an arg slot and coerce to a keyword via `(some-> v keyword)`.
+  Returns nil when the slot is absent. Compresses the
+  `(some-> (wire/arg args :foo) keyword)` pattern that recurs across
+  the per-tool bodies (topic / frame plucks) — single source of truth
+  for the str→kw coercion shape callers don't need to spell out."
+  [args k]
+  (some-> (arg args k) keyword))
+
 (defn arg-build [args]
-  (or (some-> (arg args :build) keyword)
+  (or (arg-keyword args :build)
       (default-build-id)))
 
 ;; ---------------------------------------------------------------------------

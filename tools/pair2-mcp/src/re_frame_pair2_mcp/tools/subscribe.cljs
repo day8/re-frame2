@@ -62,26 +62,42 @@
    :dropped-sensitive 0
    :elided-large      0})
 
-(defn- merge-drain
+(defn drain-produced-output?
+  "Did this drain produce a tick the client should see? True iff the
+  drain delivered kept events OR reported queue-overflow drops — the
+  two shapes that surface as a `notifications/progress` tick.
+
+  Lifted to a named predicate (rather than inlining the OR at the
+  two call sites — `merge-drain`'s `tick?` gate and the poll loop's
+  emit gate) so the contract is single-sourced: any future change
+  to what counts as a tick (e.g. surfacing tick-elided-only drains)
+  lands here once, not at two sites that could drift."
+  [{:keys [n ev-dropped]}]
+  (or (pos? (or n 0)) (pos? (or ev-dropped 0))))
+
+(defn merge-drain
   "Pure state update — fold one drain's contributions into the rolling
   accumulators. The drain reports `:ev-dropped`/`:by-dropped` for
   queue-overflow eviction (rf2-ho4ve), `:dropped` for sensitive-strip,
   and `:tick-elided` for the count of `:rf.size/large-elided` markers
   on this batch. `:n` is the kept-event count after sensitive-strip.
 
-  A tick is counted whenever the drain produced kept events OR the
-  drain reported queue-overflow drops — both shapes should surface to
-  the client as `notifications/progress`."
-  [s {:keys [n ev-dropped by-dropped ov-reason dropped tick-elided]}]
-  (let [tick? (or (pos? n) (pos? ev-dropped))]
-    (cond-> s
-      tick?            (-> (update :tick      inc)
+  A tick is counted whenever `drain-produced-output?` returns true —
+  the predicate single-sources the gate.
+
+  Public (not `defn-`) so unit tests in `subscribe_test.cljs` can
+  pin the state-merge contract directly; the runtime contract surface
+  is otherwise nrepl-only."
+  [s {:keys [n ev-dropped by-dropped ov-reason dropped tick-elided] :as drain}]
+  (cond-> s
+    (drain-produced-output? drain)
+                       (-> (update :tick      inc)
                            (update :delivered + n))
-      (pos? ev-dropped)  (update :dropped-events    + ev-dropped)
-      (pos? by-dropped)  (update :dropped-bytes     + by-dropped)
-      ov-reason          (assoc  :overflow-reason   ov-reason)
-      (pos? dropped)     (update :dropped-sensitive + dropped)
-      (pos? tick-elided) (update :elided-large      + tick-elided))))
+    (pos? ev-dropped)  (update :dropped-events    + ev-dropped)
+    (pos? by-dropped)  (update :dropped-bytes     + by-dropped)
+    ov-reason          (assoc  :overflow-reason   ov-reason)
+    (pos? dropped)     (update :dropped-sensitive + dropped)
+    (pos? tick-elided) (update :elided-large      + tick-elided)))
 
 (defn- parse-mcp-extra
   "Pluck the three MCP-host slots the streaming loop needs out of the
@@ -152,7 +168,7 @@
                                             :dropped     dropped
                                             :tick-elided tick-elided}
                             s'             (swap! state merge-drain drain-delta)]
-                        (when (or (pos? n) (pos? ev-dropped))
+                        (when (drain-produced-output? drain-delta)
                           (when (and send-note progress-tk)
                             (emit/emit-progress-tick!
                               {:send-note   send-note
@@ -176,7 +192,7 @@
 
 (defn subscribe-tool [conn raw-args extra]
   (let [build-id           (wire/arg-build raw-args)
-        topic              (some-> (wire/arg raw-args :topic) keyword)
+        topic              (wire/arg-keyword raw-args :topic)
         filter-map         (args/parse-filter-arg (wire/arg raw-args :filter))
         max-buf-events     (wire/arg raw-args :max-buffered-events)
         max-buf-bytes      (wire/arg raw-args :max-buffered-bytes)

@@ -27,10 +27,20 @@
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.args :as args]))
 
-(defn precheck-frame
-  "Resolve the frame to use for a single-frame precheck. Returns the
-  frame keyword (e.g. `:rf/default`) or nil if the tool isn't
-  precheck-eligible.
+(defn precheck-target
+  "Resolve the precheck target for a single-frame precheck. Returns a
+  tagged 2-tuple — one of:
+
+    [:explicit       <frame-keyword>]   — caller named a specific frame.
+    [:operating-frame nil]              — runtime resolves the frame.
+    nil                                 — tool not precheck-eligible.
+
+  Tagged-tuple dispatch supersedes the prior sentinel-keyword shape
+  (`:rf.mcp.cache/operating-frame`) — `precheck-form` dispatches on
+  the tag rather than pattern-matching against a magic keyword, and
+  the eligibility / runtime-resolution distinction is now type-level,
+  not value-level. Future targets (e.g. multi-frame combined-hash)
+  add a new tag without colliding with a reserved keyword.
 
   `snapshot` is eligible only when `:frames` resolves to a single frame
   (an explicit one-element vector or a single scalar). `:all` or a
@@ -47,7 +57,7 @@
       (cond
         ;; explicit single-frame vector
         (and (vector? frames) (= 1 (count frames)))
-        (first frames)
+        [:explicit (first frames)]
         ;; vector with multiple frames — not eligible
         (vector? frames)
         nil
@@ -61,40 +71,47 @@
     ;; the eval form computes the hash over whichever frame the runtime
     ;; picks. The hash still keys on (tool, args), so the cache slot is
     ;; consistent.
-    (or (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        :rf.mcp.cache/operating-frame)
+    (if-let [f (some-> (wire/arg raw-args :frame) args/->frame-keyword)]
+      [:explicit f]
+      [:operating-frame nil])
 
     ;; Other tools — not precheck-eligible yet.
     nil))
 
 (defn precheck-form
-  "The CLJS eval form for the runtime-side cheap hash. We hash the
-  full per-frame snapshot — `(hash db)` is O(n) on the persistent map
-  but the wire payload is a single integer, and the alternative
-  (running the full tool + transform pipeline) is strictly more
-  expensive. A cheaper O(1) hash kept at mutation time is the
-  follow-on optimisation (filed separately)."
-  [frame]
-  (cond
-    (= frame :rf.mcp.cache/operating-frame)
-    (ef/emit (ef/rt-call* 'hash (ef/rt-call 'snapshot)))
+  "The CLJS eval form for the runtime-side cheap hash. Dispatches on
+  the tag in `target` (`[:explicit <kw>]` / `[:operating-frame nil]`)
+  — the keyword sentinel of the prior shape is gone.
 
-    (keyword? frame)
+  We hash the full per-frame snapshot — `(hash db)` is O(n) on the
+  persistent map but the wire payload is a single integer, and the
+  alternative (running the full tool + transform pipeline) is strictly
+  more expensive. A cheaper O(1) hash kept at mutation time is the
+  follow-on optimisation (filed separately)."
+  [[tag frame :as _target]]
+  (case tag
+    :explicit
     (ef/emit (ef/rt-call* 'hash (ef/rt-call 'snapshot frame)))
 
-    :else nil))
+    :operating-frame
+    (ef/emit (ef/rt-call* 'hash (ef/rt-call 'snapshot)))
+
+    nil))
 
 (defn fetch-precheck-hash
   "Issue the one-bencode-round-trip eval to fetch the runtime-side
   hash. Returns a Promise resolving to an integer hash, or `nil` on
   any failure (the caller treats nil as 'no precheck — proceed').
 
+  `target` is the tagged tuple returned by `precheck-target` — see
+  that fn's docstring for the tag vocabulary.
+
   Errors are swallowed by design: a failed precheck must NEVER block
   the actual tool call. The worst case is we lose the optimisation
   for this call; the post-eval cache still catches the wire-bytes
   saving."
-  [conn raw-args frame]
-  (if-let [form (precheck-form frame)]
+  [conn raw-args target]
+  (if-let [form (precheck-form target)]
     (let [build-id (wire/arg-build raw-args)]
       (-> (nrepl/cljs-eval-value conn build-id form)
           (.then (fn [v]

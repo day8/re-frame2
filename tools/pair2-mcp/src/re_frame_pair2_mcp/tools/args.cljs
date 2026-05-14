@@ -142,8 +142,14 @@
 (defn parse-frames-arg
   "Normalise the `frames` MCP arg into the form the runtime expects.
    Accepts `:all`, the string \"all\", a JS array of strings, or a CLJS
-   vector. Returns `:all` or a vector of keyword frame-ids. Returns
-   `:all` for nil / empty / unrecognised input — least-surprise."
+   vector. Returns `:all` or a vector of keyword frame-ids.
+
+   Unrecognised input (anything other than the four accepted shapes
+   above) collapses to `:all`. This is least-surprise on the
+   discovery path — an agent that typos `frames \"al\"` or passes a
+   scalar `frames 42` gets the broadest valid scope back, not a
+   silent empty page. Stricter validation would be a behaviour
+   change against the published contract; the catch-all is intentional."
   [raw]
   (cond
     (nil? raw) :all
@@ -200,15 +206,14 @@
   dropped rather than coerced to the global default (rf2-vw4sq)."
   [raw]
   (let [as-clj (cond
-                 (nil? raw)            nil
-                 (map? raw)            raw
-                 ;; JS object from the MCP wire.
-                 (and (some? raw)
-                      (not (array? raw))
-                      (not (string? raw))
-                      (not (boolean? raw))
-                      (not (number? raw)))
-                 (try (js->clj raw) (catch :default _ nil))
+                 (nil? raw)   nil
+                 (map? raw)   raw
+                 ;; JS object from the MCP wire. `object?` is the
+                 ;; cljs.core predicate — true for plain JS objects
+                 ;; (`{}`-shaped wire input) and false for arrays /
+                 ;; strings / booleans / numbers, which is exactly the
+                 ;; discriminator we want here.
+                 (object? raw) (try (js->clj raw) (catch :default _ nil))
                  :else nil)]
     (if-not (map? as-clj)
       {}

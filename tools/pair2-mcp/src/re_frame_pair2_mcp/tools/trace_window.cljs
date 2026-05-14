@@ -23,7 +23,7 @@
 (defn trace-window-tool [conn raw-args]
   (let [ms        (or (wire/arg raw-args :ms) 1000)
         build-id  (wire/arg-build raw-args)
-        frame     (some-> (wire/arg raw-args :frame) keyword)
+        frame     (wire/arg-keyword raw-args :frame)
         incl?     (args/parse-bool-arg raw-args :include-sensitive?)
         mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         dedup?    (args/parse-bool-arg raw-args :dedup)
