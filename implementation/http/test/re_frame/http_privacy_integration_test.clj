@@ -14,7 +14,8 @@
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.http-managed :as http-managed]
-            [re-frame.http-privacy :as privacy]
+            [re-frame.http-privacy-headers :as privacy-headers]
+            [re-frame.http-url :as http-url]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
@@ -34,8 +35,8 @@
   (require 're-frame.http-managed :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
-  (privacy/clear-sensitive-headers!)
-  (privacy/clear-sensitive-query-params!)
+  (privacy-headers/clear-sensitive-headers!)
+  (http-url/clear-sensitive-query-params!)
   (trace/clear-trace-cbs!)
   (t))
 
@@ -234,7 +235,7 @@
 
 (deftest app-extended-denylist-redacts-custom-header
   (testing "declare-sensitive-header! extends redaction to app-defined names"
-    (privacy/declare-sensitive-header! "X-Honeycomb-Team")
+    (privacy-headers/declare-sensitive-header! "X-Honeycomb-Team")
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (-> ex .getResponseHeaders (.set "X-Honeycomb-Team" "hc-token"))
@@ -350,7 +351,7 @@
 
 (deftest app-extended-query-param-denylist-redacts-failure-url
   (testing "declare-sensitive-query-param! extends URL redaction to app-defined params"
-    (privacy/declare-sensitive-query-param! "shop_token")
+    (http-url/declare-sensitive-query-param! "shop_token")
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 500 "text/plain" "boom")))

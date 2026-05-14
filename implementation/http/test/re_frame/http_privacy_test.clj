@@ -1,24 +1,32 @@
 (ns re-frame.http-privacy-test
-  "Unit tests for `re-frame.http-privacy` — Spec 014 §Privacy (rf2-bma05).
+  "Unit tests for `re-frame.http-privacy` and its sibling leaves —
+  Spec 014 §Privacy (rf2-bma05).
 
   Covers:
-   - Header denylist (default set, case-insensitive, app-extensible).
-   - `redact-headers` walks a map and replaces sensitive header values.
-   - `request-sensitive?` reads per-call, per-request, and handler-meta.
+   - Header denylist (default set, case-insensitive, app-extensible) —
+     `re-frame.http-privacy-headers`.
+   - `redact-headers` walks a map and replaces sensitive header values —
+     `re-frame.http-privacy-headers`.
+   - Query-param denylist + URL redaction — `re-frame.http-url`.
+   - `request-sensitive?` reads per-call, per-request, and handler-meta —
+     `re-frame.http-privacy`.
    - `redact-request-tags` / `redact-failure` / `stamp-sensitive` /
-     `prepare-emit-tags` / `prepare-emit-failure` compose correctly.
+     `prepare-emit-tags` / `prepare-emit-failure` compose correctly —
+     `re-frame.http-privacy`.
 
   Integration with the trace surface (sensitive HTTP requests emitting
   redacted trace events end-to-end) is covered in
   `re-frame.http-privacy-integration-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.http-privacy :as privacy]
+            [re-frame.http-privacy-headers :as headers]
+            [re-frame.http-url :as url]
             [re-frame.registrar :as registrar]))
 
 (defn- reset-runtime [t]
   (registrar/clear-all!)
-  (privacy/clear-sensitive-headers!)
-  (privacy/clear-sensitive-query-params!)
+  (headers/clear-sensitive-headers!)
+  (url/clear-sensitive-query-params!)
   (t))
 
 (use-fixtures :each reset-runtime)
@@ -27,46 +35,46 @@
 
 (deftest default-header-denylist-covers-canonical-set
   (testing "the default denylist contains the canonical bearer / auth surface"
-    (is (contains? privacy/default-header-denylist "authorization"))
-    (is (contains? privacy/default-header-denylist "cookie"))
-    (is (contains? privacy/default-header-denylist "set-cookie"))
-    (is (contains? privacy/default-header-denylist "x-api-key"))
-    (is (contains? privacy/default-header-denylist "x-auth-token"))
-    (is (contains? privacy/default-header-denylist "x-csrf-token"))
-    (is (contains? privacy/default-header-denylist "proxy-authorization"))))
+    (is (contains? headers/default-header-denylist "authorization"))
+    (is (contains? headers/default-header-denylist "cookie"))
+    (is (contains? headers/default-header-denylist "set-cookie"))
+    (is (contains? headers/default-header-denylist "x-api-key"))
+    (is (contains? headers/default-header-denylist "x-auth-token"))
+    (is (contains? headers/default-header-denylist "x-csrf-token"))
+    (is (contains? headers/default-header-denylist "proxy-authorization"))))
 
 (deftest sensitive-header-is-case-insensitive
   (testing "header-name match ignores case"
-    (is (privacy/sensitive-header? "Authorization"))
-    (is (privacy/sensitive-header? "AUTHORIZATION"))
-    (is (privacy/sensitive-header? "authorization"))
-    (is (privacy/sensitive-header? "Cookie"))
-    (is (privacy/sensitive-header? "X-API-Key"))))
+    (is (headers/sensitive-header? "Authorization"))
+    (is (headers/sensitive-header? "AUTHORIZATION"))
+    (is (headers/sensitive-header? "authorization"))
+    (is (headers/sensitive-header? "Cookie"))
+    (is (headers/sensitive-header? "X-API-Key"))))
 
 (deftest non-sensitive-headers-pass
   (testing "ordinary headers are not in the denylist"
-    (is (not (privacy/sensitive-header? "Content-Type")))
-    (is (not (privacy/sensitive-header? "Accept")))
-    (is (not (privacy/sensitive-header? "User-Agent")))
-    (is (not (privacy/sensitive-header? "X-Request-Id")))))
+    (is (not (headers/sensitive-header? "Content-Type")))
+    (is (not (headers/sensitive-header? "Accept")))
+    (is (not (headers/sensitive-header? "User-Agent")))
+    (is (not (headers/sensitive-header? "X-Request-Id")))))
 
 (deftest declare-sensitive-header-extends-denylist
   (testing "app-extended denylist composes with defaults"
-    (privacy/declare-sensitive-header! "X-Honeycomb-Team")
-    (is (privacy/sensitive-header? "X-Honeycomb-Team"))
-    (is (privacy/sensitive-header? "x-honeycomb-team"))
+    (headers/declare-sensitive-header! "X-Honeycomb-Team")
+    (is (headers/sensitive-header? "X-Honeycomb-Team"))
+    (is (headers/sensitive-header? "x-honeycomb-team"))
     ;; defaults still apply
-    (is (privacy/sensitive-header? "Authorization"))
-    (privacy/clear-sensitive-headers!)
-    (is (not (privacy/sensitive-header? "X-Honeycomb-Team")))
+    (is (headers/sensitive-header? "Authorization"))
+    (headers/clear-sensitive-headers!)
+    (is (not (headers/sensitive-header? "X-Honeycomb-Team")))
     ;; defaults survive the clear
-    (is (privacy/sensitive-header? "Authorization"))))
+    (is (headers/sensitive-header? "Authorization"))))
 
 (deftest sensitive-header-tolerates-non-string
   (testing "nil / non-string is not sensitive"
-    (is (not (privacy/sensitive-header? nil)))
-    (is (not (privacy/sensitive-header? :keyword)))
-    (is (not (privacy/sensitive-header? 42)))))
+    (is (not (headers/sensitive-header? nil)))
+    (is (not (headers/sensitive-header? :keyword)))
+    (is (not (headers/sensitive-header? 42)))))
 
 ;; ---- 2. redact-headers ----------------------------------------------------
 
@@ -76,22 +84,22 @@
              "Content-Type"  "application/json"
              "Cookie"        "session=secret"
              "X-Request-Id"  "req-42"}
-          r (privacy/redact-headers m)]
+          r (headers/redact-headers m)]
       (is (= :rf/redacted (get r "Authorization")))
       (is (= :rf/redacted (get r "Cookie")))
       (is (= "application/json" (get r "Content-Type")))
       (is (= "req-42" (get r "X-Request-Id"))))))
 
 (deftest redact-headers-handles-empty-and-nil
-  (is (nil? (privacy/redact-headers nil)))
-  (is (= {} (privacy/redact-headers {}))))
+  (is (nil? (headers/redact-headers nil)))
+  (is (= {} (headers/redact-headers {}))))
 
 (deftest redact-headers-handles-mixed-case-keys
   (testing "header-name match ignores case on the map key"
     (let [m {"AUTHORIZATION" "Bearer xyz"
              "set-cookie"    "id=1"
              "Set-cookie"    "id=2"}
-          r (privacy/redact-headers m)]
+          r (headers/redact-headers m)]
       (is (= :rf/redacted (get r "AUTHORIZATION")))
       (is (= :rf/redacted (get r "set-cookie")))
       (is (= :rf/redacted (get r "Set-cookie"))))))
@@ -244,55 +252,55 @@
 
 (deftest default-query-param-denylist-covers-canonical-set
   (testing "the default denylist contains the canonical query-string-auth surface"
-    (is (contains? privacy/default-query-param-denylist "api_key"))
-    (is (contains? privacy/default-query-param-denylist "access_token"))
-    (is (contains? privacy/default-query-param-denylist "token"))
-    (is (contains? privacy/default-query-param-denylist "auth"))
-    (is (contains? privacy/default-query-param-denylist "key"))
-    (is (contains? privacy/default-query-param-denylist "secret"))
-    (is (contains? privacy/default-query-param-denylist "password"))
-    (is (contains? privacy/default-query-param-denylist "signature"))
-    (is (contains? privacy/default-query-param-denylist "session"))))
+    (is (contains? url/default-query-param-denylist "api_key"))
+    (is (contains? url/default-query-param-denylist "access_token"))
+    (is (contains? url/default-query-param-denylist "token"))
+    (is (contains? url/default-query-param-denylist "auth"))
+    (is (contains? url/default-query-param-denylist "key"))
+    (is (contains? url/default-query-param-denylist "secret"))
+    (is (contains? url/default-query-param-denylist "password"))
+    (is (contains? url/default-query-param-denylist "signature"))
+    (is (contains? url/default-query-param-denylist "session"))))
 
 (deftest sensitive-query-param-is-case-insensitive
   (testing "param-name match ignores case"
-    (is (privacy/sensitive-query-param? "api_key"))
-    (is (privacy/sensitive-query-param? "API_KEY"))
-    (is (privacy/sensitive-query-param? "Api_Key"))
-    (is (privacy/sensitive-query-param? "access_token"))
-    (is (privacy/sensitive-query-param? "ACCESS_TOKEN"))))
+    (is (url/sensitive-query-param? "api_key"))
+    (is (url/sensitive-query-param? "API_KEY"))
+    (is (url/sensitive-query-param? "Api_Key"))
+    (is (url/sensitive-query-param? "access_token"))
+    (is (url/sensitive-query-param? "ACCESS_TOKEN"))))
 
 (deftest non-sensitive-query-params-pass
   (testing "ordinary query params are not in the denylist"
-    (is (not (privacy/sensitive-query-param? "page")))
-    (is (not (privacy/sensitive-query-param? "limit")))
-    (is (not (privacy/sensitive-query-param? "q")))
-    (is (not (privacy/sensitive-query-param? "id")))
-    (is (not (privacy/sensitive-query-param? "user_id")))))
+    (is (not (url/sensitive-query-param? "page")))
+    (is (not (url/sensitive-query-param? "limit")))
+    (is (not (url/sensitive-query-param? "q")))
+    (is (not (url/sensitive-query-param? "id")))
+    (is (not (url/sensitive-query-param? "user_id")))))
 
 (deftest declare-sensitive-query-param-extends-denylist
   (testing "app-extended denylist composes with defaults"
-    (privacy/declare-sensitive-query-param! "shop_token")
-    (is (privacy/sensitive-query-param? "shop_token"))
-    (is (privacy/sensitive-query-param? "SHOP_TOKEN"))
+    (url/declare-sensitive-query-param! "shop_token")
+    (is (url/sensitive-query-param? "shop_token"))
+    (is (url/sensitive-query-param? "SHOP_TOKEN"))
     ;; defaults still apply
-    (is (privacy/sensitive-query-param? "api_key"))
-    (privacy/clear-sensitive-query-params!)
-    (is (not (privacy/sensitive-query-param? "shop_token")))
+    (is (url/sensitive-query-param? "api_key"))
+    (url/clear-sensitive-query-params!)
+    (is (not (url/sensitive-query-param? "shop_token")))
     ;; defaults survive the clear
-    (is (privacy/sensitive-query-param? "api_key"))))
+    (is (url/sensitive-query-param? "api_key"))))
 
 (deftest sensitive-query-param-tolerates-non-string
   (testing "nil / non-string is not sensitive"
-    (is (not (privacy/sensitive-query-param? nil)))
-    (is (not (privacy/sensitive-query-param? :keyword)))
-    (is (not (privacy/sensitive-query-param? 42)))))
+    (is (not (url/sensitive-query-param? nil)))
+    (is (not (url/sensitive-query-param? :keyword)))
+    (is (not (url/sensitive-query-param? 42)))))
 
 ;; ---- 9. redact-url-query-string (rf2-2p8wr) -------------------------------
 
 (deftest redact-url-denylist-replaces-sensitive-values
   (testing "denylisted query-param values become :rf/redacted; non-denylisted preserved"
-    (let [[url any?] (privacy/redact-url-query-string
+    (let [[url any?] (url/redact-url-query-string
                        "https://api.example.com/users?api_key=SECRET&page=2"
                        false)]
       (is (= "https://api.example.com/users?api_key=:rf/redacted&page=2" url))
@@ -300,7 +308,7 @@
 
 (deftest redact-url-sensitive-true-redacts-everything
   (testing "when sensitive? true, ALL params are redacted (broader rule)"
-    (let [[url any?] (privacy/redact-url-query-string
+    (let [[url any?] (url/redact-url-query-string
                        "https://api.example.com/users?user_id=42&page=2&sort=asc"
                        true)]
       (is (= "https://api.example.com/users?user_id=:rf/redacted&page=:rf/redacted&sort=:rf/redacted"
@@ -309,39 +317,39 @@
 
 (deftest redact-url-no-query-string-unchanged
   (testing "URL with no query string returns unchanged"
-    (let [[url any?] (privacy/redact-url-query-string
+    (let [[url any?] (url/redact-url-query-string
                        "https://api.example.com/users/42" false)]
       (is (= "https://api.example.com/users/42" url))
       (is (false? any?)))))
 
 (deftest redact-url-no-denylist-hit-unchanged
   (testing "URL with no denylisted params returns unchanged when not sensitive"
-    (let [[url any?] (privacy/redact-url-query-string
+    (let [[url any?] (url/redact-url-query-string
                        "https://api.example.com/users?page=2&limit=10" false)]
       (is (= "https://api.example.com/users?page=2&limit=10" url))
       (is (false? any?)))))
 
 (deftest redact-url-preserves-fragment
   (testing "fragment is preserved verbatim after the redacted query string"
-    (let [[url _] (privacy/redact-url-query-string
+    (let [[url _] (url/redact-url-query-string
                     "https://api.example.com/x?token=abc&page=2#section-3" false)]
       (is (= "https://api.example.com/x?token=:rf/redacted&page=2#section-3" url)))))
 
 (deftest redact-url-empty-value-redacted
   (testing "param with empty value still has the value slot replaced"
-    (let [[url _] (privacy/redact-url-query-string
+    (let [[url _] (url/redact-url-query-string
                     "https://api.example.com/x?token=&page=2" false)]
       (is (= "https://api.example.com/x?token=:rf/redacted&page=2" url)))))
 
 (deftest redact-url-handles-url-encoded-values
   (testing "URL-encoded special chars in values are replaced wholesale, not parsed"
-    (let [[url _] (privacy/redact-url-query-string
+    (let [[url _] (url/redact-url-query-string
                     "https://api.example.com/x?api_key=a%20b%26c&page=2" false)]
       (is (= "https://api.example.com/x?api_key=:rf/redacted&page=2" url)))))
 
 (deftest redact-url-multiple-denylist-hits
   (testing "all denylisted params in a URL are redacted"
-    (let [[url any?] (privacy/redact-url-query-string
+    (let [[url any?] (url/redact-url-query-string
                        "https://api.example.com/x?api_key=A&token=B&page=2&secret=C" false)]
       (is (= "https://api.example.com/x?api_key=:rf/redacted&token=:rf/redacted&page=2&secret=:rf/redacted"
              url))
@@ -349,18 +357,18 @@
 
 (deftest redact-url-app-extended-denylist
   (testing "app-extended denylist applies on URL redaction"
-    (privacy/declare-sensitive-query-param! "shop_token")
-    (let [[url _] (privacy/redact-url-query-string
+    (url/declare-sensitive-query-param! "shop_token")
+    (let [[url _] (url/redact-url-query-string
                     "https://api.example.com/x?shop_token=abc&page=2" false)]
       (is (= "https://api.example.com/x?shop_token=:rf/redacted&page=2" url)))))
 
 (deftest redact-url-tolerates-non-string
-  (is (= [nil false] (privacy/redact-url-query-string nil false)))
-  (is (= [42 false] (privacy/redact-url-query-string 42 false))))
+  (is (= [nil false] (url/redact-url-query-string nil false)))
+  (is (= [42 false] (url/redact-url-query-string 42 false))))
 
 (deftest redact-url-handles-malformed-pair
   (testing "param without `=` is not crashed on"
-    (let [[url _] (privacy/redact-url-query-string
+    (let [[url _] (url/redact-url-query-string
                     "https://api.example.com/x?orphan&api_key=SECRET" false)]
       ;; The orphan is not in the denylist and is preserved; api_key is redacted.
       (is (= "https://api.example.com/x?orphan&api_key=:rf/redacted" url)))))

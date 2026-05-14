@@ -76,7 +76,8 @@
 
   See Spec 014 for the canonical args-map shape."
   (:refer-clojure :exclude [get])
-  (:require [re-frame.http-privacy :as privacy]))
+  (:require [re-frame.http-privacy-headers :as privacy-headers]
+            [re-frame.http-url             :as http-url]))
 
 ;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Re-exported here so
 ;; users who alias `re-frame.http :as rf.http` get a uniform call site
@@ -84,14 +85,14 @@
 (def declare-sensitive-header!
   "Spec 014 §Privacy — extend the header-denylist with an app-specific
   sensitive header. Names stored lower-cased; matching is case-insensitive.
-  See `re-frame.http-privacy/declare-sensitive-header!`."
-  privacy/declare-sensitive-header!)
+  See `re-frame.http-privacy-headers/declare-sensitive-header!`."
+  privacy-headers/declare-sensitive-header!)
 
 (def clear-sensitive-headers!
   "Spec 014 §Privacy — reset the app-extended header-denylist (defaults
   remain). Test-only; production code should not need this.
-  See `re-frame.http-privacy/clear-sensitive-headers!`."
-  privacy/clear-sensitive-headers!)
+  See `re-frame.http-privacy-headers/clear-sensitive-headers!`."
+  privacy-headers/clear-sensitive-headers!)
 
 (def declare-sensitive-query-param!
   "Spec 014 §Privacy (rf2-2p8wr) — extend the query-string-param denylist
@@ -100,15 +101,15 @@
   have the *value* redacted (preserving param name + position) in every
   `:rf.http/*` trace event regardless of the originating handler's
   `:sensitive?` flag.
-  See `re-frame.http-privacy/declare-sensitive-query-param!`."
-  privacy/declare-sensitive-query-param!)
+  See `re-frame.http-url/declare-sensitive-query-param!`."
+  http-url/declare-sensitive-query-param!)
 
 (def clear-sensitive-query-params!
   "Spec 014 §Privacy (rf2-2p8wr) — reset the app-extended query-param
   denylist (defaults remain). Test-only; production code should not
   need this.
-  See `re-frame.http-privacy/clear-sensitive-query-params!`."
-  privacy/clear-sensitive-query-params!)
+  See `re-frame.http-url/clear-sensitive-query-params!`."
+  http-url/clear-sensitive-query-params!)
 
 (defn- build
   "Build a `[:rf.http/managed args-map]` fx vector for the given verb,
