@@ -461,3 +461,35 @@
   any of these at boot (e.g. `:internal` / `:experimental`)."
   []
   (query-tags-by #(= :exclude (:default-filter %))))
+
+;; ---- faceted tag-filter helpers (rf2-7ncf9) ------------------------------
+
+(def ^:private no-axis-key
+  "Sentinel axis key for tags that have no `:axis` slot. Lives in
+  this ns so the sidebar AND the filter logic name the same bucket
+  without coupling either to the other."
+  ::no-axis)
+
+(defn tag->axis
+  "Pure data → data: return the `:axis` keyword on the registered tag
+  body for `tag-id`, or `::no-axis` if the tag is registered without
+  one. Returns `::no-axis` for unregistered tags too — they're treated
+  as un-grouped from the filter UI's perspective.
+
+  This is the per-tag lookup; `tag->axis-index` builds the full map in
+  one pass over the tag side-table for callers that need it across
+  many tags."
+  [tag-id]
+  (or (:axis (handler-meta :tag tag-id))
+      no-axis-key))
+
+(defn tag->axis-index
+  "Pure data → data: build the `{tag-id → axis-kw}` index across every
+  registered tag in one O(T) pass. Tags without `:axis` map to
+  `::no-axis`. Used by the sidebar's facet-grouped filter row + the
+  `state/variant-tag-match?` AND-across-axes predicate (rf2-7ncf9)."
+  []
+  (reduce-kv (fn [acc tid body]
+               (assoc acc tid (or (:axis body) no-axis-key)))
+             {}
+             (handlers :tag)))

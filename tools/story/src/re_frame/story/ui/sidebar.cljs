@@ -6,6 +6,15 @@
   the shell state's `:selected-variant`. Workspaces register below the
   story tree.
 
+  ## Faceted tag-filter (rf2-7ncf9 — SB9 parity)
+
+  Registered tags with an `:axis` slot (e.g. `:status/alpha` carrying
+  `:axis :status`) render in per-axis chip rows. The filter applies
+  **AND across axes** + **OR within an axis** — activating
+  `:status/stable` AND `:role/design` narrows to variants carrying
+  BOTH a `:status` match AND a `:role` match. Tags with no `:axis`
+  render in a trailing un-grouped row.
+
   ## Layout
 
       ┌──────────────────────┐
@@ -44,8 +53,10 @@
   `:docs`, `:test`, `:screenshot`, `:experimental`, `:internal`,
   `:agent`); unknown tags fall back to a neutral grey. The badges are
   inert (the filter row owns interaction) — purely a scan affordance."
-  (:require [re-frame.story.runtime           :as runtime]
+  (:require [clojure.string                   :as str]
+            [re-frame.story.runtime           :as runtime]
             [re-frame.story.async             :as async]
+            [re-frame.story.registrar         :as registrar]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
             [re-frame.story.ui.state          :as state]))
 
@@ -64,6 +75,10 @@
        set
        sort
        vec))
+
+;; `group-tags-by-axis` and `ordered-axes` are pure data → data leaves
+;; — they live in `re-frame.story.ui.state` so the JVM test corpus can
+;; exercise them without booting Reagent (rf2-7ncf9).
 
 ;; ---- pure: per-variant status dot (rf2-q0irb) ---------------------------
 
@@ -118,20 +133,62 @@
 
 ;; ---- components ----------------------------------------------------------
 
+(defn- axis-label-text
+  "Pure data → data: render an axis keyword as the upper-case label
+  text shown above its chip row. The `:re-frame.story.registrar/no-axis`
+  sentinel renders as `OTHER`."
+  [axis]
+  (if (= axis :re-frame.story.registrar/no-axis)
+    "OTHER"
+    (str/upper-case (name axis))))
+
+(defn- tag-chip
+  [tag active?]
+  ^{:key tag}
+  [:span {:style       (merge (:tag styles)
+                              (when active? (:tag-active styles)))
+          :data-test   "story-sidebar-tag-chip"
+          :data-tag    (str tag)
+          :data-active (str (boolean active?))
+          :on-click    (fn [_] (state/swap-state!
+                                 state/toggle-tag-filter tag))}
+   (str tag)])
+
+(defn- axis-row
+  "Render one axis's labelled chip row. The label is rendered above
+  the chips so axes wrap onto multiple lines on narrow viewports."
+  [axis tags tag-filter]
+  ^{:key axis}
+  [:div {:style       (:axis-row styles)
+         :data-test   "story-sidebar-axis-row"
+         :data-axis   (name axis)}
+   [:span {:style     (:axis-label styles)
+           :data-test "story-sidebar-axis-label"}
+    (axis-label-text axis)]
+   [:div {:style (:axis-chips styles)}
+    (for [tag tags]
+      (tag-chip tag (contains? tag-filter tag)))]])
+
 (defn- tag-filter-row
+  "Faceted filter (rf2-7ncf9). Tags are grouped by their registered
+  `:axis` slot — one labelled chip row per axis (`:status`, `:role`,
+  `:team`, `:feature`, then any project-defined axes alphabetically,
+  with un-axis-grouped tags trailing in an `OTHER` row).
+
+  Active chips highlight; the AND-across / OR-within rule lives in
+  `state/variant-tag-match?`."
   [variants tag-filter]
   (let [all-tags (collect-tags variants)]
-    [:div {:style (:tag-row styles)}
-     (if (empty? all-tags)
-       [:span {:style (:empty styles)} "no tags"]
-       (for [tag all-tags]
-         ^{:key tag}
-         [:span {:style    (merge (:tag styles)
-                                  (when (contains? tag-filter tag)
-                                    (:tag-active styles)))
-                 :on-click (fn [_] (state/swap-state!
-                                     state/toggle-tag-filter tag))}
-          (str tag)]))]))
+    (if (empty? all-tags)
+      [:div {:style (:tag-row styles)}
+       [:span {:style (:empty styles)} "no tags"]]
+      (let [tag->axis (registrar/tag->axis-index)
+            by-axis   (state/group-tags-by-axis all-tags tag->axis)
+            axes      (state/ordered-axes by-axis)]
+        [:div {:style       (:tag-row styles)
+               :data-test   "story-sidebar-tag-filter"}
+         (for [axis axes]
+           (axis-row axis (get by-axis axis) tag-filter))]))))
 
 (defn status-dot
   "Render the per-variant status glyph. Variants not in `[:tests :runs]`
@@ -403,7 +460,13 @@
         tag-filter      (:tag-filter shell)
         sel-variant     (:selected-variant shell)
         sel-ws          (:selected-workspace shell)
-        visible         (state/filter-variants (:variants registry) tag-filter)
+        ;; rf2-7ncf9 — faceted filter: AND across axes, OR within.
+        ;; The axis-index reads from the tag registrar; passing it to
+        ;; `filter-variants` activates the 3-arity facet-aware form.
+        tag->axis       (registrar/tag->axis-index)
+        visible         (state/filter-variants (:variants registry)
+                                               tag-filter
+                                               tag->axis)
         grouped         (state/group-variants-by-story visible)
         workspaces      (:workspaces registry)
         test-runs       (get-in shell [:tests :runs])

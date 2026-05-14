@@ -75,6 +75,20 @@
     {:doc "Tag applied to the variant that ships as the example's
           canonical screenshot — the one the README points at."})
 
+  ;; rf2-7ncf9 — faceted tag taxonomy (SB9 parity). Tags carrying an
+  ;; `:axis` slot group into per-axis chip rows in the sidebar filter.
+  ;; The filter applies AND across axes + OR within an axis. The
+  ;; preferred shape is the namespaced keyword (`:status/stable`,
+  ;; `:role/dev`, `:team/checkout`, `:feature/counter`) — the
+  ;; namespace mirrors the axis, the name is the value.
+  (story/reg-tag :status/alpha    {:axis :status :doc "Pre-release."})
+  (story/reg-tag :status/stable   {:axis :status :doc "Production-ready."})
+  (story/reg-tag :role/dev        {:axis :role   :doc "For devs."})
+  (story/reg-tag :role/design     {:axis :role   :doc "For designers."})
+  (story/reg-tag :team/counter    {:axis :team   :doc "Counter squad."})
+  (story/reg-tag :feature/counter {:axis :feature
+                                   :doc  "Counter feature surface."})
+
   ;; -------------------------------------------------------------------------
   ;; reg-mode — the dark / light Chromatic-style saved tuples
   ;;
@@ -198,7 +212,10 @@
      :play   [[:rf.assert/path-equals [:count]              7]
               [:rf.assert/sub-equals  [:count-doubled]      14]
               [:rf.assert/sub-equals  [:count-parity]       :odd]]
-     :tags   #{:dev :docs :test :counter-with-stories/canonical}
+     ;; rf2-7ncf9 — faceted tags alongside the existing canonical seven.
+     ;; The sidebar groups these into per-axis chip rows.
+     :tags   #{:dev :docs :test :counter-with-stories/canonical
+               :status/stable :role/dev :team/counter :feature/counter}
      :substrates #{:reagent}})
 
   ;; Variant 3 — interaction. The increments happen INSIDE the play

@@ -200,6 +200,131 @@
     (is (= :story.foo (state/parent-story-id :story.foo/bar)))
     (is (nil? (state/parent-story-id :unqualified)))))
 
+;; ---- faceted filter (rf2-7ncf9 — SB9 facet taxonomy) -------------------
+
+(deftest partition-tag-filter-by-axis-bucketed
+  (testing "partition splits the filter set into per-axis buckets"
+    (let [tag->axis {:status/alpha   :status
+                     :status/beta    :status
+                     :role/dev       :role
+                     :team/checkout  :team}]
+      (is (= {:status #{:status/alpha :status/beta}
+              :role   #{:role/dev}}
+             (state/partition-tag-filter-by-axis
+               #{:status/alpha :status/beta :role/dev}
+               tag->axis))))
+    (testing "tags missing from tag->axis bucket under ::no-axis"
+      (is (= {:re-frame.story.registrar/no-axis #{:dev}
+              :status                           #{:status/alpha}}
+             (state/partition-tag-filter-by-axis
+               #{:dev :status/alpha}
+               {:status/alpha :status}))))))
+
+(deftest variant-tag-match?-faceted-and-across-or-within
+  (testing "OR within an axis (faceted)"
+    (let [tag->axis {:status/alpha :status :status/beta :status
+                     :status/stable :status}
+          variant   {:tags #{:status/alpha :role/dev}}]
+      ;; alpha OR beta active — variant has alpha → passes
+      (is (state/variant-tag-match? variant #{:status/alpha :status/beta} tag->axis))
+      ;; stable active — variant has neither → fails
+      (is (not (state/variant-tag-match? variant #{:status/stable} tag->axis)))))
+  (testing "AND across axes (faceted)"
+    (let [tag->axis  {:status/stable :status :role/design :role :role/dev :role}
+          designer-stable {:tags #{:status/stable :role/design}}
+          dev-stable      {:tags #{:status/stable :role/dev}}]
+      ;; status+role both required; designer-stable matches
+      (is (state/variant-tag-match? designer-stable
+                                    #{:status/stable :role/design}
+                                    tag->axis))
+      ;; dev-stable has :status/stable but not :role/design → fails
+      (is (not (state/variant-tag-match? dev-stable
+                                         #{:status/stable :role/design}
+                                         tag->axis)))))
+  (testing "empty filter passes every variant"
+    (is (state/variant-tag-match? {:tags #{:status/alpha}} #{} {:status/alpha :status})))
+  (testing "no-axis tags share a synthetic bucket with OR semantics"
+    ;; Two un-axis-grouped tags share the ::no-axis bucket — OR-within
+    ;; means a variant carrying either passes.
+    (let [variant {:tags #{:dev}}]
+      (is (state/variant-tag-match? variant #{:dev :docs} {}))
+      (is (not (state/variant-tag-match? variant #{:docs :test} {}))))))
+
+(deftest filter-variants-faceted
+  (testing "filter-variants/3 applies AND-across, OR-within"
+    (story/reg-tag :status/alpha  {:axis :status})
+    (story/reg-tag :status/stable {:axis :status})
+    (story/reg-tag :role/dev      {:axis :role})
+    (story/reg-tag :role/design   {:axis :role})
+    (story/reg-variant :story.facet/a
+      {:tags #{:status/alpha :role/dev} :events []})
+    (story/reg-variant :story.facet/b
+      {:tags #{:status/stable :role/dev} :events []})
+    (story/reg-variant :story.facet/c
+      {:tags #{:status/stable :role/design} :events []})
+    (let [vs        (story-registrar/handlers :variant)
+          tag->axis (story-registrar/tag->axis-index)]
+      (testing "OR-within status — alpha OR stable returns all three"
+        (is (= 3 (count (state/filter-variants
+                          vs #{:status/alpha :status/stable} tag->axis)))))
+      (testing "AND-across — status/stable AND role/design narrows to one"
+        (let [filtered (state/filter-variants
+                         vs #{:status/stable :role/design} tag->axis)]
+          (is (= 1 (count filtered)))
+          (is (contains? filtered :story.facet/c))))
+      (testing "status/stable alone keeps both stables"
+        (let [filtered (state/filter-variants
+                         vs #{:status/stable} tag->axis)]
+          (is (= 2 (count filtered)))
+          (is (contains? filtered :story.facet/b))
+          (is (contains? filtered :story.facet/c)))))))
+
+(deftest group-tags-by-axis-buckets-and-sorts
+  (testing "group-tags-by-axis splits a tag seq into per-axis vectors"
+    (let [tag->axis {:status/alpha   :status
+                     :status/stable  :status
+                     :role/dev       :role
+                     :loose/freeform :re-frame.story.registrar/no-axis}
+          tags     [:status/alpha :role/dev :status/stable :loose/freeform :unregistered]
+          grouped  (state/group-tags-by-axis tags tag->axis)]
+      ;; Each axis bucket is a sorted vector for stable rendering
+      (is (= [:status/alpha :status/stable] (:status grouped)))
+      (is (= [:role/dev]                    (:role grouped)))
+      ;; The :re-frame.story.registrar/no-axis bucket catches both
+      ;; explicit no-axis tags and unregistered ones.
+      (is (= [:loose/freeform :unregistered]
+             (:re-frame.story.registrar/no-axis grouped))))))
+
+(deftest ordered-axes-canonical-then-extras-then-no-axis
+  (testing "canonical axes go first, project-defined alphabetical, no-axis last"
+    (let [by-axis {:status                              [:s/a]
+                   :role                                [:r/x]
+                   :zeta                                [:z/x]
+                   :alpha                               [:a/x]
+                   :re-frame.story.registrar/no-axis    [:loose]}]
+      (is (= [:status :role :alpha :zeta
+              :re-frame.story.registrar/no-axis]
+             (state/ordered-axes by-axis)))))
+  (testing "missing canonical axes are skipped, no-axis still trails"
+    (is (= [:status :re-frame.story.registrar/no-axis]
+           (state/ordered-axes
+             {:status                              [:s/a]
+              :re-frame.story.registrar/no-axis    [:loose]})))))
+
+(deftest tag->axis-index-roundtrip
+  (testing "tag->axis-index maps every registered tag to its :axis"
+    (story/reg-tag :status/stable {:axis :status})
+    (story/reg-tag :role/dev      {:axis :role})
+    (story/reg-tag :team/checkout {:axis :team})
+    (story/reg-tag :loose/freeform {:doc "no axis"})
+    (let [idx (story-registrar/tag->axis-index)]
+      (is (= :status                              (get idx :status/stable)))
+      (is (= :role                                (get idx :role/dev)))
+      (is (= :team                                (get idx :team/checkout)))
+      (is (= :re-frame.story.registrar/no-axis    (get idx :loose/freeform)))
+      ;; Canonical tags are pre-registered without :axis
+      (is (= :re-frame.story.registrar/no-axis    (get idx :dev))))))
+
 ;; ---- workspace resolver --------------------------------------------------
 
 (deftest grid-layout

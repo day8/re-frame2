@@ -372,6 +372,29 @@
   tags. Stable across hosts."
   schemas/canonical-tags)
 
+(def canonical-axes
+  "Re-export of the four canonical facet axes documented in spec/001
+  §reg-tag — `:status`, `:role`, `:team`, `:feature` (rf2-7ncf9 SB9
+  facet taxonomy). Stable across hosts."
+  schemas/canonical-axes)
+
+(def canonical-status-values
+  "Re-export of the recommended `:status` axis vocabulary."
+  schemas/canonical-status-values)
+
+(def canonical-role-values
+  "Re-export of the recommended `:role` axis vocabulary."
+  schemas/canonical-role-values)
+
+(defn tag->axis-index
+  "Per spec/001 §reg-tag — return a `{tag-id → axis-kw}` map across
+  every registered tag, in one O(T) pass. Tags without `:axis` map to
+  `:re-frame.story.registrar/no-axis`. The sidebar's facet-grouped
+  filter row + the `:tag-filter` AND-across-axes predicate (rf2-7ncf9)
+  consume this."
+  []
+  (registrar/tag->axis-index))
+
 ;; ---- programmatic registration surface -----------------------------------
 ;;
 ;; Per IMPL-SPEC §4.9 the `*`-suffix runtime helpers are public for

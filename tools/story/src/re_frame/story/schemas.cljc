@@ -118,6 +118,51 @@
   `:rf.error/unknown-tag` at registration."
   #{:dev :docs :test :screenshot :experimental :internal :agent})
 
+;; ---- canonical facet axes (rf2-7ncf9 — SB9 facet taxonomy) ---------------
+
+(def canonical-axes
+  "Pure data → data: the four canonical facet axes Story documents for
+  the sidebar tag-filter UI. Mirrors Storybook 9's status / role /
+  team / feature axes (rf2-v05qb SB9 parity).
+
+  Two axes ship with a recommended vocabulary:
+
+  - `:status` → `#{:alpha :beta :stable :deprecated}` — release maturity.
+  - `:role`   → `#{:design :dev :product}` — audience role.
+
+  Two axes are user-extensible (no canonical enum):
+
+  - `:team`    — owning team / squad / regression-set.
+  - `:feature` — feature / product area.
+
+  The recommended vocabularies are NOT enforced by the schema —
+  `:status` may carry any keyword the project registers. They exist as
+  a discoverable convention so multiple projects converge on the same
+  shape without further coordination.
+
+  The preferred faceted-tag shape is the namespaced keyword:
+  `:status/alpha`, `:role/dev`, `:team/checkout`, `:feature/payment` —
+  the namespace mirrors the `:axis` slot, the name is the value. This
+  is lighter than wrapping tags in maps and survives EDN round-trip
+  without ceremony."
+  {:status  {:user-extensible? false
+             :values           #{:alpha :beta :stable :deprecated}}
+   :role    {:user-extensible? false
+             :values           #{:design :dev :product}}
+   :team    {:user-extensible? true}
+   :feature {:user-extensible? true}})
+
+(def canonical-status-values
+  "The recommended `:status` axis vocabulary — release-maturity values
+  Storybook 9 documents. Projects MAY use other status keywords; the
+  schema does not enforce membership."
+  (get-in canonical-axes [:status :values]))
+
+(def canonical-role-values
+  "The recommended `:role` axis vocabulary — audience roles Storybook 9
+  documents. Projects MAY use other role keywords."
+  (get-in canonical-axes [:role :values]))
+
 ;; ---- shared shapes --------------------------------------------------------
 
 (def EventVector
