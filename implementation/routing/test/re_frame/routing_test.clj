@@ -831,6 +831,116 @@
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           "fragment in the URL-string target round-trips through the push"))))
 
+;; ---- rf2-ug2m1: schema validation in match-url + route-url ---------------
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params and §Param validation at the
+;; call site. Pre-fix match-url hardcoded :validation-failed? false and
+;; route-url never validated; caller bugs (`{:id "not-a-uuid"}` against
+;; `[:map [:id :uuid]]`) silently round-tripped as malformed URLs.
+
+(defn- with-stub-validator
+  "Install a tiny stub validator + explainer that interprets schemas as
+  Clojure predicates `(fn [v] truthy?)`. Lets these tests assert the
+  validation path without dragging in Malli / spec.alpha. Returns a
+  cleanup fn for the caller to invoke."
+  []
+  (let [prev-v   @schemas/validator-fn
+        prev-e   @schemas/explainer-fn
+        validate (fn [schema value] (boolean (schema value)))
+        explain  (fn [_schema value] {:reason :stub-explainer :value value})]
+    (schemas/set-schema-validator! {:validate validate :explain explain})
+    (fn [] (schemas/set-schema-validator! {:validate prev-v :explain prev-e}))))
+
+(deftest match-url-flags-validation-failure
+  (testing "match-url surfaces :validation-failed? + :validation-error
+            when the route declares :params and the parsed value rejects"
+    (let [restore (with-stub-validator)]
+      (try
+        ;; A schema that requires :id to be a non-empty string starting "a".
+        (rf/reg-route :route/article
+                      {:path   "/articles/:id"
+                       :params (fn [{:keys [id]}] (clojure.string/starts-with? (or id "") "a"))})
+        (let [m (routing/match-url "/articles/zoo")]
+          (is (some? m) "the route still matches structurally")
+          (is (true? (:validation-failed? m))
+              ":validation-failed? flips when the schema rejects")
+          (is (some? (:validation-error m))
+              ":validation-error carries the explainer payload"))
+        (let [m2 (routing/match-url "/articles/aardvark")]
+          (is (false? (:validation-failed? m2))
+              "a conforming value clears the flag")
+          (is (nil? (:validation-error m2))
+              "no error key when conformant"))
+        (finally (restore))))))
+
+(deftest route-url-throws-on-invalid-path-params
+  (testing "route-url throws :rf.error/route-url-validation when
+            path-params don't conform to the route's :params schema"
+    (let [restore (with-stub-validator)]
+      (try
+        (rf/reg-route :route/article
+                      {:path   "/articles/:id"
+                       :params (fn [{:keys [id]}] (clojure.string/starts-with? (or id "") "a"))})
+        (let [ex (try (routing/route-url :route/article {:id "zoo"})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex)
+              "non-conformant path-params raise")
+          (is (= ":rf.error/route-url-validation" (ex-message ex))
+              "structured error id is :rf.error/route-url-validation")
+          (let [data (ex-data ex)]
+            (is (= :route/article (:route-id data)))
+            (is (= :params (:slot data)))
+            (is (= {:id "zoo"} (:value data)))
+            (is (some? (:error data))
+                "ex-data carries the explainer payload under :error")))
+        ;; Conformant path-params round-trip happily.
+        (is (= "/articles/aardvark"
+               (routing/route-url :route/article {:id "aardvark"}))
+            "conformant params still produce a URL")
+        (finally (restore))))))
+
+(deftest url-changed-validation-fail-routes-to-not-found-with-reason
+  (testing ":rf/url-changed for a structurally-matched URL whose params
+            fail schema validation routes to :rf.route/not-found with
+            `:reason :validation` in :params (Spec 012 §Param validation)"
+    (let [restore (with-stub-validator)]
+      (try
+        (rf/reg-route :route/article
+                      {:path   "/articles/:id"
+                       :params (fn [{:keys [id]}] (clojure.string/starts-with? (or id "") "a"))})
+        (rf/reg-route :rf.route/not-found {:path "/404"})
+        (rf/reg-fx :rf.nav/push-url
+                   {:platforms #{:server :client}}
+                   (fn [_ _] nil))
+        (rf/dispatch-sync [:rf/url-changed "/articles/zoo"])
+        (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+          (is (= :rf.route/not-found (:id slice))
+              "validation failure routes to :rf.route/not-found")
+          (is (= "/articles/zoo" (:url (:params slice)))
+              "params carries the URL")
+          (is (= :validation (:reason (:params slice)))
+              "params carries :reason :validation (distinguishes from a no-match miss)"))
+        (finally (restore))))))
+
+(deftest route-url-throws-on-invalid-query-params
+  (testing "route-url throws :rf.error/route-url-validation when
+            query-params don't conform to the route's :query schema"
+    (let [restore (with-stub-validator)]
+      (try
+        (rf/reg-route :route/search
+                      {:path  "/search"
+                       :query (fn [m] (and (string? (:q m))
+                                           (pos? (count (:q m)))))})
+        (let [ex (try (routing/route-url :route/search {} {:q ""})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex)
+              "empty :q rejects against the query schema")
+          (is (= ":rf.error/route-url-validation" (ex-message ex)))
+          (is (= :query (:slot (ex-data ex)))))
+        (finally (restore))))))
+
 ;; ---- rf2-b8ugt: :rf/pending-navigation full slot shape -------------------
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol and
