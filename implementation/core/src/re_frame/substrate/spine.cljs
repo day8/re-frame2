@@ -8,8 +8,8 @@
   Scope. This ns provides:
 
     * The plain-`atom` container quartet (make / read / replace / subscribe).
-    * `make-derived-value` (one watch per source; reifies Reagent's
-      `IDisposable`).
+    * `make-derived-value` (one watch per source; reifies the
+      re-frame-owned `re-frame.disposable/IDisposable`).
     * React 18+ root renderer (createRoot + render, hydrateRoot for
       hydrate).
     * Late-bind hiccup-emitter atom + `render-to-string` thrower.
@@ -33,7 +33,7 @@
   shape-compliant with the 9-fn substrate contract."
   (:require ["react"             :as React]
             ["react-dom/client"  :as react-dom-client]
-            [reagent.ratom       :as ratom]
+            [re-frame.disposable :as rf-disposable]
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
             [re-frame.subs       :as subs]
@@ -141,19 +141,23 @@
         (-remove-watch [_this k]
           (swap! watchers dissoc k)
           nil)
-        ;; Reagent's IDisposable — `interop/add-on-dispose!` calls into
-        ;; this protocol when wiring the sub-cache's slot teardown
-        ;; (per Spec 006 §subscription-cache). Adopting the Reagent
-        ;; protocol keeps the cache wiring substrate-agnostic at the
-        ;; call site — core does not branch on adapter type.
-        ratom/IDisposable
-        (dispose! [_]
+        ;; Re-frame-owned IDisposable — `interop/add-on-dispose!` /
+        ;; `interop/dispose!` route into this protocol via the
+        ;; adapter's `:adapter/add-on-dispose!` / `:adapter/dispose!`
+        ;; hooks (per Spec 006 §subscription-cache). Pre-rf2-jicu2 the
+        ;; spine reified `reagent.ratom/IDisposable` here, which forced
+        ;; every UIx/Helix bundle to pay ~9KB optimised / 2-3KB gzipped
+        ;; of `reagent.ratom` + `reagent.impl.batching` for one
+        ;; protocol — the new `re-frame.disposable/IDisposable` is
+        ;; re-frame-owned and carries no Reagent dependency.
+        rf-disposable/IDisposable
+        (-dispose [_]
           (doseq [[s k] @own-keys] (remove-watch s k))
           (reset! own-keys {})
           (reset! watchers {})
           (doseq [f @on-dispose-fns] (f))
           (reset! on-dispose-fns []))
-        (add-on-dispose! [_ f]
+        (-add-on-dispose [_ f]
           (swap! on-dispose-fns conj f))))))
 
 ;; ---- render ---------------------------------------------------------------

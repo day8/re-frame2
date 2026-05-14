@@ -6,6 +6,7 @@
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
+            [re-frame.disposable :as rf-disposable]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -199,10 +200,26 @@
   (constantly false))
 (substrate-adapter/route-hook! adapter :adapter/make-reaction
   ratom/make-reaction)
+;; rf2-jicu2: a Reagent-installed app may still hold a spine-produced
+;; derived value (e.g. inherited through a cross-substrate test bundle
+;; that pre-loaded UIx/Helix machinery). Dispatch handles BOTH shapes —
+;; the re-frame-owned `re-frame.disposable/IDisposable` (spine derived
+;; values) and Reagent's own `reagent.ratom/IDisposable` (Reagent
+;; reactions). Protocol-checks the re-frame-owned one first because it
+;; is the new path; falls through to Reagent's protocol for
+;; Reagent-native reactions.
 (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
-  ratom/add-on-dispose!)
+  (fn add-on-dispose!-dispatch [a f]
+    (cond
+      (satisfies? rf-disposable/IDisposable a) (rf-disposable/-add-on-dispose a f)
+      (satisfies? ratom/IDisposable a)         (ratom/add-on-dispose! a f)
+      :else                                    nil)))
 (substrate-adapter/route-hook! adapter :adapter/dispose!
-  ratom/dispose!)
+  (fn dispose!-dispatch [a]
+    (cond
+      (satisfies? rf-disposable/IDisposable a) (rf-disposable/-dispose a)
+      (satisfies? ratom/IDisposable a)         (ratom/dispose! a)
+      :else                                    nil)))
 (substrate-adapter/route-hook! adapter :adapter/reactive?
   ratom/reactive?
   (constantly false))

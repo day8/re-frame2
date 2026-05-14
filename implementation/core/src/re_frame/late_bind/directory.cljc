@@ -355,28 +355,22 @@
     :description "Resolve the in-flight Reagent component (routed via current-adapter)."}
    {:key         :adapter/ratom
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific ratom constructor (re-frame.interop/ratom)."}
+    :description "Substrate-specific ratom constructor (re-frame.interop/ratom). Per rf2-jicu2 not published by UIx/Helix — those substrates ship no reactive-atom primitive and re-frame.interop's reactive surfaces have zero production call sites under them."}
    {:key         :adapter/ratom?
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific ratom predicate (re-frame.interop/ratom?)."}
+    :description "Substrate-specific ratom predicate (re-frame.interop/ratom?). Per rf2-jicu2 not published by UIx/Helix; absent-hook fallback returns false."}
    {:key         :adapter/make-reaction
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific make-reaction (re-frame.interop/make-reaction)."}
+    :description "Substrate-specific make-reaction (re-frame.interop/make-reaction). Per rf2-jicu2 not published by UIx/Helix; absent-hook returns nil."}
    {:key         :adapter/add-on-dispose!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
@@ -384,7 +378,7 @@
                    re-frame.adapter.helix]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!)."}
+    :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!). Per rf2-jicu2 UIx/Helix route to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
    {:key         :adapter/dispose!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
@@ -392,23 +386,19 @@
                    re-frame.adapter.helix]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific dispose! (re-frame.interop/dispose!)."}
+    :description "Substrate-specific dispose! (re-frame.interop/dispose!). Per rf2-jicu2 UIx/Helix route to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
    {:key         :adapter/reactive?
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?)."}
+    :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Per rf2-jicu2 not published by UIx/Helix; absent-hook fallback returns false."}
    {:key         :adapter/after-render
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific after-render hook (re-frame.interop/after-render)."}
+    :description "Substrate-specific after-render hook (re-frame.interop/after-render). Per rf2-jicu2 not published by UIx/Helix; absent-hook returns nil."}
    {:key         :adapter/wrap-view
     :producer-ns '[re-frame.adapter.uix
                    re-frame.adapter.helix]

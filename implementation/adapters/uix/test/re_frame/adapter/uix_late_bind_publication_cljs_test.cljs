@@ -8,10 +8,18 @@
     (1) `substrate-adapter/route-hook!` — routed `:adapter/*` hooks
         that run THIS adapter's impl iff this adapter is the
         currently-installed one; otherwise chain to the previous
-        handler. Used for `:adapter/current-frame`, `:adapter/ratom`,
-        `:adapter/make-reaction`, `:adapter/add-on-dispose!`,
-        `:adapter/dispose!`, `:adapter/ratom?`, `:adapter/reactive?`,
-        `:adapter/after-render`, `:adapter/wrap-view`.
+        handler. Used for `:adapter/current-frame`,
+        `:adapter/add-on-dispose!`, `:adapter/dispose!`,
+        `:adapter/wrap-view`.
+
+        Per rf2-jicu2 the UIx adapter no longer publishes
+        `:adapter/ratom`, `:adapter/ratom?`, `:adapter/make-reaction`,
+        `:adapter/reactive?`, or `:adapter/after-render` — UIx ships no
+        reactive-atom primitive (per rf2-3yij) and the reactive
+        surfaces have zero production call sites under UIx. Publishing
+        them previously forced reagent.core (transitively reagent.ratom
+        + reagent.impl.batching) into every UIx-only release bundle for
+        code the substrate never executed.
 
     (2) `late-bind/chain-fn!` — chained hooks where every contributor
         runs (independent of installed-adapter identity). Used for
@@ -45,14 +53,14 @@
   chained hooks (alphabetical). The set membership is what the test
   pins; ordering here is for human-readable diff."
   ;; Routed via substrate-adapter/route-hook!
+  ;;
+  ;; Per rf2-jicu2 the publication set was trimmed: the UIx adapter
+  ;; no longer publishes :adapter/ratom, :adapter/ratom?,
+  ;; :adapter/make-reaction, :adapter/reactive?, or
+  ;; :adapter/after-render. See this ns's docstring for rationale.
   #{:adapter/add-on-dispose!
-    :adapter/after-render
     :adapter/current-frame
     :adapter/dispose!
-    :adapter/make-reaction
-    :adapter/ratom
-    :adapter/ratom?
-    :adapter/reactive?
     :adapter/wrap-view
     ;; Chained via late-bind/chain-fn! (through spine/install-clear-warn-once-step!)
     :adapter/clear-warn-once-caches!

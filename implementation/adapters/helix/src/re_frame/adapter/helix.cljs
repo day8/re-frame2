@@ -13,9 +13,8 @@
   passes JS-array deps unconditionally). The React frame-context
   comes from `re-frame.adapter.context` so a mixed-substrate app's
   frame-provider chain composes across substrates."
-  (:require [reagent.core        :as r]
-            [reagent.ratom       :as ratom]
-            [helix.hooks         :as helix-hooks]
+  (:require [helix.hooks         :as helix-hooks]
+            [re-frame.disposable :as rf-disposable]
             [re-frame.frame      :as frame]
             [re-frame.late-bind  :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -144,11 +143,21 @@
 ;;     is sugar over the same read, so subscribe / dispatch and
 ;;     `use-context` agree on the active frame. Chain-bottom fallback
 ;;     is `frame/current-frame`.
-;;   :adapter/ratom etc. — rf2-s36l. Helix's derived values reify
-;;     stock reagent.ratom/IDisposable directly, so these hooks
-;;     delegate to stock Reagent's r/atom, ratom/make-reaction, etc.
-;;     Helix itself ships no reactive-atom primitive (it is the
-;;     minimal-React-wrapper niche per rf2-2qit).
+;;   :adapter/add-on-dispose! / :adapter/dispose! — rf2-jicu2. Spine-
+;;     produced derived values reify the re-frame-owned
+;;     `re-frame.disposable/IDisposable` (no Reagent coupling). The
+;;     adapter wires straight to the protocol fns. Pre-rf2-jicu2 these
+;;     routed to `reagent.ratom/add-on-dispose!` / `ratom/dispose!`
+;;     which dragged ~9KB of reagent.ratom + reagent.impl.batching into
+;;     every Helix-only release bundle for a single defprotocol slot.
+;;     The other reactive-substrate hooks (`:adapter/ratom`,
+;;     `:adapter/ratom?`, `:adapter/make-reaction`, `:adapter/reactive?`,
+;;     `:adapter/after-render`) are intentionally NOT published by the
+;;     Helix adapter — Helix ships no reactive-atom primitive (per
+;;     rf2-2qit) and `re-frame.interop`'s reactive surfaces have zero
+;;     production call sites under Helix; publishing those hooks would
+;;     force the Helix bundle to carry reagent.core (transitively
+;;     reagent.ratom) for code it never executes.
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord
 ;;     injection via React.cloneElement (the inline hiccup-walk in
 ;;     views.cljs would mis-classify React-element output as a non-DOM
@@ -158,22 +167,10 @@
 (substrate-adapter/route-hook! adapter :adapter/current-frame
   adapter-context/function-component-current-frame
   #(frame/current-frame))
-(substrate-adapter/route-hook! adapter :adapter/ratom
-  r/atom)
-(substrate-adapter/route-hook! adapter :adapter/ratom?
-  (fn ratom?-impl [x] (satisfies? ratom/IReactiveAtom x))
-  (constantly false))
-(substrate-adapter/route-hook! adapter :adapter/make-reaction
-  ratom/make-reaction)
 (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
-  ratom/add-on-dispose!)
+  rf-disposable/-add-on-dispose)
 (substrate-adapter/route-hook! adapter :adapter/dispose!
-  ratom/dispose!)
-(substrate-adapter/route-hook! adapter :adapter/reactive?
-  ratom/reactive?
-  (constantly false))
-(substrate-adapter/route-hook! adapter :adapter/after-render
-  r/after-render)
+  rf-disposable/-dispose)
 (substrate-adapter/route-hook! adapter :adapter/wrap-view
   wrap-view)
 
