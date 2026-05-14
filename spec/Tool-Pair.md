@@ -325,6 +325,20 @@ The audit found the upstream pair tool ships `dom/source-at`, `dom/find-by-src`,
 
 A future re-frame2 minor version may introduce framework-side helpers if the ecosystem converges on a single shape; the attribute contract is forward-compatible with that addition.
 
+### Editor URI scheme allowlist (rf2-vwcsq)
+
+Source-mapping clicks open the resolved coord in the developer's editor. The CLJS reference (and any port that ships editor integration) accepts **editor templates** — URI patterns parameterised by file + line that produce a clickable IDE-protocol URI. Built-in templates cover the common targets (`vscode://file/%s:%d`, `idea://open?file=%s&line=%d`, `cursor://...`, `subl://...`); custom templates let devs route to JetBrains family editors, Sublime, Emacs / org-tooling, vim, and long-tail editor schemes via a config-level slot:
+
+```clojure
+{:editor {:custom "vim://%s:%d"}}
+```
+
+An attacker-controllable scheme — `javascript:`, `data:`, `vbscript:` — that landed in the editor-template slot would be clicked, opening an attack surface in the dev's browser (script execution, embedded payload navigation). The minimum gate is a **scheme rejection list**, not an allowlist; everything other than the three known-bad schemes passes through.
+
+**Normative contract.** Editor-template handling **MUST** reject URIs whose scheme is `javascript:`, `data:`, or `vbscript:` (case-insensitive). The three are documented XSS vectors; the rejection list is the floor. Everything else — `vim:`, `idea:`, `subl:`, `org:`, `vscode:`, `cursor:`, `code-server:`, and future editor schemes — passes through with no dev burden. The check fires at editor-template registration time **and** at click-resolution time (a registered template whose pattern produces a runtime URI on one of the three rejected schemes is also rejected at click time, so a template that interpolates user input into the scheme position is also caught). The rejection surface emits a structured warning; no silent fall-through to a default editor.
+
+**Pragmatic stance.** Per [Security.md §Pragmatic stance](Security.md#pragmatic-stance) proposition 2 ("gate accidents, not theoretical attacks"), the rejection list is the **minimum** that closes the known-bad cases without forcing a list-maintenance burden onto every dev workflow that wants to use a long-tail editor. The audit posture is: gate `javascript:` / `data:` / `vbscript:` because those *are* known XSS vectors; do not gate `vim:` / `idea:` / `subl:` / future-editor-N because a long-tail allowlist would be friction without proportionate risk reduction. Per rf2-vwcsq and [Security.md §Editor URI scheme allowlist](Security.md#editor-uri-scheme-allowlist).
+
 <a name="operating-frame"></a>
 ## Operating frame — multi-frame resolution
 
