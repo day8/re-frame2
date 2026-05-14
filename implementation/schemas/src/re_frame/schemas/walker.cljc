@@ -232,10 +232,17 @@
 
 (defn- prefix?
   "True when `prefix` is a prefix of `path` (or equal). Both are
-  sequential collections compared element-wise."
+  indexed vectors compared element-wise. Single-pass: counts each
+  input once, no lazy-seq allocation (rf2-ikxb5 — call-site is the
+  hot `schema-sensitive-at?` `some` over `(keys decls)`)."
   [prefix path]
-  (and (<= (count prefix) (count path))
-       (= (seq prefix) (seq (take (count prefix) path)))))
+  (let [pn (count prefix)]
+    (and (<= pn (count path))
+         (loop [i 0]
+           (cond
+             (== i pn)                    true
+             (= (nth prefix i) (nth path i)) (recur (inc i))
+             :else                         false)))))
 
 (defn schema-sensitive-at?
   "Path-targeted sensitivity check (rf2-oh4se). Returns true when the
