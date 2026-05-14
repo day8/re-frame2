@@ -130,6 +130,47 @@ The full origin vocabulary (`:app` / `:pair` / `:causa-mcp` /
 [Spec 009 §Origin axis](../../../spec/009-Instrumentation.md);
 Causa-MCP's job is to honour it.
 
+### Boundary semantics of `eval-cljs` origin tagging
+
+The `eval-cljs` origin tag is set by `binding` the
+`day8.re-frame2-causa.runtime/current-origin` dynamic var around
+the evaluation of the eval'd form. The binding's extent is the
+**synchronous body** of the eval call only. Any side-effect the
+form schedules asynchronously — `(js/setTimeout #(dispatch [...]) 100)`,
+`(go (>! chan ...))`, a Promise callback, an event listener
+registered inside the eval — fires its dispatch **outside** that
+dynamic extent and so does not inherit `:origin :causa-mcp`.
+
+**Picked posture.** Causa-MCP accepts the boundary as
+synchronous-only. Async dispatches launched from `eval-cljs`
+land tagged according to the runtime's ambient origin at the
+moment they fire (typically `:app`, or `:rf/unknown` if the
+substrate fires the callback without a dispatch wrapper). This
+is a known incompleteness of the audit trail — not a privacy
+or authority leak, only a tagging-coverage gap.
+
+**Why this posture and not async-substrate patching.** Two
+alternatives were considered: (a) reject async forms before
+eval (impractical — the static analysis is broad and brittle),
+(b) patch the async substrate (`js/setTimeout`, `cljs.core.async`
+go-loops, Promise resolution) to capture and replay the dynamic
+var. Option (c)-as-picked here mirrors the precedent
+`tools/pair2-mcp/` already ships (no setTimeout wrapper in
+`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`); the
+runtime-modification cost of (b) is high and the threat model
+(prompt-injected agent smuggling untagged async dispatches)
+does not justify the substrate-rewrite blast radius pre-alpha.
+
+**Mitigation for the impl pass.** The `current-origin` `binding`
+MUST wrap the synchronous eval body — that is the load-bearing
+contract the impl pass tests pin (see
+[`findings/MUST-inventory.md`](./findings/MUST-inventory.md) row
+I6). The async-escape gap is documented as known incomplete,
+not silently shipped. A future framework-side change that adds
+origin-preserving wrappers around the standard async substrate
+would compose under the same `current-origin` contract without
+re-spec'ing this section.
+
 Captured as Lock #4 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 
 ## EDN canonical; JSON the wire
