@@ -153,29 +153,76 @@
                  :tool          "record-as-variant"
                  :duration-ms   duration-ms
                  :max-allowed   max-duration-ms}))
-            (let [target-vid  (or (some-> (:new-variant-id arguments) args/parse-keyword) vk)
-                  extends     (or (some-> (:extends arguments) args/parse-keyword) vk)
-                  doc         (:doc arguments)
-                  alias-arg   (:alias arguments)
-                  started     (now-ms)
-                  _           (story/start-recording! vk)
-                  _           (sleep-ms duration-ms)
-                  final-state (story/stop-recording!)
-                  events      (vec (:events final-state))
-                  snippet     (story/gen-play-snippet
-                                events
-                                (cond-> {:variant-id target-vid :extends extends}
-                                  (string? doc)       (assoc :doc doc)
-                                  (string? alias-arg) (assoc :alias alias-arg)))
-                  base        {:variant-id           vk
-                               :play-snippet         snippet
-                               :recorded-event-count (count events)
-                               :duration-ms          (- (now-ms) started)
-                               :captured             events
-                               :written-back?        false}]
-              (if-not write-back?
-                (h/text-result (h/pr-edn base) base)
-                (write-back! base body events target-vid))))))))
+            ;; rf2-lqjbk: keyword resolution for the three caller-
+            ;; supplied id slots.
+            ;;
+            ;; - `:extends` is a read-side reference — it MUST point to
+            ;;   a registered variant whose `:component` / `:args` the
+            ;;   snippet inherits. `safe-keyword` against the
+            ;;   registered-variant set rejects unknowns without
+            ;;   interning. Defaults to the source `vk` when omitted.
+            ;;
+            ;; - `:new-variant-id` is the write-back target. When
+            ;;   `:write-back?` is true we DO need a fresh keyword
+            ;;   (the registrar's gate is `--allow-writes`; the
+            ;;   operator chose to grow the registry). When
+            ;;   `:write-back?` is false the slot exists only for the
+            ;;   rendered snippet's first-line `:variant-id` literal —
+            ;;   we render the caller's string as `:<string>` via
+            ;;   `read-string` ONLY when the existing variant-id grammar
+            ;;   admits it. If not, we fall back to the source `vk`.
+            ;;   This avoids interning a JVM keyword for what may be a
+            ;;   one-shot agent suggestion.
+            (let [extends     (if-let [e-arg (:extends arguments)]
+                                (or (args/safe-keyword e-arg (story/ids :variant))
+                                    ;; Reject unknown :extends so the snippet
+                                    ;; doesn't render a dangling reference.
+                                    nil)
+                                vk)]
+              (if (nil? extends)
+                (h/error-result
+                  (str ":extends references an unregistered variant: "
+                       (pr-str (:extends arguments)))
+                  {:rf.error :rf.story-mcp/extends-not-registered
+                   :tool     "record-as-variant"
+                   :extends  (:extends arguments)})
+                (let [target-vid  (cond
+                                    ;; write-back path: operator-gated
+                                    ;; intern via parse-keyword.
+                                    (and write-back? (:new-variant-id arguments))
+                                    (args/parse-keyword (:new-variant-id arguments))
+
+                                    ;; non-write-back: snippet-only,
+                                    ;; safe-keyword against the live
+                                    ;; variant set; otherwise default to
+                                    ;; source vk rather than intern.
+                                    (:new-variant-id arguments)
+                                    (or (args/safe-keyword (:new-variant-id arguments)
+                                                           (story/ids :variant))
+                                        vk)
+
+                                    :else vk)
+                      doc         (:doc arguments)
+                      alias-arg   (:alias arguments)
+                      started     (now-ms)
+                      _           (story/start-recording! vk)
+                      _           (sleep-ms duration-ms)
+                      final-state (story/stop-recording!)
+                      events      (vec (:events final-state))
+                      snippet     (story/gen-play-snippet
+                                    events
+                                    (cond-> {:variant-id target-vid :extends extends}
+                                      (string? doc)       (assoc :doc doc)
+                                      (string? alias-arg) (assoc :alias alias-arg)))
+                      base        {:variant-id           vk
+                                   :play-snippet         snippet
+                                   :recorded-event-count (count events)
+                                   :duration-ms          (- (now-ms) started)
+                                   :captured             events
+                                   :written-back?        false}]
+                  (if-not write-back?
+                    (h/text-result (h/pr-edn base) base)
+                    (write-back! base body events target-vid))))))))))
 
 (def descriptors
   "Registry descriptors for the recorder's MCP surface — the single

@@ -19,11 +19,17 @@
   HOT PATH (rf2-d3iso): agents spam this tool. The variant-id slot per
   story is read from `story/variants-by-story` — a single O(V) pass
   over the variant side-table — instead of the previous O(S × V) shape
-  of calling `variants-of` once per story."
+  of calling `variants-of` once per story.
+
+  rf2-lqjbk: caller-supplied `:tags` entries route through
+  `args/safe-keyword` against the registered-tag set — unknown tag
+  ids skip the intersection rather than interning a fresh JVM
+  keyword."
   [args]
   (let [stories  (story/handlers :story)
+        tag-set  (story/list-tags)
         tags     (when-let [ts (:tags args)]
-                   (set (map args/parse-keyword ts)))
+                   (into #{} (keep #(args/safe-keyword % tag-set)) ts))
         filtered (if (seq tags)
                    (into {}
                          (filter (fn [[_id body]]
@@ -39,16 +45,19 @@
     (h/text-result (h/pr-edn payload) payload)))
 
 (defn tool-get-story
-  "Docs: one story's full body."
+  "Docs: one story's full body.
+
+  rf2-lqjbk: `:story-id` is resolved through `args/safe-keyword`
+  against the registered-stories set — an unknown id returns the
+  documented `Story not found` error without interning."
   [args]
   (let [[sid err] (h/required-arg args :story-id)]
     (if err err
-      (let [sk   (args/parse-keyword sid)
-            body (story/handler-meta :story sk)]
-        (if (nil? body)
-          (h/error-result (str "Story not found: " (pr-str sk)))
-          (let [payload {:id sk :body body :variants (sort (story/variants-of sk))}]
-            (h/text-result (h/pr-edn payload) payload)))))))
+      (if-let [sk (args/safe-keyword sid (story/ids :story))]
+        (let [body (story/handler-meta :story sk)
+              payload {:id sk :body body :variants (sort (story/variants-of sk))}]
+          (h/text-result (h/pr-edn payload) payload))
+        (h/error-result (str "Story not found: " (pr-str sid)))))))
 
 (defn tool-get-variant
   "Docs: one variant's full body (`handler-meta :variant id`)."
@@ -97,6 +106,13 @@
       (= kind :fx-override)  (assoc :fx-id    (:fx-id body)
                                     :response (:response body)))))
 
+(def ^:private decorator-kinds
+  "Bounded enum allowlist for `tool-list-decorators` `:kind` filter
+  (rf2-lqjbk). Three legal values per spec/Stage-2 decorator kinds;
+  an unrecognised string short-circuits through `safe-keyword` without
+  interning."
+  #{:hiccup :frame-setup :fx-override})
+
 (defn tool-list-decorators
   "Docs: read-only enumeration of registered decorators (rf2-mqp1u).
   Returns each decorator's id, kind, and doc plus the kind-specific
@@ -109,9 +125,11 @@
   Optional `args`:
 
   - `:kind` (string, optional) — narrow to one decorator kind. One
-    of `\"hiccup\"`, `\"frame-setup\"`, `\"fx-override\"`."
+    of `\"hiccup\"`, `\"frame-setup\"`, `\"fx-override\"`. Resolved
+    through `args/safe-keyword` against the bounded `decorator-kinds`
+    set (rf2-lqjbk); unrecognised values are treated as no filter."
   [args]
-  (let [kind-filter (some-> (:kind args) args/parse-keyword)
+  (let [kind-filter (some-> (:kind args) (args/safe-keyword decorator-kinds))
         decorators  (story/handlers :decorator)
         entries     (cond->> (for [[did body] decorators]
                                (decorator-summary did body))
@@ -230,16 +248,15 @@
   [args]
   (let [[sid err] (h/required-arg args :story-id)]
     (if err err
-      (let [sk   (args/parse-keyword sid)
-            body (story/handler-meta :story sk)]
-        (if (nil? body)
-          (h/error-result (str "Story not found: " (pr-str sk)))
-          (let [variants (sort (story/variants-of sk))
-                md       (render-story-markdown sk body variants)
-                payload  {:story-id sk
-                          :markdown md
-                          :variants (vec variants)}]
-            (h/text-result md payload)))))))
+      (if-let [sk (args/safe-keyword sid (story/ids :story))]
+        (let [body     (story/handler-meta :story sk)
+              variants (sort (story/variants-of sk))
+              md       (render-story-markdown sk body variants)
+              payload  {:story-id sk
+                        :markdown md
+                        :variants (vec variants)}]
+          (h/text-result md payload))
+        (h/error-result (str "Story not found: " (pr-str sid)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
