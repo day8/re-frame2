@@ -371,13 +371,16 @@
   (fn warn-non-dom-root! [id type-tag]
     (when-not (contains? @cache-atom id)
       (swap! cache-atom conj id)
-      (when (exists? js/console)
-        (.warn js/console
-          (str "[re-frame] reg-view " id " — root element is "
-               (pr-str type-tag) " (" substrate-name "); "
-               "data-rf2-source-coord skipped "
-               "(Spec 006 §Source-coord annotation: pair tools fall back to "
-               ":rf/id for non-DOM roots)."))))))
+      ;; Per rf2-g7bi4: `js/console` is universally present in modern
+      ;; browsers and Node; React-shaped substrates target React 18+
+      ;; which targets those runtimes. The historical
+      ;; `(when (exists? js/console) ...)` guard is dead.
+      (.warn js/console
+        (str "[re-frame] reg-view " id " — root element is "
+             (pr-str type-tag) " (" substrate-name "); "
+             "data-rf2-source-coord skipped "
+             "(Spec 006 §Source-coord annotation: pair tools fall back to "
+             ":rf/id for non-DOM roots).")))))
 
 (defn- dom-element?
   "True if the React element's `type` is a string (a DOM tag like
