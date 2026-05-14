@@ -167,36 +167,57 @@
 ;; rule is what makes the vocabulary cross-server.
 ;; ---------------------------------------------------------------------------
 
-(def OverflowBody
-  "`{:rf.mcp/overflow {...}}` body — the token-budget overflow marker.
-
-  Per causa-mcp Principles §\"1. Token budget cap\" and pair2-mcp
-  `tools.cljs/overflow-payload`. The body carries the cap that was
-  hit, an `:cap-tokens` or `:cap` cap value (pair2-mcp uses
-  `:cap-tokens`; the spec example uses `:cap`), the over-budget
-  token count, a tool-specific next-step `:hint`, and a `:limit`
-  sentinel.
-
-  pair2-mcp's payload uses `:cap-tokens` / `:token-count` (snake-cased
-  with hyphens, no underscores) and adds `:tool` for the offending
-  tool name. causa-mcp's spec example uses `:cap` / `:would-be` plus
-  a `:continuation` block with `:cursor` + `:next-args`. The
-  conformance schema permits both — the load-bearing claim is the
-  top-level marker key and the kebab-case child names. Cap renames
-  (`cap-tokens` vs `cap_tokens`) trip the schema."
+(def Pair2OverflowBody
+  "pair2-mcp's `:rf.mcp/overflow` body shape (per
+  `mcp-base/overflow.cljc/overflow-payload`). Every emit carries
+  `:cap-tokens` + `:token-count` + `:tool` + `:hint` plus the `:limit
+  :reached` sentinel. Required-not-optional — an emit missing any of
+  these is a contract break, not a degenerate but tolerated marker."
   [:map
    {:closed false}
-   [:limit [:enum :reached]]                                   ;; pair2-mcp
-   [:tool   {:optional true} [:or :string :keyword]]           ;; pair2-mcp
-   [:cap-tokens   {:optional true} :int]                       ;; pair2-mcp form
-   [:cap          {:optional true} :int]                       ;; causa-mcp form
-   [:token-count  {:optional true} :int]                       ;; pair2-mcp form
-   [:would-be     {:optional true} :int]                       ;; causa-mcp form
-   [:hint         {:optional true} [:or :string :keyword]]
+   [:limit       [:enum :reached]]
+   [:tool        [:or :string :keyword]]
+   [:cap-tokens  :int]
+   [:token-count :int]
+   [:hint        [:or :string :keyword]]])
+
+(def CausaOverflowBody
+  "causa-mcp's `:rf.mcp/overflow` body shape (per
+  `tools/causa-mcp/spec/004-Wire-Pipeline.md` §\"1. Token budget cap\").
+  Every emit carries `:cap` + `:would-be` + `:hint` plus the `:limit
+  :reached` sentinel; `:continuation` is optional and only present when
+  the server can emit a resumable cursor."
+  [:map
+   {:closed false}
+   [:limit        [:enum :reached]]
+   [:cap          :int]
+   [:would-be     :int]
+   [:hint         [:or :string :keyword]]
    [:continuation {:optional true}
     [:map
      [:cursor    {:optional true} [:or :string :nil]]
      [:next-args {:optional true} [:maybe :map]]]]])
+
+(def OverflowBody
+  "`{:rf.mcp/overflow {...}}` body — the token-budget overflow marker.
+
+  Per causa-mcp `004-Wire-Pipeline.md` §\"1. Token budget cap\" and
+  pair2-mcp `mcp-base/overflow.cljc/overflow-payload`. The cross-server
+  contract pins TWO shapes, NOT one open map:
+
+  - **pair2-mcp shape:** `:limit :reached` + `:cap-tokens` +
+    `:token-count` + `:tool` + `:hint`. Hyphen-separated child names;
+    `:cap-tokens` is the cap, `:token-count` is the over-budget count.
+  - **causa-mcp shape:** `:limit :reached` + `:cap` + `:would-be` +
+    `:hint` (+ optional `:continuation` `:cursor` / `:next-args`).
+    Same posture, server-local naming.
+
+  An emit shaped as `{:rf.mcp/overflow {:limit :reached}}` alone is
+  NOT conformant — every required field on at least one of the two
+  shapes MUST be present. Cap renames (`cap-tokens` vs `cap_tokens`),
+  field renames (`hint` vs `next-step`), or empty bodies all trip the
+  schema. Per rf2-kn8cj (refactor-audit r2 of rf2-azk9c §F-VOCAB-2)."
+  [:or Pair2OverflowBody CausaOverflowBody])
 
 (def Overflow
   "`{:rf.mcp/overflow OverflowBody}` — the wrapper shape."
@@ -464,6 +485,47 @@
           (is (>= n 2)
               (str key " is multi-server (" servers
                    ") so >=2 fixtures required, got " n)))))))
+
+(deftest overflow-empty-body-is-rejected
+  ;; rf2-kn8cj (refactor-audit r2 of rf2-azk9c §F-VOCAB-2): the previous
+  ;; `OverflowBody` schema marked every slot except `:limit` `{:optional
+  ;; true}`, so an emit shaped as `{:rf.mcp/overflow {:limit :reached}}`
+  ;; alone validated. That under-constrained the cross-server contract:
+  ;; an emit MUST carry either pair2-mcp's shape (`:cap-tokens` +
+  ;; `:token-count` + `:tool` + `:hint`) OR causa-mcp's shape (`:cap` +
+  ;; `:would-be` + `:hint` + optional `:continuation`). The schema now
+  ;; encodes both as a `[:or ...]` of required-field shapes; this gate
+  ;; pins the regression directly.
+  (testing "empty body (only :limit :reached) fails validation"
+    (is (not (m/validate Overflow {:rf.mcp/overflow {:limit :reached}}))
+        "Overflow schema must reject an emit with only :limit :reached — both pair2 and causa shapes require more fields."))
+  (testing "missing-required-pair2 fields fail validation"
+    ;; pair2 shape lacks :token-count
+    (is (not (m/validate Overflow
+                         {:rf.mcp/overflow
+                          {:limit      :reached
+                           :tool       "snapshot"
+                           :cap-tokens 5000
+                           :hint       "..."}}))
+        "pair2-shape emit missing :token-count must fail"))
+  (testing "missing-required-causa fields fail validation"
+    ;; causa shape lacks :would-be
+    (is (not (m/validate Overflow
+                         {:rf.mcp/overflow
+                          {:limit :reached
+                           :cap   5000
+                           :hint  :switch-mode}}))
+        "causa-shape emit missing :would-be must fail"))
+  (testing "hybrid (cherry-picking fields across shapes) fails"
+    ;; Mixing pair2 :cap-tokens with causa :would-be — under-specified
+    ;; for both shapes; should not validate.
+    (is (not (m/validate Overflow
+                         {:rf.mcp/overflow
+                          {:limit      :reached
+                           :cap-tokens 5000
+                           :would-be   12400
+                           :hint       "..."}}))
+        "hybrid (cap-tokens + would-be) emit must fail")))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text vocabulary pin. The literal marker key MUST appear in
