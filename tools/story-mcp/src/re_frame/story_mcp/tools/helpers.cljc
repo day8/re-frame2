@@ -149,16 +149,25 @@
 (defn elide-app-db
   "Run `app-db` through `re-frame.core/elide-wire-value` against
   `variant-id`'s frame registry. Returns the elided value, or the input
-  unchanged when `include?` is true. Nil-safe — a nil `app-db` short-
-  circuits (the walker treats nil as a non-elidable scalar, but we
-  pre-check to avoid the registry lookup on the empty-frame happy path)."
+  unchanged when `include?` is true.
+
+  Two short-circuits avoid pointless work:
+
+    - Nil-safe — a nil `app-db` returns immediately (the walker treats
+      nil as a non-elidable scalar, but we pre-check to avoid the
+      registry lookup on the empty-frame happy path).
+
+    - `include? true` returns the input unchanged. With both inclusion
+      knobs flipped on the walker yields `v` at every node (per
+      `elide-wire-value`'s composition rule: `sensitive?` and `large?`
+      both return `v` when their inclusion flag is true; no marker
+      emit, no `write-runtime-flagged!`, no warning). The walk is a
+      pure no-op — full traversal, zero edits — so we skip it. The
+      escape hatch should be free."
   [app-db variant-id include?]
   (cond
     (nil? app-db) app-db
-    include?      (rf/elide-wire-value app-db
-                                       {:frame                       variant-id
-                                        :rf.size/include-sensitive?  true
-                                        :rf.size/include-large?      true})
+    include?      app-db
     :else         (rf/elide-wire-value app-db {:frame variant-id})))
 
 (defn scrub-assertions

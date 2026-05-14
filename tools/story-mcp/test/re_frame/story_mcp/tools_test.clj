@@ -1058,6 +1058,55 @@
         (is (success? r))
         (is (= "TOPSECRET" (get-in s [:app-db :secret])))))))
 
+(deftest elide-app-db-include?-true-bypasses-walker
+  ;; rf2-brehq — the `include? true` branch of `helpers/elide-app-db`
+  ;; skips `elide-wire-value` entirely. Pins behavioural equivalence
+  ;; with the previous walking-then-no-edit implementation:
+  ;;
+  ;;   1. The return is the input db itself (`identical?`) — the walker
+  ;;      would have rebuilt every map / vector via `reduce-kv` and
+  ;;      `mapv`, breaking identity even though value would be
+  ;;      preserved. The bypass returns the original reference.
+  ;;
+  ;;   2. The return is value-equal to running the walker with both
+  ;;      inclusion knobs flipped (the previous behaviour). Future
+  ;;      refactors that reintroduce walker work on this branch will
+  ;;      still pass (2) but break (1) — the load-bearing perf invariant
+  ;;      this bead fixes.
+  ;;
+  ;; Calls `helpers/elide-app-db` directly so the test pins the helper's
+  ;; contract, not a downstream tool's composition of it. Avoids
+  ;; coupling to `run-variant`'s lifecycle behaviour.
+  (testing ":include? true returns the input ref unchanged AND matches walker-with-both-knobs-on"
+    (with-clean-frame [vid :story.button/primary]
+      (let [db {:public    "ok"
+                :secret    "TOPSECRET"
+                :nested    {:also-secret "DEEP"
+                            :public-leaf 42}
+                :coll      [:a :b :c]
+                :empty-map {}}]
+        ;; Populate the elision registry on vid's frame so the walker
+        ;; has something to consult — the bypass-equivalence proof only
+        ;; works if the walker WOULD have visited sensitive paths.
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:secret])
+        (declare-sensitive! vid [:nested :also-secret])
+        (let [frame-db (read-frame-db vid)
+              bypass   ((requiring-resolve 're-frame.story-mcp.tools.helpers/elide-app-db)
+                        frame-db vid true)
+              walked   (rf/elide-wire-value frame-db
+                                            {:frame                      vid
+                                             :rf.size/include-sensitive? true
+                                             :rf.size/include-large?     true})]
+          (is (identical? frame-db bypass)
+              "include? true returns the SAME object — no walker rebuild")
+          (is (= walked bypass)
+              "bypass output value-equals the previous walking-then-no-edit output")
+          (is (= "TOPSECRET" (get bypass :secret))
+              "top-level sensitive slot rides through")
+          (is (= "DEEP" (get-in bypass [:nested :also-secret]))
+              "nested sensitive slot rides through"))))))
+
 (deftest read-failures-strips-sensitive-assertion-records-by-default
   (testing "an assertion record stamped :sensitive? true is dropped at egress"
     (with-clean-frame [vid :story.button/primary]
