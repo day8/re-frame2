@@ -65,6 +65,27 @@
   (swap! replacement-hooks conj f)
   nil)
 
+(defonce ^:private registration-hooks
+  ;; Subscribers to "any id was registered" — first-time OR re-registration.
+  ;; Each is called with a map {:kind :id :was :now} (`:was` is nil on
+  ;; first-time registration). Registered by namespaces that need to
+  ;; validate cross-id invariants at registration time (e.g. routing's
+  ;; `:url-bound?` "only one frame owns the URL" rule per Spec 012
+  ;; §Multi-frame routing — rf2-w50qm). Fires AFTER the slot is written
+  ;; so the hook can inspect the final registry state.
+  (atom []))
+
+(defn add-registration-hook!
+  "Register a fn called on EVERY register! call — both first-time and
+  re-registration. Args: a map `{:kind kind :id id :was prev-meta :now
+  new-meta}`; `:was` is nil on first-time registration. Sibling to
+  `add-replacement-hook!` (which only fires on re-registration). Used
+  for cross-id invariant checks like routing's `:url-bound?` exclusivity
+  (per Spec 012 §Multi-frame routing)."
+  [f]
+  (swap! registration-hooks conj f)
+  nil)
+
 ;; ---- trace-emit helper ----------------------------------------------------
 ;;
 ;; The four :registry trace sites below share the late-bind lookup of
@@ -146,6 +167,15 @@
       :else
       (when interop/debug-enabled?
         (emit! :rf.registry/handler-registered {:kind kind :id id})))
+    ;; Always-on registration hooks (rf2-w50qm): fire on BOTH first-time
+    ;; and re-registration so cross-id invariants (e.g. routing's
+    ;; `:url-bound?` exclusivity per Spec 012 §Multi-frame routing) can
+    ;; be validated at the moment of any registration. Hooks run isolated
+    ;; — listener failures don't propagate so a buggy hook can't block
+    ;; the registration.
+    (doseq [f @registration-hooks]
+      (try (f {:kind kind :id id :was previous :now metadata})
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
     {:was previous :now metadata}))
 
 (defn unregister!

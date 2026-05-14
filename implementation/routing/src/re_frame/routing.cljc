@@ -1268,22 +1268,123 @@
     (url-change-fx db url :restore frame)))
 
 ;; ---- standard navigation fx ----------------------------------------------
+;;
+;; Per Spec 012 §Multi-frame routing and rf2-w50qm: `:rf.nav/push-url` /
+;; `:rf.nav/replace-url` MUST consult the calling frame's `:url-bound?`
+;; metadata before touching the browser history. The default frame
+;; (`:rf/default`) is URL-bound; non-default frames are not, unless they
+;; opt in via `(reg-frame :my-frame {:url-bound? true})`. Non-URL-bound
+;; frames no-op the fx (history.pushState would race with the
+;; URL-owning frame). The check honours the framework default:
+;; `:rf/default` is URL-bound when no explicit `:url-bound?` slot is
+;; declared.
+
+(defn- url-bound-frame?
+  "Return true when the frame named `frame-id` may push to the browser
+  URL. Default-frame default is true; other frames must opt in via
+  `:url-bound? true`. Per Spec 012 §Multi-frame routing."
+  [frame-id]
+  (let [meta (frame/frame-meta frame-id)]
+    (if (contains? meta :url-bound?)
+      (true? (:url-bound? meta))
+      (= :rf/default frame-id))))
 
 (fx/reg-fx :rf.nav/push-url
   {:platforms #{:client}
-   :doc       "Push the URL to the browser history (HTML5 pushState)."}
-  (fn [_ url]
-    #?(:cljs (.pushState js/window.history nil "" url)
-       :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
-                          {:fx-id :rf.nav/push-url :url url}))))
+   :doc       "Push the URL to the browser history (HTML5 pushState).
+Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
+no-op the fx so they don't race with the URL-owning frame (per Spec 012
+§Multi-frame routing — rf2-w50qm)."}
+  (fn [{:keys [frame]} url]
+    (if (url-bound-frame? frame)
+      #?(:cljs (.pushState js/window.history nil "" url)
+         :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
+                            {:fx-id :rf.nav/push-url :url url}))
+      ;; Non-URL-bound frame: skip the history mutation. Frame's
+      ;; `:rf/route` slice still updates — only the browser-URL sync is
+      ;; suppressed. Per Spec 012 §Multi-frame routing this is the right
+      ;; default for story-variant / devcard / per-test fixtures.
+      (trace/emit! :fx :rf.fx/skipped-on-platform
+                   {:fx-id :rf.nav/push-url
+                    :url   url
+                    :frame frame
+                    :reason :frame-not-url-bound}))))
 
 (fx/reg-fx :rf.nav/replace-url
   {:platforms #{:client}
-   :doc       "Replace the URL in the browser history (HTML5 replaceState)."}
-  (fn [_ url]
-    #?(:cljs (.replaceState js/window.history nil "" url)
-       :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
-                          {:fx-id :rf.nav/replace-url :url url}))))
+   :doc       "Replace the URL in the browser history (HTML5 replaceState).
+Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
+no-op the fx so they don't race with the URL-owning frame (per Spec 012
+§Multi-frame routing — rf2-w50qm)."}
+  (fn [{:keys [frame]} url]
+    (if (url-bound-frame? frame)
+      #?(:cljs (.replaceState js/window.history nil "" url)
+         :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
+                            {:fx-id :rf.nav/replace-url :url url}))
+      (trace/emit! :fx :rf.fx/skipped-on-platform
+                   {:fx-id :rf.nav/replace-url
+                    :url   url
+                    :frame frame
+                    :reason :frame-not-url-bound}))))
+
+;; ---- :url-bound? exclusivity check ----------------------------------------
+;; Per Spec 012 §Multi-frame routing — "Only one frame can own the URL at
+;; a time": registering a second `:url-bound? true` frame emits
+;; `:rf.error/duplicate-url-binding` per Spec 009 §error event catalogue.
+;; The check runs from a registrar registration-hook (rf2-w50qm) so it
+;; fires on BOTH first-time and re-registration paths.
+;;
+;; The recovery is `:no-recovery` per Spec 009 — the second binding is
+;; rejected (i.e. the existing URL-owning frame is unchanged from the
+;; runtime's perspective; `:rf.nav/push-url` no-ops on the offender
+;; because its frame-meta does not flip — but the spec's contract is
+;; that the registration's storage already wrote the new meta. The
+;; error surfaces the conflict; resolving it is the app's concern).
+
+(defn- url-bound?-from-config
+  "Read `:url-bound?` from a frame's stored config map. `nil` when
+  unset. Default-on for `:rf/default` is applied at the call site, not
+  here, so the hook can discriminate explicit-`true` from default-`true`."
+  [config]
+  (when (map? config)
+    (:url-bound? config)))
+
+(defn- frame-id-of-existing-url-binding
+  "Scan the registrar's `:frame` map for any frame OTHER than `exclude-id`
+  that currently carries an explicit `:url-bound? true`. Returns the
+  offending frame-id or nil. The `:rf/default` frame's implicit
+  `:url-bound? true` IS counted — the existing URL owner is unchanged."
+  [exclude-id]
+  (some (fn [[other-id other-meta]]
+          (when (and (not= other-id exclude-id)
+                     (or (true? (url-bound?-from-config other-meta))
+                         (and (= :rf/default other-id)
+                              (not (false? (url-bound?-from-config other-meta))))))
+            other-id))
+        (registrar/handlers :frame)))
+
+(defn- check-url-bound-exclusivity!
+  "Registration-hook fn. When a `:frame` registration carries
+  `:url-bound? true` AND another frame already owns the URL, emit
+  `:rf.error/duplicate-url-binding`. Per Spec 012 §Multi-frame routing
+  and Spec 009 §error event catalogue.
+
+  Recovery per Spec 009 is `:no-recovery` — the offending registration's
+  storage has already been written by `registrar/register!`, but the
+  navigation fx (`:rf.nav/push-url` / `:rf.nav/replace-url`) keys off
+  `frame-meta` and continues to respect whichever frame owns the URL.
+  The app resolves the conflict by removing one of the bindings."
+  [{:keys [kind id now]}]
+  (when (= :frame kind)
+    (when (true? (url-bound?-from-config now))
+      (when-let [other (frame-id-of-existing-url-binding id)]
+        (trace/emit-error! :rf.error/duplicate-url-binding
+                           {:existing-frame  other
+                            :offending-frame id
+                            :reason          "Two frames carry :url-bound? true; only one frame may own the URL at a time."
+                            :recovery        :no-recovery})))))
+
+(registrar/add-registration-hook! check-url-bound-exclusivity!)
 
 ;; ---- :rf.route/with-nav-token --------------------------------------------
 ;; Per Spec 012 §Navigation tokens §Threading. Wraps an async-completion
