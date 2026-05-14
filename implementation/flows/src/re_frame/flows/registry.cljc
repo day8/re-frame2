@@ -280,7 +280,17 @@
                           (empty? path)                cur
                           (= 1 (count path))           (dissoc cur (first path))
                           :else                        (dissoc-in-safe cur path))]
-             (adapter/replace-container! container new-db)))
+             ;; Per rf2-2vpac: skip `replace-container!` when the dissoc
+             ;; branch was a no-op (empty-path, missing key, or
+             ;; `dissoc-in-safe` returning `cur` literally on
+             ;; unmaterialised-parent / non-map-intermediate). Otherwise
+             ;; we trigger reactive sub-cache invalidation for a no-op
+             ;; write — cheap-but-needless walk of the sub graph
+             ;; (`identical?` is O(1); the prior unconditional write
+             ;; forced an O(n) sub-graph walk for every clear of an
+             ;; absent slot, common during teardown).
+             (when-not (identical? new-db cur)
+               (adapter/replace-container! container new-db))))
          (swap! flows update frame-id dissoc id)
          ;; `last-inputs` is shaped {flow-id {frame-id inputs}} — clear
          ;; this frame's slot for the cleared flow id, then drop the
