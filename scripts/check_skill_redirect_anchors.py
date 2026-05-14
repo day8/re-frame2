@@ -83,13 +83,15 @@ def main() -> int:
     broken = [(p, ln, raw, norm) for (p, ln, raw, norm) in refs if norm not in canonical]
     ok = len(refs) - len(broken)
 
-    print(f"SKILL-REDIRECT.md anchor coupling audit")
-    print(f"  canonical labels in SKILL-REDIRECT.md: {len(canonical)}")
-    print(f"  leaf references inspected:             {len(refs)}")
-    print(f"  references OK:                         {ok}")
-    print(f"  references BROKEN:                     {len(broken)}")
-
+    # Silent-on-success (rf2-try1x): the audit summary prints only when
+    # there are broken refs. On green the exit code is the success
+    # signal and the script emits no stdout.
     if broken:
+        print(f"SKILL-REDIRECT.md anchor coupling audit")
+        print(f"  canonical labels in SKILL-REDIRECT.md: {len(canonical)}")
+        print(f"  leaf references inspected:             {len(refs)}")
+        print(f"  references OK:                         {ok}")
+        print(f"  references BROKEN:                     {len(broken)}")
         print()
         print("Broken references (label does not appear as a bullet in SKILL-REDIRECT.md):")
         for path, ln, raw, norm in broken:

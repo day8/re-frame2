@@ -230,20 +230,24 @@ function compileAll() {
   const isWin = process.platform === 'win32';
   const cmd = isWin ? 'npx.cmd' : 'npx';
   // Compile every build in one shadow-cljs invocation — faster: it
-  // shares the JVM warmup across builds.
+  // shares the JVM warmup across builds.  Silent-on-success
+  // (rf2-try1x): shadow-cljs's own status lines flow through; that
+  // output is build-tool, not test-runner, and is out of scope here.
   const args = ['shadow-cljs', 'compile', ...EXAMPLES.map((e) => e.build)];
-  console.log(`> ${cmd} ${args.join(' ')}`);
   const result = spawnSync(cmd, args, {
     cwd: IMPL_ROOT,
     stdio: 'inherit',
     shell: isWin,
   });
   if (result.status !== 0) {
+    console.error(`> ${cmd} ${args.join(' ')}`);
     throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
   }
 }
 
 function stageHtml() {
+  // Silent-on-success (rf2-try1x): per-file staging notices are
+  // suppressed.  Errors still throw with the offending path.
   for (const ex of EXAMPLES) {
     if (!fs.existsSync(ex.outDir)) {
       throw new Error(`Build output dir missing: ${ex.outDir}`);
@@ -253,7 +257,6 @@ function stageHtml() {
     }
     const dest = path.join(ex.outDir, 'index.html');
     fs.copyFileSync(ex.htmlSrc, dest);
-    console.log(`Staged ${ex.htmlSrc} -> ${dest}`);
 
     for (const extra of ex.extraFiles || []) {
       if (!fs.existsSync(extra.src)) {
@@ -262,7 +265,6 @@ function stageHtml() {
       const assetDest = path.join(ex.outDir, extra.dest);
       fs.mkdirSync(path.dirname(assetDest), { recursive: true });
       fs.copyFileSync(extra.src, assetDest);
-      console.log(`Staged ${extra.src} -> ${assetDest}`);
     }
   }
 }
