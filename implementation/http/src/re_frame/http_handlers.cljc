@@ -108,19 +108,35 @@
   ctx `{:request :args :frame :event}`; the runtime threads its return
   value through the rest of the chain. A throw inside any `:before`
   classifies as `:rf.error/http-interceptor-failed`; the request is
-  not dispatched."
+  not dispatched.
+
+  Per rf2-1jcpm — the `:sensitive?` flag is resolved BEFORE the
+  middleware runs and BEFORE `check-cljs-only-keys!` fires, so every
+  warning-/error-path trace that carries a request URL can redact
+  through the privacy composer rather than leaking secrets. The
+  same flag is then re-stamped onto the normalised ctx so the
+  attempt loop in `http-transport` sees a single resolved value."
   [frame-ctx args-map]
-  (transport/check-cljs-only-keys! args-map)
   (let [frame-id     (or (:frame frame-ctx) :rf/default)
         ;; rf2-622e3 — resolve once, thread the result through
         ;; frame-ctx's :event slot so normalise-args reads it
         ;; directly instead of re-running the OR-chain.
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
         frame-ctx'   (assoc frame-ctx :event origin-event)
-        ctx0         {:request (:request args-map)
-                      :args    args-map
-                      :frame   frame-id
-                      :event   origin-event}
+        ;; rf2-1jcpm — resolve :sensitive? once at handler entry so
+        ;; the middleware-failure trace path (URL leak via
+        ;; `:rf.error/http-interceptor-failed`) and the JVM CLJS-only
+        ;; warning path (`:rf.http/cljs-only-key-ignored-on-jvm`) both
+        ;; redact through the privacy composer. `normalise-args` then
+        ;; re-derives the same flag from `args-map` — the values agree
+        ;; by construction.
+        sensitive?   (privacy/request-sensitive? args-map origin-event)
+        _            (transport/check-cljs-only-keys! args-map sensitive?)
+        ctx0         {:request    (:request args-map)
+                      :args       args-map
+                      :frame      frame-id
+                      :event      origin-event
+                      :sensitive? sensitive?}
         ctx          (middleware/run-interceptor-chain! frame-id ctx0)
         args-map'    (assoc args-map :request (:request ctx))
         normalised   (normalise-args args-map' frame-ctx')

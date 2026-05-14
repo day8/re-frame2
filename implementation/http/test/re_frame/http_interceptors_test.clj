@@ -280,6 +280,45 @@
           (trace/remove-trace-cb! listener-id)
           (stop-server! srv))))))
 
+;; ---- 4a. rf2-1jcpm — interceptor-failure URL redaction --------------------
+
+(deftest interceptor-failure-trace-redacts-denylisted-query-params
+  (testing "rf2-1jcpm (round-2 security audit finding 1) — when a
+  `:before` throws, the `:rf.error/http-interceptor-failed` trace MUST
+  route the request URL through the privacy composer. Previously the
+  raw URL rode the trace surface, leaking any denylisted query param
+  (`?api_key=…`) into trace consumers."
+    (let [traces      (atom [])
+          listener-id (gensym "interceptor-redact-")]
+      (try
+        (trace/register-trace-cb! listener-id
+                                  (fn [ev] (swap! traces conj ev)))
+        (rf/reg-http-interceptor
+          {:id     :boom
+           :before (fn [_ctx]
+                     (throw (ex-info "kaboom" {:detail :synthetic})))})
+        (rf/reg-event-fx :load
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:url "https://api.example.invalid/v1?api_key=SECRET&page=2"}
+                    :decode  :json
+                    :on-success nil
+                    :on-failure nil}]]}))
+        (rf/dispatch-sync [:load])
+        (Thread/sleep 100)
+        (let [w (first (filter #(= :rf.error/http-interceptor-failed
+                                    (:operation %))
+                                @traces))]
+          (is (some? w) ":rf.error/http-interceptor-failed should be on the stream")
+          (let [tags (:tags w)]
+            (is (= "https://api.example.invalid/v1?api_key=:rf/redacted&page=2"
+                   (:url tags))
+                "denylisted query-param value MUST be scrubbed")
+            (is (true? (:sensitive? w))
+                ":sensitive? stamped on the trace (denylist hit = signal)")))
+        (finally
+          (trace/remove-trace-cb! listener-id))))))
+
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 
 (deftest clear-http-interceptor-unregisters

@@ -163,3 +163,93 @@
                               {:event [:some/event]})]
       (is (zero? (:timeout-ms ctx))
           "zero opt-out threads through unchanged"))))
+
+;; ---- rf2-1jcpm — security audit round-2 regression coverage --------------
+
+(deftest invalid-header-warning-redacts-denylisted-query-params
+  (testing "rf2-1jcpm — when the request URL carries a denylisted query
+  param (`?api_key=…`), the JVM header-validation warning trace MUST
+  scrub the value and stamp `:sensitive?` on the event. The previous
+  shape leaked the secret because the trace bypassed
+  `privacy/prepare-emit-tags`."
+    (with-trace-capture
+      (fn [captured]
+        (let [_req (jvm-build-request
+                     {:method  :get
+                      :url     "https://example.invalid/v1?api_key=SECRET&page=2"
+                      :headers {"" "anything"}})
+              w    (first (filter #(= :rf.warning/http-header-invalid
+                                       (:operation %))
+                                  @captured))]
+          (is (some? w) "warning event should have been captured")
+          (let [tags (:tags w)]
+            (is (= "https://example.invalid/v1?api_key=:rf/redacted&page=2"
+                   (:url tags))
+                "denylisted query-param value MUST be scrubbed in trace URL")
+            (is (true? (:sensitive? w))
+                ":sensitive? MUST be stamped at top level — a denylisted
+                param name is itself a signal that the request carries
+                a secret (Spec 009 §Privacy)")))))))
+
+(deftest invalid-header-warning-redacts-on-sensitive-request
+  (testing "rf2-1jcpm — when the request is declared sensitive (handler
+  or per-call), ALL query-param values in the warning trace URL are
+  scrubbed (broader rule than the denylist)."
+    (with-trace-capture
+      (fn [captured]
+        (let [_req (jvm-build-request
+                     {:method     :get
+                      :url        "https://example.invalid/v1?q=foo&page=2"
+                      :headers    {"" "anything"}
+                      :sensitive? true})
+              w    (first (filter #(= :rf.warning/http-header-invalid
+                                       (:operation %))
+                                  @captured))]
+          (is (some? w))
+          (let [tags (:tags w)]
+            (is (= "https://example.invalid/v1?q=:rf/redacted&page=:rf/redacted"
+                   (:url tags))
+                "sensitive request scrubs EVERY param value")
+            (is (true? (:sensitive? w)))))))))
+
+;; ---- rf2-1jcpm — CLJS-only-key warning redaction (JVM) -------------------
+
+(def ^:private check-cljs-only-keys! @#'re-frame.http-transport/check-cljs-only-keys!)
+
+(deftest cljs-only-key-warning-redacts-denylisted-query-params
+  (testing "rf2-1jcpm — the JVM warning for an ignored CLJS-only key
+  (`:rf.http/cljs-only-key-ignored-on-jvm`) MUST redact denylisted
+  query params in `:url`. Previously the raw URL rode the warning."
+    (with-trace-capture
+      (fn [captured]
+        (check-cljs-only-keys!
+          {:request {:url  "https://example.invalid/v1?token=SECRET&page=2"
+                     :mode :cors}}
+          false)
+        (let [w (first (filter #(= :rf.http/cljs-only-key-ignored-on-jvm
+                                    (:operation %))
+                                @captured))]
+          (is (some? w) "expected the ignored-key warning to be emitted")
+          (let [tags (:tags w)]
+            (is (= "https://example.invalid/v1?token=:rf/redacted&page=2"
+                   (:url tags))
+                "denylisted query-param value MUST be scrubbed")
+            (is (true? (:sensitive? w))
+                ":sensitive? stamped (denylist hit alone is a signal)")))))))
+
+(deftest cljs-only-key-warning-redacts-on-sensitive-request
+  (testing "rf2-1jcpm — sensitive flag also scrubs every param value"
+    (with-trace-capture
+      (fn [captured]
+        (check-cljs-only-keys!
+          {:request {:url      "https://example.invalid/v1?q=foo&page=2"
+                     :referrer "https://internal/"}}
+          true)
+        (let [w (first (filter #(= :rf.http/cljs-only-key-ignored-on-jvm
+                                    (:operation %))
+                                @captured))]
+          (is (some? w))
+          (let [tags (:tags w)]
+            (is (= "https://example.invalid/v1?q=:rf/redacted&page=:rf/redacted"
+                   (:url tags)))
+            (is (true? (:sensitive? w)))))))))

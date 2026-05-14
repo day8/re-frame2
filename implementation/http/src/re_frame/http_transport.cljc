@@ -50,7 +50,21 @@
    (defn- cljs-fetch
      "Issue a single HTTP attempt via Fetch. Returns a Promise that resolves
      to `{:ok? bool :status N :status-text S :headers M :body-text S}` on
-     transport-OK, or rejects with an ex-info classified by the caller."
+     transport-OK, or rejects with an ex-info classified by the caller.
+
+     Per rf2-1jcpm — the per-attempt timeout fires regardless of whether
+     the caller supplied `:abort-signal`. We always own
+     `internal-controller`; when the caller also supplies `:abort-signal`,
+     its `abort` event is forwarded to our controller, so:
+
+     - the caller can still cancel via their own signal, AND
+     - the timeout still arms (previously the timeout was silently
+       disabled the moment a caller signal arrived, even when the args
+       map carried a `:timeout-ms` and/or the security default — round-2
+       security audit finding 2).
+
+     The single `signal` Fetch accepts is always our internal one; any
+     caller signal funnels through `addEventListener` for cancellation."
      [{:keys [method url headers body credentials mode redirect cache referrer
               integrity timeout-ms abort-signal internal-controller]}]
      (let [init     #js {}
@@ -66,9 +80,24 @@
                         (when cache        (aset init "cache"       (name cache)))
                         (when referrer     (aset init "referrer"    referrer))
                         (when integrity    (aset init "integrity"   integrity))
-                        (cond
-                          abort-signal        (aset init "signal" abort-signal)
-                          internal-controller (aset init "signal" (.-signal internal-controller))))
+                        (when internal-controller
+                          (aset init "signal" (.-signal internal-controller)))
+                        ;; rf2-1jcpm — forward caller's abort-signal into
+                        ;; our internal controller so the timeout still
+                        ;; fires when a caller signal is present.
+                        (when (and abort-signal internal-controller)
+                          (if (.-aborted abort-signal)
+                            (try (.abort internal-controller
+                                         (or (.-reason abort-signal) "caller-aborted"))
+                                 (catch :default _ nil))
+                            (.addEventListener
+                              abort-signal
+                              "abort"
+                              (fn []
+                                (try (.abort internal-controller
+                                             (or (.-reason abort-signal) "caller-aborted"))
+                                     (catch :default _ nil)))
+                              #js {:once true}))))
            timeout-handle (atom nil)
            timeout-fired? (atom false)
            promise
@@ -130,7 +159,7 @@
 
 #?(:clj
    (defn- jvm-build-request
-     [{:keys [method url headers body timeout-ms]}]
+     [{:keys [method url headers body timeout-ms sensitive?]}]
      (let [b (HttpRequest/newBuilder (URI/create url))
            publisher (cond
                        (nil? body) (HttpRequest$BodyPublishers/noBody)
@@ -150,13 +179,22 @@
          ;; error" anti-pattern. The request still proceeds without
          ;; the offending header so a stray bad header doesn't sink
          ;; an otherwise-valid request; the trace is the alarm.
+         ;;
+         ;; rf2-1jcpm — the `:url` slot on the warning event is routed
+         ;; through `privacy/prepare-emit-tags` so a denylisted query
+         ;; param (`?api_key=…`) is scrubbed and `:sensitive?` is
+         ;; stamped when the request is sensitive. Previously the raw
+         ;; URL rode the trace surface even when the handler / request
+         ;; was declared sensitive.
          (try (.header b (str k) (str v))
               (catch Throwable t
                 (when interop/debug-enabled?
                   (trace/emit! :warning :rf.warning/http-header-invalid
-                               {:url     url
-                                :header  (str k)
-                                :cause   (.getMessage t)})))))
+                               (privacy/prepare-emit-tags
+                                 {:url     url
+                                  :header  (str k)
+                                  :cause   (.getMessage t)}
+                                 (true? sensitive?)))))))
        (.build b))))
 
 #?(:clj
@@ -180,7 +218,10 @@
    (defn- jvm-fetch
      "Issue a single HTTP attempt via java.net.http.HttpClient. Returns a
      CompletableFuture that completes with `{:ok? :status :status-text
-     :headers :body-text}` or completes-exceptionally with an ex-info."
+     :headers :body-text}` or completes-exceptionally with an ex-info.
+
+     `opts` carries `:sensitive?` so `jvm-build-request` can route any
+     header-validation warning through the privacy composer (rf2-1jcpm)."
      [opts]
      (let [client ^HttpClient @jvm-http-client
            req    (jvm-build-request opts)
@@ -217,26 +258,32 @@
 ;; ---- per-row CLJS-only-key tracing on JVM ---------------------------------
 
 #?(:clj
-   (defn- emit-cljs-only-skipped! [k url]
+   (defn- emit-cljs-only-skipped! [k url sensitive?]
      (when interop/debug-enabled?
+       ;; rf2-1jcpm — route through the privacy composer so a denylisted
+       ;; query param in the URL is scrubbed and `:sensitive?` is stamped
+       ;; on the warning event when the originating handler / request is
+       ;; sensitive. Previously the raw URL rode the trace surface.
        (trace/emit! :warning :rf.http/cljs-only-key-ignored-on-jvm
-                    {:key k :url url}))))
+                    (privacy/prepare-emit-tags
+                      {:key k :url url}
+                      (true? sensitive?))))))
 
 #?(:clj
-   (defn check-cljs-only-keys! [{:keys [request abort-signal]}]
+   (defn check-cljs-only-keys! [{:keys [request abort-signal]} sensitive?]
      (let [url (:url request)]
        (doseq [k [:mode :cache :referrer :integrity]]
          (when (contains? request k)
-           (emit-cljs-only-skipped! k url)))
+           (emit-cljs-only-skipped! k url sensitive?)))
        (when abort-signal
-         (emit-cljs-only-skipped! :abort-signal url)))))
+         (emit-cljs-only-skipped! :abort-signal url sensitive?)))))
 
 ;; A no-op JVM-only no-op stub on CLJS so callers can reach
 ;; `http-transport/check-cljs-only-keys!` unconditionally without
 ;; needing their own reader-conditional. The CLJS body would do nothing
 ;; — by definition CLJS-only keys are always honoured on CLJS.
 #?(:cljs
-   (defn check-cljs-only-keys! [_args] nil))
+   (defn check-cljs-only-keys! [_args _sensitive?] nil))
 
 ;; ---- shared attempt-and-retry loop ----------------------------------------
 
@@ -448,11 +495,13 @@
                    (and ct (nil? (decode/content-type-of (:headers request))))
                    (assoc "Content-Type" ct))
         ctx-no-handle (assoc ctx :url url)
-        ;; CLJS: an internal AbortController backs the Fetch signal when
-        ;; the caller didn't supply one. JVM: no per-attempt controller —
-        ;; abort signalling is host-specific and lives outside the
-        ;; sendAsync future.
-        #?@(:cljs [internal-controller (when-not abort-signal (js/AbortController.))])
+        ;; CLJS: per rf2-1jcpm always own an internal AbortController so
+        ;; the per-attempt timeout fires even when the caller supplied
+        ;; `:abort-signal`. `cljs-fetch` forwards the caller's signal into
+        ;; this controller via `addEventListener "abort"`. JVM: no per-
+        ;; attempt controller — abort signalling is host-specific and
+        ;; lives outside the sendAsync future.
+        #?@(:cljs [internal-controller (js/AbortController.)])
         ;; Register the abort handle. The handle ref is stamped into ctx
         ;; so finalise-* can clear it from both indexes without needing
         ;; the request-id (handles anonymous-from-actor requests too —
@@ -510,7 +559,8 @@
                            :url        url
                            :headers    headers
                            :body       enc-body
-                           :timeout-ms timeout-ms})]
+                           :timeout-ms timeout-ms
+                           :sensitive? (true? (:sensitive? ctx))})]
            (.whenComplete cf
                           (reify java.util.function.BiConsumer
                             (accept [_ result throwable]
