@@ -1,11 +1,29 @@
 (ns re-frame-pair2-mcp.tools.source-uri
   "Source-URI decoration pass (rf2-cibp8).
 
-  Every pair2-mcp tool whose response carries `:source-coord
-  {:ns :file :line :column}` maps walks the post-shrink payload
-  through this transform. For every `:source-coord` map encountered,
-  a sibling `:rf.source/uri \"vscode://...\"` string is added (built
-  via `re-frame.source-coords.editor-uri/editor-uri`).
+  Every pair2-mcp tool whose response carries source-coord data walks
+  the post-shrink payload through this transform. The decorator
+  recognises two source-coord carriers — both shapes spec'd by
+  `:rf/source-coord-meta` in Spec-Schemas:
+
+  1. **Sub-map carrier** — trace events carry coords nested under a
+     `:source-coord` key (per `:rf/trace-event` and `:rf.trace/
+     trigger-handler`). When the walker descends into a map and that
+     map has a `:source-coord` slot whose value carries a usable
+     `:file` string, the URI is spliced on the OUTER map at
+     `:rf.source/uri`.
+  2. **Flat-key carrier** — `(rf/handler-meta kind id)` / `(rf/frame-
+     meta id)` returns merge source-coords flat onto the registration-
+     metadata map (`:ns` / `:line` / `:column` / `:file` at the top
+     level — per Spec-Schemas `:rf/source-coord-meta` and rf2-4h8ny).
+     When the walker descends into a map that itself carries a usable
+     `:file` string alongside other source-coord keys (`:ns`/`:line`/
+     `:column`), the URI is spliced on THAT map at `:rf.source/uri`.
+
+  The two carrier shapes are deliberately disjoint at the schema
+  level — trace events nest because the trigger-handler is a separate
+  handler from the trace's own coords; handler-meta is flat because
+  the call site IS the handler being introspected.
 
   ## Why a sibling URI string, not just the coord map
 
@@ -22,13 +40,20 @@
   ## Walk policy
 
   - Recurses into maps, vectors, lists, seqs, sets.
-  - When the walker descends into a map and that map has a
-    `:source-coord` slot whose value is itself a map, the URI is
-    spliced onto the map at the `:rf.source/uri` key.
-  - When `:source-coord`'s `:file` slot is missing / blank, the
-    underlying `editor-uri` returns nil; the decorator omits the
-    `:rf.source/uri` key entirely (keeps the response shape tight
-    — no `:rf.source/uri nil` slots).
+  - For the sub-map carrier: when the walker descends into a map M
+    whose `:source-coord` value is itself a map carrying `:file`,
+    the URI for that sub-map's `:file` is spliced onto M at
+    `:rf.source/uri`.
+  - For the flat-key carrier: when the walker descends into a map M
+    that itself carries a non-blank `:file` string AND at least one
+    other source-coord key (`:ns`/`:line`/`:column`) — guarding
+    against accidental decoration of unrelated maps that happen to
+    have a `:file` key — the URI for M's `:file` is spliced onto M
+    at `:rf.source/uri`.
+  - When `:file` is missing / blank, the underlying `editor-uri`
+    returns nil; the decorator omits the `:rf.source/uri` key
+    entirely (keeps the response shape tight — no `:rf.source/uri
+    nil` slots).
   - The walk is idempotent. A map that already carries
     `:rf.source/uri` is overwritten with the current editor's URI
     (so a stale URI from a server-side decorator can be replaced if
@@ -65,18 +90,52 @@
        (string? (:file v))
        (seq (:file v))))
 
+(defn- flat-coord-carrier?
+  "Is `m` itself a flat-key source-coord carrier? Match on `:file`
+  being a non-blank string AND at least one of `:ns` / `:line` /
+  `:column` being present — the multi-key guard rules out unrelated
+  maps that happen to carry a `:file` key for some other reason
+  (e.g. an MCP tool's `{:file \"/path/to/x.edn\"}` arg map).
+
+  Per `:rf/source-coord-meta`: handler-meta / frame-meta returns merge
+  these four keys flat onto the registration-metadata, so the carrier
+  shape is `{:doc ... :file ... :ns ... :line ...}` etc."
+  [m]
+  (and (map? m)
+       (string? (:file m))
+       (seq (:file m))
+       (or (contains? m :ns)
+           (contains? m :line)
+           (contains? m :column))))
+
 (defn- decorate-map
-  "Decorate `m` with `:rf.source/uri` when its `:source-coord` slot
-  carries a usable file string. Otherwise return `m` unchanged.
+  "Decorate `m` with `:rf.source/uri` when either:
+
+  - `m` carries a `:source-coord` sub-map with a usable file string
+    (trace-event carrier — per `:rf/trace-event`); the URI is built
+    from the sub-map and spliced onto `m`. OR
+  - `m` is itself a flat-key source-coord carrier (handler-meta /
+    frame-meta return shape — per `:rf/source-coord-meta`); the URI
+    is built from `m`'s own flat keys and spliced onto `m`.
+
+  Returns `m` unchanged when neither shape matches.
 
   Pure data → data; no atoms read here — the editor is threaded in
   by the caller so this fn is testable without the config atom."
   [m editor]
   (let [coord (:source-coord m)]
-    (if (coord-map? coord)
+    (cond
+      (coord-map? coord)
       (if-let [uri (editor-uri/editor-uri editor coord)]
         (assoc m :rf.source/uri uri)
         m)
+
+      (flat-coord-carrier? m)
+      (if-let [uri (editor-uri/editor-uri editor m)]
+        (assoc m :rf.source/uri uri)
+        m)
+
+      :else
       m)))
 
 (defn decorate
