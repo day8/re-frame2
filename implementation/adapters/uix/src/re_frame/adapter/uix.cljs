@@ -11,10 +11,9 @@
   configuration: gensym prefixes, substrate name (used in warn-once
   text), and the runtime hook fns from `uix.hooks.alpha` (the
   `uix.core` macros expand to these)."
-  (:require [reagent.core      :as r]
-            [reagent.ratom     :as ratom]
-            [uix.core          :as uix]
+  (:require [uix.core          :as uix]
             [uix.hooks.alpha   :as uix-hooks]
+            [re-frame.disposable :as rf-disposable]
             [re-frame.frame    :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -145,10 +144,21 @@
 ;;     dynamic-var-fallback chain via this hook; the per-adapter
 ;;     `use-current-frame` hook above is the NARROWER React-context-
 ;;     tier-only read (per rf2-84myk).
-;;   :adapter/ratom etc. — rf2-s36l. UIx ships no reactive-atom
-;;     primitive (per rf2-3yij); derived values reify stock
-;;     reagent.ratom/IDisposable, so these hooks delegate to
-;;     `r/atom`, `ratom/make-reaction`, etc.
+;;   :adapter/add-on-dispose! / :adapter/dispose! — rf2-jicu2. Spine-
+;;     produced derived values reify the re-frame-owned
+;;     `re-frame.disposable/IDisposable` (no Reagent coupling). The
+;;     adapter wires straight to the protocol fns. Pre-rf2-jicu2 these
+;;     routed to `reagent.ratom/add-on-dispose!` / `ratom/dispose!`
+;;     which dragged ~9KB of reagent.ratom + reagent.impl.batching into
+;;     every UIx-only release bundle for a single defprotocol slot.
+;;     The other reactive-substrate hooks (`:adapter/ratom`,
+;;     `:adapter/ratom?`, `:adapter/make-reaction`, `:adapter/reactive?`,
+;;     `:adapter/after-render`) are intentionally NOT published by the
+;;     UIx adapter — UIx ships no reactive-atom primitive (per
+;;     rf2-3yij) and `re-frame.interop`'s reactive surfaces have zero
+;;     production call sites under UIx; publishing those hooks would
+;;     force the UIx bundle to carry reagent.core (transitively
+;;     reagent.ratom) for code it never executes.
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord
 ;;     injection via React.cloneElement (the views.cljs inline
 ;;     hiccup-walk would mis-classify React-element output as a
@@ -157,22 +167,10 @@
 (substrate-adapter/route-hook! adapter :adapter/current-frame
   adapter-context/function-component-current-frame
   #(frame/current-frame))
-(substrate-adapter/route-hook! adapter :adapter/ratom
-  r/atom)
-(substrate-adapter/route-hook! adapter :adapter/ratom?
-  (fn ratom?-impl [x] (satisfies? ratom/IReactiveAtom x))
-  (constantly false))
-(substrate-adapter/route-hook! adapter :adapter/make-reaction
-  ratom/make-reaction)
 (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
-  ratom/add-on-dispose!)
+  rf-disposable/-add-on-dispose)
 (substrate-adapter/route-hook! adapter :adapter/dispose!
-  ratom/dispose!)
-(substrate-adapter/route-hook! adapter :adapter/reactive?
-  ratom/reactive?
-  (constantly false))
-(substrate-adapter/route-hook! adapter :adapter/after-render
-  r/after-render)
+  rf-disposable/-dispose)
 (substrate-adapter/route-hook! adapter :adapter/wrap-view
   wrap-view)
 
