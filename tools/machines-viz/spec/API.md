@@ -125,6 +125,133 @@ introduce new registries.
 Source: lifted from
 [Causa 003 §Data sources](../../causa/spec/003-Machine-Inspector.md#data-sources).
 
+## Performance invariants
+
+This section is **load-bearing and conformance-level**, not guidance.
+The chart's runtime hot path is the single largest regression
+surface for Machines-Viz (per
+[`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/)
+findings 1+2; audit-bead rf2-j3iwt). Once an implementation couples
+live snapshot / trace ticks to graph recompute, the coupling is hard
+to remove without rewriting the rendering pipeline. The MUSTs below
+exist so that coupling never lands.
+
+### Topology state and runtime-highlight state MUST be strictly separate
+
+`MachineChart` maintains **two disjoint state planes**:
+
+- **Topology / layout plane.** The node positions, edge routes,
+  compound-state nesting, and the chart's measured viewbox. Derived
+  from `(rf/machine-meta machine-id)` plus the user's expand/collapse
+  state. This plane is **structural**: changing it requires re-laying
+  out the graph.
+- **Runtime-highlight plane.** The active-state pulse, transition
+  edge glow, microstep flash, `:after` countdown ring progress,
+  `:invoke-all` row state, spawn-tray contents, timer state, and
+  every other per-trace decoration. Derived from `[:rf/machines <id>]`
+  plus the `:rf.machine/*` trace bus. This plane is **decorative**:
+  changing it MUST NOT touch the topology plane.
+
+Implementations MUST hold these planes in disjoint reactive
+subscriptions. The runtime-highlight plane MUST NOT participate in
+any computation whose output reaches the layout plane. The two
+planes share no caches.
+
+### Transition / microstep / timer updates MUST change attrs/classes only
+
+Live updates triggered by `[:rf/machines <id>]` snapshot changes or
+by any `:rf.machine/*` trace event MUST mutate **only**:
+
+- DOM attributes (`class`, `style.opacity`, `style.transform` on
+  decoration layers, SVG `stroke-dasharray` / `stroke-dashoffset`,
+  ARIA labels).
+- CSS-driven animations (the heartbeat pulse, the transition glow,
+  the microstep flash, the `prefers-reduced-motion` step animation).
+
+Live updates MUST NOT:
+
+- Re-run layout (no `dagre`/`elk`/custom layout call).
+- Re-measure nodes (no `getBBox`, no `getBoundingClientRect` in any
+  code path reached by a trace tick or a snapshot deref).
+- Insert or remove topology DOM nodes (state nodes, edge paths,
+  compound containers). Decoration overlays (rings, glows, badges)
+  MAY mount and unmount; topology MUST NOT.
+- Mutate any reactive value that the topology plane subscribes to.
+
+A trace event that arrives at 60Hz MUST cost less than one paint
+frame end-to-end on the chart's hot path.
+
+### Layout-invalidation boundary is load-bearing
+
+The **only** triggers permitted to invalidate the topology / layout
+plane are:
+
+1. **Machine (re-)registration.** `reg-machine` (or its hot-reload
+   re-invocation) for the bound `:machine-id` within the bound
+   `:frame-id`. Detected via the framework's registry-change signal
+   (per Spec 001) — not via `:rf.machine/*` trace events.
+2. **User-driven compound-state expand / collapse.** The chart's
+   own UI event, scoped to the chart instance.
+3. **A `:show-*` prop transition** that adds or removes topology
+   (e.g. `:show-invoke-all?` flipping false → true reveals the
+   row of mini-machines; that row is topology, not decoration).
+   Transitions of `:show-after-rings?` are decoration-only and MUST
+   NOT trigger layout.
+4. **Container resize** of the chart's bounding box (only when the
+   layout algorithm depends on available width / height).
+
+No other code path may invalidate layout. In particular:
+
+- `:rf.machine/transition`, `:rf.machine.microstep/transition`,
+  `:rf.machine.timer/scheduled` / `-fired` / `-stale-after`,
+  `:rf.machine.invoke-all/*`, `:rf.machine/spawned` / `-destroyed`,
+  `:rf.machine/done`, `:rf.machine/system-id-bound` / `-released`
+  trace events MUST NOT reach the layout pipeline.
+- A `[:rf/machines <id>]` snapshot deref MUST NOT reach the layout
+  pipeline.
+- `:auto-pan?` MUST be implemented as a viewport translate (a CSS
+  transform on the chart's outer group), never as a re-layout. The
+  auto-pan code path MUST NOT call `getBBox` on topology nodes
+  inside a trace-event handler; the active-node bbox MUST be cached
+  during the last layout pass.
+
+Implementations MUST place an explicit comment marking the
+layout-invalidation boundary as load-bearing in the code that owns
+it (the function or watcher that decides "should layout re-run?").
+The comment MUST cite this section and DESIGN-RATIONALE Lock #9 and
+Lock #11.
+
+### One chart-level, visibility-gated animation clock
+
+`:after` countdown rings, the active-state heartbeat pulse, and any
+other continuous animation in the chart MUST be driven by a
+**single, per-chart-instance animation clock**.
+
+- The clock is **one** `requestAnimationFrame` loop (or equivalent)
+  per `MachineChart` instance. It MUST NOT be one loop per ring,
+  per node, per state, or per timer.
+- The clock is **visibility-gated**. It MUST start when the chart
+  becomes visible (per `IntersectionObserver` and/or
+  `document.visibilityState`) and MUST stop when the chart leaves
+  the viewport or the document is hidden.
+- The clock drives ring fills and pulse phase by reading the
+  framework's authoritative timer state on each tick; it does not
+  own the timer. The framework's clock keeps running regardless of
+  the chart's visibility (per Lock #8); the chart's clock is purely
+  presentational.
+- A chart with no scheduled `:after` timers and no active state to
+  pulse MUST stop its clock entirely until the next snapshot or
+  trace tick wakes it.
+
+Implementations MUST NOT create `setInterval`, `setTimeout`, or
+`requestAnimationFrame` registrations per-node, per-ring, or
+per-timer. A 50-chart Story grid with 5 rings each MUST run at most
+50 animation loops total — not 250.
+
+Per [DESIGN-RATIONALE Lock #8](./DESIGN-RATIONALE.md) (visibility
+gating) and [Lock #11](./DESIGN-RATIONALE.md) (the layout/runtime
+separation this section codifies).
+
 ## Read-only viewer
 
 A static page at the canonical hosted URL (or self-hosted by the
@@ -422,7 +549,7 @@ transparent over its props; the share / export functions are pure
 
 - [`000-Vision.md`](./000-Vision.md) — scope + non-goals + roadmap.
 - [`Principles.md`](./Principles.md) — load-bearing principles.
-- [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) — locks; cites Causa 003 lift-points.
+- [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) — locks; cites Causa 003 lift-points. Lock #8, Lock #9, and Lock #11 are the rationales behind [§Performance invariants](#performance-invariants).
 - [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md) — embedding-host contract; the source spec these surfaces lifted from.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the registry the chart visualises.
 - [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md) — the trace bus the live-highlight consumes.

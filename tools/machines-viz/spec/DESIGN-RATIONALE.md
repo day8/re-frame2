@@ -443,7 +443,8 @@ How do `:after` countdown rings update?
 
 ### Pick
 
-**60Hz when visible, paused when backgrounded.**
+**60Hz when visible, paused when backgrounded — driven by a single
+per-chart animation clock, never per-node / per-ring timers.**
 
 ### Why
 
@@ -454,22 +455,34 @@ How do `:after` countdown rings update?
   variants, each with a chart, each with a ring, would consume
   significant CPU if every ring rendered at 60Hz. Visibility-
   gating reduces it to "only the visible charts pay the cost."
+- **One clock per chart, not per ring.** Per-node /
+  per-ring `requestAnimationFrame` loops scale O(rings × charts);
+  a single per-chart clock scales O(charts). A 50-chart × 5-ring
+  Story grid means 50 loops, not 250. This is enforced as a MUST
+  in [API.md §Performance invariants](./API.md#performance-invariants)
+  and is part of the load-bearing layout/runtime separation in
+  Lock #11 below.
 - **`prefers-reduced-motion` clamps the ring to a step
   animation** — not a smooth fill. The user controls.
 
 Source: lifted from Causa
 [`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
 §Performance + §Animation (the broader UX baseline lives in
-[Causa 007-UX-IA](../../causa/spec/007-UX-IA.md)).
+[Causa 007-UX-IA](../../causa/spec/007-UX-IA.md)). The
+single-animation-clock clarification was added 2026-05-14 per the
+perf-audit findings (rf2-j3iwt) and rf2-t1yvw.
 
 ---
 
 ## Lock #9 — Layout: recompute on registry change, not on transition
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003).** **Chart
-layout runs only on registry change (machine re-registered) or
-compound-state expand/collapse. Live transitions update node
-highlights without re-layout.**
+**Locked 2026-05-13 (Mike, lifted from Causa 003); tightened
+2026-05-14 (Mike, per rf2-t1yvw + perf-audit rf2-j3iwt).** **Chart
+layout MUST run only on machine (re-)registration, user-driven
+compound-state expand/collapse, a `:show-*` prop transition that
+adds or removes topology, or chart container resize. Live
+transitions, microsteps, timer updates, and snapshot derefs MUST
+update node attributes/classes only — never re-lay-out.**
 
 ### Question
 
@@ -487,7 +500,17 @@ When does Machines-Viz recompute chart layout?
 
 ### Pick
 
-**On registry change + on compound expand/collapse only.**
+**On machine (re-)registration + on user-driven compound
+expand/collapse + on a `:show-*` topology-affecting prop transition
++ on container resize. No other trigger.**
+
+The exhaustive enumeration of permitted layout-invalidation triggers
+— and the explicit denylist of trace events and snapshot derefs —
+lives in
+[API.md §Performance invariants §Layout-invalidation boundary is
+load-bearing](./API.md#performance-invariants). Implementations MUST
+place an explicit comment marking the layout-invalidation boundary
+as load-bearing, citing that section and this lock.
 
 ### Why
 
@@ -495,14 +518,23 @@ When does Machines-Viz recompute chart layout?
   on every transition makes the user re-orient on every event;
   cognitive cost wins over visual flourish.
 - **Performance** — re-layout is O(nodes × edges) at minimum;
-  60Hz re-layout on a 50-state chart is expensive.
+  60Hz re-layout on a 50-state chart is expensive. The highest-
+  risk regression in this jar is a future impl coupling
+  trace-tick or snapshot deref to layout; once that coupling
+  lands it is hard to remove without rewriting the rendering
+  pipeline (per
+  [`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/)
+  finding 1; audit-bead rf2-j3iwt). The MUST in
+  [API.md §Performance invariants](./API.md#performance-invariants)
+  exists so that coupling cannot accidentally land.
 - **Hot-reload** triggers a registry-change event, which triggers
   a layout pass — so editing a machine and saving causes the
   chart to redraw correctly without manual intervention.
 
 Source: lifted from Causa
 [`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
-§Performance.
+§Performance; tightened to MUST 2026-05-14 per rf2-t1yvw + audit-bead
+rf2-j3iwt.
 
 ---
 
@@ -520,8 +552,9 @@ truth.**
 | `MachineChart` prop contract | §Embedding posture | [`API.md`](./API.md) §MachineChart (already lifted) |
 | Share-URL encoding pipeline | §Share affordance §Share URL + §Performance | [`API.md`](./API.md) §Share-URL encoding (already lifted) |
 | Read-only viewer behaviour | §Share-URL §Read-only viewer | [`API.md`](./API.md) §Read-only viewer (already lifted) |
-| `:after` countdown rings — render rules | §Performance | [`API.md`](./API.md) §Countdown rings + Lock #8 above |
-| Layout-recompute rules | §Performance | Lock #9 above |
+| `:after` countdown rings — render rules | §Performance | [`API.md`](./API.md) §Performance invariants + Lock #8 above |
+| Layout-recompute rules | §Performance | [`API.md`](./API.md) §Performance invariants + Lock #9 above |
+| Topology / runtime-highlight separation (load-bearing) | (originated here 2026-05-14 per rf2-t1yvw) | [`API.md`](./API.md) §Performance invariants + Lock #11 below |
 | `:invoke-all` viz — row of mini-machines | §`:invoke-all` viz | future 001-Rendering.md (post-scaffold; not in this PR) |
 | PNG / SVG export — accessibility | §Accessibility | [`API.md`](./API.md) §Exporters |
 | Privacy posture for share-URL | §Privacy posture | [Principles §No session data in shares](./Principles.md) (already lifted) |
@@ -552,6 +585,100 @@ implementation work picks up.
 
 Until those land, **Causa 003 is the source of truth for
 unmigrated content**, and this DESIGN-RATIONALE cites back to it.
+
+---
+
+## Lock #11 — Topology / layout state and runtime-highlight state are strictly separate
+
+**Locked 2026-05-14 (Mike, per rf2-t1yvw + perf-audit rf2-j3iwt).**
+**`MachineChart` maintains two disjoint state planes — a topology /
+layout plane and a runtime-highlight plane. The two share no
+caches, no subscriptions, no derived values. Runtime-highlight
+updates MUST mutate attrs / classes only; they MUST NOT reach the
+layout plane.**
+
+### Question
+
+How does `MachineChart` keep the live-trace and snapshot hot path
+from regressing into a full graph recompute?
+
+### Options considered
+
+- **One unified reactive graph.** Every reactive value flows into a
+  single `MachineChart` render function; the renderer figures out
+  what changed. Rejected — when the framework's reactive substrate
+  is too lenient about granularity (or the renderer's diffing
+  misses), trace ticks bleed into layout work. The audit
+  (rf2-j3iwt) flagged this as the highest-risk future regression.
+- **Disjoint planes by convention.** Document the separation in
+  prose; trust the implementer to maintain it. Rejected — the perf-
+  audit explicitly recommended raising this above guidance because
+  "once the coupling lands, it is hard to remove without rewriting
+  the rendering pipeline."
+- **Disjoint planes as a load-bearing invariant.** A MUST in the
+  spec, an explicit comment at the layout-invalidation boundary in
+  the implementation, and a forbidden-paths list (trace events,
+  snapshot derefs) that fence layout off from the hot path.
+
+### Pick
+
+**Disjoint planes as a load-bearing invariant.** Two state planes:
+
+- **Topology / layout plane** — node positions, edge routes, compound
+  nesting, the chart's measured viewbox. Owned by
+  `(rf/machine-meta machine-id)` + the user's expand/collapse state +
+  the `:show-*` props that affect topology presence.
+- **Runtime-highlight plane** — pulse, edge glow, microstep flash,
+  `:after` ring progress, `:invoke-all` row state, spawn-tray
+  contents, timer state. Owned by `[:rf/machines <id>]` + the
+  `:rf.machine/*` trace bus.
+
+The runtime-highlight plane MUST NOT participate in any computation
+whose output reaches the topology plane. The two planes share no
+caches.
+
+The exhaustive normative rules live in
+[API.md §Performance invariants](./API.md#performance-invariants):
+
+- Topology vs runtime-highlight separation (MUST).
+- Trace/snapshot updates change attrs/classes only (MUST).
+- Layout-invalidation boundary enumeration + load-bearing comment
+  requirement.
+- Single chart-level visibility-gated animation clock for `:after`
+  rings (MUST; never per-node timers).
+
+### Why
+
+- **Highest-risk future regression.** The perf-audit (rf2-j3iwt)
+  identified this as the single largest regression surface for
+  Machines-Viz. Once coupling between trace ticks and layout lands
+  in an implementation, removing it requires rewriting the pipeline.
+  Pinning the invariant before implementation lands is cheap;
+  unpinning a coupled implementation later is expensive.
+- **Two state planes match the data sources.** The topology comes
+  from a registry that changes on edit; the runtime highlight
+  comes from a snapshot + trace bus that change at runtime
+  frequency. The implementation should reflect the same split.
+- **Trace events arrive at 60Hz; layout is O(nodes × edges).**
+  Coupling the two means every event pays the layout cost;
+  decoupling means events pay only the attr-mutation cost. A 50-
+  state chart with a 60Hz trace stream is the worst case the spec
+  must protect against.
+- **Spec is the artefact, code is downstream.** Per the project
+  posture (CLAUDE.md), the spec is the load-bearing description.
+  Pinning the invariant in the spec ensures every future
+  implementer (human or AI) reaches the same answer without re-
+  litigating it.
+- **Visibility-gated single animation clock falls out of the same
+  separation.** A per-ring `requestAnimationFrame` would cross the
+  plane boundary (each ring would own its own subscription to the
+  timer); a single chart-level clock that reads the framework
+  timer respects it. Lock #8 codifies the visibility gating; this
+  lock codifies the single-clock posture.
+
+Per
+[`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/)
+findings 1+2; audit-bead rf2-j3iwt.
 
 ---
 
@@ -586,4 +713,5 @@ as a bead against this jar.
 - [`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md) — Causa's locks; #4 (no session export) is lifted into Lock #5 above.
 - [`ai/findings/xstate-advanced-features-2026-05-13.md`](../../../ai/findings/) — visualizer-as-product deprecation rationale.
 - [`ai/findings/sweep-tools-vs-sota-2026-05-13.md`](../../../ai/findings/) §machines-viz — peer-comparison + gap analysis.
+- [`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/) — perf audit findings 1+2 underpinning Lock #11 + the API.md §Performance invariants MUSTs; audit-bead rf2-j3iwt.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Future — `(machine->mermaid)` exporter forward-pointer.
