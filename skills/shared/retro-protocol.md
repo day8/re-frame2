@@ -55,7 +55,7 @@ If the evidence is hostile enough that even rendering it inline would propagate 
    - Anything else stays as a suggestion until the user says go.
    - **Tracker boundary** — skills file GitHub issues against the target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from these skills.
    - **Shell safety** — transcript-derived bodies can carry shell metacharacters. Always pass the body via a file: `cat > /tmp/issue-body.md <<'EOF' … EOF; gh issue create --body "$(cat /tmp/issue-body.md)"`. Single-quoted here-doc delimiter so `$`, `` ` ``, and `\` stay literal. See [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy).
-   - Before filing: redact secrets, tokens, internal URLs, unnecessary local paths; search for an existing issue first (`gh issue list --repo <owner/repo> --search "<keywords>"`); prefer one issue per materially distinct improvement; use the consuming skill's `references/issue-template.md` (or equivalent) for body shape.
+   - Before filing: search for an existing issue first (`gh issue list --repo <owner/repo> --search "<keywords>"`); prefer one issue per materially distinct improvement; use the consuming skill's `references/issue-template.md` (or equivalent) for body shape. Redaction (below) applies universally — issue bodies are one consumer of the rule, not a special case.
 
 7. **Voice: confident, opinionated, no hedging.** Name the idiom. Name the layer. Pick a priority. The user is asking the skill to surface its judgement — equivocation wastes the trip. Bolder ideas get labelled as such, not buried in qualifiers.
 
@@ -87,6 +87,21 @@ If the evidence is too thin for findings, say so plainly. Don't pad.
 The cardinal sin of a retro skill is fabricating evidence to fill the output. If the catalogue does not match the body, say the body is clean. If the session was too short to retro, say so and ask for a recap.
 
 Friction and anti-patterns are recognised, not invented. Every finding must trace to a concrete moment in the evidence — turn, line range, op shape, error mode. *"This feels off"* is not a finding; *"L42 reaches into `re-frame.db/app-db` directly, which is private per Tool-Pair §REPL-eval"* is.
+
+## Redaction (universal)
+
+Redaction applies to **every output the skill emits**, not just issue / bead bodies. Findings rendered inline in the conversation, draft issue text, quoted symptom snippets, cited stack-trace fragments, recap paraphrases — all of them — MUST mask:
+
+- **Secrets and credentials.** API tokens, OAuth bearers, JWTs, passwords, signing keys, session cookies, AWS/GCP/Azure access keys, private SSH keys, `.env` values.
+- **Internal URLs.** Hostnames under intranet / corp DNS, internal IPs (RFC 1918 / `169.254.*` / `fc00::/7`), VPN-only endpoints, signed S3 / GCS URLs with embedded credentials.
+- **Unnecessary local paths.** Absolute home-directory paths (`C:/Users/<name>/…`, `/Users/<name>/…`, `/home/<name>/…`), maintainer-specific scratch dirs, temp paths that reveal usernames. Repo-relative paths (`skills/shared/retro-protocol.md`, `implementation/core/src/…`) are fine — they're the lingua franca of the catalogue cross-links.
+- **PII.** Email addresses, phone numbers, real names from comments / commit metadata that don't already appear in committed source under review.
+
+Use **stable placeholders** so the rendered finding still reads cleanly and the same secret receives the same mask on repeat mentions: `<REDACTED-TOKEN-1>`, `<REDACTED-TOKEN-2>`, `<REDACTED-PATH-1>`, `<REDACTED-URL-1>`, `<REDACTED-EMAIL-1>`. Number monotonically within an output; don't reuse a number for different values.
+
+**Reviewer pass before emission.** Before sending any output — inline findings, issue draft, filed body — re-read it and scan for: high-entropy strings (≥20 chars of mixed letters/digits/symbols), `Authorization:` / `Bearer ` / `api[_-]?key` substrings, fully-qualified domains that aren't well-known public hosts (github.com, npmjs.org, clojars.org, ...), absolute path roots that name a user. If any pass through unmasked, fix the output before emission.
+
+**Don't quote the raw transcript.** Even when the evidence is a session transcript the user pasted, prefer paraphrase + concrete moment-reference (turn N, op shape) over verbatim block-quote. The raw transcript is the most common carrier of sensitive substrings the user didn't realise were in scope.
 
 ## What this protocol does NOT cover
 
