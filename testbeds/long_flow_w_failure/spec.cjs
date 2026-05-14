@@ -60,11 +60,6 @@ module.exports = {
   //   `[:dispatch-later {:ms ... :dispatch [::tick]}]`
   // — but Spec 002 / `re-frame.fx`'s `:dispatch-later` reads `:event`
   // not `:dispatch`. With the wrong key the deferred timer fires
-  // `(dispatch! nil ...)` (no-op) and the cascade never starts. The
-  // testbed needs `:dispatch` renamed to `:event`. Filed under the
-  // follow-up bead; this spec is skipped until the surface fix lands,
-  // at which point unskipping is a one-line revert.
-  skip: 'long_flow_w_failure/core.cljs :dispatch-later uses :dispatch key; spec requires :event. Cascade never fires. Filed for follow-up.',
   name: 'cross-cutting #5 — flow :rf.flow/failed four-rule semantics',
   url: '/testbeds/long-flow-w-failure/',
   run: async (page) => {
