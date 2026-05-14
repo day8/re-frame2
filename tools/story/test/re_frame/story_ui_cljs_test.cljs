@@ -31,7 +31,8 @@
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.scrubber-xref :as xref]
             [re-frame.story.ui.trace :as trace]
-            [re-frame.story.ui.workspace :as workspace]))
+            [re-frame.story.ui.workspace :as workspace]
+            [re-frame.trace.projection :as projection]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -263,12 +264,11 @@
 
 (deftest trace-group-cascades-classifies
   (testing "group-cascades splits trace events into six-domino slots.
-            Per rf2-wvzgd the projection now lives in
-            `re-frame.trace.projection`; Story exposes the same fn
-            under `re-frame.story.ui.trace/group-cascades` for callers
-            wired to that namespace. Event shapes here track the
-            framework's actual emit pattern per Spec 009 §`:op-type`
-            vocabulary."
+            Per rf2-wvzgd the projection lives in
+            `re-frame.trace.projection` — consumers (Story's trace
+            panel, Causa, pair2) require that namespace directly.
+            Event shapes here track the framework's actual emit
+            pattern per Spec 009 §`:op-type` vocabulary."
     (let [evs       [{:op-type :event :operation :event/dispatched
                       :id 1 :tags {:dispatch-id 100 :event [:foo]}}
                      {:op-type :event :operation :event
@@ -281,7 +281,7 @@
                       :id 5 :tags {:dispatch-id 100 :sub-id :sub/foo}}
                      {:op-type :view :operation :view/render
                       :id 6 :tags {:dispatch-id 100 :render-key [:app/root nil]}}]
-          cascades  (trace/group-cascades evs)]
+          cascades  (projection/group-cascades evs)]
       (is (= 1 (count cascades)))
       (let [c (first cascades)]
         (is (= [:foo] (:event c)))
