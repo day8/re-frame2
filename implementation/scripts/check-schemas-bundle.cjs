@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+/*
+ * Schemas-artefact bundle-cost gate (Spec 010 §Bundle cost, bead rf2-fqbcy).
+ *
+ * Spec 010 §Bundle cost (lines 567-606) catalogues the gzipped costs
+ * of requiring `re-frame.schemas` against the baseline counter:
+ *
+ *   Baseline (no schemas, no Malli):                       91.7 KB
+ *   `[re-frame.schemas]` required, no Malli:               97.2 KB
+ *   `[re-frame.schemas]` + `[malli.core]` required:       120.8 KB
+ *   Typical app: reg-app-schema + :spec on every reg-*:   121.5 KB
+ *
+ * This gate uses two probe builds to assert the schemas surface stays
+ * within band:
+ *
+ *   schemas-bundle-probe        — schemas required, NOT Malli.
+ *                                 Asserts ≤ 100 KB gzipped (spec row 2
+ *                                 + 3 KB headroom).
+ *   schemas-bundle-probe-malli  — schemas + Malli adapter required.
+ *                                 Asserts ≤ 125 KB gzipped (spec row 3
+ *                                 + 5 KB headroom).
+ *
+ * Also asserts the Malli-on bundle is STRICTLY LARGER than the
+ * Malli-off bundle (a regression that DCE-eliminated Malli would
+ * silently turn the budget check into a vacuous "pass" — this guard
+ * keeps the methodology honest).
+ *
+ * Strategy: gzip every .js file under the bundle's output-dir and
+ * sum the compressed sizes. Mirrors the methodology used by the
+ * external bundle audit findings/malli-bundle-cost-audit.md.
+ *
+ * Exit 0 on PASS, 1 on FAIL.
+ */
+
+'use strict';
+
+const fs   = require('fs');
+const path = require('path');
+const zlib = require('zlib');
+
+const ROOT = path.resolve(__dirname, '..');
+
+// ----- the schemas bundle-cost contract -------------------------------------
+
+// Each entry's `gzippedMaxBytes` is the spec's documented figure plus a
+// small headroom (3-5 KB) so non-deterministic compression variations
+// (zlib version, OS) don't trigger spurious fails. Tighten over time as
+// the figures stabilise — every figure below was anchored against the
+// spec text rather than current empirical runs to give the gate
+// regression-detection teeth from day one.
+const BUNDLES = [
+  {
+    name:            'schemas-bundle-probe',
+    bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe'),
+    specRow:         'row 2 — [re-frame.schemas] required, no Malli (97.2 KB)',
+    gzippedMaxBytes: 100 * 1024,   // 100 KB (spec 97.2 KB + 2.8 KB headroom)
+  },
+  {
+    name:            'schemas-bundle-probe-malli',
+    bundleDir:       path.join(ROOT, 'out', 'schemas-bundle-probe-malli'),
+    specRow:         'row 3 — [re-frame.schemas] + [malli.core] (120.8 KB)',
+    gzippedMaxBytes: 125 * 1024,   // 125 KB (spec 120.8 KB + 4.2 KB headroom)
+  },
+];
+
+// ----- helpers ---------------------------------------------------------------
+
+function listJsFiles(dir) {
+  if (!fs.existsSync(dir)) {
+    return null;
+  }
+  const out = [];
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile() && entry.name.endsWith('.js')) {
+        out.push(full);
+      }
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+function gzippedSize(file) {
+  const raw = fs.readFileSync(file);
+  return zlib.gzipSync(raw, { level: 9 }).length;
+}
+
+function sumGzippedBytes(dir) {
+  const files = listJsFiles(dir);
+  if (files == null) {
+    return null;
+  }
+  return files.reduce((acc, f) => acc + gzippedSize(f), 0);
+}
+
+function fmtKb(bytes) {
+  return (bytes / 1024).toFixed(1) + ' KB';
+}
+
+// ----- main ------------------------------------------------------------------
+
+function main() {
+  console.log('=== Schemas bundle-cost gate (Spec 010 §Bundle cost, rf2-fqbcy) ===');
+  console.log('');
+
+  const sizes = {};
+  let bundlesOk = true;
+
+  for (const b of BUNDLES) {
+    const total = sumGzippedBytes(b.bundleDir);
+    if (total == null) {
+      console.error(`[schemas-bundle] ${b.name}: bundle dir missing — ${b.bundleDir}`);
+      console.error('              Did you run "shadow-cljs release ' +
+                    `${b.name}"?`);
+      bundlesOk = false;
+      continue;
+    }
+    sizes[b.name] = total;
+    const ok = total <= b.gzippedMaxBytes;
+    const tag = ok ? 'OK' : 'FAIL';
+    console.log(`  [${tag}] ${b.name}`);
+    console.log(`        spec:      ${b.specRow}`);
+    console.log(`        bundle:    ${fmtKb(total)} gzipped (${total} bytes)`);
+    console.log(`        threshold: ${fmtKb(b.gzippedMaxBytes)} (${b.gzippedMaxBytes} bytes)`);
+    if (!ok) {
+      bundlesOk = false;
+      console.error(`        REGRESSION: bundle exceeds threshold by ${fmtKb(total - b.gzippedMaxBytes)}`);
+    }
+  }
+
+  // Methodology guard — the Malli-on bundle MUST be strictly larger
+  // than the Malli-off bundle. If both end up the same size, Closure
+  // has DCE'd malli.core away (e.g. because the adapter ns no longer
+  // publishes the late-bind hooks at load time), and the +Malli gate
+  // becomes vacuous.
+  let methodologyOk = true;
+  if (sizes['schemas-bundle-probe'] != null &&
+      sizes['schemas-bundle-probe-malli'] != null) {
+    const probe      = sizes['schemas-bundle-probe'];
+    const probeMalli = sizes['schemas-bundle-probe-malli'];
+    const delta      = probeMalli - probe;
+    // Spec row 3 - row 2 = 23.6 KB.  Require ≥ 15 KB of growth to
+    // confirm Malli landed; below that, Closure DCE'd something.
+    const minDelta = 15 * 1024;
+    const ok = delta >= minDelta;
+    const tag = ok ? 'OK' : 'FAIL';
+    console.log('');
+    console.log(`  [${tag}] methodology guard — Malli-on bundle is strictly larger`);
+    console.log(`        delta: ${fmtKb(delta)} (${delta} bytes)`);
+    console.log(`        threshold: ≥ ${fmtKb(minDelta)} (Spec row 3 − row 2 = 23.6 KB)`);
+    if (!ok) {
+      methodologyOk = false;
+      console.error('        FAIL — Malli adapter\'s body was eliminated;');
+      console.error('        the +Malli gate is now vacuous.');
+    }
+  }
+
+  console.log('');
+  if (bundlesOk && methodologyOk) {
+    console.log('=== PASS ===');
+    process.exit(0);
+  } else {
+    console.error('=== FAIL ===');
+    console.error('');
+    console.error('Per Spec 010 §Bundle cost the schemas-artefact bundle cost');
+    console.error('budgets are normative. A regression most likely means:');
+    console.error('  - A transitive require dragged a heavy ns into the schemas');
+    console.error('    surface; check `re-frame.schemas` ns-form and downstream.');
+    console.error('  - The Malli adapter\'s ns-load body grew unexpectedly.');
+    console.error('  - shadow-cljs / Closure compiler upgraded; if the new');
+    console.error('    figures reflect a deliberate substrate change, update');
+    console.error('    the spec § first, then bump the thresholds here in');
+    console.error('    lockstep.');
+    process.exit(1);
+  }
+}
+
+main();

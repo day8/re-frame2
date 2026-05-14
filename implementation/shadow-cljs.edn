@@ -232,6 +232,38 @@
    :compiler-options {:closure-defines {goog.DEBUG true}}
    :modules          {:probe {:init-fn re-frame.elision-probe/run}}}
 
+  ;; Schemas-artefact bundle-cost probes (Spec 010 §Bundle cost, bead
+  ;; rf2-fqbcy). Two :advanced + goog.DEBUG=false builds that measure
+  ;; the gzipped impact of requiring re-frame.schemas with and
+  ;; without the Malli adapter:
+  ;;
+  ;;   :schemas-bundle-probe        — `[re-frame.schemas]` required,
+  ;;                                  Malli adapter NOT required.
+  ;;                                  Pulls only the schemas surface
+  ;;                                  (~5.6 KB over baseline per the
+  ;;                                  spec's row 2).
+  ;;   :schemas-bundle-probe-malli  — schemas + Malli adapter required.
+  ;;                                  Pulls malli.core's ~24 KB body
+  ;;                                  on top (spec row 3 — 120.8 KB).
+  ;;
+  ;; The probe namespaces sit under schemas/test/ so they're not
+  ;; shipped in the published jar.  scripts/check-schemas-bundle.cjs
+  ;; reads both bundles' gzipped sizes and asserts each is within
+  ;; the spec envelope; regressions of >5 KB fail CI.
+  :schemas-bundle-probe
+  {:target           :browser
+   :output-dir       "out/schemas-bundle-probe"
+   :asset-path       "/schemas-bundle-probe"
+   :compiler-options {:closure-defines {goog.DEBUG false}}
+   :modules          {:probe {:init-fn re-frame.schemas-bundle-probe/boot}}}
+
+  :schemas-bundle-probe-malli
+  {:target           :browser
+   :output-dir       "out/schemas-bundle-probe-malli"
+   :asset-path       "/schemas-bundle-probe-malli"
+   :compiler-options {:closure-defines {goog.DEBUG false}}
+   :modules          {:probe {:init-fn re-frame.schemas-bundle-probe-malli/boot}}}
+
   ;; ============================================================================
   ;; Example apps (rf2-lyj0).
   ;;
