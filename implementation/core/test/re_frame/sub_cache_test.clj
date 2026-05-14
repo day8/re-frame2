@@ -389,7 +389,7 @@
     (rf/clear-sub)
     (is (= #{[:a] [:b]} (cache-keys))
         "clear-sub with no args wipes registrations but not cache slots")
-    (is (= {} (registrar/handlers :sub))
+    (is (= {} (registrar/registrations :sub))
         "every :sub registration is gone")
 
     (rf/clear-subscription-cache! :rf/default)

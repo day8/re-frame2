@@ -39,7 +39,7 @@ Rules:
 1. The `:story.<...>` and `:Workspace.<...>` prefixes are **library-owned** by the post-v1 stories library — they are not framework-reserved under `:rf/*` (see [Conventions §Library-owned prefixes](Conventions.md#library-owned-prefixes)). User code MUST NOT register stories/workspaces under conflicting prefixes when this library is loaded.
 2. The dotted path segments organise the tree the story tool renders — split on `.` to build the navigator.
 3. Variant names go after `/`. A variant id always belongs to exactly one story; the story id is everything before `/`.
-4. Tools enumerate via `(rf/handlers :story)`, `(rf/handlers :variant)`, `(rf/handlers :workspace)`. The hierarchy is recoverable from the id alone — no separate `:title` field is required.
+4. Tools enumerate via `(rf/registrations :story)`, `(rf/registrations :variant)`, `(rf/registrations :workspace)`. The hierarchy is recoverable from the id alone — no separate `:title` field is required.
 
 ## The three concepts
 
@@ -303,7 +303,7 @@ Play is a **sequence of events fired after the variant has rendered**, distinct 
 
 `:rf.assert/*` events are themselves dispatches, handled by the story tool's test runner. In dev/docs mode they're rendered as a checked-step list; in test mode they fail loudly when assertions don't hold; in agent mode they're simulation breakpoints. The `:rf.assert/*` namespace is the canonical assertion namespace — see §Assertion vocabulary is registered and enumerable below for the full registered set.
 
-> **Assertion vocabulary is registered and enumerable.** The `:rf.assert/*` namespace is reserved (see [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) and registered as a public, queryable set of events. The stories library registers the canonical vocabulary at load time: `:rf.assert/path-equals`, `:rf.assert/path-matches`, `:rf.assert/sub-equals`, `:rf.assert/dispatched?`, `:rf.assert/state-is` (machine), `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`. Tooling enumerates `(rf/handlers :event #(re-find #"^:rf\.assert/" (str (:id %))))` to discover the vocabulary. Per [Principles §Public query surfaces](Principles.md#public-query-surfaces).
+> **Assertion vocabulary is registered and enumerable.** The `:rf.assert/*` namespace is reserved (see [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) and registered as a public, queryable set of events. The stories library registers the canonical vocabulary at load time: `:rf.assert/path-equals`, `:rf.assert/path-matches`, `:rf.assert/sub-equals`, `:rf.assert/dispatched?`, `:rf.assert/state-is` (machine), `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`. Tooling enumerates `(rf/registrations :event #(re-find #"^:rf\.assert/" (str (:id %))))` to discover the vocabulary. Per [Principles §Public query surfaces](Principles.md#public-query-surfaces).
 
 ### Story-as-test duality
 
@@ -348,8 +348,8 @@ Tags are not free-form strings — every tag a project recognises must be **regi
 The default tag vocabulary above (`:dev`, `:docs`, `:test`, `:screenshot`, `:experimental`, `:internal`, `:agent`) is registered by the stories library at load time. Project-specific tags must be registered before use. The tag set is **queryable**:
 
 ```clojure
-(rf/handlers :tag)               ;; → all registered tags + their docs
-(rf/handlers :tag #(contains? (:tags %) :auth))   ;; filtered
+(rf/registrations :tag)               ;; → all registered tags + their docs
+(rf/registrations :tag #(contains? (:tags %) :auth))   ;; filtered
 ```
 
 Tools enumerate this set before assigning tags to a variant. A variant whose tags include an unregistered keyword fails registration with `:rf.error/unknown-tag`. This is the AI-first "public query surfaces" principle ([Principles.md §Public query surfaces](Principles.md#public-query-surfaces)) applied to tag vocabulary.
@@ -444,9 +444,9 @@ The stories library's tool surface is **extensible by registering panels**. A pa
    :render    :a11y/inspector-view})        ;; id of a reg-view
 ```
 
-Panels are registered against the story-tool's own registry; the tool reads `(story/handlers :story-panel)` and lays them out. Same shape as everything else in re-frame2 — registry + metadata.
+Panels are registered against the story-tool's own registry; the tool reads `(story/registrations :story-panel)` and lays them out. Same shape as everything else in re-frame2 — registry + metadata.
 
-Story maintains its kind-shaped registrations in a tool-owned side-table at `tools.story.registry/*`. This is internal to the `tools/story/` artefact and stays out of production bundles. The bridge fn `story/handlers` exposes the §Public-query-surfaces parity (e.g. `(story/handlers :story)` enumerates the side-table). The framework registrar's closed-kinds discipline ([001-Registration.md](001-Registration.md)) is preserved — Story does not register with `re-frame.registrar`.
+Story maintains its kind-shaped registrations in a tool-owned side-table at `tools.story.registry/*`. This is internal to the `tools/story/` artefact and stays out of production bundles. The bridge fn `story/registrations` exposes the §Public-query-surfaces parity (e.g. `(story/registrations :story)` enumerates the side-table). The framework registrar's closed-kinds discipline ([001-Registration.md](001-Registration.md)) is preserved — Story does not register with `re-frame.registrar`.
 
 ### Third-party egress in story tooling (rf2-su313)
 
@@ -461,7 +461,7 @@ These are **dev-tool conveniences with documented egress, not gated**. Both endp
 
 ## What the framework supplies vs. what the library adds
 
-**Framework hooks (in 002):** `make-frame`/`destroy-frame`/`reset-frame`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`handlers`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
+**Framework hooks (in 002):** `make-frame`/`destroy-frame`/`reset-frame`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`registrations`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
 
 **`re-frame.stories` library:** `reg-story`/`reg-variant`/`reg-workspace`; side-table registries; `run-variant` (programmatic execution + assertions); `reset-variant`; `variants-with-tags`; the story-tool UI.
 

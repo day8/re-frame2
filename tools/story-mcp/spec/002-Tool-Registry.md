@@ -84,7 +84,7 @@ filled in during Stage 7 polish.
 
 ### `list-stories`
 
-`(rf/handlers :story)` enumeration, optionally filtered by tag-set
+`(rf/registrations :story)` enumeration, optionally filtered by tag-set
 intersection (`{:tags [...]}`).
 
 ### `get-story`
@@ -104,11 +104,11 @@ Canonical + project-custom tags split.
 
 ### `list-modes`
 
-`(rf/handlers :mode)` enumeration.
+`(rf/registrations :mode)` enumeration.
 
 ### `list-decorators` (rf2-mqp1u)
 
-Read-only `(rf/handlers :decorator)` enumeration. Each entry carries
+Read-only `(rf/registrations :decorator)` enumeration. Each entry carries
 `:id`, `:kind`, `:doc` plus the kind-specific pure-data slots —
 `:has-wrap?` for `:hiccup` decorators (the closure itself doesn't
 transport over MCP); `:init` + `:app-db-patch` for `:frame-setup`;

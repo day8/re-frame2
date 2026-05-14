@@ -25,7 +25,7 @@ its own cadence. The pattern mirrors `tools/machines-viz/` vs.
 `tools/machines-viz-mcp/` (per [`tools/README.md`](../../README.md)).
 
 **Implication.** Story's core jar exposes the *read* primitives the
-MCP server consumes (`handlers`, `frame-meta`, `run-variant`,
+MCP server consumes (`registrations`, `frame-meta`, `run-variant`,
 `snapshot-identity`, `variant->edn`); the MCP server packages them as
 tools per the Storybook MCP Dev / Docs / Testing toolset split. See
 [`006-MCP-Surface.md`](006-MCP-Surface.md).

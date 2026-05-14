@@ -227,15 +227,15 @@
 
 ;; ---- query API (per Spec 002 §The public registrar query API) -------------
 
-(defn handlers
+(defn registrations
   "All ids registered under kind, with their metadata. Tools, agents,
   storybook resolution, all use this.
 
   Two arities:
-    (handlers kind)
+    (registrations kind)
       Return the full `{id metadata}` map for kind, or `{}` if the kind
       has no registrations.
-    (handlers kind pred-fn)
+    (registrations kind pred-fn)
       Same shape, filtered: only entries for which `(pred-fn meta)`
       returns truthy are included. Returns `{}` when no entry matches.
       Tools (storybook resolvers, registry browsers, agent introspection)
@@ -262,7 +262,7 @@
 (defn ids
   "Just the id set for a kind."
   [kind]
-  (-> (handlers kind) keys set))
+  (-> (registrations kind) keys set))
 
 (defn all-kinds-with-counts
   "{kind → count} — useful in dev tooling overlays."

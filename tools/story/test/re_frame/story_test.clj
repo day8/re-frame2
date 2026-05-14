@@ -9,7 +9,7 @@
   - `:extends` resolution + cycle / unknown-parent detection.
   - Form-B `:variants` desugaring.
   - Source-coord stamping.
-  - Query API (`handlers`, `handler-meta`, `variants-with-tags`,
+  - Query API (`registrations`, `handler-meta`, `variants-with-tags`,
     `variants-of`).
   - EDN-round-trip of variant bodies (no fn-valued slots).
   - Canonical-id-grammar enforcement.

@@ -173,14 +173,14 @@
   (testing "an empty filter passes everything through"
     (story/reg-variant :story.f/a {:tags #{:dev} :events []})
     (story/reg-variant :story.f/b {:tags #{:test} :events []})
-    (let [vs (story-registrar/handlers :variant)]
+    (let [vs (story-registrar/registrations :variant)]
       (is (= 2 (count (state/filter-variants vs #{})))))))
 
 (deftest filter-variants-with-tag
   (testing "filter restricts to variants whose tags intersect"
     (story/reg-variant :story.f2/a {:tags #{:dev} :events []})
     (story/reg-variant :story.f2/b {:tags #{:test} :events []})
-    (let [vs (story-registrar/handlers :variant)
+    (let [vs (story-registrar/registrations :variant)
           devs (state/filter-variants vs #{:dev})]
       (is (= 1 (count devs)))
       (is (contains? devs :story.f2/a)))))
@@ -189,7 +189,7 @@
   (testing "variants with no story namespace still appear under their derived parent"
     (story/reg-variant :story.g/a {:events []})
     (story/reg-variant :story.g/b {:events []})
-    (let [vs       (story-registrar/handlers :variant)
+    (let [vs       (story-registrar/registrations :variant)
           grouped  (state/group-variants-by-story vs)
           entries  (into {} (map (juxt :story-id :variants) grouped))]
       (is (= 1 (count grouped)))
@@ -262,7 +262,7 @@
       {:tags #{:status/stable :role/dev} :events []})
     (story/reg-variant :story.facet/c
       {:tags #{:status/stable :role/design} :events []})
-    (let [vs        (story-registrar/handlers :variant)
+    (let [vs        (story-registrar/registrations :variant)
           tag->axis (story-registrar/tag->axis-index)]
       (testing "OR-within status — alpha OR stable returns all three"
         (is (= 3 (count (state/filter-variants

@@ -441,7 +441,7 @@ re-frame2's frame-routing for views relies on `reg-view`. A plain `(defn my-view
 1. Every `(rf/frame-provider {:frame <id>} ...)` whose `<id>` is **not** `:rf/default`.
 2. The hiccup subtree under each such provider: any Reagent fn referenced by a Var (or anonymous lambda) that is **not** registered via `rf/reg-view`.
 
-The agent doesn't need to render the tree — a static walk over the hiccup forms inside the provider is enough. Cross-reference the registered set via `(rf/handlers :view)` to determine which Vars are `reg-view`-backed.
+The agent doesn't need to render the tree — a static walk over the hiccup forms inside the provider is enough. Cross-reference the registered set via `(rf/registrations :view)` to determine which Vars are `reg-view`-backed.
 
 **What to do:** for every plain fn referenced inside a non-default `frame-provider`, present:
 

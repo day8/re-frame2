@@ -26,7 +26,7 @@
   ids skip the intersection rather than interning a fresh JVM
   keyword."
   [args]
-  (let [stories  (story/handlers :story)
+  (let [stories  (story/registrations :story)
         tag-set  (story/list-tags)
         tags     (when-let [ts (:tags args)]
                    (into #{} (keep #(args/safe-keyword % tag-set)) ts))
@@ -82,7 +82,7 @@
   "Docs: registered modes (from `reg-mode`). Returns each mode's id +
   body so agents can see the `:args` saved tuple."
   [_args]
-  (let [modes   (story/handlers :mode)
+  (let [modes   (story/registrations :mode)
         payload {:modes (vec (for [[mid body] modes]
                                {:id mid :doc (:doc body) :args (:args body)}))}]
     (h/text-result (h/pr-edn payload) payload)))
@@ -130,7 +130,7 @@
     set (rf2-lqjbk); unrecognised values are treated as no filter."
   [args]
   (let [kind-filter (some-> (:kind args) (args/safe-keyword decorator-kinds))
-        decorators  (story/handlers :decorator)
+        decorators  (story/registrations :decorator)
         entries     (cond->> (for [[did body] decorators]
                                (decorator-summary did body))
                       kind-filter (filter #(= kind-filter (:kind %))))

@@ -70,7 +70,7 @@
   per-workspace, and a workspace that mentions the variant earns its
   prose."
   [variant-id]
-  (let [workspaces (registrar/handlers :workspace)]
+  (let [workspaces (registrar/registrations :workspace)]
     (vec
       (for [[wid body] (sort-by key workspaces)
             :when     (and (= :prose (:layout body))

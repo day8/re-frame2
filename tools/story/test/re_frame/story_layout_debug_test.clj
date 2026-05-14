@@ -48,7 +48,7 @@
 
 (deftest three-decorators-register
   (testing "the three layout-debug decorators register under canonical ids"
-    (let [decs (story/handlers :decorator)]
+    (let [decs (story/registrations :decorator)]
       (is (contains? decs layout-debug/id-measure))
       (is (contains? decs layout-debug/id-outline))
       (is (contains? decs layout-debug/id-pseudo)))))

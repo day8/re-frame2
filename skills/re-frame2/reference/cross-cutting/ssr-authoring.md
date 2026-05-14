@@ -37,7 +37,7 @@ Standard head-model keys (per `:rf/head-model` in Spec-Schemas): `:title`, `:met
 
 **No registered head is fine.** Routes without `:head` get the silent default — `<title>` derived from frame metadata's `:doc`, plus `<meta charset>` and `<meta viewport>`. No warning.
 
-`reg-head` returns its `id` (family-wide reg-* return convention). Query via `(rf/handlers :head)` → `id → metadata`.
+`reg-head` returns its `id` (family-wide reg-* return convention). Query via `(rf/registrations :head)` → `id → metadata`.
 
 ## `render-head` — materialise the head model
 

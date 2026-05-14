@@ -55,7 +55,7 @@
 
 (deftest canonical-seven-registered
   (testing "all seven :rf.assert/* event handlers register at install-canonical-vocabulary!"
-    (let [events (re-frame.registrar/handlers :event)]
+    (let [events (re-frame.registrar/registrations :event)]
       (is (contains? events :rf.assert/path-equals))
       (is (contains? events :rf.assert/path-matches))
       (is (contains? events :rf.assert/sub-equals))

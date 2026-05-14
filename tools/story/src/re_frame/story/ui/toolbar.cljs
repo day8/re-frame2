@@ -290,7 +290,7 @@
 
 (defn toolbar-strip
   "Render the chrome-level toolbar strip. Reads
-  `(registrar/handlers :mode)` per render — newly-registered modes
+  `(registrar/registrations :mode)` per render — newly-registered modes
   appear immediately. Renders an empty-state placeholder when the
   registry has no `:mode` entries.
 
@@ -301,7 +301,7 @@
   []
   (let [shell    @state/shell-state-atom
         active   (set (:active-modes shell))
-        modes    (registrar/handlers :mode)
+        modes    (registrar/registrations :mode)
         {:keys [axes unaxed]} (state/group-modes-by-axis modes)]
     [:header
      {:style      (:strip styles)

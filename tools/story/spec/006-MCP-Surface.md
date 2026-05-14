@@ -39,7 +39,7 @@ process; the story runtime runs in the app.
 
 ```clojure
 ;; Public read primitives, in re-frame.story
-(handlers kind)                                  ; spec/001-mirror; per Story kind
+(registrations kind)                             ; spec/001-mirror; per Story kind
 (handler-meta kind id)
 (ids kind) (registered? kind id)
 (variants-of story-id) (variants-with-tags qtags)

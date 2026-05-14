@@ -66,7 +66,7 @@ rf2-xc65).
 
 ## Data source
 
-The toolbar reads `(registrar/handlers :mode)` on every render — a
+The toolbar reads `(registrar/registrations :mode)` on every render — a
 fresh registry snapshot per `re-frame.story.ui.state/registry-
 snapshot`. Newly-registered modes appear immediately; hot-reloaded
 modes pick up via the existing fingerprint poll (per

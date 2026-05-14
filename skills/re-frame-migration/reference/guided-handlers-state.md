@@ -76,7 +76,7 @@ Present every call site with its file:line and the four options; collect the aut
 **Identify**:
 
 1. Find every `(rf/frame-provider {:frame <id>} ...)` whose `<id>` is **not** `:rf/default`.
-2. Walk the hiccup subtree under each such provider. List every Var-referenced function (or anonymous lambda) that is **not** registered via `rf/reg-view`. Cross-reference the `(rf/handlers :view)` registry.
+2. Walk the hiccup subtree under each such provider. List every Var-referenced function (or anonymous lambda) that is **not** registered via `rf/reg-view`. Cross-reference the `(rf/registrations :view)` registry.
 
 **Risk**: a plain Reagent function rendered inside a non-default frame's `frame-provider` silently routes its internal `(subscribe ...)` / `(dispatch ...)` calls to `:rf/default`. The runtime emits a one-time warning per `(component, frame)` pair, but the bug surfaces at runtime — by then the silent mis-route has been masking behaviour.
 

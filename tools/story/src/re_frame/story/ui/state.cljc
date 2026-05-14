@@ -183,7 +183,7 @@
   "Build the toolbar's chip layout. Pure data → data; JVM-testable.
 
   `id->body` is the `{mode-id → mode-body}` map from
-  `(registrar/handlers :mode)`. Returns
+  `(registrar/registrations :mode)`. Returns
 
       {:axes   [[axis [mode-id ...]] ...]  ; sorted alphabetically by axis-name
        :unaxed [mode-id ...]}              ; un-grouped modes, sorted alphabetically
@@ -458,13 +458,13 @@
   by the shell's render fns to walk the registry without N atom-deref
   calls (and to support future memoisation if perf becomes an issue)."
   []
-  {:stories      (registrar/handlers :story)
-   :variants     (registrar/handlers :variant)
-   :workspaces   (registrar/handlers :workspace)
-   :modes        (registrar/handlers :mode)
-   :decorators   (registrar/handlers :decorator)
-   :story-panels (registrar/handlers :story-panel)
-   :tags         (registrar/handlers :tag)})
+  {:stories      (registrar/registrations :story)
+   :variants     (registrar/registrations :variant)
+   :workspaces   (registrar/registrations :workspace)
+   :modes        (registrar/registrations :mode)
+   :decorators   (registrar/registrations :decorator)
+   :story-panels (registrar/registrations :story-panel)
+   :tags         (registrar/registrations :tag)})
 
 ;; ---- the reactive bag (CLJS-only) ----------------------------------------
 
@@ -650,7 +650,7 @@
   variants tagged `:test` but without any assertions to run — those
   contribute neither to the headline counts nor to the 'Run all'
   iteration. Pure data → data; JVM-testable. `id->body` is the
-  `{variant-id → body}` map from `(registrar/handlers :variant)`."
+  `{variant-id → body}` map from `(registrar/registrations :variant)`."
   [id->body]
   (->> id->body
        (filter (fn [[_ body]]

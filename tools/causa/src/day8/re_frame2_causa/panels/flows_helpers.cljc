@@ -45,7 +45,7 @@
   ## What this doesn't do
 
   Pure data. No subscription, no atom, no `js/` interop — the same
-  fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf/handlers`
+  fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf/registrations`
   on a populated registrar) are read by the composite sub in
   `registry.cljs`; the result is handed to this ns as a plain map."
   (:require [clojure.string :as str]
@@ -193,7 +193,7 @@
 
   Inputs:
 
-    `flows-map`   — `{flow-id metadata}` from `(rf/handlers :flow)`.
+    `flows-map`   — `{flow-id metadata}` from `(rf/registrations :flow)`.
                     May be empty / nil; the projection returns `[]`.
 
     `flow-events` — trace events filtered to `:op-type :flow`,

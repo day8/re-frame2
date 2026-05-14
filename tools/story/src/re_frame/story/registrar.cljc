@@ -15,7 +15,7 @@
   registrar (`re-frame.registrar/kinds`) is a **closed** set. The
   side-table here is the chosen reconciliation: Story-only registrations
   live in Story's own atom; the framework registrar stays closed. A
-  bridge (`story/handlers`) preserves the spec/007 §Public-query-surfaces
+  bridge (`story/registrations`) preserves the spec/007 §Public-query-surfaces
   contract without crossing the framework boundary.
 
   ## Kinds Story registers
@@ -167,9 +167,9 @@
 
 ;; ---- query API (mirrors spec/001 public registrar query API) -------------
 
-(defn handlers
+(defn registrations
   "Return the `{id → body}` map for `kind`, or `{}`. Mirrors
-  `re-frame.registrar/handlers`."
+  `re-frame.registrar/registrations`."
   [kind]
   (get @kind->id->body kind {}))
 
@@ -181,12 +181,12 @@
 (defn ids
   "Just the id set for a kind."
   [kind]
-  (-> (handlers kind) keys set))
+  (-> (registrations kind) keys set))
 
 (defn registered?
   "True iff `(kind, id)` is in the side-table."
   [kind id]
-  (contains? (handlers kind) id))
+  (contains? (registrations kind) id))
 
 (defn all-kinds-with-counts
   "{kind → count} — useful in dev tooling overlays."
@@ -422,7 +422,7 @@
   IMPL-SPEC §3.2 — the public `variants-with-tags` wraps this."
   [query-tags]
   (let [qs (set query-tags)]
-    (->> (handlers :variant)
+    (->> (registrations :variant)
          (filter (fn [[_ body]]
                    (let [tset (:tags body #{})]
                      (some #(contains? tset %) qs))))
@@ -435,7 +435,7 @@
   axis` / `tags-default-excluded` queries — each is a one-line predicate
   over the same `{tag-id → tag-body}` scan."
   [pred]
-  (->> (handlers :tag)
+  (->> (registrations :tag)
        (filter (fn [[_ body]] (pred body)))
        (map first)
        set))
@@ -492,4 +492,4 @@
   (reduce-kv (fn [acc tid body]
                (assoc acc tid (or (:axis body) no-axis-key)))
              {}
-             (handlers :tag)))
+             (registrations :tag)))

@@ -5,7 +5,7 @@
   slice + recent navigation history. Consumer of:
 
     - Spec 012 (Routing)             — the registered-route surface,
-                                       `(rf/handlers :route)` is the
+                                       `(rf/registrations :route)` is the
                                        `{route-id metadata}` projection
                                        the composite sub reads. The
                                        active route comes from the
@@ -28,7 +28,7 @@
        query · fragment · transition. Per Spec 012 §The `:rf/route`
        slice.
 
-    2. **Registered routes** — one row per `(rf/handlers :route)`
+    2. **Registered routes** — one row per `(rf/registrations :route)`
        entry, sorted by `:path`. Each row shows the route-id +
        path-pattern + `:doc`. The active-route row is highlighted.
        Clicking a row selects it; the v1 surface carries the selection
@@ -423,7 +423,7 @@
   ;; ---- Phase 5 (rf2-6blai) — Routes panel ----------------------------
   ;;
   ;; Per `spec/012-Routing.md` the panel surfaces three pieces of the
-  ;; routing surface: the registered-route set (`(rf/handlers
+  ;; routing surface: the registered-route set (`(rf/registrations
   ;; :route)`), the active `:rf/route` slice on the target frame
   ;; (Spec 012 §The `:rf/route` slice), and recent navigation history
   ;; (the `:rf.route.nav-token/*` + `:rf.route/url-changed` trace event
@@ -436,7 +436,7 @@
   ;; `:rf.causa/set-active-route-slice-override-for-test` so the
   ;; suite can assert against a deterministic registry + slice without
   ;; booting a host with `rf/reg-route` calls. Production paths read
-  ;; through `rf/handlers` + `rf/get-frame-db` directly.
+  ;; through `rf/registrations` + `rf/get-frame-db` directly.
   ;;
   ;; Shape of `:rf.causa/routes-data`:
   ;;
@@ -447,10 +447,10 @@
   ;;      :history           [<entry> ...]
   ;;      :empty-kind        <:no-routes / nil>}
 
-  ;; Read the registered-route map. Reads `(rf/handlers :route)` —
+  ;; Read the registered-route map. Reads `(rf/registrations :route)` —
   ;; per Spec 001 §The public registrar query API the registrar is
   ;; process-global so this surfaces every registered route across
-  ;; every frame. The v1 wiring threads `rf/handlers` through the
+  ;; every frame. The v1 wiring threads `rf/registrations` through the
   ;; override slot so the JVM test target can drive the projection
   ;; without a populated registrar. The fallback path is wrapped in
   ;; a `try` so a missing-kind exception (older builds without the
@@ -460,7 +460,7 @@
     (fn [db _query]
       (let [ov (get db :registered-routes-override)]
         (or ov
-            (try (rf/handlers :route)
+            (try (rf/registrations :route)
                  (catch :default _ {}))))))
 
   ;; Test-only override hook for the registered-routes surface.

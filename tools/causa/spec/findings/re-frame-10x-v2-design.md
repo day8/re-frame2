@@ -149,7 +149,7 @@ A horizontal scrubber pinned to the bottom of the window. Drag left → app-db r
 
 ### 4.3 AI co-pilot panel
 
-A pinned-right panel: a chat input above a scrollable result area. The co-pilot reads the same surfaces every other panel reads — `epoch-history`, `(rf/get-frame-db ...)`, `(rf/handlers ...)`, the trace bus — and answers programmer questions about the running app in natural language. Examples:
+A pinned-right panel: a chat input above a scrollable result area. The co-pilot reads the same surfaces every other panel reads — `epoch-history`, `(rf/get-frame-db ...)`, `(rf/registrations ...)`, the trace bus — and answers programmer questions about the running app in natural language. Examples:
 
 - *"Why did `:checkout/submit` fire?"* → walks `:parent-dispatch-id` upward; returns "dispatched by `:fx [[:dispatch ...]]` inside `:cart/finalise` (events.cljs:213). That ran because of `:user/clicked-checkout` at 10:43:21. Want me to open the source?"
 - *"What's the current state of the auth flow?"* → reads `[:rf/machines :auth/login-flow]`; returns the snapshot; links to the machine inspector with that state highlighted.
@@ -158,7 +158,7 @@ A pinned-right panel: a chat input above a scrollable result area. The co-pilot 
 
 The co-pilot is **frame-aware** (knows which frame the human is looking at), **epoch-aware** (knows the scrubber position), and **registrar-aware** (can read every registration's `:doc`, `:spec`, source coords).
 
-Calls the user's chosen LLM via their own API key, configured in Settings → AI Provider. The system prompt is wired with `(rf/handlers ...)` / `(rf/handler-meta ...)` / `(rf/app-schemas-digest ...)` shape so the model inherits framework conventions without being told. Default provider: Claude; swappable to OpenAI / Gemini / local Ollama / custom via a provider abstraction.
+Calls the user's chosen LLM via their own API key, configured in Settings → AI Provider. The system prompt is wired with `(rf/registrations ...)` / `(rf/handler-meta ...)` / `(rf/app-schemas-digest ...)` shape so the model inherits framework conventions without being told. Default provider: Claude; swappable to OpenAI / Gemini / local Ollama / custom via a provider abstraction.
 
 Open by default (per UX §12.2 lock). Toggled via `Ctrl+Shift+/`; user can close the rail and Causa remembers the choice across the session.
 
@@ -298,7 +298,7 @@ The frame picker is a dropdown of `(rf/frame-ids)` (per [Spec 002 §Public regis
 | **Effect log** | Every fx invocation across the trace buffer. | `(rf/trace-buffer {:op-type :fx})` + `:rf/epoch-record :effects` projection. | Filter by fx-id; show outcome (`:ok`/`:error`/`:skipped-on-platform`); inspect args. |
 | **Trace timeline** | Raw trace events with timing, performance-API-style. | `(rf/trace-buffer)` + Spec 009 `User Timing` measures. | Structured filter; saved-filter library; export-as-JSON. |
 | **Machine inspector** | Stately-quality state-chart per machine (§4.4). Embeds `tools/machines-viz/`. | `(rf/machines)` + per-machine snapshot at `[:rf/machines <id>]` + `:rf.machine/transition` traces. | Live highlight; transition history scrub; source-coord jump. |
-| **Flow graph** | A DAG of registered flows; per-flow recompute heatmap. | `(rf/handlers :flow)` + `:rf.flow/*` traces (per Spec 013). | "How often did this flow skip?"; "what triggered the last recompute?"; mark a flow as dormant. |
+| **Flow graph** | A DAG of registered flows; per-flow recompute heatmap. | `(rf/registrations :flow)` + `:rf.flow/*` traces (per Spec 013). | "How often did this flow skip?"; "what triggered the last recompute?"; mark a flow as dormant. |
 | **Performance ribbon** | INP, long tasks, layout shifts, re-render counts, per epoch. | `PerformanceObserver` watching `rf:*` entries + browser's own `event` / `layout-shift` entries. | Hover an epoch → see its INP; spike-detect; "show me the longest 10 cascades this session." |
 | **Schema violation timeline** | (§4.6). | `(rf/trace-buffer {:operation :rf.error/schema-validation-failure})`. | Drill-down to Malli explanation; jump-to-`reg-app-schema` source. |
 | **Issues ribbon** | A unified feed of errors + warnings + schema violations + hydration mismatches. | All `:op-type :error` / `:warning` traces (including `:operation :rf.ssr/hydration-mismatch`, which carries `:op-type :error`). | "Mark resolved"; "snooze for this session"; click → causality-graph rewind to that moment. |
@@ -468,7 +468,7 @@ The contract: `machines-viz` exports a `MachineChart` component that accepts a m
 re-frame-pair2 is AI-driven (an LLM integration via nREPL). Causa is human-driven with an embedded AI co-pilot. **Where they meet:**
 
 - Both consume the same Spec 009 / Tool-Pair surfaces. Neither depends on the other.
-- The **AI co-pilot panel in Causa** (§4.3) uses the same primitives as the pair tool — `(rf/handlers ...)`, `(rf/epoch-history ...)`, `(rf/get-frame-db ...)`, `register-trace-cb!`. The difference is the user surface: Causa lives in the browser; pair2 lives in the editor / REPL.
+- The **AI co-pilot panel in Causa** (§4.3) uses the same primitives as the pair tool — `(rf/registrations ...)`, `(rf/epoch-history ...)`, `(rf/get-frame-db ...)`, `register-trace-cb!`. The difference is the user surface: Causa lives in the browser; pair2 lives in the editor / REPL.
 - A future enhancement: Causa's co-pilot delegates to a running pair2 nREPL session if one is detected. The co-pilot becomes a thin chat shell over the pair tool's full capability. v2 commitment (per §10.8, still open), not v1.
 
 ### MCP surface

@@ -281,7 +281,7 @@ Spec consumer: framework Spec 013 (registered-flow surface) + Spec 009
 
 | Sub | Returns |
 |---|---|
-| `:rf.causa/registered-flows` | `(rf/handlers :flow)` — process-global registry. Test override via `:registered-flows-override`. |
+| `:rf.causa/registered-flows` | `(rf/registrations :flow)` — process-global registry. Test override via `:registered-flows-override`. |
 | `:rf.causa/flow-trace-events` | Trace-buffer's `:op-type :flow` slice. |
 | `:rf.causa/selected-flow-id` | Flow-id or `nil`. |
 | `:rf.causa/flows-data` | Composite — `{:rows :status-counts :total :selected-flow-id}`. |
@@ -303,7 +303,7 @@ vocabulary).
 
 | Sub | Returns |
 |---|---|
-| `:rf.causa/registered-fxs` | `(rf/handlers :fx)` — process-global registry. Test override via `:registered-fxs-override`. |
+| `:rf.causa/registered-fxs` | `(rf/registrations :fx)` — process-global registry. Test override via `:registered-fxs-override`. |
 | `:rf.causa/fx-trace-events` | Trace-buffer's fx-related slice (`:op-type :fx` + fx-layer error categories). |
 | `:rf.causa/selected-fx-id` | Fx-id or `nil`. |
 | `:rf.causa/effects-data` | Composite — `{:rows :outcome-counts :total :selected-fx-id}`. |
@@ -388,7 +388,7 @@ stream).
 
 | Sub | Returns |
 |---|---|
-| `:rf.causa/registered-routes` | `(rf/handlers :route)`. Wrapped in `try` for older builds without the `:route` kind. Test override via `:registered-routes-override`. |
+| `:rf.causa/registered-routes` | `(rf/registrations :route)`. Wrapped in `try` for older builds without the `:route` kind. Test override via `:registered-routes-override`. |
 | `:rf.causa/active-route-slice` | The `:rf/route` slot off the target-frame's `app-db`. |
 | `:rf.causa/active-route-slice-override` | Test override for the slice — wired separately from the live slice sub so integration tests can override the slice without disturbing the target-frame-db chain. |
 | `:rf.causa/route-history-events` | Trace-buffer's route-history slice — filtered to the three operations Spec 012 §Trace events enumerates. |

@@ -74,7 +74,7 @@ Every entry in the table above is JVM-runnable, with the exceptions listed below
 - ✓ Cofx injection
 - ✓ `machine-transition` (pure function)
 - ✓ `compute-sub` (sub computation against an `app-db` value)
-- ✓ Public registrar queries (`handlers`, `frame-meta`, `sub-topology`, etc.)
+- ✓ Public registrar queries (`registrations`, `frame-meta`, `sub-topology`, etc.)
 - ✓ **Hiccup → HTML string emission** (per [011](011-SSR.md)) — pure function over hiccup data, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
 - ✗ React-actually-mounting (mount lifecycle, `:on-click` event firing into the real DOM, scroll events) — CLJS-only.
 - ✗ Reactive subscription *tracking* (auto-subscribe-on-deref, dispose lifecycle) — CLJS-only. Subscription *computation* (running the body against an `app-db` value) is JVM-runnable via `compute-sub`.

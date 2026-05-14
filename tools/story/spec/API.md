@@ -51,7 +51,7 @@ All under `re-frame.story`.
 
 | Fn | Signature | Returns |
 |---|---|---|
-| `handlers` | `(handlers kind)` | All registrations for `kind` (Story kinds: `:story`, `:variant`, `:workspace`, `:story-panel`, `:tag`, `:mode`, `:decorator`). |
+| `registrations` | `(registrations kind)` | All registrations for `kind` (Story kinds: `:story`, `:variant`, `:workspace`, `:story-panel`, `:tag`, `:mode`, `:decorator`). |
 | `handler-meta` | `(handler-meta kind id)` | The registered body for `id`. |
 | `ids` | `(ids kind)` | All registered ids of `kind`. |
 | `registered?` | `(registered? kind id)` | Boolean. |

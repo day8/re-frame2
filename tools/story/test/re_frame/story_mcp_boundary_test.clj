@@ -73,7 +73,7 @@
 (deftest public-read-surface-resolves
   (testing "every spec/006 §Story's public read primitive resolves
             on re-frame.story and is callable"
-    (doseq [sym '[handlers handler-meta ids registered?
+    (doseq [sym '[registrations handler-meta ids registered?
                   variants-of variants-with-tags
                   variant->edn workspace->edn
                   list-tags list-modes canonical-tags
@@ -106,7 +106,7 @@
 
 (deftest reg-variant-star-round-trips-through-the-read-surface
   (testing "the MCP write tool calls reg-variant* (per spec/006); the read
-            tools then call handlers / handler-meta / variants-of /
+            tools then call registrations / handler-meta / variants-of /
             variant->edn. All four read surfaces must surface the new
             variant immediately"
     (story/reg-story :story.mcp.boundary {:doc "boundary fixture"})
@@ -246,26 +246,26 @@
                                :render    :x/y}))))))
 
 ;; ===========================================================================
-;; `handlers` QUERY API — the spec/001-mirror MCP read tools consume
+;; `registrations` QUERY API — the spec/001-mirror MCP read tools consume
 ;; ===========================================================================
 
 (deftest handlers-returns-id-to-body-map-per-kind
-  (testing "(handlers :variant) returns a `{id → body}` map of every
-            registered variant; (handlers :tag) does the same for tags.
+  (testing "(registrations :variant) returns a `{id → body}` map of every
+            registered variant; (registrations :tag) does the same for tags.
             Per spec/006 §Story's public read primitives this mirrors
-            spec/001's `re-frame.registrar/handlers` — the shape MCP read
+            spec/001's `re-frame.registrar/registrations` — the shape MCP read
             tools rely on for registry walks"
     (story/reg-story :story.handlers {:doc "h-fixture"})
     (story/reg-variant :story.handlers/a {:events [[:init-a]]})
     (story/reg-variant :story.handlers/b {:events [[:init-b]]})
-    (let [variants (story/handlers :variant)]
-      (is (map? variants) "handlers returns a {id → body} map")
+    (let [variants (story/registrations :variant)]
+      (is (map? variants) "registrations returns a {id → body} map")
       (is (= #{:story.handlers/a :story.handlers/b} (set (keys variants))))
       (is (every? map? (vals variants))
           "every body is a map"))
-    (let [tags (story/handlers :tag)]
+    (let [tags (story/registrations :tag)]
       (is (= (count schemas/canonical-tags) (count tags))
-          "the canonical seven tags surface via handlers"))))
+          "the canonical seven tags surface via registrations"))))
 
 (deftest ids-returns-the-id-set-per-kind
   (testing "(ids :kind) returns the set of registered ids for that kind"

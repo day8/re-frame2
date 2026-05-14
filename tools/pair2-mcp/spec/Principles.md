@@ -366,7 +366,7 @@ stay inside the budget by construction:
 
 - **Pagination / cursor for unbounded surfaces.** Any op that
   returns a list whose size is a function of runtime state
-  (`trace-window`, `subscribe` epoch batches, `handlers`
+  (`trace-window`, `subscribe` epoch batches, `registrations`
   listings under `discover-app`) MUST accept a `:limit`
   argument and return a `:cursor` for continuation. The
   default `:limit` MUST keep the response under the cap. No

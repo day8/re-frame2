@@ -141,7 +141,7 @@
                                    :play [[:rf.assert/path-equals [:c] 0]]})
     (story/reg-variant :story.x/d {:tags #{:test :dev} :events []
                                    :play [[:rf.assert/path-equals [:c] 0]]})
-    (let [vs (story-registrar/handlers :variant)
+    (let [vs (story-registrar/registrations :variant)
           testable (state/testable-variant-ids vs)]
       (is (= [:story.x/a :story.x/d] testable))
       (is (not (some #{:story.x/b} testable)))

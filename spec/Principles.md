@@ -43,7 +43,7 @@ Where a concept can be represented as data plus explicit metadata, prefer that o
 
 **Principle:** an agent can ask the runtime, without private-API spelunking, what handlers exist, what views exist, what schemas apply, what frames are alive, what state is active, where a registration came from.
 
-The registrar query API (`handlers`, `handler-meta`, `frame-ids`, `frame-meta`, `sub-topology`, etc.) is the contract; tooling and agents are first-class clients of these surfaces.
+The registrar query API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `sub-topology`, etc.) is the contract; tooling and agents are first-class clients of these surfaces.
 
 ### Shapes are describable — schemas in dynamic hosts, types in static hosts
 

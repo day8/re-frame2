@@ -20,7 +20,7 @@
        Spec 012 §The `:rf/route` slice the slice carries
        `{:id :params :query :fragment :transition :error :nav-token}`.
 
-    2. **Registered routes** — one row per `(rf/handlers :route)` entry.
+    2. **Registered routes** — one row per `(rf/registrations :route)` entry.
        Each row shows the route-id + path-pattern + (when present) the
        `:doc` summary. The active-route row is highlighted. Clicking a
        row selects it (`:rf.causa/select-route`); the v1 surface carries
@@ -43,7 +43,7 @@
   ## Empty state
 
   Per the bead's minimum-viable contract: \"No routes registered.\" The
-  empty state surfaces only when `(rf/handlers :route)` is empty AND
+  empty state surfaces only when `(rf/registrations :route)` is empty AND
   the override slot is unset. If a frame has the route surface live
   but no routes registered yet the same copy surfaces — the contract
   is 'nothing in the registry, nothing to show'.
@@ -67,7 +67,7 @@
   ## What this doesn't do
 
   Pure data. No subscription, no atom, no `js/` interop — the same
-  fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf/handlers`
+  fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf/registrations`
   on a populated registrar, `rf/get-frame-db` on a frame) are read by
   the composite sub in `registry.cljs`; the result is handed to this
   ns as a plain map."
@@ -228,7 +228,7 @@
 
   Inputs:
 
-    `routes-map`     — `{route-id metadata}` from `(rf/handlers :route)`.
+    `routes-map`     — `{route-id metadata}` from `(rf/registrations :route)`.
                        May be empty / nil; the projection returns rows
                        = [] and the view renders the empty state.
 

@@ -30,7 +30,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 - Public `reg-*` surface — one per kind. Each `reg-*` takes id + metadata + handler-or-spec.
 - Registration metadata — `:doc`, source coords (`:ns`/`:line`/`:file` if the host supports source-coord capture), `:tags`, kind-specific keys.
 - Hot-reload semantics: re-registration replaces the entry atomically and emits `:rf.registry/handler-replaced`.
-- Introspection: `(handlers kind)`, `(handler-meta kind id)` per kind.
+- Introspection: `(registrations kind)`, `(handler-meta kind id)` per kind.
 
 **What the CLJS reference did (example).** A single atom holding a nested map: `{:event {:id metadata} :sub {...} ...}`. `reg-*` are macros that capture source coords at compile time. Re-registration is `swap!` on the atom. The macros call into functional `register-*` for advanced cases. None of this is normative — your port's mechanics will differ.
 

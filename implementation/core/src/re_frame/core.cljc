@@ -517,7 +517,7 @@
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 
-(def handlers     registrar/handlers)
+(def registrations registrar/registrations)
 (def handler-meta registrar/handler-meta)
 (def handler-ids  registrar/ids)
 (def registry-summary registrar/all-kinds-with-counts)

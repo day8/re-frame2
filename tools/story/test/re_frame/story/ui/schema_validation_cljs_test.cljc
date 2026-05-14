@@ -353,7 +353,7 @@
      (testing "after install-canonical-vocabulary! the schema-validation
               panel is registered against the story side-table"
        (reset-all!)
-       (let [ps (story/handlers :story-panel)]
+       (let [ps (story/registrations :story-panel)]
          (is (contains? ps sv/panel-id))
          (let [body (story/handler-meta :story-panel sv/panel-id)]
            (is (= :right                  (:placement body)))

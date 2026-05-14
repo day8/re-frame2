@@ -9,7 +9,7 @@
   `(re-frame.story.modes.standard/register-all!)` (or one of the
   axis-scoped installers) at boot. Each registration is a plain
   `reg-mode` tuple — the toolbar surface picks them up via
-  `(registrar/handlers :mode)` like any other mode.
+  `(registrar/registrations :mode)` like any other mode.
 
   ## Why opt-in, not auto-installed
 

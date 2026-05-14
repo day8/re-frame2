@@ -94,7 +94,7 @@
   (testing "filter-variants returns matching subset"
     (story/reg-variant :story.t/a {:tags #{:dev} :events []})
     (story/reg-variant :story.t/b {:tags #{:test} :events []})
-    (let [vs   (story-registrar/handlers :variant)
+    (let [vs   (story-registrar/registrations :variant)
           devs (state/filter-variants vs #{:dev})]
       (is (contains? devs :story.t/a))
       (is (not (contains? devs :story.t/b))))))
@@ -104,7 +104,7 @@
     (story/reg-variant :story.a/x {:events []})
     (story/reg-variant :story.a/y {:events []})
     (story/reg-variant :story.b/z {:events []})
-    (let [vs       (story-registrar/handlers :variant)
+    (let [vs       (story-registrar/registrations :variant)
           grouped  (state/group-variants-by-story vs)
           by-story (into {} (map (juxt :story-id :variants) grouped))]
       (is (= 2 (count (get by-story :story.a))))
@@ -114,7 +114,7 @@
   (testing "sidebar/collect-tags enumerates registered tags"
     (story/reg-variant :story.tg/a {:tags #{:dev :test} :events []})
     (story/reg-variant :story.tg/b {:tags #{:dev :docs} :events []})
-    (let [vs (story-registrar/handlers :variant)]
+    (let [vs (story-registrar/registrations :variant)]
       (is (= [:dev :docs :test]
              (sidebar/collect-tags vs))))))
 

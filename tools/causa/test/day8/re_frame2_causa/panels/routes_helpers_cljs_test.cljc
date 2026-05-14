@@ -32,7 +32,7 @@
 ;; ---- fixture builders --------------------------------------------------
 
 (defn- routes-map
-  "Builds a `{route-id metadata}` map shaped like `(rf/handlers :route)`."
+  "Builds a `{route-id metadata}` map shaped like `(rf/registrations :route)`."
   []
   {:route/home              {:doc "The landing page." :path "/"}
    :route/cart              {:doc "The cart page."    :path "/cart"}
