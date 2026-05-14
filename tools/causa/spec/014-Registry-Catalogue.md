@@ -17,10 +17,11 @@ this doc enumerates what sits inside it.
 
 | Prefix | Used for |
 |---|---|
-| `:rf.causa/<id>` | Every subscription, every event, every cofx. |
+| `:rf.causa/<id>` | Every subscription, every cofx, and every cross-panel event (consumed from ≥2 panels) or shared-infrastructure event (trace-buffer pump, epoch-history pump, etc.). |
+| `:rf.causa.<panel>/<id>` | Every panel-internal event — owned by exactly one panel, never dispatched from another. The namespace itself encodes "panel-internal, no cross-panel callers"; renaming the panel renames the namespace. Per the rf2-nmc1f cleanup the issues-ribbon panel uses this convention (`:rf.causa.issues/clear-filters`, `:rf.causa.issues/toggle-severity`, etc.). Other panels MAY adopt the convention as their event surface stabilises. |
 | `:rf.causa.fx/<id>` | Every effect (fx). The trailing `.fx/` segment is the canonical effect-id marker — agents grepping for the fx subset MAY use `:rf.causa.fx/` as the discriminator. |
 
-Causa MUST NOT register a handler under any non-`:rf.causa/*` keyword.
+Causa MUST NOT register a handler under any non-`:rf.causa*/` keyword.
 A host registering `:user/login` and Causa registering
 `:rf.causa/select-panel` cannot stamp on each other; the prefix is the
 collision-avoidance contract enforced by code review and the registry
@@ -267,10 +268,10 @@ axis independent; empty / `nil` disables the axis.
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.causa/toggle-issues-severity` | `[_ severity]` | Toggles a severity chip in/out. |
-| `:rf.causa/toggle-issues-prefix` | `[_ prefix]` | Toggles a prefix chip in/out. |
-| `:rf.causa/set-issues-since-seconds` | `[_ seconds]` | Converts s → ms; `nil` / non-positive clears the axis. |
-| `:rf.causa/clear-issues-filters` | `[_]` | Clears every axis. |
+| `:rf.causa.issues/toggle-severity` | `[_ severity]` | Toggles a severity chip in/out. |
+| `:rf.causa.issues/toggle-prefix` | `[_ prefix]` | Toggles a prefix chip in/out. |
+| `:rf.causa.issues/set-since-seconds` | `[_ seconds]` | Converts s → ms; `nil` / non-positive clears the axis. |
+| `:rf.causa.issues/clear-filters` | `[_]` | Clears every axis. |
 
 ## Flows panel
 

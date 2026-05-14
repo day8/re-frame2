@@ -104,7 +104,7 @@
                  :colour   colour
                  :test-id  (str "rf-causa-issues-severity-chip-"
                                 (name severity))
-                 :on-click #(rf/dispatch [:rf.causa/toggle-issues-severity
+                 :on-click #(rf/dispatch [:rf.causa.issues/toggle-severity
                                           severity] {:frame :rf/causa})}))))
 
 (defn- prefix-chips
@@ -122,7 +122,7 @@
                    :active?  active?
                    :colour   (:accent-violet tokens)
                    :test-id  (str "rf-causa-issues-prefix-chip-" prefix)
-                   :on-click #(rf/dispatch [:rf.causa/toggle-issues-prefix
+                   :on-click #(rf/dispatch [:rf.causa.issues/toggle-prefix
                                             prefix] {:frame :rf/causa})})))))
 
 (defn- since-input
@@ -149,7 +149,7 @@
                                    (let [parsed (js/parseInt v 10)]
                                      (when-not (js/isNaN parsed) parsed))
                                    (catch :default _ nil))]
-                           (rf/dispatch [:rf.causa/set-issues-since-seconds n] {:frame :rf/causa})))
+                           (rf/dispatch [:rf.causa.issues/set-since-seconds n] {:frame :rf/causa})))
             :style     {:width "60px"
                         :background (:bg-3 tokens)
                         :color (:text-primary tokens)
@@ -183,7 +183,7 @@
      (str rendered " / " total " in view")]
     (when any-filter?
       [:button {:data-testid "rf-causa-issues-clear-filters"
-                :on-click    #(rf/dispatch [:rf.causa/clear-issues-filters] {:frame :rf/causa})
+                :on-click    #(rf/dispatch [:rf.causa.issues/clear-filters] {:frame :rf/causa})
                 :style       {:margin-left "auto"
                               :background  "transparent"
                               :color       (:cyan tokens)
@@ -325,7 +325,7 @@
                 :color (:text-tertiary tokens)}}
     "Adjust the severity / prefix / since-ms chips above to widen the feed."]
    [:button {:data-testid "rf-causa-issues-empty-clear-filters"
-             :on-click    #(rf/dispatch [:rf.causa/clear-issues-filters] {:frame :rf/causa})
+             :on-click    #(rf/dispatch [:rf.causa.issues/clear-filters] {:frame :rf/causa})
              :style       {:background "transparent"
                            :color      (:cyan tokens)
                            :border     (str "1px solid " (:border-default tokens))
@@ -438,7 +438,7 @@
 
   ;; Toggle a severity chip in/out of the active filter set. Per
   ;; the bead's contract each axis is independent.
-  (rf/reg-event-db :rf.causa/toggle-issues-severity
+  (rf/reg-event-db :rf.causa.issues/toggle-severity
     (fn [db [_ severity]]
       (let [current (get db :issues-active-severities #{})]
         (assoc db :issues-active-severities
@@ -448,7 +448,7 @@
 
   ;; Toggle a category-prefix chip. Same shape as the severity
   ;; toggle — multi-select set; empty set = no restriction.
-  (rf/reg-event-db :rf.causa/toggle-issues-prefix
+  (rf/reg-event-db :rf.causa.issues/toggle-prefix
     (fn [db [_ prefix]]
       (let [current (get db :issues-active-prefixes #{})]
         (assoc db :issues-active-prefixes
@@ -459,7 +459,7 @@
   ;; Set the since-ms axis from a seconds-typed user input. The
   ;; view converts s → ms here so the helper's filter-application
   ;; stays uniform in ms. nil / non-positive values clear the axis.
-  (rf/reg-event-db :rf.causa/set-issues-since-seconds
+  (rf/reg-event-db :rf.causa.issues/set-since-seconds
     (fn [db [_ seconds]]
       (if (and (number? seconds) (pos? seconds))
         (assoc db :issues-since-ms (* (long seconds) 1000))
@@ -468,7 +468,7 @@
   ;; Clear every filter axis in one shot. The Clear filters
   ;; affordance in the header + the no-matches empty state both
   ;; fire this.
-  (rf/reg-event-db :rf.causa/clear-issues-filters
+  (rf/reg-event-db :rf.causa.issues/clear-filters
     (fn [db _event]
       (-> db
           (dissoc :issues-active-severities)

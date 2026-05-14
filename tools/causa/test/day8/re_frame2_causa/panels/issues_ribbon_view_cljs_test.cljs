@@ -23,14 +23,14 @@
        prefix; the prefix chip-row only renders when at least one
        prefix has issues.
 
-    6. **Severity filter** — `:rf.causa/toggle-issues-severity` adds/
+    6. **Severity filter** — `:rf.causa.issues/toggle-severity` adds/
        removes severities from the active set and the rendered rows
        narrow to match.
 
-    7. **Prefix filter** — `:rf.causa/toggle-issues-prefix` works the
+    7. **Prefix filter** — `:rf.causa.issues/toggle-prefix` works the
        same way for category prefixes.
 
-    8. **Since-ms filter** — `:rf.causa/set-issues-since-seconds`
+    8. **Since-ms filter** — `:rf.causa.issues/set-since-seconds`
        sets/clears the time window.
 
     9. **Row interactions** — clicking a row pivots to event-detail
@@ -133,14 +133,14 @@
         ":rf.causa/issues-ribbon sub registered")
     (is (some? (registrar/handler :sub :rf.causa/issues-filters))
         ":rf.causa/issues-filters sub registered")
-    (is (some? (registrar/handler :event :rf.causa/toggle-issues-severity))
-        ":rf.causa/toggle-issues-severity event registered")
-    (is (some? (registrar/handler :event :rf.causa/toggle-issues-prefix))
-        ":rf.causa/toggle-issues-prefix event registered")
-    (is (some? (registrar/handler :event :rf.causa/set-issues-since-seconds))
-        ":rf.causa/set-issues-since-seconds event registered")
-    (is (some? (registrar/handler :event :rf.causa/clear-issues-filters))
-        ":rf.causa/clear-issues-filters event registered")))
+    (is (some? (registrar/handler :event :rf.causa.issues/toggle-severity))
+        ":rf.causa.issues/toggle-severity event registered")
+    (is (some? (registrar/handler :event :rf.causa.issues/toggle-prefix))
+        ":rf.causa.issues/toggle-prefix event registered")
+    (is (some? (registrar/handler :event :rf.causa.issues/set-since-seconds))
+        ":rf.causa.issues/set-since-seconds event registered")
+    (is (some? (registrar/handler :event :rf.causa.issues/clear-filters))
+        ":rf.causa.issues/clear-filters event registered")))
 
 (deftest issues-ribbon-defaults-to-no-issues
   (testing "with no events the composite returns empty-kind :no-issues"
@@ -206,7 +206,7 @@
       (push-trace! (mk-issue {:id 1 :op-type :error
                               :operation :rf.error/handler-threw}))
       ;; Toggle in a severity the issue doesn't carry — filter excludes it.
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :advisory])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :advisory])
       (let [tree (issues-ribbon/issues-ribbon-view)]
         (is (some? (find-by-testid tree "rf-causa-issues-empty-no-matches"))
             ":no-matches empty-state container present")
@@ -295,17 +295,17 @@
 ;; ---- (6) severity filter ------------------------------------------------
 
 (deftest toggle-severity-mutates-causa-frame
-  (testing ":rf.causa/toggle-issues-severity toggles set membership on
+  (testing ":rf.causa.issues/toggle-severity toggles set membership on
             the Causa frame"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
       (is (= #{:error}
              (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :warning])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :warning])
       (is (= #{:error :warning}
              (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
       (is (= #{:warning}
              (:severities @(rf/subscribe [:rf.causa/issues-filters])))
           "second toggle removes the severity"))))
@@ -320,7 +320,7 @@
                               :operation :rf.warning/recoverable}))
       (push-trace! (mk-issue {:id 3 :op-type :info
                               :operation :rf.info/note}))
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :warning])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :warning])
       (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
         (is (= 3 (:total data)))
         (is (= 1 (:rendered data)))
@@ -329,14 +329,14 @@
 ;; ---- (7) prefix filter --------------------------------------------------
 
 (deftest toggle-prefix-mutates-causa-frame
-  (testing ":rf.causa/toggle-issues-prefix toggles set membership on
+  (testing ":rf.causa.issues/toggle-prefix toggles set membership on
             the Causa frame"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-issues-prefix "rf.error"])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
       (is (= #{"rf.error"}
              (:prefixes @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa/toggle-issues-prefix "rf.error"])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
       (is (= #{} (:prefixes @(rf/subscribe [:rf.causa/issues-filters])))
           "second toggle removes the prefix"))))
 
@@ -348,7 +348,7 @@
                               :operation :rf.error/handler-threw}))
       (push-trace! (mk-issue {:id 2 :op-type :error
                               :operation :rf.ssr/hydration-mismatch}))
-      (rf/dispatch-sync [:rf.causa/toggle-issues-prefix "rf.ssr"])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.ssr"])
       (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
         (is (= 1 (:rendered data)))
         (is (= [2] (mapv :id (:issues data))))))))
@@ -356,27 +356,27 @@
 ;; ---- (8) since-ms filter ------------------------------------------------
 
 (deftest set-since-seconds-converts-to-ms
-  (testing ":rf.causa/set-issues-since-seconds takes seconds and stores ms"
+  (testing ":rf.causa.issues/set-since-seconds takes seconds and stores ms"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 30])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 30])
       (is (= 30000 (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))
           "30s stored as 30000ms")
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds nil])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds nil])
       (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))
           "nil clears the axis")
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 0])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 0])
       (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))
           "0 / non-positive clears the axis"))))
 
 (deftest clear-issues-filters-drops-every-axis
-  (testing ":rf.causa/clear-issues-filters drops all three axes in one shot"
+  (testing ":rf.causa.issues/clear-filters drops all three axes in one shot"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
-      (rf/dispatch-sync [:rf.causa/toggle-issues-prefix "rf.error"])
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 60])
-      (rf/dispatch-sync [:rf.causa/clear-issues-filters])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 60])
+      (rf/dispatch-sync [:rf.causa.issues/clear-filters])
       (let [filters @(rf/subscribe [:rf.causa/issues-filters])]
         (is (or (nil? (:severities filters)) (empty? (:severities filters))))
         (is (or (nil? (:prefixes filters)) (empty? (:prefixes filters))))
@@ -392,7 +392,7 @@
       (is (nil? (find-by-testid (issues-ribbon/issues-ribbon-view)
                                 "rf-causa-issues-clear-filters"))
           "no Clear filters button when no axis is active")
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
       (is (some? (find-by-testid (issues-ribbon/issues-ribbon-view)
                                  "rf-causa-issues-clear-filters"))
           "Clear filters button surfaces once a severity is active"))))
@@ -460,8 +460,8 @@
   (testing "the panel's filter state lives on :rf/causa, never :rf/default"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 60]))
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 60]))
     (let [causa-db   (frame/frame-app-db-value :rf/causa)
           default-db (frame/frame-app-db-value :rf/default)]
       (is (= #{:error} (:issues-active-severities causa-db))
