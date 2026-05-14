@@ -1715,6 +1715,58 @@
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
+;; ---- rf2-5qbus: capture-buffer cross-contamination from out-of-drain emits ---
+;;
+;; The `capture-event!` fn must skip every `:rf.epoch/*` op the namespace
+;; emits OUTSIDE a cascade (catalogued in the `skip-ops` set). Without
+;; the skip, a `reset-frame-db!` call (which emits `:rf.epoch/db-replaced`
+;; after harvesting the cascade buffer) would buffer the db-replaced
+;; trace event into `capture-buffers[frame-id]`, and the NEXT cascade
+;; for the same frame would harvest it as the first event in the
+;; buffer — treating it as belonging to that cascade. The
+;; `find-trigger-event` fallback would pick its `:epoch-id` as the
+;; trigger; `project-effects`/`project-sub-runs` would silently include
+;; it. The rf2-htf28 fix added the missing ops to the skip-set; pin
+;; the contract here so a future regression that drops them surfaces
+;; loudly.
+
+(deftest capture-buffer-does-not-cross-contaminate-from-reset-frame-db
+  (testing "an out-of-drain :rf.epoch/db-replaced emit from
+            reset-frame-db! does NOT leak into the next cascade's
+            harvested record for the same frame"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :foo  (fn [db _] (assoc db :foo? true)))
+
+    ;; 1. Drive one cascade — clean record lands.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    ;; 2. reset-frame-db! out-of-drain — emits :rf.epoch/db-replaced
+    ;;    which (pre-rf2-htf28) would buffer into capture-buffers.
+    (is (true? (rf/reset-frame-db! :test/main {:n 99})))
+
+    ;; 3. Drive a second cascade for [:foo].
+    (rf/dispatch-sync [:foo] {:frame :test/main})
+
+    (let [history    (rf/epoch-history :test/main)
+          last-record (peek history)]
+      ;; The history has 3 records: [:seed], the synthetic
+      ;; reset-frame-db! record, and [:foo].
+      (is (= 3 (count history)))
+
+      ;; The most-recent record (the [:foo] cascade) must be clean —
+      ;; its trigger-event is [:foo], its trace stream carries no
+      ;; :rf.epoch/db-replaced events.
+      (is (= [:foo] (:trigger-event last-record))
+          "last record's :trigger-event is [:foo] — not a phantom
+           :rf.epoch/db-replaced")
+      (is (= :foo (:event-id last-record))
+          "last record's :event-id is :foo")
+      (is (not-any? #(= :rf.epoch/db-replaced (:operation %))
+                    (:trace-events last-record))
+          "no :rf.epoch/db-replaced trace leaked into the cascade's
+           harvested trace-events"))))
+
 ;; ---- rf2-zzper: on-frame-destroyed! drops in-flight capture-buffer --------
 ;;
 ;; The router calls `discard-buffer!` for the routine cascade-abort case
