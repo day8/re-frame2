@@ -698,13 +698,30 @@ This section is the **bridging pseudocode** for both. For each contract function
   (fc/provider frame-keyword))
 
 ;; -- 9. dispose-adapter! ----------------------------------------------------
-;; Total disposal. Order matters: tear down sub-cache reactions first (so
-;; nothing observes the ratom going away), then the frame-providers, then
-;; release the Reagent reaction caches Reagent itself owns.
+;; Total disposal. Order matters: tear down sub-cache Reactions first (so
+;; nothing observes a ratom going away), then unmount any active React
+;; Roots, then clear adapter-private caches. Frame-providers are stateless
+;; (a single zero-arity component services every frame keyword per
+;; rf2-4y60) so there is no provider-side cache to flush. Reagent's own
+;; reaction-graph caches GC themselves once their last watcher drops, so
+;; the explicit `(ratom/flush!)` step the v1-pseudocode named is not
+;; needed — disposing the cached Reactions above is sufficient (rf2-a47kq).
 (defn dispose-adapter! []
-  (sub-cache/dispose-all!)                            ;; per-frame sub-cache disposal
-  (fc/dispose-providers!)                             ;; release any cached providers
-  (ratom/flush!)                                      ;; drain Reagent's pending queue
+  ;; Step 1 — cancel in-flight reactive subscriptions across every live
+  ;; frame's per-frame sub-cache. Reaches each Reaction via
+  ;; `interop/dispose!` (which routes through `:adapter/dispose!`).
+  (doseq [[_ frame-record] @frame/frames]
+    (when-let [cache (:sub-cache frame-record)]
+      (doseq [[_ entry] @cache]
+        (some-> (:pending-dispose entry) interop/clear-timeout!)
+        (some-> (:reaction entry) interop/dispose!))
+      (reset! cache {})))
+  ;; Step 2 — unmount any active React 18+ Roots (rf2-9fdkb).
+  (doseq [root @active-roots]
+    (try (rdc/unmount root) (catch :default _ nil)))
+  (reset! active-roots #{})
+  ;; Step 3 — clear adapter-private caches.
+  (reset! hiccup-emitter nil)
   nil)
 ```
 
