@@ -31,20 +31,23 @@
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
+            [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn- destroy-single-actor!
+(defn destroy-single-actor!
   "Destroy a single spawned actor against the frame's container: run
   the active configuration's `:exit` cascade (rf2-nahfm), apply the
   unified teardown projection (per
   `re-frame.machines.lifecycle-fx.teardown`), abort in-flight
   `:rf.http/managed` requests (rf2-wvkn), emit the
-  `:system-id-released` trace, and unregister the live event handler.
+  `:system-id-released` trace, unregister the live event handler, and
+  forget the actor from the per-frame spawn-order channel (rf2-vsigt).
 
   Used by `destroy-machine-fx` for the keyword-form legacy/imperative
-  destroy AND iterated for each child in an `:invoke-all` teardown.
+  destroy AND iterated for each child in an `:invoke-all` teardown, AND
+  by the frame-destroy cascade walker (`frame-destroy.cljc`).
 
   Per Spec 005 §Declarative `:invoke` §Composition with explicit
   `:entry` / `:exit`: the actor's `:exit` action runs BEFORE the
@@ -61,13 +64,19 @@
     ;; `teardown-actor` returns [new-db released-sid]; `swap-frame-db!`
     ;; expects a fn returning the new-db only. Capture sid via a side
     ;; channel so we keep a single read + single write.
-    (let [sid (volatile! nil)]
-      (when (frame/swap-frame-db! frame-id
-                                  (fn [db]
-                                    (let [[new-db released-sid]
-                                          (teardown/teardown-actor db {:actor-id actor-id})]
-                                      (vreset! sid released-sid)
-                                      new-db)))
+    (let [sid (volatile! nil)
+          db-swapped? (frame/swap-frame-db! frame-id
+                                            (fn [db]
+                                              (let [[new-db released-sid]
+                                                    (teardown/teardown-actor db {:actor-id actor-id})]
+                                                (vreset! sid released-sid)
+                                                new-db)))]
+      ;; (rf2-vsigt) Forget the actor regardless of whether the app-db
+      ;; swap landed — by the time frame-destroy runs, the container
+      ;; may already be nil but the spawn-order entry still needs
+      ;; clearing.
+      (spawn-order/forget! frame-id actor-id)
+      (when db-swapped?
         (traces/emit-system-id-released! frame-id @sid actor-id)
         (registrar/unregister! :event actor-id)
         @sid))))

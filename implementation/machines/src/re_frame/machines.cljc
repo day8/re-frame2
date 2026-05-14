@@ -38,6 +38,7 @@
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
+            [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
             [re-frame.machines.parallel :as parallel]
@@ -241,6 +242,12 @@
 ;; Late-bound so core never statically requires the machines artefact.
 (late-bind/set-fn! :machines/on-frame-destroyed!
                    (fn [frame-id] (timer/cancel-all-timers! frame-id)))
+;; Per rf2-vsigt — frame-destroy machine-cascade hook. `frame/destroy-frame!`
+;; calls this hook BEFORE the sub-cache / adapter teardown so each active
+;; machine's `:exit` cascade runs against a live container in reverse-
+;; creation order per Spec 005 §Cross-Spec Interactions §1.
+(late-bind/set-fn! :machines/teardown-on-frame-destroy!
+                   frame-destroy/teardown-on-frame-destroy!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 (late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)

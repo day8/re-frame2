@@ -23,6 +23,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
 
@@ -228,7 +229,11 @@
                       {:system-id system-id
                        :parent-id parent-id
                        :invoke-id invoke-id
-                       :track?    track?}))
+                       :track?    track?})
+      ;; Per rf2-vsigt — record the spawned actor in the frame's
+      ;; spawn-order channel so frame-destroy can walk in reverse-
+      ;; creation order per Spec 005 §Cross-Spec Interactions §1.
+      (spawn-order/record! frame-id spawned-id))
     ;; (6) Fire the :start event into the new actor. Per rf2-ijm7,
     ;; spawns that don't supply :start receive a synthetic
     ;; [:rf.machine/spawned] so generic child machines can declare their

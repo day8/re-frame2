@@ -336,20 +336,39 @@
       (dispatch-sync on-destroy {:frame id}))))
 
 (defn- notify-machine-destruction!
+  "Frame-destroy machine-cascade entry-point.
+
+  Per rf2-vsigt — Spec 005 §Cross-Spec Interactions §1: when the
+  machines artefact is loaded, delegate the full cascade
+  (reverse-creation walk, per-machine `:exit` cascade, HTTP abort,
+  unified teardown projection, system-id release, handler unregister)
+  to the late-bind hook `:machines/teardown-on-frame-destroy!`. The
+  hook is published by `re-frame.machines` so core never statically
+  requires the optional machines artefact.
+
+  Fallback (no machines artefact on the classpath): preserve the
+  legacy minimal behaviour — fire the `:http/abort-on-actor-destroy`
+  hook per snapshot key and emit `:rf.machine.lifecycle/destroyed`
+  with `:reason :parent-frame-destroyed`. Without the machines
+  artefact there are no live `:exit` cascades to run, no actor
+  handlers to unregister, and no system-id reverse index to release."
   [id]
-  (let [container  (get-frame-db id)
-        db         (when container (adapter/read-container container))
-        machines   (get db :rf/machines)
-        abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
-    (doseq [[machine-id snapshot] machines]
-      (when abort-http
-        (try (abort-http machine-id)
-             (catch #?(:clj Throwable :cljs :default) _ nil)))
-      (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
-                   {:frame      id
-                    :machine-id machine-id
-                    :last-state (:state snapshot)
-                    :reason     :parent-frame-destroyed}))))
+  (if-let [teardown! (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
+    (teardown! id)
+    ;; Fallback path — preserve the pre-rf2-vsigt minimal contract.
+    (let [container  (get-frame-db id)
+          db         (when container (adapter/read-container container))
+          machines   (get db :rf/machines)
+          abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
+      (doseq [[machine-id snapshot] machines]
+        (when abort-http
+          (try (abort-http machine-id)
+               (catch #?(:clj Throwable :cljs :default) _ nil)))
+        (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
+                     {:frame      id
+                      :machine-id machine-id
+                      :last-state (:state snapshot)
+                      :reason     :parent-frame-destroyed})))))
 
 (defn- mark-frame-destroyed!
   [id]
@@ -386,10 +405,22 @@
 
     1. fire-on-destroy-event!       — run user :on-destroy while frame
                                       is still alive.
-    2. notify-machine-destruction!  — for each active machine snapshot:
-                                      fire the HTTP abort hook then emit
-                                      :rf.machine.lifecycle/destroyed
+    2. notify-machine-destruction!  — per Spec 005 §Cross-Spec Interactions §1:
+                                      delegates to the machines artefact's
+                                      `:machines/teardown-on-frame-destroy!`
+                                      hook (rf2-vsigt). That walks each
+                                      active machine in reverse-creation
+                                      order: runs the `:exit` cascade
+                                      against a live container, applies
+                                      the unified teardown projection
+                                      (snapshot + system-id + spawn-slot
+                                      prune), unregisters the live handler,
+                                      and emits
+                                      `:rf.machine.lifecycle/destroyed`
                                       with :reason :parent-frame-destroyed.
+                                      Falls back to minimal HTTP-abort +
+                                      trace when the machines artefact is
+                                      absent.
     3. mark-frame-destroyed!        — flip :lifecycle :destroyed?.
     4. tear-down-sub-cache!         — dispose every cached reaction.
     *. cleanup hooks (best-effort, no-op when artefact absent):

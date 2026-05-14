@@ -183,6 +183,10 @@
    {:key         :machines/on-frame-destroyed!
     :producer-ns 're-frame.machines
     :description "Per-frame `:after` timer-table cleanup hook called from frame/destroy-frame! (rf2-ysa94)."}
+   {:key         :machines/teardown-on-frame-destroy!
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-vsigt"
+    :description "Frame-destroy machine-cascade orchestrator: walks active machines in reverse-creation order, runs each `:exit` cascade, applies the unified teardown projection (snapshot + system-id + spawn-slot prune), unregisters handlers, and emits `:rf.machine.lifecycle/destroyed` per actor with `:reason :parent-frame-destroyed`. Invoked by `frame/destroy-frame!` BEFORE sub-cache / adapter teardown per Spec 005 §Cross-Spec Interactions §1."}
    {:key         :machines/spawn-fx
     :producer-ns 're-frame.machines
     :description "Effect handler for :rf.machine/spawn."}
