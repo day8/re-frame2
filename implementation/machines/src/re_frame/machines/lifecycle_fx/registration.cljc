@@ -109,6 +109,127 @@
 ;; branch in `create-machine-handler` itself — it must short-circuit before
 ;; boot / step / commit run.
 
+;; ---- snapshot/definition compatibility (rf2-fasdp) ------------------------
+;;
+;; Per Spec 005 §Snapshot shape stability invariants 3 & 4:
+;;
+;;   3. Snapshots whose `:state` is no longer present in the machine's
+;;      definition transition to the new `:initial` and emit
+;;      `:rf.error/machine-state-not-in-definition`.
+;;   4. `:rf/snapshot-version` mismatch between snapshot and definition
+;;      emits `:rf.error/machine-snapshot-version-mismatch`.
+;;
+;; Both checks fire at machine-handler entry against an existing
+;; snapshot — singleton-bootstrap path has no snapshot to validate. On
+;; trip, the snapshot is rebuilt from `@base-initial` (with the
+;; bootstrap-pending marker stamped so the new initial state's `:entry`
+;; actions fire). The transient runtime-internal slots
+;; (`:rf/spawn-counter`, `:rf/after-epoch`, region-scoped epochs) reset
+;; with the snapshot — restoring an incompatible snapshot means
+;; restarting the machine, not patching it.
+;;
+;; Per rf2-fasdp this closes the audit-confirmed drift: the prior code
+;; only distinguished "no snapshot" from "snapshot present", without
+;; verifying the snapshot's state still exists in the (possibly
+;; hot-reloaded) definition or that the version stamps agree. Both
+;; failures previously kept driving the incompatible snapshot through
+;; the transition engine, where they surfaced as cryptic downstream
+;; errors instead of the spec's named warnings + fallback behaviour.
+
+(defn- state-resolves?
+  "True iff the snapshot's `:state` (flat keyword / compound vector
+  path / parallel-region map) resolves through the machine's `:states`
+  / `:regions` definition. For parallel machines every region's path
+  must resolve; one region's failure invalidates the whole snapshot
+  (the runtime can't safely run a parallel transition with a mismatched
+  region — better to reset and re-enter)."
+  [machine state]
+  (cond
+    ;; Parallel-region machine: every region key must be a declared
+    ;; region AND every region's state-path must resolve through that
+    ;; region's body.
+    (parallel/parallel? machine)
+    (and (map? state)
+         (every? (fn [[region-name region-state]]
+                   (let [region-body (get-in machine [:regions region-name])]
+                     (and region-body
+                          (some? (transition/node-at
+                                   region-body
+                                   (transition/state-path region-state))))))
+                 state))
+
+    ;; Flat / compound machine: the state-path must resolve to a node
+    ;; in `:states`. `state-path` throws on a malformed shape; the
+    ;; try/catch surfaces that as "doesn't resolve" so the same reset
+    ;; path covers both shape-error AND missing-state cases.
+    :else
+    (try
+      (some? (transition/node-at machine (transition/state-path state)))
+      (catch #?(:clj Throwable :cljs :default) _ false))))
+
+(defn- snapshot-version
+  "Read the `:rf/snapshot-version` int from `(get-in m [:meta :rf/snapshot-version])`.
+  Returns nil if absent. Per Spec 005 §Reserved snapshot-internal keys."
+  [m]
+  (get-in m [:meta :rf/snapshot-version]))
+
+(defn- version-compatible?
+  "True iff the snapshot's `:rf/snapshot-version` matches the
+  definition's. Both absent matches; both present-and-equal matches;
+  any other shape is a mismatch."
+  [machine snapshot]
+  (= (snapshot-version machine) (snapshot-version snapshot)))
+
+(defn- rebuild-incompatible-snapshot
+  "Emit the named `:rf.error/*` trace and return the freshly-derived
+  initial snapshot (with `:rf/bootstrap-pending? true` so the new
+  initial state's `:entry` cascade fires on this same handler call).
+  `kind` is `:state-not-in-definition` or `:version-mismatch`."
+  [kind machine-id frame-id machine existing-snap base-initial]
+  (case kind
+    :state-not-in-definition
+    (trace/emit-error! :rf.error/machine-state-not-in-definition
+                       {:machine-id machine-id
+                        :state      (:state existing-snap)
+                        :frame      frame-id
+                        :recovery   :reset-to-initial})
+
+    :version-mismatch
+    (trace/emit-error! :rf.error/machine-snapshot-version-mismatch
+                       {:machine-id       machine-id
+                        :version-recorded (snapshot-version existing-snap)
+                        :version-current  (snapshot-version machine)
+                        :frame            frame-id
+                        :recovery         :reset-to-initial}))
+  ;; Per Spec 005 §Snapshot shape stability invariants the snapshot is
+  ;; replaced — there is no merge-with-old-data path. The reset stamps
+  ;; bootstrap-pending so `:entry` fires on this same handler call.
+  (assoc @base-initial :rf/bootstrap-pending? true))
+
+(defn- reconcile-snapshot
+  "Apply the Spec 005 §Snapshot shape stability invariants 3 & 4 at
+  handler-entry. Returns the (possibly replaced) snapshot — the caller
+  uses it as the basis for `needs-bootstrap?` / the transition. Per
+  rf2-fasdp.
+
+  Version check runs FIRST (an explicit version bump is a stronger
+  signal than an opportunistic state-vanished detection — if the
+  author bumped the version they want a reset regardless of whether
+  the old state still exists in the new definition). Both checks
+  silently pass when the snapshot is compatible; only a trip emits
+  the named `:rf.error/*` event."
+  [machine machine-id frame-id existing-snap base-initial]
+  (cond
+    (not (version-compatible? machine existing-snap))
+    (rebuild-incompatible-snapshot :version-mismatch machine-id frame-id
+                                   machine existing-snap base-initial)
+
+    (not (state-resolves? machine (:state existing-snap)))
+    (rebuild-incompatible-snapshot :state-not-in-definition machine-id frame-id
+                                   machine existing-snap base-initial)
+
+    :else existing-snap))
+
 (defn- prepare-machine-ctx
   "Step 1 of 4 (rf2-2zzyg). Stamp the live frame / platform / parent-id
   onto the machine def, look up the existing snapshot at
@@ -123,7 +244,16 @@
     - Spawn path: `spawn-fx` pre-seeded the snapshot at
       `[:rf/machines <spawned-id>]` and stamped
       `:rf/bootstrap-pending? true` so the actor's first dispatch sees
-      the marker and runs the cascade before processing the event."
+      the marker and runs the cascade before processing the event.
+
+  Per rf2-fasdp: when an existing snapshot is found, run the Spec 005
+  §Snapshot shape stability invariants 3 & 4 reconciler before
+  threading it onward — a hot-reload that dropped a state, or a
+  `:rf/snapshot-version` bump, replaces the snapshot with a fresh
+  initial-state derivative (with `:rf/bootstrap-pending? true` so
+  `:entry` fires this same handler call) and emits the named
+  `:rf.error/machine-state-not-in-definition` or
+  `:rf.error/machine-snapshot-version-mismatch` event."
   [db frame event machine base-initial]
   (let [machine-id    (first event)
         frame-id      (or frame :rf/default)
@@ -133,17 +263,22 @@
                              :rf/platform  platform
                              :rf/parent-id machine-id)
         path          [:rf/machines machine-id]
-        existing-snap (get-in db path)]
+        existing-snap (get-in db path)
+        snapshot      (cond
+                        (nil? existing-snap)
+                        (assoc @base-initial :rf/bootstrap-pending? true)
+
+                        :else
+                        (reconcile-snapshot machine machine-id frame-id
+                                            existing-snap base-initial))]
     {:db               db
      :machine-id       machine-id
      :frame-id         frame-id
      :machine          machine
      :path             path
-     :snapshot         (if (nil? existing-snap)
-                         (assoc @base-initial :rf/bootstrap-pending? true)
-                         existing-snap)
+     :snapshot         snapshot
      :needs-bootstrap? (or (nil? existing-snap)
-                           (true? (:rf/bootstrap-pending? existing-snap)))
+                           (true? (:rf/bootstrap-pending? snapshot)))
      :inner-event      (route-inner-event event)}))
 
 (defn- maybe-boot
