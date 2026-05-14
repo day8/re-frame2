@@ -115,23 +115,30 @@
   "Build the human-readable `:reason` slot for a schema-validation
   failure trace. Single template covering every emit-site:
 
-    - `noun-and-id`: \"Event :foo\" / \"Coeffect :db\" / \"App-db at path [:user]\".
-      The noun + id (or path) phrase that names what failed.
-    - `slot-suffix` (optional): \" payload\" / \" injected value\" /
-      \" return value\" / \" args\" — names the slot inside the
-      noun-bearer being checked. Use `nil` for app-db where the
-      noun phrase carries the full subject already.
+    - `subject`: subject phrase up to (but not including) the id —
+      \"Event \" / \"Coeffect \" / \"Subscription \" / \"Effect \" /
+      \"App-db at path \". Built per-call-site as a string literal
+      so the elision-probe grep (`scripts/check-elision.cjs`) can
+      pin a distinctive substring per surface.
+    - `id-or-path`: the id (event-id, sub-id, ...) or the app-db
+      path; rendered via `str` so keywords print with the colon.
+    - `slot-tail`: distinctive per-surface tail starting with
+      \" failed schema \" — e.g. \" payload failed schema \" /
+      \" injected value failed schema \" / \", failed schema \"
+      (app-db has no slot label so the tail starts with \" failed
+      schema \" directly). Pinned per-site so DCE analysis can see
+      the literal substring inside each gated branch — the
+      elision-probe asserts every surface's distinctive tail is
+      ABSENT under :advanced + goog.DEBUG=false.
     - `schema`: the registered schema (Malli EDN form or other
       validator's schema value); rendered via `pr-str` (no special-
       casing of `[:int]` etc. — `pr-str` already reads fine).
     - `value`: the value that failed.
 
-  Shape: \"<noun-and-id><slot-suffix> failed schema <schema>, got
+  Shape: \"<subject><id-or-path><slot-tail><pr-str schema>, got
   <type-of-value>.\""
-  [noun-and-id slot-suffix schema value]
-  (str noun-and-id
-       (when slot-suffix slot-suffix)
-       " failed schema " (pr-str schema)
+  [subject id-or-path slot-tail schema value]
+  (str subject id-or-path slot-tail (pr-str schema)
        ", got " (type-of-value value) "."))
 
 (defn- run-validation
@@ -256,8 +263,9 @@
                                        :frame    frame-id
                                        :explain  (validator/run-explainer schema val-at)
                                        :reason   (reason-string
-                                                   (str "App-db at path " path)
-                                                   nil
+                                                   "App-db at path "
+                                                   path
+                                                   " failed schema "
                                                    schema val-at)
                                        :recovery :no-recovery}
                                 event-id (assoc :failing-id event-id))
@@ -285,8 +293,8 @@
          :received   event
          :value      event
          :explain    explanation
-         :reason     (reason-string (str "Event " event-id)
-                                    " payload"
+         :reason     (reason-string "Event " event-id
+                                    " payload failed schema "
                                     schema event)
          :recovery   :no-recovery})
       nil)
@@ -315,8 +323,8 @@
          :received   value
          :value      value
          :explain    explanation
-         :reason     (reason-string (str "Subscription " sub-id)
-                                    " return value"
+         :reason     (reason-string "Subscription " sub-id
+                                    " return value failed schema "
                                     schema value)
          :recovery   :replaced-with-default})
       nil)
@@ -345,8 +353,8 @@
          :received   value
          :value      value
          :explain    explanation
-         :reason     (reason-string (str "Coeffect " cofx-id)
-                                    " injected value"
+         :reason     (reason-string "Coeffect " cofx-id
+                                    " injected value failed schema "
                                     schema value)
          :recovery   :no-recovery})
       nil)
@@ -380,8 +388,8 @@
                  :received   args
                  :value      args
                  :explain    explanation
-                 :reason     (reason-string (str "Effect " fx-id)
-                                            " args"
+                 :reason     (reason-string "Effect " fx-id
+                                            " args failed schema "
                                             schema args)
                  :recovery   :skipped}
           event-id (assoc :event-id event-id)))
