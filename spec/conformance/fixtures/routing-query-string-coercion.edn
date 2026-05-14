@@ -3,7 +3,14 @@
 ;; Spec 012 §Query strings and fragments locks the per-key coercion
 ;; cascade: when a route declares a :query Malli :map schema, raw URL
 ;; values are coerced into the declared types. The first-pass type set is
-;; :int, :keyword, :boolean. Strings and unknown types pass through.
+;; :int, :boolean, and the enum-bounded keyword form `[:enum :a :b ...]`.
+;; Strings and unknown types pass through.
+;;
+;; Per rf2-3k3o7 a bare `:keyword` slot is treated as an unbounded
+;; keyword-interning DoS site (JVM keywords intern forever); the URL
+;; value is preserved as a string rather than being interned. Authors
+;; who want a keyword-typed slot declare an `[:enum :a :b ...]`
+;; allowlist — the bounded keyword universe.
 ;;
 ;; Per [012 §Query strings and fragments]
 ;; (../../012-Routing.md#query-strings-and-fragments).
@@ -11,7 +18,7 @@
 {:fixture/id           :routing/query-string-coercion
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url}
- :fixture/doc          "Per-key coercion of query-string values via the route's :query schema. :int parses to a number, :keyword turns into a keyword, :boolean true/false strings become booleans, :string passes through. :query-defaults populate keys absent from the URL. Optional schema keys without a value also pass through."
+ :fixture/doc          "Per-key coercion of query-string values via the route's :query schema. :int parses to a number, an `[:enum :a :b ...]` allowlist interns matching values to keywords (bounded universe — the rf2-3k3o7 keyword-DoS guard), :boolean true/false strings become booleans, :string passes through. :query-defaults populate keys absent from the URL. Optional schema keys without a value also pass through."
 
  :fixture/registry
  {:route
@@ -20,7 +27,8 @@
     :query          [:map
                      [:q :string]
                      [:page  {:optional true} :int]
-                     [:tag   {:optional true} :keyword]
+                     ;; rf2-3k3o7: bounded keyword universe.
+                     [:tag   {:optional true} [:enum :lang :clojure :design]]
                      [:draft? {:optional true} :boolean]]
     :query-defaults {:page 1}}}}
 

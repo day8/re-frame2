@@ -292,13 +292,34 @@
         (zipmap (map keyword names)
                 (map (fn [g] (when g (url-decode g))) groups))))))
 
+(def ^:const default-max-decoded-keys
+  "Default cap on the number of unique query-string keys a single URL
+  may carry through `match-url`. Per rf2-3k3o7 — a defensive ceiling
+  against the keyword-interning DoS surface on long-running JVMs,
+  symmetric with `:rf.http/max-decoded-keys` (rf2-wu1n5). JVM keywords
+  intern into a process-global, never-GC'd table; a hostile partner
+  URL stream with N-unique query keys per request burns N permanent
+  slots. 10000 is generous enough not to false-positive on legitimate
+  large URLs, finite enough to bound an attacker-controlled payload.
+
+  Override per route via the `:rf.route/max-decoded-keys` route-meta
+  slot; absent → this default."
+  10000)
+
 (defn- compile-query-coercions
   "Flatten a `[:map [k type-or-opts] ...]` Malli vector schema into a
   `{k type-form}` map for O(1) per-key lookup during URL coercion.
   Returns nil when the schema is absent or not a vector. Computed once
   at registration time and cached on the route metadata under
   `:rf.route/query-coerce` (rf2-yjjrv); pre-rf2-yjjrv this re-scanned
-  `(rest schema)` per query key per nav."
+  `(rest schema)` per query key per nav.
+
+  Per rf2-3k3o7: when the slot's type-form is a bare `[:enum ...]` with
+  all-keyword choices, the type-form is rewritten as `[:rf.route/enum-keyword #{choice-names...}]`
+  — an allowlist of permitted string-→keyword conversions. A bare
+  `:keyword` type-form (no enum allowlist) is rewritten as
+  `:rf.route/keyword-unbounded` so the coercer can flag it as a
+  string-passthrough rather than an unbounded intern site."
   [schema]
   (when (and schema (vector? schema))
     (persistent!
@@ -306,10 +327,26 @@
         (fn [m e]
           (if (and (vector? e) (keyword? (first e)))
             (let [k         (first e)
-                  type-form (cond
+                  raw       (cond
                               (= 2 (count e)) (second e)
                               (= 3 (count e)) (last e)
-                              :else           nil)]
+                              :else           nil)
+                  ;; rf2-3k3o7: detect `[:enum kw kw ...]` as a bounded
+                  ;; keyword allowlist. Skip the optional opts-map at
+                  ;; position 1 when present (Malli convention:
+                  ;; `[:enum {...opts} :a :b]`).
+                  enum-set  (when (and (vector? raw) (= :enum (first raw)))
+                              (let [tail (rest raw)
+                                    ;; Strip leading opts-map if present.
+                                    items (if (and (seq tail) (map? (first tail)))
+                                            (rest tail)
+                                            tail)]
+                                (when (and (seq items) (every? keyword? items))
+                                  (into #{} (map name) items))))
+                  type-form (cond
+                              enum-set        [:rf.route/enum-keyword enum-set]
+                              (= :keyword raw) :rf.route/keyword-unbounded
+                              :else           raw)]
               (assoc! m k type-form))
             m))
         (transient {})
@@ -317,32 +354,93 @@
 
 (defn- coerce-by-type-form
   "Apply a single Malli type-form coercion to a raw URL string. First-pass
-  vocabulary: :int / :keyword / :boolean; any other type-form (including
-  nil) is a pass-through. Per Spec 012 §Query-string coercion."
+  vocabulary: `:int` / `:boolean` plus the rf2-3k3o7 keyword variants:
+
+  - `:rf.route/keyword-unbounded` — declared as `:keyword` with no enum
+    constraint. **Stays as string** (no intern; the unbounded keyword-
+    interning DoS surface is precisely what rf2-3k3o7 guards against).
+  - `[:rf.route/enum-keyword #{names}]` — declared as `[:enum :a :b ...]`.
+    Intern is gated by the allowlist; values matching a declared enum
+    choice are keyword'd, others stay string. Bounded by construction.
+
+  Any other type-form (including nil) is a pass-through. Per Spec 012
+  §Query-string coercion and rf2-3k3o7."
   [type-form v]
-  (case type-form
-    :int     (try
-               #?(:clj  (Long/parseLong v)
-                  :cljs (let [n (js/parseInt v 10)]
-                          (if (js/isNaN n) v n)))
-               (catch #?(:clj Throwable :cljs :default) _ v))
-    :keyword (keyword v)
-    :boolean (case v "true" true "false" false v)
-    v))
+  (cond
+    (= :int type-form)
+    (try
+      #?(:clj  (Long/parseLong v)
+         :cljs (let [n (js/parseInt v 10)]
+                 (if (js/isNaN n) v n)))
+      (catch #?(:clj Throwable :cljs :default) _ v))
+
+    (= :boolean type-form)
+    (case v "true" true "false" false v)
+
+    (= :rf.route/keyword-unbounded type-form)
+    ;; rf2-3k3o7: `:keyword` without an enum allowlist stays as string —
+    ;; permitting `(keyword v)` here is the unbounded keyword-interning
+    ;; DoS surface this fix closes. Authors who want keyword values
+    ;; must declare an `[:enum ...]` allowlist.
+    v
+
+    (and (vector? type-form) (= :rf.route/enum-keyword (first type-form)))
+    ;; rf2-3k3o7: enum allowlist gate — intern only when the URL value
+    ;; matches one of the declared keyword choices' names.
+    (if (contains? (second type-form) v)
+      (keyword v)
+      v)
+
+    :else v))
 
 (defn- coerce-query
-  "Coerce a raw `{:k string-value}` map against a precompiled
-  `query-coerce` table (`{:k type-form}`). Returns an array-map to
-  preserve URL key order; when `query-coerce` is nil every value passes
-  through unchanged."
-  [query-coerce raw-query]
-  (if-not query-coerce
-    raw-query
-    (reduce-kv
-      (fn [m k v]
-        (assoc m k (coerce-by-type-form (get query-coerce k) v)))
-      (array-map)
-      raw-query)))
+  "Coerce a raw `{string-key string-value}` map against a precompiled
+  `query-coerce` table (`{:keyword-key type-form}`). Returns an
+  array-map to preserve URL key order.
+
+  Per rf2-3k3o7:
+
+  - When the route declares **no** `:query` schema (and `query-coerce`
+    is therefore nil), every query key is promoted to a keyword key
+    (the legacy ergonomic shape). The URL-level cap on unique keys
+    (`default-max-decoded-keys`) is the DoS defense for this branch.
+
+  - When the route declares a `:query` schema, only keys named by the
+    schema (or by `:query-defaults`) are promoted to keyword keys;
+    unknown keys retain their **string** form. The route's declared
+    vocabulary defines the keyword universe; the framework refuses to
+    extend the process-global keyword table on behalf of URL keys the
+    route did not name.
+
+  `:query-defaults` and `:query-retain` slots widen the declared
+  universe (they are author-named intent, identical trust class to
+  the `:query` schema itself)."
+  [query-coerce defaults retain raw-query]
+  (cond
+    ;; No declared vocabulary at all → legacy keyword-all behaviour.
+    ;; The URL-level cap is the DoS defense for this branch.
+    (and (nil? query-coerce) (empty? defaults) (empty? retain))
+    (reduce-kv (fn [m k v] (assoc m (keyword k) v))
+               (array-map)
+               raw-query)
+
+    :else
+    (let [declared-names (cond-> #{}
+                           query-coerce (into (map name) (keys query-coerce))
+                           (seq defaults) (into (map name) (keys defaults))
+                           (seq retain) (into (map name) retain))]
+      (reduce-kv
+        (fn [m k v]
+          (if (contains? declared-names k)
+            ;; Declared key: promote to keyword + apply type coercion.
+            (let [kk (keyword k)]
+              (assoc m kk (coerce-by-type-form (get query-coerce kk) v)))
+            ;; Undeclared key: pass through with the **string** key,
+            ;; no type coercion. The framework does not burn a keyword
+            ;; slot per unique URL key the route did not declare.
+            (assoc m k v)))
+        (array-map)
+        raw-query))))
 
 (defn- split-fragment
   "Split a URL into [url-without-fragment fragment]. Returns
@@ -419,16 +517,44 @@
   ;; forces at most once and is held for the lifetime of this call.
   (let [[url-no-frag fragment] (split-fragment url)
         [path query-str]       (clojure.string/split url-no-frag #"\?" 2)
-        raw-query-delayed (delay
-                            (when query-str
-                              (reduce
-                                (fn [m pair]
-                                  (let [[k v] (clojure.string/split pair #"=" 2)]
-                                    (assoc m
-                                           (keyword (url-decode k))
-                                           (if v (url-decode v) ""))))
-                                (array-map)
-                                (clojure.string/split query-str #"&"))))]
+        ;; rf2-3k3o7: parse query as a **string-keyed** raw map and
+        ;; enforce a per-URL cap on the number of unique keys. The cap
+        ;; defends against the same accident-class as rf2-wu1n5 (unbounded
+        ;; JVM keyword-table growth on long-running SSR processes
+        ;; consuming attacker-influenced URL streams). Overflow throws
+        ;; `:rf.error/route-too-many-keys` with `:limit` ex-data so the
+        ;; caller can route the failure (currently propagates through
+        ;; navigate / url-change-fx — error projection surfaces it).
+        ;;
+        ;; Note: the cap counts **all** raw query keys, not just unique
+        ;; ones declared by the route. Hostile URLs can't avoid the
+        ;; cap by spamming keys outside any route schema; the cap fires
+        ;; at the parse boundary before any per-route resolution.
+        raw-query-delayed
+        (delay
+          (when query-str
+            (let [pairs    (clojure.string/split query-str #"&")
+                  pair-cnt (count pairs)]
+              (when (> pair-cnt default-max-decoded-keys)
+                (throw (ex-info ":rf.error/route-too-many-keys"
+                                {:kind   :rf.error/route-too-many-keys
+                                 :url    url
+                                 :limit  default-max-decoded-keys
+                                 :count  pair-cnt})))
+              (reduce
+                (fn [m pair]
+                  (let [[k v] (clojure.string/split pair #"=" 2)
+                        kstr  (url-decode k)
+                        m'    (assoc m kstr (if v (url-decode v) ""))]
+                    (when (> (count m') default-max-decoded-keys)
+                      (throw (ex-info ":rf.error/route-too-many-keys"
+                                      {:kind   :rf.error/route-too-many-keys
+                                       :url    url
+                                       :limit  default-max-decoded-keys
+                                       :count  (count m')})))
+                    m'))
+                (array-map)
+                pairs))))]
     ;; Iterate the pre-sorted table; the first pattern that matches is the
     ;; highest-rank winner (Spec 012 §Route ranking algorithm). `reduce` with
     ;; `reduced` short-circuits on the first hit. nil ⇒ no route matched.
@@ -439,14 +565,20 @@
           (when-let [params (match-against compiled path)]
             (let [query-coerce  (:rf.route/query-coerce meta)
                   defaults      (:query-defaults meta)
+                  retain        (:query-retain meta)
                   ;; Force the query parse on the first successful path
                   ;; match — unmatched URLs and pre-match iterations skip
                   ;; the work entirely (rf2-r1in4).
                   raw-query     @raw-query-delayed
                   ;; Coercion: O(M) lookups against the precompiled
-                  ;; `query-coerce` map (rf2-yjjrv).
+                  ;; `query-coerce` map (rf2-yjjrv). Per rf2-3k3o7
+                  ;; only keys declared by the route (in `query-coerce`
+                  ;; or `:query-defaults`) are promoted to keyword keys;
+                  ;; unknown keys retain their string form so the
+                  ;; framework does not extend the JVM keyword-table on
+                  ;; behalf of attacker-controlled URLs.
                   coerced       (when raw-query
-                                  (coerce-query query-coerce raw-query))
+                                  (coerce-query query-coerce defaults retain raw-query))
                   ;; Defaults: short-circuit when the route declares no
                   ;; defaults (the common case). When both raw-query and
                   ;; defaults are empty, fall back to an empty array-map
