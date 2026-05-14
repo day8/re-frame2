@@ -84,22 +84,46 @@ wired into the build, and consumers can use it today.
   [`tools/causa/spec/000-Vision.md`](./causa/spec/000-Vision.md).
 
 - **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
-  for the MCP triplet (`pair2-mcp`, `story-mcp`, `causa-mcp`):
-  wire-vocabulary constants (`:rf.mcp/*`, `:rf.size/*`, JSON-RPC error
-  codes), the spec/009 §Privacy default-suppress filter, MCP argument
-  coercion helpers, the path-keyed structural diff-encode (rf2-1wdzp),
-  and the overflow-marker shape (rf2-rvyzy). Pure `.cljc` with zero
+  for the MCP triplet (`pair2-mcp`, `story-mcp`, `causa-mcp`): seven
+  namespaces — `vocab` (wire-vocabulary constants `:rf.mcp/*`,
+  `:rf.size/*`, JSON-RPC error codes), `sensitive` (spec/009 §Privacy
+  default-suppress filter), `elision` (`:rf.size/large-elided`
+  wire-boundary walker), `args` (MCP argument coercion helpers),
+  `diff-encode` (path-keyed structural diff, rf2-1wdzp), `overflow`
+  (overflow-marker payload shape, rf2-rvyzy), and `cap` (wire-boundary
+  token-budget cap pipeline, rf2-eyelu). Pure `.cljc` with zero
   runtime deps beyond `org.clojure/clojure`. Per rf2-vw4sq. See
   [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
+
+- **`tools/mcp-conformance/`** — End-to-end MCP-client conformance
+  harness for the re-frame2 MCP servers (`pair2-mcp`, `story-mcp`,
+  and — when its implementation lands — `causa-mcp`). Pure Node
+  test fixtures: drives each server through the official
+  `@modelcontextprotocol/sdk` `Client` so SDK-strict schema
+  regressions surface before a real consumer attaches. Also hosts
+  the cross-MCP wire-vocabulary conformance fixtures
+  (`wire-vocab/`), the cross-MCP tool-naming convention
+  (`NAMING.md`), and the cross-MCP token-budget posture
+  (`TOKEN-BUDGETS.md`). Per rf2-cum40 / rf2-j2z7o / rf2-mzf1r /
+  rf2-ll0yq. **Spec posture: documented exemption from the per-tool
+  `spec/` convention** — the conformance contracts live on the
+  servers being verified, not on the harness; the harness's
+  normative contract IS its test corpus + the three top-level docs
+  (`NAMING.md`, `TOKEN-BUDGETS.md`, `wire-vocab/README.md`) plus
+  the README. Bundle-isolated by construction (no CLJS sources,
+  Node-side only). See
+  [`tools/mcp-conformance/README.md`](./mcp-conformance/README.md).
 
 - **`tools/pair2-mcp/`** — `@day8/re-frame-pair2-mcp`. A Node-based
   stdio JSON-RPC **MCP server** (compiled from ClojureScript via
   shadow-cljs) that pair-programs with a live re-frame2 app over a
   persistent nREPL socket. Structural successor to the bash-shim →
-  babashka → nREPL chain under `skills/re-frame-pair2/scripts/`. Seven
-  tools (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
-  `watch-epochs`, `tail-build`, `snapshot`); per-op latency drops
-  from ~700ms to ~5–50ms. Published to npm as
+  babashka → nREPL chain under `skills/re-frame-pair2/scripts/`.
+  Twelve tools (`discover-app`, `eval-cljs`, `dispatch`,
+  `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
+  `get-path`, the streaming triad `subscribe` / `unsubscribe` /
+  `subscription-info`, and `get-pair2-instructions`); per-op latency
+  drops from ~700ms to ~5–50ms. Published to npm as
   `@day8/re-frame-pair2-mcp`. See
   [`tools/pair2-mcp/README.md`](./pair2-mcp/README.md).
 
@@ -112,6 +136,18 @@ wired into the build, and consumers can use it today.
   identity for visual-regression keying. Embeds Causa's epoch panel
   as a registered story panel. See
   [`tools/story/README.md`](./story/README.md).
+
+- **`tools/story-mcp/`** — `day8/re-frame2-story-mcp`. JVM-side stdio
+  JSON-RPC **MCP server** that exposes Story's read (and gated write)
+  surface as MCP tools. Nineteen tools across four categories — Dev
+  (`get-story-instructions`, `preview-variant`, `list-substrates`),
+  Docs (`list-stories`, `get-story`, `get-variant`, `list-tags`,
+  `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
+  `get-docs-markdown`), Testing (`run-variant`, `snapshot-identity`,
+  `run-a11y`, `read-failures`), and Write (`register-variant`,
+  `unregister-variant`, `record-as-variant`, gated on
+  `--allow-writes`). Lands as Stage 7 of the Story epic (`rf2-tgci`).
+  See [`tools/story-mcp/README.md`](./story-mcp/README.md).
 
 - **`tools/template/`** — `day8/clj-template.re-frame2`. The front-door
   scaffolding tool for new re-frame2 apps (rf2-lrtc). A
@@ -188,11 +224,6 @@ not created up-front.
   agent-facing surface ship as distinct jars so the MCP server can be
   loaded without dragging the entire DOM-heavy panel into the
   classpath.
-
-- **`tools/story-mcp/`** — `day8/re-frame2-story-mcp`. The MCP agent
-  surface for `tools/story/` (early skeleton on disk; not yet
-  graduated). Lands as Stage 7 of the Story epic (`rf2-tgci`); same
-  human-tool / agent-surface separation as causa-mcp.
 
 - **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. The
   state-chart component for re-frame2 machines. Ships one component
