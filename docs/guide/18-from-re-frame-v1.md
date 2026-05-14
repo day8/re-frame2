@@ -4,7 +4,7 @@
 
 You're on re-frame v1 and want to move to v2. This page tells you which deps change, which skill automates the migration, and what to expect along the way.
 
-The exhaustive rule list lives in [`spec/MIGRATION.md`](../../spec/MIGRATION.md) (40+ M- and O-rules) and is consumed by the migration skill; this chapter does not duplicate it.
+The migration skill carries an exhaustive rule list (40+ M- and O-rules); this chapter does not duplicate it.
 
 ## Deps to update
 
@@ -26,7 +26,7 @@ The migration is automated. The primary entry point is the **`re-frame-migration
 
 [`skills/re-frame-migration/`](../../skills/re-frame-migration/) — the Claude Code skill.
 
-It walks six phases (orient → bump → sweep → verify → optional modernisations → report), applies the mechanical (Type A) rewrites unprompted, and stops at every judgment-call (Type B) site to ask. `spec/MIGRATION.md` is its source of truth.
+It walks six phases (orient → bump → sweep → verify → optional modernisations → report), applies the mechanical (Type A) rewrites unprompted, and stops at every judgment-call (Type B) site to ask.
 
 A paste-ready kickoff prompt lives at [`skills/re-frame-migration/reference/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/reference/kickoff-prompt.md). The shape of the workflow:
 
@@ -35,7 +35,7 @@ A paste-ready kickoff prompt lives at [`skills/re-frame-migration/reference/kick
 3. Answer questions at the Type B checkpoints — the agent explains the risk and waits for your call before rewriting.
 4. Run your test suite. The agent re-verifies and produces a migration report.
 
-The skill is the recommended path for any project larger than a toy. The fallback — read `spec/MIGRATION.md` and walk the rules by hand — works for small codebases or first-time-readers who want to see the surface up close.
+The skill is the recommended path for any project larger than a toy.
 
 ## Problems you might run into
 
@@ -55,7 +55,7 @@ If a failure doesn't match any of the above, the skill surfaces it for human rev
 
 A concrete instance of "problems you might run into": v1 codebases that registered their own `:http` fx — or used `re-frame-http-fx`, `re-frame-fetch-fx`, or one of their cousins — migrate onto `:rf.http/managed` (see [10 — Doing HTTP requests](10-doing-http-requests.md)). The skill recognises the shape; the rewrite is mechanical (Type A):
 
-1. Add the `day8/re-frame2-http` artefact and `(:require [re-frame.http-managed])` from the namespaces that issue requests (per [`MIGRATION.md` §M-31](../../spec/MIGRATION.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)).
+1. Add the `day8/re-frame2-http` artefact and `(:require [re-frame.http-managed])` from the namespaces that issue requests.
 2. Replace `[:http {:url ... :on-success ... :on-error ...}]` fx vectors with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`. Wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) move inside `:request`.
 3. Rename `:on-error` → `:on-failure`. The reply payload appends as the last argument; destructure `{:keys [value]}` for success, `{:keys [failure]}` for failure.
 4. Adopt the closed `:rf.http/*` failure category set in error-handling branches — code that branched on `(:status err)` becomes branching on `(:kind failure)`.
@@ -81,9 +81,9 @@ Two things to know up front:
 - **Flows are a niche convenience, not a sub replacement.** They're for derived values that are part of the application's *state* — visible to other event handlers, surviving SSR hydration, covered by registered schemas, queryable from the app-db inspector. If the derived value is consumed only by views, the right tool is a subscription (lighter, sub-cache-native, no `app-db` write). A typical re-frame2 app has dozens of subs and a handful of flows; tens of flows is a smell.
 - **What `on-changes` couldn't reach, flows can.** Wizard steps where a derivation only runs while a feature is engaged, feature gates, advanced-mode-only computations — `on-changes` is statically wired into specific events at registration time, so a derivation that should be conditional has no clean shape. Flows are runtime-registered and runtime-clearable; toggling is a normal fx.
 
-The migration rewrite is Type B (see [`MIGRATION.md` §M-21](../../spec/MIGRATION.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)) — mechanically straightforward (`(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :output f :path out-path})`), but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditionally toggled rather than always-on. Apps without `on-changes` see no migration here at all.
+The migration rewrite is Type B — mechanically straightforward (`(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :output f :path out-path})`), but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditionally toggled rather than always-on. Apps without `on-changes` see no migration here at all.
 
-The full contract — frame-scoping, topological evaluation order, schema validation, the toggle fx — is in [Spec 013](../../spec/013-Flows.md).
+Flows are frame-scoped, evaluated in topological order after each event drain, schema-validatable, and toggleable at runtime via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`.
 
 ## A note on the tooling
 
@@ -92,6 +92,5 @@ The full contract — frame-scoping, topological evaluation order, schema valida
 ## Where to read next
 
 - [`skills/re-frame-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md) — the skill that drives the migration end-to-end.
-- [`spec/MIGRATION.md`](../../spec/MIGRATION.md) — the authoritative rule list. The skill consumes this directly.
 - [19 — Adapters](19-adapters.md) — substrate-agnostic story, the `init!` call shape, the three adapter packages, the slim-Reagent option.
 - [20 — Where to go next](20-where-next.md) — once the migration settles, where to head next.

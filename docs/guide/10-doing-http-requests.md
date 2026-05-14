@@ -6,7 +6,7 @@ This chapter is the human-track for managed HTTP. We'll use the counter from cha
 
 ## What `:rf.http/managed` is
 
-`:rf.http/managed` is **the canonical managed external effect for HTTP** — the first instance, today, of a single contract shape every framework-owned async surface in re-frame2 conforms to (WebSockets, state-machine `:invoke`, SSR per-request fxs, managed flows). The shape is named and graded against eight properties in [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md); this chapter is the human-facing walkthrough of the HTTP instance.
+`:rf.http/managed` is **the canonical managed external effect for HTTP** — the first instance, today, of a single contract shape every framework-owned async surface in re-frame2 conforms to (WebSockets, state-machine `:invoke`, SSR per-request fxs, managed flows). This chapter is the human-facing walkthrough of the HTTP instance.
 
 A registered fx whose args map describes an HTTP request *as data*, and whose runtime side issues the request, decodes the body, runs retry-with-backoff if you asked for it, classifies failures into a closed set of `:rf.http/*` categories, and dispatches the reply back into the runtime.
 
@@ -229,7 +229,7 @@ For stubbing managed-HTTP requests in tests — the `:rf.http/managed-canned-suc
 
 `:rf.http/managed` gives you the *mechanics* of a request — fire it, decode the reply, retry, abort. It doesn't dictate the *shape* of the slice you write the reply into. Across every feature that loads remote data, the same five-key `:status` / `:data` / `:error` / `:loaded-at` / `:attempt` shape recurs — with the load-bearing `:loading` (first fetch) vs `:fetching` (revalidating over existing `:data`) split so revalidation doesn't flash a spinner over loaded content.
 
-That's **Pattern-RemoteData** — convention, not Spec. See [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) for the full slice schema, the four-event lifecycle (`/load`, `/loaded`, `/load-failed`, optionally `/reset`), convenience subs (`:loading?` / `:fetching?`), optimistic-update rollback, and the `:loaded-at` / `:stale-after-ms` freshness story. The RealWorld example exercises the full shape across `articles`, `feed`, `profile`, and `comments` slices.
+That's **Pattern-RemoteData** — a convention that pairs the slice schema with a four-event lifecycle (`/load`, `/loaded`, `/load-failed`, optionally `/reset`), convenience subs (`:loading?` / `:fetching?`), optimistic-update rollback, and the `:loaded-at` / `:stale-after-ms` freshness story. The RealWorld example exercises the full shape across `articles`, `feed`, `profile`, and `comments` slices.
 
 ## Worked example — `examples/reagent/managed_http_counter/`
 
@@ -296,8 +296,6 @@ Your codebase shouldn't carry HTTP archaeology. Every layer of "this is how we u
 
 ## Cross-references
 
-- [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) — the 5-key request-lifecycle slice; managed-HTTP writes through this slice.
-- [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md) — the generic six-step async shape that managed-HTTP specialises.
 - [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter) — the runnable per-button demo of every contract row.
 - [`examples/reagent/realworld/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld) — the canonical breadth demo across auth, routing, forms, machines, optimistic updates, and SSR-relevant payload concerns.
 

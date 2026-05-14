@@ -123,8 +123,6 @@ If the argument lands, the next chapter ([02 — app-db](02-app-db.md)) introduc
 
 If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [12 — The dynamic-model story](12-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
 
-If you want the precise contracts before the prose, the [specification](../../spec/README.md) is one click away.
-
 [^app-db]: You'll meet `app-db` properly in [chapter 02](02-app-db.md) — it's the single immutable map every re-frame2 app pivots around.
 [^machines]: State machines get their own treatment in [chapter 08](08-state-machines.md).
 [^frames]: Frames — re-frame2's unit of isolated state and dispatch — are introduced in [chapter 06](06-views-and-frames.md), with a dedicated walk-through in [chapter 06a](06a-frames.md).

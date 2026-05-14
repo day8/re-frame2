@@ -25,7 +25,7 @@ Story is the surface you reach for when **a component has more than one state an
 
 Three of Story's hard rules are worth knowing up front:
 
-1. **Each variant runs in its own frame.** Per spec/002, a variant is allocated a fresh frame with a fresh `app-db`; no state leaks between scenarios. What you see is what production would render against the same fixture.
+1. **Each variant runs in its own frame.** A variant is allocated a fresh frame with a fresh `app-db`; no state leaks between scenarios. What you see is what production would render against the same fixture.
 2. **Variant bodies are data — never functions.** A variant body is a map with `:events`, `:args`, `:decorators`, `:play`, etc. — every slot is plain EDN, round-trippable across the network. This is the lock that lets MCP, visual-regression services, and agent input pipelines all consume the same shape.
 3. **Assertions record, don't throw.** A failing `:rf.assert/path-equals` doesn't blow up the variant — it appends an entry to the variant frame's assertion accumulator. The play sequence runs to completion either way; the test runner asks "did every entry pass?" at the end.
 
@@ -84,7 +84,7 @@ cell-overrides ← live edits from the controls panel
 
 Deep-merge, left-to-right. Variants that don't say anything inherit; variants that override win. Modes (next section) sit between global and story for a fourth point of leverage when needed.
 
-The **controls panel** in the right-side pane auto-derives editors. If the parent story carries `:argtypes {:label {:control :text}}`, the panel renders a text input wired to dispatch a cell-override. If you've gone further and tagged the schema in `re-frame.schemas` (spec/010), the panel reads the schema directly — a `:keyword` schema becomes a select, an `:int` schema with `:max`/`:min` becomes a number-input or slider, an `:enum` becomes a radio group. No `argTypes` plumbing; the schema is the source of truth.
+The **controls panel** in the right-side pane auto-derives editors. If the parent story carries `:argtypes {:label {:control :text}}`, the panel renders a text input wired to dispatch a cell-override. If you've gone further and tagged the schema in `re-frame.schemas` (see [04a — Schemas](04a-schemas.md)), the panel reads the schema directly — a `:keyword` schema becomes a select, an `:int` schema with `:max`/`:min` becomes a number-input or slider, an `:enum` becomes a radio group. No `argTypes` plumbing; the schema is the source of truth.
 
 A variant can also **declare its own schema inline** via the `:rf/schema` slot — useful when one variant exercises a narrower (or stricter, or experimental) shape than the component-wide registered schema:
 
@@ -198,7 +198,7 @@ When a variant renders against `:Mode.app/dark`, the mode's `:args` deep-merge i
 
 ## Play sequences + assertions
 
-The `:play` slot on a variant is a sequence of regular event-vectors. They dispatch through the same router as `:events` — but the seven canonical assertion events from spec/007 §304 don't throw on failure; they append a record to `[:rf.story/assertions]` in the variant frame's `app-db`.
+The `:play` slot on a variant is a sequence of regular event-vectors. They dispatch through the same router as `:events` — but the seven canonical assertion events don't throw on failure; they append a record to `[:rf.story/assertions]` in the variant frame's `app-db`.
 
 The seven:
 
@@ -321,8 +321,6 @@ This is the whole story (no pun intended) about how a tool with this much surfac
 ## Where to go next
 
 - **The worked example** — [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories). Four variants, two workspaces, every `reg-*` form, and a passing integration test.
-- **The implementation contract** — [`tools/story/spec/`](../../tools/story/spec/). What the runtime actually does, decision-by-decision. The [`005-SOTA-Features.md`](../../tools/story/spec/005-SOTA-Features.md) §Production elision section + [`002-Runtime.md`](../../tools/story/spec/002-Runtime.md) §Args resolution precedence are the most-referenced parts.
-- **The normative spec** — [`spec/007-Stories.md`](../../spec/007-Stories.md). The id grammar lock, the variant-as-data lock, the seven canonical assertions. When the IMPL-SPEC and Spec 007 disagree, Spec 007 wins.
 - **The agent surface** — [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md). The MCP server, the sixteen tools, the protocol shape, the write-gate.
 
 Story is the most direct expression of the third-pillar pitch from [chapter 15](15-devtools-and-pair-tools.md): the runtime is the substrate, the tools are downstream observers, and a project's stories live in the same repo as the components they exercise. Open `#/stories` against your own app and you'll see what it feels like to have the catalogue right there.

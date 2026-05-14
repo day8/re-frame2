@@ -350,11 +350,11 @@ Same code path for client-side validation failures and server-side validation re
 
 ## Variations
 
-A handful of common-but-not-default extensions, sketched here for orientation; the full mechanics live in [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md).
+A handful of common-but-not-default extensions, sketched here for orientation.
 
 ### Per-field async validation
 
-"Is this username taken?" is async — the answer comes from the server. Compose with [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md): the `:blur-field` handler issues an async check; the result event writes into `:errors` under the same field id used by synchronous validation; the standard `:field-error` sub picks up both without caring which validator wrote the entry. Because async results can arrive after the user has typed further into the field, carry an epoch (or the current value) on the dispatch and ignore stale replies.
+"Is this username taken?" is async — the answer comes from the server. The `:blur-field` handler issues an async check; the result event writes into `:errors` under the same field id used by synchronous validation; the standard `:field-error` sub picks up both without caring which validator wrote the entry. Because async results can arrive after the user has typed further into the field, carry an epoch (or the current value) on the dispatch and ignore stale replies.
 
 ### Cross-field validation
 
@@ -366,7 +366,7 @@ A signup wizard, a checkout flow, a survey with branches. The form slice persist
 
 ### Optimistic vs. pessimistic submit
 
-The default is pessimistic: `:status :submitting` shows the disabled-button state; the UI waits for the server. Optimistic submit assumes success, navigates away, and rolls back the slice if the server rejects. The slice shape is the same; the difference is which `:status` you flip to and when. See the optimistic-update sketch in [Pattern-RemoteData](../../spec/Pattern-RemoteData.md).
+The default is pessimistic: `:status :submitting` shows the disabled-button state; the UI waits for the server. Optimistic submit assumes success, navigates away, and rolls back the slice if the server rejects. The slice shape is the same; the difference is which `:status` you flip to and when.
 
 ## When to reach for this pattern, and when not to
 
@@ -401,9 +401,6 @@ The checklist is intentionally duplicated between this chapter and the Pattern d
 
 ## Cross-references
 
-- [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md) — the normative pattern doc: slice schema, seven-event table, full canonical rules.
-- [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md) — the generic async shape per-field async validation composes with.
-- [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) — the request-lifecycle slice the submit step reuses when the server is involved.
 - [chapter 08 — State machines](08-state-machines.md) — multi-step wizards layer a machine on top of the form slice.
 - [`examples/reagent/realworld/auth.cljs`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld/auth.cljs) — RealWorld's login and register forms exercise the convention end-to-end; `article_editor.cljs` and `comments.cljs` extend it across longer drafts and inline-comment submissions.
 

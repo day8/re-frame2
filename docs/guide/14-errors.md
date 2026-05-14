@@ -483,8 +483,6 @@ Errors stop being incidents to recover from and start being signals you can rout
 
 ## Where to read next
 
-- **[Spec 009 — Instrumentation](../../spec/009-Instrumentation.md)** — the authoritative reference for the trace surface, the error categories, the per-category recovery defaults, and the `:on-error` policy contract.
-- **[Spec 011 — SSR §Server error projection](../../spec/011-SSR.md#server-error-projection)** — the full story on `reg-error-projector`, the `:rf/public-error` shape, and the server-vs-client error boundary.
 - **[13 — Testing](13-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
 - **[15 — Tooling](15-devtools-and-pair-tools.md)** — what Causa and re-frame-pair2 do with the trace stream, including the errors panel.
 

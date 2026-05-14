@@ -14,7 +14,7 @@ Three adapters are available today:
 - **UIx** — a CLJS adapter targeting React function components and hooks idiomatically. Useful if you're integrating with a JS-side codebase that expects React fn-components, or if you want UIx's compile-time JSX-style ergonomics.
 - **Helix** — same shape as UIx in spirit; pick it if your team already uses Helix.
 
-Each ships as its own Maven artefact alongside core (per Strategy B — see [`spec/MIGRATION.md`](../../spec/MIGRATION.md)):
+Each ships as its own Maven artefact alongside core:
 
 ```clojure
 ;; deps.edn — Reagent (the canonical "first app" stack)
@@ -33,7 +33,7 @@ Each ships as its own Maven artefact alongside core (per Strategy B — see [`sp
         lilactown/helix          {:mvn/version "..."}}}
 ```
 
-Per the [feature-opt-in story](../../spec/MIGRATION.md), core ships with **none** of the substrate adapters baked in — you add the artefact for the substrate you've picked. The same pattern applies to optional capabilities (state machines, routing, HTTP, schemas, SSR, time-travel) — each ships as its own artefact, and an app that doesn't use a feature doesn't bundle its code.
+Re-frame2 is **pay-as-you-go**: core ships with **none** of the substrate adapters baked in — you add the artefact for the substrate you've picked. The same pattern applies to optional capabilities (state machines, routing, HTTP, schemas, SSR, time-travel) — each ships as its own artefact, and an app that doesn't use a feature doesn't bundle its code.
 
 The `dispatch`, `subscribe`, and `reg-view` primitives are identical across substrates; the difference shows up in the mount call (`reagent.dom.client/render` vs `uix.dom/render-root` vs Helix's mount fn) and in how the view body composes — Reagent uses hiccup, UIx and Helix use their own component DSLs. The pattern survives.
 
@@ -73,4 +73,4 @@ For apps where bundle size matters, the `day8/reagent-slim` artefact wires re-fr
 
 ## Where next
 
-If you've finished the chapters, [20 — Where to go next](20-where-next.md) is the one-screen exit pointer — examples, pattern docs, the API ref, the runtime companion docs, the spec. The reference for the adapter contract itself is [Spec 006 — Reactive substrate](../../spec/006-ReactiveSubstrate.md).
+If you've finished the chapters, [20 — Where to go next](20-where-next.md) is the one-screen exit pointer — examples, pattern docs, and the API reference.

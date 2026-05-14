@@ -183,7 +183,7 @@ Some work is genuinely expensive — iterating a million-element vector, parsing
 
 There are two real answers:
 
-1. **Offload to a Web Worker.** The main thread stays responsive; the work runs at full thread speed on another core; progress reports flow back as events. This is the right answer when the work is serialisable across the worker boundary. See [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) for the shape.
+1. **Offload to a Web Worker.** The main thread stays responsive; the work runs at full thread speed on another core; progress reports flow back as events. This is the right answer when the work is serialisable across the worker boundary.
 2. **Chunk and yield on the main thread.** When the work has to run on the main thread — DOM access, framework state, awkward-to-serialise data — split it into small batches and yield between batches. That's a state machine.
 
 The chunked machine has a canonical shape covered in detail in [chapter 08 §Pattern-LongRunningWork](08-state-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine). The summary: a five-state machine (`:idle`, `:processing`, `:checking-done`, `:yielding`, `:complete`) with `:after 0` in `:yielding` to hand the thread back to the browser between batches. Progress is a snapshot field; cancellation is a transition, not a flag. The full worked example is `:counter/scan` in chapter 08.
@@ -421,7 +421,7 @@ The perf channel is **CLJS-only**. JVM artefacts (SSR, headless tests, server-si
 
 A few things the chapter deliberately does not cover.
 
-- **Bundle size.** Production bundle size is a Closure-compiler story, not a re-frame2 one. The DCE story for the trace surface and the `rf:` channel is in [Spec 009](../../spec/009-Instrumentation.md#production-elision-verification); how to keep *your* code small is a `:advanced` story.
+- **Bundle size.** Production bundle size is a Closure-compiler story, not a re-frame2 one. The framework's trace surface and the `rf:` channel both DCE under `goog.DEBUG=false`; how to keep *your* code small is a `:advanced` story.
 - **Animation performance.** Reagent renders into React renders into the DOM. Animation jank is usually a DOM / CSS story, not a re-frame2 one. The chunked-work machine helps when you've blocked the main thread; for `transform` / `opacity` smoothness, the browser's `will-change` and `transform: translateZ(0)` tricks live one layer deeper.
 - **Server-side rendering performance.** SSR is JVM-side; the `rf:` channel is browser-only; profiling SSR uses host tools. The shape of [chapter 11](11-server-side.md) is what governs server-side cost, not this chapter.
 - **Sub-graph topology analysis.** The static sub-graph (`(rf/sub-topology)`, [chapter 15 §Reference](15-devtools-and-pair-tools.md#reference-the-static-sub-graph--sub-topology)) is the right lever when you want to find dead subs or visualise dependencies. The performance angle on it is "every redundant edge is a potential cache miss"; the tooling angle covers the rest.
@@ -437,5 +437,3 @@ A few things the chapter deliberately does not cover.
 
 - [08 — State machines §Pattern-LongRunningWork](08-state-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine) — the chunked-work machine in full.
 - [15 — Tooling](15-devtools-and-pair-tools.md) — the trace bus, the epoch records, the source-coord story.
-- [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the Web Worker offload alternative for genuinely heavy CPU work.
-- [Spec 009 §Performance instrumentation](../../spec/009-Instrumentation.md#performance-instrumentation) — the normative contract for the `rf:` surface (entry names, gating, bundle isolation).
