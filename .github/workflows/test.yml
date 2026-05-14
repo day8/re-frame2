@@ -1399,6 +1399,14 @@ jobs:
       - name: Install mcp-conformance deps
         run: npm install
 
+      # exec-safety helpers (rf2-33vvc): unit-test the
+      # trusted-PATH-resolution + symlink-safe-unlink helpers that the
+      # hermetic orchestrator + story-mcp harness route through. The
+      # symlink-rejection branches need a runner that allows symlinkSync
+      # — Ubuntu GHA does; Windows would soft-skip them.
+      - name: Run mcp-conformance exec-safety unit tests
+        run: npm run test:exec-safety
+
       - name: Run pair2-mcp end-to-end MCP-client conformance
         run: npm run test:pair2
 

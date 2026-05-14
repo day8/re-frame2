@@ -28,9 +28,19 @@
 
 const path = require('node:path');
 const { runWithWatchdog } = require('./_runner.js');
+const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
-const CLOJURE = process.env.STORY_MCP_CMD || 'clojure';
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+// Resolve `clojure` to a trusted absolute path outside the workspace,
+// or honour the explicit STORY_MCP_CMD override (trust the invoker —
+// rf2-33vvc accident-gating only fires on the implicit-PATH path).
+// Without the override, spawning bare `clojure` with `cwd =
+// STORY_MCP_CWD` would let a workspace-local `clojure.cmd` hijack the
+// invocation on Windows; the resolved-absolute-path form prevents it.
+const CLOJURE = process.env.STORY_MCP_CMD
+  ? process.env.STORY_MCP_CMD
+  : resolveTrustedExe('clojure', { workspaceRoot: REPO_ROOT });
 
 // Per-server tool catalogue. Same set as tools/story-mcp/test/stdio-roundtrip.js
 // — pin exact so accidental renames / additions / deletions surface here.
