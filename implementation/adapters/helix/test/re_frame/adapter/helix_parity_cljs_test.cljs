@@ -142,3 +142,22 @@
             "Fragment root preserved as the element type")
         (is (nil? (react-element-source-coord out))
             "no data-rf2-source-coord on the Fragment root (exempt)")))))
+
+(deftest reg-view-preserves-user-supplied-source-coord-helix
+  (testing "Per rf2-owioi: when the user component's root element already
+            carries `data-rf2-source-coord`, the wrapper passes it through
+            unchanged — no cloneElement, no attribute clobber. Guards the
+            existing-attr short-circuit in `inject-source-coord-attr`."
+    (let [user-attr "users.namespace:my-component:1:1"
+          user-fn   (fn []
+                      (React/createElement "div"
+                        #js {"data-rf2-source-coord" user-attr}
+                        "hi"))]
+      (rf/reg-view* :rf.helix-parity-test/user-attr-root user-fn)
+      (let [render (rf/view :rf.helix-parity-test/user-attr-root)
+            out    (render)]
+        (is (some? out))
+        (is (= "div" (.-type out))
+            "root element's type is preserved")
+        (is (= user-attr (react-element-source-coord out))
+            "the user-supplied data-rf2-source-coord survives the wrap-view pass")))))
