@@ -126,11 +126,26 @@ const HERMETIC_TIMEOUT_MS = 540_000;
 // meaningfully raise cold-cache load).
 const POLL_MS = 100;
 
-const LIVE_TEST = path.join(
-  MCP_CONFORMANCE_ROOT,
-  'test',
-  'live-pair2-overflow.cjs',
-);
+// Inner tests the orchestrator boots shadow-cljs for. Each runs with
+// the spawned `SHADOW_CLJS_NREPL_PORT` set so its SKIP gate flips off
+// and the live path fires. Run sequentially against the same booted
+// runtime — the cold-boot cost amortises across every test.
+//
+// Per rf2-i3ffz F-GAP-1: `live-pair2-subscribe.cjs` joined the suite
+// to pin the `notifications/progress` streaming wire surface
+// (rf2-zb5z6). The orchestrator's name keeps `overflow` for backward
+// compatibility with the workflow YAML's script reference; the
+// `INNER_TESTS` list IS the authoritative inventory.
+const INNER_TESTS = [
+  {
+    name: 'live overflow conformance',
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-pair2-overflow.cjs'),
+  },
+  {
+    name: 'live subscribe / notifications/progress conformance',
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-pair2-subscribe.cjs'),
+  },
+];
 
 function log(msg) {
   process.stdout.write(`[hermetic] ${msg}\n`);
@@ -383,8 +398,10 @@ async function main() {
   if (!exists(path.join(FIXTURE_DIR, 'shadow-cljs.edn'))) {
     throw new Error(`fixture missing: ${FIXTURE_DIR}`);
   }
-  if (!exists(LIVE_TEST)) {
-    throw new Error(`live test missing: ${LIVE_TEST}`);
+  for (const test of INNER_TESTS) {
+    if (!exists(test.path)) {
+      throw new Error(`live test missing: ${test.path}`);
+    }
   }
   if (!exists(path.join(PAIR2_MCP_DIR, 'out', 'server.js'))) {
     throw new Error(
@@ -580,17 +597,11 @@ async function main() {
     );
     log('shadow :app runtime addressable');
 
-    // ---- Run the live-overflow test -------------------------------------
-    log(`running ${path.basename(LIVE_TEST)} with SHADOW_CLJS_NREPL_PORT=${port}`);
-    const testEnv = {
-      ...process.env,
-      SHADOW_CLJS_NREPL_PORT: String(port),
-    };
-    // `process.execPath` is always an absolute path to the currently-
-    // running node binary; it's outside the workspace by construction.
-    // No PATH walk is performed by cross-spawn for absolute paths
-    // (see `which`'s separator short-circuit), so this stays
-    // accident-safe.
+    // ---- Run each inner test sequentially --------------------------------
+    // Each test inherits the spawned `SHADOW_CLJS_NREPL_PORT` so its
+    // SKIP gate flips off and the live path fires against the same
+    // booted runtime. Sequential execution keeps cold-boot cost
+    // amortised; tests are short relative to shadow-cljs boot.
     //
     // Per rf2-i3ffz F-PERF-1: spawn ASYNC, not via `crossSpawn.sync`.
     // The sync form synchronously blocks the event loop for the inner
@@ -598,37 +609,55 @@ async function main() {
     // `SIGINT`/`SIGTERM`/`SIGHUP` handlers wired above CANNOT fire (Node
     // delivers signals only between event-loop iterations) and the
     // outer `HERMETIC_TIMEOUT_MS` watchdog `setTimeout` CANNOT trip. A
-    // hang inside the inner test would wedge the orchestrator
-    // unresponsive for ~60s before any outer cleanup gets control.
+    // hang inside an inner test would wedge the orchestrator
+    // unresponsive for ~30-60s before any outer cleanup gets control.
     // The async-spawn shape preserves signal responsiveness end-to-end.
-    const testStatus = await new Promise((resolve, reject) => {
-      const child = crossSpawn(process.execPath, [LIVE_TEST], {
-        cwd: MCP_CONFORMANCE_ROOT,
-        stdio: 'inherit',
-        env: testEnv,
+    //
+    // `process.execPath` is always an absolute path to the currently-
+    // running node binary; it's outside the workspace by construction.
+    // No PATH walk is performed by cross-spawn for absolute paths
+    // (see `which`'s separator short-circuit), so this stays
+    // accident-safe.
+    const testEnv = {
+      ...process.env,
+      SHADOW_CLJS_NREPL_PORT: String(port),
+    };
+    for (const test of INNER_TESTS) {
+      log(`running ${path.basename(test.path)} — ${test.name}`);
+      const testStatus = await new Promise((resolve, reject) => {
+        const child = crossSpawn(process.execPath, [test.path], {
+          cwd: MCP_CONFORMANCE_ROOT,
+          stdio: 'inherit',
+          env: testEnv,
+        });
+        child.on('error', reject);
+        child.on('exit', (code, signal) => {
+          // signal-terminated children report null exit codes; treat
+          // the signal as a non-zero status so the conformance gate
+          // fails loud rather than silently passing.
+          if (code === null) {
+            reject(new Error(
+              `${path.basename(test.path)} killed by ${signal}`,
+            ));
+            return;
+          }
+          resolve(code);
+        });
       });
-      child.on('error', reject);
-      child.on('exit', (code, signal) => {
-        // signal-terminated children report null exit codes; treat the
-        // signal as a non-zero status so the conformance gate fails
-        // loud rather than silently passing.
-        if (code === null) {
-          reject(new Error(`live-pair2-overflow.cjs killed by ${signal}`));
-          return;
-        }
-        resolve(code);
-      });
-    });
-    if (testStatus !== 0) {
-      // Surface the inner test's exit code verbatim so CI sees a
-      // conformance failure as exit 1 (the test's own code) rather
-      // than 2 (which we reserve for orchestration failures —
-      // shadow-cljs didn't boot, runtime didn't preload, etc.).
-      const err = new Error(`live-pair2-overflow.cjs exited ${testStatus}`);
-      err.exitCode = testStatus;
-      throw err;
+      if (testStatus !== 0) {
+        // Surface the inner test's exit code verbatim so CI sees a
+        // conformance failure as exit 1 (the test's own code) rather
+        // than 2 (which we reserve for orchestration failures —
+        // shadow-cljs didn't boot, runtime didn't preload, etc.).
+        const err = new Error(
+          `${path.basename(test.path)} exited ${testStatus}`,
+        );
+        err.exitCode = testStatus;
+        throw err;
+      }
     }
-    log('PAIR2-MCP LIVE OVERFLOW HERMETIC CONFORMANCE GREEN');
+    log('PAIR2-MCP LIVE HERMETIC CONFORMANCE GREEN (' +
+      INNER_TESTS.length + ' inner tests)');
   } finally {
     cleanup();
   }

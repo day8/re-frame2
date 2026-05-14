@@ -7,6 +7,7 @@
   "scripts": {
     "test:pair2": "node test/end-to-end-pair2.cjs",
     "test:pair2-live-overflow": "node test/live-pair2-overflow.cjs",
+    "test:pair2-live-subscribe": "node test/live-pair2-subscribe.cjs",
     "test:pair2-live-overflow-hermetic": "node scripts/run-live-pair2-overflow-hermetic.cjs",
     "test:story": "node test/end-to-end-story.cjs",
     "test:causa": "node test/end-to-end-causa.cjs",
