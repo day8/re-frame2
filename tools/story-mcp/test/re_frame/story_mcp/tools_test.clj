@@ -603,6 +603,70 @@
       (is (success? r))
       (is (= "Wire body." (:doc (story/variant->edn :story.button/wire)))))))
 
+;; ---------------------------------------------------------------------------
+;; EDN reader hardening on register-variant :body (rf2-g9fje fix 2/3)
+;;
+;; The EDN-string path through `tool-register-variant` is locked down per
+;; the rf2-uaymx audit: no tagged literals, no custom readers, 64KB size
+;; cap, 64-level depth cap. Pre-fix, `(edn/read-string body)` would happily
+;; eval `#=(...)` evaluator forms (when `*read-eval*` was true) or invoke
+;; any data reader on the `*data-readers*` table; post-fix the reader is
+;; `:readers {}` with a throwing `:default`, so any tagged-literal form
+;; lands in `::edn-error`.
+;; ---------------------------------------------------------------------------
+
+(deftest register-variant-rejects-tagged-literal
+  (testing "EDN body containing a custom tagged literal is rejected (rf2-g9fje)"
+    (config/set-allow-writes! true)
+    ;; Custom tags (non-EDN-built-in: not #inst / #uuid) route through the
+    ;; reader's :default handler, which throws under the rf2-g9fje
+    ;; hardening. The throw lands as ::edn-error → the "must be a map or
+    ;; a valid EDN string" error message.
+    (let [r (invoke "register-variant"
+                    {:variant-id "story.button/tagged"
+                     :body "{:doc #my.app/widget {:x 1}}"})]
+      (is (error? r))
+      (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))
+          "tagged literals route through the EDN-error message"))))
+
+(deftest register-variant-rejects-reader-eval-form
+  (testing "EDN body containing #=() does not evaluate (rf2-g9fje)"
+    (config/set-allow-writes! true)
+    ;; `#=(...)` is the read-time eval form. `clojure.edn/read-string`
+    ;; ignores `*read-eval*` and rejects it as a tagged literal under
+    ;; our throwing :default. The body should be refused.
+    (let [r (invoke "register-variant"
+                    {:variant-id "story.button/eval"
+                     :body "{:doc #=(println \"PWNED\") :args {}}"})]
+      (is (error? r)
+          "the #= eval form must be rejected before any side-effect can fire"))))
+
+(deftest register-variant-rejects-oversize-edn-body
+  (testing "EDN body exceeding the 64KB ceiling is rejected (rf2-g9fje)"
+    (config/set-allow-writes! true)
+    (let [big-doc (apply str (repeat (* 70 1024) \x))
+          r       (invoke "register-variant"
+                          {:variant-id "story.button/oversize"
+                           :body       (str "{:doc \"" big-doc "\"}")})]
+      (is (error? r))
+      (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))
+          "oversize payload routes through the EDN-error message"))))
+
+(deftest register-variant-rejects-over-deep-edn-body
+  (testing "EDN body exceeding the 64-level depth ceiling is rejected (rf2-g9fje)"
+    (config/set-allow-writes! true)
+    ;; Build a 100-level nested map by string concatenation; well past the
+    ;; 64 ceiling. The depth check runs AFTER `edn/read-string` parses, so
+    ;; the rejection happens before the registrar sees the value.
+    (let [deep-edn (str (apply str (repeat 100 "{:a "))
+                        "1"
+                        (apply str (repeat 100 "}")))
+          r        (invoke "register-variant"
+                           {:variant-id "story.button/deep"
+                            :body       deep-edn})]
+      (is (error? r))
+      (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))))))
+
 (deftest register-variant-rejects-bad-shape
   (testing "registration with an invalid body returns a tool-execution error"
     (config/set-allow-writes! true)
