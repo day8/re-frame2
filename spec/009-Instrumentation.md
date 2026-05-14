@@ -1508,6 +1508,8 @@ Consumer-side defaults (MUST-level):
 - **On-box listener integrations** (Causa panel, Story panels per [Tool-Pair.md](Tool-Pair.md)) MUST default `:rf.size/include-large?` to `false` (the dev-tools UI shows a `[● ELIDED N]`-style indicator the user clicks to opt in for a single fetch). Production-trust on-box consumers MAY default to `true`; the rationale must be documented per-consumer.
 - **Indicator field on tool responses.** Tools that return structured response maps (every MCP server per [Tool-Pair.md](Tool-Pair.md)) MUST carry an `:elided-large` count alongside the existing `:dropped-sensitive` count (per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)) — one MUST-level row per consumer-facing tool that walks a tree-typed payload.
 
+  The `:elided-large` slot reports the count of `:rf.size/large-elided` markers ENCOUNTERED in the tool's response payload. Tools do not invoke `elide-wire-value` themselves — markers ride through from upstream (the event-emit substrate per rf2-rirbq, the error-emit substrate per rf2-bacs4, schema-slot meta). The slot is omitted when the count is zero (per [Conventions.md](Conventions.md) — `:elided-large` row).
+
 The walker MUST NOT widen the policy transitively into the underlying registry — the policy is per-call; the registry of declared paths is per-frame state.
 
 #### Composition

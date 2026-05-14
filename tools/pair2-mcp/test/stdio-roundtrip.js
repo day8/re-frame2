@@ -5,8 +5,11 @@
 //   - initialize handshake
 //   - tools/list (expects all twelve tools: original ten + get-pair2-instructions
 //     under rf2-tygdv + subscription-info under rf2-zjz9q)
-//   - tools/call eval-cljs against an absent nREPL (expects graceful
-//     :nrepl-port-not-found degraded mode)
+//   - tools/call eval-cljs against an absent nREPL — with `--allow-eval`
+//     passed below, expects graceful :nrepl-port-not-found degraded mode.
+//     The default-off gate (rf2-cxx5s) is exercised by the conformance
+//     `:eval-cljs/disabled-default` fixture; this test passes the flag
+//     so the existing degraded-path coverage remains intact.
 //   - tools/call snapshot against an absent nREPL (same degraded mode —
 //     proves the new tool is wired into the dispatch table)
 //   - tools/call get-path against an absent nREPL (same degraded mode —
@@ -29,7 +32,10 @@ function run() {
     const env = { ...process.env, SHADOW_CLJS_NREPL_PORT: '' };
     delete env.SHADOW_CLJS_NREPL_PORT;
     // Boot from a tmp dir so port-file probing misses.
-    const child = spawn(process.execPath, [SERVER], {
+    // Pass `--allow-eval` to opt in to the eval-cljs tool (rf2-cxx5s
+    // launch-flag gate, default OFF). The roundtrip relies on
+    // eval-cljs to surface the no-nREPL degraded envelope.
+    const child = spawn(process.execPath, [SERVER, '--allow-eval'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: require('node:os').tmpdir(),
       env,
