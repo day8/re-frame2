@@ -152,6 +152,12 @@ const DEV_ONLY_SENTINELS = [
   // from the currently-registered machine's :version. Must elide.
   { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-version-mismatch)',
     sentinel: 'rf.epoch/restore-version-mismatch' },
+  // re-frame.epoch — :rf.epoch/restore-non-ok-record failure mode
+  // (rf2-v0jwt). Emitted when restore-epoch targets an epoch record
+  // whose :outcome is not :ok (a halted-cascade record). Same
+  // elision gate as the other restore failure modes.
+  { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-non-ok-record)',
+    sentinel: 'rf.epoch/restore-non-ok-record' },
   // re-frame.epoch — :rf.epoch/db-replaced trace op (Tool-Pair §Pair-tool
   // writes, rf2-zq55). Emitted by reset-frame-db! on the success path.
   // The whole reset-frame-db! body is gated by an
