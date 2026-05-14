@@ -1556,8 +1556,10 @@
     (is (= 3 (count (rf/epoch-history :test/main))))
     (is (= 2 (count (rf/epoch-history :test/other))))
 
-    ;; Clear only :test/other.
-    (is (nil? (epoch/clear-frame-history! :test/other))
+    ;; Clear only :test/other. Per rf2-sh5g6 the seam is `defn-` (no
+    ;; late-bind hook) so the test reaches it via the private-var
+    ;; access form.
+    (is (nil? (#'epoch/clear-frame-history! :test/other))
         "clear-frame-history! returns nil")
 
     ;; :test/other is empty; :test/main untouched.
@@ -1568,7 +1570,7 @@
 
     ;; Negative: clear-frame-history! against an unknown frame is a no-op
     ;; (does not throw, does not affect other rings).
-    (is (nil? (epoch/clear-frame-history! :test/no-such-frame))
+    (is (nil? (#'epoch/clear-frame-history! :test/no-such-frame))
         "clear-frame-history! on an unknown frame is a silent no-op")
     (is (= 3 (count (rf/epoch-history :test/main)))
         ":test/main's ring is still untouched after a no-op clear")
