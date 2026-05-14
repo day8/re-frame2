@@ -26,7 +26,9 @@
   the server / tools namespaces. Per IMPL-SPEC §13.2 #6 the
   protocol-version target is a documented decision the implementation
   bead (rf2-tgci) lands."
-  (:require [re-frame.mcp-base.args :as args]))
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [re-frame.mcp-base.args :as args]))
 
 ;; ---- MCP protocol version --------------------------------------------------
 
@@ -44,6 +46,18 @@
 (def ^:const server-name
   "Server `name` advertised in the `initialize` response's `serverInfo`."
   "re-frame2-story-mcp")
+
+(defn read-version
+  "Read the project's VERSION file from the classpath. Best-effort: when
+  the resource isn't on the classpath (uberjar deploys, REPL hosts that
+  haven't added the project root), falls back to `\"dev\"`. Returns a
+  trimmed string. Used by the `initialize` handshake's
+  `:serverInfo :version` slot."
+  []
+  (try
+    (or (some-> (io/resource "VERSION") slurp str/trim)
+        "dev")
+    (catch Throwable _ "dev")))
 
 ;; ---- origin tag -----------------------------------------------------------
 
