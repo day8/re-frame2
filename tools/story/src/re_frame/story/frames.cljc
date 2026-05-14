@@ -34,15 +34,15 @@
   - `allocate!` — create the frame (and register fx-override stubs);
     install the lifecycle machine's `:pre-mount` snapshot.
   - `destroy!` — tear down the frame; clear watchers.
-  - `reset!*` — destroy + re-allocate; the caller then re-runs the
+  - `reset-frame!` — destroy + re-allocate; the caller then re-runs the
     lifecycle.
 
   ## Hot-reload
 
   Stage 4's UI shell observes the registrar's `:rf.registry/handler-*`
-  trace events and re-runs `reset!*` for any variant whose registered
-  body changed. Stage 3 surfaces the entry point; the trigger lives in
-  Stage 4."
+  trace events and re-runs `reset-frame!` for any variant whose
+  registered body changed. Stage 3 surfaces the entry point; the
+  trigger lives in Stage 4."
   (:require [re-frame.core             :as rf]
             [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
@@ -238,10 +238,12 @@
 
 ;; ---- destroy + re-allocate -----------------------------------------------
 
-(defn reset!*
-  "Destroy the variant frame and re-allocate it. Used by
-  `runtime/reset-variant`. The caller is responsible for re-running
-  the four-phase lifecycle (loaders → events → render → play) after."
+(defn reset-frame!
+  "Destroy the variant frame and re-allocate it. Mirrors the framework's
+  `re-frame.core/reset-frame!` naming (rf2-noizc — aligning Story's
+  frame helpers with the framework `*-frame!` convention). The caller
+  is responsible for re-running the four-phase lifecycle (loaders →
+  events → render → play) after."
   [variant-id decorator-stack]
   (destroy! variant-id)
   (allocate! variant-id decorator-stack))
