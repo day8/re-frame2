@@ -1,86 +1,35 @@
 (ns re-frame.adapter.reagent-slim
-  "The day8/reagent-slim adapter — drop-in replacement for the bridge
-  adapter `re-frame.adapter.reagent` (rf2-6hyy).
+  "The day8/reagent-slim adapter — emits the 9-key substrate map for
+  `re-frame.substrate.adapter`. Drop-in shape-compatible with the
+  bridge adapter `re-frame.adapter.reagent`; internals route through
+  the `reagent2.*` rewrite of Reagent (no stock-Reagent dep).
 
-  Per IMPL-SPEC §2.1 + §9 + §13.1: this adapter Var emits the same
-  9-key map shape `re-frame.substrate.adapter` consumes; signatures
-  match the bridge's signatures byte-for-byte. Internals swap from
-  `(:require [reagent.core ...] [reagent.ratom ...] [reagent.dom.client ...])`
-  to the rewrite's `reagent2.*` namespaces.
+  Usage:
 
-  Why a separate ns rather than overwriting `re-frame.adapter.reagent`:
-  the in-tree shadow-cljs build adds both `adapters/reagent/src` and
-  `adapters/reagent-slim/src` to the classpath at the same time. Two
-  namespaces with the same name would clash. At artefact-publication
-  time (per the deps.edn :main and IMPL-SPEC §13.1) the slim artefact
-  ships its own `re-frame.adapter.reagent` — consumers depend on
-  exactly one of {day8/re-frame2-reagent, day8/reagent-slim} so the
-  ns is single-source per app. Until the artefact split is
-  consummated, this `-slim` suffix lets both coexist in the monorepo.
+      (require '[re-frame.adapter.reagent-slim :as reagent-slim])
+      (rf/init! reagent-slim/adapter)
 
-  Public surface (signatures unchanged from the bridge):
+  Public surface:
 
-    adapter           — the substrate spec map (9-key contract)
-    set-hiccup-emitter! — wires SSR's render-to-string into :render-to-string
+    adapter             — the 9-key substrate spec map
+    set-hiccup-emitter! — wires SSR's render-to-string (rf2-uo7v)
 
-  Late-bind hooks installed at ns-load time (all routed through
-  `(substrate-adapter/current-adapter)` per rf2-0d35 so the active
-  adapter's impl wins in test bundles that load multiple adapter ns's):
+  Detail lives in:
 
-    :reagent/set-hiccup-emitter!  — set-hiccup-emitter! (SSR seam, rf2-uo7v)
-    :adapter/current-frame        — re-frame.views/current-frame (rf2-d4sf)
-    :adapter/current-component    — reagent2.core/current-component (rf2-wbnl)
-    :adapter/ratom                — reagent2.core/atom            (rf2-s36l)
-    :adapter/ratom?               — reagent2.ratom/IReactiveAtom?  (rf2-s36l)
-    :adapter/make-reaction        — reagent2.ratom/make-reaction   (rf2-s36l)
-    :adapter/add-on-dispose!      — reagent2.ratom/add-on-dispose! (rf2-s36l)
-    :adapter/dispose!             — reagent2.ratom/dispose!        (rf2-s36l)
-    :adapter/reactive?            — reagent2.ratom/reactive?       (rf2-s36l)
-    :adapter/after-render         — reagent2.core/after-render     (rf2-s36l)
+    DESIGN-RATIONALE.md — the why (separate-ns rationale, slim vs
+                          bridge split, render-path mechanics)
+    IMPL-SPEC.md §2.1   — the 9-key map contract
+    IMPL-SPEC.md §9     — late-bind hook table + per-hook routing
+    IMPL-SPEC.md §13.1  — artefact-publication shape
 
-  Interop is fully late-bound: this ns does NOT statically `:require`
-  stock Reagent anywhere. `re-frame.interop` reads ratom / reaction /
-  disposable surfaces through the hook table (per rf2-s36l), so the
-  slim Maven artefact (`day8/reagent-slim`) can be published without
-  a stock-Reagent dep — downstream consumers depending on
-  `reagent-slim` alone gain the ~25 KB gz saving. The in-tree
-  shadow-cljs build still pulls all adapter trees; that's the
-  monorepo configuration, not a shape requirement.
+  Late-bind hooks installed at ns-load time route through
+  `(substrate-adapter/current-adapter)` so the active adapter's impl
+  wins when multiple adapter ns'es are loaded into the same bundle
+  (test fixtures, story builds). See the `route-hook!` calls at the
+  bottom of this file.
 
-  The Reagent-slim adapter targets the same React-context Provider /
-  `(.-context cmp)` shape the bridge uses (per IMPL-SPEC §9.6),
-  so the views.cljs wiring works unchanged.
-
-  Render path (rf2-08t0 / rf2-s36l / rf2-u5p5):
-    - `wrap-render` returns hiccup per IMPL-SPEC §5.1; the React
-      `render` method converts that hiccup to a React element via
-      `reagent2.impl.template/as-element`, registered into
-      `reagent2.impl.component/set-as-element-fn!` at template's
-      ns-load time. Without that conversion React would reject the
-      CLJS vector with 'Objects are not valid as a React child'.
-    - `make-render-method` mirrors stock Reagent's
-      `reagent.impl.component` render path: the first render creates
-      the per-component render Reaction with a custom auto-run that
-      queues a React re-render (no synchronous recompute); each
-      subsequent render calls `(._run rea false)` directly so
-      deref-capture rewires the watching graph AND the user's render
-      fn executes with the latest state. A plain `@rea` would return
-      the cached prior state because `_handle-change` with a
-      fn-valued auto-run doesn't set `dirty?`.
-
-  Status: drop-in functional swap for the bridge. The
-  counter-slim-and-fast Playwright smoke (rf2-5lbx) runs as part of
-  the default suite — was `skip:`-parked behind rf2-s36l / rf2-u5p5
-  and is GREEN as of those merges.
-
-  Pre-release status: until the bridge is retired (post-1.0), apps
-  that want the rewrite explicitly opt in by requiring this ns.
-
-  Per rf2-uo7v the SSR surface ships in `day8/re-frame2-ssr` —
-  this adapter MUST NOT statically `:require [re-frame.ssr]`. Instead
-  it publishes its `set-hiccup-emitter!` callback through the
-  late-bind hook table; if the SSR artefact is on the classpath, its
-  ns-load resolves the hook and wires the emitter."
+  Pre-release: until the bridge is retired (post-1.0), apps opt in
+  to the rewrite by requiring this ns."
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
