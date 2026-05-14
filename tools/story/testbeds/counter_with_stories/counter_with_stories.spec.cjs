@@ -1301,22 +1301,10 @@ module.exports = {
     // Shell still alive — variant title still visible.
     await waitForVariantTitle(page, ':story.counter/loaded');
 
-    // ====================================================================
-    // 14. Save-layout button — clicks without crashing
-    // ====================================================================
-    //
-    // The save-layout button is a Stage-4 stub: clicking emits a
-    // console.log only. We confirm the button exists, click it, and
-    // afterwards the shell is still mounted (the canvas variant title
-    // and the run-button both stay visible).
-    const saveBtn = aside.getByRole('button', { name: /save layout as :Workspace/i }).first();
-    await saveBtn.waitFor({ state: 'visible', timeout: 5000 });
-    await saveBtn.click();
-    // Shell still alive — variant title still on the page.
-    await waitForVariantTitle(page, ':story.counter/loaded');
+    // (section 14 removed: save-layout button stub dropped in rf2-gqzs8 / PR #1170 — pre-alpha dead-surface deletion)
 
     // ====================================================================
-    // 15. Project-custom :Panel.counter-with-stories/notes panel
+    // 14. Project-custom :Panel.counter-with-stories/notes panel
     // ====================================================================
     //
     // Stage 6's panel-host renders every registered :story-panel whose
@@ -1342,7 +1330,7 @@ module.exports = {
     }
 
     // ====================================================================
-    // 16. Switch back to the live app — counter reappears + inc still wired
+    // 15. Switch back to the live app — counter reappears + inc still wired
     // ====================================================================
     //
     // Hash-change back to the live app; counter should reappear. The
