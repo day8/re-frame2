@@ -13,6 +13,7 @@
   added for re-frame-10x v2's flow panel."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -234,3 +235,83 @@
     (is (= 1 (count (by-op :rf.flow/skip))))
     (is (= 1 (count (by-op :rf.flow/cleared))))
     (is (zero? (count (by-op :rf.flow/failed))))))
+
+;; ---------------------------------------------------------------------------
+;; 7. Wire-bearing flow trace payloads ride through `elide-wire-value`
+;;    (rf2-vkqkk — pins Spec 009 §Size elision in traces / §Privacy contract
+;;    for the flow trace surface).
+;;
+;; `:rf.flow/computed` carries `:input-values` and `:result`; `:rf.flow/failed`
+;; carries `:inputs`. Per Spec 009 the wire-bearing payload of every tracer
+;; surface MUST pass through the elision walker (the single normative emission
+;; site for `:rf.size/large-elided` and `:rf/redacted`). Pre-fix, the flow
+;; tracer bypassed the walker — a flow reading or producing a large value
+;; surfaced raw on the trace bus while sibling tracers (event-emit, error-
+;; emit, dispatch trace) honoured the contract. These tests pin the routing.
+;; ---------------------------------------------------------------------------
+
+(deftest computed-trace-elides-large-result
+  (testing ":rf.flow/computed :result rides through elide-wire-value — declared-large path is elided"
+    ;; Seed the app-db with `merge` semantics so the elision declarations
+    ;; written by `declare-large-path!` survive the :init handler — a
+    ;; replacing handler (e.g. `(fn [_ _] {:n 1})`) would wipe the
+    ;; `:rf/elision` registry slot under the same key, masking the
+    ;; declaration before the flow's evaluate-time registry read.
+    (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
+    (rf/reg-flow {:id     :payload
+                  :inputs [[:n]]
+                  :output (fn [_] {:bytes "BIG"})
+                  :path   [:derived :blob]})
+    ;; Declare the flow's :path as a large-elision candidate. The walker
+    ;; consults `[:rf/elision :declarations <path>]` per frame.
+    (elision/declare-large-path! [:derived :blob])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (let [ev   (last (by-op :rf.flow/computed))
+          tags (:tags ev)]
+      (is (some? ev) ":rf.flow/computed fired")
+      (is (elision/marker? (:result tags))
+          ":result is replaced by the `:rf.size/large-elided` marker")
+      (let [marker (:rf.size/large-elided (:result tags))]
+        (is (= [:derived :blob] (:path marker))
+            "marker carries the declared path")
+        (is (= :declared (:reason marker))
+            "marker carries :reason :declared for declared-large paths")))))
+
+(deftest failed-trace-elides-inputs
+  (testing ":rf.flow/failed :inputs rides through elide-wire-value"
+    ;; Register the flow that will throw; the input path is declared
+    ;; large so the walker substitutes the marker on emit.
+    (rf/reg-event-db :init (fn [db _] (merge db {:payload {:big "value"}})))
+    (rf/reg-flow {:id     :boom
+                  :inputs [[:payload]]
+                  :output (fn [_] (throw (ex-info "boom" {})))
+                  :path   [:doomed]})
+    (elision/declare-large-path! [:payload])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (let [ev   (last (by-op :rf.flow/failed))
+          tags (:tags ev)
+          [first-input] (:inputs tags)]
+      (is (some? ev) ":rf.flow/failed fired")
+      (is (vector? (:inputs tags))
+          ":inputs vector preserves the per-input slot shape")
+      (is (elision/marker? first-input)
+          "the elided input-value is substituted with the wire marker"))))
+
+(deftest computed-trace-elision-no-op-when-no-declaration
+  (testing "absent any declaration, :input-values and :result pass through unchanged"
+    ;; Belt-and-braces against an over-eager rewrite — the walker must be
+    ;; a no-op on plain values not nominated for elision.
+    (rf/reg-event-db :init (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (let [tags (:tags (last (by-op :rf.flow/computed)))]
+      (is (= [3 4] (:input-values tags))
+          ":input-values pass through unmodified")
+      (is (= 12 (:result tags))
+          ":result passes through unmodified"))))
