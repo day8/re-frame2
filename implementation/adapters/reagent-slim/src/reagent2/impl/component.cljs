@@ -49,32 +49,17 @@
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
-;; Hiccup → React element seam (rf2-08t0 / rf2-s36l Stage 4-E follow-up)
+;; Hiccup → React element seam
 ;;
-;; Per IMPL-SPEC §5.1 `wrap-render` returns raw hiccup. The class's
-;; React render() method MUST return a React element (or a primitive
-;; React renders directly) — returning a CLJS vector to React triggers
-;; the "Objects are not valid as a React child" error against the
-;; vector's first slot (which, for a `reg-view`-wrapped fn, is a
-;; MetaFn). The conversion lives in `reagent2.impl.template/as-element`
-;; — but that ns already requires this ns (for `fn-to-class`,
-;; `reagent-class?`, etc.), so we can't statically require template
-;; here without inducing a cycle.
-;;
-;; Same pattern as `re-frame.late-bind` (`implementation/core/src/
-;; re_frame/late_bind.cljc`): a defonce-d atom holds the hiccup → React
-;; element fn; `reagent2.impl.template` registers `as-element` at ns-
-;; load time via `set-as-element-fn!`. `make-render-method`'s return
-;; runs the deref through the registered fn; before the fn is
-;; registered (very early load order, or a hand-rolled test bundle
-;; that loads component without template) the raw hiccup falls through
-;; unchanged, matching the pre-fix shape.
+;; `wrap-render` returns raw hiccup (per IMPL-SPEC §5.1); React's
+;; render() MUST return a React element. The conversion lives in
+;; `reagent2.impl.template/as-element` — that ns already requires this
+;; one, so we can't static :require template here without a cycle.
+;; Same pattern as `re-frame.late-bind`: template registers its
+;; `as-element` at ns-load via `set-as-element-fn!`.
 ;; ---------------------------------------------------------------------------
 
-(defonce ^:private as-element-fn
-  ;; Lazy hook: reagent2.impl.template's ns-load registers its
-  ;; `as-element` here. Nil before that runs.
-  (atom nil))
+(defonce ^:private as-element-fn (atom nil))
 
 (defn set-as-element-fn!
   "Register the hiccup → React-element conversion fn. Called by
@@ -376,12 +361,9 @@
               (this-as this
                 (bind-and-call this #(f this))))))
 
-    ;; componentWillUnmount: always installed (even when the user
-    ;; spec has no :component-will-unmount) so the per-instance render
-    ;; Reaction can dispose its watch graph. Without this, Reactions
-    ;; the component subscribed to retain references to the (now-
-    ;; unmounted) component and prevent GC. Per IMPL-SPEC §3.4 +
-    ;; Stage 4-D wiring.
+    ;; componentWillUnmount: always installed (even without
+    ;; :component-will-unmount) so the per-instance render Reaction
+    ;; can dispose its watch graph and unblock GC. Per IMPL-SPEC §3.4.
     (let [user-fn (:component-will-unmount spec)]
       (set! (.-componentWillUnmount proto)
             (fn []
@@ -394,10 +376,7 @@
 
     (when-let [f (:component-did-update spec)]
       ;; React calls componentDidUpdate(prevProps, prevState, snapshot).
-      ;; We pass the user fn `(this prev-argv snapshot)` per IMPL-SPEC
-      ;; §6.6: prev-argv is reconstructed from prevProps.__rfArgv,
-      ;; snapshot is the value getSnapshotBeforeUpdate returned (stored
-      ;; on the instance via React's contract — passed as third arg).
+      ;; User fn signature: (this prev-argv snapshot) per IMPL-SPEC §6.6.
       (set! (.-componentDidUpdate proto)
             (fn [prev-props _prev-state snapshot]
               (this-as this
@@ -405,11 +384,8 @@
                   #(f this (prev-argv-from prev-props) snapshot))))))
 
     (when-let [f (:get-snapshot-before-update spec)]
-      ;; React calls getSnapshotBeforeUpdate(prevProps, prevState) right
-      ;; before commit. The return value is then passed as the third
-      ;; arg to componentDidUpdate (React's contract). User fn signature
-      ;; is `(fn [this prev-argv] ...)`; the returned value is the
-      ;; snapshot.
+      ;; User fn: (this prev-argv) → snapshot; React then threads
+      ;; snapshot as the third arg to componentDidUpdate.
       (set! (.-getSnapshotBeforeUpdate proto)
             (fn [prev-props _prev-state]
               (this-as this
@@ -417,38 +393,19 @@
                   #(f this (prev-argv-from prev-props)))))))
 
     (when-let [f (:component-did-catch spec)]
-      ;; React's error-boundary contract: a class with componentDidCatch
-      ;; (and optionally getDerivedStateFromError) catches errors thrown
-      ;; during render / lifecycle of any descendant.
-      ;;
-      ;; Per IMPL-SPEC §6.4: the rewrite ships the logging half only —
-      ;; user fns receive `(this error info)`. Apps that want stateful
-      ;; error boundaries pair this with a state-atom flipped from
-      ;; inside the callback (the user fn re-renders the boundary by
-      ;; calling reset! on a (reagent2.core/atom) cell).
-      ;;
-      ;; React 19 also requires getDerivedStateFromError for the
-      ;; boundary to actually re-render with fallback state. The
-      ;; rewrite installs a default that flips a `:cljsHasError`
-      ;; instance flag — apps that want boundary-rendered fallback
-      ;; check that flag in their :reagent-render.
+      ;; Error-boundary logging half — user fn: (this error info).
+      ;; Per IMPL-SPEC §6.4. Stateful fallback is the user's
+      ;; responsibility (reset! a state-atom from inside the callback).
       (set! (.-componentDidCatch proto)
             (fn [error info]
               (this-as this
                 (bind-and-call this
                   #(f this error info))))))
 
-    ;; getDerivedStateFromError is React's static-class-method counterpart
-    ;; to componentDidCatch. When the user supplies :component-did-catch
-    ;; we install a default getDerivedStateFromError that returns a state
-    ;; patch flagging the error — a marker user :reagent-render code can
-    ;; check via component state. The marker is `{__rfErrored true}`.
-    ;; Without this, React 19 will re-throw the error past this boundary
-    ;; (treating it as if no boundary existed) per the React 19 contract:
-    ;; a boundary needs at least one of getDerivedStateFromError or
-    ;; componentDidCatch to actually catch — but only
-    ;; getDerivedStateFromError is allowed to return new state for a
-    ;; fallback render. Per IMPL-SPEC §6.5.
+    ;; getDerivedStateFromError: React-19 requires it (paired with
+    ;; componentDidCatch) for the boundary to catch at all. Default
+    ;; flips a :cljsHasError marker user :reagent-render can check.
+    ;; Per IMPL-SPEC §6.5.
     (when (:component-did-catch spec)
       (set! (.-getDerivedStateFromError klass)
             (fn [_error]
@@ -462,107 +419,44 @@
 ;; ---------------------------------------------------------------------------
 ;; React class construction (per IMPL-SPEC §6.3 + §4.4)
 ;;
-;; The class extends React.Component. The constructor stashes the
-;; initial argv (read from props.__rfArgv) on the instance; render
-;; delegates to wrap-render with the user's :reagent-render fn.
-;;
-;; Reactive subscription wiring (Stage 4-D, per IMPL-SPEC §4.4 path 1):
-;; the render method runs the user's render fn inside a Reaction so
-;; that any RAtom / Reaction deref'd during render registers as a
-;; dependency. When a dep changes, the Reaction recomputes (which we
-;; ignore) and the watch fires, enqueueing this React component for
-;; re-render via `batching/queue-render!`.
-;;
-;; Per IMPL-SPEC §4.4 path 1 + Stage 4-A handoff: without this wiring,
-;; views render once and never update on dep change. The Reaction is
-;; per-component and lives on the instance as `cljsRenderRea`.
+;; The class extends React.Component via prototype chain. The
+;; constructor stashes the initial argv on the instance; the render
+;; method delegates to wrap-render and runs inside a per-component
+;; Reaction (reactive-subscription wiring, IMPL-SPEC §4.4 path 1).
 ;; ---------------------------------------------------------------------------
 
 (defn- make-render-method
-  "Build the React `render` method. Wraps the user's render fn with:
+  "Build the React `render` method. Runs the user's render fn inside a
+  per-component Reaction so deref'd RAtoms / Reactions register as
+  dependencies; on dep change the auto-run queues a React re-render
+  via `batching/queue-render!`. The Reaction is created lazily on
+  first render and cached on the instance as `.-cljsRenderRea`.
 
-    1. Form-1/2 detection via `wrap-render`.
-    2. *current-component* binding for the duration of the render.
-    3. mark-rendered to clear the dirty flag for the next dep-change cycle.
-    4. Per-component Reaction wrapping the render so deref'd RAtoms /
-       Reactions register as dependencies; on dep change the Reaction
-       schedules re-render via batching/queue-render!. Per IMPL-SPEC
-       §4.4 path 1 + Stage 4-D wiring.
-
-  The Reaction is created lazily on first render and cached on the
-  instance as `.-cljsRenderRea`. It returns the rendered React element;
-  on subsequent dep-driven recomputes it queues a forceUpdate via the
-  auto-run callback, and React's commit re-enters this render method
-  which forces a fresh `._run` of the Reaction (rf2-u5p5).
-
-  The shape mirrors stock Reagent's `reagent.impl.component`: a custom
-  auto-run callback that queues a React re-render (does NOT synchronously
-  recompute), and an explicit `._run rea false` on every render entry
-  past the first so the user's render fn sees the latest state. The
-  built-in `_handle-change → auto-run` path does not mark `dirty?`, so
-  a plain `@rea` after a dep change would return the cached prior state.
-  The explicit `._run` re-captures dependencies AND produces the current
-  hiccup. Per IMPL-SPEC §4.4 path 1 + the same call shape stock Reagent
-  uses (`(._run rat false)` at line 289 of upstream
-  `reagent.impl.component`)."
+  Per IMPL-SPEC §4.4 path 1 + §5.1. See DESIGN-RATIONALE for the
+  `(._run rea false)`-on-subsequent-renders shape (custom auto-run
+  doesn't mark dirty? so a plain @rea would return the cached prior
+  state)."
   [render-fn]
   (fn []
     (this-as ^js this
       ;; Re-stash argv from current props on every render entry so
-      ;; Form-2's cached render-fn sees fresh args. React-19-stable
-      ;; equivalent of the deprecated componentWillReceiveProps: a
-      ;; static getDerivedStateFromProps cannot side-effect on the
-      ;; instance, so we do the copy here at render entry instead
-      ;; (cheap; no DOM reads).
+      ;; Form-2's cached render-fn sees fresh args. Static
+      ;; getDerivedStateFromProps cannot side-effect on the instance,
+      ;; so the copy happens here.
       (copy-argv-from-props! this (.-props this))
       (binding [*current-component* this]
         (batching/mark-rendered this)
         (let [^js rea (.-cljsRenderRea this)
-              ;; Per rf2-u5p5: first-render path creates the Reaction
-              ;; with a custom auto-run callback that queues a React
-              ;; re-render on dep change. On subsequent renders the
-              ;; Reaction already exists — call `._run` directly to
-              ;; force a fresh deref-capture of the user's render fn so
-              ;; the watching graph rewires AND the hiccup reflects the
-              ;; current state. Without the explicit `._run`, a plain
-              ;; `@rea` returns the cached prior `state` because
-              ;; `_handle-change` with a fn-valued auto-run doesn't set
-              ;; `dirty?` (matching stock Reagent's kernel, which uses
-              ;; this same shape via `run-in-reaction`).
               hiccup (if (nil? rea)
                        (let [^js r (ratom/make-reaction
                                      #(wrap-render this render-fn)
                                      :auto-run
-                                     ;; Custom auto-run: don't synchronously
-                                     ;; recompute on dep change; instead queue
-                                     ;; a re-render of this React component.
-                                     ;; React drives the next render via its
-                                     ;; reconciler; the Reaction recomputes
-                                     ;; inside that next render via the
-                                     ;; explicit `._run` call below.
                                      (fn [_r]
                                        (batching/queue-render! this)))]
                          (set! (.-cljsRenderRea this) r)
-                         ;; First render: dirty? is true; -deref will
-                         ;; recompute via `._run this false` and return
-                         ;; the freshly captured state.
                          @r)
-                       ;; Subsequent render: re-run the Reaction so the
-                       ;; user's render fn executes with the latest
-                       ;; subscribed state. `_run` calls `deref-capture`
-                       ;; which rewires the watching graph and updates
-                       ;; the cached state. Mirrors stock Reagent
-                       ;; `reagent.impl.component`'s render path.
+                       ;; ._run re-captures deps AND produces fresh hiccup.
                        (._run rea false))]
-          ;; Per rf2-08t0: `wrap-render` (per IMPL-SPEC §5.1) returns
-          ;; raw hiccup; React's render() method MUST return a React
-          ;; element. Run the deref'd hiccup through the registered
-          ;; `as-element` conversion. Stock Reagent does the equivalent
-          ;; in `reagent.impl.component/wrap-render` itself
-          ;; (`(p/as-element compiler res)` at line 93 of the upstream
-          ;; extract); we keep the IMPL-SPEC §5.1 shape (wrap-render
-          ;; returns hiccup) and move the conversion to the render-
-          ;; method boundary instead.
           (->react-element hiccup))))))
 
 (defn- copy-argv-from-props!
@@ -578,24 +472,12 @@
   "Build a React component class from a Form-3 spec map. Validates
   the spec against the 7-key cap (per IMPL-SPEC §6.1) — any
   out-of-cap key throws `:rf.error/create-class-key-unsupported` at
-  this call time (registration time, not render time).
+  registration time (fail-fast, not render-time).
 
-  The returned class:
-
-    - extends React.Component (React-19 ES-class shape).
-    - has a `render` method that delegates to `wrap-render` over
-      the spec's `:reagent-render` fn. Form-1/Form-2 detection runs
-      inside `wrap-render`.
-    - has the cap's lifecycle methods plumbed per IMPL-SPEC §6.4.
-    - has `:display-name` set as the static `displayName` field.
-    - is tagged `cljsReagentClass = true` so `reagent-class?` returns
-      true.
-
-  Implementation note: in CLJS we cannot `(class Foo extends ... {...})`,
-  so we synthesise the class via a constructor fn whose prototype
-  chains to React.Component. The `render` method goes on the prototype;
-  the `displayName` / `getDerivedStateFromError` go on the class
-  (constructor-side static)."
+  Returned class extends React.Component (synthesised via prototype
+  chain — CLJS can't `(class Foo extends ...)` directly), carries the
+  cap's lifecycle methods (IMPL-SPEC §6.4), and is tagged
+  `cljsReagentClass = true` for `reagent-class?`."
   [spec]
   (validate-spec! spec)
   (let [render-fn (or (:reagent-render spec)
