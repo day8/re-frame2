@@ -83,6 +83,40 @@
           (is (= [:rect :area]      (:path tags))        ":path in tags")
           (is (= :rf/default        (:frame tags))       ":frame in tags"))))))
 
+(deftest reg-flow-registered-fires-first-time-only
+  (testing "Per rf2-ehxez: :rf.flow/registered fires only on first-time
+            registration. On re-registration the cross-kind
+            `:rf.registry/handler-replaced` trace (emitted by
+            `registrar/register!` per Spec 001 §Hot-reload trace
+            surface) is the hot-reload signal — both traces no longer
+            double-emit on the same re-registration."
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* (or w 0) (or h 0)))
+                  :path   [:rect :area]})
+    (is (= 1 (count (by-op :rf.flow/registered)))
+        "first-time registration fires :rf.flow/registered once")
+    (reset! *captured* [])
+    ;; Re-register with the SAME shape — :rf.flow/registered must NOT fire.
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* (or w 0) (or h 0)))
+                  :path   [:rect :area]})
+    (is (zero? (count (by-op :rf.flow/registered)))
+        "re-registration does NOT fire :rf.flow/registered — hot-reload signal rides on :rf.registry/handler-replaced"))
+  (testing "re-registration with a NEW :output also does not double-emit"
+    (rf/reg-flow {:id     :area2
+                  :inputs [[:w]]
+                  :output (fn [w] w)
+                  :path   [:rect :area2]})
+    (reset! *captured* [])
+    (rf/reg-flow {:id     :area2
+                  :inputs [[:w]]
+                  :output (fn [w] (* 2 w))
+                  :path   [:rect :area2]})
+    (is (zero? (count (by-op :rf.flow/registered)))
+        "real body change still does not re-emit :rf.flow/registered — only first-time")))
+
 (deftest reg-flow-cycle-does-NOT-emit-registered
   (testing "when reg-flow throws cycle, no :rf.flow/registered fires for the rejected flow"
     (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
