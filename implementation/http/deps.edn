@@ -35,7 +35,17 @@
 ;; re-exports) flow through `re-frame.late-bind` exactly as the
 ;; schemas / machines / routing / flows hooks already do.
 {:paths ["src"]
- :deps  {day8/re-frame2 {:local/root "../core"}}
+ :deps  {day8/re-frame2 {:local/root "../core"}
+         ;; rf2-dgsu1 — Cheshire is a hard JVM dependency. Spec 014's
+         ;; managed-HTTP slice issues JSON request bodies and decodes
+         ;; JSON responses; on JVM we use Cheshire for both. Earlier
+         ;; the slice resolved Cheshire via `requiring-resolve` and
+         ;; fell back to a hand-rolled pure-Clojure JSON reader/writer
+         ;; — slow path, no warning, no signal that the operator was
+         ;; running on the fallback indefinitely. Per pre-alpha
+         ;; posture: ship one path, the fast path. CLJS uses the
+         ;; browser `JSON` builtin and ignores this dep.
+         cheshire/cheshire {:mvn/version "5.13.0"}}
 
  :aliases
  {:test {:extra-paths ["test"]
