@@ -248,6 +248,36 @@ recourse is **one pair2-mcp instance per agent host**, each
 holding its own nREPL socket — shadow-cljs's nREPL supports
 multiple concurrent clients.
 
+## Record / replay session (rf2-f9acs, deferred)
+
+**Status: deferred to a future drop.** Playwright MCP can record a
+session (every click + viewport state) into a replayable artefact;
+pair2-mcp has no peer surface today. The existing surfaces give
+agents push-mode visibility (`subscribe`) and pull-mode replay over
+the epoch ring (`watch-epochs`, `trace-window`), but neither
+persists across server lifetimes.
+
+**v2 sketch (not implemented).** Two paired tools would round it
+out:
+
+- `record-session` — start capturing every `tools/call` (and its
+  result envelope) into a session log keyed by an opaque
+  session-id. Default off; opt-in per session. The log is plain EDN
+  on disk so an agent can audit it out-of-band.
+- `replay-session` — given a session-id and a target nREPL
+  connection, re-issue each recorded call in order. Side-effects
+  fire for real (same `dispatch` / `eval-cljs` path); useful for
+  AI-assisted regression debugging where "this bug happened in the
+  cell three replays ago" needs to be re-staged on demand.
+
+Open questions before implementation: which calls record (all of
+them, or only mutating ones?), session-log eviction (size cap?
+time cap? per-host?), and how replay interacts with the
+per-session response cache (replay a cache-hit verbatim, or
+invalidate?). Filed as a follow-on RFE rather than a P2 because the
+existing pull-mode / push-mode surfaces cover the high-frequency
+debug-loop need; this is the cold-storage slot.
+
 ## Back-compat with the bash shims
 
 The shims under `skills/re-frame-pair2/scripts/` still work and are
