@@ -80,15 +80,16 @@
   AND performs the artefact's load-time side-effects: the
   `:rf.http/*` fx registrations and the `late-bind/set-fn!` hook
   publications that `re-frame.core` reaches through."
-  (:require [re-frame.fx                :as fx]
-            [re-frame.http-encoding     :as encoding]
+  (:require [re-frame.fx                   :as fx]
+            [re-frame.http-encoding        :as encoding]
             [re-frame.http-machine-wrapper :as machine-wrapper]
-            [re-frame.http-middleware   :as middleware]
-            [re-frame.http-privacy      :as privacy]
-            [re-frame.http-registry     :as registry]
-            [re-frame.http-transport    :as transport]
-            [re-frame.interop           :as interop]
-            [re-frame.late-bind         :as late-bind]))
+            [re-frame.http-middleware      :as middleware]
+            [re-frame.http-privacy         :as privacy]
+            [re-frame.http-privacy-headers :as privacy-headers]
+            [re-frame.http-registry        :as registry]
+            [re-frame.http-transport       :as transport]
+            [re-frame.interop              :as interop]
+            [re-frame.late-bind            :as late-bind]))
 
 ;; ---- public-surface re-exports --------------------------------------------
 ;;
@@ -117,10 +118,12 @@
 (def uninstall-managed-request-stubs! machine-wrapper/uninstall-managed-request-stubs!)
 (def with-managed-request-stubs*      machine-wrapper/with-managed-request-stubs*)
 
-;; Privacy surface — Spec 014 §Privacy (rf2-bma05).
-(def declare-sensitive-header!  privacy/declare-sensitive-header!)
-(def clear-sensitive-headers!   privacy/clear-sensitive-headers!)
-(def default-header-denylist    privacy/default-header-denylist)
+;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Header denylist lives
+;; in `re-frame.http-privacy-headers`; the orchestrating composers
+;; (request-sensitive?, prepare-emit-*) stay in `re-frame.http-privacy`.
+(def declare-sensitive-header!  privacy-headers/declare-sensitive-header!)
+(def clear-sensitive-headers!   privacy-headers/clear-sensitive-headers!)
+(def default-header-denylist    privacy-headers/default-header-denylist)
 
 ;; ---- normalise-args + managed-handler -------------------------------------
 ;;
