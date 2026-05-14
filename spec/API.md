@@ -37,7 +37,7 @@
 | `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` | v1 | 005 | Plain-fn surface beneath `reg-machine`. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data. |
 | `reg-app-schema` | M | `(reg-app-schema path schema)` / `(reg-app-schema path schema opts)` | v1 | 010 | |
 | `reg-app-schemas` | M | `(reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})` / `(reg-app-schemas {…} opts)` — bulk plural form for feature-modular apps that register 5–20 paths against the same prefix (per Conventions §Feature-modularity prefix convention). Each entry routes through the singular `reg-app-schema` and is stamped with this call's source-coords. Returns the vector of paths registered (rf2-jzs9) | v1 | 010 | |
-| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
+| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow flow opts)` | v1 | 013 | `opts` is a map (currently `{:frame frame-id}`). The shipped surface is opts-map only — same shape as `dispatch` / `subscribe` / `clear-flow`. Returns the flow's `:id` (per Conventions §`reg-*` return-value convention). |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
 | `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. Captures source-coords; under the optional-artefact wrapper convention the surface routes through the `:ssr/reg-head` late-bind hook. |
 | `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | 011 | New registry kind `:error-projector`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata (per `reg-frame` / `make-frame`). |
@@ -49,7 +49,7 @@
 | `clear-event` | Fn | `(clear-event)` / `(clear-event id)` | v1 (preserved) |
 | `clear-sub` | Fn | `(clear-sub)` / `(clear-sub id)` | v1 (preserved) |
 | `clear-fx` | Fn | `(clear-fx)` / `(clear-fx id)` | v1 (preserved) |
-| `clear-flow` | Fn | `(clear-flow)` / `(clear-flow id)` | v1 |
+| `clear-flow` | Fn | `(clear-flow id)` / `(clear-flow id opts)` | v1 |
 | `destroy-frame` | Fn | `(destroy-frame frame-id)` | v1 |
 | `reset-frame` | Fn | `(reset-frame frame-id)` | v1 |
 | `clear-subscription-cache!` | Fn | `(clear-subscription-cache! frame-id?)` | v1 (preserved) |
@@ -546,7 +546,7 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 
 ### `reg-flow` / `clear-flow` (Spec 013)
 
-`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:output`, `:path`. `clear-flow` is rowed canonically in [§Clearing registrations](#clearing-registrations) (`(clear-flow id)` deregisters and `dissoc-in`s on `:path`).
+`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:output`, `:path`. Both surfaces take an optional opts map (`{:frame frame-id}`) selecting the owning frame: `(reg-flow flow)` / `(reg-flow flow opts)` and `(clear-flow id)` / `(clear-flow id opts)`. `clear-flow` is rowed canonically in [§Clearing registrations](#clearing-registrations); it deregisters the flow from the named frame and `dissoc-in`s its `:path` from that frame's `app-db` only (per Spec 013 §Frame-scoping).
 
 Reserved fx-ids for runtime flow management via `:fx`:
 
