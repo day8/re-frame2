@@ -202,13 +202,16 @@ attacks.
   affected by this pattern are the retro / improvement-filing skills
   (`re-frame-pair-retro2`, `re-frame2-implementor`).
 
-### Test-fixture discipline — only `re-frame-pair2/` ships tests
+### Test-fixture discipline — only `re-frame-pair2/` and `shared/` ship tests
 
 Of the skills in this corpus, **only [`re-frame-pair2/`](./re-frame-pair2/)
-ships a `tests/` directory** (see [`re-frame-pair2/tests/`](./re-frame-pair2/tests/)
-— `e2e/`, `fixture/`, `prompts/`, `runtime/`, `shim/`). The asymmetry is
-intentional, not an oversight. Future skill-authors: do not add a `tests/`
-dir to a pure-doc skill on cargo-cult grounds.
+and [`shared/`](./shared/) ship a `tests/` directory** (see
+[`re-frame-pair2/tests/`](./re-frame-pair2/tests/) —
+`e2e/`, `fixture/`, `prompts/`, `runtime/`, `shim/` —
+and [`shared/tests/`](./shared/tests/) —
+`retro_protocol_test.clj` + `fixtures/`). The asymmetry is intentional,
+not an oversight. Future skill-authors: do not add a `tests/` dir to a
+pure-doc skill on cargo-cult grounds.
 
 **Why pair2 is the exception.** `re-frame-pair2` is the only skill that
 drives a **live runtime** — it attaches to a running shadow-cljs nREPL,
@@ -227,7 +230,20 @@ skills is the authoring conventions catalogued elsewhere in this README
 plus orchestrator review against the bead corpus. Adding a `tests/`
 directory to a pure-doc skill would test prose, not behaviour.
 
-**Rule of thumb.** A skill warrants a `tests/` dir iff it ships an
+**Why `shared/` is the second exception.** `shared/retro-protocol.md`
+is a **security boundary**, not just a doc leaf. The rf2-g6auh audit
+found four issues there; three landed prose-only fixes via
+PR #1116 + #1127. The audit's Finding 4 explicitly called for a
+regression suite so a future silent weakening of the prose doesn't
+re-open the boundary. The structural test
+([`shared/tests/retro_protocol_test.clj`](./shared/tests/retro_protocol_test.clj))
+pins load-bearing phrasings; the document-runnable fixtures
+([`shared/tests/fixtures/`](./shared/tests/fixtures/)) cover the
+behavioural axis. Filed under rf2-y1tqa.
+
+**Rule of thumb.** A skill warrants a `tests/` dir iff (a) it ships an
 executable surface (scripts, MCP server, runtime helpers, structured
-tool-call shapes). If the skill is leaves-plus-orchestrator, the
-authoring conventions are the test.
+tool-call shapes), or (b) it is a **security boundary** whose prose
+locks justify a regression backstop. If the skill is
+leaves-plus-orchestrator on a non-security surface, the authoring
+conventions are the test.
