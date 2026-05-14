@@ -299,6 +299,66 @@
       (is (elision/marker? first-input)
           "the elided input-value is substituted with the wire marker"))))
 
+;; ---------------------------------------------------------------------------
+;; 7b. Failed-flow cascade behaviour (rf2-wyt97).
+;;
+;; The pre-rf2-wyt97 `evaluate-flow!` docstring claimed `[db false]` was
+;; returned on failure and downstream flows still walked. The impl
+;; actually `(throw e)`s after emitting `:rf.flow/failed`, which exited
+;; `run-flows!`'s loop — and pre-fix, the early exit bypassed
+;; `replace-container!`, so prior successful flows' dirty writes were
+;; SILENTLY DROPPED even though their `:rf.flow/computed` traces had
+;; already claimed the write. This deftest pins the corrected contract
+;; (per Spec 013 §Failure semantics): prior writes are flushed before
+;; the throw propagates; downstream flows do not run.
+;; ---------------------------------------------------------------------------
+
+(deftest failed-cascade-preserves-prior-flow-writes
+  (testing "when a downstream flow throws, prior flow writes are flushed; the cascade halts"
+    ;; :A reads [:n], writes [:a-out]. :B reads [:a-out], throws.
+    ;; :C reads [:b-out]. The path-prefix dependency edges
+    ;; (A.path → B.input, B.path → C.input) pin topo order A → B → C.
+    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+    (rf/reg-flow {:id     :A
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:a-out]})
+    (rf/reg-flow {:id     :B
+                  :inputs [[:a-out]]
+                  :output (fn [_] (throw (ex-info "boom" {:why :test})))
+                  :path   [:b-out]})
+    (rf/reg-flow {:id     :C
+                  :inputs [[:b-out]]
+                  :output (fn [b] (str "C-saw-" b))
+                  :path   [:c-out]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (let [db (rf/get-frame-db :rf/default)]
+      ;; Rule 1: :A's write IS in app-db.
+      (is (= 10 (:a-out db))
+          ":A's output (5 * 2 = 10) is in app-db — prior-flow writes preserved")
+      ;; Rule 2: failing :B did not write.
+      (is (not (contains? db :b-out))
+          ":B's :path absent — the failing flow's own write is not applied")
+      ;; Rule 3: downstream :C did not run.
+      (is (not (contains? db :c-out))
+          ":C's :path absent — downstream flows do not run on the failing drain"))
+    ;; Trace stream pin: :A's :rf.flow/computed fired; :B's
+    ;; :rf.flow/failed fired; :C emitted no drain trace.
+    (let [drain-evs (filterv #(#{:rf.flow/computed :rf.flow/failed
+                                 :rf.flow/skip}
+                                (:operation %))
+                             @*captured*)
+          per-flow  (group-by #(-> % :tags :flow-id) drain-evs)]
+      (is (= [:rf.flow/computed]
+             (mapv :operation (get per-flow :A)))
+          ":A emitted one :rf.flow/computed trace")
+      (is (= [:rf.flow/failed]
+             (mapv :operation (get per-flow :B)))
+          ":B emitted one :rf.flow/failed trace")
+      (is (empty? (get per-flow :C))
+          ":C emitted no drain trace — did not run after :B threw"))))
+
 (deftest computed-trace-elision-no-op-when-no-declaration
   (testing "absent any declaration, :input-values and :result pass through unchanged"
     ;; Belt-and-braces against an over-eager rewrite — the walker must be

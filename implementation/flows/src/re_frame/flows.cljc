@@ -82,15 +82,21 @@
   (mapv (fn [path] (get-in db path)) (:inputs flow)))
 
 (defn- evaluate-flow!
-  "Evaluate one flow against the given db. Returns the `[new-db dirty?]`
-  tuple. On the failure path the exception re-throws after the
-  `:rf.flow/failed` trace fires — `run-flows!`'s loop exits and the
-  router's outer catch emits the cascade-level
-  `:rf.error/flow-eval-exception`. Trace semantics live in Spec 009
-  §Flow trace events; this docstring just names the failure-path
-  unwind (rf2-rlmla Q11 — the prior docstring claimed `[db false]`
-  was returned and downstream flows still walked, which contradicts
-  the actual `(throw e)` impl at the catch site below).
+  "Evaluate one flow against the given db. Returns `[new-db dirty?]` on
+  successful evaluation (skip or recompute); on the failure path the
+  exception re-throws after the `:rf.flow/failed` trace fires.
+
+  Failed-flow contract (rf2-wyt97 / rf2-hrqvg, Spec 013 §Failure
+  semantics): the failing flow's own output is NOT written (the throw
+  happened during `:output`; there is no usable new-output). Its
+  `last-inputs` slot is NOT advanced so the flow re-attempts on the
+  next drain. `run-flows!` catches the propagated throw, FLUSHES
+  prior successful flows' dirty writes via `replace-container!`
+  (rule 1 of the contract), and re-throws so the router's outer catch
+  emits the cascade-level `:rf.error/flow-eval-exception` per Spec
+  009 §Error contract. The cascade halts at the failing flow —
+  downstream flows scheduled later in topo order do NOT run on this
+  drain (rule 3); they re-attempt naturally on the next drain.
 
   Hot path — runs after every event drain for every registered flow.
   Trace payload construction sits inside an `interop/debug-enabled?`
@@ -172,9 +178,12 @@
           ;; when the flow's :output fn throws. last-inputs is NOT
           ;; advanced — so the flow will retry on the next drain rather
           ;; than silently caching a stale-or-missing output. We re-
-          ;; throw so the router's outer catch (router.cljc) emits the
-          ;; cascade-level :rf.error/flow-eval-exception per Spec 009
-          ;; §Error contract; the per-flow `:rf.flow/failed` trace
+          ;; throw so `run-flows!` can flush already-accumulated dirty
+          ;; writes from PRIOR successful flows in the same drain
+          ;; (rf2-wyt97 / rf2-hrqvg, Spec 013 §Failure semantics rule 1)
+          ;; and then propagate to the router's outer catch which emits
+          ;; the cascade-level :rf.error/flow-eval-exception per Spec
+          ;; 009 §Error contract. The per-flow `:rf.flow/failed` trace
           ;; emitted here adds the flow-attributed detail tools (10x
           ;; flow panel) consume.
           ;;
@@ -204,7 +213,20 @@
   if inputs changed. Called from the per-event drain after :db commits.
 
   Flows are frame-scoped — only flows registered against frame-id run
-  here, leaving sibling frames' flows untouched."
+  here, leaving sibling frames' flows untouched.
+
+  Failed-flow contract (rf2-wyt97 / rf2-hrqvg, Spec 013 §Failure
+  semantics): when a flow's `:output` throws, prior successful flows'
+  dirty writes in the same drain are PRESERVED — we flush via
+  `replace-container!` before re-throwing. The cascade then halts:
+  flows scheduled later in topo order do not run on this drain, and
+  the router's outer catch surfaces the cascade-level
+  `:rf.error/flow-eval-exception`. The failing flow's own
+  `last-inputs` is NOT advanced (so it re-attempts next drain);
+  prior flows' `last-inputs` ARE advanced (they computed successfully
+  and their outputs are now in app-db). This is the strongest 'no
+  work is silently lost' guarantee compatible with cascade-level
+  error surfacing."
   [frame-id]
   (let [container (frame/get-frame-db frame-id)
         flow-map  (get @flows frame-id)]
@@ -216,8 +238,36 @@
           (if (empty? remaining)
             (when any-dirty?
               (adapter/replace-container! container db))
-            (let [flow (flow-map (first remaining))
-                  [new-db dirty?] (evaluate-flow! frame-id db flow)]
+            (let [flow            (flow-map (first remaining))
+                  [new-db dirty?] (try
+                                    (evaluate-flow! frame-id db flow)
+                                    (catch #?(:clj Throwable :cljs :default) e
+                                      ;; Flush prior successful flows'
+                                      ;; writes before propagating the
+                                      ;; throw — they are already in
+                                      ;; `db` (the loop accumulator)
+                                      ;; and their `last-inputs` slots
+                                      ;; are already advanced (per
+                                      ;; evaluate-flow!'s success
+                                      ;; branch). Without this flush,
+                                      ;; the router catches the
+                                      ;; cascade exception but
+                                      ;; `replace-container!` (below)
+                                      ;; never runs and prior flows'
+                                      ;; outputs silently vanish from
+                                      ;; app-db while their
+                                      ;; `:rf.flow/computed` traces
+                                      ;; still claim the write
+                                      ;; happened. Pre-rf2-wyt97 this
+                                      ;; was a real bug; the
+                                      ;; misleading evaluate-flow!
+                                      ;; docstring described
+                                      ;; per-flow-isolated semantics
+                                      ;; that the impl never
+                                      ;; delivered.
+                                      (when any-dirty?
+                                        (adapter/replace-container! container db))
+                                      (throw e)))]
               (recur (rest remaining) new-db (or any-dirty? dirty?)))))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
