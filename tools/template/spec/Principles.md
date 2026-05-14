@@ -123,18 +123,32 @@ fuzz. The user sees the typo and fixes it.
 
 ## P7 — Tested end-to-end, per substrate
 
-The template's JVM test (`test/clj/new/re_frame2/core_test.clj`)
-exercises each substrate end-to-end:
+The template ships a three-file layered JVM test suite under
+`test/clj/new/`. Each substrate (Reagent / UIx / Helix) is exercised
+end-to-end across the three layers:
 
-1. Generate a tmp app via the template's main fn.
-2. Walk the produced file tree and assert the expected shape.
-3. Run `clojure -P` against the generated `deps.edn` to confirm a
-   successful deps-parse.
+1. **Shape.** `re_frame2_test.clj` — generates a tmp app via the
+   template's main fn, walks the produced file tree, asserts file
+   presence + `deps.edn` substrate-adapter coords. Always runs.
+2. **Static parse.** `template_emission_test.clj` — parses every
+   emitted `.cljs` file, resolves each `<alias>/<sym>` reference
+   against the framework source under `implementation/core/src/`,
+   and asserts the symbol exists. Catches rename/cut drift between
+   the template scaffold and the runtime API. Always runs.
+3. **Behavioural.** `emitted_test_run_test.clj` — compiles and runs
+   the emitted `events_test.cljs` end-to-end via shadow-cljs + Node.
+   Gated behind `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off
+   locally for fast loop).
 
-The test runs on CI. A change that breaks file-tree shape for any
-substrate fails the build. The `clojure -P` check is best-effort
-— it requires a `clojure` CLI on PATH, logs and skips if not
-available.
+A `clojure -P` deps-parse smoke also runs in `re_frame2_test.clj`,
+gated behind `RF2_TEMPLATE_DEPS_RESOLVE=1` (CI sets it). It is
+default-off locally until the alpha artefacts land on Clojars —
+until publication every `clojure -P` fails with a "couldn't find
+artifact" error that is a known skip, not a real signal.
+
+CI sets both env vars; a change that breaks file-tree shape, drifts
+the framework surface, or breaks the emitted test compile fails the
+build. Local fast-loop default is shape + static-parse only.
 
 ## Cross-references
 

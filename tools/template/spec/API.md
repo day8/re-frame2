@@ -119,8 +119,8 @@ clojure -Sdeps '{:deps {day8/clj-template.re-frame2
 ```
 
 This is the path the template's own JVM tests
-(`test/clj/new/re_frame2/core_test.clj`) take internally — they
-invoke the entry fn directly without the clj-new harness.
+(`test/clj/new/re_frame2_test.clj` and siblings) take internally —
+they invoke the entry fn directly without the clj-new harness.
 
 ## Outputs
 
