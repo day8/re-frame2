@@ -46,7 +46,8 @@
   `re-frame.flows/<name>` — production code via the late-bind hooks,
   the per-artefact test fixtures via `re-frame.flows/flows` and
   `(resolve 're-frame.flows/last-inputs)`."
-  (:require [re-frame.flows.registry :as registry]
+  (:require [re-frame.elision :as elision]
+            [re-frame.flows.registry :as registry]
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
@@ -114,15 +115,38 @@
               new-db     (assoc-in db (:path flow) new-output)]
           (swap! last-inputs assoc-in [flow-id frame-id] new-inputs)
           ;; Per Spec 009 §:op-type vocabulary: :rf.flow/computed records
-          ;; a successful recompute. :input-values are raw values (not
-          ;; hashed) — the trace surface is dev-only and elided in
-          ;; production, and downstream tools (10x flow panel) display
-          ;; them. Per rf2-719e the dirty-check is =-equality so this
-          ;; only fires when inputs actually changed.
+          ;; a successful recompute. Per rf2-719e the dirty-check is
+          ;; =-equality so this only fires when inputs actually changed.
+          ;;
+          ;; Wire-bearing payloads (`:input-values`, `:result`) ride
+          ;; through `elision/elide-wire-value` per Spec 009 §Size
+          ;; elision in traces — the walker is the single normative
+          ;; emission site for `:rf.size/large-elided` (and the
+          ;; `:rf/redacted` privacy sentinel). Without this the flow
+          ;; trace bypassed the elision contract that every other
+          ;; wire-emitting surface honours; a flow reading or
+          ;; producing a large or sensitive value would surface raw
+          ;; on the trace bus. Off-box defaults match `event-emit` /
+          ;; `error-emit`.
+          ;;
+          ;; The `:path` opt on each walker call names where in the
+          ;; slice's root the wrapped value lives — `:result` IS the
+          ;; value at the flow's output path; each `:input-values`
+          ;; entry is the value at the matching input path. The
+          ;; walker reads `[:rf/elision :declarations <path>]` and
+          ;; emits the marker for declared-large or auto-detected-
+          ;; large slots.
           (trace/emit! :flow :rf.flow/computed
                        {:flow-id      flow-id
-                        :input-values new-inputs
-                        :result       new-output
+                        :input-values (mapv (fn [input-path v]
+                                              (elision/elide-wire-value
+                                                v
+                                                {:frame frame-id :path input-path}))
+                                            (:inputs flow)
+                                            new-inputs)
+                        :result       (elision/elide-wire-value
+                                        new-output
+                                        {:frame frame-id :path (:path flow)})
                         :path         (:path flow)
                         :frame        frame-id})
           [new-db true])
@@ -136,10 +160,22 @@
           ;; §Error contract; the per-flow `:rf.flow/failed` trace
           ;; emitted here adds the flow-attributed detail tools (10x
           ;; flow panel) consume.
+          ;;
+          ;; The failure-path `:inputs` payload rides through the
+          ;; elision walker for the same reason as the success path —
+          ;; the value that triggered the throw may itself be a
+          ;; large or sensitive blob, and the trace bus is the wire
+          ;; boundary. Each entry is walked under its own declared
+          ;; input path so per-path declarations apply.
           (trace/emit! :flow :rf.flow/failed
                        {:flow-id flow-id
                         :ex      e
-                        :inputs  new-inputs
+                        :inputs  (mapv (fn [input-path v]
+                                         (elision/elide-wire-value
+                                           v
+                                           {:frame frame-id :path input-path}))
+                                       (:inputs flow)
+                                       new-inputs)
                         :frame   frame-id})
           (throw e))))))
 
