@@ -56,15 +56,15 @@
   `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb!`. Same-id
   registrations replace; listener exceptions are isolated. Returns the
   id. No-op (returns nil) when the `day8/re-frame2-epoch` artefact is
-  not on the classpath. Late-bound via `:epoch/register-epoch-cb`."
-  {:hook :epoch/register-epoch-cb :artefact epoch-artefact :on-absent :nil}
+  not on the classpath. Late-bound via `:epoch/register-epoch-cb!`."
+  {:hook :epoch/register-epoch-cb! :artefact epoch-artefact :on-absent :nil}
   ([id f] :delegate))
 
 (defwrapper remove-epoch-cb!
   "Remove the listener registered under id. No-op when the
   `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
-  via `:epoch/remove-epoch-cb`."
-  {:hook :epoch/remove-epoch-cb :artefact epoch-artefact :on-absent :nil}
+  via `:epoch/remove-epoch-cb!`."
+  {:hook :epoch/remove-epoch-cb! :artefact epoch-artefact :on-absent :nil}
   ([id] :delegate))
 
 (defwrapper reset-frame-db!

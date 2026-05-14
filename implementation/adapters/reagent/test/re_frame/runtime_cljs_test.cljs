@@ -20,7 +20,7 @@
             ;; Required here so its load-time hook publications
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
             ;; `:epoch/epoch-history`, `:epoch/restore-epoch`,
-            ;; `:epoch/register-epoch-cb`, `:epoch/remove-epoch-cb`)
+            ;; `:epoch/register-epoch-cb!`, `:epoch/remove-epoch-cb!`)
             ;; fire before the epoch-history-cljs / restore-* tests
             ;; below reach into the late-bind table at call time.
             [re-frame.epoch]

@@ -46,7 +46,7 @@
 ;; router and the trace surface look up at drain-settle and per-trace
 ;; emit time, plus the four query / control hooks
 ;; (`:epoch/epoch-history`, `:epoch/restore-epoch`,
-;; `:epoch/register-epoch-cb`, `:epoch/remove-epoch-cb`,
+;; `:epoch/register-epoch-cb!`, `:epoch/remove-epoch-cb!`,
 ;; `:epoch/configure!`) that core's re-exports late-bind to.
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the

@@ -420,10 +420,10 @@
    {:key         :epoch/reset-frame-db!
     :producer-ns 're-frame.epoch
     :description "Reset a frame's app-db to the epoch-recorded snapshot."}
-   {:key         :epoch/register-epoch-cb
+   {:key         :epoch/register-epoch-cb!
     :producer-ns 're-frame.epoch
     :description "Register an epoch-settled callback."}
-   {:key         :epoch/remove-epoch-cb
+   {:key         :epoch/remove-epoch-cb!
     :producer-ns 're-frame.epoch
     :description "Unregister a previously-registered epoch-settled callback."}
    {:key         :epoch/configure!
