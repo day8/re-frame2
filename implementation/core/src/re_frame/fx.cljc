@@ -394,81 +394,63 @@
       ;; `:dispatch-later` read parent-envelope to propagate
       ;; inheritable envelope keys per Spec 002 §Cascade propagation.
       ;;
-      ;; Per rf2-eb4lp: catch `:rf.error/flow-cycle` thrown by
-      ;; `:rf.fx/reg-flow` (the cycle detection in
-      ;; `re-frame.flows.registry/reg-flow` raises synchronously
-      ;; through `topo/topo-sort prospective`). Without this catch the
-      ;; ex-info bubbles uncaught up to the drain emergency-release
-      ;; path, taking down the rest of the cascade. Catching here and
-      ;; routing through the always-on `error-emit` substrate
-      ;; preserves the `:cycle` ex-data, surfaces it under its own
-      ;; `:rf.error/flow-cycle` category (NOT the generic
-      ;; `:fx-handler-exception` the user-fx catch below would emit
-      ;; for non-reserved registrations), and survives CLJS prod
-      ;; elision — mirrors the rf2-hrt5c handler-exception fix and
-      ;; the rf2-fslx0 flow-eval routing. Other reserved-fx throws
-      ;; (currently none expected from `:dispatch` / `:dispatch-later`
-      ;; / `:rf.fx/clear-flow` — none have known throw shapes) re-
-      ;; throw to preserve the existing crash-loud contract until a
-      ;; richer routing emerges.
+      ;; Generic typed-throw routing (rf2-eb4lp + rf2-on7sj-class
+      ;; pattern): if a reserved-fx body throws with an `:error`-keyed
+      ;; ex-data slot carrying a keyword category, route it through
+      ;; the always-on `error-emit` substrate so prod monitors get
+      ;; the typed signal; ex-data is preserved verbatim including
+      ;; any reserved-fx-specific slots (e.g. `:cycle`). Reached via
+      ;; the late-bind hook `:error-emit/dispatch-on-error` (fx.cljc
+      ;; cannot statically require error-emit — would form a load
+      ;; cycle). Untyped throws re-throw to preserve the crash-loud
+      ;; contract. This generalisation keeps reserved-fx-specific
+      ;; error keywords (e.g. flow-cycle) out of core/fx.cljc so they
+      ;; DCE from consumer bundles that don't use the offending fx.
       (try
         (reserved-body frame-id parent-envelope args)
         (emit-handled! fx-id args frame-id)
         (catch #?(:clj Throwable :cljs :default) e
-          (let [d (ex-data e)]
-            (if (= :rf.error/flow-cycle (:error d))
-              (let [msg #?(:clj (.getMessage ^Throwable e)
-                           :cljs (.-message e))
+          (let [d        (ex-data e)
+                category (:error d)]
+            (if (keyword? category)
+              (let [msg  #?(:clj (.getMessage ^Throwable e)
+                            :cljs (.-message e))
                     time (interop/now-ms)]
-                ;; Substrate routing — survives CLJS prod elision so
-                ;; Sentry / Honeybadger / `:on-error` policy fns
-                ;; receive the typed `:rf.error/flow-cycle` record
-                ;; with the `:cycle` chain in `:exception`'s ex-data.
-                ;; Reached via the late-bind hook
-                ;; `:error-emit/dispatch-on-error` (Spec 002 §The late-
-                ;; bind seam) — fx.cljc cannot statically require
-                ;; error-emit (error-emit → router → core → ... → fx
-                ;; would be a load cycle).
                 (when-let [dispatch-on-error!
                            (late-bind/get-fn :error-emit/dispatch-on-error)]
                   (dispatch-on-error!
-                    :rf.error/flow-cycle
+                    category
                     origin-event
                     origin-event-id
                     frame-id
                     e
                     0
                     time
-                    {:operation :rf.error/flow-cycle
+                    {:operation category
                      :op-type   :error
-                     :tags      {:event-id          origin-event-id
-                                 :event             origin-event
-                                 :frame             frame-id
-                                 :fx-id             fx-id
-                                 :fx-args           args
-                                 :where             :fx-reg-flow
-                                 :handler-id        nil
-                                 :exception         e
-                                 :exception-message msg
-                                 :cycle             (:cycle d)
-                                 :reason            (str "Flow registration via :rf.fx/reg-flow introduced a cycle.")
-                                 :recovery          :no-recovery}
+                     :tags      (merge {:event-id          origin-event-id
+                                        :event             origin-event
+                                        :frame             frame-id
+                                        :fx-id             fx-id
+                                        :fx-args           args
+                                        :handler-id        nil
+                                        :exception         e
+                                        :exception-message msg
+                                        :recovery          :no-recovery}
+                                       (dissoc d :error))
                      :recovery  :no-recovery}))
                 ;; Trace path for dev consumers; DCE'd in CLJS prod.
-                (trace/emit-error! :rf.error/flow-cycle
-                                   {:failing-id        fx-id
-                                    :fx-id             fx-id
-                                    :fx-args           args
-                                    :frame             frame-id
-                                    :exception         e
-                                    :exception-message msg
-                                    :cycle             (:cycle d)
-                                    :reason            (str "Flow registration via :rf.fx/reg-flow introduced a cycle.")
-                                    :recovery          :no-recovery}))
-              ;; Non-cycle reserved-fx throw — preserve the crash-loud
-              ;; contract by re-throwing. No existing reserved-fx body
-              ;; is known to throw; if a future addition adds a typed
-              ;; surface, special-case it here too.
+                (trace/emit-error! category
+                                   (merge {:failing-id        fx-id
+                                           :fx-id             fx-id
+                                           :fx-args           args
+                                           :frame             frame-id
+                                           :exception         e
+                                           :exception-message msg
+                                           :recovery          :no-recovery}
+                                          (dissoc d :error))))
+              ;; Untyped reserved-fx throw — preserve crash-loud
+              ;; contract by re-throwing.
               (throw e)))))
       ;; Default: user-registered fx — OR a synthesised meta carrying a
       ;; function-value override (per `resolved-fx-meta` above; the
