@@ -310,3 +310,104 @@
                                              :join           {:n 3}
                                              :on-child-done  :done
                                              :on-child-error :failed}}}})))))
+
+;; ---- decisive-child payload forwarding (rf2-4aop8) -----------------------
+
+(defn- mk-child-with-payload
+  "Like mk-child but the terminal-state dispatch carries an extra payload
+  argument so we can assert it forwards through the join resolution."
+  [parent-id done-event-kw error-event-kw payload]
+  {:initial :running
+   :data    {:id nil}
+   :actions {:dispatch-done
+             (fn [data _]
+               {:fx [[:dispatch [parent-id [done-event-kw (:id data) payload]]]]})
+             :dispatch-error
+             (fn [data _]
+               {:fx [[:dispatch [parent-id [error-event-kw (:id data) payload]]]]})
+             :record-id
+             (fn [data ev]
+               {:data (assoc data :id (second ev))})
+             :record-join-event
+             (fn [data ev]
+               {:data (assoc data :join-event ev)})}
+   :states
+   {:running {:on {:set-id {:action :record-id}
+                   :go     {:target :done   :action :dispatch-done}
+                   :fail   {:target :failed :action :dispatch-error}}}
+    :done   {}
+    :failed {}}})
+
+(deftest decisive-child-payload-forwards-into-join-event
+  (testing "the decisive child's & extra is appended onto the resolution event"
+    (let [child  (mk-child-with-payload :sup/pay :asset/loaded :asset/failed
+                                        {:bytes 4242 :status :ok})
+          parent {:initial :idle
+                  :actions {:record-payload
+                            (fn [data ev]
+                              {:data (assoc data :join-event ev)})}
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:invoke-all
+                    {:children        [{:id :a :machine-id :child/pa :start [:set-id :a]}]
+                     :join            :all
+                     :on-child-done   :asset/loaded
+                     :on-child-error  :asset/failed
+                     :on-all-complete [:hydrate/done]}
+                    :on    {:hydrate/done {:target :ready :action :record-payload}}}
+                   :ready {}}}]
+      (rf/reg-machine :child/pa child)
+      (rf/reg-machine :sup/pay parent)
+      (rf/dispatch-sync [:sup/pay [:start]])
+      (let [ids (get-in (frame-db) [:rf/spawned :sup/pay [:hydrating] :children])]
+        (rf/dispatch-sync [(:a ids) [:go]]))
+      (let [snap (snapshot :sup/pay)]
+        (is (= :ready (:state snap)) "parent reached :ready")
+        ;; The decisive-child payload (:a + {:bytes 4242 :status :ok})
+        ;; appears as trailing args on the dispatched join event:
+        ;;   [:hydrate/done :a {:bytes 4242 :status :ok}]
+        (is (= [:hydrate/done :a {:bytes 4242 :status :ok}]
+               (:join-event (:data snap)))
+            "resolution event carries decisive child-id and forwarded payload")))))
+
+(deftest any-failed-trace-carries-reason-payload
+  (testing ":rf.machine.invoke-all/any-failed trace carries :reason from decisive failure"
+    (let [traces (atom [])
+          child  (mk-child-with-payload :sup/fail-payload
+                                        :asset/loaded :asset/failed
+                                        {:reason :boom :http-status 503})
+          parent {:initial :idle
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:invoke-all
+                    {:children       [{:id :a :machine-id :child/fpa :start [:set-id :a]}
+                                      {:id :b :machine-id :child/fpb :start [:set-id :b]}]
+                     :join            :all
+                     :on-child-done   :asset/loaded
+                     :on-child-error  :asset/failed
+                     :on-all-complete [:hydrate/done]
+                     :on-any-failed   [:hydrate/failed]}
+                    :on    {:hydrate/done   :ready
+                            :hydrate/failed :error}}
+                   :ready {} :error {}}}]
+      (rf/reg-machine :child/fpa child)
+      (rf/reg-machine :child/fpb child)
+      (rf/reg-machine :sup/fail-payload parent)
+      (rf/register-trace-cb! ::any-failed-trace
+                             (fn [ev] (swap! traces conj ev)))
+      (try
+        (rf/dispatch-sync [:sup/fail-payload [:start]])
+        (let [ids (get-in (frame-db) [:rf/spawned :sup/fail-payload [:hydrating] :children])]
+          (rf/dispatch-sync [(:a ids) [:fail]]))
+        (let [any-failed (->> @traces
+                              (filter #(= :rf.machine.invoke-all/any-failed
+                                          (:operation %)))
+                              first)]
+          (is (some? any-failed) ":rf.machine.invoke-all/any-failed trace fired")
+          (is (= [{:reason :boom :http-status 503}]
+                 (:reason (:tags any-failed)))
+              ":reason key on trace carries decisive child's forwarded payload"))
+        (finally
+          (rf/remove-trace-cb! ::any-failed-trace))))))

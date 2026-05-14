@@ -120,6 +120,15 @@
     (when match
       (let [{:keys [invoke-id spec kind]} match
             child-id   (second inner-event)
+            ;; Per Spec 005 §Spawn-and-join: child dispatches
+            ;;   [<parent-id> [<event-kw> <child-id> & extra]]
+            ;; where `& extra` is the child's forwarded payload (terminal
+            ;; :data slice, error reason, etc). Capture it so the
+            ;; decisive child's payload can be appended onto the
+            ;; resolution event AND surfaced through the
+            ;; :rf.machine.invoke-all/any-failed trace's :reason key
+            ;; (Spec 005 §Trace events).
+            child-extra (vec (drop 2 inner-event))
             ;; Read the live join state from app-db (the seed was written
             ;; by :rf.machine/invoke-all-init on entry).
             join-state (get-in db [:rf/spawned parent-id invoke-id])]
@@ -166,6 +175,7 @@
                                  {:machine-id parent-id
                                   :invoke-id  invoke-id
                                   :failed-id  child-id
+                                  :reason     child-extra
                                   :failed     (:failed join-state'')
                                   :done       (:done   join-state'')}))
                 _ (when (and success-fired? (= :all (:join spec :all)))
@@ -200,8 +210,18 @@
                             [:rf.machine/destroy spawned-id])
                           survivors)))
                 dispatch-fx
+                ;; Per Spec 005 §Spawn-and-join: append the decisive
+                ;; child's `& extra` onto the resolution event so the
+                ;; parent's join-event handler can read the forwarded
+                ;; payload directly off the event vector. The wrapped
+                ;; event shape becomes:
+                ;;   [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]
+                ;; where <decisive-child-id> is the child that tipped
+                ;; the join over the threshold (last :done for success,
+                ;; the failed child for :on-any-failed).
                 (when resolution-event
-                  [[:dispatch (into [parent-id resolution-event] [])]])
+                  (let [inner (vec (concat resolution-event [child-id] child-extra))]
+                    [[:dispatch [parent-id inner]]]))
                 fx (vec (concat (or cancel-fx []) (or dispatch-fx [])))
                 new-db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')]
             {:db new-db :fx fx}))))))
