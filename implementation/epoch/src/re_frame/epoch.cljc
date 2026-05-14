@@ -616,11 +616,9 @@
 (defn- malli-validate-fn
   "Return the malli validate fn or nil.
 
-  Per rf2-t0hq the CLJS runtime `resolve` is a compile-time analyzer
-  affordance, not a runtime fn — the historical `:cljs (resolve
-  'malli.core/validate)` arm silently returned nil, so the
-  schema-mismatch failure-mode predicate at epoch-restore time treated
-  every recorded db as conforming on CLJS.
+  Per rf2-t0hq — CLJS has no runtime `resolve`, so the lookup order on
+  CLJS is: late-bind hook then nil. Returning nil is treated as
+  soft-pass by callers ('cannot disprove, treat as valid').
 
   Lookup order matches `re-frame.schemas/default-malli-validate`:
     1. Late-bind hook `:schemas/malli-validate` (published by
