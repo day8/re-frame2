@@ -21,11 +21,27 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^{:doc "Sentinel for `inject-cofx`'s 3-arity 'no-value' branch.
-  Used by `re-frame.core/inject-cofx`'s macro form (rf2-ts1a) to thread
-  a call-site through the no-value path without inventing a private
-  sentinel at the macro layer. Equality-tested via `identical?` so
-  user values never collide."} no-value
+(def ^{:doc "Sentinel that distinguishes \"no value supplied\" from
+  \"`nil` supplied\" in `inject-cofx`'s 3-arity form.
+
+  Why a sentinel: `inject-cofx`'s 2-arity `(inject-cofx :id value)`
+  passes `value` to the cofx handler's 2-arity body — and `nil` is a
+  valid `value` (e.g. `(inject-cofx :stub nil)` means \"stub me with a
+  nil reply\"). So the 3-arity can't use `nil` itself to mean \"caller
+  didn't supply a value\". `cofx/no-value` is a singleton keyword the
+  3-arity tests via `identical?`; user values never collide.
+
+  Why the 3-arity exists at all: it lets `re-frame.core/inject-cofx`'s
+  macro form (rf2-ts1a) thread the call-site through to the
+  interceptor even on the no-value path — without it, the macro would
+  need to expand to two different fn-form call shapes (with-value vs
+  without-value) and the macro-layer would need its own private
+  sentinel. Routing every macro expansion through the 3-arity keeps
+  the macro-side uniform.
+
+  Callers (humans + HoF use of `inject-cofx*`) reach for the 1- or
+  2-arity. The 3-arity is reserved for the macro expansion and tests
+  that want to assert call-site capture behaviour."} no-value
   ::no-value)
 
 ;; ---- the platform predicate -----------------------------------------------
@@ -174,16 +190,25 @@
       (inject-cofx :id)                   — no value, no call-site
       (inject-cofx :id value)             — per-call value, no call-site
       (inject-cofx :id value call-site)   — value + macro-stamped call-site
-                                            (use `cofx/no-value` for the
-                                            no-value path with a call-site)
+                                            (pass `cofx/no-value` as `value`
+                                            for the no-value path with a
+                                            call-site)
 
   The 3-arity form is what the `re-frame.core/inject-cofx` macro
   expands to; it captures `(meta &form)` at the user call site so
   error events emitted from the cofx body carry the invocation coord.
-  The 1-/2-arity forms wrap to the 3-arity with a `nil` call-site.
+  The 1-/2-arity forms wrap to the 3-arity with a `nil` call-site —
+  the 1-arity threads `cofx/no-value` as `value` so the 3-arity body's
+  `valued?` test (`identical?` against the sentinel) reports `false`
+  and the cofx handler is invoked via its 1-arity (no-value) shape.
+
+  Why a sentinel and not `nil`: the 2-arity admits `nil` as a real
+  per-call value (e.g. `(inject-cofx :stub nil)`), so the 3-arity
+  can't overload `nil` to mean \"caller supplied nothing\". See the
+  `no-value` def's docstring above for the full why.
 
   See also: `reg-cofx`, `re-frame.core/inject-cofx` (macro form with
-  call-site capture)."
+  call-site capture), `no-value` (the sentinel def)."
   ([cofx-id]
    (inject-cofx cofx-id no-value nil))
   ([cofx-id value]
