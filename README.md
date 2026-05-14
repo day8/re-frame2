@@ -188,7 +188,8 @@ spec/                          Full specification (AI-targeted; the primary arte
   Cross-Spec-Interactions.md   Edge cases at Spec boundaries
   Cross-Cutting-Designs.md     Designs that touch multiple specs at once
   Managed-Effects.md           The managed-external-effect pattern (shape every outbound conforms to)
-  Security.md                  Top-level security posture, threat model, decisions log
+  Security.md                  Pattern-level security posture, threat model, decisions log
+                               (CLJS-reference specifics in implementation/SECURITY.md)
   Pattern-*.md                 Worked-example conventions (Forms, RemoteData, WebSocket, ...)
   conformance/                 EDN fixture corpus
 docs/
@@ -230,6 +231,9 @@ implementation/                CLJS reference implementation — per-artefact su
   scripts/                     Build / release scripts
   shadow-cljs.edn              Top-level build coordinator: pulls all artefacts onto one classpath
   deps.edn                     Top-level build coordinator (clojure-tools): :local/root deps for all
+  SECURITY.md                  CLJS-reference security specifics — named fns, numeric defaults,
+                               JVM-vs-CLJS stub semantics, full 38-bead audit trail (companion to
+                               spec/Security.md per rf2-1g6cj / rf2-ao8a2)
 tools/                         CLJS dev/inspection tools that consume re-frame2's instrumentation
                                API (Spec 009, Tool-Pair). Sibling of implementation/, not part of
                                it — bundle-isolated from production builds.
