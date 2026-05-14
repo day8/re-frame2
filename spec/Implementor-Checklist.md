@@ -1,7 +1,9 @@
 # Implementor's Checklist
 
 > **Type:** Reference / Companion
-> A consolidated decision list for porting re-frame2 to a new host language. The checklist is the structured form of [Goal 2 — AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone): an AI armed with `/spec/` plus this checklist plus the [conformance corpus](conformance/README.md) should be able to produce a working v1 implementation in any host without consulting outside sources.
+> A consolidated decision list for porting re-frame2 to a new host language. The checklist is the structured form of [Goal 2 — AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone): an AI armed with `/spec/` plus this checklist plus the [conformance corpus](conformance/README.md) should be able to produce a working v1 implementation in any in-scope host without consulting outside sources.
+
+> **Scope.** "Host" here means one of the eight in-scope JS-cross-compile-to-React+VDOM languages defined in [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic): ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS. Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-cross-compile-to-JS host languages (server-side Python, Ruby, Rust, Go, Kotlin, Swift, Java) are **out of scope** as first-class implementation targets. Where this doc refers to those non-target hosts (e.g. mentioning `pytest` or `tokio`), treat the mention as **non-normative background** — illustrative shape, not an implementation track this checklist sequences.
 
 The checklist is in three parts:
 
@@ -64,7 +66,7 @@ The server-side render + hydration contract from [011](011-SSR.md) — `:platfor
 
 Boundary validation + introspection from [010](010-Schemas.md) — `:spec` registration metadata, `reg-app-schema`, validation-failure trace events.
 
-In **dynamic hosts** (CLJS, JS, Python, Ruby) this is a runtime schema layer — Malli (CLJS reference), Zod (JS), Pydantic (Python), dry-rb (Ruby). In **static hosts** (TypeScript, Kotlin, Rust, F#, Swift) the host's type system covers much of the territory at compile time. A static-host port may also ship a runtime validation library (Zod alongside TS types) or rely on types alone.
+In **dynamically typed in-scope hosts** (CLJS, Squint) this is a runtime schema layer — Malli (CLJS reference) or Zod (Squint). In **statically typed in-scope hosts** (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS) the host's type system covers much of the territory at compile time. A static-host port may also ship a runtime validation library (Zod alongside TS types) or rely on types alone.
 
 **Three answers, not two:** *yes-runtime-schema*, *yes-via-host-types*, or *no*. The pattern requires *shape description*; the mechanism is host-discretion (per [000 §Host-profile matrix](000-Vision.md#host-profile-matrix)).
 
@@ -102,7 +104,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Name** — what the decision is.
 - **Why it matters** — which re-frame2 mechanic depends on this; cross-reference the goal/spec it serves.
-- **Options by host** — canonical choices for the major host languages (CLJS, JS/TS, Python, Rust, F#/Kotlin, Swift, Java).
+- **Options by host** — canonical choices for the eight in-scope JS-cross-compile hosts (CLJS, TS, Melange / ReScript / Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS). Non-target hosts (Python, Rust, Swift, Java) may appear as **non-normative background** to illustrate shape; they are not implementation tracks this checklist sequences.
 - **Reference-impl picks** — what re-frame-cljs uses; what other claimed reference implementations would pick.
 - **Trade-offs** — criteria for choosing.
 
@@ -113,72 +115,72 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Why it matters.** Every queryable, every override, every trace event, every error category is identified by an id. The runtime looks up, compares, ships, and reflects on ids cheaply. See [000 §The identity primitive](000-Vision.md#the-identity-primitive--required-properties) for the seven required properties.
 - **Options by host.**
   - **CLJS** — Clojure keywords (`:foo/bar`). Native; satisfies all properties.
-  - **TS / JS** — Branded string types (`type EventId = string & { readonly __id: 'EventId' }`) with a naming convention (`'cart.item/remove'`). Use a small `id()` helper with interning + namespace parsing. ES `Symbol.for(...)` is *not* a fit — symbols don't serialise.
-  - **Python** — Strings with naming convention plus a small `Id` class wrapping `str` with `.namespace()` / `.local()` methods, or `enum.Enum` per kind for closed sets.
-  - **Rust** — Newtype `struct Id(&'static str)` with conventions, or `phf` interning for closed sets.
-  - **Kotlin / F#** — Sealed-class hierarchies of `data object` ids, or value classes wrapping `String` with namespace parsing.
-  - **Swift** — Enums conforming to `RawRepresentable<String>` plus a namespace convention.
+  - **TypeScript** — Branded string types (`type EventId = string & { readonly __id: 'EventId' }`) with a naming convention (`'cart.item/remove'`). Use a small `id()` helper with interning + namespace parsing. ES `Symbol.for(...)` is *not* a fit — symbols don't serialise.
+  - **Melange / ReScript / Reason** — Polymorphic variants (`` `Cart_item_remove ``) for closed sets, or strings wrapped in an opaque `Id.t` with namespace parsing for open sets.
+  - **Fable (F#)** — Discriminated unions for closed id sets, or a single-case DU wrapping `string` (`type EventId = EventId of string`) with namespace-parsing helpers.
+  - **Squint** — Same as ClojureScript — Squint preserves Clojure keywords.
+  - **Scala.js** — Sealed `case object` hierarchies for closed sets, or value classes (`final class EventId(val s: String) extends AnyVal`) with namespace-parsing helpers.
+  - **PureScript** — Sum types for closed sets, or a `newtype EventId = EventId String` with `Eq`/`Ord` instances and namespace-parsing helpers.
+  - **Kotlin/JS** — Sealed-class hierarchies of `data object` ids, or value classes wrapping `String` with namespace parsing.
 - **Reference-impl picks.** CLJS uses keywords. A TypeScript reference would use branded strings + interning.
-- **Trade-offs.** The seven properties (stable, namespaceable, value-equal, cheap, serialisable, human-readable, reflective) are non-negotiable. If a host's natural choice violates any property, pick a different mechanism — UUIDs, integer ids, and Java reference-equality classes are all rejected upfront.
+- **Trade-offs.** The seven properties (stable, namespaceable, value-equal, cheap, serialisable, human-readable, reflective) are non-negotiable. If a host's natural choice violates any property, pick a different mechanism — UUIDs, integer ids, and reference-equality classes are all rejected upfront.
 
 #### F2. Persistent data structures
 
 - **Why it matters.** Pulled from "encouraged" to **pattern-required** by [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility). Structural sharing makes "reverting" cheap (a pointer swap, not a deep copy). Without persistent structures the goal is unaffordable.
 - **Options by host.**
   - **CLJS** — Clojure persistent collections (native).
-  - **JS / TS** — Immer (copy-on-write) or [mori](https://swannodette.github.io/mori) or Immutable.js.
-  - **Python** — [pyrsistent](https://github.com/tobgu/pyrsistent).
-  - **Kotlin** — [im.kt](https://github.com/im-co/im.kt) or `kotlinx.collections.immutable`.
-  - **Rust** — [im](https://crates.io/crates/im) (immutable.rs) — vector, map, hashmap with structural sharing.
-  - **Swift** — Swift's value-typed `Dictionary`/`Array` do copy-on-write; `OrderedDictionary` from swift-collections gives ordered semantics.
+  - **TypeScript** — Immer (copy-on-write) or [mori](https://swannodette.github.io/mori) or Immutable.js.
+  - **Squint** — Same as ClojureScript — Squint preserves Clojure persistent collections.
+  - **Melange / ReScript / Reason** — Native immutable records + `Belt.Map` / `Belt.Set`; or [bs-immutable](https://github.com/MoOx/bs-immutable)-style libraries for richer structural sharing.
+  - **Fable (F#)** — Native F# records + `Map` / `Set` (immutable by default); structural sharing via the .NET-mapped persistent collections.
+  - **Scala.js** — Scala's immutable `Map` / `Vector` / `Set` (native, persistent with structural sharing).
+  - **PureScript** — `purescript-maps` / `purescript-ordered-collections` — native persistent maps with O(log n) updates.
+  - **Kotlin/JS** — [im.kt](https://github.com/im-co/im.kt) or `kotlinx.collections.immutable`.
 - **Reference-impl picks.** CLJS uses Clojure persistent collections.
-- **Trade-offs.** Hosts without a mainstream persistent-collection library face a real cost. Defaulting to deep-copy snapshots is technically correct but performance-prohibitive at any scale. Pick a library and budget time to verify its sharing characteristics under the host's GC.
+- **Trade-offs.** Hosts without a mainstream persistent-collection library face a real cost. Defaulting to deep-copy snapshots is technically correct but performance-prohibitive at any scale. Pick a library and budget time to verify its sharing characteristics under the JS-engine GC.
 
 #### F3. Reactive substrate
 
 - **Why it matters.** The runtime's reactive container for `app-db`, the change-tracking that drives view re-renders, and the render-tree → surface step. Substrate-decoupled per [006](006-ReactiveSubstrate.md). Adapter contract is locked at six required + two optional + one lifecycle function, with a [§Revertibility constraint](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters) that adapter-internal state must be derivable from the frame value.
-- **Options by host.**
+- **Options by host.** Every in-scope host targets React, so the substrate is the host's React-binding's state-and-reactivity bridge over the framework's container.
   - **CLJS** — Reagent (default; atop React) or plain-atom (JVM/headless/SSR). Other CLJS adapters (UIx, Helix) plug in via the same contract.
-  - **JS / TS** — Solid (`createSignal` + `createMemo`), `useSyncExternalStore`, MobX, or Vue refs.
-  - **Python** — RxPy (`BehaviorSubject`), or a hand-rolled signal library — most Python apps don't need reactivity (server-side render only).
-  - **Kotlin** — Compose runtime, or coroutines `StateFlow`.
-  - **Rust** — Leptos signals, `dioxus-signals`, or `crossbeam` channels for back-end-only ports.
-  - **Swift** — SwiftUI's `@Observable` / `Combine` `CurrentValueSubject`.
+  - **TypeScript** — `useSyncExternalStore` against a hand-rolled atom-shaped store, or a signal library bridged through it (Solid `createSignal` + `createMemo`, MobX, Zustand, Jotai).
+  - **Melange / ReScript / Reason** — Melange-React / ReasonReact `useState` + `useSyncExternalStore` bridge against a Belt/Map-shaped container.
+  - **Fable (F#)** — Fable.React / Feliz `useState` + `useSyncExternalStore` against an F# `IObservable` or hand-rolled store.
+  - **Squint** — Same shape as the CLJS reference — Squint preserves the Reagent / atom-shape contract.
+  - **Scala.js** — scalajs-react / Slinky `useState` + `useSyncExternalStore` against a Scala `Var`/`Signal` (slinky-state, Laminar's `Var` if dropping into Laminar adapter territory).
+  - **PureScript** — React.Basic / Halogen-React `useState` + `useSyncExternalStore` against a `Ref` or signal-shaped abstraction.
+  - **Kotlin/JS** — kotlin-react `useState` + `useSyncExternalStore` against a `MutableStateFlow`-shaped container.
 - **Reference-impl picks.** CLJS uses Reagent (browser) and plain-atom (JVM).
 - **Trade-offs.** Pick one signal library per port; the spec is single-adapter-per-process (per [006 §Single adapter per process](006-ReactiveSubstrate.md#single-adapter-per-process)). Multi-adapter coexistence is post-v1.
 
 #### F4. Effect-handling primitive
 
 - **Why it matters.** How `:fx` dispatches; sync vs async handling; effect resolution against the registry.
-- **Options by host.**
+- **Options by host.** All eight in-scope hosts compile to JS, so the underlying primitives are uniform — `setTimeout` / `Promise` / `queueMicrotask` for async, sync-by-default for the registered handler invocation.
   - **CLJS** — `reg-fx` registered handlers; sync effects run inline, async effects schedule via host setTimeout/Promise; `:dispatch` and `:dispatch-later` ship as standard fx.
-  - **JS / TS** — Same shape; `setTimeout` / `Promise` / `queueMicrotask` for async.
-  - **Python** — `asyncio` loop or sync iteration depending on host.
-  - **Rust** — `tokio` for async; sync on a single-threaded executor for tests.
-  - **Kotlin** — Coroutines (`launch` / `async`).
+  - **TypeScript / Melange / ReScript / Reason / Fable / Squint / Scala.js / PureScript / Kotlin/JS** — Same shape; each host calls the host's mapping over `setTimeout` / `Promise` / `queueMicrotask`. The dispatch primitive is host-data ([event-vector] → effects-map) and the effect resolver is registry-lookup at the JS layer — uniform across the eight.
 - **Reference-impl picks.** CLJS uses `reg-fx` with sync default; standard `:dispatch` / `:dispatch-later` / `:http` (per [Pattern-RemoteData](Pattern-RemoteData.md)).
 - **Trade-offs.** Sync-by-default keeps the drain semantics simple (per [002 §Run-to-completion](002-Frames.md)). Async fx must NOT escape the drain — they re-enter via `:dispatch` after their underlying side effect completes.
 
 #### F5. Concurrency model
 
 - **Why it matters.** Run-to-completion drain semantics ([002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)) are the spine of [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility). The implementation must guarantee no async mutation escapes the dispatch loop.
-- **Options by host.**
-  - **CLJS** — Single-threaded JS event loop guarantees this for free in browsers; on JVM, the test harness runs sync.
-  - **JS / TS** — Single-threaded JS event loop (browser, Node main thread).
-  - **Python** — Single-threaded `asyncio` loop or single-threaded sync; multi-threaded ports must serialize dispatch via a lock or channel.
-  - **Rust** — Single-threaded executor for tests; multi-threaded executors must serialize per-frame dispatch.
-  - **Kotlin** — Single coroutine context per frame.
+- **Options by host.** Every in-scope host runs on the single-threaded JS event loop in production; the run-to-completion guarantee comes for free at the runtime layer.
+  - **CLJS** — Single-threaded JS event loop guarantees this for free in browsers; on JVM (the CLJS reference test harness), the harness runs sync.
+  - **TypeScript / Melange / ReScript / Reason / Fable / Squint / Scala.js / PureScript / Kotlin/JS** — Single-threaded JS event loop (browser, Node main thread). All eight share the same concurrency-model guarantee.
 - **Reference-impl picks.** CLJS relies on the JS event loop.
 - **Trade-offs.** **No core.async** — the CLJS reference does not use core.async, and ports inherit this directive. Async fx are scheduled via host primitives (Promise, setTimeout); cross-frame dispatch is serialised per frame.
 
 #### F6. Hot-reload primitive
 
 - **Why it matters.** Re-registration replaces; emits `:rf.registry/handler-replaced` (per [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics)). Pair-tool hot-swap depends on this.
-- **Options by host.**
+- **Options by host.** Every in-scope host has a working hot-reload story via its source-build pipeline; the registrar-update pattern is uniform.
   - **CLJS** — figwheel/shadow-cljs reload; `reg-*` calls surgically update the registrar; frames preserve runtime state via `reg-frame`'s update path (per [002](002-Frames.md)).
-  - **JS / TS** — Vite HMR + module-replacement boundary; same registrar update pattern.
-  - **Python** — Watch + reimport; `reg-*` calls re-bind in the registrar.
-  - **Rust** — Compile-replace cycle; for dev-only hot-reload, `dlopen`/dynamic-library swap is the route.
+  - **TypeScript** — Vite HMR + module-replacement boundary; same registrar update pattern.
+  - **Melange / ReScript / Reason / Fable / Scala.js / PureScript / Kotlin/JS** — Each has its own Vite-HMR-compatible source-build pipeline (`@melange/runtime`, `vite-plugin-fable`, `@scala-js/vite-plugin`, `purescript-vite`, `kotlin-react-vite`) that routes module-replacement notifications into the registrar.
+  - **Squint** — Squint's `vite-squint` plugin gives the same dev experience as TypeScript; `reg-*` calls re-bind in the registrar atom on module replacement.
 - **Reference-impl picks.** CLJS uses figwheel/shadow-cljs.
 - **Trade-offs.** The registrar is a single mutable cell; replacing entries is atomic. Frame state is preserved across re-registration of `reg-frame` (per [002 §reg-frame is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
 
@@ -203,9 +205,13 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Why it matters.** `assoc-in` / `update-in` / `get-in` over the frame's app-db. Used by handlers, the `path` standard interceptor, registered subs that read paths, and `(rf/snapshot-of path)`.
 - **Options by host.**
   - **CLJS** — Native `assoc-in` / `update-in` / `get-in`.
-  - **JS / TS** — Immer's `produce` for `update-in`-style; `lodash.get`/`lodash.set` immutably wrapped; or hand-rolled.
-  - **Python** — pyrsistent's path API (`.transform`).
-  - **Rust** — Lens libraries or hand-rolled per-shape functions.
+  - **TypeScript** — Immer's `produce` for `update-in`-style; `lodash.get` / `lodash.set` immutably wrapped; or hand-rolled.
+  - **Squint** — Same as CLJS — Squint compiles `assoc-in` / `update-in` / `get-in` to JS persistent-map operations.
+  - **Melange / ReScript / Reason** — Hand-rolled lens helpers over `Belt.Map`; functional update is idiomatic.
+  - **Fable (F#)** — F# `Map` lens helpers; pattern-matching makes hand-rolled path ops cheap.
+  - **Scala.js** — Monocle (or quicklens) for lens-shaped path access over Scala immutable collections.
+  - **PureScript** — `purescript-profunctor-lenses` (`Optics`-style); cleanly composable.
+  - **Kotlin/JS** — Arrow Optics, or hand-rolled per-shape functions over `kotlinx.collections.immutable`.
 - **Reference-impl picks.** CLJS uses native.
 - **Trade-offs.** Path operations are hot — choose a fast implementation.
 
@@ -230,11 +236,15 @@ For each capability included in Part 1, the implementor makes the per-capability
 #### V1. Render-tree shape
 
 - **Why it matters.** Pure `(state, props) → render-tree` is the view contract; the render-tree must be serialisable data (per [004](004-Views.md)).
-- **Options by host.**
+- **Options by host.** Every in-scope host targets React + VDOM, so the render-tree shape is the host's idiomatic data-form over `createElement`.
   - **CLJS** — Hiccup (`[:div {:class "foo"} child]`).
-  - **JS / TS** — JSX-as-data (with Babel transform, JSX literally is `React.createElement(...)` calls; for pure-data SSR use snabbdom-style vnodes or hiccup ports).
-  - **Python** — Tuple/dict trees per Anthropic-style libraries; SSR is usually the only render target.
-  - **Rust** — RSX (Dioxus), or hand-rolled vnode trees.
+  - **TypeScript** — JSX-as-data (with TSX transform, JSX literally is `React.createElement(...)` calls; for pure-data SSR use snabbdom-style vnodes or a hiccup port).
+  - **Melange / ReScript / Reason** — JSX-PPX → `React.createElement` calls; the JSX syntax is data-shaped at the AST layer.
+  - **Fable (F#)** — Feliz DSL (`Html.div [...]`) over `React.createElement`; or Fable.React's plain `div [] [...]` shape.
+  - **Squint** — Hiccup (Squint's CLJS-style render tree).
+  - **Scala.js** — slinky JSX-DSL or scalajs-react's `<.div(...)` DSL — both are data trees over `createElement`.
+  - **PureScript** — React.Basic's `R.div [] [...]` shape, or Halogen-React JSX-DSL.
+  - **Kotlin/JS** — kotlin-react's `div { ... }` HTML-DSL — data-shaped through Kotlin DSL builders into `createElement`.
 - **Reference-impl picks.** CLJS uses hiccup.
 - **Trade-offs.** Render-tree shape must be serialisable for SSR (per [011](011-SSR.md)) and inspectable for view-tree tooling. Closed component trees that don't serialise (raw React elements with closures) make SSR + inspection hard.
 
@@ -264,23 +274,24 @@ For each capability included in Part 1, the implementor makes the per-capability
 #### T2. Performance API equivalent
 
 - **Why it matters.** Browser DevTools cross-correlation. The CLJS reference ships a Chrome Performance API bridge (per [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)). Optional in other hosts.
-- **Options by host.**
-  - **CLJS / JS / TS (browser)** — `performance.mark` / `performance.measure`.
-  - **JVM** — `clj-async-profiler`, JFR, or omit.
-  - **Python** — `cProfile` integration, OpenTelemetry spans, or omit.
-  - **Rust** — `tracing` crate spans.
+- **Options by host.** Every in-scope host targets the browser; the Performance API is uniformly available.
+  - **All eight (browser)** — `performance.mark` / `performance.measure` via the host's JS-interop primitive (CLJS `js/performance.mark`, TS direct, Fable `Browser.Dom.window.performance`, etc.).
+  - **Server-side runtimes that the CLJS reference also serves (JVM)** — `clj-async-profiler`, JFR, or omit. Non-normative for the eight in-scope hosts since the SSR target is also JS / Node.
 - **Reference-impl picks.** CLJS uses the Chrome Performance API bridge.
 - **Trade-offs.** Optional; the underlying trace surface is the contract.
 
 #### T3. Production elision
 
 - **Why it matters.** All tracing is dev-only. Production builds must elide every emit call site, the listener registry, the trace buffer, the Performance bridge (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
-- **Options by host.**
+- **Options by host.** Every in-scope host has a compile-time-elision story via its JS-build pipeline.
   - **CLJS** — `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) + Closure compiler dead-code elimination, with a CI verifier (`scripts/check-elision.cjs`) that asserts dev-only sentinel strings are absent from `:advanced` `goog.DEBUG=false` bundles. See [009 §Production-elision verification](009-Instrumentation.md#production-elision-verification).
-  - **JS / TS** — Build-time constant + tree-shake (Vite/Rollup with `define`); or `process.env.NODE_ENV` checks elided by the bundler.
-  - **Python** — Module-level constant + `if __debug__:` (Python's `-O` flag elides assert and `__debug__` blocks).
-  - **Rust** — Cargo features (`#[cfg(feature = "trace")]`); release builds omit the trace feature.
-  - **Kotlin** — Multi-module setup; release variant omits the tracing module.
+  - **TypeScript** — Build-time constant + tree-shake (Vite/Rollup with `define`); or `process.env.NODE_ENV` checks elided by the bundler.
+  - **Melange / ReScript / Reason** — Conditional compilation via `#if RELEASE` or build-flag-gated module replacement; downstream Vite/Rollup tree-shaking eliminates the dev branch.
+  - **Fable (F#)** — `#if !DEBUG` conditional compilation; Vite/Rollup tree-shakes the dev path post-compile.
+  - **Squint** — Same shape as TypeScript — build-time constant + Vite tree-shake.
+  - **Scala.js** — Scala.js's link-time-`if`-folding + Vite tree-shake; `js.constructorOf` + dead-code-elimination at link.
+  - **PureScript** — `purescript-debug`-style guards + Vite tree-shake.
+  - **Kotlin/JS** — Multi-module setup; release variant omits the tracing module + downstream Vite tree-shake.
 - **Reference-impl picks.** CLJS uses Closure dead-code elimination.
 - **Trade-offs.** Hosts without compile-time elision pay a runtime boolean check; CLJS pays nothing at all in production.
 
@@ -307,15 +318,19 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Why it matters.** Per-test frames (`make-frame` / `destroy-frame`), synchronous trigger (`dispatch-sync`), per-test stubbing (`:fx-overrides`, `:interceptor-overrides`), framework adapter (per [008](008-Testing.md)).
 - **Options by host.**
   - **CLJS** — `cljs.test` / `clojure.test` re-exports plus `re-frame.test` helpers.
-  - **JS / TS** — Vitest, Jest, or hand-rolled.
-  - **Python** — `pytest` + a small framework adapter.
-  - **Rust** — `#[test]` + a per-test frame fixture.
+  - **TypeScript** — Vitest, Jest, or Playwright (for browser + DOM).
+  - **Melange / ReScript / Reason** — Jest via the `bs-jest` or `melange-jest` bindings; Vitest also works.
+  - **Fable (F#)** — Fable.Mocha or Fable.Jester.
+  - **Squint** — Vitest (Squint runs on Node + browser via the same JS substrate).
+  - **Scala.js** — utest, ScalaTest with the Scala.js runner, or Vitest via the JS-output classpath.
+  - **PureScript** — `spec` (`purescript-spec`) or Jest via FFI bindings.
+  - **Kotlin/JS** — Kotest-JS or `kotlin.test` with the Kotlin-React test runner.
 - **Reference-impl picks.** CLJS uses cljs.test/clojure.test.
-- **Trade-offs.** Headless evaluation must work — tests run on JVM (per [000 §C2 Cross-platform](000-Vision.md#c2-cross-platform-jvm-interop-preserved)).
+- **Trade-offs.** Headless evaluation must work — tests run on Node or the host's non-browser target (the CLJS reference also targets JVM per [000 §C2 Cross-platform](000-Vision.md#c2-cross-platform-jvm-interop-preserved); other in-scope hosts typically reach the same outcome via Node).
 
 #### Test2. Headless evaluation
 
-- **Why it matters.** `compute-sub` (pure sub computation against an `app-db` value) and `machine-transition` (pure transition function) must run without a JS runtime / browser. Tests use these for fast iteration.
+- **Why it matters.** `compute-sub` (pure sub computation against an `app-db` value) and `machine-transition` (pure transition function) must run without a browser / DOM (Node is acceptable). Tests use these for fast iteration.
 - **Options by host.** Pure functions; no host-specific machinery.
 - **Reference-impl picks.** CLJS implements these in `.cljc` files; both targets run them.
 - **Trade-offs.** Implementations that bake substrate dependencies into sub computation break this — keep `compute-sub` and the transition fn pure.
@@ -334,19 +349,17 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Why it matters.** `match-url` parses URLs into `{:route-id :params :query}`; `route-url` is the inverse (per [012](012-Routing.md)).
 - **Options by host.**
   - **CLJS** — Hand-rolled match/route from registered route metadata, or `bidi`-style libraries.
-  - **JS / TS** — `react-router` (extract router internals), `path-to-regexp`, or hand-rolled.
-  - **Python** — Werkzeug routing, Starlette router.
-  - **Rust** — `axum::routing` patterns or `matchit`.
+  - **TypeScript** — `path-to-regexp` (the routing primitive react-router uses), or a hand-rolled matcher.
+  - **Other in-scope hosts (Melange / ReScript / Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS)** — Hand-rolled matcher from registered route metadata using the host's native pattern-matching primitives, or a binding to `path-to-regexp` via the host's JS-FFI.
 - **Reference-impl picks.** CLJS hand-rolls the matcher with a 6-rule precedence cascade.
 - **Trade-offs.** Routes are registry entries (per [012](012-Routing.md)) — the routing table is data, queryable via `(handlers :route)`.
 
 #### R2. Navigation observer
 
 - **Why it matters.** URL changes (popstate, pushState, hash changes) need to translate into `:rf.route/navigate` events. Per [012 §Fragments](012-Routing.md#fragments) and §Navigation blocking.
-- **Options by host.**
-  - **Browser CLJS / JS / TS** — `popstate` + `hashchange` listeners; `history.pushState` / `replaceState` for fx.
-  - **Server-side** — Initial URL from the request; no observer needed.
-  - **Native (mobile)** — Deep-link receivers; navigation is OS-driven.
+- **Options by host.** All eight in-scope hosts target browsers; the navigation primitives are uniform.
+  - **All eight (browser)** — `popstate` + `hashchange` listeners; `history.pushState` / `replaceState` for fx. Each host calls these via its JS-interop primitive.
+  - **Server-side (SSR)** — Initial URL from the request; no observer needed (per [011](011-SSR.md)).
 - **Reference-impl picks.** CLJS uses browser history API + `:rf.nav/push-url` fx.
 - **Trade-offs.** Navigation tokens (per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)) are required for stale-result suppression — make sure the implementation threads them through.
 
@@ -355,10 +368,9 @@ For each capability included in Part 1, the implementor makes the per-capability
 #### SSR1. Render-to-string
 
 - **Why it matters.** Pure render-tree → HTML string, JVM-runnable in the CLJS reference, host-pure in any port (per [011](011-SSR.md) and [006 §`render-to-string`](006-ReactiveSubstrate.md#render-to-string-render-tree-opts--string)).
-- **Options by host.**
-  - **CLJS** — Hand-rolled hiccup → HTML emitter.
-  - **JS / TS** — `renderToString` from React-DOM, Solid's SSR module, or hand-rolled vnode → HTML.
-  - **Python** — Hand-rolled or Jinja2-style.
+- **Options by host.** Every in-scope host has React-DOM's `renderToString` available via its React binding; or can ship a hand-rolled render-tree → HTML emitter (the CLJS-reference choice).
+  - **CLJS** — Hand-rolled hiccup → HTML emitter (~200 lines).
+  - **TypeScript / Melange / ReScript / Reason / Fable / Squint / Scala.js / PureScript / Kotlin/JS** — `renderToString` from React-DOM via the host's React binding; or a hand-rolled emitter over the host's render-tree shape.
 - **Reference-impl picks.** CLJS uses a pure hiccup → HTML emitter (~200 lines).
 - **Trade-offs.** Must escape text and attrs correctly; void elements (`<br>`, `<img>`) need special-case handling.
 
@@ -382,8 +394,8 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** Boundary validation + introspection per [010](010-Schemas.md). The pattern requires shape *description*; the *mechanism* is host-discretion.
 - **Options by host.**
-  - **Dynamic hosts (CLJS, JS, Python, Ruby)** — Malli (CLJS reference), Zod (JS), Pydantic (Python), dry-rb (Ruby).
-  - **Static hosts (TS, Kotlin, Rust, F#, Swift)** — Host type system covers most territory; runtime layer is optional.
+  - **Dynamically typed in-scope hosts (CLJS, Squint)** — Malli (CLJS reference), or Zod (Squint) via JS-FFI.
+  - **Statically typed in-scope hosts (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS)** — Host type system covers most territory; a runtime validation layer (Zod-style) is optional at system edges (incoming JSON, hydration payload).
 - **Reference-impl picks.** CLJS uses Malli (open by default; `:closed true` opt-in).
 - **Trade-offs.** Open shapes (consumers tolerate unknown keys; producers grow shapes additively) are non-negotiable per [Goal 5 — Clojure ethos](000-Vision.md#goals). Closed records / structs are out at the runtime-data layer.
 
@@ -445,7 +457,7 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **Sub-cache (CLJS-only)** — `(rf/sub-cache frame-id)`.
   - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.
   - **Dispatch + hot-swap + fx-stub** — `dispatch` opts (`:fx-overrides`), re-`reg-*` for hot-swap.
-- **Options by host.** Per host's REPL: nREPL+CIDER (CLJS); IPython (Python); whatever's idiomatic. The framework primitives are host-agnostic.
+- **Options by host.** Per host's REPL or live-attach surface: nREPL+CIDER (CLJS / Squint); Node-attached debugger over a dev-build module-replacement boundary for the JS-cross-compile hosts (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS); or a host-idiomatic REPL the build pipeline exposes. The framework primitives are host-agnostic across the eight.
 - **Reference-impl picks.** CLJS reference ships the trace surface, epoch history, and registrar query API in-tree (per [rf2-icil audit](Tool-Pair.md#how-ai-tools-attach)). re-frame-pair is a separate library that consumes these.
 - **Trade-offs.** **No 10x dependency required** — re-frame2 is infrastructure-complete for AI-tool consumption. 10x and pair share the substrate.
 

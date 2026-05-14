@@ -125,7 +125,7 @@ For readers wanting the *why* before (or beside) the *what*. Optional in the str
 
 ### Track 3 — Implementor (porting to a new host)
 
-For implementors taking the pattern to TypeScript, Python, Kotlin, Rust, or any other host. Substantial — most of the artefacts already exist; this track sequences them explicitly.
+For implementors taking the pattern to one of the in-scope JS-cross-compile hosts — TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, or Kotlin/JS (the CLJS reference being the eighth). The pattern commits to React + VDOM at the render side and to a JS-cross-compile source language per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) and [006 §Abstract](006-ReactiveSubstrate.md#abstract); non-React substrates and non-cross-compile-to-JS hosts (server-side Python / Ruby / Rust / Go / Kotlin / Swift / Java) are out of scope as first-class implementation targets. Substantial — most of the artefacts already exist; this track sequences them explicitly.
 
 1. [000 §Host-profile matrix](000-Vision.md#host-profile-matrix) — pattern-required vs. host-discretion vs. CLJS-only, row by row. The single source of truth for "must I ship this?"
 2. [Implementor-Checklist.md](Implementor-Checklist.md) — the **decision-ordered companion** to the matrix. Part 1 declares which optional capabilities the implementation includes; Part 2 walks each capability's technology and library choices with options-by-host; Part 3 explains conformance against the claimed list.
