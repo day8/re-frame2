@@ -166,24 +166,6 @@
                         {:schema schema :value decoded :malli-error? true}))))
     decoded))
 
-(defn- maybe-emit-decode-defaulted!
-  "Per Spec 014 §`:auto`: emit `:rf.warning/decode-defaulted` when the
-  user did NOT supply `:decode`.
-
-  Per rf2-2p8wr: the URL passes through `privacy/prepare-emit-tags`,
-  which redacts denylisted query-string param values (and stamps
-  `:sensitive?` when the originating request was sensitive or when a
-  denylisted param name was present)."
-  [{:keys [decode-supplied? request-id url content-type resolved-decoder sensitive?]}]
-  (when (and (not decode-supplied?) interop/debug-enabled?)
-    (trace/emit! :warning :rf.warning/decode-defaulted
-                 (privacy/prepare-emit-tags
-                   {:request-id       request-id
-                    :url              url
-                    :content-type     content-type
-                    :resolved-decoder resolved-decoder}
-                   (true? sensitive?)))))
-
 (defn decode-response-body
   "Per Spec 014 §Decoding. Returns the decoded value or throws an
   ex-info that the caller maps to `:rf.http/decode-failure`."
@@ -196,16 +178,21 @@
         resolved     (cond
                        (= :auto decoder) (sniff-decoder content-type)
                        :else             decoder)]
-    (when (or (= :auto decoder) (and (not decode-supplied?) (= decode :auto)))
-      (maybe-emit-decode-defaulted!
-        {:decode-supplied? decode-supplied?
-         :request-id       request-id
-         :url              url
-         :content-type     content-type
-         :sensitive?       sensitive?
-         :resolved-decoder (cond
-                             (keyword? resolved) resolved
-                             :else               :auto)}))
+    ;; Per Spec 014 §`:auto`: emit `:rf.warning/decode-defaulted` when
+    ;; the user did NOT supply `:decode` and we fell back to auto-
+    ;; sniffing. Per rf2-2p8wr the URL passes through
+    ;; `privacy/prepare-emit-tags`, which redacts denylisted query-
+    ;; string param values and stamps `:sensitive?` when applicable.
+    (when (and (not decode-supplied?)
+               (= :auto decoder)
+               interop/debug-enabled?)
+      (trace/emit! :warning :rf.warning/decode-defaulted
+                   (privacy/prepare-emit-tags
+                     {:request-id       request-id
+                      :url              url
+                      :content-type     content-type
+                      :resolved-decoder (if (keyword? resolved) resolved :auto)}
+                     (true? sensitive?))))
     (cond
       (fn? decoder)
       (decoder body-text headers)
