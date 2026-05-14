@@ -135,29 +135,34 @@
       (is (contains? all :hf/two)))))
 
 (deftest handlers-2-arity-filters
-  (testing "(handlers kind pred-fn) filters by (pred id meta)"
+  (testing "(handlers kind pred-fn) filters by (pred meta) — metadata-only"
+    ;; Per Spec 001 §The query API + API.md the predicate sees the
+    ;; metadata-map only. Id-namespace filters ride a user-tag the
+    ;; caller stamps onto the slot (or compose via `filter` over the
+    ;; returned map's keys).
     (rf/reg-event-db :hf.alpha/one (fn [db _] db))
     (rf/reg-event-db :hf.alpha/two (fn [db _] db))
     (rf/reg-event-db :hf.beta/one  (fn [db _] db))
+    (registrar/register! :event :hf.alpha/one
+      (assoc (rf/handler-meta :event :hf.alpha/one) :rf/group :alpha))
+    (registrar/register! :event :hf.alpha/two
+      (assoc (rf/handler-meta :event :hf.alpha/two) :rf/group :alpha))
     (let [alpha-only (rf/handlers :event
-                                  (fn [id _meta]
-                                    (= "hf.alpha" (namespace id))))]
+                                  (fn [m] (= :alpha (:rf/group m))))]
       (is (= #{:hf.alpha/one :hf.alpha/two}
              (set (keys alpha-only)))
           "only :hf.alpha/* survives the predicate")
       (is (not (contains? alpha-only :hf.beta/one))
           ":hf.beta/one is filtered out"))))
 
-(deftest handlers-2-arity-pred-receives-id-and-meta
-  (testing "the pred-fn receives [id meta], so meta keys can drive the filter"
+(deftest handlers-2-arity-pred-receives-meta
+  (testing "the pred-fn receives the metadata-map only"
     (rf/reg-event-db :hf/marked   (fn [db _] db))
     (rf/reg-event-db :hf/unmarked (fn [db _] db))
     ;; Re-register :hf/marked with extra meta on the slot.
     (registrar/register! :event :hf/marked
       (assoc (rf/handler-meta :event :hf/marked) :rf/marker? true))
-    (let [marked (rf/handlers :event
-                              (fn [_id m]
-                                (:rf/marker? m)))]
+    (let [marked (rf/handlers :event (fn [m] (:rf/marker? m)))]
       (is (= #{:hf/marked} (set (keys marked)))
           "only handlers whose metadata satisfies the pred survive"))))
 

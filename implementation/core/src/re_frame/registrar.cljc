@@ -202,18 +202,22 @@
       Return the full `{id metadata}` map for kind, or `{}` if the kind
       has no registrations.
     (handlers kind pred-fn)
-      Same shape, filtered: only entries for which `(pred-fn id meta)`
+      Same shape, filtered: only entries for which `(pred-fn meta)`
       returns truthy are included. Returns `{}` when no entry matches.
       Tools (storybook resolvers, registry browsers, agent introspection)
       use this to narrow the result to a per-namespace, per-source-file,
       or per-marker subset without re-walking the registry map themselves.
 
-  Per Spec 001 §The public registrar query API."
+  Per Spec 001 §The public registrar query API. The predicate's
+  argument is the metadata-map only — the registration id is reachable
+  from the metadata's `:ns` / `:line` / `:file` / `:doc` / `:tags` /
+  custom slots (id-by-keyword filtering composes via the caller's own
+  `filter` over the result map's keys when needed)."
   ([kind]
    (get @kind->id->metadata kind {}))
   ([kind pred-fn]
    (into {}
-         (filter (fn [[id meta]] (pred-fn id meta)))
+         (filter (fn [[_id meta]] (pred-fn meta)))
          (get @kind->id->metadata kind {}))))
 
 (defn handler-meta
