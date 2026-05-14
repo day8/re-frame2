@@ -13,6 +13,26 @@
             [re-frame.story-mcp.tools.helpers :as h]
             [re-frame.story-mcp.tools.schemas :as s]))
 
+(def ^:const max-timeout-ms
+  "Hard ceiling on `:timeout-ms` for `run-variant` (rf2-g9fje, fix 3/3).
+  The MCP server's request loop is single-threaded — a `run-variant`
+  call with an unbounded `:timeout-ms` parks the loop and starves
+  unrelated tool calls. 30 s matches the `:rf.http/timeout-ms`
+  baseline rf2-it1cd pinned for the project's outbound HTTP fx, so an
+  agent that learns one ceiling sees the same one everywhere.
+  Caller-supplied values above this clamp DOWN to the ceiling rather
+  than reject — a legitimate slow variant should still run, just
+  capped."
+  30000)
+
+(def ^:const default-timeout-ms
+  "Default `:timeout-ms` for `run-variant` when the caller omits the
+  slot. 10 s — well under the 30 s ceiling, enough for the
+  vast majority of variants. Kept as a separate const from
+  `max-timeout-ms` so the descriptor schema can advertise both
+  without re-spelling the literal."
+  10000)
+
 (defn tool-run-variant
   "Testing: execute a variant, return the run-variant result map.
 
@@ -24,14 +44,18 @@
     :substrate      optional — keyword or string
     :active-modes   optional — coll of mode ids
     :cell-overrides optional — map of arg overrides
-    :timeout-ms     optional — JVM blocking timeout; default 10000
+    :timeout-ms     optional — JVM blocking timeout; default 10000;
+                               clamped to `max-timeout-ms` (30000) per
+                               rf2-g9fje so one slow request can't park
+                               the single-threaded stdio loop.
     :include-sensitive? optional — opt out of wire-egress redaction
                                    (default false; rf2-73wuj)"
   [args]
   (h/with-variant args
     (fn [vk _body]
       (let [opts     (h/read-run-opts args)
-            timeout  (args/parse-positive-int (:timeout-ms args) 10000)
+            timeout  (min max-timeout-ms
+                          (args/parse-positive-int (:timeout-ms args) default-timeout-ms))
             result   (try
                        (async/deref-blocking (story/run-variant vk opts) timeout)
                        (catch Throwable e
@@ -144,8 +168,13 @@
                                    :substrate s/kw-or-string
                                    :active-modes {:type "array" :items s/kw-or-string}
                                    :cell-overrides {:type "object"}
-                                   :timeout-ms {:type "integer" :minimum 1
-                                                :description "JVM blocking timeout. Default 10000."}}))
+                                   :timeout-ms {:type "integer" :minimum 1 :maximum max-timeout-ms
+                                                :description (str "JVM blocking timeout. Default "
+                                                                  default-timeout-ms "ms. Hard ceiling "
+                                                                  max-timeout-ms "ms — values above clamp DOWN "
+                                                                  "rather than reject; the MCP server's request "
+                                                                  "loop is single-threaded so an unbounded "
+                                                                  "timeout would park unrelated calls (rf2-g9fje).")}}))
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-run-variant}
