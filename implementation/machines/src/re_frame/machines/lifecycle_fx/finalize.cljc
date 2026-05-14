@@ -34,6 +34,7 @@
   unified) call-sites."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
+            [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
@@ -196,21 +197,16 @@
         ;; (D6 enrichment) BEFORE the registrar unregister so any in-flight
         ;; trace consumers see the destroy signal while the handler still
         ;; resolves.
-        _ (trace/emit! :machine :rf.machine/destroyed
-                       {:frame      frame-id
-                        :actor-id   machine-id
-                        :system-id  released-sid
-                        :parent-id  parent-id
-                        :invoke-id  invoke-id
-                        :reason     :rf.machine/finished})]
+        _ (traces/emit-destroyed! {:frame     frame-id
+                                   :actor-id  machine-id
+                                   :system-id released-sid
+                                   :parent-id parent-id
+                                   :invoke-id invoke-id
+                                   :reason    :rf.machine/finished})]
     ;; (6) Synchronous side effects: abort in-flight HTTP, emit
     ;; system-id-released trace (when applicable), unregister handler.
     (abort-actor-in-flight-http! machine-id)
-    (when released-sid
-      (trace/emit! :machine :rf.machine/system-id-released
-                   {:frame      frame-id
-                    :system-id  released-sid
-                    :machine-id machine-id}))
+    (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
     {:db db-after-destroy
      :fx extra-fx}))
