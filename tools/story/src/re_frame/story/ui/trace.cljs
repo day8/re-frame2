@@ -172,10 +172,8 @@
 ;; copy here with two latent bugs (an invented `:event/run` operation
 ;; and op-type/operation confusion on the fx, sub, view emits); the
 ;; framework version tracks Spec 009's actual op-type vocabulary and
-;; surfaces non-six-domino events under `:other`.
-
-;; Re-export for backwards-compat for any in-tree consumer.
-(def group-cascades projection/group-cascades)
+;; surfaces non-six-domino events under `:other`. Consumers require
+;; `re-frame.trace.projection` directly.
 
 ;; ---- cross-reference with the scrubber (rf2-sxwvf) -----------------------
 ;;
@@ -305,7 +303,7 @@
             selected-cascade   (when selected-epoch
                                  (scrubber/cascade-id-for-epoch
                                    variant-id selected-epoch))
-            all-cascades       (group-cascades events)
+            all-cascades       (projection/group-cascades events)
             visible-cascades   (filter-cascades-up-to all-cascades cap)
             hidden-by-scrub    (- (count all-cascades)
                                   (count visible-cascades))
