@@ -597,4 +597,13 @@
    :output-dir "out/testbeds/schema-violation"
    :asset-path "."
    :modules    {:main {:init-fn schema-violation.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim — http-toggle testbed (single button + outcome dropdown
+  ;; enumerating the eight :rf.http/* categories per Spec 014).
+  :testbeds/http-toggle
+  {:target     :browser
+   :output-dir "out/testbeds/http-toggle"
+   :asset-path "."
+   :modules    {:main {:init-fn http-toggle.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
