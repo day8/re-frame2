@@ -210,6 +210,17 @@ The bullet glyph (`●`) and the square-bracket delimiters are the canonical sha
 - [Spec 009 §"Size elision in traces" — Indicator field on tool responses](009-Instrumentation.md#size-elision-in-traces) — the MUST-level requirement this convention pins.
 - [Spec 009 §"Privacy / sensitive data in traces"](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the `:sensitive?` mechanism whose drops the `:dropped-sensitive` counter sums.
 
+## Privacy config-knob naming (on-box UI vs off-box wire egress)
+
+Consumers of the `:sensitive?` filter (per [Spec 009 §"Privacy / sensitive data in traces"](009-Instrumentation.md#privacy--sensitive-data-in-traces)) expose a user-controllable knob that decides whether sensitive values pass through the consumer's surface. Two consumer classes exist, and they MUST use different verbs for the knob name — the verb encodes which trust boundary the user is crossing:
+
+- **On-box devtools UI consumers** (Causa panel, story trace panel, future on-box panels) use the **`show-sensitive?`** verb under the `:trace/*` ns (e.g. `:trace/show-sensitive?`). The semantics are "the panel is for me, do I want to look" — the sensitive values are already in the same process as the operator; the toggle controls UI visibility, not egress.
+- **Off-box LLM-egress consumers** (pair2-mcp, story-mcp, causa-mcp wire pipelines; pair2 preload before fan-out to a hosted LLM endpoint) use the **`include-sensitive?`** verb, **unqualified** (the bare key on a per-call args map; e.g. `(rf/elide-wire-value v {:include-sensitive? false})`, or `{:rf.size/include-sensitive? false}` when carried alongside the size-elision policy keys per [Conventions §Reserved namespaces `:rf.size/*`](#the-single-root-reserved-set)). The semantics are "do I cross the trust boundary out of the process" — the toggle controls wire egress, not panel visibility.
+
+Both verbs default to **suppress** (`show-sensitive? false`, `include-sensitive? false`) per Spec 009's default-private posture. The verb choice is the discriminator: a reader scanning a config flag knows whether the knob governs UI visibility (`show-`) or wire egress (`include-`) without re-deriving from context.
+
+A sixth consumer adding a knob picks the verb by trust-boundary class — on-box panel uses `show-sensitive?`, off-box wire uses `include-sensitive?`. Cross-reference: [Spec 009 §Privacy / sensitive data in traces — Consumer-side defaults](009-Instrumentation.md#privacy--sensitive-data-in-traces).
+
 ## Feature-modularity prefix convention
 
 A *feature* is identified by its **id prefix**, not by a registry kind. By convention a feature with prefix `:cart`:
