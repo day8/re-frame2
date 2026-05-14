@@ -53,15 +53,23 @@
   (fn [db [_ tags]]
     (assoc db :mismatch tags)))
 
-(defn- normalise-tags [t]
-  ;; Plain edn map → JS-safe map for the window mirror.
-  (cond-> {}
-    (:server-hash t)     (assoc :server-hash (:server-hash t))
-    (:client-hash t)     (assoc :client-hash (:client-hash t))
-    (:failing-id t)      (assoc :failing-id (str (:failing-id t)))
-    (:recovery t)        (assoc :recovery (str (:recovery t)))
-    (:first-diff-path t) (assoc :first-diff-path (pr-str (:first-diff-path t)))
-    (:reason t)          (assoc :reason (:reason t))))
+(defn- normalise-event
+  "Project a trace event into a plain edn map carrying just the slots
+  the spec assertions read against. `:recovery` is hoisted to the top
+  level of the trace envelope (per Spec 009 §Error event shape — see
+  `re-frame.trace/build-event`'s recovery-hoist branch); the other
+  hydration-mismatch payload slots ride in `:tags`."
+  [ev]
+  (let [t (:tags ev)]
+    (cond-> {:operation (str (:operation ev))
+             :op-type   (some-> ev :op-type str)}
+      (:server-hash t)     (assoc :server-hash (:server-hash t))
+      (:client-hash t)     (assoc :client-hash (:client-hash t))
+      (:failing-id t)      (assoc :failing-id (str (:failing-id t)))
+      (:reason t)          (assoc :reason (:reason t))
+      (:first-diff-path t) (assoc :first-diff-path (pr-str (:first-diff-path t)))
+      ;; `:recovery` is HOISTED — at top level, not under tags.
+      (:recovery ev)       (assoc :recovery (str (:recovery ev))))))
 
 (defn install-trace-listener! []
   (trace/register-trace-cb! ::ssr-hydration-mismatch-listener
@@ -71,20 +79,15 @@
                    (or (= "rf.ssr" (namespace op))
                        (= :rf/hydrate op)))
           (swap! trace-events conj ev)
-          ;; HOT PATH — when the mismatch fires, propagate the tags
-          ;; into app-db so the dev-mode banner view re-renders.
+          ;; HOT PATH — when the mismatch fires, propagate the
+          ;; projected payload into app-db so the dev-mode banner
+          ;; view re-renders against the captured trace.
           (when (= :rf.ssr/hydration-mismatch op)
-            (rf/dispatch [::record-mismatch (normalise-tags (:tags ev))]))))))
+            (rf/dispatch [::record-mismatch (normalise-event ev)]))))))
 
   (set! (.-__rf_trace_events js/window)
         (fn []
-          (clj->js
-            (mapv (fn [ev]
-                    (let [t (:tags ev)]
-                      (cond-> {:operation (str (:operation ev))
-                               :op-type   (some-> ev :op-type str)}
-                        true  (merge (normalise-tags t)))))
-                  @trace-events)))))
+          (clj->js (mapv normalise-event @trace-events)))))
 
 ;; ----------------------------------------------------------------------------
 ;; Events / subs
