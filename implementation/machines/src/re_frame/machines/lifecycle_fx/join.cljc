@@ -103,6 +103,108 @@
 
       :else false)))
 
+(defn- compute-resolution
+  "Pure. Given the post-bump `join-state'`, the join spec, and the
+  arriving child's `kind` (:done | :failed), decide whether the join
+  resolves and which kind of resolution. Returns a map:
+
+      {:resolved?        boolean
+       :fail-fired?      boolean
+       :success-fired?   boolean
+       :resolution-event <event-vec or nil>
+       :join-event-kw    <:on-all-complete | :on-some-complete | :on-any-failed | nil>}
+
+  - `:fail-fired?` iff the arriving child errored AND the spec declares
+    `:on-any-failed`.
+  - `:success-fired?` iff failure didn't fire AND the join condition is
+    met by `join-state'`.
+  - `:resolution-event` is the spec's event vector to dispatch into the
+    parent, or nil when neither path fires.
+  - `:join-event-kw` is the resolution kind (used by the
+    cancelled-on-join-resolution trace)."
+  [spec join-state' kind]
+  (let [fail-fired?    (and (= kind :failed)
+                            (vector? (:on-any-failed spec)))
+        success-fired? (and (not fail-fired?)
+                            (join-condition-met? spec join-state'))
+        all-join?      (= :all (:join spec :all))
+        resolution-event
+        (cond
+          fail-fired?    (:on-any-failed spec)
+          success-fired? (if all-join?
+                           (:on-all-complete spec)
+                           (:on-some-complete spec)))
+        join-event-kw
+        (cond
+          fail-fired?    :on-any-failed
+          success-fired? (if all-join? :on-all-complete :on-some-complete))]
+    {:resolved?        (boolean (or fail-fired? success-fired?))
+     :fail-fired?      fail-fired?
+     :success-fired?   success-fired?
+     :resolution-event resolution-event
+     :join-event-kw    join-event-kw}))
+
+(defn- emit-resolution-traces!
+  "Fire the post-resolution observability traces in order: any-failed,
+  all-completed, or some-completed."
+  [parent-id invoke-id spec join-state'' child-id child-extra
+   {:keys [fail-fired? success-fired?]}]
+  (when fail-fired?
+    (trace/emit! :machine :rf.machine.invoke-all/any-failed
+                 {:machine-id parent-id
+                  :invoke-id  invoke-id
+                  :failed-id  child-id
+                  :reason     child-extra
+                  :failed     (:failed join-state'')
+                  :done       (:done   join-state'')}))
+  (when success-fired?
+    (if (= :all (:join spec :all))
+      (trace/emit! :machine :rf.machine.invoke-all/all-completed
+                   {:machine-id parent-id
+                    :invoke-id  invoke-id
+                    :done       (:done join-state'')})
+      (trace/emit! :machine :rf.machine.invoke-all/some-completed
+                   {:machine-id parent-id
+                    :invoke-id  invoke-id
+                    :done       (:done join-state'')
+                    :join       (:join spec)}))))
+
+(defn- build-resolution-fx
+  "Build the fx vector to fire on resolution: per-survivor
+  `:rf.machine/destroy` (with one
+  `:rf.machine.invoke/cancelled-on-join-resolution` trace each) when
+  `:cancel-on-decision?` is true, followed by the join-event dispatch
+  carrying the decisive child's forwarded payload. Per Spec 005
+  §Spawn-and-join, the dispatched event shape is:
+
+      [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]"
+  [parent-id invoke-id spec join-state'' child-id child-extra
+   {:keys [resolved? resolution-event join-event-kw]}]
+  (let [cancel? (let [c (:cancel-on-decision? spec)]
+                  (if (nil? c) true (boolean c)))
+        cancel-fx
+        (when (and resolved? cancel?)
+          (let [completed-ids (into #{} (concat (:done   join-state'')
+                                                (:failed join-state'')))
+                survivors     (->> (:children join-state'')
+                                   (remove (fn [[cid _]]
+                                             (contains? completed-ids cid))))]
+            (doseq [[cid spawned-id] survivors]
+              (trace/emit! :machine :rf.machine.invoke/cancelled-on-join-resolution
+                           {:machine-id parent-id
+                            :invoke-id  invoke-id
+                            :child-id   cid
+                            :spawned-id spawned-id
+                            :join-event join-event-kw}))
+            (mapv (fn [[_ spawned-id]]
+                    [:rf.machine/destroy spawned-id])
+                  survivors)))
+        dispatch-fx
+        (when resolution-event
+          (let [inner (vec (concat resolution-event [child-id] child-extra))]
+            [[:dispatch [parent-id inner]]]))]
+    (vec (concat (or cancel-fx []) (or dispatch-fx [])))))
+
 (defn intercept-invoke-all-event
   "Per Spec 005 §Child completion protocol (rf2-6vmw). When the parent's
   handler receives an event whose inner event-id matches the active
@@ -151,77 +253,16 @@
               {:db db :fx []})
 
           :else
+          ;; Read 'compute resolution; emit traces; build fx; write back':
+          ;; the body is now three named acts plus an assoc-in.
           (let [join-state' (case kind
                               :done   (update join-state :done   (fnil conj #{}) child-id)
                               :failed (update join-state :failed (fnil conj #{}) child-id))
-                cancel?  (let [c (:cancel-on-decision? spec)]
-                           (if (nil? c) true (boolean c)))
-                fail-fired?
-                (and (= kind :failed)
-                     (vector? (:on-any-failed spec)))
-                success-fired?
-                (and (not fail-fired?)
-                     (join-condition-met? spec join-state'))
-                resolution-event
-                (cond
-                  fail-fired?    (:on-any-failed spec)
-                  success-fired? (cond
-                                   (= :all (:join spec :all)) (:on-all-complete spec)
-                                   :else                       (:on-some-complete spec)))
-                resolved? (boolean (or fail-fired? success-fired?))
-                join-state'' (assoc join-state' :resolved? resolved?)
-                _ (when fail-fired?
-                    (trace/emit! :machine :rf.machine.invoke-all/any-failed
-                                 {:machine-id parent-id
-                                  :invoke-id  invoke-id
-                                  :failed-id  child-id
-                                  :reason     child-extra
-                                  :failed     (:failed join-state'')
-                                  :done       (:done   join-state'')}))
-                _ (when (and success-fired? (= :all (:join spec :all)))
-                    (trace/emit! :machine :rf.machine.invoke-all/all-completed
-                                 {:machine-id parent-id
-                                  :invoke-id  invoke-id
-                                  :done       (:done join-state'')}))
-                _ (when (and success-fired? (not= :all (:join spec :all)))
-                    (trace/emit! :machine :rf.machine.invoke-all/some-completed
-                                 {:machine-id parent-id
-                                  :invoke-id  invoke-id
-                                  :done       (:done join-state'')
-                                  :join       (:join spec)}))
-                cancel-fx
-                (when (and resolved? cancel?)
-                  (let [completed-ids (into #{} (concat (:done join-state'')
-                                                        (:failed join-state'')))
-                        survivors     (->> (:children join-state'')
-                                           (remove (fn [[cid _]] (contains? completed-ids cid))))
-                        join-event-kw (cond
-                                        fail-fired?    :on-any-failed
-                                        (= :all (:join spec :all)) :on-all-complete
-                                        :else :on-some-complete)]
-                    (doseq [[cid spawned-id] survivors]
-                      (trace/emit! :machine :rf.machine.invoke/cancelled-on-join-resolution
-                                   {:machine-id parent-id
-                                    :invoke-id  invoke-id
-                                    :child-id   cid
-                                    :spawned-id spawned-id
-                                    :join-event join-event-kw}))
-                    (mapv (fn [[_ spawned-id]]
-                            [:rf.machine/destroy spawned-id])
-                          survivors)))
-                dispatch-fx
-                ;; Per Spec 005 §Spawn-and-join: append the decisive
-                ;; child's `& extra` onto the resolution event so the
-                ;; parent's join-event handler can read the forwarded
-                ;; payload directly off the event vector. The wrapped
-                ;; event shape becomes:
-                ;;   [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]
-                ;; where <decisive-child-id> is the child that tipped
-                ;; the join over the threshold (last :done for success,
-                ;; the failed child for :on-any-failed).
-                (when resolution-event
-                  (let [inner (vec (concat resolution-event [child-id] child-extra))]
-                    [[:dispatch [parent-id inner]]]))
-                fx (vec (concat (or cancel-fx []) (or dispatch-fx [])))
-                new-db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')]
-            {:db new-db :fx fx}))))))
+                resolution   (compute-resolution spec join-state' kind)
+                join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
+            (emit-resolution-traces! parent-id invoke-id spec join-state''
+                                     child-id child-extra resolution)
+            (let [fx (build-resolution-fx parent-id invoke-id spec join-state''
+                                          child-id child-extra resolution)]
+              {:db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')
+               :fx fx})))))))
