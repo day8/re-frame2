@@ -44,5 +44,5 @@
                 :where      :app-db
                 :path       [:count]
                 :value      "not-a-number"
-                :reason     "App-db at path [:count] failed schema [:int]: expected :int, got string."}
+                :reason     "App-db at path [:count] failed schema [:int], got string."}
     :recovery  :no-recovery}]}}                      ;; dev default; prod uses :replaced-with-default
