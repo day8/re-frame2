@@ -26,6 +26,7 @@ allowed-tools:
   - mcp__re-frame-pair2__subscribe
   - mcp__re-frame-pair2__unsubscribe
   - mcp__re-frame-pair2__subscription-info
+  - mcp__re-frame-pair2__get-pair2-instructions
   # story-mcp — live-session tools only (rf2-1v7tu HYBRID). The
   # authoring-side surface (register-variant, get-variant,
   # preview-variant, list-stories, …) is allow-listed by the
@@ -37,6 +38,11 @@ allowed-tools:
   - mcp__re-frame2-story-mcp__snapshot-identity
   - mcp__re-frame2-story-mcp__run-a11y
   - mcp__re-frame2-story-mcp__record-as-variant
+  # Read-only enumerations + agent-paste markdown surface a pair
+  # session may reach into when navigating an unfamiliar Story
+  # registry — peer surfaces to the authoring skill's allow-list.
+  - mcp__re-frame2-story-mcp__list-decorators
+  - mcp__re-frame2-story-mcp__get-docs-markdown
   - Read
   - Edit
   - Write
