@@ -97,8 +97,8 @@
             :background  "#ffffff"
             :foreground  "#1a1a1a"}})
 
-  ;; rf2-xi9zk: an `:axis :theme`-tagged mode exercises the chrome-
-  ;; level toolbar's single-select-within-axis semantics (spec/010
+  ;; An `:axis :theme`-tagged mode exercises the chrome-level
+  ;; toolbar's single-select-within-axis semantics (spec/010
   ;; §Selection semantics — by axis). Toggling :Mode.app/sepia
   ;; deactivates any other `:axis :theme` mode that was active.
   (story/reg-mode :Mode.app/sepia

@@ -668,8 +668,8 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 ;;
-;; The mount is performed inside `run` rather than at namespace-load time
-;; (rf2-gkf9). Examples are also `:require`'d by the browser-test bundle
+;; The mount is performed inside `run` rather than at namespace-load
+;; time. Examples are also `:require`'d by the browser-test bundle
 ;; (`re-frame.nine-states-cljs-test`) — which also requires sibling
 ;; examples like `realworld.core`. If both namespaces called
 ;; `rdc/create-root` against `(js/document.getElementById "app")` at

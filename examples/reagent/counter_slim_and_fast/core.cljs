@@ -1,7 +1,7 @@
 (ns counter-slim-and-fast.core
-  "A minimal counter mounted on the day8/reagent-slim rewrite
-   (bead rf2-5lbx; binds the S3-008 contract from reagent-slim's
-   IMPL-SPEC §1.4 + §1.8 + §6 + §12).
+  "A minimal counter mounted on the day8/reagent-slim rewrite. Binds the
+   S3-008 contract from reagent-slim's
+   IMPL-SPEC §1.4 + §1.8 + §6 + §12.
 
    Same six-domino dataflow as `examples/reagent/counter`, but every
    user-facing Reagent import points at `reagent2.*` instead of stock

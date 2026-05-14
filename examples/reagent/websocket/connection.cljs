@@ -1,6 +1,6 @@
 (ns websocket.connection
   "The `:ws/connection` connection machine — the canonical Pattern-WebSocket
-   worked example (rf2-yf97).
+   worked example.
 
    This is a faithful realisation of `spec/Pattern-WebSocket.md` §Worked
    example. The hierarchy is:

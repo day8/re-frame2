@@ -1,7 +1,7 @@
 (ns websocket.messages-test
   "Headless tests for `websocket.messages` — the socket actor +
    message-correlation + server-push handling of the Pattern-WebSocket
-   example (rf2-yf97).
+   example.
 
    Coverage:
    - Request-reply correlation — issue a `:ws.app/request`, observe the

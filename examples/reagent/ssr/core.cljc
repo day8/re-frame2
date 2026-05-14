@@ -90,7 +90,7 @@
 (rf/reg-event-fx :rf/server-init
   {:doc       "Per-request server-side initialisation. Reads the request
                via the :rf.server/request cofx (Spec 011 §Request storage
-               substrate, rf2-afxhv), dispatches setup events. Server only."
+               substrate), dispatches setup events. Server only."
    :platforms #{:server}}
   [(rf/inject-cofx :rf.server/request)]
   (fn handler-rf-server-init [{:keys [db rf.server/request]} _]

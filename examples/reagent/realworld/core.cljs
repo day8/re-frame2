@@ -335,8 +335,8 @@
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
 ;; the `root-view` reg-view above. Held in an atom and populated lazily
-;; inside `run` rather than at ns-load (rf2-gkf9). Multiple example
-;; namespaces (this one, nine-states, boot, long-running-work, websocket)
+;; inside `run` rather than at ns-load. Multiple example namespaces
+;; (this one, nine-states, boot, long-running-work, websocket)
 ;; are co-required by the browser-test bundle's wrapper test namespaces
 ;; — and the test harness shares a single `#app` mount point. Performing
 ;; `create-root` at ns-load would race multiple roots onto the same
