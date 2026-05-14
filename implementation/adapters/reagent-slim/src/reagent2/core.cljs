@@ -132,18 +132,15 @@
 
 (defn force-update
   "Force re-render of `this` component. Routes through React's
-  `forceUpdate` directly — bypasses any pending dirty-set dedup."
-  ([^js this]
-   (when-some [fu (.-forceUpdate this)]
-     (.call fu this)))
-  ([^js this _deep?]
-   ;; The `:deep?` arg in stock Reagent triggered a global re-render of
-   ;; the descendant tree. Under React 19 this isn't supported the
-   ;; same way (forceUpdate is per-component); we ignore the flag and
-   ;; force-update just `this`. Per the audit, no production caller
-   ;; actually relied on the deep behaviour.
-   (when-some [fu (.-forceUpdate this)]
-     (.call fu this))))
+  `forceUpdate` directly — bypasses any pending dirty-set dedup.
+
+  The stock-Reagent 2-arity `(force-update this deep?)` is dropped:
+  React 19 has no per-call deep-rerender API, and no audited caller
+  relied on it. Callers passing a second arg will see a CLJS arity
+  error at the call site — fail-fast over silent semantic divergence."
+  [^js this]
+  (when-some [fu (.-forceUpdate this)]
+    (.call fu this)))
 
 ;; ---------------------------------------------------------------------------
 ;; Render-time surfaces
