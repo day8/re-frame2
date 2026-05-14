@@ -1,10 +1,10 @@
 # 8. Hydration debugger
 
-If your app is SSR-rendered — re-frame2's server side ships at [Guide 11](../guide/11-server-side.md) — the first cascade in the browser is *hydration*: the client takes the server-rendered HTML, re-runs the same views against the same `app-db`, and asserts the two trees match.
+Your tester refreshes the page and the count flips from 12 to 0. Server-rendered HTML said one number; the client booted up and said another. They send you a screenshot of the half-second of flicker — the SSR'd value visible until the React reconciler stamps over it with the wrong one.
 
-When they don't, you get a hydration mismatch. The Hydration panel is what you open to find out why.
+That's a hydration mismatch, and the Hydration panel is the focused view. The Issues ribbon will already have a `:rf.error/hydration-mismatch` row; click into it and the panel paints both render trees side-by-side with the offending node highlighted. The diagnosis isn't "the trees don't agree" — it's "the view at `cart.views:cart-total:73` rendered `$12.00` on the server and `$0.00` on the client, because the cofx that seeds `:cart/items` read `(js/Date.)` in a way the JVM-side renderer couldn't."
 
-The panel **only appears in the sidebar when hydration actually runs in the page**. A SPA-only build won't see it at all.
+The panel **only appears in the sidebar when hydration actually runs in the page**. A SPA-only build won't see it at all. SSR ships at [Guide 11](../guide/11-server-side.md).
 
 ![Hydration debugger — server and client trees side-by-side, mismatch highlighted](../images/causa/08-hydration.png)
 
@@ -35,7 +35,7 @@ When they don't, it's almost always one of:
 - A view that called `js/window` from inside the body (no SSR-shape guard).
 - A cofx that returned different data on the server (the request-id wasn't seeded the same way).
 
-The panel surfaces *which view* mismatched, *which attribute*, *with what values* — so the diagnosis isn't "the trees don't match"; it's "the view at `cart.views:cart-total:73` rendered `$0.00` on the server and `$14.00` on the client".
+The panel surfaces *which view* mismatched, *which attribute*, *with what values* — at the resolution of a single line of source. That's why the opener's diagnosis sentence reads as one specific call-out rather than the generic "the trees don't agree."
 
 ## The fix loop
 

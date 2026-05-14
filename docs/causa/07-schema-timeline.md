@@ -1,6 +1,8 @@
 # 7. Schema-violation timeline
 
-When you register a Malli schema at any of re-frame2's documented boundaries — `app-db` slot, event payload, sub return, cofx — the runtime validates against it on every crossing. Failures emit `:rf.error/schema-validation-failure` trace events with the full `:explain` payload. Causa's Schemas panel turns those events into a timeline.
+You shipped a refactor on Monday — a small change to the `:cart/items` shape, added a `:line-id` slot, nothing your tests caught. By Wednesday afternoon Sentry has three rows that look like the same problem on three different users' machines: a red error toast on the checkout page. You can't reproduce locally. The stack trace is in a sub two hops downstream of the slot you touched.
+
+This is what schemas are for, and the Schemas panel is what you open. You'd registered a Malli schema on `:cart/items` weeks ago. The runtime has been validating against it on every crossing the whole time — and the moment the refactor landed, that boundary started failing on the shapes the old discount code emits. The Issues ribbon is showing the count. The Schemas panel is where you see *when* the contract drift started and *which* slot broke first.
 
 The panel lights up only when you've registered at least one schema. The companion narrative is [Guide 04a — Schemas](../guide/04a-schemas.md).
 

@@ -1,8 +1,10 @@
 # 9. Machine inspector
 
-re-frame2's state machines are first-class — registered, queryable, snapshot-as-value, with transitions that ride the standard six-step pipeline. (The narrative is at [Guide 08 — State machines](../guide/08-state-machines.md).)
+You have a login flow with six states — `:idle`, `:submitting`, `:error`, `:submitting-retry`, `:authenticated`, `:locked-out` — and the user reports they can't get back from `:error` to `:submitting-retry`. The retry button is wired; the click fires; nothing transitions. You squint at the machine spec; the guard looks fine.
 
-The Machines panel renders each registered machine as a Stately-quality state-chart. Live.
+You open Causa, click *Machines*, and there it is: the diagram paints the attempted edge in grey, with the `false` return from `:enough-attempts?` rendered inline. The guard you wrote last week checks `(< attempts 3)`, but the variant your test is running through has `:attempts 4` — and you can read it right there in the snapshot column without recompiling, because the machine's first-class on the same six-step pipeline as every other event ([Guide 08 — State machines](../guide/08-state-machines.md) is the narrative).
+
+The panel renders each registered machine as a Stately-quality state-chart. Live.
 
 ![Machine inspector with state-chart](../images/causa/09-machines.png)
 
