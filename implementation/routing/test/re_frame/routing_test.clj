@@ -127,8 +127,14 @@
     (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
       (is (some? pending)
           ":rf/pending-navigation is populated on guard rejection")
-      (is (= "/cart" (get-in pending [:request :url]))
-          "the requested URL is captured for resume")
+      (is (= "/cart" (:requested-url pending))
+          "the requested URL is captured for resume (rf2-b8ugt slot shape)")
+      (is (= :editor/article (:rejecting-route pending))
+          ":rejecting-route names the route whose guard ran")
+      (is (= :editor/can-leave? (:rejecting-guard pending))
+          ":rejecting-guard names the sub-id that rejected")
+      (is (vector? (:requested-by-event pending))
+          ":requested-by-event captures the original :rf/url-requested vector")
       (is (= :editor/article
              (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
           "the :rf/route slice does NOT change when blocked"))
@@ -824,6 +830,107 @@
                          {:url "/docs/routing#scroll-restoration"}])
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           "fragment in the URL-string target round-trips through the push"))))
+
+;; ---- rf2-b8ugt: :rf/pending-navigation full slot shape -------------------
+;;
+;; Per Spec 012 §Navigation blocking — pending-nav protocol and
+;; Spec-Schemas.md §:rf/pending-navigation the slot carries
+;; `{:id :requested-by-event :requested-url :reason :rejecting-route
+;;   :rejecting-guard}`. Tools / dialogs read :rejecting-guard to render
+;; meaningful "Discard changes on Editor?" prompts.
+
+(deftest pending-navigation-slot-shape
+  (testing ":rf/pending-navigation carries the full Spec-Schemas slot shape"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/dirty true])
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
+      (is (string? (:id pending))
+          ":id is the opaque pending-nav id")
+      (is (= "/cart" (:requested-url pending))
+          ":requested-url carries the navigation target")
+      (is (= :editor/article (:rejecting-route pending))
+          ":rejecting-route names the active route at rejection time")
+      (is (= :editor/can-leave? (:rejecting-guard pending))
+          ":rejecting-guard names the rejecting sub-id (for tooling)")
+      (is (= [:rf/url-requested {:url "/cart"}]
+             (:requested-by-event pending))
+          ":requested-by-event captures the original event vector"))))
+
+(deftest navigation-blocked-trace-carries-rejecting-guard
+  (testing ":rf.route/navigation-blocked trace carries :rejecting-guard
+            so tooling can flag the rejecting sub-id"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/dirty true])
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::blocked (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/remove-trace-cb! ::blocked)
+      (is (some (fn [ev]
+                  (and (= :rf.route/navigation-blocked (:operation ev))
+                       (= :editor/can-leave? (-> ev :tags :rejecting-guard))))
+                @traces)
+          "navigation-blocked trace tags include :rejecting-guard"))))
+
+;; ---- rf2-yursn: :rf.route/continue re-issues :rf/url-requested ----------
+;;
+;; Per Spec 012 §Navigation blocking — pending-nav protocol continue must
+;; "re-issue the original navigation request, *bypassing* the leave guard".
+;; Pre-fix dispatched :rf/url-changed + :rf.nav/push-url directly, skipping
+;; the :rf/url-requested policy chain.
+
+(deftest continue-re-issues-via-url-requested-with-bypass
+  (testing ":rf.route/continue re-emits :rf/url-requested with
+            :bypass-leave-guard? true, running the policy chain"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Land on editor; dirty the form; try to leave; guard blocks.
+    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/dirty true])
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (is (some? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
+        "guard rejection set the pending slot")
+    ;; CONTINUE — the slot clears AND the navigation completes
+    ;; even though :editor/dirty? remains true (bypass flag wins).
+    (rf/dispatch-sync [:rf.route/continue "pn-1"])
+    (is (nil? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
+        "continue cleared the pending slot")
+    (is (= :route/cart
+           (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+        "continue completed the navigation through :rf/url-requested → :rf/url-changed")
+    (is (true? (get-in (rf/get-frame-db :rf/default) [:editor :dirty?]))
+        ":editor/dirty? remains true — bypass flag did NOT run the guard a second time")))
 
 ;; ---- rf2-zlr9k: :rf.route/navigate writes fragment + nav-token + trace --
 ;;
