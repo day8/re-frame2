@@ -155,6 +155,8 @@
               (sub-render "shared/clj-kondo/config.edn")]
              ;; cljfmt config — `clojure -M:cljfmt check` / `fix`.
              [".cljfmt.edn"     (sub-render "shared/cljfmt.edn")]
+             ;; lefthook — pre-commit format + lint gate.
+             [".lefthook.yml"   (sub-render "shared/lefthook.yml")]
              ;; -- src tree --
              ["src/{{nested-dirs}}/core.cljs"
               (sub-render (str substrate-name "/core.cljs"))]
