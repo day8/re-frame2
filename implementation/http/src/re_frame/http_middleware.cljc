@@ -25,8 +25,9 @@
   mirroring the `re-frame.flows/flows` pattern. Frame-scoped: an
   interceptor registered against frame A does not fire for a request
   dispatched from frame B."
-  (:require [re-frame.interop :as interop]
-            [re-frame.trace   :as trace]))
+  (:require [re-frame.http-privacy :as privacy]
+            [re-frame.interop      :as interop]
+            [re-frame.trace        :as trace]))
 
 (defonce
   ^{:doc "frame-id → vector of {:id :before} interceptor maps. Per-frame
@@ -120,9 +121,18 @@
 (defn run-interceptor-chain!
   "Walk the registration-order interceptor chain for `frame-id`, threading
   `ctx` through each `:before`. Returns the final ctx, or throws
-  `:rf.error/http-interceptor-failed` if any `:before` throws."
+  `:rf.error/http-interceptor-failed` if any `:before` throws.
+
+  `ctx` carries a top-level `:sensitive?` flag (resolved by
+  `managed-handler` from per-call args + handler-registration metadata)
+  so the failure-path trace event redacts the request URL via the
+  query-param denylist before it reaches the trace surface. Without
+  this gate, an `Authorization`-token-bearing query string (e.g.
+  `?access_token=…`) leaked into traces whenever an interceptor
+  threw — rf2-1jcpm (round-2 security audit finding 1)."
   [frame-id ctx]
-  (let [chain (get @interceptors frame-id)]
+  (let [chain (get @interceptors frame-id)
+        sensitive? (true? (:sensitive? ctx))]
     (reduce
       (fn [acc {:keys [id before]}]
         (if before
@@ -142,8 +152,15 @@
                                    :cause    #?(:clj  (.getMessage ^Throwable t)
                                                 :cljs (.-message t))})]
                 (when interop/debug-enabled?
+                  ;; rf2-1jcpm — route through the privacy composer so a
+                  ;; denylisted query param (`?api_key=…`) is scrubbed
+                  ;; and `:sensitive?` is stamped on the trace event when
+                  ;; either the handler/per-call sensitivity OR the URL's
+                  ;; query string carries a denylisted param name.
                   (trace/emit-error! :rf.error/http-interceptor-failed
-                                     (ex-data data)))
+                                     (privacy/prepare-emit-failure
+                                       (ex-data data)
+                                       sensitive?)))
                 (throw data))))
           acc))
       ctx
