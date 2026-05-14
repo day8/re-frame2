@@ -68,39 +68,23 @@
   `mcp_server_helpers.cljc` so the algebra runs under the JVM
   unit-test target."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.panels.mcp-server-helpers :as h]))
+            [day8.re-frame2-causa.panels.mcp-server-helpers :as h]
+            [day8.re-frame2-causa.theme.tokens :as theme
+             :refer [mono-stack sans-stack]]))
 
-;; ---- design tokens (mirrors event_detail.cljs / issues_ribbon.cljs) -----
+;; ---- design tokens -------------------------------------------------------
+;;
+;; The shared dark-theme palette ships in
+;; `day8.re-frame2-causa.theme.tokens`. This panel extends it with one
+;; extra entry — the inferential `:causa-mcp-cyan` for `:origin
+;; :causa-mcp` events. The colour is pinned in `mcp_server_helpers`
+;; rather than the shared palette because it is awaiting a follow-on
+;; bead that promotes it to `spec/007-UX-IA.md` §Colour system (it is
+;; distinct from `:pair`'s indigo and from `:story` / `:test`'s
+;; lighter cyan).
 
 (def ^:private tokens
-  "Subset of shell.cljs's dark-theme tokens used by this panel."
-  {:bg-1            "#15171B"
-   :bg-2            "#1B1E24"
-   :bg-3            "#232730"
-   :bg-active       "#2A2F3D"
-   :border-subtle   "#232730"
-   :border-default  "#2F3441"
-   :text-primary    "#E8EAF0"
-   :text-secondary  "#A8AEC0"
-   :text-tertiary   "#6B7080"
-   :accent-violet   "#7C5CFF"
-   :cyan            "#43C3D0"
-   :green           "#4ADE80"
-   :yellow          "#FBBF24"
-   :red             "#F87171"
-   :magenta         "#E879F9"
-   ;; DECISION (b) — `:origin :causa-mcp` gets cyan #06B6D4. Distinct
-   ;; from :pair indigo (locked) and :story/:test cyan (#43C3D0).
-   ;; Follow-on bead promotes this to spec/007-UX-IA.md §Colour system.
-   :causa-mcp-cyan  h/causa-mcp-origin-colour})
-
-(def ^:private mono-stack
-  "JetBrains Mono stack per spec/007-UX-IA.md §Typography."
-  "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace")
-
-(def ^:private sans-stack
-  "Inter stack per spec/007-UX-IA.md §Typography."
-  "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
+  (assoc theme/tokens :causa-mcp-cyan h/causa-mcp-origin-colour))
 
 ;; ---- chip helpers -------------------------------------------------------
 

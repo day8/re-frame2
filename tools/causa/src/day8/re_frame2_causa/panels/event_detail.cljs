@@ -45,37 +45,9 @@
   to-jump-to-editor hook (rf2-evgf5) is in flight; until it lands the
   coord is non-interactive plain text per the bead's contract."
   (:require [re-frame.core :as rf]
-            [re-frame.trace.projection :as projection]))
-
-;; ---- design tokens (mirrors shell.cljs) ---------------------------------
-
-(def ^:private tokens
-  "Subset of shell.cljs's dark-theme tokens used by this panel. Kept
-  in sync manually for now — the v1.0 styling pass replaces these
-  with CSS variables across all panels."
-  {:bg-1            "#15171B"
-   :bg-2            "#1B1E24"
-   :bg-3            "#232730"
-   :bg-active       "#2A2F3D"
-   :border-subtle   "#232730"
-   :border-default  "#2F3441"
-   :text-primary    "#E8EAF0"
-   :text-secondary  "#A8AEC0"
-   :text-tertiary   "#6B7080"
-   :accent-violet   "#7C5CFF"
-   :cyan            "#43C3D0"
-   :green           "#4ADE80"
-   :yellow          "#FBBF24"
-   :red             "#F87171"
-   :magenta         "#E879F9"})
-
-(def ^:private mono-stack
-  "JetBrains Mono stack per spec/007-UX-IA.md §Typography."
-  "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace")
-
-(def ^:private sans-stack
-  "Inter stack per spec/007-UX-IA.md §Typography."
-  "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
+            [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.theme.tokens
+             :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
