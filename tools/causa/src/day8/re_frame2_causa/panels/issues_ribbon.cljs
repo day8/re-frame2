@@ -54,6 +54,7 @@
   the JVM unit-test target."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as h]
+            [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -369,12 +370,14 @@
       (case empty-kind
         :no-issues  (empty-state-no-issues)
         :no-matches (empty-state-no-matches)
-        nil         (into [:ul {:data-testid "rf-causa-issues-feed"
-                                :style       {:list-style "none"
-                                              :margin     0
-                                              :padding    0}}]
-                          (for [issue issues]
-                            (issue-row issue))))]]))
+        nil         (overflow/capped-list
+                      issues
+                      {:panel-id "issues"
+                       :ul-attrs {:data-testid "rf-causa-issues-feed"
+                                  :style       {:list-style "none"
+                                                :margin     0
+                                                :padding    0}}
+                       :row-fn   issue-row}))]]))
 
 ;; ---- registration entry --------------------------------------------------
 

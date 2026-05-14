@@ -60,6 +60,7 @@
   `trace_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.trace-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -395,12 +396,14 @@
       (case empty-kind
         :no-events  (empty-state-no-events)
         :no-matches (empty-state-no-matches)
-        nil         (into [:ul {:data-testid "rf-causa-trace-feed"
-                                :style       {:list-style "none"
-                                              :margin     0
-                                              :padding    0}}]
-                          (for [row rows]
-                            (trace-row row))))]]))
+        nil         (overflow/capped-list
+                      rows
+                      {:panel-id "trace"
+                       :ul-attrs {:data-testid "rf-causa-trace-feed"
+                                  :style       {:list-style "none"
+                                                :margin     0
+                                                :padding    0}}
+                       :row-fn   trace-row}))]]))
 
 ;; ---- registration entry --------------------------------------------------
 

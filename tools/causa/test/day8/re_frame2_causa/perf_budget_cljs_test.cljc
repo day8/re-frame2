@@ -80,6 +80,7 @@
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.causality-graph-helpers :as cg]
+            [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.panels.performance-helpers :as perf]
             [day8.re-frame2-causa.panels.subscriptions-helpers :as subs]))
 
@@ -612,3 +613,44 @@
             spec/007 §Performance budget INP claim depends on this
             target."
     (is (= 16 perf/default-budget-ms))))
+
+;; -------------------------------------------------------------------------
+;; (8) Shared panel-row cap helper — every long-list panel applies this
+;;     at its row-rendering boundary (rf2-1k5r1).
+;; -------------------------------------------------------------------------
+
+(deftest shared-cap-helper-pins-the-spec-budget
+  (testing "common/panel-row-cap matches the spec-derived constant"
+    (is (= panel-row-cap common/panel-row-cap)
+        "spec/007 §Performance budget cap is the single source of truth")))
+
+(deftest shared-cap-helper-truncates-and-reports-hidden
+  (testing "cap-rows over the cap returns [capped true hidden]"
+    (let [rows                       (mapv (fn [i] {:id i})
+                                           (range (+ 50 panel-row-cap)))
+          [capped over-cap? hidden]  (common/cap-rows rows)]
+      (is (= panel-row-cap (count capped))
+          "exactly the cap is retained")
+      (is (true? over-cap?)
+          "over-cap flag fires so the view can render an indicator")
+      (is (= 50 hidden)
+          "hidden count is total - cap"))))
+
+(deftest shared-cap-helper-under-cap-is-passthrough
+  (testing "cap-rows under the cap returns [rows false 0]"
+    (let [rows                      (mapv (fn [i] {:id i}) (range 50))
+          [capped over-cap? hidden] (common/cap-rows rows)]
+      (is (= rows capped))
+      (is (false? over-cap?))
+      (is (zero?  hidden)))))
+
+(deftest shared-cap-helper-bounds-dom-mount-regardless-of-input-shape
+  (testing "the cap survives even with the buffer at 5× cap — the
+            number that lands on the panel never exceeds panel-row-cap"
+    (let [rows                      (mapv (fn [i] {:id i})
+                                          (range (* 5 panel-row-cap)))
+          [capped over-cap? hidden] (common/cap-rows rows)]
+      (is (<= (count capped) panel-row-cap)
+          "DOM-mount ceiling holds regardless of input size")
+      (is (true? over-cap?))
+      (is (= (- (count rows) panel-row-cap) hidden)))))

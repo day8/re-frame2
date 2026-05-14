@@ -48,6 +48,7 @@
   algebra runs under the JVM unit-test target."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.flows-helpers :as h]
+            [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -174,14 +175,17 @@
   canonical sort order (failures first, then computing, skipping,
   idle)."
   [rows selected-flow-id]
-  (into [:ul {:data-testid "rf-causa-flows-list"
-              :style {:list-style "none"
-                      :margin     0
-                      :padding    0
-                      :background (:bg-2 tokens)}}]
-        (for [row rows]
-          ^{:key (h/format-flow-id (:flow-id row))}
-          (flow-row row (= (:flow-id row) selected-flow-id)))))
+  (overflow/capped-list
+    rows
+    {:panel-id "flows"
+     :ul-attrs {:data-testid "rf-causa-flows-list"
+                :style {:list-style "none"
+                        :margin     0
+                        :padding    0
+                        :background (:bg-2 tokens)}}
+     :row-fn   (fn [row]
+                 ^{:key (h/format-flow-id (:flow-id row))}
+                 (flow-row row (= (:flow-id row) selected-flow-id)))}))
 
 ;; ---- summary header -----------------------------------------------------
 
