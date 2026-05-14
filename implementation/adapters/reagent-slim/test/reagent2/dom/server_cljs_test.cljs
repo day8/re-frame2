@@ -340,3 +340,75 @@
   (testing "non-keyword/symbol/fn head throws ex-info"
     (is (thrown-with-msg? js/Error #":rf.error/static-markup-bad-tag"
           (server/render-to-static-markup [42 "x"])))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-dwds9 HIGH: XSS surface — event handlers + fn props stripped
+;;
+;; The static-markup serializer must NOT emit React event-handler props
+;; (`onClick`, `:on-click`, …) as HTML attributes. Doing so would (a)
+;; serve no purpose (HTML inline-event handlers aren't bound to the
+;; React handler), and (b) open an XSS vector: a string-valued
+;; `:on-click "alert(1)"` would render as `onclick="alert(1)"`. Same
+;; for function-valued props of any name — `(str f)` would leak the
+;; source text into the attribute.
+;;
+;; `react-dom/server.renderToStaticMarkup` elides these; the rewrite
+;; now matches.
+;; ---------------------------------------------------------------------------
+
+(deftest event-handler-string-stripped-rf2-dwds9
+  (testing "rf2-dwds9: :on-click with string value does NOT emit
+            onclick attribute (XSS vector closed)"
+    (is (= "<div></div>"
+           (server/render-to-static-markup [:div {:on-click "alert(1)"}])))
+    (is (= "<div></div>"
+           (server/render-to-static-markup [:div {:onClick "alert(1)"}])))
+    (is (= "<button>x</button>"
+           (server/render-to-static-markup
+            [:button {:on-click "javascript:evil()"} "x"]))
+        "no leaked onclick attribute on the rendered button")))
+
+(deftest event-handler-fn-stripped-rf2-dwds9
+  (testing "rf2-dwds9: fn-valued :on-click is stripped (does not
+            emit `function () { ... }` source as the attribute value)"
+    (let [handler (fn [_e])
+          out (server/render-to-static-markup
+               [:div {:on-click handler}])]
+      (is (= "<div></div>" out)
+          "no onclick attribute, no leaked source"))))
+
+(deftest fn-valued-non-event-prop-stripped-rf2-dwds9
+  (testing "rf2-dwds9: any fn-valued prop (not just `on*`) is stripped
+            so source text never leaks into the attribute"
+    (let [callback (fn [])
+          out (server/render-to-static-markup
+               [:div {:custom-callback callback}])]
+      (is (= "<div></div>" out)))))
+
+(deftest other-on-prefix-attrs-stripped-rf2-dwds9
+  (testing "rf2-dwds9: camelCase `onChange`, `onSubmit`, `onMouseEnter`
+            all stripped (full event-handler family)"
+    (is (= "<form></form>"
+           (server/render-to-static-markup
+            [:form {:onSubmit "evil()" :onChange "evil2()"}])))
+    (is (= "<div></div>"
+           (server/render-to-static-markup
+            [:div {:onMouseEnter "evil()"}])))))
+
+(deftest on-not-event-prefix-passes-through
+  (testing "rf2-dwds9: attribute names starting with `on` but NOT
+            event-handler shape (e.g. `:once`) are NOT stripped —
+            event-handler-prop? requires `on-x` (kebab) or `onX` (camel
+            with uppercase letter after `on`)"
+    (is (= "<div once=\"true\"></div>"
+           (server/render-to-static-markup [:div {:once "true"}]))
+        "`:once` (no `-` after `on`, no capital after `on`) is preserved")
+    (is (= "<div onyx=\"x\"></div>"
+           (server/render-to-static-markup [:div {:onyx "x"}]))
+        "`:onyx` (lowercase letter after `on`) is preserved")))
+
+(deftest key-and-ref-still-stripped
+  (testing "regression: :key and :ref drops still work after the new
+            event-prop filter was added"
+    (is (= "<div></div>"
+           (server/render-to-static-markup [:div {:key "k" :ref "r"}])))))

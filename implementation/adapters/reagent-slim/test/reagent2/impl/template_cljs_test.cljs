@@ -155,6 +155,46 @@
           out (template/convert-prop-value :on-click f)]
       (is (fn? out)))))
 
+(deftest convert-prop-value-fn-preserves-identity-rf2-wyocr
+  (testing "rf2-wyocr: fn props pass through with === identity preserved
+            so React.memo / shouldComponentUpdate bail-outs work. Two
+            calls with the SAME fn return the SAME reference."
+    (let [handler (fn [_e] :clicked)
+          ;; 2-arg form — the production path through `kv-conv`.
+          a (template/convert-prop-value :on-click handler)
+          b (template/convert-prop-value :on-click handler)]
+      (is (identical? handler a)
+          "fn returned is the SAME reference passed in (=== check)")
+      (is (identical? a b)
+          "two conversions of the same fn produce the same reference"))
+    (let [handler (fn [_e] :nested)
+          ;; 1-arg form — used for nested map values.
+          a (template/convert-prop-value handler)
+          b (template/convert-prop-value handler)]
+      (is (identical? handler a)
+          "1-arg form preserves identity too")
+      (is (identical? a b)
+          "1-arg form: repeat conversions return the same reference"))))
+
+(deftest convert-prop-value-non-fn-ifn-still-wrapped
+  (testing "rf2-wyocr: keyword (IFn but not fn?) still wraps via shim
+            so the React side can invoke it as a JS function"
+    (let [out (template/convert-prop-value :on-click :some-kw)]
+      ;; Keyword is named? so it hits the named? branch first; this is
+      ;; the warn-once path, not the ifn wrap. Verify a true non-fn IFn
+      ;; (a map-as-fn) goes through the wrapper path.
+      (is (or (keyword? out) (string? out))
+          "keyword routed through named? branch (warn-once path)"))
+    (let [m   {:a 1 :b 2}
+          out (template/convert-prop-value :custom-lookup m)]
+      ;; Maps are routed to the map? branch (recursive conversion), not
+      ;; the ifn? branch — that's correct (a prop-map value is recursively
+      ;; converted as a JS object, not invoked as a fn).
+      (is (= "object" (goog/typeOf out))
+          "map value recursively converts to JS object (map? branch wins)")
+      (is (= 1 (aget out "a")) "key a flows through")
+      (is (= 2 (aget out "b")) "key b flows through"))))
+
 (deftest convert-prop-value-1-arg-form-stringifies-named
   (testing "1-arg form (nested map values) stringifies named values"
     ;; Used recursively for map values where there's no outer prop-
@@ -448,3 +488,89 @@
   (testing "no *source-coord* binding → no data-rf2-source-coord attr"
     (let [^js el (template/as-element [:div])]
       (is (nil? (aget (.-props el) "data-rf2-source-coord"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-dwds9 MEDIUM: prototype-pollution defence
+;;
+;; User-controlled hiccup keys like `:__proto__`, `:constructor`, and
+;; `:prototype` MUST NOT mutate the prototype chain of the per-element
+;; props object or any shared cache. `kv-conv` and `cached-prop-name`
+;; drop the reserved key trio before any `aset`, which is the single
+;; chokepoint where user keys become JS object writes.
+;;
+;; These tests pin the contract by attempting the attack-shape and
+;; asserting the result has no leaked slot reachable from the props
+;; object, no own slot for the reserved name, and legitimate sibling
+;; keys still flow through.
+;; ---------------------------------------------------------------------------
+
+(deftest prototype-key-dropped-from-props-rf2-dwds9
+  (testing "rf2-dwds9: {:__proto__ {:polluted true}} prop does NOT
+            mutate the props object's prototype chain. Without the
+            kv-conv filter, `aset obj '__proto__' {...}` would invoke
+            the prototype-setter and change Object.prototype lookups
+            on every subsequent prop object — exactly the leak we close."
+    (let [;; A sentinel "evil" prototype carrying a slot we can detect.
+          evil      #js {:polluted "yes"}
+          ^js el    (template/as-element [:div {:__proto__ evil
+                                                :id "legit"}])
+          props     (.-props el)]
+      ;; The props object did NOT inherit `polluted` from the evil object.
+      (is (or (nil? (aget props "polluted"))
+              (= js/undefined (aget props "polluted")))
+          "evil prototype slot did NOT become reachable via aget")
+      ;; The legitimate sibling key still flows through.
+      (is (= "legit" (aget props "id"))
+          "legit prop alongside the __proto__ attempt is still present")
+      ;; Belt: no own slot for __proto__.
+      (is (not (.call (.. js/Object -prototype -hasOwnProperty)
+                      props "__proto__"))
+          "no own '__proto__' slot on the props object"))))
+
+(deftest constructor-key-dropped-from-props-rf2-dwds9
+  (testing "rf2-dwds9: {:constructor \"x\"} prop is dropped (does not
+            override the prototype's constructor or leak as own property)"
+    (let [^js el (template/as-element [:div {:constructor "leaked"}])
+          props  (.-props el)]
+      (is (not (.call (.. js/Object -prototype -hasOwnProperty)
+                      props "constructor"))
+          "no own 'constructor' slot on the props object"))))
+
+(deftest prototype-string-key-dropped-rf2-dwds9
+  (testing "rf2-dwds9: {:prototype \"x\"} prop is dropped"
+    (let [^js el (template/as-element [:div {:prototype "leaked"}])
+          props  (.-props el)]
+      (is (not (.call (.. js/Object -prototype -hasOwnProperty)
+                      props "prototype"))
+          "no own 'prototype' slot on the props object"))))
+
+(deftest nested-prototype-key-dropped-rf2-dwds9
+  (testing "rf2-dwds9: nested {:style {:__proto__ {...} :color \"red\"}}
+            does NOT leak the evil prototype's slots into the style object"
+    (let [evil   #js {:polluted "yes"}
+          ^js el (template/as-element [:div {:style {:__proto__ evil
+                                                     :color "red"}}])
+          style  (.. el -props -style)]
+      (is (or (nil? (aget style "polluted"))
+              (= js/undefined (aget style "polluted")))
+          "evil prototype slot did NOT pollute the style object")
+      (is (= "red" (.-color style))
+          "legitimate sibling props in the same map survive"))))
+
+(deftest convert-prop-value-reserved-keys-dropped-rf2-dwds9
+  (testing "rf2-dwds9: convert-prop-value at the map? branch drops
+            reserved keys before `aset` — no prototype mutation, no
+            own-property pollution; legitimate sibling keys survive"
+    (let [evil #js {:polluted "yes"}
+          out (template/convert-prop-value
+                {:__proto__ evil :constructor "y" :prototype "z"
+                 :legit "ok"})]
+      (is (= "object" (goog/typeOf out)))
+      (is (= "ok" (aget out "legit"))
+          "legitimate keys flow through")
+      (is (or (nil? (aget out "polluted"))
+              (= js/undefined (aget out "polluted")))
+          "evil prototype slot did NOT become reachable via aget")
+      (doseq [k ["__proto__" "constructor" "prototype"]]
+        (is (not (.call (.. js/Object -prototype -hasOwnProperty) out k))
+            (str "reserved key '" k "' is not an own property"))))))

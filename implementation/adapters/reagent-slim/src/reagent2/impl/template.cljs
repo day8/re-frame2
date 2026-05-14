@@ -92,14 +92,55 @@
                 (str/replace class-shorthand #"\." " "))]
     (->HiccupTag tag id class)))
 
+;; ---------------------------------------------------------------------------
+;; Cache + props-object safety (rf2-dwds9 MEDIUM)
+;;
+;; Hiccup keys reaching `aset` are user-controlled. A literal
+;; `{:__proto__ x}` or `{:constructor x}` in a prop map would, on a
+;; plain `#js {}` target, write to the prototype chain — mutating
+;; `Object.prototype` (or our shared caches' prototype) and leaking
+;; inherited slots across every subsequent render.
+;;
+;; Strategy: BLOCK the reserved key trio (`__proto__`, `prototype`,
+;; `constructor`) before any `aset`. Two enforcement points:
+;;
+;;   - `cached-prop-name` — never caches a reserved name; returns it
+;;     verbatim. (Belt: keeps the shared cache map clean.)
+;;   - `kv-conv` — drops reserved camelCased names before writing to
+;;     the per-render JS props object. (Braces: the actual prototype-
+;;     pollution chokepoint, because the props object is what flows
+;;     into `React.createElement`.)
+;;
+;; Why NOT null-prototype objects? React's renderer calls
+;; `styles.hasOwnProperty(...)` on nested objects like `:style` when
+;; diffing inline styles (`react-dom` ReactDOMHostConfig). A
+;; null-proto object throws `TypeError: styles.hasOwnProperty is not
+;; a function`. So props objects stay on the default prototype, and
+;; the reserved-key filter is the sole defence — sufficient on its
+;; own because every prototype-pollution path runs through the filtered
+;; `aset` chokepoints.
+;; ---------------------------------------------------------------------------
+
+(def ^:private reserved-prop-keys
+  "JS property keys that must NEVER be `aset` from user-controlled
+  input. Writing to these mutates the prototype of the object instead
+  of creating an own property, which leaks inherited slots across
+  every subsequent prop-map conversion. Per rf2-dwds9 MEDIUM."
+  #{"__proto__" "prototype" "constructor"})
+
+(defn- ^boolean reserved-prop-key? [n]
+  (contains? reserved-prop-keys n))
+
 (def ^:private tag-name-cache #js {})
 
 (defn- cached-parse [k]
   (let [n (name k)]
-    (if (.hasOwnProperty tag-name-cache n)
+    (if (and (not (reserved-prop-key? n))
+             (.hasOwnProperty tag-name-cache n))
       (aget tag-name-cache n)
       (let [v (parse-tag k)]
-        (aset tag-name-cache n v)
+        (when-not (reserved-prop-key? n)
+          (aset tag-name-cache n v))
         v))))
 
 ;; ---------------------------------------------------------------------------
@@ -147,16 +188,27 @@
     :charset  → \"charSet\"
     :tab-index → \"tabIndex\"
     :data-foo → \"data-foo\"  (data-* not camelCased)
-    :aria-label → \"aria-label\" (aria-* not camelCased)"
+    :aria-label → \"aria-label\" (aria-* not camelCased)
+
+  Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
+  `constructor`) are never cached and are returned verbatim. The
+  downstream `convert-props` writes drop these too (see `kv-conv`),
+  so a malicious key cannot reach the React props object."
   [k]
   (if (or (keyword? k) (symbol? k))
     (let [n (name k)]
-      (if-some [cached (when (.hasOwnProperty prop-name-cache n)
-                         (aget prop-name-cache n))]
-        cached
-        (let [v (dash-to-prop-name k)]
-          (aset prop-name-cache n v)
-          v)))
+      (cond
+        ;; Reserved keys: skip the cache entirely, return the raw name.
+        ;; (Downstream kv-conv drops the aset; the name is harmless here.)
+        (reserved-prop-key? n) n
+
+        :else
+        (if-some [cached (when (.hasOwnProperty prop-name-cache n)
+                           (aget prop-name-cache n))]
+          cached
+          (let [v (dash-to-prop-name k)]
+            (aset prop-name-cache n v)
+            v))))
     k))
 
 ;; ---------------------------------------------------------------------------
@@ -207,11 +259,22 @@
 
 (declare convert-prop-value)
 
-(defn- kv-conv [o k v]
-  (let [k' (cached-prop-name k)
-        v' (convert-prop-value k v)]
-    (aset o k' v')
-    o))
+(defn- kv-conv
+  "Reduce-kv step: convert one [k v] pair into the JS props object `o`.
+
+  Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
+  `constructor`) are dropped silently. `aset o \"__proto__\" v` would
+  invoke the prototype-setter on the props object — replacing its
+  prototype chain with whatever `v` is, leaking inherited slots into
+  every subsequent property lookup. The key has no legitimate React
+  meaning, so dropping is the only correct behaviour."
+  [o k v]
+  (let [k' (cached-prop-name k)]
+    (if (and (string? k') (reserved-prop-key? k'))
+      o
+      (let [v' (convert-prop-value k v)]
+        (aset o k' v')
+        o))))
 
 (defn convert-prop-value
   "Convert a hiccup prop-map value `v` for prop-name `k` to a React-
@@ -227,8 +290,19 @@
     - JS values pass through.
     - Maps recursively convert (style maps + custom-component prop maps).
     - Coll? values become JS arrays via clj->js (children, vector classes).
-    - Fns pass through (event handlers, ref callbacks).
-    - Everything else passes through unchanged."
+    - Fn values pass through verbatim — referentially stable across renders.
+      Event handlers and ref callbacks reach React with the SAME identity
+      the caller supplied, so `React.memo` / `shouldComponentUpdate`
+      bail-outs work. Wrapping fns in a fresh closure per render would
+      silently defeat memoisation.
+    - Non-fn `IFn` values (keywords, maps, sets used as fns; vectors used
+      as positional lookups) are wrapped in a variadic shim so the React
+      side can invoke them as plain JS functions.
+    - Everything else passes through unchanged.
+
+  HOT PATH — this runs once per prop on every render. The `(fn? v)`
+  test sits before `(ifn? v)` so the common case (event-handler fn) does
+  not allocate a wrapper."
   ([v]
    ;; 1-arg form: used recursively for map values where there's no
    ;; outer prop-name context (e.g. nested style objects). Treat
@@ -241,6 +315,7 @@
      (named?* v)  (name v)         ; nested map values: stringify (CSS values)
      (map? v)     (reduce-kv kv-conv #js {} v)
      (coll? v)    (clj->js v)
+     (fn? v)      v                ; pass through — preserves identity
      (ifn? v)     (fn [& args] (apply v args))
      :else        v))
   ([k v]
@@ -254,6 +329,7 @@
                       v))
      (map? v)     (reduce-kv kv-conv #js {} v)
      (coll? v)    (clj->js v)
+     (fn? v)      v                ; pass through — preserves identity
      (ifn? v)     (fn [& args] (apply v args))
      :else        v)))
 
