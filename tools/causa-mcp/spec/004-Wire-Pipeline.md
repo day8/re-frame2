@@ -482,10 +482,25 @@ declare which mechanisms apply, the **typical-token** hint, the
 
 ## Streaming over batch (cross-cut)
 
-The `subscribe` stream returns one event per JSON-RPC
-`notifications/progress`, not a buffered batch. The cap applies
-per notification; the agent host meters consumption. A
-`subscribe` topic whose individual events can exceed the cap
+The `subscribe` stream emits **one drain-batch per JSON-RPC
+`notifications/progress`** — port the pair2-mcp/subscribe shape
+verbatim (per
+[`tools/pair2-mcp/spec/003-Tool-Catalogue.md` §subscribe](../../pair2-mcp/spec/003-Tool-Catalogue.md#subscribe)).
+The single MCP wire-batching idiom across the tool suite
+(`tools/pair2-mcp/` + `tools/causa-mcp/`) was decided in rf2-h95hl:
+**per-drain-batch**, not per-event. The server polls the runtime's
+drain at `poll-ms` cadence (default `100`) and emits a progress
+notification per non-empty batch; each batch carries an `:events`
+vector and the dedup table for that tick. Rationale: sub-100ms
+drain windows are imperceptible in devtools UI, the per-tick wire
+cost is bounded by the runtime-side queue caps
+(`max-buffered-events` / `max-buffered-bytes`), and per-event
+notifications under high trace volume (animation loops, rapid
+scroll) would be markedly more expensive without observable
+benefit. The cap applies per notification; the agent host meters
+consumption.
+
+A `subscribe` topic whose individual events can exceed the cap
 (a trace event with a large coeffect payload) relies on
 mechanism 6 (size elision) running per-notification — the
 walker substitutes the canonical `:rf.size/large-elided` marker
@@ -494,7 +509,9 @@ at each elided slot (body shape per
 fetch-handle `[:rf.elision/at <path>]`) — and surfaces a
 follow-up `get-trace-buffer` cursor when the trimmed
 notification still trips the cap. Mechanisms 1, 4, 5, and 6
-apply per-notification; mechanisms 2 and 3 are inapplicable
-inside a single notification but DO apply to the `subscribe`
-call's own arguments (e.g., a `:path` filter on the topic, a
-`:limit` on total notifications before auto-unsubscribe).
+apply per-notification (the dedup table is per-tick — no
+cross-tick refs, matching pair2-mcp's `dedup` posture);
+mechanisms 2 and 3 are inapplicable inside a single
+notification but DO apply to the `subscribe` call's own
+arguments (e.g., a `:path` filter on the topic, a `:limit` on
+total notifications before auto-unsubscribe).
