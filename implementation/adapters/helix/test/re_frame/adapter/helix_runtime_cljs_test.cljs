@@ -5,9 +5,14 @@
   The runtime layer (dispatch, subs, with-frame, bound-fn, multi-frame
   isolation, sub hot-reload) is substrate-agnostic, but every assertion
   in this file runs under the Helix-installed adapter — pinning that the
-  late-bind hooks the Helix adapter publishes (`:adapter/ratom`,
-  `:adapter/make-reaction`, `:adapter/current-frame`, `:adapter/wrap-view`)
-  compose with the runtime layer the same way they do under Reagent.
+  late-bind hooks the Helix adapter publishes (`:adapter/current-frame`,
+  `:adapter/add-on-dispose!`, `:adapter/dispose!`, `:adapter/wrap-view`)
+  compose with the runtime layer correctly. Per rf2-jicu2 the Helix
+  adapter intentionally does NOT publish the reactive-substrate hooks
+  (`:adapter/ratom`, `:adapter/make-reaction`, `:adapter/reactive?`,
+  `:adapter/after-render`); subscribe-side reactivity routes through
+  the spine's `make-derived-value` (`IDeref`+`IWatchable` wrapper) which
+  carries no Reagent dependency.
 
   This is the headless subset only — Reagent-specific `r/atom` /
   `r/track!` / inline-hiccup-render assertions and example-driven tests
@@ -94,9 +99,10 @@
 ;;
 ;; The Helix adapter's containers are plain atoms; per Spec 006 the
 ;; container's `subscribe-container` surface fires `on-change` on every
-;; replace. The subscribe layer in core wraps that with a Reagent
-;; reaction (the Helix adapter delegates `:adapter/make-reaction` to
-;; stock Reagent) so the reaction's deref reflects post-event state.
+;; replace. Post-rf2-jicu2 the subscribe layer wraps that with the
+;; spine's `make-derived-value` (an `IDeref`+`IWatchable` wrapper, NOT
+;; a Reagent reaction — Helix publishes no `:adapter/make-reaction`) so
+;; the derived value's deref reflects post-event state.
 
 (deftest reactive-sub-tracks-changes-helix
   (testing "a subscription's deref reflects post-event state under Helix"
