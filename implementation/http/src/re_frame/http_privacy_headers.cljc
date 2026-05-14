@@ -78,12 +78,22 @@
   nil)
 
 (defn sensitive-header?
-  "Predicate: is `header-name` in the merged denylist? Case-insensitive."
+  "Predicate: is `header-name` in the merged denylist? Case-insensitive.
+
+  Per rf2-ydp66 — the predicate short-circuits via two `contains?` lookups
+  on the source sets rather than building a fresh `(set/union default
+  @extras)` per call. `redact-headers` calls this once per header
+  (`reduce-kv` over the request's headers map); the previous shape ran
+  one `set/union` PER header. With trace/privacy permanently on under
+  JVM (`interop/debug-enabled?` is constant `true` there), the merged-set
+  rebuild compounded across every traced HTTP request. Two `contains?`
+  ops on small sets are O(1) and allocate nothing."
   [header-name]
   (boolean
     (when (string? header-name)
-      (contains? (set/union default-header-denylist @extra-headers)
-                 (str/lower-case header-name)))))
+      (let [k (str/lower-case header-name)]
+        (or (contains? default-header-denylist k)
+            (contains? @extra-headers k))))))
 
 (defn redact-headers
   "Walk `headers-map` (string→string or string→vector-of-strings); replace
