@@ -167,22 +167,21 @@
 ;; ---- (3) non-sensitive mirror loop is also closed ----------------------
 
 (deftest two-hundred-non-sensitive-dispatches-do-not-loop
-  (testing "the symmetric loop for `:rf.causa/note-trace-event` (the
-            non-sensitive mirror dispatch, rf2-iw5ym) is also closed —
-            per rf2-qsjda the bookkeeping handlers carry
-            `:rf.trace/no-emit? true` so the framework short-circuits
-            emission for them before the collector ever sees the trace.
-            Non-sensitive events land in the buffer cleanly with no
-            re-entry inflation."
+  (testing "non-sensitive trace events flow into the buffer cleanly.
+            Per rf2-e9s81 `collect-trace!` only swaps the buffer-state
+            atom (no follow-on dispatch), so there is no
+            `:rf.causa/note-trace-event` self-emit loop to close in
+            the first place — the buffer fills purely from the
+            host's own dispatches."
     (register-non-sensitive-event!)
     (dotimes [n 200]
       (rf/dispatch-sync [:test/plain-bump n]))
     (is (not (drain-depth-exceeded?))
-        "no drain-depth-exceeded — non-sensitive cb-dispatch loop closed")
+        "no drain-depth-exceeded across 200 dispatches")
     ;; The buffer contains many trace events per dispatch (event/
     ;; dispatched, event/handled, event/db-changed, event/do-fx, ...)
     ;; — we don't assert an exact count, just that the runtime
-    ;; survived all 200 dispatches without runaway re-entry.
+    ;; survived all 200 dispatches.
     (is (pos? (count (trace-bus/buffer)))
         "buffer received the trace events from 200 plain dispatches")))
 
@@ -191,9 +190,9 @@
 (deftest opted-in-sensitive-dispatches-also-loop-proof
   (testing "with `:trace/show-sensitive? true` sensitive events flow
             into the buffer instead of bumping the counter — the
-            self-emit guard still catches the bookkeeping path so the
-            collector doesn't re-enter via `:rf.causa/note-trace-event`
-            either"
+            cascade stays bounded because the collector only swaps
+            the buffer-state atom (rf2-e9s81 — no follow-on
+            dispatch to re-enter through)"
     (config/configure! {:trace/show-sensitive? true})
     (register-sensitive-event!)
     (dotimes [n 50]

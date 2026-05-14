@@ -166,6 +166,52 @@ plumbing (per `006-Hydration-Debugger.md` and panel-specific specs)
 projects the result. This keeps the buffer hot-path cheap (no sub-cache
 recomputation per push) and consistent across CLJS and JVM.
 
+## Reactivity
+
+The buffer is held in a plain atom (process-global, not per-frame).
+The CLJS `:rf.causa/trace-buffer` sub (registered in `registry.cljs`)
+is layer-1 and thunks `trace-bus/buffer` so subscribers get a fresh
+read on every recompute. The sub re-fires on every app-db change of
+its resolved frame; under Causa's normal usage — panels rendered
+inside a host app — every host dispatch dirties the resolved
+frame's app-db and the sub picks up whatever the trace-cb has
+accumulated in the atom since the previous recompute. Visible delay
+between trace push and panel update is bounded by the host's next
+dispatch, indistinguishable from native trace-rate UI cadence on
+every example app the foundation ships.
+
+### History (rf2-iw5ym → rf2-e9s81)
+
+`rf2-iw5ym` briefly mirrored the buffer into Causa's app-db at
+`[:rf/causa :trace-buffer]` via a parallel `:rf.causa/note-trace-event`
+dispatch from `collect-trace!` — chasing the same "immediate re-fire
+on every push" recipe `rf2-0vxdn` shipped for `:suppressed-counters`.
+That parallel path proved untenable for the trace buffer (the
+process-global construct does not fit the per-frame app-db mirror
+shape — the suppressed-counters case was a genuinely per-frame map
+keyed on `frame-id`, so the analogy did not transfer):
+
+- `:rf/causa` is never registered in production. The preload runs
+  at ns-load time, before the host's `rf/init!` installs a substrate
+  adapter; `reg-frame` cannot run in that window. The dispatch
+  silently no-op'd and step 5 of `examples/.../causa.spec.cjs` went
+  red (the `rf2-e9s81` regression).
+- Chain-resolving to `:rf/default` (the recipe `rf2-higwg` applied
+  to the suppressed-counter path) consumed drain-depth headroom on
+  every emitted trace event and polluted the host's app-db with
+  `:trace-buffer` noise — surfacing as spurious
+  `:rf.error/drain-depth-exceeded` failures in conformance fixtures.
+
+`rf2-e9s81` reverts to the pre-iw5ym shape (sub thunks the atom;
+host-driven recompute). An architecturally clean reactive-on-every-
+push surface for the trace buffer would require either reg-view-
+wrapping every Causa panel (so plain-fn subscribes route to
+`:rf/causa` via the React-context tier) or a fixed-frame sub
+mechanism that lets a sub read from an arbitrary frame's app-db
+independent of the subscriber's frame — both wider refactors filed
+for follow-up. Until then the host-driven recompute path delivers
+the same UX without the layering hazards.
+
 ### What consumers MAY rely on
 
 - A **point-in-time snapshot** of the buffer as a Clojure vector,

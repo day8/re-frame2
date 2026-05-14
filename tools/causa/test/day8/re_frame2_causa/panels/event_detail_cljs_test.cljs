@@ -79,22 +79,15 @@
 
 (defn- seed-buffer!
   "Register Causa's handlers, allocate the :rf/causa frame, then push
-  the supplied events through Causa's reactive trace-buffer slot.
-
-  Per rf2-iw5ym `:rf.causa/trace-buffer` is reactive off Causa's
-  app-db; the buffer-bus atom is no longer the sub's source of
-  truth. Tests drive the new reactive write path via `dispatch-sync`
-  of `:rf.causa/note-trace-event` so the composite sub re-fires
-  synchronously before the view is rendered. (Production wiring
-  still goes through `trace-bus/collect-trace!`; that path is
-  covered by sensitive_trace_cljs_test + filter_vocab_consumer_
-  cljs_test.)"
+  the supplied events through Causa's trace-bus atom via
+  `collect-trace!` — the production path. Per rf2-e9s81
+  `:rf.causa/trace-buffer` thunks the atom, so a subsequent
+  subscribe returns the events directly."
   [evs]
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {})
-  (rf/with-frame :rf/causa
-    (doseq [ev evs]
-      (rf/dispatch-sync [:rf.causa/note-trace-event ev]))))
+  (doseq [ev evs]
+    (trace-bus/collect-trace! ev)))
 
 (defn- expand-fn-component
   "When `node` is a hiccup-style `[fn-component args...]` vector

@@ -246,20 +246,17 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [:auth/login])
-      ;; Push two transition events into the Causa trace buffer.
-      ;; Per rf2-iw5ym `:rf.causa/trace-buffer` is reactive off
-      ;; Causa's app-db; tests drive the reactive write path
-      ;; directly via `dispatch-sync` of `:rf.causa/note-trace-event`.
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 1 :operation :rf.machine/transition :time 100
-          :tags {:machine-id :auth/login :from :idle :to :authing
-                 :event [:auth/submit] :dispatch-id "d-1"}}])
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 2 :operation :rf.machine/transition :time 200
-          :tags {:machine-id :auth/login :from :authing :to :idle
-                 :event [:auth/cancel] :dispatch-id "d-2"}}])
+      ;; Push two transition events into the Causa trace buffer via
+      ;; the production `collect-trace!` path (per rf2-e9s81 the
+      ;; sub thunks the trace-bus atom).
+      (trace-bus/collect-trace!
+        {:id 1 :operation :rf.machine/transition :time 100
+         :tags {:machine-id :auth/login :from :idle :to :authing
+                :event [:auth/submit] :dispatch-id "d-1"}})
+      (trace-bus/collect-trace!
+        {:id 2 :operation :rf.machine/transition :time 200
+         :tags {:machine-id :auth/login :from :authing :to :idle
+                :event [:auth/cancel] :dispatch-id "d-2"}})
       (let [tree    (machine-inspector/machine-inspector-view)
             entries (find-all-by-testid-prefix
                       tree "rf-causa-machine-inspector-transition-")]
@@ -272,14 +269,12 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [:auth/login])
-      ;; Per rf2-iw5ym `:rf.causa/trace-buffer` is reactive off
-      ;; Causa's app-db; tests drive the reactive write path
-      ;; directly via `dispatch-sync` of `:rf.causa/note-trace-event`.
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 1 :operation :rf.machine/transition :time 100
-          :tags {:machine-id :auth/login :from :idle :to :authing
-                 :event [:auth/submit] :dispatch-id "d-42"}}])
+      ;; Push a transition event via `collect-trace!` (per rf2-e9s81
+      ;; the sub thunks the trace-bus atom).
+      (trace-bus/collect-trace!
+        {:id 1 :operation :rf.machine/transition :time 100
+         :tags {:machine-id :auth/login :from :idle :to :authing
+                :event [:auth/submit] :dispatch-id "d-42"}})
       (let [dispatches (atom [])]
         ;; rf/dispatch is async; with-redefs on the underlying
         ;; rf/dispatch* fn captures the event vector synchronously
