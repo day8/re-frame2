@@ -13,7 +13,7 @@
  *                 playground — sidebar navigation, mode-tag filtering,
  *                 workspace cell mounting, time-travel scrubber, trace
  *                 panel, a11y panel, layout-debug toggles, args editor,
- *                 mode picker, decorator list, save-layout button —
+ *                 mode picker, decorator list —
  *                 one assertion per surface so each one is exercised
  *                 by the smoke (rf2-kljn).
  *
