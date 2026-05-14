@@ -68,7 +68,7 @@ every README example, and every CI fixture. The convention is the lock
 for **new tools landing under causa-mcp's impl** and for **any future
 extension** to pair2-mcp / story-mcp.
 
-### Pair2-mcp (10 tools)
+### Pair2-mcp (11 tools)
 
 | Tool | Verb shape | Notes |
 |---|---|---|
@@ -81,6 +81,7 @@ extension** to pair2-mcp / story-mcp.
 | `watch-epochs` | bare (mega-op) | Conformant — paginated projection. (Borderline: arguably a `list-` candidate, but the cursor / filter shape leans mega-op.) |
 | `get-path` | `get-` | Conformant. |
 | `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
+| `subscription-info` | bare-noun read | **Non-conformant** — bare-noun read of a streaming-subscription's status; see causa-mcp's `list-subscriptions` for the conformant cross-server pair. The current name predates the cross-MCP convention (rf2-zjz9q landed it before the rf2-3we2k Lock #12 picked the conformant verb). A future rename to `list-subscriptions` aligns the triplet; today the divergence is acknowledged. |
 
 ### Story-mcp (17 tools)
 

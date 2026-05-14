@@ -107,7 +107,7 @@ npm test
 ### `end-to-end-pair2.js`
 
 1. Connect — full SDK handshake against the freshly spawned bundle
-2. `tools/list` — confirm the ten advertised tools match the pinned
+2. `tools/list` — confirm the eleven advertised tools match the pinned
    catalogue
 3. Spot-check every descriptor carries an `inputSchema`
 4. Walk degraded-mode `dispatch` / `watch-epochs` / `snapshot` /
