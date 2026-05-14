@@ -99,9 +99,12 @@
           on-dispose-fns (atom [])
           ;; Per-source wrapper keys we own so dispose can unwire them.
           own-keys       (atom {})           ;; source → key
+          ;; Per rf2-ggx29: iterate the watcher fns via `run!` over
+          ;; `vals` rather than `doseq` over map-entries. Skips one
+          ;; map-entry seq allocation per source-change notification.
           notify         (fn [prev nu]
                            (when (not= prev nu)
-                             (doseq [[_ w] @watchers] (w prev nu))))]
+                             (run! (fn [w] (w prev nu)) (vals @watchers))))]
       ;; Wire one watch per source so the listener registry surface
       ;; (subscribe-container) on the derived container fires whenever
       ;; any source changes.
