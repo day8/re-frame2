@@ -216,10 +216,20 @@
                   :color "#d16969"
                   :font-style "italic"
                   :margin-bottom "4px"}
+   ;; rf2-fq1yg: longhand padding sides on every row. The `:row-selected`
+   ;; variant below adds a `:padding-left`; mixing shorthand `:padding`
+   ;; with longhand `:padding-left` on the same React element across
+   ;; renders triggers React's reconcile warning ("Updating a style
+   ;; property during rerender (paddingLeft) when a conflicting property
+   ;; is set (padding) can lead to styling bugs"). Keep every side
+   ;; longhand so React reconciles a stable set of keys.
    :row          {:display "grid"
                   :grid-template-columns "auto 1fr 1fr 1fr 1fr 1fr"
                   :gap "4px"
-                  :padding "2px 0"
+                  :padding-top "2px"
+                  :padding-right "0"
+                  :padding-bottom "2px"
+                  :padding-left "0"
                   :border-bottom "1px dotted #333"}
    ;; rf2-sxwvf: the highlight ring marks the cascade whose post-effects
    ;; produced the currently-scrubbed epoch. A solid amber outline plus

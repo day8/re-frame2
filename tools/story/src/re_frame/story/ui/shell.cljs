@@ -545,7 +545,7 @@
   (when (and config/enabled? dom-node)
     (when-let [prev @shell-singleton]
       (try
-        (rdc/unmount (:node prev))
+        (rdc/unmount (:root prev))
         (catch :default _ nil)))
     (let [root (rdc/create-root dom-node)]
       (rdc/render root [shell])
@@ -559,8 +559,16 @@
   ([] (unmount-shell! @shell-singleton))
   ([handle]
    (when handle
+     ;; rf2-fq1yg: `rdc/unmount` requires the React Root, NOT the DOM
+     ;; node — `(.unmount root)` is the React 18 contract. Passing the
+     ;; DOM node here silently no-op'd (DOM nodes have no `.unmount`
+     ;; method), so the shell's root stayed alive on `#app` and a
+     ;; subsequent `mount-app!` → `create-root` on the same node fired
+     ;; React's "container has already been passed to createRoot before"
+     ;; warning. Pass the handle's `:root` slot so React tears down
+     ;; cleanly and releases the container.
      (try
-       (rdc/unmount (:node handle))
+       (rdc/unmount (:root handle))
        (catch :default _ nil))
      (state/reset-shell-state!)
      (teardown-all-listeners!)
