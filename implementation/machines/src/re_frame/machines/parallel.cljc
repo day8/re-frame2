@@ -164,24 +164,25 @@
 ;; EVERY state along that cascade fires its `:entry` shallowest-first.
 ;;
 ;; The cascade re-uses `apply-transition-once` by synthesising a
-;; "transition from the empty path to the initial leaf".
+;; "transition from the empty path to the initial leaf" — ghost-snap
+;; with `:state []` driving a synthetic transition whose `:target` is
+;; the initial leaf path.
 
-(defn- apply-initial-entry-cascade-single
-  "Bootstrap entry cascade for a flat / compound (non-parallel) machine.
-  Re-uses `apply-transition-once` by passing a snapshot whose `:state`
-  is the empty path `[]` and a synthetic transition whose `:target` is
-  the initial leaf path."
+(defn- bootstrap-step
+  "Single bootstrap step for one (flat or per-region) machine. Returns
+  a `result/ok` Result carrying the post-cascade snapshot + fx, or a
+  `result/fail` Result if any `:entry` action threw."
   [machine initial-snapshot]
   (let [original-state (:state initial-snapshot)
-        target-leaf    (transition/state-path original-state)
-        ghost-snap     (assoc initial-snapshot :state [])
-        boot-event     [:rf.machine/bootstrap]
         boot-target    (if (keyword? original-state)
                          original-state
-                         (vec target-leaf))
-        boot-transition {:target    boot-target
-                         :decl-path []}]
-    (transition/apply-transition-once machine ghost-snap boot-event boot-transition)))
+                         (vec (transition/state-path original-state)))]
+    (transition/apply-transition-once
+      machine
+      (assoc initial-snapshot :state [])
+      [:rf.machine/bootstrap]
+      {:target    boot-target
+       :decl-path []})))
 
 (defn apply-initial-entry-cascade
   "Synthesise the bootstrap entry cascade for `machine` against the
@@ -224,7 +225,7 @@
                                      :data  cur-data}
                               (some? cur-counter)
                               (assoc :rf/spawn-counter cur-counter))
-                step-result (apply-initial-entry-cascade-single region-spec region-snap)]
+                step-result (bootstrap-step region-spec region-snap)]
             (if (result/fail? step-result)
               step-result
               (result/with-ok [reg-snap reg-fx] step-result
@@ -234,7 +235,7 @@
                          (:rf/spawn-counter reg-snap)
                          (assoc new-states rn (:state reg-snap))
                          (vec (concat acc-fx prefixed-fx))))))))))
-    (apply-initial-entry-cascade-single machine initial-snapshot)))
+    (bootstrap-step machine initial-snapshot)))
 
 (declare machine-transition)
 
