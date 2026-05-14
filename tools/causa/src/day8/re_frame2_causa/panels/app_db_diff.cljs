@@ -55,7 +55,9 @@
   changed' walker) — lives in `app_db_diff_helpers.cljc` so the
   algebra runs under the JVM unit-test target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]
+            [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -493,3 +495,182 @@
          (changed-slices-stack changed-non-reserved)
          (pinned-group pinned-slices)
          (reserved-group changed-reserved)])]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the App-DB Diff panel's Causa-side
+  registrations (Phase 5, rf2-jps1o). Owns the cross-panel
+  `:rf.causa/target-frame-db` sub (also read by the Routes and
+  Machine Inspector panels) plus the slice / focus / clipboard
+  surface."
+  []
+  ;; ---- Phase 5 (rf2-jps1o) — App-DB Diff subs ------------------
+
+  ;; The host frame's current app-db value. Read via rf/get-frame-db
+  ;; against the Phase 3 :rf.causa/target-frame. Wrapped in a sub so
+  ;; the panel reacts to host writes via the same reactive surface as
+  ;; everything else; the sub fn itself is side-effecting (rf/get-
+  ;; frame-db hits a frame atom), but the reactivity is driven by
+  ;; epoch-history updates pumped into Causa's app-db on every settle.
+  (rf/reg-sub :rf.causa/target-frame-db
+    :<- [:rf.causa/target-frame]
+    :<- [:rf.causa/epoch-history]
+    (fn [[target _epoch-history] _query]
+      ;; Depend on :rf.causa/epoch-history so the sub re-fires on
+      ;; every settled epoch. The actual read is via rf/get-frame-db
+      ;; — the framework's canonical accessor.
+      (rf/get-frame-db target)))
+
+  ;; The selected epoch's record from :rf.causa/epoch-history. nil
+  ;; when no selection or the selection has aged out of the ring
+  ;; buffer.
+  (rf/reg-sub :rf.causa/selected-epoch-record
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/selected-epoch-id]
+    (fn [[history selected-id] _query]
+      (when selected-id
+        (tt-helpers/find-epoch-in-history history selected-id))))
+
+  ;; The diff triples for the currently-selected epoch. When no
+  ;; epoch is selected, the diff is between the newest epoch's
+  ;; :db-before and :db-after (the most recent settle).
+  ;;
+  ;; Per spec §Changed-paths derivation the diff is computed
+  ;; lazily on panel mount and the result cached per :epoch-id.
+  ;; The composite sub recomputes only when the underlying
+  ;; (history × selection) tuple changes — re-renders of the same
+  ;; epoch return identical?-equal triples, which is the v1
+  ;; caching model.
+  (rf/reg-sub :rf.causa/selected-epoch-diff
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/selected-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (if selected-id
+                     (tt-helpers/find-epoch-in-history history selected-id)
+                     (peek (vec history)))]
+        (when record
+          (h/diff-paths (:db-before record)
+                       (:db-after  record))))))
+
+  ;; The pinned-slices store — `{frame-id [path-1 path-2 ...]}`.
+  ;; Separate from Phase 3's :pin-store (which pins whole epoch
+  ;; snapshots); this is per-frame slice-path pinning.
+  (rf/reg-sub :rf.causa/pinned-slices-store
+    (fn [db _query]
+      (get db :pinned-slices-store {})))
+
+  ;; The live-derefed pinned slices for the current target-frame.
+  ;; Each entry is `{:path <vec> :value <current-value>}`.
+  (rf/reg-sub :rf.causa/pinned-slices
+    :<- [:rf.causa/pinned-slices-store]
+    :<- [:rf.causa/target-frame]
+    :<- [:rf.causa/target-frame-db]
+    (fn [[store target db] _query]
+      (h/live-pinned-slices store target db)))
+
+  ;; The 'Show me when this changed' focused path. nil when no
+  ;; focus is in flight; the view falls back to the slice mini-
+  ;; panels in that case.
+  (rf/reg-sub :rf.causa/focused-slice-path
+    (fn [db _query]
+      (get db :focused-slice-path)))
+
+  ;; The 'Show me when this changed' result — a vector of hit
+  ;; maps for epochs that touched the focused path. Empty vector
+  ;; when no focus is set or no epoch in the ring buffer touched
+  ;; the path.
+  (rf/reg-sub :rf.causa/show-me-when-this-changed-result
+    :<- [:rf.causa/focused-slice-path]
+    :<- [:rf.causa/epoch-history]
+    (fn [[focused-path history] _query]
+      (if focused-path
+        (h/epochs-touching-path history focused-path)
+        [])))
+
+  ;; Top-level composite for the App-DB Diff panel. One read
+  ;; produces every slot the view needs (matches the Phase-2 /
+  ;; Phase-3 / Phase-4 composite pattern).
+  (rf/reg-sub :rf.causa/app-db-diff
+    :<- [:rf.causa/target-frame]
+    :<- [:rf.causa/target-frame-db]
+    :<- [:rf.causa/selected-epoch-diff]
+    :<- [:rf.causa/pinned-slices]
+    :<- [:rf.causa/focused-slice-path]
+    :<- [:rf.causa/show-me-when-this-changed-result]
+    :<- [:rf.causa/epoch-history]
+    (fn [[target db diff-triples pinned focused-path focused-hits history]
+         _query]
+      (let [history-empty? (empty? history)
+            {:keys [reserved non-reserved]}
+            (h/partition-reserved (or diff-triples []))]
+        {:target-frame          target
+         :history-empty?        history-empty?
+         :changed-non-reserved  non-reserved
+         ;; The [runtime] group always renders the current `:rf/*`
+         ;; slot contents off the current db as a one-line summary
+         ;; (path + value). Per spec §Reserved-keys group the group
+         ;; is informational — it's not gated on whether THIS epoch
+         ;; touched a reserved key; the programmer reads it to
+         ;; orient against the runtime's state.
+         :changed-reserved      (h/reserved-summary db)
+         :pinned-slices         pinned
+         :focused-path          focused-path
+         :focused-hits          focused-hits})))
+
+  ;; ---- Phase 5 (rf2-jps1o) — App-DB Diff events ----------------
+
+  ;; Pin a slice path to the per-frame pinned-slices store. Per
+  ;; spec §Pinned slices. Duplicates are dropped at the helper
+  ;; layer (re-pin is a no-op).
+  (rf/reg-event-db :rf.causa/pin-slice
+    (fn [db [_ path]]
+      (let [target (get db :target-frame defaults/default-target-frame)]
+        (update db :pinned-slices-store
+                h/pin-path target path))))
+
+  (rf/reg-event-db :rf.causa/unpin-slice
+    (fn [db [_ path]]
+      (let [target (get db :target-frame defaults/default-target-frame)]
+        (update db :pinned-slices-store
+                h/unpin-path target path))))
+
+  ;; Replace the per-frame pin order with `new-order`. The caller
+  ;; (the drag-reorder UI) computes the permutation.
+  (rf/reg-event-db :rf.causa/reorder-pinned-slices
+    (fn [db [_ new-order]]
+      (let [target (get db :target-frame defaults/default-target-frame)]
+        (update db :pinned-slices-store
+                h/reorder-paths target new-order))))
+
+  ;; Set the 'Show me when this changed' focused path. The
+  ;; :rf.causa/show-me-when-this-changed-result sub re-fires
+  ;; against the new focus and the panel switches into result-list
+  ;; mode (per spec §'Show me when this changed').
+  (rf/reg-event-db :rf.causa/focus-slice-path
+    (fn [db [_ path]]
+      (assoc db :focused-slice-path path)))
+
+  (rf/reg-event-db :rf.causa/clear-slice-focus
+    (fn [db _event]
+      (dissoc db :focused-slice-path)))
+
+  ;; The clipboard fx — best-effort write via the browser
+  ;; clipboard API. On non-browser targets (Node test, JVM) the
+  ;; effect is a no-op; tests assert the fx fires, not the OS-side
+  ;; outcome. Per re-frame v2's reg-fx contract: (fn [ctx args] ...).
+  (rf/reg-fx :rf.causa.fx/copy-to-clipboard
+    (fn [_ctx {:keys [text]}]
+      (try
+        (when (and (exists? js/navigator)
+                   (.-clipboard js/navigator))
+          (.writeText (.-clipboard js/navigator) (str text)))
+        (catch :default _ nil))))
+
+  (rf/reg-event-fx :rf.causa/copy-value-to-clipboard
+    (fn [_ctx [_ value]]
+      {:fx [[:rf.causa.fx/copy-to-clipboard {:text (pr-str value)}]]}))
+
+  (rf/reg-event-fx :rf.causa/copy-path-to-clipboard
+    (fn [_ctx [_ path]]
+      {:fx [[:rf.causa.fx/copy-to-clipboard {:text (pr-str path)}]]})))

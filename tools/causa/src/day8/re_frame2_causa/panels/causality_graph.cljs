@@ -42,6 +42,7 @@
   the algebra runs under the JVM unit-test target."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.causality-graph-helpers :as h]
+            [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -304,3 +305,70 @@
       (if (empty? nodes)
         (empty-state)
         (graph-svg graph layout selected-dispatch-id))]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Causality Graph panel's Causa-side
+  registration (Phase 4, rf2-4rqs1). Owns the panel's composite sub
+  `:rf.causa/causality-graph-data` — folds the shared
+  `:rf.causa/cascades` projection + raw trace-buffer through the
+  graph-projection helper and applies the optional cascade-family
+  filter when a Time Travel epoch is selected."
+  []
+  ;; ---- Phase 4 (rf2-4rqs1) — Causality Graph composite sub -----
+  ;;
+  ;; The graph reads from the same trace-buffer as the event-detail
+  ;; panel. It projects the buffer via group-cascades, enriches each
+  ;; cascade with its :event/dispatched trace event (so :origin /
+  ;; :parent-dispatch-id are available), then folds into nodes +
+  ;; arrows and computes a top-down layout. When the Time Travel
+  ;; scrubber has a selected-epoch whose settling cascade-id is in
+  ;; the graph, the graph filters to that cascade family.
+  ;;
+  ;; Shape:
+  ;;
+  ;;     {:graph                {:nodes [...] :arrows [...] ...}
+  ;;      :layout               {:positions {...} :width :height ...}
+  ;;      :selected-dispatch-id <id-or-nil>
+  ;;      :selected-epoch-id    <id-or-nil>
+  ;;      :filtered?            <bool>}
+  ;;
+  ;; Per spec §Performance the v1 helper runs O(n) over the buffer.
+  ;; The composite recomputes when any of its signals change — the
+  ;; reactive surface is the same as the event-detail composite.
+  (rf/reg-sub :rf.causa/causality-graph-data
+    ;; The graph still depends on the raw `trace-buffer` for the
+    ;; `enrich-cascades` walk (it surfaces `:event/dispatched` traces
+    ;; that aren't preserved in the projected cascade vector). The
+    ;; cascade vector itself is read from the shared
+    ;; `:rf.causa/cascades` projection so the O(buffer) `group-
+    ;; cascades` pass happens once per push instead of three times.
+    :<- [:rf.causa/cascades]
+    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/selected-dispatch-id]
+    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/epoch-history]
+    (fn [[cascades buffer selected-id selected-epoch-id history] _query]
+      (let [enriched         (h/enrich-cascades cascades buffer)
+            graph            (h/project-cascades-to-graph enriched)
+            ;; When Time Travel's selected-epoch resolves to a
+            ;; cascade-id, filter the graph to that cascade family.
+            epoch-record     (when selected-epoch-id
+                               (tt-helpers/find-epoch-in-history
+                                 history selected-epoch-id))
+            cascade-id-filter (some-> epoch-record
+                                      h/dispatch-id-of-epoch)
+            filterable?      (and cascade-id-filter
+                                  (some #(= cascade-id-filter (:dispatch-id %))
+                                        (:nodes graph)))
+            graph'           (if filterable?
+                               (h/filter-to-cascade
+                                 graph cascade-id-filter)
+                               graph)
+            layout           (h/compute-layout graph')]
+        {:graph                graph'
+         :layout               layout
+         :selected-dispatch-id selected-id
+         :selected-epoch-id    selected-epoch-id
+         :filtered?            (boolean filterable?)}))))

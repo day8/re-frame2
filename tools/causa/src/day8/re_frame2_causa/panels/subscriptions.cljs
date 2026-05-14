@@ -39,6 +39,7 @@
   chain`, `status-counts` — lives in `subscriptions_helpers.cljc` so
   the algebra runs under the JVM unit-test target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.panels.subscriptions-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -437,3 +438,146 @@
         (sub-list filtered-rows selected-query-v))]
      (when chain-open?
        (chain-view chain))]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Subscriptions panel's Causa-side
+  registrations (Phase 5, rf2-x0f5v)."
+  []
+  ;; ---- Phase 5 (rf2-x0f5v) — Subscriptions panel --------------
+  ;;
+  ;; The panel reads three surfaces — the target frame's live
+  ;; sub-cache (`(rf/sub-cache target-frame)` — CLJS-only), the
+  ;; just-settled epoch's :sub-runs projection (lifted off the
+  ;; newest record in :rf.causa/epoch-history), and Causa's own
+  ;; per-sub error cache (populated from `:op-type :error` trace
+  ;; events that carry a :sub-id) — and folds them via
+  ;; `subs-helpers/project-rows` into one row per cached sub.
+  ;;
+  ;; Per spec/012-Subscriptions.md §JVM behaviour the panel is
+  ;; CLJS-only; on JVM the sub-cache read returns nil and the
+  ;; panel renders its empty state.
+  ;;
+  ;; Shape of `:rf.causa/subscriptions-data`:
+  ;;
+  ;;     {:rows             [<row> ...]
+  ;;      :status-counts    {status count}
+  ;;      :total            <int>
+  ;;      :selected-query-v <query-v-or-nil>
+  ;;      :active-filters   #{:fresh :re-running ...}
+  ;;      :chain-open?      <bool>
+  ;;      :chain            {<chain projection> or nil}}
+
+  ;; Read the target frame's live sub-cache. CLJS-only — on JVM
+  ;; `rf/sub-cache` returns nil; the panel's empty state surfaces
+  ;; in that case. Tests stub the sub-cache by writing to
+  ;; `:sub-cache-override` on Causa's app-db (via
+  ;; `:rf.causa/set-sub-cache-override-for-test`) so the suite can
+  ;; assert against a deterministic cache shape without booting a
+  ;; substrate's reactive cache.
+  (rf/reg-sub :rf.causa/sub-cache
+    (fn [db _query]
+      (let [target (get db :target-frame defaults/default-target-frame)
+            ov     (get db :sub-cache-override)]
+        (or ov (rf/sub-cache target)))))
+
+  ;; Test-only override hook for the sub-cache reader. Production
+  ;; code paths never dispatch this — the override slot exists
+  ;; only so JVM + node-test suites can drive the projection
+  ;; without a live substrate.
+  (rf/reg-event-db :rf.causa/set-sub-cache-override-for-test
+    (fn [db [_ ov]]
+      (if (nil? ov)
+        (dissoc db :sub-cache-override)
+        (assoc db :sub-cache-override ov))))
+
+  ;; The Causa-internal per-sub error cache. Populated on every
+  ;; :op-type :error trace event that carries a :sub-id. The shape
+  ;; is {query-v <error-info>} — the helper treats any non-nil
+  ;; value as 'this sub threw'. v1 wiring keeps the cache empty
+  ;; until a downstream bead lands the error-collector plumbing;
+  ;; the panel is read-ready today.
+  (rf/reg-sub :rf.causa/sub-error-cache
+    (fn [db _query]
+      (get db :sub-error-cache {})))
+
+  ;; The user's per-panel sub selection (drives the chain affordance).
+  (rf/reg-sub :rf.causa/selected-sub
+    (fn [db _query]
+      (get db :selected-sub)))
+
+  ;; The active filter chip set (per spec §Filtering and grouping).
+  (rf/reg-sub :rf.causa/sub-filters
+    (fn [db _query]
+      (get db :sub-filters #{})))
+
+  ;; Whether the chain affordance is open in the panel.
+  (rf/reg-sub :rf.causa/sub-chain-open?
+    (fn [db _query]
+      (boolean (get db :sub-chain-open?))))
+
+  ;; The composite — one read produces every slot the panel
+  ;; consumes. Per spec §Performance the projection is O(rows) +
+  ;; O(depth-1) for the chain; the cache shape is small (per-frame
+  ;; materialised subs cap at the substrate's own reactive graph
+  ;; size) so the fold runs cheaply on every recompute.
+  (rf/reg-sub :rf.causa/subscriptions-data
+    :<- [:rf.causa/sub-cache]
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/sub-error-cache]
+    :<- [:rf.causa/selected-sub]
+    :<- [:rf.causa/sub-filters]
+    :<- [:rf.causa/sub-chain-open?]
+    (fn [[sub-cache history error-cache selected-q-v filters chain-open?]
+         _query]
+      (let [latest-epoch    (peek (vec history))
+            sub-runs        (:sub-runs latest-epoch)
+            ;; v1 has no first-class :changed-paths slot on the
+            ;; epoch-record yet (a follow-on will surface it); fall
+            ;; back to nil so the chain shows every layer-1 input
+            ;; path it knows about.
+            changed-paths   (:changed-paths latest-epoch)
+            rows            (h/project-rows
+                              sub-cache sub-runs error-cache)
+            counts          (h/status-counts rows)
+            chain           (when (and chain-open? selected-q-v)
+                              (h/compute-chain
+                                selected-q-v sub-cache sub-runs
+                                error-cache changed-paths))]
+        {:rows             rows
+         :status-counts    counts
+         :total            (count rows)
+         :selected-query-v selected-q-v
+         :active-filters   (or filters #{})
+         :chain-open?      (boolean chain-open?)
+         :chain            chain})))
+
+  ;; ---- Phase 5 (rf2-x0f5v) — Subscriptions panel events ------
+
+  (rf/reg-event-db :rf.causa/select-sub
+    (fn [db [_ query-v]]
+      (assoc db :selected-sub query-v)))
+
+  (rf/reg-event-db :rf.causa/clear-selected-sub
+    (fn [db _event]
+      (-> db
+          (dissoc :selected-sub)
+          (dissoc :sub-chain-open?))))
+
+  (rf/reg-event-db :rf.causa/toggle-sub-filter
+    (fn [db [_ status]]
+      (let [current (get db :sub-filters #{})]
+        (assoc db :sub-filters
+               (if (contains? current status)
+                 (disj current status)
+                 (conj current status))))))
+
+  (rf/reg-event-db :rf.causa/show-invalidation-chain
+    (fn [db [_ query-v]]
+      (cond-> (assoc db :sub-chain-open? true)
+        query-v (assoc :selected-sub query-v))))
+
+  (rf/reg-event-db :rf.causa/hide-invalidation-chain
+    (fn [db _event]
+      (dissoc db :sub-chain-open?))))

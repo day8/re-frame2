@@ -401,3 +401,62 @@
                                               :padding    0}}]
                           (for [row rows]
                             (trace-row row))))]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Trace panel's Causa-side registrations
+  (Phase 5, rf2-argrj)."
+  []
+  ;; ---- Phase 5 (rf2-argrj) — Trace panel ------------------------------
+  ;;
+  ;; The Trace panel is the UI consumer of the canonical 13-axis filter
+  ;; vocabulary documented in spec/009-Instrumentation.md §Filter
+  ;; vocabulary. Where the Issues ribbon collapses the stream to issues
+  ;; only, this panel surfaces the raw stream so a programmer can grep
+  ;; across every op-type / operation / source / origin / frame / etc.
+  ;;
+  ;; Shape of `:rf.causa/trace-feed`:
+  ;;
+  ;;     {:rows         [<row> ...]      ;; post-filter, newest first
+  ;;      :total        <int>            ;; pre-filter count
+  ;;      :rendered     <int>            ;; post-filter count
+  ;;      :distinct     {<axis> [...]}   ;; per-axis chip values
+  ;;      :counts       {<axis> {<value> <int>}}
+  ;;      :filters      <pass-through normalised>
+  ;;      :any-filter?  <bool>
+  ;;      :empty-kind   <:no-events / :no-matches / nil>}
+
+  ;; The current 13-axis filter map. Each axis is independent; the
+  ;; helper's `normalise-filters` drops nil / empty values before
+  ;; applying — the view sets axis = nil to clear an axis.
+  (rf/reg-sub :rf.causa/trace-filters
+    (fn [db _query]
+      (get db :trace-filters {})))
+
+  ;; Composite — produces every slot the view consumes. Reactive
+  ;; surface: trace-buffer + filter state. The helper's
+  ;; `project-feed` does the heavy lifting.
+  (rf/reg-sub :rf.causa/trace-feed
+    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/trace-filters]
+    (fn [[buffer filters] _query]
+      (h/project-feed buffer filters)))
+
+  ;; Set or clear one axis. Passing nil-value clears that axis;
+  ;; setting a value replaces any existing value on that axis (the
+  ;; chip-filter UI is single-value per axis for v1; multi-value
+  ;; rides a follow-on bead).
+  (rf/reg-event-db :rf.causa/set-trace-filter
+    (fn [db [_ axis value]]
+      (let [current (get db :trace-filters {})]
+        (assoc db :trace-filters
+               (if (nil? value)
+                 (dissoc current axis)
+                 (assoc current axis value))))))
+
+  ;; Clear every filter axis in one shot. Wired from the header's
+  ;; 'Clear filters' button + the no-matches empty state.
+  (rf/reg-event-db :rf.causa/clear-trace-filters
+    (fn [db _event]
+      (dissoc db :trace-filters))))

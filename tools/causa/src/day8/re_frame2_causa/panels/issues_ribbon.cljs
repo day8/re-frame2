@@ -375,3 +375,99 @@
                                               :padding    0}}]
                           (for [issue issues]
                             (issue-row issue))))]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Issues ribbon panel's Causa-side
+  registrations (Phase 5, rf2-d1p4o)."
+  []
+  ;; ---- Phase 5 (rf2-d1p4o) — Issues ribbon panel ---------------------
+  ;;
+  ;; Per `tools/causa/spec/000-Vision.md` L94 + spec/009-Instrumentation.md
+  ;; §Error event catalogue the panel is the unified feed across errors,
+  ;; warnings, schema violations, and hydration mismatches. It reads
+  ;; from the same trace-buffer as every other panel; the helpers
+  ;; classify each event into the ribbon's three severity buckets
+  ;; (:error / :warning / :advisory) and project the per-row shape
+  ;; (timestamp · category · severity · short description · jump-to-
+  ;; source).
+  ;;
+  ;; Filter axes per the bead's minimum-viable contract:
+  ;;
+  ;;   :severities  #{:error :warning :advisory}
+  ;;   :prefixes    #{"rf.error" "rf.warning" "rf.ssr" ...}
+  ;;   :since-ms    relative time window in ms (nil = no restriction)
+  ;;
+  ;; Each axis is independent; empty filter sets / nil :since-ms
+  ;; disable the axis.
+  ;;
+  ;; Shape of `:rf.causa/issues-ribbon`:
+  ;;
+  ;;     {:issues               [<row> ...]      ;; post-filter
+  ;;      :total                <int>            ;; pre-filter count
+  ;;      :rendered             <int>            ;; post-filter count
+  ;;      :severity-counts      {sev count}
+  ;;      :distinct-prefixes    [<prefix> ...]
+  ;;      :filters              <pass-through>
+  ;;      :empty-kind           <:no-issues / :no-matches / nil>}
+
+  ;; Active filter state — the panel reads the three slots through
+  ;; one sub so the view re-renders atomically when filters change.
+  (rf/reg-sub :rf.causa/issues-filters
+    (fn [db _query]
+      {:severities (get db :issues-active-severities #{})
+       :prefixes   (get db :issues-active-prefixes #{})
+       :since-ms   (get db :issues-since-ms)}))
+
+  ;; Composite — produces every slot the view consumes. The
+  ;; helper's `project-feed` does the heavy lifting; the sub is a
+  ;; thin wrapper that injects `now-ms` (so the since-ms axis is
+  ;; meaningful) and reads the trace-buffer + filter state through
+  ;; the reactive surface.
+  (rf/reg-sub :rf.causa/issues-ribbon
+    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/issues-filters]
+    (fn [[buffer filters] _query]
+      (h/project-feed buffer filters (h/now-ms))))
+
+  ;; ---- Issues ribbon events --------------------------------------
+
+  ;; Toggle a severity chip in/out of the active filter set. Per
+  ;; the bead's contract each axis is independent.
+  (rf/reg-event-db :rf.causa/toggle-issues-severity
+    (fn [db [_ severity]]
+      (let [current (get db :issues-active-severities #{})]
+        (assoc db :issues-active-severities
+               (if (contains? current severity)
+                 (disj current severity)
+                 (conj current severity))))))
+
+  ;; Toggle a category-prefix chip. Same shape as the severity
+  ;; toggle — multi-select set; empty set = no restriction.
+  (rf/reg-event-db :rf.causa/toggle-issues-prefix
+    (fn [db [_ prefix]]
+      (let [current (get db :issues-active-prefixes #{})]
+        (assoc db :issues-active-prefixes
+               (if (contains? current prefix)
+                 (disj current prefix)
+                 (conj current prefix))))))
+
+  ;; Set the since-ms axis from a seconds-typed user input. The
+  ;; view converts s → ms here so the helper's filter-application
+  ;; stays uniform in ms. nil / non-positive values clear the axis.
+  (rf/reg-event-db :rf.causa/set-issues-since-seconds
+    (fn [db [_ seconds]]
+      (if (and (number? seconds) (pos? seconds))
+        (assoc db :issues-since-ms (* (long seconds) 1000))
+        (dissoc db :issues-since-ms))))
+
+  ;; Clear every filter axis in one shot. The Clear filters
+  ;; affordance in the header + the no-matches empty state both
+  ;; fire this.
+  (rf/reg-event-db :rf.causa/clear-issues-filters
+    (fn [db _event]
+      (-> db
+          (dissoc :issues-active-severities)
+          (dissoc :issues-active-prefixes)
+          (dissoc :issues-since-ms)))))

@@ -41,6 +41,7 @@
   All pure-data logic lives in `time_travel_helpers.cljc` for JVM
   testability. This ns is the thin view-only wrapper."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.panels.time-travel-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -338,3 +339,189 @@
          (track-row data)
          (actions-row data)
          (chip-row (:chip-states data))])]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Time Travel scrubber panel's Causa-side
+  registrations (Phase 3, rf2-t53ze). Owns the cross-panel scrubber
+  state slots — target-frame / epoch-history / selected-epoch-id /
+  pin-store — that the App-DB Diff, Causality Graph, Routes, Hydration
+  Debugger, Schema-violation Timeline and Machine Inspector panels
+  all read transitively.
+
+  Two `reg-fx` handlers (the confirmed-rewind paths) and two event-fxs
+  (`:rf.causa/reset-to-epoch` / `:rf.causa/reset-to-pinned`) round out
+  the surface."
+  []
+  ;; Target frame the scrubber inspects. Hard-bound to :rf/default
+  ;; until a frame picker lands; the sub abstracts so the picker can
+  ;; drop in without rewiring every consumer.
+  (rf/reg-sub :rf.causa/target-frame
+    (fn [db _query]
+      (get db :target-frame defaults/default-target-frame)))
+
+  ;; Cached snapshot of the target frame's epoch history, pumped
+  ;; by `:rf.causa/epoch-recorded` (dispatched from the epoch-cb in
+  ;; preload). The cache is necessary because rf/epoch-history is a
+  ;; side-effecting read of the epoch artefact's atom — a sub fn
+  ;; can call it but the sub graph won't re-fire when the atom
+  ;; mutates. Routing history through Causa's app-db makes the sub
+  ;; reactive on its own write path.
+  (rf/reg-sub :rf.causa/epoch-history
+    (fn [db _query]
+      (get db :epoch-history [])))
+
+  ;; The view's currently-selected epoch — nil = newest (no scrub
+  ;; in flight). Per spec §The passive-scrubbing rule, scrubbing
+  ;; rebases panels but does NOT rewind app-db.
+  (rf/reg-sub :rf.causa/selected-epoch-id
+    (fn [db _query]
+      (get db :selected-epoch-id)))
+
+  ;; Per-frame pin store, keyed by target-frame. Persisted into
+  ;; Causa's app-db only — never localStorage / disk (Lock 4 per
+  ;; spec §Session-scoped — pins do not survive reload).
+  (rf/reg-sub :rf.causa/pin-store
+    (fn [db _query]
+      (get db :pin-store {})))
+
+  ;; The pin vector for the current target-frame — a flat sequence
+  ;; the view iterates. Decoupled from :rf.causa/pin-store so the
+  ;; view doesn't re-render when an unrelated frame's pins mutate.
+  (rf/reg-sub :rf.causa/pinned-snapshots
+    :<- [:rf.causa/pin-store]
+    :<- [:rf.causa/target-frame]
+    (fn [[pin-store target-frame] _query]
+      (h/epoch-pins-for-frame pin-store target-frame)))
+
+  ;; Composite for the panel — one read produces every slot the
+  ;; view needs. Mirrors the Phase-2 `:rf.causa/event-detail`
+  ;; composite shape. The :chip-states projection runs chip-state
+  ;; over each pin against the current history so detached pins
+  ;; carry the visible signal per spec §Pins on the scrubber.
+  (rf/reg-sub :rf.causa/time-travel
+    :<- [:rf.causa/target-frame]
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/pinned-snapshots]
+    (fn [[target-frame history selected-id pins] _query]
+      (let [selected-record (when selected-id
+                              (h/find-epoch-in-history
+                                history selected-id))]
+        {:target-frame    target-frame
+         :history         history
+         :selected-epoch-id selected-id
+         :selected-record selected-record
+         :selected-index  (h/epoch-index-in-history
+                            history selected-id)
+         :pins            pins
+         :chip-states     (h/chip-states history pins)
+         :cap-reached?    (>= (count pins) h/default-pin-cap)})))
+
+  ;; ---- Phase 3 (rf2-t53ze) — Time Travel scrubber events ---------
+
+  ;; Pump the latest epoch-history snapshot for the target frame
+  ;; into Causa's app-db. Dispatched from the epoch-cb registered
+  ;; in preload.cljs on every settled epoch. We don't pass the
+  ;; vector across the dispatch boundary — we re-read from the
+  ;; framework's `rf/epoch-history` so the snapshot is always
+  ;; consistent with the framework's view (the cb fires AFTER the
+  ;; record is appended; a stale arg would be off-by-one only on
+  ;; the boundary, but threading the live read keeps the contract
+  ;; simple).
+  (rf/reg-event-db :rf.causa/epoch-recorded
+    (fn [db [_ frame-id]]
+      (let [target (get db :target-frame defaults/default-target-frame)]
+        (if (= frame-id target)
+          (assoc db :epoch-history (vec (rf/epoch-history target)))
+          db))))
+
+  ;; Set the view's selected-epoch (passive scrub). Per spec §The
+  ;; passive-scrubbing rule — this DOES NOT call restore-epoch.
+  (rf/reg-event-db :rf.causa/select-epoch
+    (fn [db [_ epoch-id]]
+      (assoc db :selected-epoch-id epoch-id)))
+
+  (rf/reg-event-db :rf.causa/clear-selected-epoch
+    (fn [db _event]
+      (dissoc db :selected-epoch-id)))
+
+  ;; Pin the epoch at `epoch-id` under the current target-frame
+  ;; with `label`. The handler eagerly copies :db-after off the
+  ;; live history record (per spec §What a pin captures — eager
+  ;; capture). Enforces the 32-pin cap; surfaces `:overflow?` via
+  ;; the toast slot the view reads on next render.
+  (rf/reg-event-db :rf.causa/pin-current
+    (fn [db [_ epoch-id label]]
+      (let [target  (get db :target-frame defaults/default-target-frame)
+            history (vec (or (get db :epoch-history)
+                             (rf/epoch-history target)))
+            record  (h/find-epoch-in-history history epoch-id)
+            pin     (h/pin-from-epoch record label)]
+        (if (some? pin)
+          (let [{:keys [store overflow? dropped-pin]}
+                (h/pin-snapshot (get db :pin-store {})
+                                target pin)]
+            (cond-> (assoc db :pin-store store)
+              overflow? (assoc :pin-overflow-toast
+                               {:dropped-label (:label dropped-pin)
+                                :ts            (.getTime (js/Date.))})))
+          db))))
+
+  ;; Drop a pin from the current target-frame's pin store.
+  (rf/reg-event-db :rf.causa/unpin
+    (fn [db [_ epoch-id]]
+      (let [target (get db :target-frame defaults/default-target-frame)]
+        (update db :pin-store
+                h/unpin-snapshot target epoch-id))))
+
+  ;; Inline-rename a pin's label. The 4-tuple's other slots are
+  ;; immutable (spec §Pin actions §Rename pin).
+  (rf/reg-event-db :rf.causa/rename-pin
+    (fn [db [_ epoch-id new-label]]
+      (let [target (get db :target-frame defaults/default-target-frame)]
+        (update db :pin-store
+                h/rename-pin target epoch-id new-label))))
+
+  ;; Dismiss the cap-reached toast surface.
+  (rf/reg-event-db :rf.causa/dismiss-pin-overflow-toast
+    (fn [db _] (dissoc db :pin-overflow-toast)))
+
+  ;; ---- write effects (the two confirmed-rewind paths) ----------
+
+  ;; Reset to current epoch — uses restore-epoch (the ring-buffer
+  ;; path). Per spec §The passive-scrubbing rule §rewind = explicit:
+  ;; this is the confirmed-rewind branch. Per re-frame v2's reg-fx
+  ;; contract (Spec API.md §reg-fx) the handler signature is
+  ;; (fn [ctx args] ...).
+  (rf/reg-fx :rf.causa.fx/restore-epoch
+    (fn [_ctx {:keys [frame-id epoch-id]}]
+      (rf/restore-epoch frame-id epoch-id)))
+
+  ;; Reset to pinned — uses reset-frame-db! (the value-direct path).
+  ;; Per spec §Why reset-frame-db! not restore-epoch — pins hold the
+  ;; value directly, so the rewind works even after the underlying
+  ;; epoch ages out of the ring buffer.
+  (rf/reg-fx :rf.causa.fx/reset-frame-db!
+    (fn [_ctx {:keys [frame-id frame-db]}]
+      (rf/reset-frame-db! frame-id frame-db)))
+
+  (rf/reg-event-fx :rf.causa/reset-to-epoch
+    (fn [{:keys [db]} [_ epoch-id]]
+      (let [target (get db :target-frame defaults/default-target-frame)]
+        ;; Per Spec MIGRATION §Effect map shape — re-frame2's canonical
+        ;; fx return is `{:db ... :fx [[fx-id args] ...]}`. Top-level
+        ;; effect keys other than :db / :fx are not part of the
+        ;; contract; the registered fx is invoked via the :fx vector.
+        {:fx [[:rf.causa.fx/restore-epoch
+               {:frame-id target :epoch-id epoch-id}]]})))
+
+  (rf/reg-event-fx :rf.causa/reset-to-pinned
+    (fn [{:keys [db]} [_ epoch-id]]
+      (let [target (get db :target-frame defaults/default-target-frame)
+            pin    (h/find-pin (get db :pin-store {})
+                               target epoch-id)]
+        (when pin
+          {:fx [[:rf.causa.fx/reset-frame-db!
+                 {:frame-id target :frame-db (:frame-db pin)}]]})))))
