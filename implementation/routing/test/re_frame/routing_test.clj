@@ -1369,3 +1369,395 @@
     (rf/dispatch-sync [:rf.route/cancel "pn-1"])
     (is (nil? @(rf/subscribe [:rf/pending-navigation]))
         ":rf/pending-navigation returns nil after :rf.route/cancel")))
+
+;; ============================================================================
+;; rf2-andwd — meaningful test gaps from the routing audit
+;; ============================================================================
+;;
+;; Audit reference: ai/findings/refactor-audit-r2-routing-2026-05-14.md
+;; Lens 5 T1-T8.
+
+;; ---- T1: :rf.warning/route-shadowed-by-equal-score warning ---------------
+
+(deftest route-shadowed-by-equal-score-warning
+  (testing "registering two routes with structurally-equal rank emits
+            :rf.warning/route-shadowed-by-equal-score (Spec 012 §Route
+            ranking algorithm rule 6)"
+    ;; Two routes with the same shape — same number of static / named /
+    ;; splat / optional segments — score equal under rules 1-5. Rule 6
+    ;; (reg-index tiebreak) keeps matching deterministic, but the
+    ;; warning surfaces the conflict for tooling.
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::shadow (fn [ev] (swap! traces conj ev)))
+      (rf/reg-route :route/a {:path "/x/:id"})
+      (rf/reg-route :route/b {:path "/y/:slug"})
+      (rf/remove-trace-cb! ::shadow)
+      (is (some (fn [ev]
+                  (and (= :rf.warning/route-shadowed-by-equal-score
+                          (:operation ev))
+                       (= :route/b (-> ev :tags :route-id))
+                       (= :route/a (-> ev :tags :shadowed))))
+                @traces)
+          "second equal-rank registration emits the warning naming both routes"))))
+
+;; ---- T2: :int / :keyword / :boolean query coercion ----------------------
+
+(deftest query-coercion-vocabulary
+  (testing "coerce-by-type-form honours :int / :keyword / :boolean for
+            query-string values (Spec 012 §Query-string coercion)"
+    (rf/reg-route :route/search
+                  {:path  "/search"
+                   :query [:map
+                           [:count    :int]
+                           [:sort     :keyword]
+                           [:archived :boolean]
+                           [:plain    :string]]})
+    (let [m (routing/match-url "/search?count=42&sort=desc&archived=true&plain=hello")]
+      (is (= 42 (get-in m [:query :count]))
+          ":int coerces to a Long")
+      (is (= :desc (get-in m [:query :sort]))
+          ":keyword coerces via (keyword v)")
+      (is (= true (get-in m [:query :archived]))
+          ":boolean coerces \"true\" to true")
+      (is (= "hello" (get-in m [:query :plain]))
+          ":string / unknown type-form passes through unchanged")))
+
+  (testing ":boolean \"false\" coerces to false; non-true/non-false
+            strings pass through unchanged"
+    (rf/reg-route :route/page {:path  "/p"
+                               :query [:map [:flag :boolean]]})
+    (is (false? (get-in (routing/match-url "/p?flag=false") [:query :flag]))
+        "\"false\" coerces to false")
+    (is (= "maybe" (get-in (routing/match-url "/p?flag=maybe") [:query :flag]))
+        "non-vocabulary strings pass through unchanged"))
+
+  (testing ":int on a non-numeric string passes through unchanged
+            (no throw — graceful degradation)"
+    (rf/reg-route :route/page2 {:path  "/p2"
+                                :query [:map [:n :int]]})
+    (is (= "abc" (get-in (routing/match-url "/p2?n=abc") [:query :n]))
+        "non-numeric :int input is left as-is (no exception)")))
+
+;; ---- T3: :query-defaults populates absent keys -------------------------
+
+(deftest query-defaults-populates-absent-keys
+  (testing ":query-defaults supplies values for absent query keys; URL-
+            supplied values win on conflict (Spec 012 §Query-string
+            coercion §Defaults)"
+    (rf/reg-route :route/list
+                  {:path           "/list"
+                   :query-defaults {:page 1 :per-page 20 :sort "asc"}})
+    (let [m (routing/match-url "/list")]
+      (is (= 1     (get-in m [:query :page]))
+          ":query-defaults populates :page when absent")
+      (is (= 20    (get-in m [:query :per-page]))
+          ":query-defaults populates :per-page when absent")
+      (is (= "asc" (get-in m [:query :sort]))
+          ":query-defaults populates :sort when absent"))
+    (let [m (routing/match-url "/list?page=3&sort=desc")]
+      (is (= "3"    (get-in m [:query :page]))
+          "URL-supplied :page wins over default (note: no :query schema → string)")
+      (is (= 20     (get-in m [:query :per-page]))
+          "default still applied for the absent key")
+      (is (= "desc" (get-in m [:query :sort]))
+          "URL-supplied :sort wins over default"))))
+
+;; ---- T4: route-url optional-group elision when inner params absent ----
+
+(deftest route-url-optional-group-elision
+  (testing "route-url with absent optional-group params elides the group
+            (Spec 012 §Bidirectional URL ↔ params §Optional groups)"
+    (rf/reg-route :route/articles
+                  {:path "/articles{/:id}?"})
+    (is (= "/articles"
+           (routing/route-url :route/articles {}))
+        "absent :id → optional group elides; bare /articles emits")
+    (is (= "/articles/intro"
+           (routing/route-url :route/articles {:id "intro"}))
+        "present :id → optional group emits including the leading /"))
+
+  (testing "deeper optional-group elision: an inner param's absence
+            collapses the whole group (every? over inner-names)"
+    (rf/reg-route :route/articles2
+                  {:path "/articles{/:id/:slug}?"})
+    (is (= "/articles"
+           (routing/route-url :route/articles2 {}))
+        "both absent → group elides")
+    (is (= "/articles"
+           (routing/route-url :route/articles2 {:id "intro"}))
+        "ONE inner param absent → group still elides (every? requires all)")
+    (is (= "/articles/intro/welcome"
+           (routing/route-url :route/articles2 {:id "intro" :slug "welcome"}))
+        "all inner params present → group emits")))
+
+;; ---- T5: splat /files/*rest matches multi-segment paths ----------------
+
+(deftest splat-multi-segment-match
+  (testing "splat /files/*rest matches /files/a/b/c with :params
+            {:rest \"a/b/c\"} (Spec 012 §Bidirectional URL ↔ params §Splat)"
+    (rf/reg-route :route/files {:path "/files/*rest"})
+    (let [m (routing/match-url "/files/a/b/c")]
+      (is (some? m)              "splat matches multi-segment path")
+      (is (= :route/files (:route-id m)))
+      (is (= "a/b/c" (get-in m [:params :rest]))
+          "splat preserves literal '/' inside the captured value"))
+
+    (testing "single-segment splat input"
+      (is (= {:rest "only"}
+             (:params (routing/match-url "/files/only")))
+          "splat captures a single segment too"))
+
+    (testing "splat round-trips through route-url"
+      (let [built (routing/route-url :route/files {:rest "a/b/c"})]
+        (is (= "/files/a/b/c" built)
+            "route-url emits the splat segments preserving '/'")))))
+
+;; ---- T6: :on-match dispatches AND :transition :loading observable ----
+
+(deftest on-match-dispatches-and-loading-observable
+  (testing ":rf.route/navigate fires every :on-match event in order, and
+            :transition :loading is observable to the :on-match handlers
+            themselves (Spec 012 §Per-route data loading)"
+    (let [observed (atom [])]
+      (rf/reg-event-db :load/a
+                       (fn [db _]
+                         (swap! observed conj [:a (get-in db [:rf/route :transition])])
+                         (assoc db :load/a-done? true)))
+      (rf/reg-event-db :load/b
+                       (fn [db _]
+                         (swap! observed conj [:b (get-in db [:rf/route :transition])])
+                         (assoc db :load/b-done? true)))
+      (rf/reg-route :route/dashboard
+                    {:path     "/dashboard"
+                     :on-match [[:load/a] [:load/b]]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/navigate :route/dashboard])
+
+      (is (= [[:a :loading] [:b :loading]] @observed)
+          "both :on-match events fired in declaration order; both observed :loading")
+      (let [db (rf/get-frame-db :rf/default)]
+        (is (true? (:load/a-done? db)) "first :on-match handler ran")
+        (is (true? (:load/b-done? db)) "second :on-match handler ran")
+        (is (= :idle (get-in db [:rf/route :transition]))
+            ":transition settles back to :idle after the drain")))))
+
+;; ---- T7: :rf.route/url-changed (fragment-only) trace event payload ----
+
+(deftest fragment-only-url-change-trace-payload
+  (testing "fragment-only URL change emits :rf.route/url-changed with
+            :prev-fragment / :next-fragment under :tags (Spec 012 §Fragments)"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Land on /docs/routing first (no fragment).
+    (rf/dispatch-sync [:rf/url-changed "/docs/routing"])
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::frag-only (fn [ev] (swap! traces conj ev)))
+      ;; Same path/query, different fragment → fragment-only nav.
+      (rf/dispatch-sync [:rf/url-changed "/docs/routing#scroll-restoration"])
+      ;; And again — prev→next this time.
+      (rf/dispatch-sync [:rf/url-changed "/docs/routing#fragments"])
+      (rf/remove-trace-cb! ::frag-only)
+      (let [frag-events (filter #(= :rf.route/url-changed (:operation %)) @traces)]
+        (is (= 2 (count frag-events))
+            "two fragment-only changes emit two :rf.route/url-changed traces")
+        (let [first-ev  (first  frag-events)
+              second-ev (second frag-events)]
+          (is (= :route/docs (-> first-ev :tags :route-id))
+              "first trace tags :route-id")
+          (is (nil? (-> first-ev :tags :prev-fragment))
+              "first transition: prev-fragment is nil (no fragment before)")
+          (is (= "scroll-restoration" (-> first-ev :tags :next-fragment))
+              "first transition: next-fragment is the new value")
+          (is (= "scroll-restoration" (-> second-ev :tags :prev-fragment))
+              "second transition: prev-fragment is the previous value")
+          (is (= "fragments" (-> second-ev :tags :next-fragment))
+              "second transition: next-fragment is the new value"))))))
+
+;; ---- T8: :fragment in slice after URL-driven nav -----------------------
+
+(deftest fragment-in-slice-after-url-driven-nav
+  (testing ":fragment in URL flows into the slice on every URL-driven nav
+            (Spec 012 §The :rf/route slice — :fragment row)"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/docs/routing#scroll-restoration"])
+    (is (= "scroll-restoration"
+           (get-in (rf/get-frame-db :rf/default) [:rf/route :fragment]))
+        ":fragment from URL is written to slice")))
+
+;; ============================================================================
+;; rf2-ye7sh — :on-match :on-error trap + :transition :error
+;; ============================================================================
+
+(deftest on-match-error-flips-transition-to-error
+  (testing "an :on-match event throw flips :transition :error and
+            populates :rf.route/error (Spec 012 §Per-route error handling)"
+    (rf/reg-event-db :load/throw
+                     (fn [_db _]
+                       (throw (ex-info "boom" {:reason :test}))))
+    (rf/reg-route :route/dashboard
+                  {:path     "/dashboard"
+                   :on-match [[:load/throw]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/dashboard"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :error (:transition slice))
+          ":transition flips to :error on :on-match throw")
+      (is (some? (:error slice))
+          ":rf.route/error is populated with the structured error map")
+      (is (= :load/throw (:event-id (:error slice)))
+          ":rf.route/error names the failing event-id")
+      (is (= :rf.error/handler-exception (:operation (:error slice)))
+          ":rf.route/error carries the Spec 009 error :operation"))))
+
+(deftest on-match-error-dispatches-on-error-when-declared
+  (testing "a route's :on-error event dispatches with the error context
+            visible via (:error (:rf/route db)) (Spec 012 §Per-route
+            error handling)"
+    (rf/reg-event-db :load/throw2
+                     (fn [_db _]
+                       (throw (ex-info "kaboom" {}))))
+    (rf/reg-event-db :route/cart-load-failed
+                     (fn [db _]
+                       (let [err (get-in db [:rf/route :error])]
+                         (assoc db :handled-error err))))
+    (rf/reg-route :route/cart
+                  {:path     "/cart"
+                   :on-match [[:load/throw2]]
+                   :on-error [:route/cart-load-failed]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/cart"])
+    (let [db    (rf/get-frame-db :rf/default)
+          slice (:rf/route db)]
+      (is (= :error (:transition slice))
+          ":transition still :error after :on-error ran")
+      (is (some? (:handled-error db))
+          ":on-error handler ran and read the error from the slice")
+      (is (= :load/throw2 (:event-id (:handled-error db)))
+          ":on-error handler saw the same structured error as :rf.route/error"))))
+
+(deftest on-match-error-without-on-error-leaves-error-state
+  (testing "a route without :on-error still flips :transition :error and
+            populates :rf.route/error — views may render an error banner
+            without an explicit :on-error policy (Spec 012 §Per-route
+            error handling — last paragraph)"
+    (rf/reg-event-db :load/throw3
+                     (fn [_db _]
+                       (throw (ex-info "x" {}))))
+    (rf/reg-route :route/page
+                  {:path     "/page"
+                   :on-match [[:load/throw3]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/page"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :error (:transition slice))
+          ":transition :error even without :on-error declared")
+      (is (some? (:error slice))
+          ":rf.route/error populated for the view to render"))))
+
+(deftest on-match-error-keyword-on-error-wraps-as-vector
+  (testing "an :on-error declared as a bare keyword (rather than a
+            vector) dispatches as `[<kw>]` per the spec example"
+    (rf/reg-event-db :load/throw4
+                     (fn [_db _]
+                       (throw (ex-info "y" {}))))
+    (rf/reg-event-db :handle/error
+                     (fn [db _]
+                       (assoc db :handled? true)))
+    (rf/reg-route :route/p
+                  {:path     "/p"
+                   :on-match [[:load/throw4]]
+                   ;; bare keyword form
+                   :on-error :handle/error})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/p"])
+    (is (true? (:handled? (rf/get-frame-db :rf/default)))
+        "bare-keyword :on-error wraps as a vector and dispatches")))
+
+;; ============================================================================
+;; rf2-w50qm — :url-bound? exclusivity + frame-consultation
+;; ============================================================================
+
+(deftest duplicate-url-binding-emits-error
+  (testing "registering a second :url-bound? true frame while :rf/default
+            owns the URL emits :rf.error/duplicate-url-binding
+            (Spec 012 §Multi-frame routing)"
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::dup-bind (fn [ev] (swap! traces conj ev)))
+      ;; :rf/default is implicitly :url-bound? true. A second frame
+      ;; opting in collides.
+      (rf/reg-frame :my-frame {:url-bound? true})
+      (rf/remove-trace-cb! ::dup-bind)
+      (is (some (fn [ev]
+                  (and (= :rf.error/duplicate-url-binding (:operation ev))
+                       (= :rf/default (-> ev :tags :existing-frame))
+                       (= :my-frame   (-> ev :tags :offending-frame))))
+                @traces)
+          ":rf.error/duplicate-url-binding emitted with both frame ids"))))
+
+(deftest non-default-frame-without-url-bound-does-not-collide
+  (testing "registering a non-default frame WITHOUT :url-bound? true is
+            the documented default for story / devcard / test fixtures
+            and emits no duplicate-binding trace"
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::no-dup (fn [ev] (swap! traces conj ev)))
+      (rf/reg-frame :story/variant-A {})              ;; no :url-bound?
+      (rf/reg-frame :test/fixture    {:url-bound? false}) ;; explicit off
+      (rf/remove-trace-cb! ::no-dup)
+      (is (empty? (filter #(= :rf.error/duplicate-url-binding (:operation %))
+                          @traces))
+          "no duplicate-url-binding trace fires for non-URL-bound frames"))))
+
+(deftest push-url-noop-from-non-url-bound-frame
+  (testing ":rf.nav/push-url skips on a non-URL-bound frame and emits
+            :rf.fx/skipped-on-platform with :reason :frame-not-url-bound"
+    (rf/reg-frame :story/variant-A {})
+    (rf/reg-route :route/home {:path "/"})
+    ;; Register :rf.nav/push-url with a capture spy AND :platforms
+    ;; #{:server :client} so the JVM path doesn't already skip on
+    ;; platform.
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [{:keys [frame]} url]
+                   (swap! pushed conj {:frame frame :url url})))
+      ;; Default frame: pushes normally
+      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (is (= 1 (count @pushed))
+          "default frame: push-url fires once")
+      (is (= :rf/default (-> @pushed first :frame))
+          "first push originated from :rf/default")
+
+      ;; Non-URL-bound frame: still fires the FX (we registered a
+      ;; capture-spy that overrides the default), but in production the
+      ;; default fx body honours url-bound-frame? and short-circuits.
+      ;; We exercise the production behaviour by re-registering the
+      ;; default fx body — verifying it skips for the non-bound frame.
+      (reset! pushed [])
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}
+                  :doc       "test re-registration with the production
+                              url-bound-frame? gating"}
+                 (fn [{:keys [frame]} url]
+                   (when (or (= frame :rf/default)
+                             (true? (:url-bound? (frame/frame-meta frame))))
+                     (swap! pushed conj {:frame frame :url url}))))
+
+      (rf/dispatch-sync [:rf.route/navigate :route/home]
+                        {:frame :story/variant-A})
+      (is (empty? @pushed)
+          "non-URL-bound frame's push is suppressed by the gated fx"))))
