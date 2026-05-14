@@ -300,9 +300,12 @@
 
    ;; ---- re-frame.adapter.reagent (rf2-0hxm) ---------------------------------
    {:key         :reagent/set-hiccup-emitter!
-    :producer-ns '[re-frame.adapter.reagent re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent
+                   re-frame.adapter.reagent-slim
+                   re-frame.adapter.uix]
     :chained?    true
-    :description "Install the substrate-specific hiccup emitter for SSR."}
+    :design-bead "rf2-4z7bp"
+    :description "Install the substrate-specific hiccup emitter for SSR. Chained — every loaded React-shaped adapter contributes its own install step so a single SSR ns-load auto-wires every adapter's render-to-string slot."}
 
    ;; ---- re-frame.views (CLJS, rf2-4edk warn-once chain) ---------------------
    {:key         :views/maybe-warn-plain-fn-under-non-default-frame!
