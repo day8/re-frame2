@@ -217,20 +217,19 @@
 
 (defn- spawned-actor-id?
   "Return true if `event-id` is currently bound somewhere under
-  `[:rf/spawned <parent> <invoke-id>]` in `db` — either as the leaf
-  value (declarative `:invoke`) or as a value in the `:children` map
-  of the join-state record (declarative `:invoke-all`)."
-  [db event-id]
-  (when (and event-id (map? db))
-    (some (fn [[_parent inner]]
-            (some (fn [[_invoke-id v]]
-                    (or (= v event-id)                      ;; :invoke leaf
-                        (and (map? v)                       ;; :invoke-all join state
-                             (some (fn [[_cid cid-val]]
-                                     (= cid-val event-id))
-                                   (:children v)))))
-                  inner))
-          (get db :rf/spawned))))
+  `[:rf/spawned <parent> <invoke-id>]` in `spawned` — either as the
+  leaf value (declarative `:invoke`) or as a value in the `:children`
+  map of the join-state record (declarative `:invoke-all`)."
+  [spawned event-id]
+  (some (fn [[_parent inner]]
+          (some (fn [[_invoke-id v]]
+                  (or (= v event-id)                      ;; :invoke leaf
+                      (and (map? v)                       ;; :invoke-all join state
+                           (some (fn [[_cid cid-val]]
+                                   (= cid-val event-id))
+                                 (:children v)))))
+                inner))
+        spawned))
 
 (defn compute-actor-id
   "Resolve the spawned-actor-id for the request at hand, given the frame
@@ -239,11 +238,21 @@
   currently registered in the frame's `[:rf/spawned ...]` slot, otherwise
   nil — meaning the request is NOT subject to actor-destroy cancellation
   (it was dispatched from an ordinary event handler, not from inside a
-  spawned actor)."
+  spawned actor).
+
+  Per rf2-hzn1a — fast path for the common case (no spawned actors).
+  Apps that don't use state machines never carry `:rf/spawned` in their
+  app-db; we still deref the db to check, but the seq-empty test short-
+  circuits before the O(parents × invokes) walk. This keeps the cost
+  on the no-machines hot path at one deref + one map lookup + one
+  seq-check, rather than a full structural walk against the (always
+  empty) registry."
   [frame-id origin-event]
   (let [event-id (when (vector? origin-event) (first origin-event))]
     (when (and event-id
                (not= event-id :rf.http/managed))
-      (let [db (frame/frame-app-db-value frame-id)]
-        (when (spawned-actor-id? db event-id)
-          event-id)))))
+      (let [db      (frame/frame-app-db-value frame-id)
+            spawned (when (map? db) (:rf/spawned db))]
+        (when (seq spawned)
+          (when (spawned-actor-id? spawned event-id)
+            event-id))))))
