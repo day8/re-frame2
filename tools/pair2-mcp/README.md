@@ -76,9 +76,10 @@ The server auto-discovers the nREPL port from (in order):
 
 ### Launch flags
 
-| Flag           | Default | What it does                                                                         |
-|----------------|---------|--------------------------------------------------------------------------------------|
-| `--allow-eval` | OFF     | Enable the `eval-cljs` tool. Default-OFF gate (rf2-cxx5s); see "eval-cljs gate" below. |
+| Flag                  | Default | What it does                                                                         |
+|-----------------------|---------|--------------------------------------------------------------------------------------|
+| `--allow-eval`        | OFF     | Enable the `eval-cljs` tool. Default-OFF gate (rf2-cxx5s); see "eval-cljs gate" below. |
+| `--allow-raw-state`   | OFF     | Honour caller-supplied `:include-sensitive? true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu); see "raw-state gate" below. |
 
 #### eval-cljs gate (rf2-cxx5s)
 
@@ -101,6 +102,38 @@ builds ship the tool DISABLED; the operator opts in at server launch:
 Without the flag, calls to `eval-cljs` return the structured error
 `{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
 touching the nREPL socket. Same posture as causa-mcp's split (rf2-zyoj2).
+
+#### raw-state gate (rf2-c2dtu)
+
+The direct-read surfaces (`snapshot`, `get-path`, `subscribe`,
+`trace-window`, `watch-epochs`) can return verbatim slices of a live
+app's state. Spec 009 §Privacy mandates default-suppression: sensitive
+slots redact and large slots elide before any payload crosses the
+LLM-facing wire. Published builds ship with the gate **OFF**:
+
+- A caller's `:include-sensitive? true` is overridden to `false`.
+- A caller's `:elision false` is overridden to `true`.
+- The preload runtime's `app-db-reset!` taps default-elide both
+  `:previous` and `:next` payloads through `re-frame.core/elide-wire-value`
+  before any tap consumer sees them.
+
+Operators who need raw state for offline debug opt in at server launch:
+
+```json
+{
+  "mcpServers": {
+    "re-frame-pair2": {
+      "command": "re-frame-pair2-mcp",
+      "args": ["--allow-raw-state"]
+    }
+  }
+}
+```
+
+With the flag, the per-call args win again — `:include-sensitive? true`
+and `:elision false` ride through to the walker unchanged. Same
+architecture as `--allow-eval` (rf2-zyoj2) and story-mcp's in-flight
+`--allow-sensitive-reads` (rf2-uaymx).
 
 ### First call
 
