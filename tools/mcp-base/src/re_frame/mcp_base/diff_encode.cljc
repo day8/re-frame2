@@ -213,8 +213,29 @@
   "Apply a vector of patches to `base`, returning the reconstructed
   value. Patches are `[path :assoc v]` or `[path :dissoc]`. Root-path
   patches (path `[]`) replace `base` outright (for `:assoc`) or are a
-  no-op (for `:dissoc`, by convention)."
+  no-op (for `:dissoc`, by convention).
+
+  ## Decoder-boundary validation (rf2-8e61v)
+
+  `apply-patches` is the wire-decoder entry point: a malformed patch
+  reaching this fn is a contract violation by an upstream encoder (a
+  drifted re-frame2 mcp-base, a third-party decoder rolling its own
+  shape, a transport corruption). Mirror `diff-encode-db-after`'s
+  encoder-boundary gate: validate `patches` against `patches-schema`
+  and throw `:rf.error/bad-diff-patches` ex-info on mismatch.
+
+  The encoder side already pinned the grammar; this is the symmetric
+  decode-side gate so the cross-MCP wire convention surfaces the
+  drift rather than silently no-op'ing on the malformed tuple (the
+  previous behaviour fell through the `cond` to `:else acc` and
+  dropped corrupted patches without a peep).
+
+  Soft-pass behaviour mirrors the encoder: when Malli is not
+  resolvable on the runtime classpath, validation is skipped. The
+  CLJS `validate-patches?` `goog-define` toggle elides both gates
+  together in `:advanced` builds."
   [base patches]
+  (validate-patches! patches)
   (reduce
     (fn [acc patch]
       (let [[path op v] patch]
