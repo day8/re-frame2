@@ -30,26 +30,14 @@
    [re-frame.core :as rf]
    [re-frame.machines :as machines]
    [re-frame.registrar :as registrar]
-   #?@(:clj  [[re-frame.frame :as frame]
-              [re-frame.substrate.plain-atom :as plain-atom]
-              [re-frame.trace :as trace]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]
-              [re-frame.test-support :as test-support]])))
+   [re-frame.test-support :as test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
-#?(:clj
-   (defn- reset-runtime [test-fn]
-     (registrar/clear-all!)
-     (reset! frame/frames {})
-     (trace/clear-trace-cbs!)
-     (rf/init! plain-atom/adapter)
-     (require 're-frame.machines :reload)
-     (machines/reset-timers!)
-     (test-fn)))
-
-#?(:clj  (use-fixtures :each reset-runtime)
-   :cljs (use-fixtures :each
-           (test-support/reset-runtime-fixture
-             {:adapter reagent-adapter/adapter})))
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    #?(:clj  {:adapter plain-atom/adapter}
+       :cljs {:adapter reagent-adapter/adapter})))
 
 (defn- snapshot
   [machine-id]

@@ -20,21 +20,13 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             [re-frame.machines.result :as result]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- snapshot [machine-id]
   (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
