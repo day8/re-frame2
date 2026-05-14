@@ -2,8 +2,7 @@
   "Recurring JSON-schema fragments + the schema-prop-injection helpers
   used by every tool's `:inputSchema`. Kept in its own ns so each
   category's descriptor list (`dev/descriptors`, `docs/descriptors`,
-  …) can require these without circling through `registry`."
-  (:refer-clojure :exclude [name]))
+  …) can require these without circling through `registry`.")
 
 (def kw-or-string
   "Recurring fragment — accept either string-form keywords

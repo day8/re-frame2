@@ -35,6 +35,16 @@
                 write/descriptors
                 recorder/descriptors]))
 
+;; Load-time invariant: every registry entry MUST carry a positive-integer
+;; `:typicalTokens` hint (rf2-6sddv). The same shape is asserted by
+;; `typical-tokens-hint-on-every-tool` in the test corpus; pinning it at
+;; load time lets `tool-descriptors` project a plain map literal without
+;; a defensive `cond->` arm for the slot.
+(assert (every? (fn [t] (and (integer? (:typicalTokens t))
+                             (pos? (:typicalTokens t))))
+                tool-registry)
+        "tool-registry: every entry must carry positive-integer :typicalTokens")
+
 (defn tool-descriptors
   "Build the `tools/list` response payload: each tool's name +
   description + inputSchema + typicalTokens, in registry order. The
@@ -44,13 +54,18 @@
   `typicalTokens` (rf2-6sddv) is an informational hint — an integer
   ballpark of the response payload size in tokens. AI clients use it
   to budget calls and pick size-conscious args without trial-and-error.
-  Not a cap (the host enforces real budgets elsewhere); a hint only."
+  Not a cap (the host enforces real budgets elsewhere); a hint only.
+
+  The `:typicalTokens` slot is asserted on every entry by the
+  `typical-tokens-hint-on-every-tool` test plus the registry-load
+  assertion below, so the projection is a plain map literal rather
+  than a defensive `cond->`."
   []
   (mapv (fn [{:keys [name description inputSchema typicalTokens]}]
-          (cond-> {:name        name
-                   :description description
-                   :inputSchema inputSchema}
-            typicalTokens (assoc :typicalTokens typicalTokens)))
+          {:name          name
+           :description   description
+           :inputSchema   inputSchema
+           :typicalTokens typicalTokens})
         tool-registry))
 
 (defn tool-by-name
