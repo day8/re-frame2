@@ -334,7 +334,6 @@ For tooling, agents, story tools, 10x.
 | `registrations` | Fn | `(registrations kind)` / `(registrations kind pred-fn)` → `{id metadata-map}`. **Use when you want metadata** — registry walks that read source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, etc. | v1 | ✓ | 002 |
 | `handler-ids` | Fn | `(handler-ids kind)` → id set (canonical alias for `(-> (registrations kind) keys set)`). **Use when you only need to enumerate** — completion lists, existence checks, set-shaped intersections; saves both the metadata-map allocations and the `keys` walk. | v1 | ✓ | 002 |
 | `handler-meta` | Fn | `(handler-meta kind id)` → registration-metadata map. View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta` ([Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup. | v1 | ✓ | 002 |
-| `registry-summary` | Fn | `(registry-summary)` → `{kind count}` (count of registered ids per kind; useful in dev-tooling overlays) | v1 | ✓ | 002 |
 | `machines` | Fn | `(machines)` → seq of machine-ids. Derived view over `(registrations :event)` filtered by `:rf/machine? true`. | v1 | ✓ | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | ✓ | 005 |
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | ✓ | 002 |

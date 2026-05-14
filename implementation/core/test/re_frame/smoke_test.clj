@@ -764,181 +764,136 @@
       (is (clojure.string/starts-with? (r2s [:html [:body]] {:doctype? true})
                                        "<!DOCTYPE html>")))))
 
-;; ---- rf2-o1bp: registry-summary / handler-ids / registrations / handler-meta ---
+;; ---- rf2-o1bp: handler-ids / registrations / handler-meta ----------------
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-17: the introspection re-exports
-;; live at core.cljc:1157-1159 (`registrations`, `handler-meta`, `handler-ids`,
-;; `registry-summary`). They're used inside fixtures and the source-coords
-;; tests but no single deftest pins their cross-kind round-trip. This test
-;; registers handlers across the canonical kinds, then walks the four
-;; introspection surfaces against each.
+;; (`registrations`, `handler-meta`, `handler-ids`). They're used inside
+;; fixtures and the source-coords tests but no single deftest pins their
+;; cross-kind round-trip. This test registers handlers across the canonical
+;; kinds, then walks the three introspection surfaces against each.
 
 (deftest registry-introspection-round-trip
-  (testing "rf/registry-summary, rf/handler-ids, rf/registrations, rf/handler-meta
-            cover every registration kind with the documented shape"
-    ;; Capture the per-kind baseline counts BEFORE this test's registrations
-    ;; so framework-shipped entries (the :rf.route/* events, :rf/hydrate,
-    ;; the built-in :error-projector etc.) don't make the count assertions
-    ;; brittle. The contract is "every kind I registered into is reflected
-    ;; with at least the count I added"; the baseline lets us assert that
-    ;; precisely.
-    (let [baseline (rf/registry-summary)]
+  (testing "rf/handler-ids, rf/registrations, rf/handler-meta cover every
+            registration kind with the documented shape"
+    ;; ---- :event --------------------------------------------------------
+    (rf/reg-event-db :rf2-o1bp/evt1 (fn [db _] db))
+    (rf/reg-event-fx :rf2-o1bp/evt2 (fn [_ _] {}))
 
-      ;; ---- :event --------------------------------------------------------
-      (rf/reg-event-db :rf2-o1bp/evt1 (fn [db _] db))
-      (rf/reg-event-fx :rf2-o1bp/evt2 (fn [_ _] {}))
+    ;; ---- :sub ---------------------------------------------------------
+    (rf/reg-sub :rf2-o1bp/sub1 (fn [db _] db))
 
-      ;; ---- :sub ---------------------------------------------------------
-      (rf/reg-sub :rf2-o1bp/sub1 (fn [db _] db))
+    ;; ---- :fx ----------------------------------------------------------
+    (rf/reg-fx :rf2-o1bp/fx1
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
 
-      ;; ---- :fx ----------------------------------------------------------
-      (rf/reg-fx :rf2-o1bp/fx1
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
+    ;; ---- :cofx --------------------------------------------------------
+    (rf/reg-cofx :rf2-o1bp/cofx1 (fn [cofx _] cofx))
 
-      ;; ---- :cofx --------------------------------------------------------
-      (rf/reg-cofx :rf2-o1bp/cofx1 (fn [cofx _] cofx))
+    ;; ---- :view --------------------------------------------------------
+    ;; reg-view* is the JVM-safe registration path. On CLJS it wraps the
+    ;; render fn; on JVM it registers the fn directly under :view.
+    (rf/reg-view* :rf2-o1bp/view1 (fn [] [:div "v1"]))
 
-      ;; ---- :view --------------------------------------------------------
-      ;; reg-view* is the JVM-safe registration path. On CLJS it wraps the
-      ;; render fn; on JVM it registers the fn directly under :view.
-      (rf/reg-view* :rf2-o1bp/view1 (fn [] [:div "v1"]))
+    ;; ---- :machine (registers under :event with :rf/machine? true) ----
+    (rf/reg-machine :rf2-o1bp/mach1
+      {:initial :idle
+       :data    {}
+       :states  {:idle {}}})
 
-      ;; ---- :machine (registers under :event with :rf/machine? true) ----
-      (rf/reg-machine :rf2-o1bp/mach1
-        {:initial :idle
-         :data    {}
-         :states  {:idle {}}})
+    ;; ---- :route -------------------------------------------------------
+    (rf/reg-route :rf2-o1bp/route1 {:path "/rf2-o1bp/landing"})
 
-      ;; ---- :route -------------------------------------------------------
-      (rf/reg-route :rf2-o1bp/route1 {:path "/rf2-o1bp/landing"})
+    ;; ---- :flow --------------------------------------------------------
+    (rf/reg-flow {:id     :rf2-o1bp/flow1
+                  :inputs []
+                  :output (fn [_inputs] :computed)
+                  :path   [:rf2-o1bp/flow-output]})
 
-      ;; ---- :flow --------------------------------------------------------
-      (rf/reg-flow {:id     :rf2-o1bp/flow1
-                    :inputs []
-                    :output (fn [_inputs] :computed)
-                    :path   [:rf2-o1bp/flow-output]})
+    ;; ---- :http-interceptor --------------------------------------------
+    ;; reg-http-interceptor uses its own per-frame atom (not the
+    ;; registrar). The bead lists :http-interceptor among the kinds to
+    ;; register across; we still exercise the surface so the late-bind
+    ;; hook is touched.
+    (rf/reg-http-interceptor {:id     :rf2-o1bp/interceptor1
+                              :before identity})
 
-      ;; ---- :http-interceptor --------------------------------------------
-      ;; reg-http-interceptor uses its own per-frame atom (not the
-      ;; registrar), so it does NOT contribute to registry-summary. We
-      ;; still exercise the surface so the late-bind hook is touched.
-      ;; The bead lists :http-interceptor among the kinds to register
-      ;; across; we register one but do not assert it's in registry-summary
-      ;; (that's the documented surface — http-interceptors live in their
-      ;; own store).
-      (rf/reg-http-interceptor {:id     :rf2-o1bp/interceptor1
-                                :before identity})
+    ;; ---- :error-projector --------------------------------------------
+    ;; reg-error-projector lives in re-frame.ssr; ns-load registers
+    ;; :rf.ssr/default-error-projector.
+    (rf/reg-error-projector :rf2-o1bp/err1 (fn [_ _] {}))
 
-      ;; ---- :error-projector --------------------------------------------
-      ;; reg-error-projector lives in re-frame.ssr; ns-load registers
-      ;; :rf.ssr/default-error-projector, so the count delta below is
-      ;; +1 (not +0).
-      (rf/reg-error-projector :rf2-o1bp/err1 (fn [_ _] {}))
+    ;; ---- :app-schema -------------------------------------------------
+    ;; Per rf2-0frdi reg-app-schema writes only to the schemas artefact's
+    ;; own per-frame side-table (`schemas/schemas-by-frame`), NOT to the
+    ;; registrar — same pattern as `:http-interceptor` above. The kind is
+    ;; registered for completeness; introspection of registered app-db
+    ;; schemas goes through `schemas/app-schemas` / `schemas/app-schema-
+    ;; meta-at` rather than `handler-ids`.
+    (rf/reg-app-schema [:rf2-o1bp/path] :any)
 
-      ;; ---- :app-schema -------------------------------------------------
-      ;; Per rf2-0frdi reg-app-schema writes only to the schemas artefact's
-      ;; own per-frame side-table (`schemas/schemas-by-frame`), NOT to the
-      ;; registrar — same pattern as `:http-interceptor` above. The kind
-      ;; is registered for completeness; introspection of registered
-      ;; app-db schemas goes through `schemas/app-schemas` / `schemas/
-      ;; app-schema-meta-at` rather than `registry-summary` / `handler-ids`.
-      (rf/reg-app-schema [:rf2-o1bp/path] :any)
+    ;; ---- (1) handler-ids returns a set of ids per kind ----------------
+    (testing "(rf/handler-ids kind) returns a set of ids"
+      (let [event-ids       (rf/handler-ids :event)
+            sub-ids         (rf/handler-ids :sub)
+            fx-ids          (rf/handler-ids :fx)
+            cofx-ids        (rf/handler-ids :cofx)
+            view-ids        (rf/handler-ids :view)
+            route-ids       (rf/handler-ids :route)
+            flow-ids        (rf/handler-ids :flow)
+            ep-ids          (rf/handler-ids :error-projector)
+            ;; Per rf2-0frdi `:app-schema` is owned by the schemas
+            ;; artefact's side-table — handler-ids on the registrar
+            ;; kind is empty. App-db schema introspection goes through
+            ;; `schemas/app-schemas` (returns `{path → schema}`).
+            schema-ids      (rf/handler-ids :app-schema)]
+        (is (set? event-ids) "handler-ids returns a set")
+        (is (contains? event-ids :rf2-o1bp/evt1))
+        (is (contains? event-ids :rf2-o1bp/evt2))
+        (is (contains? event-ids :rf2-o1bp/mach1)
+            "the machine appears in :event id set")
+        (is (contains? sub-ids :rf2-o1bp/sub1))
+        (is (contains? fx-ids :rf2-o1bp/fx1))
+        (is (contains? cofx-ids :rf2-o1bp/cofx1))
+        (is (contains? view-ids :rf2-o1bp/view1))
+        (is (contains? route-ids :rf2-o1bp/route1))
+        (is (contains? flow-ids :rf2-o1bp/flow1))
+        (is (contains? ep-ids :rf2-o1bp/err1))
+        (is (not (contains? schema-ids [:rf2-o1bp/path]))
+            "registrar handler-ids :app-schema is empty — schemas owns its
+             own side-table (rf2-0frdi)")))
 
-      ;; ---- (1) registry-summary returns {kind → count} -------------------
-      (let [summary (rf/registry-summary)]
-        (is (map? summary) "registry-summary returns a map")
-        (is (every? keyword? (keys summary))
-            "every key is a registration kind keyword")
-        (is (every? integer? (vals summary))
-            "every value is an integer count")
-        ;; Per-kind deltas vs the captured baseline. Two explicit
-        ;; reg-event-db/-fx registrations + one reg-machine (machines
-        ;; register under :event with :rf/machine? true metadata) = +3.
-        (let [delta (fn [kind]
-                      (- (get summary kind 0) (get baseline kind 0)))]
-          (is (= 3 (delta :event))
-              ":event +3 — two reg-event-* + one reg-machine (machines
-               ride on the :event registry per Spec 005 §reg-machine)")
-          (is (= 1 (delta :sub)) ":sub +1")
-          (is (= 1 (delta :fx))  ":fx +1")
-          (is (= 1 (delta :cofx)) ":cofx +1")
-          (is (= 1 (delta :view)) ":view +1")
-          (is (= 1 (delta :route)) ":route +1")
-          (is (= 1 (delta :flow))  ":flow +1")
-          (is (= 1 (delta :error-projector))
-              ":error-projector +1 (built-in :rf.ssr/default-error-projector
-               was in baseline)")
-          ;; Per rf2-0frdi `:app-schema` is no longer a registrar kind —
-          ;; reg-app-schema writes only to the schemas artefact's per-
-          ;; frame side-table. Same as `:http-interceptor` above, the kind
-          ;; does NOT appear in registry-summary.
-          (is (= 0 (delta :app-schema))
-              ":app-schema +0 — reg-app-schema is owned by the schemas
-               artefact's side-table, not the registrar (rf2-0frdi)")))
+    ;; ---- (2) registrations returns {id → metadata} per kind -----------
+    (testing "(rf/registrations kind) returns {id → metadata}"
+      (let [events (rf/registrations :event)]
+        (is (map? events))
+        (is (contains? events :rf2-o1bp/evt1))
+        (let [meta (get events :rf2-o1bp/evt1)]
+          (is (map? meta) "the value is a metadata map")
+          (is (fn? (:handler-fn meta))
+              "metadata carries :handler-fn — the registered handler fn"))))
 
-      ;; ---- (2) handler-ids returns a set of ids per kind ----------------
-      (testing "(rf/handler-ids kind) returns a set of ids"
-        (let [event-ids       (rf/handler-ids :event)
-              sub-ids         (rf/handler-ids :sub)
-              fx-ids          (rf/handler-ids :fx)
-              cofx-ids        (rf/handler-ids :cofx)
-              view-ids        (rf/handler-ids :view)
-              route-ids       (rf/handler-ids :route)
-              flow-ids        (rf/handler-ids :flow)
-              ep-ids          (rf/handler-ids :error-projector)
-              ;; Per rf2-0frdi `:app-schema` is owned by the schemas
-              ;; artefact's side-table — handler-ids on the registrar
-              ;; kind is empty. App-db schema introspection goes through
-              ;; `schemas/app-schemas` (returns `{path → schema}`).
-              schema-ids      (rf/handler-ids :app-schema)]
-          (is (set? event-ids) "handler-ids returns a set")
-          (is (contains? event-ids :rf2-o1bp/evt1))
-          (is (contains? event-ids :rf2-o1bp/evt2))
-          (is (contains? event-ids :rf2-o1bp/mach1)
-              "the machine appears in :event id set")
-          (is (contains? sub-ids :rf2-o1bp/sub1))
-          (is (contains? fx-ids :rf2-o1bp/fx1))
-          (is (contains? cofx-ids :rf2-o1bp/cofx1))
-          (is (contains? view-ids :rf2-o1bp/view1))
-          (is (contains? route-ids :rf2-o1bp/route1))
-          (is (contains? flow-ids :rf2-o1bp/flow1))
-          (is (contains? ep-ids :rf2-o1bp/err1))
-          (is (not (contains? schema-ids [:rf2-o1bp/path]))
-              "registrar handler-ids :app-schema is empty — schemas owns its
-               own side-table (rf2-0frdi)")))
-
-      ;; ---- (3) registrations returns {id → metadata} per kind -----------
-      (testing "(rf/registrations kind) returns {id → metadata}"
-        (let [events (rf/registrations :event)]
-          (is (map? events))
-          (is (contains? events :rf2-o1bp/evt1))
-          (let [meta (get events :rf2-o1bp/evt1)]
-            (is (map? meta) "the value is a metadata map")
-            (is (fn? (:handler-fn meta))
-                "metadata carries :handler-fn — the registered handler fn"))))
-
-      ;; ---- (4) handler-meta returns the metadata for a single id -------
-      (testing "(rf/handler-meta kind id) returns the metadata map"
-        (let [m (rf/handler-meta :event :rf2-o1bp/evt1)]
-          (is (map? m))
-          (is (fn? (:handler-fn m)))
-          (is (= :db (:event/kind m))
-              ":event metadata carries :event/kind (set by reg-event-db)"))
-        ;; A machine carries :rf/machine? true and :rf/machine <spec>.
-        (let [m (rf/handler-meta :event :rf2-o1bp/mach1)]
-          (is (true? (:rf/machine? m))
-              "machine event metadata is tagged :rf/machine? true")
-          (is (map? (:rf/machine m))
-              "machine spec is stored at :rf/machine"))
-        ;; Routes carry the :path field.
-        (let [m (rf/handler-meta :route :rf2-o1bp/route1)]
-          (is (= "/rf2-o1bp/landing" (:path m))
-              ":route metadata carries :path"))
-        ;; Flows carry :path and :inputs.
-        (let [m (rf/handler-meta :flow :rf2-o1bp/flow1)]
-          (is (= [:rf2-o1bp/flow-output] (:path m)))
-          (is (= [] (:inputs m))))
-        ;; Unknown id → nil.
-        (is (nil? (rf/handler-meta :event :no-such-event))
-            "handler-meta on an unknown id returns nil")))))
+    ;; ---- (3) handler-meta returns the metadata for a single id -------
+    (testing "(rf/handler-meta kind id) returns the metadata map"
+      (let [m (rf/handler-meta :event :rf2-o1bp/evt1)]
+        (is (map? m))
+        (is (fn? (:handler-fn m)))
+        (is (= :db (:event/kind m))
+            ":event metadata carries :event/kind (set by reg-event-db)"))
+      ;; A machine carries :rf/machine? true and :rf/machine <spec>.
+      (let [m (rf/handler-meta :event :rf2-o1bp/mach1)]
+        (is (true? (:rf/machine? m))
+            "machine event metadata is tagged :rf/machine? true")
+        (is (map? (:rf/machine m))
+            "machine spec is stored at :rf/machine"))
+      ;; Routes carry the :path field.
+      (let [m (rf/handler-meta :route :rf2-o1bp/route1)]
+        (is (= "/rf2-o1bp/landing" (:path m))
+            ":route metadata carries :path"))
+      ;; Flows carry :path and :inputs.
+      (let [m (rf/handler-meta :flow :rf2-o1bp/flow1)]
+        (is (= [:rf2-o1bp/flow-output] (:path m)))
+        (is (= [] (:inputs m))))
+      ;; Unknown id → nil.
+      (is (nil? (rf/handler-meta :event :no-such-event))
+          "handler-meta on an unknown id returns nil"))))
