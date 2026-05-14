@@ -628,6 +628,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:path            {:optional true} [:vector :any]]
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
+   [:query-v         {:optional true} :any]            ;; (:where :sub-return only) caller-supplied query vector; redacted to :rf/redacted when sub is :sensitive? — see Spec/010
    [:rollback?       {:optional true} :boolean]        ;; (:where :app-db only) true when :db was rolled back to pre-handler value
    [:registered-path {:optional true} [:vector :any]]]) ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
 
