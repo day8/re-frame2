@@ -184,12 +184,23 @@
           [query fragment]          (split-query-on-fragment query-and-fragment)]
       (if (str/blank? query)
         [url-str false]
-        (let [pairs    (str/split query #"&")
-              redacted (mapv (fn [p] (redact-query-param p (true? sensitive?)))
-                             pairs)
-              changed? (boolean (some true? (map not= pairs redacted)))
-              rebuilt  (str base "?" (str/join "&" redacted) (or fragment ""))]
-          [rebuilt changed?])))))
+        ;; rf2-dqchf — single pass: thread a volatile changed? flag
+        ;; through the mapv so the redactor and the change-detection
+        ;; share one walk over the pairs. Previously the change
+        ;; detection ran a second `(map not= pairs redacted)` walk and
+        ;; allocated a lazy seq of N booleans for the `some true?` test
+        ;; despite the rf2-02vzz claim of fusion.
+        (let [force-all? (true? sensitive?)
+              changed?   (volatile! false)
+              pairs      (str/split query #"&")
+              redacted   (mapv (fn [p]
+                                 (let [out (redact-query-param p force-all?)]
+                                   (when-not (identical? out p)
+                                     (vreset! changed? true))
+                                   out))
+                               pairs)
+              rebuilt    (str base "?" (str/join "&" redacted) (or fragment ""))]
+          [rebuilt @changed?])))))
 
 (defn redact-url
   "Convenience wrapper around `redact-url-query-string` that returns only
