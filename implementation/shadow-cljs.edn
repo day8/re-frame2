@@ -695,4 +695,15 @@
    :output-dir "out/testbeds/non-trivial-app-db"
    :asset-path "."
    :modules    {:main {:init-fn non-trivial-app-db.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim Tier 3 — sensitive-dispatcher testbed (three handlers
+  ;; marked :sensitive? true in registration meta; each exercises a
+  ;; distinct boundary — event-emit drop, with-redacted scrub, error-
+  ;; emit redact — per Spec 009 §Substrate-level enforcement).
+  :testbeds/sensitive-dispatcher
+  {:target     :browser
+   :output-dir "out/testbeds/sensitive-dispatcher"
+   :asset-path "."
+   :modules    {:main {:init-fn sensitive-dispatcher.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
