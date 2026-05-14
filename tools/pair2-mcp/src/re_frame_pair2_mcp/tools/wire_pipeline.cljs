@@ -56,7 +56,7 @@
   `wire/with-indicators` onto their envelope — the per-tool tail
   collapses from a 20-line `let` of intermediate names to a 5-line
   pipeline call + envelope assembly."
-  (:require [re-frame.mcp-base.vocab :as base-vocab]
+  (:require [re-frame.mcp-base.elision :as base-elision]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
             [re-frame-pair2-mcp.tools.sensitive :as sensitive]
             [re-frame-pair2-mcp.tools.snapshot-pipeline :as pipeline]))
@@ -79,7 +79,7 @@
         [sliced path-status]  (pipeline/slice-app-db-in-snapshot scrubbed path app-db-mode)
         diff-encoded          (pipeline/diff-encode-epochs-in-snapshot sliced mode)
         deduped               (pipeline/dedup-epochs-in-snapshot diff-encoded dedup?)
-        elided                (base-vocab/count-elided-markers deduped)
+        elided                (base-elision/count-elided-markers deduped)
         {summarised  :snapshot
          other-modes :resolved-modes} (pipeline/summarise-other-slices-in-snapshot
                                         deduped slice-modes slice-mode)
@@ -109,7 +109,7 @@
   (let [[kept dropped] (sensitive/strip-sensitive epochs incl?)
         encoded        (dedup/diff-encode-epochs kept mode)
         deduped        (dedup/dedup-value encoded dedup?)
-        elided         (base-vocab/count-elided-markers deduped)]
+        elided         (base-elision/count-elided-markers deduped)]
     {:value      deduped
      :indicators {:dropped dropped
                   :elided  elided
@@ -123,7 +123,7 @@
   Returns `{:value v :indicators {:elided N}}`."
   [v _opts]
   {:value      v
-   :indicators {:elided (base-vocab/count-elided-markers v)}})
+   :indicators {:elided (base-elision/count-elided-markers v)}})
 
 (defn run-wire-pipeline
   "Single named pipeline for every MCP tool that returns a tree-typed

@@ -654,8 +654,11 @@
 ;; The mcp-base vocab ns (`tools/mcp-base/src/re_frame/mcp_base/vocab.cljc`)
 ;; reserves the two slot KEYS as constants (`dropped-sensitive-key`,
 ;; `elided-large-key`); the count-walker helper
-;; (`count-elided-markers`) lives next to them. Consumers import the
-;; ns to keep the key bytes byte-identical across servers.
+;; (`count-elided-markers`) lives in the sibling `elision` ns
+;; (`tools/mcp-base/src/re_frame/mcp_base/elision.cljc`) — a runtime
+;; tree-walker, not a constant, so it doesn't sit in the vocabulary
+;; catalogue. Consumers import either ns to keep the key bytes byte-
+;; identical across servers.
 ;; ---------------------------------------------------------------------------
 
 (def envelope-indicator-slots

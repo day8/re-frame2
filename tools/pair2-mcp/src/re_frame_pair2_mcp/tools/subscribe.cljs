@@ -33,7 +33,7 @@
   controller`, which closes over the atom and returns the `terminate`
   + `poll` fns — the streaming-loop body reads top-down."
   (:require [applied-science.js-interop :as j]
-            [re-frame.mcp-base.vocab :as base-vocab]
+            [re-frame.mcp-base.elision :as base-elision]
             [re-frame-pair2-mcp.nrepl :as nrepl]
             [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
@@ -143,7 +143,7 @@
                             ov-reason      (:overflow-reason drain-resp)
                             [evts dropped] (sensitive/strip-sensitive
                                              (vec raw-evts) incl?)
-                            tick-elided    (base-vocab/count-elided-markers evts)
+                            tick-elided    (base-elision/count-elided-markers evts)
                             n              (count evts)
                             drain-delta    {:n           n
                                             :ev-dropped  ev-dropped

@@ -174,34 +174,13 @@
   per Conventions §Cross-MCP indicator-field vocabulary. Omit the
   slot when the count is zero. Mirror of `[● ELIDED N]` on on-box
   dev-tool surfaces. Per Spec 009 §Size elision in traces —
-  Indicator field on tool responses (MUST-level)."
+  Indicator field on tool responses (MUST-level).
+
+  The walker that produces the count lives in
+  `re-frame.mcp-base.elision/count-elided-markers` — the count is a
+  runtime tree-walk, not a constant, so it sits alongside the key in
+  a sibling ns."
   :elided-large)
-
-(defn count-elided-markers
-  "Walk `v` and count every `{:rf.size/large-elided ...}` marker it
-  contains. The walker is shallow at the marker boundary — once a
-  marker is found, its body is NOT recursed into (marker bodies are
-  scalar metadata, not tree-shaped). Recurses through maps, vectors,
-  sets, and seqs; treats every other value as a leaf.
-
-  Returns an integer ≥ 0. Cheap on the common path (post-elision
-  payload with no markers ⇒ one full walk producing zero).
-
-  Counterpart to `re-frame.mcp-base.sensitive/strip-sensitive`'s
-  `dropped-count` return — both indicators ride the response envelope
-  per Conventions §Cross-MCP indicator-field vocabulary."
-  [v]
-  (cond
-    (and (map? v) (contains? v large-elided-key))
-    1
-
-    (map? v)
-    (reduce-kv (fn [n _k child] (+ n (count-elided-markers child))) 0 v)
-
-    (or (vector? v) (set? v) (seq? v))
-    (reduce (fn [n child] (+ n (count-elided-markers child))) 0 v)
-
-    :else 0))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON-RPC 2.0 error codes (per §5.1; reused by MCP per the spec)
