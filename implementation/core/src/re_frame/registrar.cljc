@@ -131,7 +131,9 @@
   (when-not (valid-kind? kind)
     (throw (ex-info (str "re-frame2: unknown registry kind: " kind)
                     {:kind kind :id id})))
-  (let [previous (get-in @kind->id->metadata [kind id])]
+  ;; 2-level lookup as paired `get`s rather than `(get-in ... [kind id])` —
+  ;; `get-in` allocates a path vector per call (rf2-mqv4m).
+  (let [previous (-> @kind->id->metadata (get kind) (get id))]
     (swap! kind->id->metadata assoc-in [kind id] metadata)
     (cond
       ;; Re-registration path — fire hooks and emit handler-replaced.
@@ -181,7 +183,7 @@
   "Remove a single id under kind. Hot-reload code paths use this; user code
   rarely does."
   [kind id]
-  (let [previous (get-in @kind->id->metadata [kind id])]
+  (let [previous (-> @kind->id->metadata (get kind) (get id))]
     (swap! kind->id->metadata update kind dissoc id)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires on explicit removal so hot-reload tools can update their
@@ -213,9 +215,13 @@
 ;; ---- lookup ---------------------------------------------------------------
 
 (defn lookup
-  "Return the metadata map registered for (kind, id), or nil."
+  "Return the metadata map registered for (kind, id), or nil.
+
+  Uses paired `get` calls rather than `(get-in ... [kind id])` — `get-in`
+  allocates a path vector per call (rf2-mqv4m), and `lookup` runs per
+  dispatch (event handler), per fx (handler), and per sub (handler)."
   [kind id]
-  (get-in @kind->id->metadata [kind id]))
+  (-> @kind->id->metadata (get kind) (get id)))
 
 (defn handler
   "Return just the handler fn from the metadata, or nil. The handler is

@@ -79,10 +79,15 @@
 ;; ---- lookup ---------------------------------------------------------------
 
 (defn frame
-  "Return the frame record for id, or nil if not registered or destroyed."
+  "Return the frame record for id, or nil if not registered or destroyed.
+
+  2-level lookup written as keyword-invoke (`(-> f :lifecycle :destroyed?)`)
+  rather than `(get-in f [:lifecycle :destroyed?])` — `get-in` allocates
+  a path vector per call (rf2-mqv4m), and `frame` runs on every dispatch
+  / subscribe through `current-frame` resolution."
   [id]
   (when-let [f (get @frames id)]
-    (when-not (get-in f [:lifecycle :destroyed?])
+    (when-not (-> f :lifecycle :destroyed?)
       f)))
 
 (defn frame-disposed-for-drain?
@@ -103,7 +108,7 @@
   destroyed-vs-never-registered discrimination."
   [id]
   (if-let [f (get @frames id)]
-    (true? (get-in f [:lifecycle :destroyed?]))
+    (true? (-> f :lifecycle :destroyed?))
     ;; Absent from the atom — destroy-frame!'s step 6 ran, OR the id
     ;; was never registered. The drain-loop caller only consults this
     ;; while a pass is already in flight, so the latter case cannot
@@ -146,13 +151,13 @@
   Per Spec 002 §The public registrar query API."
   ([]
    (into #{}
-         (comp (filter (fn [[_ f]] (not (get-in f [:lifecycle :destroyed?]))))
+         (comp (filter (fn [[_ f]] (not (-> f :lifecycle :destroyed?))))
                (map key))
          @frames))
   ([ns-prefix]
    (let [prefix (str ns-prefix)]
      (into #{}
-           (comp (filter (fn [[_ f]] (not (get-in f [:lifecycle :destroyed?]))))
+           (comp (filter (fn [[_ f]] (not (-> f :lifecycle :destroyed?))))
                  (map key)
                  (filter (fn [k]
                            (when-let [ns (namespace k)]
@@ -331,7 +336,7 @@
 
 (defn- fire-on-destroy-event!
   [id f]
-  (when-let [on-destroy (get-in f [:config :on-destroy])]
+  (when-let [on-destroy (-> f :config :on-destroy)]
     (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
       (dispatch-sync on-destroy {:frame id}))))
 
