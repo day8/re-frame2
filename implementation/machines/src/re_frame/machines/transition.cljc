@@ -428,10 +428,14 @@
   "Compute the absolute target path for a transition. Per Spec 005:
    - keyword target → sibling at decl-path's level (replace last element).
    - vector target → absolute path from root.
-   - nil target (internal transition) → source path unchanged."
+   - nil target (internal transition) → nil; the caller wraps the call
+     in `some->>` so the nil short-circuits the initial-cascade descent.
+
+  Per rf2-adwxh the explicit `(nil? target) nil` arm is dropped — when
+  target is neither vector nor keyword, the `cond` falls through to
+  nil, which is the documented internal-transition contract."
   [decl-path _source-path target]
   (cond
-    (nil? target)        nil
     (vector? target)     target
     (keyword? target)
     (let [parent (vec (drop-last decl-path))]
@@ -911,14 +915,20 @@
   interaction. Internal transitions preserve the input snapshot's
   `:state` unchanged."
   [machine snapshot snap-after cascade]
+  ;; Per rf2-adwxh: the `cond` has three arms — `internal?` (raw-target
+  ;; is nil; preserve current state), vector target (use the cascade-
+  ;; descended leaf as a vector), keyword target (collapse a single-
+  ;; element leaf to a keyword, else vectorise). A pre-rf2-adwxh `:else`
+  ;; arm was dead: `internal?` already covers the nil-raw-target case,
+  ;; and `:target` validation upstream rejects anything other than
+  ;; keyword/vector/nil.
   (let [{:keys [internal? raw-target target-leaf epoch-bumps?]} cascade
         new-state (cond
                     internal?             (:state snapshot)
                     (vector? raw-target)  (vec target-leaf)
                     (keyword? raw-target) (if (= 1 (count target-leaf))
                                             (first target-leaf)
-                                            (vec target-leaf))
-                    :else                 (denormalise-state target-leaf (:state snapshot)))]
+                                            (vec target-leaf)))]
     (cond
       internal?
       (assoc snap-after :state new-state)
