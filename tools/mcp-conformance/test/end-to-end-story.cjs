@@ -23,11 +23,11 @@
 //   6. unregister-variant — symmetric teardown
 //   7. clean disconnect
 //
-// Run with: `node test/end-to-end-story.js` from this directory. Exits
+// Run with: `node test/end-to-end-story.cjs` from this directory. Exits
 // 0 on success. Source: rf2-cum40.
 
 const path = require('node:path');
-const { runWithWatchdog } = require('./_runner.js');
+const { runWithWatchdog } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
@@ -88,9 +88,11 @@ runWithWatchdog(
     },
   },
   async (client) => {
-    const serverInfo = client.getServerVersion();
-    if (!serverInfo) throw new Error('connect succeeded but getServerVersion() is empty');
-    console.log('OK   connect ->', serverInfo);
+    // The SDK's `client.connect()` (invoked by the runner) already
+    // validated the initialize envelope against `InitializeResultSchema`
+    // — a missing / malformed `serverInfo` would have thrown there.
+    // We surface the negotiated identity for diagnostic logging only.
+    console.log('OK   connect ->', client.getServerVersion());
 
     // 2. tools/list — confirm catalogue.
     const listed = await client.listTools();

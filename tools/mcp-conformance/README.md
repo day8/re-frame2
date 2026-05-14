@@ -6,7 +6,7 @@ servers — `pair2-mcp`, `story-mcp`, and (when its implementation lands)
 
 This artefact has four surfaces:
 
-1. **`test/end-to-end-*.js`** — Node-side end-to-end conformance.
+1. **`test/end-to-end-*.cjs`** — Node-side end-to-end conformance.
    Drives each server through the official `@modelcontextprotocol/sdk`
    client to validate JSON-RPC handshake + tool catalogue + one
    canonical workflow per server. Source: rf2-cum40.
@@ -59,9 +59,9 @@ on the server side surfaces as an SDK parse-error.
 ## Files
 
 - `package.json` — depends on `@modelcontextprotocol/sdk` only
-- `test/end-to-end-pair2.js` — pair2-mcp conformance (degraded mode,
+- `test/end-to-end-pair2.cjs` — pair2-mcp conformance (degraded mode,
   no nREPL needed — same shape as pair2-mcp's stdio-roundtrip)
-- `test/live-pair2-overflow.js` — pair2-mcp **live**-runtime variant
+- `test/live-pair2-overflow.cjs` — pair2-mcp **live**-runtime variant
   (rf2-ynaoc) that exercises the wire-cap `:rf.mcp/overflow` marker
   under a real over-budget eval. **Gated on `$SHADOW_CLJS_NREPL_PORT`**:
   unset = clean SKIP (degraded mode can't trip the cap naturally),
@@ -70,12 +70,12 @@ on the server side surfaces as an SDK parse-error.
 - `scripts/run-live-pair2-overflow-hermetic.cjs` — hermetic
   orchestrator (rf2-uw6d6) that boots shadow-cljs against the pair2
   fixture (`skills/re-frame-pair2/tests/fixture/`), launches headless
-  Chromium so the runtime preload lands, then runs `live-pair2-overflow.js`
+  Chromium so the runtime preload lands, then runs `live-pair2-overflow.cjs`
   with `SHADOW_CLJS_NREPL_PORT` set to the spawned port. Closes the
   CI-coverage gap the SKIP path leaves.
-- `test/end-to-end-story.js` — story-mcp conformance (full write-loop
+- `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
   with `--allow-writes` enabled)
-- `test/end-to-end-causa.js` — placeholder; exits 0 with a `SKIP`
+- `test/end-to-end-causa.cjs` — placeholder; exits 0 with a `SKIP`
   marker until causa-mcp's server implementation lands
 
 ## How to run
@@ -104,7 +104,7 @@ npm test
 
 ## What each test covers
 
-### `end-to-end-pair2.js`
+### `end-to-end-pair2.cjs`
 
 1. Connect — full SDK handshake against the freshly spawned bundle
 2. `tools/list` — confirm the twelve advertised tools match the pinned
@@ -118,7 +118,7 @@ npm test
 Runs without an nREPL on `$SHADOW_CLJS_NREPL_PORT`, so it's
 self-contained and reproducible.
 
-### `live-pair2-overflow.js`  (rf2-ynaoc)
+### `live-pair2-overflow.cjs`  (rf2-ynaoc)
 
 Live-runtime variant — fills the gap left by the degraded-mode
 sibling above. Gated on `$SHADOW_CLJS_NREPL_PORT`; unset = clean
@@ -165,7 +165,7 @@ without any external nREPL.
    `tools/mcp-conformance` or `implementation/`), navigates to the
    fixture URL, waits for `window.__re_frame_pair2_runtime` to land
    so pair2-mcp's `ensure-runtime!` will pass.
-6. Runs `test/live-pair2-overflow.js` with
+6. Runs `test/live-pair2-overflow.cjs` with
    `SHADOW_CLJS_NREPL_PORT` set to the spawned port.
 7. Tears down browser + shadow-cljs in `finally` (and on SIGINT /
    SIGTERM / SIGHUP).
@@ -202,7 +202,7 @@ follow the same shape: nest the fixture's `package.json`, gate the
 install behind an existence check on `node_modules/`, and document the
 fixture's location and entry script in the orchestrator's preamble.
 
-### `end-to-end-story.js`
+### `end-to-end-story.cjs`
 
 1. Connect — `clojure -M -m re-frame.story-mcp.server --allow-writes`
 2. `tools/list` — confirm the 19 advertised tools
@@ -213,7 +213,7 @@ fixture's location and entry script in the orchestrator's preamble.
 
 Watchdog: 90s (cold JVM boot is ~10–30s on a CI runner).
 
-### `end-to-end-causa.js`
+### `end-to-end-causa.cjs`
 
 Placeholder — exits 0 with a `SKIP` marker. Will be filled in when
 the causa-mcp server implementation lands; the file's body comment
@@ -263,7 +263,7 @@ contract — what it does, why, the locks behind major calls — survives
 across sessions in committed form. For `mcp-conformance` that contract
 already lives, by construction, in three other places:
 
-1. **The test corpus itself.** Each `test/end-to-end-<server>.js`
+1. **The test corpus itself.** Each `test/end-to-end-<server>.cjs`
    pins exactly one server's wire surface (advertised tool catalogue,
    tool descriptor presence, the canonical workflow), and the
    `wire-vocab/` JVM test corpus pins the canonical Malli schema for

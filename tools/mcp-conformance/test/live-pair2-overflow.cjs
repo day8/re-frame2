@@ -4,7 +4,7 @@
 //
 // ## What this test guards
 //
-// The sibling `end-to-end-pair2.js` runs pair2-mcp in *degraded* mode
+// The sibling `end-to-end-pair2.cjs` runs pair2-mcp in *degraded* mode
 // (no nREPL on $SHADOW_CLJS_NREPL_PORT) and validates the protocol
 // shape against the SDK's strict CallToolResultSchema. That harness
 // never actually trips the wire-cap because every degraded response is
@@ -67,14 +67,14 @@
 // replaces the payload with the canonical `:rf.mcp/overflow` marker
 // before it crosses the wire. No fixture; no synthetic cap.
 //
-// Run with: `node test/live-pair2-overflow.js` from this directory.
+// Run with: `node test/live-pair2-overflow.cjs` from this directory.
 // Requires `cd ../pair2-mcp && shadow-cljs compile server` first
 // (same as the sibling harness). Exits 0 on success or SKIP. Exits 1
 // on any conformance violation.
 
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog } = require('./_runner.js');
+const { runWithWatchdog } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
 
@@ -284,27 +284,19 @@ function parseOverflowMarker(text) {
   return out;
 }
 
-function isSkip() {
-  // The bead's contract: gated on $SHADOW_CLJS_NREPL_PORT. When unset
-  // the live variant CAN'T trigger natural overflow (degraded mode
-  // ships sub-100-byte error envelopes) and we exit 0 with a SKIP
-  // marker — same pattern as `end-to-end-causa.js`.
-  return !process.env.SHADOW_CLJS_NREPL_PORT;
-}
-
-// Pre-flight SKIP: process.exit(0) BEFORE invoking the runner so we
+// Pre-flight SKIP: route through the runner's shared skip helper so we
 // don't spawn a child or install a watchdog. Same posture as the sibling
-// end-to-end-causa.js placeholder.
-if (isSkip()) {
-  console.log(
-    'SKIP live-pair2-overflow: $SHADOW_CLJS_NREPL_PORT not set.\n' +
+// end-to-end-causa.cjs placeholder. The skip helper prints the canonical
+// `SKIP <reason>` banner and exits 0.
+if (!process.env.SHADOW_CLJS_NREPL_PORT) {
+  runWithWatchdog.skip(
+    'live-pair2-overflow: $SHADOW_CLJS_NREPL_PORT not set.\n' +
       '      This variant requires a live shadow-cljs nREPL — without\n' +
       '      one the server runs degraded and the wire-cap cannot be\n' +
-      '      tripped naturally. The sibling end-to-end-pair2.js covers\n' +
+      '      tripped naturally. The sibling end-to-end-pair2.cjs covers\n' +
       '      degraded-mode protocol conformance; this variant adds\n' +
       '      cap-marker conformance under real over-budget conditions.',
   );
-  process.exit(0);
 }
 
 // Hard cap so a hung server doesn't wedge CI. nREPL connect + one

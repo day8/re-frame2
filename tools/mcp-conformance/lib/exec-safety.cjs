@@ -33,6 +33,29 @@
 // Both helpers below gate the accident class without adding ceremony
 // at the call sites.
 //
+// ## When NOT to use `resolveTrustedExe`
+//
+// `resolveTrustedExe` only matters for **system-wide binaries** that
+// the OS finds via PATH walk. Two postures sit alongside the helper in
+// this artefact (rf2-i3ffz F-COUPLE-1):
+//
+//   - **`story-mcp` harness** uses `resolveTrustedExe('clojure', ...)`.
+//     The JVM binary lives in `/usr/local/bin/clojure` (or wherever
+//     `setup-clojure` puts it on CI); the bare-name PATH walk is the
+//     accident class the helper gates.
+//   - **`pair2-mcp` harness** uses `process.execPath`. That's the
+//     currently-running Node binary, always an absolute path, always
+//     outside the workspace by construction (Node can't have launched
+//     from a workspace-internal copy without already trusting it).
+//     `cross-spawn`'s `which.sync` short-circuits on the
+//     `cmd.match(/\//)` check for absolute paths, so no PATH walk
+//     happens. `resolveTrustedExe` would be ceremony with no payoff.
+//
+// Rule of thumb: if the command is a bare basename (`npm`, `npx`,
+// `clojure`), route it through `resolveTrustedExe`. If it's already an
+// absolute path on disk (`process.execPath`, a `path.resolve(...)`
+// product), pass it straight to `cross-spawn`.
+//
 // ## API
 //
 //   resolveTrustedExe(name, { workspaceRoot, env, platform })

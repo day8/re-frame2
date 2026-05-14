@@ -95,7 +95,7 @@ The cross-MCP conformance gate at `tools/mcp-conformance/wire-vocab/` pins the c
    [:hint        :string]]]]
 ```
 
-Every server's cap-trigger fixture asserts the response matches this schema. The conformance harness at `tools/mcp-conformance/test/live-pair2-overflow.js` drives a real `:max-tokens 100` over-budget call on each server and asserts the marker shape parity.
+Every server's cap-trigger fixture asserts the response matches this schema. The conformance harness at `tools/mcp-conformance/test/live-pair2-overflow.cjs` drives a real `:max-tokens 100` over-budget call on each server and asserts the marker shape parity.
 
 ## See also
 

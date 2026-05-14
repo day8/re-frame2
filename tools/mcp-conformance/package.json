@@ -5,13 +5,13 @@
   "description": "End-to-end MCP-client conformance harness for re-frame2 MCP servers (pair2-mcp, story-mcp, causa-mcp). Drives each server via the official @modelcontextprotocol/sdk Client so a real MCP-aware consumer (not a hand-rolled JSON-RPC shim) exercises the handshake, tool catalogue, and one canonical workflow per server.",
   "license": "MIT",
   "scripts": {
-    "test:pair2": "node test/end-to-end-pair2.js",
-    "test:pair2-live-overflow": "node test/live-pair2-overflow.js",
+    "test:pair2": "node test/end-to-end-pair2.cjs",
+    "test:pair2-live-overflow": "node test/live-pair2-overflow.cjs",
     "test:pair2-live-overflow-hermetic": "node scripts/run-live-pair2-overflow-hermetic.cjs",
-    "test:story": "node test/end-to-end-story.js",
-    "test:causa": "node test/end-to-end-causa.js",
+    "test:story": "node test/end-to-end-story.cjs",
+    "test:causa": "node test/end-to-end-causa.cjs",
     "test:exec-safety": "node --test test/exec-safety.test.cjs",
-    "test": "node --test test/exec-safety.test.cjs && node test/end-to-end-pair2.js && node test/live-pair2-overflow.js && node test/end-to-end-story.js && node test/end-to-end-causa.js"
+    "test": "node scripts/test-all.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

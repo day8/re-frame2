@@ -3,7 +3,7 @@
  * Hermetic orchestrator for the live-pair2-overflow conformance test
  * (rf2-uw6d6, follow-on from rf2-ynaoc).
  *
- * The sibling test (`test/live-pair2-overflow.js`) is gated on
+ * The sibling test (`test/live-pair2-overflow.cjs`) is gated on
  * $SHADOW_CLJS_NREPL_PORT. Without that env var it exits 0 with a SKIP
  * marker because the pair2-mcp server runs degraded — no real eval, no
  * cap-trigger, no overflow marker.
@@ -32,7 +32,7 @@
  *      "no-runtime-connected" error to `false`, surfacing as a false
  *      `:runtime-not-preloaded`).
  *   6. Setting SHADOW_CLJS_NREPL_PORT=<port> and spawning
- *      `node test/live-pair2-overflow.js`.
+ *      `node test/live-pair2-overflow.cjs`.
  *   7. Tearing down browser + shadow-cljs cleanly on success, failure,
  *      or signal.
  *
@@ -116,12 +116,20 @@ const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_HTTP_PORT}/`;
 const SHADOW_BOOT_TIMEOUT_MS = 360_000;
 const RUNTIME_PRELOAD_TIMEOUT_MS = 60_000;
 const HERMETIC_TIMEOUT_MS = 540_000;
-const POLL_MS = 500;
+// Poll cadence for the four sequential boot gates (port file, TCP
+// listener, fixture HTTP, bundle compile, runtime sentinel, shadow
+// runtime addressable). Each gate latches as soon as it flips, so the
+// poll interval is pure resolution latency on the critical path: a warm
+// cache boot is gated by `~6 * POLL_MS` of cumulative wait. Per rf2-i3ffz
+// F-PERF-2: 500 → 100 trims ~2-3s off warm-cache CI runs (the gates
+// check cheap filesystem/TCP probes — increased poll rate doesn't
+// meaningfully raise cold-cache load).
+const POLL_MS = 100;
 
 const LIVE_TEST = path.join(
   MCP_CONFORMANCE_ROOT,
   'test',
-  'live-pair2-overflow.js',
+  'live-pair2-overflow.cjs',
 );
 
 function log(msg) {
@@ -593,7 +601,7 @@ async function main() {
       // conformance failure as exit 1 (the test's own code) rather
       // than 2 (which we reserve for orchestration failures —
       // shadow-cljs didn't boot, runtime didn't preload, etc.).
-      const err = new Error(`live-pair2-overflow.js exited ${testRun.status}`);
+      const err = new Error(`live-pair2-overflow.cjs exited ${testRun.status}`);
       err.exitCode = testRun.status;
       throw err;
     }
@@ -621,7 +629,7 @@ main()
     clearTimeout(watchdog);
     logErr('FAIL: ' + (err && err.message ? err.message : err));
     if (err && err.stack) logErr(err.stack);
-    // err.exitCode is set when the inner live-pair2-overflow.js itself
+    // err.exitCode is set when the inner live-pair2-overflow.cjs itself
     // exited non-zero — surface it so CI distinguishes conformance
     // failure (1) from orchestration failure (2).
     process.exit(err && typeof err.exitCode === 'number' ? err.exitCode : 2);

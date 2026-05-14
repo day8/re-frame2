@@ -18,7 +18,7 @@
 //     result; this harness asserts the SDK accepts what the server
 //     sends)
 //
-// Run with: `node test/end-to-end-pair2.js` from this directory after
+// Run with: `node test/end-to-end-pair2.cjs` from this directory after
 // `cd ../pair2-mcp && shadow-cljs compile server`. Exits 0 on success.
 //
 // The test runs in degraded mode (no nREPL on $SHADOW_CLJS_NREPL_PORT)
@@ -28,7 +28,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog } = require('./_runner.js');
+const { runWithWatchdog } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
 
@@ -75,9 +75,11 @@ runWithWatchdog(
     },
   },
   async (client) => {
-    const serverInfo = client.getServerVersion();
-    if (!serverInfo) throw new Error('connect succeeded but getServerVersion() is empty');
-    console.log('OK   connect ->', serverInfo);
+    // The SDK's `client.connect()` (invoked by the runner) already
+    // validated the initialize envelope against `InitializeResultSchema`
+    // — a missing / malformed `serverInfo` would have thrown there.
+    // We surface the negotiated identity for diagnostic logging only.
+    console.log('OK   connect ->', client.getServerVersion());
 
     // 2. tools/list via SDK. The SDK validates the response against
     // ListToolsResultSchema, so any descriptor-shape drift surfaces
