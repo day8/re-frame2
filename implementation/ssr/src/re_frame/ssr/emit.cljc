@@ -240,11 +240,26 @@
   Reagent-native heads, and fn-headed components on the root path. This
   replaces the prior post-emit regex-on-string injection: structural,
   composes with the source-coord annotation, and silently no-ops for
-  non-DOM-rooted trees (matching the source-coord exemption)."
+  non-DOM-rooted trees (matching the source-coord exemption).
+
+  Per rf2-atmvj / rf2-i15nh: callers that also need the structural hash
+  for the payload (e.g. the ssr-ring pipeline's `:rf/render-hash`) MUST
+  pass it in via `:render-hash` — that single hash then drives BOTH the
+  root-element `data-rf-render-hash` injection AND the caller's payload
+  slot. Without the opt, `:emit-hash? true` falls back to computing the
+  hash internally (one extra canonical-EDN walk over the tree); a caller
+  that ALSO calls `ssr/render-tree-hash` separately pays a second walk.
+  The opt eliminates the duplicate without changing the byte-identity
+  contract — `:render-hash` is just a pass-through to the root-attrs
+  stamper. Spec 011's hash/emit separation is preserved (no combined
+  walker)."
   [render-tree opts]
-  (let [root-attrs (when (:emit-hash? opts)
-                     {:data-rf-render-hash (hash/render-tree-hash render-tree)})
-        body       (emit-element render-tree root-attrs)]
+  (let [supplied-hash (:render-hash opts)
+        root-attrs    (cond
+                        supplied-hash {:data-rf-render-hash supplied-hash}
+                        (:emit-hash? opts)
+                        {:data-rf-render-hash (hash/render-tree-hash render-tree)})
+        body          (emit-element render-tree root-attrs)]
     (if (:doctype? opts)
       (str "<!DOCTYPE html>" body)
       body)))

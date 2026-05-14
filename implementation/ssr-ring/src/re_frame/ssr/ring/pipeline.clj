@@ -105,11 +105,21 @@
            html-shell content-type]
     :as   opts}]
   (let [hiccup      (rf/with-frame frame-id (lifecycle/resolve-root-view root-view))
+        ;; rf2-i15nh / rf2-atmvj: compute the structural hash ONCE per
+        ;; request. The same hex feeds the root-element
+        ;; `data-rf-render-hash` (via render-to-string's `:render-hash`
+        ;; opt) AND the payload's `:rf/render-hash`. Pre-rf2-i15nh
+        ;; render-to-string computed the hash internally on the
+        ;; `:emit-hash?` branch and the pipeline called render-tree-hash
+        ;; again here — two full canonical-EDN walks per request. The
+        ;; opt-threaded form drops it to one. When `:emit-hash?` is
+        ;; false the hash is still needed for the payload slot.
+        hash-str    (ssr/render-tree-hash hiccup)
         body-html   (rf/with-frame frame-id
                       (ssr/render-to-string hiccup
-                                            {:doctype?   false
-                                             :emit-hash? emit-hash?}))
-        hash-str    (ssr/render-tree-hash hiccup)
+                                            {:doctype?    false
+                                             :emit-hash?  emit-hash?
+                                             :render-hash (when emit-hash? hash-str)}))
         app-db      (rf/get-frame-db frame-id)
         payload     (payload/build-payload frame-id app-db hash-str
                                            {:version       version
