@@ -27,6 +27,7 @@
   `react-dom/client` exposes a usable root in the node test target."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.component :as component]
+            [reagent2.impl.template :as template]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -618,3 +619,56 @@
           c         (fake-instance [render-fn 9])
           out       (component/wrap-render c render-fn)]
       (is (= [:p.coord {:class "live"} 9] out)))))
+
+;; ---------------------------------------------------------------------------
+;; as-element-fn unregistered → throw (rf2-lijel + rf2-n9nlk)
+;;
+;; The make-render-method seam runs hiccup through the registered
+;; `reagent2.impl.template/as-element` fn before handing the result to
+;; React. If the seam is unregistered (a hand-rolled test bundle that
+;; requires component without template), the slim adapter throws
+;; `:rf.error/as-element-fn-unregistered` — fail-fast over the silent
+;; pass-through that surfaced the React \"Objects are not valid as a
+;; React child\" error the rf2-08t0 fix was about.
+;;
+;; Production load order via reagent2.core pulls template; template's
+;; ns-load calls set-as-element-fn!. The test paths below temporarily
+;; null the seam via set-as-element-fn! and then restore it.
+;; ---------------------------------------------------------------------------
+
+(defn- with-unregistered-as-element-fn
+  "Run `f` with the as-element seam nulled out. Restores
+  `reagent2.impl.template/as-element` (the production registrant) on
+  exit so subsequent tests see the live seam."
+  [f]
+  (try
+    (component/set-as-element-fn! nil)
+    (f)
+    (finally
+      (component/set-as-element-fn! template/as-element))))
+
+(deftest as-element-fn-unregistered-render-throws
+  (testing "render method throws :rf.error/as-element-fn-unregistered
+            when the as-element seam is null (rf2-lijel)"
+    (with-unregistered-as-element-fn
+      (fn []
+        (let [^js klass (component/create-class*
+                          {:reagent-render (fn [_this] [:div "x"])
+                           :display-name   "UnregisteredTest"})
+              render    (proto-method klass "render")
+              ;; Build an instance shell the render method can run
+              ;; against. We don't drive React; we call render directly
+              ;; with a synthesised `this`.
+              instance  #js {:props #js {:__rfArgv [(fn [_t] [:div "x"])]}
+                             :cljsArgv [(fn [_t] [:div "x"])]
+                             :cljsRenderRea nil}
+              thrown    (try
+                          (.call render instance)
+                          nil
+                          (catch :default e (ex-data e)))]
+          (is (= :rf.error/as-element-fn-unregistered (:type thrown))
+              ":type identifies the unregistered seam class")
+          (is (= :no-recovery (:recovery thrown))
+              ":recovery is :no-recovery — there is no fallback path")
+          (is (string? (:reason thrown))
+              ":reason carries an actionable message"))))))
