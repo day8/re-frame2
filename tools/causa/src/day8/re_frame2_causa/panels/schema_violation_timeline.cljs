@@ -373,3 +373,167 @@
                                 (row-track row window track-width))))]]
      (when selected-violation
        (violation-detail-panel selected-violation))]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Schema-violation Timeline panel's
+  Causa-side registrations (Phase 5, rf2-htffa)."
+  []
+  ;; ---- Phase 5 (rf2-htffa) — Schema-violation Timeline subs ----
+  ;;
+  ;; Per tools/causa/spec/005-Schema-Timeline.md the panel reads
+  ;; from three streams:
+  ;;
+  ;;   1. (rf/app-schemas frame-id)  — registered schemas → rows
+  ;;   2. trace-buffer filtered to :rf.error/schema-validation-
+  ;;      failure → dots
+  ;;   3. the panel's own selection state — selected violation +
+  ;;      schema filter + time-axis window
+  ;;
+  ;; The composite below produces one map the view consumes per
+  ;; render. Per spec §Performance the projection is O(visible-
+  ;; violations) — typically 0–5.
+
+  ;; Registered schemas for the target frame — projected as a
+  ;; vector of `path-or-id` row keys. `rf/app-schemas` returns a
+  ;; `{path → schema}` map; the helper just iterates the map's
+  ;; entry-keys to keep the row ordering stable. Returns [] when
+  ;; the schemas artefact is not on the classpath.
+  (rf/reg-sub :rf.causa/registered-schemas
+    :<- [:rf.causa/target-frame]
+    (fn [[target-frame] _query]
+      (try
+        (vec (keys (or (rf/app-schemas {:frame target-frame}) {})))
+        (catch :default _
+          []))))
+
+  ;; The view's currently-selected violation id (the trace event's
+  ;; :id, stable per-process). nil = no selection; the detail
+  ;; side-panel hides.
+  (rf/reg-sub :rf.causa/selected-violation-id
+    (fn [db _query]
+      (get db :selected-violation-id)))
+
+  ;; Schema filter — when set, the panel narrows its rendered rows
+  ;; to the matching schema only. Per spec §Per-violation detail
+  ;; the 'Show me all violations of this schema' action sets this.
+  (rf/reg-sub :rf.causa/schema-filter
+    (fn [db _query]
+      (get db :schema-filter)))
+
+  ;; Time-axis window state — `{:t0 :t1}` in ms. nil falls back to
+  ;; the default 60s window ending at now. Per spec §Layout the
+  ;; window synchronises with the Trace panel's time-axis when
+  ;; both are visible; the shared slot is what makes the
+  ;; synchronisation a single-source-of-truth read.
+  (rf/reg-sub :rf.causa/schema-timeline-window
+    (fn [db _query]
+      (or (get db :schema-timeline-window)
+          (h/default-window))))
+
+  ;; Projected violations filtered to the current window. Returns
+  ;; a vector of projected violation rows in chronological order
+  ;; (oldest first); the composite groups by schema downstream.
+  ;; Per spec §Aging out — out-of-window violations drop from the
+  ;; rendered set without leaving the underlying buffer.
+  (rf/reg-sub :rf.causa/schema-violations-window
+    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/schema-timeline-window]
+    (fn [[buffer window] _query]
+      (let [all (h/project-violations buffer)]
+        (filterv #(h/violation-in-window? window %) all))))
+
+  ;; Cache of the previously-rendered rows so the panel's flash
+  ;; cue (per spec §Reading the timeline at a glance) can detect
+  ;; the empty→non-empty transition. Updated on each composite
+  ;; recompute; the view reads :first? off each row.
+  (rf/reg-sub :rf.causa/schema-timeline-prev-rows
+    (fn [db _query]
+      (get db :schema-timeline-prev-rows)))
+
+  ;; The composite the view consumes. Shape:
+  ;;
+  ;;     {:rows                [<row> ...]      ;; per-schema rows
+  ;;      :window              {:t0 :t1}
+  ;;      :total-violations    <int>            ;; pre-filter count
+  ;;      :rendered-violations <int>            ;; post-filter
+  ;;      :selected-violation  <projected|nil>
+  ;;      :schema-filter       <schema-id|nil>}
+  ;;
+  ;; Per spec §Per-violation detail — `:selected-violation` is the
+  ;; full projected row (resolved from :selected-violation-id); nil
+  ;; when no selection OR when the id is no longer in the buffer.
+  (rf/reg-sub :rf.causa/schema-violation-timeline
+    :<- [:rf.causa/registered-schemas]
+    :<- [:rf.causa/schema-violations-window]
+    :<- [:rf.causa/schema-timeline-window]
+    :<- [:rf.causa/selected-violation-id]
+    :<- [:rf.causa/schema-filter]
+    :<- [:rf.causa/schema-timeline-prev-rows]
+    (fn [[schemas violations window selected-id schema-filter prev-rows] _query]
+      (let [;; If a schema-filter is set, narrow registered-schemas
+            ;; to that single row. Violations are filtered to the
+            ;; same schema-id.
+            schemas'    (if (some? schema-filter)
+                          (filterv #(= % schema-filter) schemas)
+                          schemas)
+            violations' (if (some? schema-filter)
+                          (filterv #(= schema-filter (:schema-id %))
+                                   violations)
+                          violations)
+            rows        (h/project-rows
+                          schemas' violations' window prev-rows)
+            selected    (when selected-id
+                          (h/find-violation violations selected-id))]
+        {:rows                 rows
+         :window               window
+         :total-violations    (count violations)
+         :rendered-violations (count violations')
+         :selected-violation   selected
+         :schema-filter        schema-filter})))
+
+  ;; ---- Phase 5 (rf2-htffa) — Schema-violation Timeline events --
+
+  ;; Clear the selected-violation-id (closes the detail side
+  ;; panel). Per spec §Per-violation detail — the close affordance
+  ;; on the detail panel header fires this.
+  (rf/reg-event-db :rf.causa/clear-violation-selection
+    (fn [db _event]
+      (dissoc db :selected-violation-id)))
+
+  ;; Select a violation by its trace-event :id (which is stable
+  ;; per-process per Spec 009 §Trace event shape). The detail side
+  ;; panel renders when this is set + the violation is still in
+  ;; the buffer. Setting nil clears the selection (parity with
+  ;; clear-violation-selection — the panel's dot click handler
+  ;; uses select, the close button uses clear).
+  (rf/reg-event-db :rf.causa/select-violation
+    (fn [db [_ violation-id]]
+      (if (some? violation-id)
+        (assoc db :selected-violation-id violation-id)
+        (dissoc db :selected-violation-id))))
+
+  ;; Set the per-schema filter — narrows the rendered rows to one
+  ;; schema. Per spec §Per-violation detail the 'Show me all
+  ;; violations of this schema' action dispatches this. Passing
+  ;; nil clears the filter (the Clear filter button in the
+  ;; header).
+  (rf/reg-event-db :rf.causa/set-schema-filter
+    (fn [db [_ schema-id]]
+      (if (some? schema-id)
+        (assoc db :schema-filter schema-id)
+        (dissoc db :schema-filter))))
+
+  ;; Set the time-axis window. Per spec §Layout drag-zoom expands
+  ;; the window; setting nil reverts to the default 60s window
+  ;; ending at now (the composite sub reads default-window when
+  ;; the slot is absent).
+  (rf/reg-event-db :rf.causa/set-schema-timeline-window
+    (fn [db [_ window]]
+      (if (and (map? window)
+               (number? (:t0 window))
+               (number? (:t1 window))
+               (< (:t0 window) (:t1 window)))
+        (assoc db :schema-timeline-window window)
+        (dissoc db :schema-timeline-window)))))

@@ -350,3 +350,61 @@
 
         :else
         (cascade-list cascades))]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Event Detail panel's Causa-side
+  registrations (Phase 2, rf2-op3bz). Owns the selection slot the
+  panel + its cross-panel `:rf.causa/cascades` consumers read off:
+
+    - `:rf.causa/selected-dispatch-id` sub (cascade selection)
+    - `:rf.causa/event-detail` composite sub
+    - `:rf.causa/select-dispatch-id` event
+    - `:rf.causa/clear-selected-dispatch-id` event
+
+  The cross-panel `:rf.causa/cascades` projection itself lives in
+  `registry.cljs` — it is shared with the Causality Graph and
+  Performance panels."
+  []
+  ;; The dispatch-id the user has drilled into. nil = empty state
+  ;; (cascade list, per spec/007-UX-IA.md §The default landing view).
+  (rf/reg-sub :rf.causa/selected-dispatch-id
+    (fn [db _query]
+      (get db :selected-dispatch-id)))
+
+  ;; Event-detail composite — produces everything the panel needs in
+  ;; one read so the view stays a thin renderer. Shape:
+  ;;
+  ;;     {:cascades             [...]   ; all cascades, oldest first
+  ;;      :selected-dispatch-id <id>    ; nil when no selection
+  ;;      :selected-cascade     {...}}  ; nil when no selection
+  ;;                                    ; OR when the id is no
+  ;;                                    ; longer in the buffer
+  ;;
+  ;; The projection runs against the live buffer on every recompute.
+  ;; Per spec/007-UX-IA.md §Performance budget the panel renders at
+  ;; most ~200 cascades; the projection is O(n) over the buffer.
+  (rf/reg-sub :rf.causa/event-detail
+    ;; Signal layer: depend on the shared `:rf.causa/cascades`
+    ;; projection + selected-dispatch-id so this composite recomputes
+    ;; when either changes. The `:<-` chain is the only sub-
+    ;; registration form in v2 (per Spec 002 §Subscriptions composing
+    ;; — reg-sub-raw is dropped; see `re-frame.subs/parse-reg-sub-args`).
+    :<- [:rf.causa/cascades]
+    :<- [:rf.causa/selected-dispatch-id]
+    (fn [[cascades selected-id] _query]
+      (let [by-id (when selected-id
+                    (some #(when (= selected-id (:dispatch-id %)) %)
+                          cascades))]
+        {:cascades             cascades
+         :selected-dispatch-id selected-id
+         :selected-cascade     by-id})))
+
+  (rf/reg-event-db :rf.causa/select-dispatch-id
+    (fn [db [_ dispatch-id]]
+      (assoc db :selected-dispatch-id dispatch-id)))
+
+  (rf/reg-event-db :rf.causa/clear-selected-dispatch-id
+    (fn [db _event]
+      (dissoc db :selected-dispatch-id))))

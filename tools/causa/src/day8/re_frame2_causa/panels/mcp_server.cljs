@@ -467,3 +467,113 @@
                                                :padding    0}}]
                            (for [row rows]
                              (mcp-row row))))]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the MCP Server panel's Causa-side
+  registrations (Phase 5, rf2-81qjj)."
+  []
+  ;; ── mcp-server panel begin ──
+  ;;
+  ;; Phase 5 (rf2-81qjj) — MCP Server panel
+  ;;
+  ;; Per `tools/causa/spec/010-MCP-Server.md` §Origin tagging +
+  ;; `tools/causa-mcp/spec/Principles.md` §Origin tagging is the
+  ;; convention the panel filters the trace-buffer to events tagged
+  ;; `:tags :origin :causa-mcp` (the canonical tag the causa-mcp jar
+  ;; stamps on every side-effect it performs). The composite is a
+  ;; thin wrapper over `mcp-helpers/project-feed`; the panel is a
+  ;; read-only feed of agent activity in the host.
+  ;;
+  ;; Shape of `:rf.causa/mcp-server`:
+  ;;
+  ;;     {:rows              [<row> ...]
+  ;;      :total             <int>
+  ;;      :rendered          <int>
+  ;;      :op-type-counts    {op-type count}
+  ;;      :distinct-op-types [<op-type> ...]
+  ;;      :filters           <pass-through>
+  ;;      :agent-attached?   <bool>
+  ;;      :empty-kind        <:no-activity / :no-matches / nil>}
+  ;;
+  ;; ## INFERENTIAL DECISIONS (rf2-81qjj — spec-deficient bead)
+  ;;
+  ;; (a) Dedicated sidebar panel — yes. Parallels every other Phase 5
+  ;;     panel; gives users one entry point for 'what is the agent
+  ;;     doing'.
+  ;; (b) Origin colour for `:causa-mcp` — cyan #06B6D4 (see helpers
+  ;;     ns). Distinct from :pair indigo (locked) and :story/:test
+  ;;     light-cyan (#43C3D0).
+  ;; (c) Bidirectional Causa→agent surface — out of scope (causa-mcp
+  ;;     jar implementation concern).
+  ;;
+  ;; Each is a follow-on bead candidate.
+
+  ;; Active filter state — the panel reads the two slots through one
+  ;; sub so the view re-renders atomically when filters change.
+  (rf/reg-sub :rf.causa/mcp-filters
+    (fn [db _query]
+      {:op-types (get db :mcp-active-op-types #{})
+       :since-ms (get db :mcp-since-ms)}))
+
+  ;; Composite — produces every slot the view consumes. The
+  ;; helper's `project-feed` does the heavy lifting; the sub is a
+  ;; thin wrapper that injects `now-ms` (so the since-ms axis is
+  ;; meaningful) and reads the trace-buffer + filter state through
+  ;; the reactive surface.
+  (rf/reg-sub :rf.causa/mcp-server
+    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/mcp-filters]
+    (fn [[buffer filters] _query]
+      (h/project-feed buffer filters (h/now-ms))))
+
+  ;; The cross-panel highlight toggle. When true, other panels MAY
+  ;; honour this (Trace / Event-detail / Causality) to dim non-agent
+  ;; events. Default false — the toggle is an opt-in.
+  ;;
+  ;; The cross-panel wiring (other panels reading this sub) is a
+  ;; follow-on bead; this panel ships the toggle so the surface is
+  ;; in place and any consumer that subscribes honours it
+  ;; immediately. Filed as: 'Causa: cross-panel :causa-mcp origin
+  ;; highlight.'
+  (rf/reg-sub :rf.causa/mcp-origin-filter-enabled?
+    (fn [db _query]
+      (boolean (get db :mcp-origin-filter-enabled? false))))
+
+  ;; ---- MCP Server panel events --------------------------------------
+
+  ;; Toggle an op-type chip in/out of the active filter set.
+  (rf/reg-event-db :rf.causa/toggle-mcp-op-type
+    (fn [db [_ op-type]]
+      (let [current (get db :mcp-active-op-types #{})]
+        (assoc db :mcp-active-op-types
+               (if (contains? current op-type)
+                 (disj current op-type)
+                 (conj current op-type))))))
+
+  ;; Set the since-ms axis from a seconds-typed user input. The
+  ;; view converts s → ms here so the helper's filter-application
+  ;; stays uniform in ms. nil / non-positive values clear the axis.
+  (rf/reg-event-db :rf.causa/set-mcp-since-seconds
+    (fn [db [_ seconds]]
+      (if (and (number? seconds) (pos? seconds))
+        (assoc db :mcp-since-ms (* (long seconds) 1000))
+        (dissoc db :mcp-since-ms))))
+
+  ;; Clear every filter axis in one shot. The Clear filters
+  ;; affordance in the header + the no-matches empty state both
+  ;; fire this.
+  (rf/reg-event-db :rf.causa/clear-mcp-filters
+    (fn [db _event]
+      (-> db
+          (dissoc :mcp-active-op-types)
+          (dissoc :mcp-since-ms))))
+
+  ;; Toggle the cross-panel origin-filter highlight. Wired from the
+  ;; Settings sub-pane checkbox in the MCP panel.
+  (rf/reg-event-db :rf.causa/toggle-mcp-origin-filter
+    (fn [db _event]
+      (update db :mcp-origin-filter-enabled? not)))
+  ;; ── mcp-server panel end ──
+  )

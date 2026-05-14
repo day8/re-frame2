@@ -297,3 +297,103 @@
       (if (zero? total)
         (empty-state)
         (fx-list rows selected-fx-id))]]))
+
+;; ---- registration entry --------------------------------------------------
+
+(defn install!
+  "Idempotent install for the Effects panel's Causa-side registrations
+  (Phase 5, rf2-ts41u)."
+  []
+  ;; ---- Phase 5 (rf2-ts41u) — Effects panel ---------------------------
+  ;;
+  ;; Surfaces re-frame2's registered fxs + their per-fx invocations,
+  ;; outcome status, and stub indicator. Consumer of Spec 002 §reg-fx
+  ;; (the registered-fx surface) + Spec 009 (the `:rf.fx/*` trace event
+  ;; vocabulary).
+  ;;
+  ;; The panel reads two surfaces — the framework's registered-fx map
+  ;; (`(rf/handlers :fx)`) and the Causa trace-buffer's fx-related
+  ;; slice (`:op-type :fx` plus the fx-layer error categories) — and
+  ;; folds them via `effects-helpers/project-rows` into one row per
+  ;; registered fx.
+  ;;
+  ;; Tests stub the registered-fx surface by writing
+  ;; `:registered-fxs-override` to Causa's app-db (via
+  ;; `:rf.causa/set-registered-fxs-override-for-test`) so the suite
+  ;; can assert against a deterministic fx set without booting a host
+  ;; runtime that registers fxs.
+  ;;
+  ;; Shape of `:rf.causa/effects-data`:
+  ;;
+  ;;     {:rows           [<row> ...]
+  ;;      :outcome-counts {outcome count}
+  ;;      :total          <int>
+  ;;      :selected-fx-id <fx-id-or-nil>}
+
+  ;; Read the registered-fx map. Reads `(rf/handlers :fx)` — per
+  ;; Spec 001 §The public registrar query API the registrar is
+  ;; process-global so this surfaces every registered fx across
+  ;; every frame. The v1 wiring threads it through the override
+  ;; slot so the JVM test target can drive the projection without
+  ;; booting a substrate that registers fxs.
+  (rf/reg-sub :rf.causa/registered-fxs
+    (fn [db _query]
+      (let [ov (get db :registered-fxs-override)]
+        (or ov (rf/handlers :fx)))))
+
+  ;; Test-only override hook for the registered-fxs surface.
+  ;; Production code paths never dispatch this — the slot exists
+  ;; only so JVM + node-test suites can drive the projection
+  ;; without booting the fx registrar.
+  (rf/reg-event-db :rf.causa/set-registered-fxs-override-for-test
+    (fn [db [_ ov]]
+      (if (nil? ov)
+        (dissoc db :registered-fxs-override)
+        (assoc db :registered-fxs-override ov))))
+
+  ;; The Causa trace-buffer's fx-related slice. Pure-data filter —
+  ;; the helper's predicate is JVM-runnable so tests can drive it
+  ;; without a CLJS runtime.
+  ;;
+  ;; Note the single-signal `:<-` arity: re-frame2's `reg-sub`
+  ;; passes the upstream value DIRECTLY (not vector-wrapped) when
+  ;; there's exactly one `:<-` chain entry — per Spec 002 §The
+  ;; reg-sub forms + subs.cljc parse-reg-sub-args.
+  (rf/reg-sub :rf.causa/fx-trace-events
+    :<- [:rf.causa/trace-buffer]
+    (fn [buffer _query]
+      (h/filter-fx-events buffer)))
+
+  ;; The user's per-panel fx selection. Drives a cross-panel
+  ;; affordance (click fx → event-detail filtered to that fx's
+  ;; recent invocations); v1 wiring carries the selection only —
+  ;; the cross-panel jump lands when the cross-panel filter API
+  ;; stabilises.
+  (rf/reg-sub :rf.causa/selected-fx-id
+    (fn [db _query]
+      (get db :selected-fx-id)))
+
+  ;; The composite the panel consumes. One read produces every slot
+  ;; the view needs (matches the per-panel composite pattern every
+  ;; other Causa panel uses).
+  (rf/reg-sub :rf.causa/effects-data
+    :<- [:rf.causa/registered-fxs]
+    :<- [:rf.causa/fx-trace-events]
+    :<- [:rf.causa/selected-fx-id]
+    (fn [[fxs-map fx-events selected-fx-id] _query]
+      (let [rows   (h/project-rows fxs-map fx-events)
+            counts (h/outcome-counts rows)]
+        {:rows           rows
+         :outcome-counts counts
+         :total          (count rows)
+         :selected-fx-id selected-fx-id})))
+
+  ;; ---- Phase 5 (rf2-ts41u) — Effects panel events ------------------
+
+  (rf/reg-event-db :rf.causa/select-fx-id
+    (fn [db [_ fx-id]]
+      (assoc db :selected-fx-id fx-id)))
+
+  (rf/reg-event-db :rf.causa/clear-fx-selection
+    (fn [db _event]
+      (dissoc db :selected-fx-id))))
