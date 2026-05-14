@@ -169,6 +169,19 @@
   (when frame-id
     (swap! observed-frames-by-cb update cb-id (fnil conj #{}) frame-id)))
 
+(defn- drop-frame-from-cb-observations
+  "Drop `frame-id` from every cb's observed-frames set in `m`. When a
+  cb's set goes empty as a result, drop the cb entry entirely so the
+  map doesn't accrete keys to empty sets."
+  [m frame-id]
+  (reduce-kv (fn [acc cb-id frames]
+               (let [frames' (disj frames frame-id)]
+                 (if (empty? frames')
+                   (dissoc acc cb-id)
+                   (assoc acc cb-id frames'))))
+             {}
+             m))
+
 (defn- notify-listeners! [record]
   (let [frame-id (:frame record)]
     (doseq [[id f] @listeners]
@@ -205,16 +218,8 @@
       (doseq [cb-id silenced-cbs]
         (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
                      {:frame  frame-id
-                      :cb-id  cb-id}))
-      (swap! observed-frames-by-cb
-             (fn [m]
-               (reduce-kv (fn [acc cb-id frames]
-                            (let [frames' (disj frames frame-id)]
-                              (if (empty? frames')
-                                (dissoc acc cb-id)
-                                (assoc acc cb-id frames'))))
-                          {}
-                          m))))
+                      :cb-id  cb-id})))
+    (swap! observed-frames-by-cb drop-frame-from-cb-observations frame-id)
     ;; Drop the per-frame ring buffer; epoch-history returns [] from
     ;; here on. (`reset-frame :app/main` calls destroy-frame! followed
     ;; by reg-frame, so the ring buffer for the new same-keyed frame
