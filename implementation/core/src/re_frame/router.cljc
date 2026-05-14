@@ -459,12 +459,20 @@
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
   / per-call overrides take effect. Per-frame :platform overrides
-  interop/platform when set."
-  [effects frame frame-record fx-overrides event]
+  interop/platform when set.
+
+  Per Spec 002 §The binary fx-handler signature (line 603) and §Cascade
+  propagation (line 1162): the originating dispatch envelope is
+  threaded into `do-fx` so reserved-fx defmethods (`:dispatch`,
+  `:dispatch-later`) can copy inheritable keys (`:fx-overrides`,
+  `:interceptor-overrides`, `:trace-id`, `:origin`, `:source`) onto
+  child dispatches. User fxs see it at `(:envelope m)`."
+  [effects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
     (let [active-platform (or (get-in frame-record [:config :platform])
-                              interop/platform)]
-      (fx/do-fx frame fx-vec active-platform fx-overrides event))))
+                              interop/platform)
+          event           (:event envelope)]
+      (fx/do-fx frame fx-vec active-platform fx-overrides event envelope))))
 
 ;; ---- process-event* phases ------------------------------------------------
 ;;
@@ -570,8 +578,12 @@
   flows do NOT evaluate and `:fx` does NOT walk. The pre-handler db
   is read from `(get-in final-ctx [:coeffects :db])` (assemble-
   initial-ctx stamps it there). Downstream queued events still drain
-  per run-to-completion (handled by `drain-loop!`'s outer pass)."
-  [final-ctx event-id event frame frame-record fx-overrides start-ms]
+  per run-to-completion (handled by `drain-loop!`'s outer pass).
+
+  Per Spec 002 §Cascade propagation: `envelope` is threaded into
+  `run-fx-effects!` so reserved-fx defmethods can propagate
+  inheritable keys onto child dispatches."
+  [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [effects   (:effects final-ctx)
         error     (:rf/interceptor-error final-ctx)
         db-before (get-in final-ctx [:coeffects :db])]
@@ -579,7 +591,7 @@
       (emit-handler-exception! error event-id event frame final-ctx start-ms))
     (when (commit-db-effect! effects event-id event frame final-ctx db-before)
       (run-flows! frame event)
-      (run-fx-effects! effects frame frame-record fx-overrides event))
+      (run-fx-effects! effects frame frame-record fx-overrides envelope))
     error))
 
 (defn- emit-cascade-trailers!
@@ -651,7 +663,7 @@
           (prepare-handler-ctx envelope frame frame-record handler-meta)
           final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
           error     (commit-and-flow! final-ctx event-id event frame
-                                      frame-record fx-overrides start-ms)]
+                                      frame-record fx-overrides envelope start-ms)]
       (emit-cascade-trailers! event-id event frame error start-ms))))
 
 (defn- process-event*

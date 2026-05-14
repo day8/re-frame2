@@ -156,17 +156,26 @@
     (f args {:frame frame-id})))
 
 (def ^:private reserved-fx-handlers
-  "Reserved fx-id → body-fn `(fn [frame-id args])`. Driven by
-  `handle-one-fx`; emit of `:rf.fx/handled` lives in the caller so each
-  reserved fx surfaces exactly one success trace, uniformly."
+  "Reserved fx-id → body-fn `(fn [frame-id parent-envelope args])`.
+  Driven by `handle-one-fx`; emit of `:rf.fx/handled` lives in the
+  caller so each reserved fx surfaces exactly one success trace,
+  uniformly.
+
+  `parent-envelope` is the dispatch envelope of the event that produced
+  this fx vector. Per Spec 002 §The binary fx-handler signature (line
+  603) and §Drain-loop pseudocode (lines 916, 961-963), the slot is
+  available to reserved-fx defmethods for `:dispatch` / `:dispatch-later`
+  so they can copy parent-envelope fields onto the child dispatch — see
+  the cascade-propagation work that consumes this seam in a follow-up
+  commit. Flows fxs ignore it."
   {:dispatch
    ;; Append to back of the frame's router queue.
-   (fn [frame-id args]
+   (fn [frame-id _parent-envelope args]
      (call-frame-scoped-hook! :router/dispatch! frame-id args))
 
    :dispatch-later
    ;; Delayed dispatch — wraps the same router hook in `set-timeout!`.
-   (fn [frame-id {:keys [ms event]}]
+   (fn [frame-id _parent-envelope {:keys [ms event]}]
      (interop/set-timeout!
        (fn []
          (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
@@ -184,11 +193,11 @@
    ;; `{:frame frame-id}` as the second arg. The fx-shape hooks were
    ;; one-line pass-throughs; consolidated to two hooks.
    :rf.fx/reg-flow
-   (fn [frame-id args]
+   (fn [frame-id _parent-envelope args]
      (call-frame-scoped-hook! :flows/reg-flow frame-id args))
 
    :rf.fx/clear-flow
-   (fn [frame-id args]
+   (fn [frame-id _parent-envelope args]
      (call-frame-scoped-hook! :flows/clear-flow frame-id args))})
 
 (defn- resolve-fx-with-overrides
@@ -314,13 +323,23 @@
   `:rf.http/managed` (Spec 014 §Reply addressing) can address replies back
   to the originator without a separate cofx-injection step.
 
+  `parent-envelope` (when supplied) is the dispatch envelope of the
+  originating event. Per Spec 002 §The binary fx-handler signature
+  (line 603) and §Drain-loop pseudocode (lines 916, 961-963) it is
+  exposed on the fx-handler ctx at `(:envelope m)` — reserved-fx
+  defmethods (`:dispatch`, `:dispatch-later`) read it to propagate
+  inheritable envelope keys onto child dispatches per
+  §Cascade propagation. User fxs typically only read `(:frame m)`.
+
   Public so that fx wrappers (per Spec 012 §Navigation tokens
   `:rf.route/with-nav-token`, and any future single-fx re-entry helper)
   can route a single inner fx entry through the same machinery as the
   outer walk — without re-emitting the `:event/do-fx` boundary marker
   that `do-fx` terminates each walk with. `do-fx` remains the entry
   point for the whole `:fx` vector."
-  [frame-id [original-fx-id args] active-platform overrides origin-event]
+  ([frame-id pair active-platform overrides origin-event]
+   (handle-one-fx frame-id pair active-platform overrides origin-event nil))
+  ([frame-id [original-fx-id args] active-platform overrides origin-event parent-envelope]
   (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)
         resolved-meta (resolved-fx-meta original-fx-id fx-id overrides)
         origin-event-id (when (vector? origin-event) (first origin-event))]
@@ -341,9 +360,12 @@
       ;; `:rf.machine/destroy` machine fx-ids are NOT in this table —
       ;; they are registered by re-frame.machines (day8/re-frame2-machines)
       ;; via the regular reg-fx path and arrive here through the
-      ;; registrar default below.
+      ;; registrar default below. The reserved-fx body signature is
+      ;; `(fn [frame-id parent-envelope args])` — `:dispatch` /
+      ;; `:dispatch-later` read parent-envelope to propagate
+      ;; inheritable envelope keys per Spec 002 §Cascade propagation.
       (do
-        (reserved-body frame-id args)
+        (reserved-body frame-id parent-envelope args)
         (emit-handled! fx-id args frame-id))
       ;; Default: user-registered fx — OR a synthesised meta carrying a
       ;; function-value override (per `resolved-fx-meta` above; the
@@ -394,8 +416,17 @@
           (trace/with-handler-scope
             (trace/handler-scope-from-meta :fx fx-id meta)
             (let [ok? (try
+                        ;; Per Spec 002 §The binary fx-handler signature
+                        ;; (line 603): the fx-handler ctx carries `:frame`
+                        ;; (active frame id), `:event` (origin event
+                        ;; vector — Spec 014 §Reply addressing), and
+                        ;; `:envelope` (parent dispatch envelope — read
+                        ;; by reserved fxs only; surfaced here too so
+                        ;; user fxs can observe `:trace-id` / `:origin`
+                        ;; / `:source` without a separate cofx hop).
                         ((:handler-fn meta) (cond-> {:frame frame-id}
-                                              origin-event (assoc :event origin-event))
+                                              origin-event   (assoc :event origin-event)
+                                              parent-envelope (assoc :envelope parent-envelope))
                                             args)
                         true
                         (catch #?(:clj Throwable :cljs :default) e
@@ -423,7 +454,7 @@
                          {:fx-id    fx-id
                           :fx-args  args
                           :frame    frame-id
-                          :recovery :no-recovery}))))))
+                          :recovery :no-recovery})))))))
 
 (defn do-fx
   "Walk the :fx vector in source order. Per Spec 002 §`:fx` ordering rule 3:
@@ -435,16 +466,26 @@
   may be provided. Each [fx-id args] is rewritten through that map
   before lookup.
 
-  The optional 5-arity passes the originating event vector through to
-  user-registered fx handlers as `:event` on their ctx — needed by Spec
-  014 §Reply addressing (the fx captures the originating event-id from
-  the dispatch envelope's cofx)."
+  The 5-arity passes the originating event vector through to user-
+  registered fx handlers as `:event` on their ctx — needed by Spec 014
+  §Reply addressing (the fx captures the originating event-id from the
+  dispatch envelope's cofx).
+
+  The 6-arity additionally threads the originating dispatch envelope
+  through to reserved-fx defmethods (and exposes it at `(:envelope m)`
+  on user-fx ctx) per Spec 002 §The binary fx-handler signature (line
+  603) and §Drain-loop pseudocode (lines 916, 961-963). Reserved-fx
+  bodies for `:dispatch` and `:dispatch-later` read the envelope to
+  propagate inheritable keys onto the child dispatch per §Cascade
+  propagation."
   ([frame-id fx-vec active-platform]
-   (do-fx frame-id fx-vec active-platform {} nil))
+   (do-fx frame-id fx-vec active-platform {} nil nil))
   ([frame-id fx-vec active-platform overrides]
-   (do-fx frame-id fx-vec active-platform overrides nil))
+   (do-fx frame-id fx-vec active-platform overrides nil nil))
   ([frame-id fx-vec active-platform overrides origin-event]
+   (do-fx frame-id fx-vec active-platform overrides origin-event nil))
+  ([frame-id fx-vec active-platform overrides origin-event parent-envelope]
    (doseq [pair fx-vec]
      (when (and (vector? pair) (seq pair))
-       (handle-one-fx frame-id pair active-platform overrides origin-event)))
+       (handle-one-fx frame-id pair active-platform overrides origin-event parent-envelope)))
    (trace/emit! :event :event/do-fx {:frame frame-id})))
