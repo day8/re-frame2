@@ -1,37 +1,19 @@
 (ns re-frame.adapter.uix
   "The UIx adapter — the second canonical browser substrate (rf2-3yij).
   Per Spec 006 §CLJS reference: UIx as alternative substrate.
-
   Ships in its own Maven artefact (day8/re-frame2-uix) per
-  Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use UIx
-  depend on both day8/re-frame2 (core) and this artefact; apps
-  targeting Reagent depend on day8/re-frame2-reagent instead.
-  Core does *not* :require this ns — the dependency direction is
-  adapter → core.
-
-  Per rf2-3yij Decision 2 the React frame-context lives in
-  `re-frame.adapter.context` (CLJS-only file in core); this adapter
-  consumes the *same* createContext object the Reagent adapter
-  consumes, so a future mixed-substrate app's frame-provider chain
-  composes across substrates.
-
-  Per rf2-3yij Decision 8 we target UIx 2.x (hooks-based).
+  Spec 006 §Adapter shipping convention (rf2-0hxm); core does NOT
+  :require this ns (dependency direction: adapter → core). Targets
+  UIx 2.x (hooks-based) per rf2-3yij Decision 8.
 
   Substrate-spine sharing (rf2-3vwbx). The container quartet, derived
   value, render-root, render-to-string, frame-provider, use-subscribe,
-  flush-views!, source-coord wrapper, and warn-once-cache logic all
-  come from `re-frame.substrate.spine` — that ns hosts the
-  React-shaped-substrate spine UIx and Helix share byte-for-byte. The
-  UIx-specific configuration here is the gensym-prefix triple, the
-  substrate-name (\"UIx\") used in warn-once text, and the runtime
-  hook fns from `uix.hooks.alpha`. We bind the runtime fns rather than
-  the `uix.core` namespace's `use-memo` / `use-callback` because those
-  are macros (with no runtime counterpart Var) — passing a macro
-  symbol as a config value yields `undefined` at runtime, which broke
-  every UIx-substrate example after rf2-3vwbx until it was fixed by
-  the `uix.hooks.alpha` switch. `uix.hooks.alpha/use-memo` and
-  `use-callback` are the runtime fns the `uix.core` macros themselves
-  expand to (they take JS-array deps — exactly what the spine passes)."
+  flush-views!, source-coord wrapper, and warn-once-cache logic come
+  from `re-frame.substrate.spine`. The UIx-specific configuration
+  here is the gensym-prefix triple, the substrate-name (\"UIx\") used
+  in warn-once text, and the runtime hook fns from `uix.hooks.alpha`
+  (the spine passes JS-array deps; `uix.hooks.alpha/use-memo` and
+  `use-callback` are the runtime fns the `uix.core` macros expand to)."
   (:require [reagent.core      :as r]
             [reagent.ratom     :as ratom]
             [uix.core          :as uix]
@@ -153,33 +135,28 @@
    :register-context-provider (:register-context-provider spine-fns)
    :dispose-adapter!          (:dispose-adapter!          spine-fns)})
 
-;; Each late-bind hook below is routed through `(substrate-adapter/
-;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
-;; (see that fn's docstring for the routing contract). The wrapper runs
-;; this adapter's impl ONLY when the UIx adapter is the (rf/init!)-
-;; installed one; otherwise it chains to the previously-registered
-;; handler.
+;; Late-bind hooks below route through `substrate-adapter/route-hook!`
+;; (per rf2-0d35 — see its docstring for the routing contract): each
+;; impl runs ONLY when the UIx adapter is the (rf/init!)-installed
+;; one; otherwise chains to the previously-registered handler.
 ;;
-;; Hook-specific rationale (UIx-adapter notes):
-;;   :adapter/current-frame  — rf2-d4sf. UIx renders function
-;;     components — they have no class-component (.-context cmp) slot,
-;;     so the shared impl in `re-frame.adapter.context` reads
-;;     `_currentValue` directly. The chain-bottom fallback
-;;     `frame/current-frame` covers the dynamic-var tier of the full
-;;     resolution chain (per rf2-84myk: this hook is the WIDER surface
-;;     — `(rf/current-frame)` reaches it; the per-adapter
+;; Hook-specific UIx-adapter notes:
+;;   :adapter/current-frame  — rf2-d4sf. Function components have no
+;;     class-component (.-context cmp) slot, so the shared impl in
+;;     `re-frame.adapter.context` reads `_currentValue` directly. This
+;;     is the WIDER surface — `(rf/current-frame)` reaches the
+;;     dynamic-var-fallback chain via this hook; the per-adapter
 ;;     `use-current-frame` hook above is the NARROWER React-context-
-;;     tier-only read).
-;;   :adapter/ratom etc. — rf2-s36l. UIx's derived values reify stock
-;;     reagent.ratom/IDisposable directly, so these hooks delegate to
-;;     stock Reagent's r/atom, ratom/make-reaction, etc. UIx itself
-;;     ships no reactive-atom primitive (per the rf2-3yij design).
+;;     tier-only read (per rf2-84myk).
+;;   :adapter/ratom etc. — rf2-s36l. UIx ships no reactive-atom
+;;     primitive (per rf2-3yij); derived values reify stock
+;;     reagent.ratom/IDisposable, so these hooks delegate to
+;;     `r/atom`, `ratom/make-reaction`, etc.
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord
-;;     injection via React.cloneElement (the inline hiccup-walk in
-;;     views.cljs would mis-classify React-element output as a non-DOM
-;;     root). Production-elision: `wrap-view`'s body sits inside an
-;;     `interop/debug-enabled?` gate so closure-folds under :advanced +
-;;     goog.DEBUG=false (per Spec 009 §Production builds).
+;;     injection via React.cloneElement (the views.cljs inline
+;;     hiccup-walk would mis-classify React-element output as a
+;;     non-DOM root). Production-elided via `interop/debug-enabled?`
+;;     per Spec 009 §Production builds.
 (substrate-adapter/route-hook! adapter :adapter/current-frame
   adapter-context/function-component-current-frame
   #(frame/current-frame))
@@ -202,27 +179,15 @@
 (substrate-adapter/route-hook! adapter :adapter/wrap-view
   wrap-view)
 
-;; Per rf2-4edk: contribute a clear of THIS adapter's warn-once cache to
-;; the chained `:adapter/clear-warn-once-caches!` hook. The hook is
-;; chained — each adapter (helix, uix) and re-frame.views all contribute
-;; a clear-step; `reset-runtime-fixture` invokes the top of the chain
-;; and every contributor's reset runs (unlike `:adapter/current-frame`
-;; etc. this hook is NOT routed through the installed adapter — every
-;; loaded adapter's cache must clear because test bundles can mount
-;; different adapters across tests and each adapter's defonce persists).
-;; Production behaviour is unchanged: the warn-once defonce is still
-;; per-process for users; only test-time clearing is new.
+;; Chained warn-once clear (rf2-4edk): every loaded adapter's
+;; per-process defonce must be cleared between tests, so this hook is
+;; chained (not routed by installed-adapter identity).
 (spine/install-clear-warn-once-step! clear-warned-non-dom-roots!)
 
-;; Per rf2-4z7bp: chain this adapter's `set-hiccup-emitter!` into the
-;; `:reagent/set-hiccup-emitter!` late-bind hook so SSR (which calls
-;; the hook at `re-frame.ssr.emit` ns-load time) auto-wires the UIx
-;; adapter's :render-to-string slot. The hook name is historical
-;; (Reagent published it first per rf2-uo7v); behaviour is adapter-
-;; agnostic and chained — every loaded React-shaped adapter contributes
-;; its own install-into-the-emitter-cell step, so a process with both
-;; Reagent and UIx loaded gets BOTH adapters' emitters wired by a
-;; single `(require '[re-frame.ssr])`. Before this chain entry, an
-;; SSR-from-UIx user had to call `(uix-adapter/set-hiccup-emitter!
-;; render-to-string)` directly — see the rf2-gc5v9 test docstring.
+;; Chained SSR emitter install (rf2-4z7bp): `re-frame.ssr.emit`
+;; invokes `:reagent/set-hiccup-emitter!` at ns-load; every loaded
+;; React-shaped adapter contributes its own install step so a single
+;; `(require '[re-frame.ssr])` auto-wires every adapter's
+;; render-to-string slot. Hook key is historical (Reagent published
+;; it first per rf2-uo7v); behaviour is adapter-agnostic.
 (late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
