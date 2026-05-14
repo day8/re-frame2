@@ -47,10 +47,16 @@
        `:fixture/frame-config` (including any `:on-create` seed events).
        Re-registers because reset-runtime created a vanilla
        `:rf/default`; the fixture's `:on-create` cascade fires here.
-    5. Drives `:fixture/dispatches` through `rf/dispatch-sync` — the
-       flow walker fires post-drain per Spec 013 §Drain integration.
+    5. Drives `:fixture/dispatches` through `rf/dispatch-sync`. Dispatches
+       are either bare event vectors or envelope maps `{:event [...]
+       :frame <id> ...}` (the multi-frame shape per
+       `frame-multi-instance.edn`). The flow walker fires post-drain
+       per Spec 013 §Drain integration.
     6. Asserts each of:
-       - `:final-app-db` — submap match against `rf/get-frame-db`.
+       - `:final-app-db` — submap match against `rf/get-frame-db`
+         (single-frame; reads `:rf/default`).
+       - `:final-app-dbs` — `{frame-id db}` per-frame submap match
+         (multi-frame; per Spec 013 §Frame-scoping).
        - `:sub-values` — exact match per query.
        - `:expect-trace-stream` — order-preserving subset match against
          the captured `:op-type :flow` trace events (partial-match on
@@ -64,8 +70,14 @@
        - `:flow-graph-topology` — for each `flow-id #{dep-id ...}`
          entry, every dep is a registered flow whose `:path` overlaps
          the dependent's `:inputs`.
-       - `:flow-registry-after` — the set of flow ids in the
-         per-frame registry after the final dispatch.
+       - `:flow-registry-after` — the set of flow ids in the per-frame
+         registry after the final dispatch. Two shapes: a bare set
+         `#{ids}` reads `:rf/default`'s slot (single-frame), or a map
+         `{frame-id #{ids}}` reads each frame's slot (multi-frame).
+
+  Frame topology is declared via `:fixture/frames [{:id ... :on-create ...} ...]`
+  (multi-frame, per Spec 013 §Frame-scoping) OR `:fixture/frame-config`
+  (single-frame, configures `:rf/default`).
 
   ## Capability claim
 
@@ -174,7 +186,8 @@
     :flow/dirty-check
     :flow/toggle
     :flow/hot-reload
-    :flow/trace})
+    :flow/trace
+    :flow/frame-scoped})
 
 (def claimed-spec-versions
   "Fixture spec versions this runner claims to conform against. Matches
@@ -383,9 +396,13 @@
                         other-id))]))))
 
 (defn- flow-registry-ids
-  "Set of flow ids currently registered on the `:rf/default` frame."
-  []
-  (into #{} (keys (get @flows/flows :rf/default {}))))
+  "Set of flow ids currently registered on `frame-id` (default
+  `:rf/default`). The single-arg form preserves the original
+  single-frame contract; the two-arg form is used by multi-frame
+  fixtures (per Spec 013 §Frame-scoping)."
+  ([] (flow-registry-ids :rf/default))
+  ([frame-id]
+   (into #{} (keys (get @flows/flows frame-id {})))))
 
 ;; ---- single-fixture execution -------------------------------------------
 
@@ -398,20 +415,42 @@
           traces       (collect-traces fid)
           _            (realise-handlers fixture)
           frame-config (or (:fixture/frame-config fixture) {})
+          frames-spec  (:fixture/frames fixture)
           ;; `reset-runtime` already created :rf/default WITHOUT an
           ;; :on-create. `reg-frame` against an existing id is a
           ;; surgical update that does NOT re-fire :on-create (Spec 002).
           ;; Destroy first so the fixture's :on-create cascade fires
           ;; under its declared config.
+          ;;
+          ;; Multi-frame fixtures (per Spec 013 §Frame-scoping) declare
+          ;; `:fixture/frames [{:id ...} ...]` and the single `:rf/default`
+          ;; seam is bypassed. Single-frame fixtures keep the original
+          ;; shape (`:fixture/frame-config` configures `:rf/default`).
           _            (rf/destroy-frame :rf/default)
-          _            (rf/reg-frame :rf/default frame-config)
+          _            (if (seq frames-spec)
+                         (doseq [f frames-spec]
+                           (rf/reg-frame (:id f) (dissoc f :id)))
+                         (rf/reg-frame :rf/default frame-config))
           dispatches   (or (:fixture/dispatches fixture) [])]
+      ;; Dispatches may be a bare event vector (single-frame default) or
+      ;; an envelope map `{:event [...] :frame <id> ...}` (multi-frame,
+      ;; mirrors core's runner per spec/conformance/fixtures/frame-multi-instance.edn).
       (doseq [ev dispatches]
-        (rf/dispatch-sync ev))
+        (if (map? ev)
+          (let [{event :event :as opts} ev]
+            (rf/dispatch-sync event (dissoc opts :event)))
+          (rf/dispatch-sync ev)))
       ;; ---- assertion gathering -----------------------------------------
       (let [expect           (or (:fixture/expect fixture) {})
             expected-db      (:final-app-db expect)
+            ;; Multi-frame: `:final-app-dbs` is `{frame-id db}`; each db
+            ;; submap-matches against that frame's `get-frame-db`.
+            expected-dbs     (:final-app-dbs expect)
             final-db         (rf/get-frame-db :rf/default)
+            final-dbs        (when expected-dbs
+                               (into {}
+                                     (for [[fid _] expected-dbs]
+                                       [fid (rf/get-frame-db fid)])))
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]
@@ -439,13 +478,23 @@
             actual-topo      (when expected-topo
                                (select-keys (flow-graph-deps)
                                             (keys expected-topo)))
-            ;; `:flow-registry-after` — strict set match.
+            ;; `:flow-registry-after` — strict set match. Two shapes:
+            ;;   #{ids}             — flow ids on `:rf/default` (single-frame).
+            ;;   {frame-id #{ids}}  — per-frame map (multi-frame, per
+            ;;                        Spec 013 §Frame-scoping).
             expected-after   (:flow-registry-after expect)
-            actual-after     (when (some? expected-after)
-                               (flow-registry-ids))]
+            actual-after     (cond
+                               (nil? expected-after) nil
+                               (map? expected-after)
+                               (into {}
+                                     (for [[fid _] expected-after]
+                                       [fid (flow-registry-ids fid)]))
+                               :else (flow-registry-ids))]
         (trace/clear-trace-cbs!)
         {:fixture-id        fid
-         :passed?           (and (or (nil? expected-db) (submap? expected-db final-db))
+         :passed?           (and (or (nil? expected-db)  (submap? expected-db final-db))
+                                 (or (nil? expected-dbs) (every? (fn [[fid db]] (submap? db (get final-dbs fid)))
+                                                                 expected-dbs))
                                  (every? #(= (:expected %) (:actual %)) sub-checks)
                                  (or (nil? stream-failures) (empty? stream-failures))
                                  (or (nil? emit-failures)   (empty? emit-failures))
@@ -454,6 +503,8 @@
                                  (or (nil? expected-after)  (= expected-after actual-after)))
          :final-db          final-db
          :expected-db       expected-db
+         :final-dbs         final-dbs
+         :expected-dbs      expected-dbs
          :sub-checks        sub-checks
          :stream-failures   stream-failures
          :emit-failures     emit-failures
@@ -536,6 +587,12 @@
             (when (not (submap? td (:final-db f)))
               (println "    expected app-db:" td)
               (println "    actual   app-db:" (:final-db f))))
+          (when-let [tds (:expected-dbs f)]
+            (doseq [[fid expected] tds]
+              (let [actual (get (:final-dbs f) fid)]
+                (when (not (submap? expected actual))
+                  (println "    expected app-db" fid ":" expected)
+                  (println "    actual   app-db" fid ":" actual)))))
           (doseq [sc (:sub-checks f)]
             (when (not= (:expected sc) (:actual sc))
               (println "    sub" (:query sc)

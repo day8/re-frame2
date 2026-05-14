@@ -101,6 +101,11 @@
     ;; :rf.flow/skip, :rf.flow/cleared, :rf.flow/failed under :op-type
     ;; :flow. Claimed so `flow-lifecycle-emits-traces.edn` runs (rf2-efjs6).
     :flow/trace
+    ;; Spec 013 §Frame-scoping — same flow-id against two frames yields
+    ;; two independent definitions; clear-flow is frame-local; sibling
+    ;; frames' flows do not walk on cross-frame dispatches. Claimed so
+    ;; `flow-frame-scoped.edn` runs through the core corpus too (rf2-29ovh).
+    :flow/frame-scoped
     ;; Spec 014 — :rf.http/managed (rf2-z1mw)
     :rf.http/managed})
 
