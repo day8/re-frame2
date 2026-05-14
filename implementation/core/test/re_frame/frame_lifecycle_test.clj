@@ -169,6 +169,71 @@
       (is (some #(= :frame/destroyed (:operation %)) @traces)
           "expected a :frame/destroyed trace"))))
 
+;; ---- rf2-vsigt — frame destroy runs `:exit` cascades reverse-creation ----
+;;
+;; Per Spec 005 §Cross-Spec Interactions §1: a frame destroy with active
+;; machine instances must run each machine's `:exit` cascade in reverse-
+;; creation order BEFORE the snapshot is cleared. The legacy
+;; `notify-machine-destruction!` only emitted the trace + fired the HTTP
+;; abort hook (the test above) — this test exercises the real cascade
+;; through the machines artefact via `reg-machine` + `[:rf.machine/spawn
+;; ...]` so the wired-up runtime path is verified at the core boundary.
+
+(deftest destroy-frame-runs-exit-cascades-in-reverse-creation-order
+  (testing "destroy-frame runs spawned actors' :exit actions newest-spawn-first"
+    (rf/reg-frame :rf2-vsigt/auth {:doc "rf2-vsigt cross-slice test frame"})
+    (let [exit-log (atom [])
+          child    {:initial :running
+                    :data    {}
+                    :states  {:running {:exit (fn [data _]
+                                                 (swap! exit-log
+                                                        conj (:rf/self-id data))
+                                                 {})}}}
+          boot     {:initial :idle
+                    :data    {}
+                    :states
+                    {:idle {:on {:go {:action
+                                      (fn [_ _]
+                                        {:fx [[:rf.machine/spawn
+                                               {:machine-id :rf2-vsigt/child
+                                                :id-prefix  :rf2-vsigt/child}]
+                                              [:rf.machine/spawn
+                                               {:machine-id :rf2-vsigt/child
+                                                :id-prefix  :rf2-vsigt/child}]
+                                              [:rf.machine/spawn
+                                               {:machine-id :rf2-vsigt/child
+                                                :id-prefix  :rf2-vsigt/child}]]})}}}}}]
+      (rf/reg-machine :rf2-vsigt/child child)
+      (rf/reg-machine :rf2-vsigt/boot boot)
+      (rf/dispatch-sync [:rf2-vsigt/boot [:go]] {:frame :rf2-vsigt/auth})
+      ;; All 3 spawned actors are live.
+      (is (= 3 (count (filter #{:rf2-vsigt/child#1
+                                 :rf2-vsigt/child#2
+                                 :rf2-vsigt/child#3}
+                              (keys (get (rf/get-frame-db :rf2-vsigt/auth)
+                                         :rf/machines)))))
+          "three spawned actor snapshots live at [:rf/machines <id>]")
+      ;; Destroy the frame.
+      (rf/destroy-frame :rf2-vsigt/auth)
+      ;; :exit fired three times in REVERSE-spawn order.
+      (is (= [:rf2-vsigt/child#3 :rf2-vsigt/child#2 :rf2-vsigt/child#1]
+             @exit-log)
+          ":exit ran newest-first per Spec 005 §Cross-Spec Interactions §1")
+      ;; Every spawned actor handler is unregistered.
+      (is (nil? (registrar/lookup :event :rf2-vsigt/child#1))
+          "spawned actor handler #1 was unregistered")
+      (is (nil? (registrar/lookup :event :rf2-vsigt/child#2))
+          "spawned actor handler #2 was unregistered")
+      (is (nil? (registrar/lookup :event :rf2-vsigt/child#3))
+          "spawned actor handler #3 was unregistered")
+      ;; The singleton `:rf2-vsigt/child` / `:rf2-vsigt/boot` machines
+      ;; stay registered — handlers live in the global registrar; the
+      ;; frame destroy walk does NOT unregister them.
+      (is (some? (registrar/lookup :event :rf2-vsigt/child))
+          "singleton :rf2-vsigt/child handler stays globally registered")
+      (is (some? (registrar/lookup :event :rf2-vsigt/boot))
+          "singleton :rf2-vsigt/boot handler stays globally registered"))))
+
 ;; ---- Spec 002 §Destroy — live subscribers --------------------------------
 
 (deftest destroy-frame-with-live-subscribers
