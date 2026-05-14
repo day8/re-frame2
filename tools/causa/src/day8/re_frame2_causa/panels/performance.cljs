@@ -60,6 +60,7 @@
       (count of `:view/render` traces in the cascade) until that slot
       surfaces."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.performance-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -273,12 +274,14 @@
      [:div {:style {:flex 1 :overflow "auto"}}
       (if empty?
         (empty-state)
-        (into [:ul {:data-testid "rf-causa-perf-feed"
-                    :style       {:list-style "none"
-                                  :margin     0
-                                  :padding    0}}]
-              (for [row rows]
-                (perf-row row))))]]))
+        (overflow/capped-list
+          rows
+          {:panel-id "performance"
+           :ul-attrs {:data-testid "rf-causa-perf-feed"
+                      :style       {:list-style "none"
+                                    :margin     0
+                                    :padding    0}}
+           :row-fn   perf-row}))]]))
 
 ;; ---- registration entry --------------------------------------------------
 

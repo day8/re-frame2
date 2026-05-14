@@ -40,6 +40,7 @@
   the algebra runs under the JVM unit-test target."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.defaults :as defaults]
+            [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.subscriptions-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -239,14 +240,17 @@
                          :font-family sans-stack
                          :font-size "13px"}}
      "No subscriptions match the current filter."]
-    (into [:ul {:data-testid "rf-causa-subscriptions-list"
-                :style {:list-style "none"
-                        :margin     0
-                        :padding    0
-                        :background (:bg-2 tokens)}}]
-          (for [row rows]
-            ^{:key (h/format-query-v (:query-v row))}
-            (sub-row row (= (:query-v row) selected-query-v))))))
+    (overflow/capped-list
+      rows
+      {:panel-id "subscriptions"
+       :ul-attrs {:data-testid "rf-causa-subscriptions-list"
+                  :style {:list-style "none"
+                          :margin     0
+                          :padding    0
+                          :background (:bg-2 tokens)}}
+       :row-fn   (fn [row]
+                   ^{:key (h/format-query-v (:query-v row))}
+                   (sub-row row (= (:query-v row) selected-query-v)))})))
 
 ;; ---- invalidation-chain view --------------------------------------------
 

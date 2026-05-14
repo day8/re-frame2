@@ -69,6 +69,7 @@
   unit-test target."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.mcp-server-helpers :as h]
+            [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.theme.tokens :as theme
              :refer [mono-stack sans-stack]]))
 
@@ -461,12 +462,14 @@
       (case empty-kind
         :no-activity (empty-state-no-activity)
         :no-matches  (empty-state-no-matches)
-        nil          (into [:ul {:data-testid "rf-causa-mcp-feed"
-                                 :style       {:list-style "none"
-                                               :margin     0
-                                               :padding    0}}]
-                           (for [row rows]
-                             (mcp-row row))))]]))
+        nil          (overflow/capped-list
+                       rows
+                       {:panel-id "mcp"
+                        :ul-attrs {:data-testid "rf-causa-mcp-feed"
+                                   :style       {:list-style "none"
+                                                 :margin     0
+                                                 :padding    0}}
+                        :row-fn   mcp-row}))]]))
 
 ;; ---- registration entry --------------------------------------------------
 

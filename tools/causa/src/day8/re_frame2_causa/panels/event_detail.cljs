@@ -46,6 +46,7 @@
   coord is non-interactive plain text per the bead's contract."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-causa.theme.perf-tier :as perf-tier]))
@@ -290,14 +291,17 @@
                   :color       (:text-tertiary tokens)
                   :margin      0}}
       "No cascades yet. Trigger a dispatch in the host app to populate."]
-     (into [:ul {:data-testid "rf-causa-cascade-list"
-                 :style {:list-style "none"
-                         :margin     0
-                         :padding    0
-                         :border     (str "1px solid " (:border-subtle tokens))
-                         :border-radius "4px"
-                         :background (:bg-3 tokens)}}]
-           (map cascade-list-row cascades)))])
+     (overflow/capped-list
+       cascades
+       {:panel-id "event-detail"
+        :ul-attrs {:data-testid "rf-causa-cascade-list"
+                   :style {:list-style "none"
+                           :margin     0
+                           :padding    0
+                           :border     (str "1px solid " (:border-subtle tokens))
+                           :border-radius "4px"
+                           :background (:bg-3 tokens)}}
+        :row-fn   cascade-list-row}))])
 
 ;; ---- cascade detail (when a dispatch-id is selected) --------------------
 
