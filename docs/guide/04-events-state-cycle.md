@@ -99,6 +99,10 @@ This shape makes the dynamic story tractable again. You can trace the counter-fe
 
 Chapter 03 left the counter mounted: `app-db` is `{:count 5}`, the view shows `5`, the user is staring at `[-] 5 [+]`. They click `[+]`. Six things happen, in order. Each has a name. Each is observable. Each is testable in isolation.
 
+<p align="center"><img src="../images/guide/6dominoes.png" alt="The six dominoes: dispatch, event handler, effects produced, effects executed, subscriptions, views." width="600"></p>
+
+*The diagram is ported from re-frame v1; under re-frame2 the central store labelled `app-db` is **the frame's** `app-db` — each frame carries its own. The single-frame case (the only one ch.03 has met so far) is the diagram unchanged.*
+
 This is the *single-trace*, single-page view of the cycle. Read it once; refer back when something feels mysterious later.
 
 ### Domino 1 — Event dispatched
