@@ -271,6 +271,8 @@ Combinators (`:or`, `:and`, `:maybe`, `:tuple`, `:multi`, `:vector`, `:set`) des
 
 ### `:sensitive?` — privacy in schema-validation error traces (rf2-kj51z)
 
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture — per-slot schema `:sensitive?` is one of the three composition sites (with the registration-meta stamp and the `with-redacted` interceptor) that together close the privacy surface across every framework-emitted boundary.
+
 Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces), the `:sensitive?` flag is the framework's declarative privacy marker. The schema-validation hot path MUST honour it before emitting `:rf.error/schema-validation-failure` trace events — those events carry the **failing value verbatim** by default (Malli's standard behaviour), and a sensitive credential / PII slot whose post-handler `app-db` value fails its schema would leak through the trace surface to every registered listener (including off-box error monitors and pair-tool forwarders).
 
 **Two sources of sensitivity** the validation site MUST consult, in this order (most-specific wins):
