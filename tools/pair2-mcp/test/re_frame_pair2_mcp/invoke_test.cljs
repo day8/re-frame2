@@ -26,12 +26,21 @@
 
   ## Stubbing strategy
 
-  `invoke` is async (returns a Promise) but `cljs.core/with-redefs`
+  `invoke` is async (returns a Promise). `cljs.core/with-redefs`
   restores its vars synchronously — by the time the Promise resolves
-  inside an `(async done ...)` block, the redefs are gone. So we
-  stub via direct `set!` on the namespace-qualified var and restore
-  it in a `.finally` once the Promise settles. `with-stubs!` wraps
-  that pattern.
+  inside `(async done ...)`, the redefs are gone. An earlier shape
+  stubbed via direct `set!` and restored in a `.finally`; the
+  `.finally` could outrun the test's `(done)` call, so the NEXT
+  async test (in this or any later `-test` ns) could start while
+  the stubs were still installed — a hard-to-reproduce flake
+  (rf2-wb06a) that fired on otherwise-unrelated PRs.
+
+  Current shape: each test does `(set-stubs! ...)` directly (no
+  `.finally`), and a fixture's `:after` step unconditionally
+  restores the pristine originals to ALL three vars. cljs.test's
+  async-test contract guarantees `:after` fires synchronously after
+  `(done)` and BEFORE the next test's `:before` — so cleanup is
+  Promise-chain-independent and cross-test leakage is impossible.
 
   We redefine the public per-tool entry-points
   (`get-path/get-path-tool`, `snapshot/snapshot-tool`) and
@@ -48,13 +57,30 @@
             [re-frame-pair2-mcp.tools.snapshot :as snapshot]))
 
 ;; ---------------------------------------------------------------------------
-;; Fixtures — cache is module-level state; reset between tests so each
-;; case starts from a clean slate.
+;; Fixtures — cache + stub restoration.
+;;
+;; The cache is module-level state; reset between tests so each case
+;; starts from a clean slate.
+;;
+;; The three stubbed vars (`precheck/fetch-precheck-hash`,
+;; `get-path/get-path-tool`, `snapshot/snapshot-tool`) are restored
+;; UNCONDITIONALLY in `:after`. Originals are snapshot once at
+;; ns-load. Cleanup is fixture-scoped, not Promise-chain-scoped —
+;; which closes the rf2-wb06a race.
 ;; ---------------------------------------------------------------------------
+
+(def ^:private orig-fetch-precheck-hash precheck/fetch-precheck-hash)
+(def ^:private orig-get-path-tool       get-path/get-path-tool)
+(def ^:private orig-snapshot-tool       snapshot/snapshot-tool)
+
+(defn- restore-stubs! []
+  (set! precheck/fetch-precheck-hash orig-fetch-precheck-hash)
+  (set! get-path/get-path-tool       orig-get-path-tool)
+  (set! snapshot/snapshot-tool       orig-snapshot-tool))
 
 (use-fixtures :each
   {:before (fn [] (cache/clear!))
-   :after  (fn [] (cache/clear!))})
+   :after  (fn [] (restore-stubs!) (cache/clear!))})
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers — MCP shape construction + extraction.
@@ -87,39 +113,30 @@
     (and (map? v) (contains? v :rf.mcp/overflow))))
 
 ;; ---------------------------------------------------------------------------
-;; with-stubs! — async-friendly var swap.
+;; set-stubs! — install one or more namespace-slot stubs.
 ;;
-;; `cljs.core/with-redefs` restores synchronously; we need the
-;; redefs to outlast a Promise chain. Each `getter` returns the
-;; current var; `setter` installs a replacement. We snapshot the
-;; originals, install the stubs, run the async body, and restore in
-;; `.finally` — guaranteeing cleanup even if the body rejects.
+;; Direct `set!` only — no `.finally` cleanup. Cleanup is the
+;; `:after` fixture's job, which restores the pristine originals
+;; (captured at ns-load) synchronously after `(done)` and before
+;; the next test runs. The fixture-scoped lifetime is what makes
+;; this Promise-chain-independent (rf2-wb06a fix).
+;;
+;; `kind` is the keyword the caller picked to identify which slot
+;; to stub — `:fetch-precheck-hash`, `:get-path-tool`,
+;; `:snapshot-tool`. Anything else is a programmer error and we
+;; throw immediately rather than silently no-op.
 ;; ---------------------------------------------------------------------------
 
-(defn- with-stubs!
-  [stubs body-fn]
-  (let [orig (mapv (fn [[getter _ _]] (getter)) stubs)]
-    (doseq [[_ stub setter] stubs] (setter stub))
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn []
-                    (doseq [[i [_ _ setter]] (map-indexed vector stubs)]
-                      (setter (nth orig i))))))))
-
-(defn- stub-fetch-precheck-hash [stub]
-  [#(do precheck/fetch-precheck-hash)
-   stub
-   #(set! precheck/fetch-precheck-hash %)])
-
-(defn- stub-get-path-tool [stub]
-  [#(do get-path/get-path-tool)
-   stub
-   #(set! get-path/get-path-tool %)])
-
-(defn- stub-snapshot-tool [stub]
-  [#(do snapshot/snapshot-tool)
-   stub
-   #(set! snapshot/snapshot-tool %)])
+(defn- set-stubs! [stubs]
+  (doseq [[kind stub] stubs]
+    (case kind
+      :fetch-precheck-hash (set! precheck/fetch-precheck-hash stub)
+      :get-path-tool       (set! get-path/get-path-tool       stub)
+      :snapshot-tool       (set! snapshot/snapshot-tool       stub)
+      (throw (ex-info (str "Unknown stub kind: " kind)
+                      {:kind kind :known #{:fetch-precheck-hash
+                                           :get-path-tool
+                                           :snapshot-tool}})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-1 short-circuit: precheck hit ⇒ dispatch SKIPPED.
@@ -139,25 +156,22 @@
                                 :args args
                                 :enabled? true
                                 :precheck-hash 42})]
-      (with-stubs!
-        [(stub-fetch-precheck-hash
-           (fn [_conn _args _frame] (js/Promise.resolve 42)))
-         (stub-get-path-tool
-           (fn [_conn _args]
-             (reset! dispatched? true)
-             (js/Promise.resolve (mcp-result "{:should-not-ship :true}"))))]
-        (fn []
-          (-> (tools/invoke nil "get-path" args nil)
-              (.then (fn [result]
-                       (is (false? @dispatched?)
-                           "precheck hit MUST skip the tool body entirely")
-                       (is (cache-hit? result)
-                           "result is the :rf.mcp/cache-hit marker")
-                       (is (= :precheck
-                              (get-in (extract-edn result)
-                                      [:rf.mcp/cache-hit :via]))
-                           "marker carries :via :precheck — the rf2-36xod path")
-                       (done)))))))))
+      (set-stubs!
+        {:fetch-precheck-hash (fn [_conn _args _frame] (js/Promise.resolve 42))
+         :get-path-tool       (fn [_conn _args]
+                                (reset! dispatched? true)
+                                (js/Promise.resolve (mcp-result "{:should-not-ship :true}")))})
+      (-> (tools/invoke nil "get-path" args nil)
+          (.then (fn [result]
+                   (is (false? @dispatched?)
+                       "precheck hit MUST skip the tool body entirely")
+                   (is (cache-hit? result)
+                       "result is the :rf.mcp/cache-hit marker")
+                   (is (= :precheck
+                          (get-in (extract-edn result)
+                                  [:rf.mcp/cache-hit :via]))
+                       "marker carries :via :precheck — the rf2-36xod path")
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-1 miss: precheck-hash feeds through to apply-cache so the NEXT
@@ -172,29 +186,26 @@
   (async done
     (let [args       (args-js {:cache "true" :path "[:k]"})
           call-count (atom 0)]
-      (with-stubs!
-        [(stub-fetch-precheck-hash
-           (fn [_conn _args _frame] (js/Promise.resolve 999)))
-         (stub-get-path-tool
-           (fn [_conn _args]
-             (swap! call-count inc)
-             (js/Promise.resolve (mcp-result "{:db {:k :v}}"))))]
-        (fn []
-          (-> (tools/invoke nil "get-path" args nil)
-              (.then (fn [first-result]
-                       (is (= 1 @call-count)
-                           "first call: precheck cold miss → dispatch runs")
-                       (is (not (cache-hit? first-result))
-                           "first call returns the fresh result, not a marker")
-                       (tools/invoke nil "get-path" args nil)))
-              (.then (fn [second-result]
-                       (is (= 1 @call-count)
-                           "second call: precheck matched → dispatch SKIPPED")
-                       (is (cache-hit? second-result))
-                       (is (= :precheck
-                              (get-in (extract-edn second-result)
-                                      [:rf.mcp/cache-hit :via])))
-                       (done)))))))))
+      (set-stubs!
+        {:fetch-precheck-hash (fn [_conn _args _frame] (js/Promise.resolve 999))
+         :get-path-tool       (fn [_conn _args]
+                                (swap! call-count inc)
+                                (js/Promise.resolve (mcp-result "{:db {:k :v}}")))})
+      (-> (tools/invoke nil "get-path" args nil)
+          (.then (fn [first-result]
+                   (is (= 1 @call-count)
+                       "first call: precheck cold miss → dispatch runs")
+                   (is (not (cache-hit? first-result))
+                       "first call returns the fresh result, not a marker")
+                   (tools/invoke nil "get-path" args nil)))
+          (.then (fn [second-result]
+                   (is (= 1 @call-count)
+                       "second call: precheck matched → dispatch SKIPPED")
+                   (is (cache-hit? second-result))
+                   (is (= :precheck
+                          (get-in (extract-edn second-result)
+                                  [:rf.mcp/cache-hit :via])))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-3 result-hash hit (post-eval). Tools that DON'T have precheck
@@ -212,26 +223,24 @@
     (let [args       (args-js {:cache "true"})
           call-count (atom 0)
           payload    "{:db {:k :v}}"]
-      (with-stubs!
-        [(stub-snapshot-tool
-           (fn [_conn _args]
-             (swap! call-count inc)
-             (js/Promise.resolve (mcp-result payload))))]
-        (fn []
-          (-> (tools/invoke nil "snapshot" args nil)
-              (.then (fn [_first]
-                       (is (= 1 @call-count)
-                           "snapshot :all is precheck-ineligible — first dispatch runs")
-                       (tools/invoke nil "snapshot" args nil)))
-              (.then (fn [second-result]
-                       (is (= 2 @call-count)
-                           "second dispatch ALSO runs — no precheck path for :all snapshot")
-                       (is (cache-hit? second-result)
-                           "but the post-eval cache catches the identical text payload")
-                       (is (= :result-hash
-                              (get-in (extract-edn second-result)
-                                      [:rf.mcp/cache-hit :via])))
-                       (done)))))))))
+      (set-stubs!
+        {:snapshot-tool (fn [_conn _args]
+                          (swap! call-count inc)
+                          (js/Promise.resolve (mcp-result payload)))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [_first]
+                   (is (= 1 @call-count)
+                       "snapshot :all is precheck-ineligible — first dispatch runs")
+                   (tools/invoke nil "snapshot" args nil)))
+          (.then (fn [second-result]
+                   (is (= 2 @call-count)
+                       "second dispatch ALSO runs — no precheck path for :all snapshot")
+                   (is (cache-hit? second-result)
+                       "but the post-eval cache catches the identical text payload")
+                   (is (= :result-hash
+                          (get-in (extract-edn second-result)
+                                  [:rf.mcp/cache-hit :via])))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-3 :isError passes through cache untouched. Errors must never
@@ -243,25 +252,23 @@
   (async done
     (let [args     (args-js {:cache "true"})
           err-text "{:ok? false :reason :nrepl-down}"]
-      (with-stubs!
-        [(stub-snapshot-tool
-           (fn [_conn _args]
-             (js/Promise.resolve (mcp-result err-text :error? true))))]
-        (fn []
-          (-> (tools/invoke nil "snapshot" args nil)
-              (.then (fn [first-result]
-                       (is (true? (j/get first-result :isError))
-                           "first error result passes through untouched")
-                       (is (= err-text (extract-text first-result)))
-                       (is (zero? (cache/size))
-                           "errors do not poison the cache")
-                       (tools/invoke nil "snapshot" args nil)))
-              (.then (fn [second-result]
-                       (is (true? (j/get second-result :isError))
-                           "second error result is ALSO untouched — not a cache-hit marker")
-                       (is (not (cache-hit? second-result)))
-                       (is (zero? (cache/size)))
-                       (done)))))))))
+      (set-stubs!
+        {:snapshot-tool (fn [_conn _args]
+                          (js/Promise.resolve (mcp-result err-text :error? true)))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [first-result]
+                   (is (true? (j/get first-result :isError))
+                       "first error result passes through untouched")
+                   (is (= err-text (extract-text first-result)))
+                   (is (zero? (cache/size))
+                       "errors do not poison the cache")
+                   (tools/invoke nil "snapshot" args nil)))
+          (.then (fn [second-result]
+                   (is (true? (j/get second-result :isError))
+                       "second error result is ALSO untouched — not a cache-hit marker")
+                   (is (not (cache-hit? second-result)))
+                   (is (zero? (cache/size)))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-4 overflow on an isError result. The cap walk runs AFTER the
@@ -274,20 +281,18 @@
   (async done
     (let [args (args-js {"max-tokens" 100})
           big  (apply str (repeat 8000 "x"))]
-      (with-stubs!
-        [(stub-snapshot-tool
-           (fn [_conn _args]
-             (js/Promise.resolve
-               (mcp-result (pr-str {:huge big}) :error? true))))]
-        (fn []
-          (-> (tools/invoke nil "snapshot" args nil)
-              (.then (fn [result]
-                       (is (overflow? result)
-                           "oversized error STILL becomes overflow marker")
-                       (let [marker (-> (extract-edn result) :rf.mcp/overflow)]
-                         (is (= "snapshot" (:tool marker)))
-                         (is (> (:token-count marker) 100)))
-                       (done)))))))))
+      (set-stubs!
+        {:snapshot-tool (fn [_conn _args]
+                          (js/Promise.resolve
+                            (mcp-result (pr-str {:huge big}) :error? true)))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [result]
+                   (is (overflow? result)
+                       "oversized error STILL becomes overflow marker")
+                   (let [marker (-> (extract-edn result) :rf.mcp/overflow)]
+                     (is (= "snapshot" (:tool marker)))
+                     (is (> (:token-count marker) 100)))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase ordering: cache hit BEFORE cap. The hit marker is sub-100
@@ -310,24 +315,22 @@
     ;; payload.
     (let [args (args-js {:cache "true" "max-tokens" 200})
           big  (apply str (repeat 8000 "x"))]
-      (with-stubs!
-        [(stub-snapshot-tool
-           (fn [_conn _args]
-             (js/Promise.resolve (mcp-result (pr-str {:huge big})))))]
-        (fn []
-          (-> (tools/invoke nil "snapshot" args nil)
-              (.then (fn [first-result]
-                       (is (overflow? first-result)
-                           "first call: big payload → overflow marker")
-                       (tools/invoke nil "snapshot" args nil)))
-              (.then (fn [second-result]
-                       (is (cache-hit? second-result)
-                           "second call: same text → cache-hit marker, not overflow")
-                       (is (= :result-hash
-                              (get-in (extract-edn second-result)
-                                      [:rf.mcp/cache-hit :via]))
-                           "marker is the post-eval result-hash path")
-                       (done)))))))))
+      (set-stubs!
+        {:snapshot-tool (fn [_conn _args]
+                          (js/Promise.resolve (mcp-result (pr-str {:huge big}))))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [first-result]
+                   (is (overflow? first-result)
+                       "first call: big payload → overflow marker")
+                   (tools/invoke nil "snapshot" args nil)))
+          (.then (fn [second-result]
+                   (is (cache-hit? second-result)
+                       "second call: same text → cache-hit marker, not overflow")
+                   (is (= :result-hash
+                          (get-in (extract-edn second-result)
+                                  [:rf.mcp/cache-hit :via]))
+                       "marker is the post-eval result-hash path")
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cache-disabled path: phase 0 + phase 2 are both no-ops. Dispatch
@@ -339,26 +342,23 @@
     (let [args        (args-js {})
           call-count  (atom 0)
           fetch-count (atom 0)]
-      (with-stubs!
-        [(stub-fetch-precheck-hash
-           (fn [_conn _args _frame]
-             (swap! fetch-count inc)
-             (js/Promise.resolve 12345)))
-         (stub-get-path-tool
-           (fn [_conn _args]
-             (swap! call-count inc)
-             (js/Promise.resolve (mcp-result "{:db {:k :v}}"))))]
-        (fn []
-          (-> (tools/invoke nil "get-path" args nil)
-              (.then (fn [_] (tools/invoke nil "get-path" args nil)))
-              (.then (fn [_]
-                       (is (= 2 @call-count)
-                           "cache disabled → every call dispatches")
-                       (is (zero? @fetch-count)
-                           "cache disabled → precheck NEVER consulted (no wasted round-trip)")
-                       (is (zero? (cache/size))
-                           "no entries stored")
-                       (done)))))))))
+      (set-stubs!
+        {:fetch-precheck-hash (fn [_conn _args _frame]
+                                (swap! fetch-count inc)
+                                (js/Promise.resolve 12345))
+         :get-path-tool       (fn [_conn _args]
+                                (swap! call-count inc)
+                                (js/Promise.resolve (mcp-result "{:db {:k :v}}")))})
+      (-> (tools/invoke nil "get-path" args nil)
+          (.then (fn [_] (tools/invoke nil "get-path" args nil)))
+          (.then (fn [_]
+                   (is (= 2 @call-count)
+                       "cache disabled → every call dispatches")
+                   (is (zero? @fetch-count)
+                       "cache disabled → precheck NEVER consulted (no wasted round-trip)")
+                   (is (zero? (cache/size))
+                       "no entries stored")
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Unknown tool: dispatch-tool* returns an error envelope; the
