@@ -32,9 +32,8 @@
   - Concerns: `wire`, `probe`, `cap`, `dedup`, `elision`, `sensitive`,
     `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`.
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
-    `watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`
-    (+ `subscribe-emit`), `unsubscribe`, `subscription-info`,
-    `get-pair2-instructions`.
+    `watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`,
+    `unsubscribe`, `subscription-info`, `get-pair2-instructions`.
   - Descriptors: `descriptors-knobs` (universal knob property data),
     `descriptors-data` (per-tool descriptor maps), `descriptors`
     (`tool-descriptors-js` + the knob splicers).

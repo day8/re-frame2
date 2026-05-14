@@ -19,9 +19,6 @@
   `:overflow-reason` (`:max-buffered-events` / `:max-buffered-bytes`)
   so the AI client knows which budget to tune.
 
-  Per-tick progress-payload composition + final-summary envelope live
-  in `re-frame-pair2-mcp.tools.subscribe-emit` (rf2-vrbwx).
-
   ## Internal shape (rf2-w5etd)
 
   All rolling per-stream accounting lives in a single `state` atom
@@ -31,7 +28,18 @@
   into the accumulators) rather than 5-7 separate ones. Termination,
   poll-step, and per-tick emission are factored into `make-stream-
   controller`, which closes over the atom and returns the `terminate`
-  + `poll` fns — the streaming-loop body reads top-down."
+  + `poll` fns — the streaming-loop body reads top-down.
+
+  ## Per-tick + final-summary emit (rf2-zkca8.3)
+
+  `progress-payload`, `emit-progress-tick!`, and `final-summary` live
+  in this same namespace. They were briefly split out as
+  `tools/subscribe-emit.cljs` to keep this body under the leaf-size
+  ceiling; the audit (rf2-zkca8.3) recognised the split was an
+  artificial seam — a single-consumer helper coupled to this loop's
+  state shape, with no independent tests and no reuse surface. Folded
+  back so the streaming-loop body reads top-down without bouncing
+  between two files when the state shape changes."
   (:require [applied-science.js-interop :as j]
             [re-frame.mcp-base.elision :as base-elision]
             [re-frame-pair2-mcp.nrepl :as nrepl]
@@ -40,8 +48,7 @@
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
-            [re-frame-pair2-mcp.tools.sensitive :as sensitive]
-            [re-frame-pair2-mcp.tools.subscribe-emit :as emit]))
+            [re-frame-pair2-mcp.tools.sensitive :as sensitive]))
 
 (def ^:private default-poll-ms 100)
 ;; `:max-buffered-events` / `:max-buffered-bytes` are NOT mirrored here
@@ -99,6 +106,94 @@
     (pos? dropped)     (update :dropped-sensitive + dropped)
     (pos? tick-elided) (update :elided-large      + tick-elided)))
 
+;; ---------------------------------------------------------------------------
+;; Per-tick progress payload + final-summary emit (folded back from
+;; `tools/subscribe-emit.cljs` per rf2-zkca8.3).
+;; ---------------------------------------------------------------------------
+
+(defn progress-payload
+  "Build the JSON params payload for one `notifications/progress` tick.
+  `events` is the EDN-printed string of the batch (kept as a string so
+  the agent host sees the same shape as `tools/call` results). The
+  `:data` slot carries the structured drop counts and the
+  `:overflow-reason` keyword (per rf2-ho4ve) so AI clients can
+  pattern-match on which budget tripped without re-parsing the EDN
+  message."
+  [progress-token tick events dropped-events dropped-bytes overflow-reason]
+  #js {:progressToken progress-token
+       :progress      tick
+       ;; `message` is the human-readable slot. We stash an EDN form
+       ;; here so an MCP client that surfaces progress messages to
+       ;; the agent shows the events directly. A capable client can
+       ;; additionally inspect the `data` slot for the structured
+       ;; counts.
+       :message       events
+       :data          #js {:dropped-events  dropped-events
+                           :dropped-bytes   dropped-bytes
+                           ;; `overflow-reason` is an EDN keyword on
+                           ;; the runtime side — stringify here so it
+                           ;; rides JSON-RPC cleanly. The runtime
+                           ;; sentinels are `:max-buffered-events` /
+                           ;; `:max-buffered-bytes`.
+                           :overflow-reason (when overflow-reason
+                                              (pr-str overflow-reason))}})
+
+(defn final-summary
+  "The terminal `ok-text` result emitted when the subscription ends —
+  client cancel, unsubscribe, max-events / max-ms hit, or sub-gone.
+
+  `state` is the deref'd rolling accumulators map (see
+  `initial-state`); `wire/with-indicators` splices the
+  `:dropped-sensitive` / `:elided-large` counters onto the envelope
+  per the cross-MCP indicator-field convention."
+  [{:keys [sub-id topic state reason]}]
+  (let [{:keys [tick delivered dropped-events dropped-bytes
+                overflow-reason dropped-sensitive elided-large]} state]
+    (wire/ok-text
+      (wire/with-indicators
+        (cond-> {:ok?            true
+                 :sub-id         sub-id
+                 :topic          topic
+                 :delivered      delivered
+                 :dropped-events dropped-events
+                 :dropped-bytes  dropped-bytes
+                 :ticks          tick
+                 :reason         reason}
+          overflow-reason
+          (assoc :overflow-reason overflow-reason))
+        {:dropped dropped-sensitive :elided elided-large}))))
+
+(defn emit-progress-tick!
+  "Build the per-tick progress payload and ship it via the MCP
+  `sendNotification`. Failures are swallowed — a flaky client must not
+  collapse the stream."
+  [{:keys [send-note progress-tk sub-id]} dedup? tick-state]
+  (let [{:keys [tick dedup-events ev-dropped by-dropped
+                ov-reason dropped tick-elided]} tick-state]
+    (try
+      (send-note
+        #js {:method "notifications/progress"
+             :params (progress-payload
+                       progress-tk
+                       tick
+                       (pr-str (wire/with-indicators
+                                 (cond-> {:sub-id         sub-id
+                                          :events         dedup-events
+                                          :dedup          dedup?
+                                          :dropped-events ev-dropped
+                                          :dropped-bytes  by-dropped}
+                                   ov-reason
+                                   (assoc :overflow-reason ov-reason))
+                                 {:dropped dropped :elided tick-elided}))
+                       ev-dropped
+                       by-dropped
+                       ov-reason)})
+      (catch :default _ nil))))
+
+;; ---------------------------------------------------------------------------
+;; Streaming controller — termination + poll loop.
+;; ---------------------------------------------------------------------------
+
 (defn- parse-mcp-extra
   "Pluck the three MCP-host slots the streaming loop needs out of the
   JS `extra` object: the abort signal, the progress-notification
@@ -132,7 +227,7 @@
               (.then
                 (fn [_]
                   (resolve
-                    (emit/final-summary
+                    (final-summary
                       {:sub-id sub-id :topic topic
                        :state  @state :reason reason}))))))
         poll
@@ -170,7 +265,7 @@
                             s'             (swap! state merge-drain drain-delta)]
                         (when (drain-produced-output? drain-delta)
                           (when (and send-note progress-tk)
-                            (emit/emit-progress-tick!
+                            (emit-progress-tick!
                               {:send-note   send-note
                                :progress-tk progress-tk
                                :sub-id      sub-id}
