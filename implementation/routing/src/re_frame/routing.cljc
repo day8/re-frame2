@@ -393,17 +393,48 @@
       [url nil]
       [(subs url 0 hash-idx) (subs url (inc hash-idx))])))
 
+(defn- validate-route-shape
+  "Run the registered schema validator against `value` for the route's
+  `:params` or `:query` schema (`slot` ∈ #{:params :query}). Returns
+  `[validation-failed? validation-error]`:
+    - `[false nil]` when no schema is declared, no validator is
+      registered, or the value conforms;
+    - `[true explain-data]` when validation fails.
+
+  Per Spec 010 the validator is pluggable via
+  `:schemas/validate-with-registered-fn` and
+  `:schemas/explain-with-registered-fn`; the routing artefact never
+  requires re-frame.schemas statically (rf2-k682) — late-bind keeps
+  the apps that opt out of schemas/Malli runnable."
+  [route-meta slot value]
+  (let [schema (get route-meta slot)]
+    (if-not schema
+      [false nil]
+      (let [validate (late-bind/get-fn :schemas/validate-with-registered-fn)]
+        (if-not validate
+          [false nil]
+          (if (validate schema value)
+            [false nil]
+            (let [explain  (late-bind/get-fn :schemas/explain-with-registered-fn)
+                  details  (when explain (explain schema value))]
+              [true details])))))))
+
 (defn match-url
   "Per Spec 012 §Bidirectional URL ↔ params. Try each registered route's
   pattern against url; return
-  {:route-id :params :query :fragment :validation-failed?} for the first
-  match, or nil if no route matches.
+  {:route-id :params :query :fragment :validation-failed? :validation-error}
+  for the first match, or nil if no route matches.
 
   Query string coercion: if the route declares a :query Malli schema,
   string values are coerced per key type. :query-defaults populate
   absent keys. The URL's '#fragment' portion (per Spec 012 §Fragments)
   is parsed off the front and surfaced as :fragment (string or nil);
   fragments do not participate in route matching.
+
+  Per Spec 012 §Bidirectional URL ↔ params §match-url, when a route
+  declares :params or :query schemas, the parsed values are validated
+  against them; failure surfaces as :validation-failed? true and a
+  :validation-error explanation (rf2-ug2m1).
 
   Performance (rf2-9ihwx): walks the pre-sorted route-table cache
   (rebuilt on reg-route / registrar replacement-hook) and short-circuits
@@ -447,13 +478,30 @@
                                   (fn [m k v]
                                     (if (contains? m k) m (assoc m k v)))
                                   (or coerced (array-map))
-                                  defaults)]
-              (reduced
-                {:route-id           id
-                 :params             params
-                 :query              with-defaults
-                 :fragment           fragment
-                 :validation-failed? false})))))
+                                  defaults)
+                  ;; Per Spec 012 §Param validation at the call site: when
+                  ;; the route declares :params or :query schemas, validate
+                  ;; the parsed values. Either schema failing flips the
+                  ;; flag; the explanation surfaces under :validation-error
+                  ;; so callers ((`:rf.route/handle-url-change`)) can route
+                  ;; to `:rf.route/not-found` with `:reason :validation`.
+                  [params-failed? params-error] (validate-route-shape meta :params params)
+                  [query-failed?  query-error]  (validate-route-shape meta :query  with-defaults)
+                  validation-failed? (or params-failed? query-failed?)
+                  validation-error   (cond
+                                       (and params-failed? query-failed?)
+                                       {:params params-error :query query-error}
+                                       params-failed? params-error
+                                       query-failed?  query-error
+                                       :else          nil)
+                  result        (cond-> {:route-id           id
+                                         :params             params
+                                         :query              with-defaults
+                                         :fragment           fragment
+                                         :validation-failed? validation-failed?}
+                                  validation-error
+                                  (assoc :validation-error validation-error))]
+              (reduced result)))))
       nil
       (route-table))))
 
@@ -491,7 +539,13 @@
 
   4-arity: when `fragment` is non-nil and non-empty, appends `#fragment`
   to the URL (per Spec 012 §Fragments §Programmatic navigation with
-  fragments). nil or empty-string fragments are not appended."
+  fragments). nil or empty-string fragments are not appended.
+
+  Per Spec 012 §Bidirectional URL ↔ params: throws
+  `:rf.error/route-url-validation` when path-params doesn't conform to
+  the route's `:params` schema, or query-params doesn't conform to the
+  route's `:query` schema (caller bug — not user input). The exception
+  carries `{:route-id :slot :error}` ex-data (rf2-ug2m1)."
   ([route-id path-params] (route-url route-id path-params {} nil))
   ([route-id path-params query-params] (route-url route-id path-params query-params nil))
   ([route-id path-params query-params fragment]
@@ -499,6 +553,27 @@
          pattern (:path meta)]
      (when (nil? pattern)
        (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
+     ;; Per Spec 012 §Bidirectional URL ↔ params: validate the caller's
+     ;; inputs against the route's :params / :query schemas BEFORE
+     ;; emitting the URL. A schema mismatch is a caller bug; raise with
+     ;; the structured id so callers (`:rf.route/navigate`) and tests
+     ;; can react. When no schema is declared OR no validator is
+     ;; registered, this is a no-op.
+     (let [[p-failed? p-error] (validate-route-shape meta :params path-params)]
+       (when p-failed?
+         (throw (ex-info ":rf.error/route-url-validation"
+                         {:route-id route-id
+                          :slot     :params
+                          :value    path-params
+                          :error    p-error}))))
+     (when (seq query-params)
+       (let [[q-failed? q-error] (validate-route-shape meta :query query-params)]
+         (when q-failed?
+           (throw (ex-info ":rf.error/route-url-validation"
+                           {:route-id route-id
+                            :slot     :query
+                            :value    query-params
+                            :error    q-error})))))
      (let [n     (count pattern)
            ;; Inner loop emits the body of an optional group whose params
            ;; are all present. State threads as (loop [i parts]); returns
@@ -741,8 +816,20 @@
                           (and (map? target) (:fragment target))
                           matched-fragment)
           route-meta  (registrar/lookup :route route-id)
+          ;; Per Spec 012 §Bidirectional URL ↔ params and rf2-ug2m1:
+          ;; route-url raises :rf.error/route-url-validation /
+          ;; :rf.error/missing-route-param / :rf.error/no-such-route on
+          ;; caller bugs. Surface these as a structured trace + recover
+          ;; to "/" rather than swallowing silently — apps see the bug
+          ;; in dev, production keeps moving.
           url (try (route-url route-id path-params query-params fragment)
-                   (catch #?(:clj Throwable :cljs :default) _ "/"))
+                   (catch #?(:clj Throwable :cljs :default) ex
+                     (trace/emit-error! :rf.error/route-url-validation
+                                        {:route-id route-id
+                                         :error    (or (ex-data ex)
+                                                       {:message (ex-message ex)})
+                                         :recovery :replaced-with-default})
+                     "/"))
           push-fx (if (:replace? opts)
                     [:rf.nav/replace-url url]
                     [:rf.nav/push-url    url])
@@ -953,16 +1040,23 @@
             {:db (assoc-in db [:rf/route :fragment] fragment)})
 
         :else
-        ;; Per Spec 012 §Route-not-found: matched / unmatched share the
-        ;; same slice-write + nav-token allocation. An unmatched URL
-        ;; substitutes route-id :rf.route/not-found and params {:url url};
-        ;; matched URLs use the route's id / params / query.
-        (let [matched?     (some? m)
-              route-id     (if matched? (:route-id m) :rf.route/not-found)
-              params       (if matched? (:params m) {:url url})
-              query        (if matched? (:query m) {})
-              route-meta   (registrar/lookup :route route-id)
-              on-match-vec (vec (or (:on-match route-meta) []))
+        ;; Per Spec 012 §Route-not-found: matched / unmatched / validation-
+        ;; failed all share the slice-write + nav-token allocation. An
+        ;; unmatched URL substitutes route-id :rf.route/not-found and
+        ;; params {:url url}; a validation-failed match also routes to
+        ;; not-found, with `:reason :validation` in :params (rf2-ug2m1
+        ;; per Spec 012 §Param validation at the call site).
+        (let [matched?         (some? m)
+              validation-fail? (:validation-failed? m)
+              fallback?        (or (not matched?) validation-fail?)
+              route-id         (if fallback? :rf.route/not-found (:route-id m))
+              params           (cond
+                                 validation-fail? {:url url :reason :validation}
+                                 (not matched?)   {:url url}
+                                 :else            (:params m))
+              query            (if fallback? {} (:query m))
+              route-meta       (registrar/lookup :route route-id)
+              on-match-vec     (vec (or (:on-match route-meta) []))
               ;; Per Spec 012 §Per-route data loading: :transition is
               ;; :loading while :on-match drains, else :idle. Computed
               ;; from the resolved route-meta so the matched and
@@ -992,13 +1086,15 @@
           ;; when the unmatched-URL path resolves to :rf.route/not-found AND
           ;; no such route is registered. Tools / AI scaffolds read this to
           ;; flag the missing 404 registration.
-          (when (and (not matched?) (nil? route-meta))
+          (when (and fallback? (nil? route-meta))
             (trace/emit! :warning :rf.warning/no-not-found-route
                          {:url url}))
           ;; The :no-such-handler error trace is preserved for tooling
           ;; that already keys off it; it discriminates from event /
-          ;; frame handler misses by :kind :route.
-          (when (not matched?)
+          ;; frame handler misses by :kind :route. Both no-match and
+          ;; validation-fail emit it — the recovery is "replaced with
+          ;; :rf.route/not-found" in both cases.
+          (when fallback?
             (trace/emit-error! :rf.error/no-such-handler
                                {:url url
                                 :kind :route
@@ -1027,25 +1123,32 @@
     ;; URL-driven path produced a slice that diverged in shape from the
     ;; programmatic-nav path and the :rf/route-slice schema rejected
     ;; the result.
-    (let [m        (match-url url)
-          fragment (:fragment m)]
-      (when (nil? m)
-        ;; Unmatched URL — fixture corpus calls this :rf.error/no-such-handler
-        ;; in the routing context. The default error projector maps it to a
-        ;; public-facing 404. Per Spec 011 §Default projector. We carry
-        ;; :frame so the SSR error-projection listener can attribute the
-        ;; trace to the right server frame. The `:kind :route` tag
-        ;; discriminates from `:kind :event` (router.cljc handler-lookup miss)
-        ;; and `:kind :frame` (epoch.cljc frame-lookup miss) — see
+    (let [m                (match-url url)
+          fragment         (:fragment m)
+          matched?         (some? m)
+          validation-fail? (:validation-failed? m)
+          fallback?        (or (not matched?) validation-fail?)]
+      (when fallback?
+        ;; Unmatched / validation-failed URL — fixture corpus calls this
+        ;; :rf.error/no-such-handler in the routing context. The default
+        ;; error projector maps it to a public-facing 404. Per Spec 011
+        ;; §Default projector. We carry :frame so the SSR error-
+        ;; projection listener can attribute the trace to the right
+        ;; server frame. The `:kind :route` tag discriminates from
+        ;; `:kind :event` (router.cljc handler-lookup miss) and
+        ;; `:kind :frame` (epoch.cljc frame-lookup miss) — see
         ;; [Spec 009 §Error categories — :rf.error/no-such-handler].
         (trace/emit-error! :rf.error/no-such-handler
                            {:url url
                             :frame frame
                             :kind :route
                             :recovery :replaced-with-default}))
-      (let [route-id     (or (:route-id m) :rf.route/not-found)
-            params       (or (:params m) {:url url})
-            query        (or (:query m) {})
+      (let [route-id     (if fallback? :rf.route/not-found (:route-id m))
+            params       (cond
+                           validation-fail? {:url url :reason :validation}
+                           (not matched?)   {:url url}
+                           :else            (:params m))
+            query        (if fallback? {} (:query m))
             route-meta   (registrar/lookup :route route-id)
             on-match-vec (vec (or (:on-match route-meta) []))
             ;; Per Spec 012 §Multi-frame routing: nav-token allocation
@@ -1070,7 +1173,7 @@
         ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
         ;; when the unmatched-URL path resolves to :rf.route/not-found AND
         ;; no such route is registered.
-        (when (and (nil? m) (nil? route-meta))
+        (when (and fallback? (nil? route-meta))
           (trace/emit! :warning :rf.warning/no-not-found-route
                        {:url url}))
         (trace/emit! :event :rf.route.nav-token/allocated
