@@ -16,6 +16,10 @@
 
          day8/re-frame2            {:mvn/version "{{rf2-version}}"}
          day8/re-frame2-uix        {:mvn/version "{{rf2-version}}"}
+         ;; In-app devtools panel — Ctrl+Shift+C opens the Causa
+         ;; overlay. Wired via :devtools/preloads in shadow-cljs.edn.
+         ;; Lockstep with the core coord.
+         day8/re-frame2-causa      {:mvn/version "{{rf2-version}}"}
 
          com.pitch/uix.core        {:mvn/version "1.4.4"}
          com.pitch/uix.dom         {:mvn/version "1.4.4"}}

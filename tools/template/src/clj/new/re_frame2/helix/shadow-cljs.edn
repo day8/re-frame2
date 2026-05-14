@@ -16,7 +16,11 @@
    :output-dir "resources/public/js"
    :asset-path "/js"
    :modules    {:main {:init-fn {{namespace}}.core/init}}
-   :devtools   {:after-load {{namespace}}.core/init}}
+   ;; :devtools/preloads loads the Causa overlay — Ctrl+Shift+C opens
+   ;; the in-app devtools panel against the running app. Skipped
+   ;; under :release.
+   :devtools   {:after-load {{namespace}}.core/init
+                :preloads   [day8.re-frame2-causa.preload]}}
 
   :test
   {:target    :node-test

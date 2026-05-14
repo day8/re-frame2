@@ -15,6 +15,10 @@
 
          day8/re-frame2            {:mvn/version "{{rf2-version}}"}
          day8/re-frame2-helix      {:mvn/version "{{rf2-version}}"}
+         ;; In-app devtools panel — Ctrl+Shift+C opens the Causa
+         ;; overlay. Wired via :devtools/preloads in shadow-cljs.edn.
+         ;; Lockstep with the core coord.
+         day8/re-frame2-causa      {:mvn/version "{{rf2-version}}"}
 
          lilactown/helix           {:mvn/version "0.2.2"}}
 
