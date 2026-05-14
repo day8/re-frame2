@@ -155,6 +155,86 @@
     (fn [_vk body]
       (h/text-result (h/pr-edn body)))))
 
+(defn- md-h1 [s] (str "# " s "\n\n"))
+(defn- md-h2 [s] (str "\n## " s "\n\n"))
+(defn- md-h3 [s] (str "\n### " s "\n\n"))
+
+(defn- md-kv-table
+  "Render a small map as a GitHub-flavoured markdown `| key | value |` table.
+  Empty maps render as a single em-dash so the section never reads as a
+  visual hole. Values that are themselves maps / vectors / sets are
+  `pr-str`-rendered — agents pasting this can re-parse them as EDN."
+  [m]
+  (if (empty? m)
+    "—\n"
+    (str "| key | value |\n|---|---|\n"
+         (apply str
+                (for [[k v] (sort-by str m)]
+                  (str "| `" (pr-str k) "` | `" (pr-str v) "` |\n"))))))
+
+(defn- md-bullet-list [xs]
+  (if (empty? xs)
+    "—\n"
+    (apply str (for [x xs] (str "- `" (pr-str x) "`\n")))))
+
+(defn- render-story-markdown
+  "Project one story's registered body + its variant ids to a
+  GitHub-flavoured markdown document. Suitable for agent-paste into
+  an issue tracker or chat. The variant bodies are NOT inlined —
+  they get summary entries; an agent that wants per-variant detail
+  calls `get-variant` for the EDN form."
+  [story-id story-body variant-ids]
+  (str
+    (md-h1 (str "Story `" story-id "`"))
+    (when (:doc story-body)
+      (str (:doc story-body) "\n"))
+    (md-h2 "Default args")
+    (md-kv-table (:args story-body))
+    (md-h2 "Argument types")
+    (md-kv-table (:argtypes story-body))
+    (md-h2 "Tags")
+    (md-bullet-list (sort (:tags story-body)))
+    (md-h2 "Decorators")
+    (md-bullet-list (:decorators story-body))
+    (md-h2 "Variants")
+    (if (seq variant-ids)
+      (apply str
+             (for [vid (sort variant-ids)
+                   :let [vbody (story/handler-meta :variant vid)]]
+               (str (md-h3 (str "`" vid "`"))
+                    (when (:doc vbody)
+                      (str (:doc vbody) "\n\n"))
+                    "**Args**\n\n"
+                    (md-kv-table (:args vbody))
+                    "**Tags**\n\n"
+                    (md-bullet-list (sort (:tags vbody))))))
+      "—\n")))
+
+(defn tool-get-docs-markdown
+  "Docs: render a story's documentation as GitHub-flavoured Markdown
+  (rf2-i0kyy). The existing `get-story` / `get-variant` tools return
+  EDN — useful for programmatic consumption but not the right shape
+  when an agent wants to paste a docs blurb into an issue tracker or
+  chat. This tool composes story `:doc` + per-variant `:doc` + args /
+  argtypes / tags / decorators into a single GFM string.
+
+  Returns the markdown text both in the wire-canonical `:content`
+  slot and as a `:markdown` structuredContent slot (paste-target for
+  agent hosts that surface structured content)."
+  [args]
+  (let [[sid err] (h/required-arg args :story-id)]
+    (if err err
+      (let [sk   (args/parse-keyword sid)
+            body (story/handler-meta :story sk)]
+        (if (nil? body)
+          (h/error-result (str "Story not found: " (pr-str sk)))
+          (let [variants (sort (story/variants-of sk))
+                md       (render-story-markdown sk body variants)
+                payload  {:story-id sk
+                          :markdown md
+                          :variants (vec variants)}]
+            (h/text-result md payload)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
 ;; ---------------------------------------------------------------------------
@@ -240,4 +320,21 @@
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
-    :handler     tool-variant->edn}])
+    :handler     tool-variant->edn}
+
+   {:name           "get-docs-markdown"
+    :category       :docs
+    :description    (str "Render a story's documentation as GitHub-flavoured Markdown (rf2-i0kyy). "
+                         "Composes the story `:doc` + per-variant `:doc` + args / argtypes / tags / "
+                         "decorators into a single paste-ready string. The other docs tools "
+                         "(`get-story`, `get-variant`, `variant->edn`) return EDN — useful for "
+                         "programmatic consumption but not the right shape when an agent wants to drop "
+                         "a docs blurb into an issue tracker or chat. The markdown is returned in the "
+                         "wire-canonical `:content` text slot and as a `:markdown` structuredContent "
+                         "slot for hosts that surface structured content separately.")
+    :typicalTokens  1500
+    :inputSchema {:type "object"
+                  :properties (s/with-max-tokens {:story-id s/kw-or-string})
+                  :required ["story-id"]
+                  :additionalProperties false}
+    :handler     tool-get-docs-markdown}])

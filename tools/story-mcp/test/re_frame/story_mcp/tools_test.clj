@@ -157,6 +157,7 @@
       (is (contains? names "list-modes"))
       (is (contains? names "list-decorators"))
       (is (contains? names "list-assertions"))
+      (is (contains? names "get-docs-markdown"))
       (is (contains? names "variant->edn"))
       ;; Testing
       (is (contains? names "run-variant"))
@@ -321,6 +322,36 @@
             back (clojure.edn/read-string text)]
         (is (map? back))
         (is (= "Primary button." (:doc back)))))))
+
+;; rf2-i0kyy — `get-docs-markdown` is the agent-paste shape.
+(deftest get-docs-markdown-renders-story-and-variants
+  (let [r  (invoke "get-docs-markdown" {:story-id "story.button"})
+        s  (:structuredContent r)
+        md (:markdown s)]
+    (is (success? r))
+    (is (string? md))
+    (is (re-find #"^# Story `:story\.button`" md)
+        "renders an H1 with the story id")
+    (is (re-find #"A clickable button\." md)
+        "includes the story :doc")
+    (is (re-find #":story\.button/primary" md)
+        "lists the primary variant")
+    (is (re-find #":story\.button/secondary" md)
+        "lists the secondary variant")
+    (is (re-find #"Primary button\." md)
+        "includes per-variant :doc")
+    (is (= :story.button (:story-id s)))
+    (is (vector? (:variants s)))))
+
+(deftest get-docs-markdown-unknown-story
+  (let [r (invoke "get-docs-markdown" {:story-id "story.nope/missing"})]
+    (is (error? r))
+    (is (re-find #"not found" (-> r :content first :text)))))
+
+(deftest get-docs-markdown-missing-arg
+  (let [r (invoke "get-docs-markdown" {})]
+    (is (error? r))
+    (is (re-find #"story-id" (-> r :content first :text)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Testing tools
