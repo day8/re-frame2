@@ -103,6 +103,8 @@
    ".clj-kondo/config.edn"
    ;; Formatter config (rf2-5ecqj).
    ".cljfmt.edn"
+   ;; Git pre-commit hook config (rf2-s8xee).
+   ".lefthook.yml"
    "dev/user.clj"
    "dev/scratch.cljs"
    "resources/public/index.html"
