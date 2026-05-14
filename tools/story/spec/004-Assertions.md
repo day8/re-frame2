@@ -20,7 +20,7 @@ into `:assertions` (see below) rather than throwing.
 | `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched against this frame? |
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. |
 | `:rf.assert/no-warnings` | `[]` | No `:rf.warn/*` events seen during play. |
-| `:rf.assert/effect-emitted` | `[fx-id]` (optional `pred`) | Did the variant's drain emit fx-id? |
+| `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? See §`:rf.assert/effect-emitted` payload shape. |
 
 Each handler returns a map of the form:
 
@@ -55,6 +55,35 @@ result; the play-runner concatenates these into the variant's
 post-processes the `:assertions` list and translates failures into
 the host test framework's failure signal — `cljs.test`'s `is`,
 kaocha's reporter, etc.
+
+## `:rf.assert/effect-emitted` payload shape
+
+The only assertion whose payload carries an **optional second slot**.
+Both shapes are legal:
+
+- **`[fx-id]`** — the assertion **passes** iff `fx-id` was emitted at
+  least once during play (the variant's frame accumulates emitted
+  fx-ids into its per-frame `:emitted-fx` slot; see
+  [`002-Runtime.md`](002-Runtime.md) §`:rf.assert/effect-emitted`
+  under `force-fx-stub`).
+- **`[fx-id pred]`** — the assertion **passes** iff `fx-id` was
+  emitted **and** `(pred fx-id)` returns a truthy value. `pred` is a
+  unary fn whose single argument is the fx-id keyword that was
+  matched. Exceptions thrown by `pred` count as a `false` return; the
+  assertion records as failing rather than propagating.
+
+The optional `pred` slot is deliberately a unary fn over the fx-id
+keyword, not over the fx-args map. The play-runner's emitted-fx
+accumulator tracks **which fx-ids fired**, not the per-call fx-args
+payload — preserving arg-level granularity would require a parallel
+accumulator on the trace bus and was rejected as out of scope for v1
+(see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §record-not-throw
+for the same set-not-list trade-off the assertion family takes).
+
+Authors who need an argument-level assertion compose two checks: an
+`:rf.assert/effect-emitted` for the fx-id (set membership) plus an
+`:rf.assert/path-equals` against the slot in `app-db` the fx writes
+through.
 
 ## Play sequence execution
 

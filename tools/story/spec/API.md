@@ -111,7 +111,7 @@ into `:assertions` rather than throwing — see
 | `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched against this frame? |
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. |
 | `:rf.assert/no-warnings` | `[]` | No `:rf.warn/*` events seen during play. |
-| `:rf.assert/effect-emitted` | `[fx-id]` (optional `pred`) | Did the variant's drain emit fx-id? |
+| `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? `pred`, when present, is a unary fn `(pred fx-id) → truthy?` — see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/effect-emitted` payload shape. |
 
 ## Shell lifecycle
 
