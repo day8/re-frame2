@@ -560,7 +560,7 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 When a frame is destroyed (per [002 §Destroy](002-Frames.md#destroy)):
 
 ```
-On destroy-frame F:
+On destroy-frame! F:
   For each k → entry in F.sub-cache:
     For each dispose-fn in entry.on-dispose:
       dispose-fn()
@@ -571,7 +571,7 @@ On destroy-frame F:
 Three contract guarantees this enforces:
 
 1. **No leaks.** Every cached substrate-specific resource (Reagent reaction; JS-cross-compile-port atom-shape's listener entry / derived-value memo) is released. Long-lived processes that create and destroy frames (test runs, SSR request handling) reach steady-state memory.
-2. **No stale reads.** After `destroy-frame`, attempts to subscribe to `F` raise `:rf.error/frame-destroyed`. There is no path that returns a value from a destroyed frame's cache.
+2. **No stale reads.** After `destroy-frame!`, attempts to subscribe to `F` raise `:rf.error/frame-destroyed`. There is no path that returns a value from a destroyed frame's cache.
 3. **Adapter symmetry.** The adapter's `dispose-adapter!` ([§Adapter disposal lifecycle](#adapter-disposal-lifecycle)) is the per-process counterpart; it disposes every frame's sub-cache as part of process teardown.
 
 ### Cross-spec interactions

@@ -315,7 +315,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### Test1. Test runner conventions
 
-- **Why it matters.** Per-test frames (`make-frame` / `destroy-frame`), synchronous trigger (`dispatch-sync`), per-test stubbing (`:fx-overrides`, `:interceptor-overrides`), framework adapter (per [008](008-Testing.md)).
+- **Why it matters.** Per-test frames (`make-frame` / `destroy-frame!`), synchronous trigger (`dispatch-sync`), per-test stubbing (`:fx-overrides`, `:interceptor-overrides`), framework adapter (per [008](008-Testing.md)).
 - **Options by host.**
   - **CLJS** — `cljs.test` / `clojure.test` re-exports plus `re-frame.test` helpers.
   - **TypeScript** — Vitest, Jest, or Playwright (for browser + DOM).

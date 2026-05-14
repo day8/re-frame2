@@ -1555,7 +1555,7 @@
     (is (seq (rf/epoch-history :test/short-lived))
         "before destroy, the frame has at least one recorded epoch")
 
-    (rf/destroy-frame :test/short-lived)
+    (rf/destroy-frame! :test/short-lived)
     (is (= [] (rf/epoch-history :test/short-lived))
         "after destroy, epoch-history returns the empty vector")
     (is (= [] (rf/epoch-history :no/such/frame))
@@ -1570,7 +1570,7 @@
     (is (some? (rf/get-frame-db :test/short-lived))
         "before destroy, get-frame-db returns the live app-db")
 
-    (rf/destroy-frame :test/short-lived)
+    (rf/destroy-frame! :test/short-lived)
     (is (nil? (rf/get-frame-db :test/short-lived))
         "after destroy, get-frame-db returns nil")
     (is (nil? (rf/get-frame-db :no/such/frame))
@@ -1583,7 +1583,7 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
     (let [eid (-> (rf/epoch-history :test/short-lived) first :epoch-id)]
-      (rf/destroy-frame :test/short-lived)
+      (rf/destroy-frame! :test/short-lived)
       (let [recorded (record-trace!)
             ok?      (rf/restore-epoch :test/short-lived eid)]
         (is (false? ok?)
@@ -1606,7 +1606,7 @@
     (rf/reg-frame :test/short-lived {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-    (rf/destroy-frame :test/short-lived)
+    (rf/destroy-frame! :test/short-lived)
 
     (let [recorded (record-trace!)
           ok?      (rf/reset-frame-db! :test/short-lived {:n 999})]
@@ -1640,7 +1640,7 @@
           "the observed record was for :test/short-lived")
 
       ;; Destroy the frame; expect a single silencing trace.
-      (rf/destroy-frame :test/short-lived)
+      (rf/destroy-frame! :test/short-lived)
       (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
                                  (:operation %))
                              @recorded)]
@@ -1663,7 +1663,7 @@
 
       ;; Destroying again emits a fresh silencing trace (the cb's
       ;; observation set was re-armed when the second cascade landed).
-      (rf/destroy-frame :test/short-lived)
+      (rf/destroy-frame! :test/short-lived)
       (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
                                  (:operation %))
                              @recorded)]
@@ -1679,7 +1679,7 @@
     (let [recorded (record-trace!)]
       (rf/register-epoch-cb! ::watcher (fn [_] nil))
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-      (rf/destroy-frame :test/short-lived)
+      (rf/destroy-frame! :test/short-lived)
 
       (let [silenced-after-first (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
                                              (:operation %))
@@ -1688,7 +1688,7 @@
 
         ;; The frame is already destroyed; calling destroy again should be
         ;; a no-op (the frame record is gone). Verify no new silencing trace.
-        (rf/destroy-frame :test/short-lived)
+        (rf/destroy-frame! :test/short-lived)
         (let [silenced-after-second (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
                                                 (:operation %))
                                             @recorded)]
@@ -1709,7 +1709,7 @@
       (rf/dispatch-sync [:seed] {:frame :test/observed})
 
       ;; Destroy the frame the cb never saw — no silencing trace.
-      (rf/destroy-frame :test/never-seen-by-cb)
+      (rf/destroy-frame! :test/never-seen-by-cb)
       (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
                                  (:operation %))
                              @recorded)]
@@ -1717,7 +1717,7 @@
             "no silencing trace for a frame the cb never observed"))
 
       ;; Destroying the cb's observed frame DOES emit silencing.
-      (rf/destroy-frame :test/observed)
+      (rf/destroy-frame! :test/observed)
       (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
                                  (:operation %))
                              @recorded)]

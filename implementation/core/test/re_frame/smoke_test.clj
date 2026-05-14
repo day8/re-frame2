@@ -475,7 +475,7 @@
           "root element carries the data-rf-render-hash attribute"))))
 
 (deftest destroy-frame-signals-active-machines
-  (testing "destroy-frame emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
+  (testing "destroy-frame! emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
     (rf/reg-frame :tenant-a {:doc "tenant"})
     ;; Seed a machine snapshot directly into app-db so we don't need to
     ;; run a full machine through this test.
@@ -486,7 +486,7 @@
     (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
     (let [traces (atom [])]
       (rf/register-trace-cb! ::df (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame :tenant-a)
+      (rf/destroy-frame! :tenant-a)
       (rf/remove-trace-cb! ::df)
       (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                         (:operation %))

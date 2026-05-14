@@ -50,7 +50,7 @@
                               :flow/checkout {:state :pending  :data {}}})))
   (rf/dispatch-sync [:seed] {:frame :tenant-x})
   (let [traces (collect-traces ::xspec-1)]
-    (rf/destroy-frame :tenant-x)
+    (rf/destroy-frame! :tenant-x)
     (stop-traces ::xspec-1)
     (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                       (:operation %))

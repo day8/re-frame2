@@ -44,7 +44,7 @@ implementation/
     src/re_frame/
       interop.{clj,cljs}     JVM / CLJS host primitives.
       registrar.cljc         (kind, id) → metadata + replacement-hooks.
-      frame.cljc             Frame container, reg-frame, destroy-frame.
+      frame.cljc             Frame container, reg-frame, destroy-frame!.
       router.cljc            Per-frame FIFO router + drain + dispatch-sync-in-handler guard.
       fx.cljc                Effect interpreter + fx-overrides + :rf.fx/skipped-on-platform.
       events.cljc            reg-event-db / -fx / -ctx.

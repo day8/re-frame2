@@ -38,7 +38,7 @@
   already been materialised by the time this fn runs)."
   [frame-id]
   (try
-    (rf/destroy-frame frame-id)
+    (rf/destroy-frame! frame-id)
     (catch Throwable t
       (trace/emit! :warning :rf.ssr/destroy-frame-failed
                    {:frame    frame-id

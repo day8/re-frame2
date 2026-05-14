@@ -229,7 +229,7 @@
 (defn- realise-event-sub-fx-handlers
   "Register every event / sub / fx handler the fixture declares. Excludes
   flow registration — flows are FRAME-SCOPED (per Spec 013), so a
-  destroy-frame call between handler-registration and dispatch would
+  destroy-frame! call between handler-registration and dispatch would
   clear them (rf2-wbtjn). Caller registers flows AFTER the frame is
   re-registered via `realise-flows!`.
 
@@ -441,11 +441,11 @@
           ;; registered BEFORE `reg-frame` fires the `:on-create`
           ;; cascade — `:on-create` dispatches the fixture's seed event,
           ;; which needs its handler resolved. Flow registration MUST
-          ;; come AFTER `reg-frame`: the destroy-frame teardown hook
+          ;; come AFTER `reg-frame`: the destroy-frame! teardown hook
           ;; (the symmetric leak fix this bead lands) clears any flows
           ;; registered against the frame being destroyed, so
           ;; registering them before the destroy would wipe them.
-          _            (rf/destroy-frame :rf/default)
+          _            (rf/destroy-frame! :rf/default)
           _            (realise-event-sub-fx-handlers fixture)
           _            (if (seq frames-spec)
                          (doseq [f frames-spec]

@@ -148,7 +148,7 @@
            final-payload (rf/with-frame fid
                            (ssr/streaming-build-final-payload
                              fid render-hash {:version 1}))
-           _ (rf/destroy-frame fid)]
+           _ (rf/destroy-frame! fid)]
        {:shell shell-html
         :resolved-chunks resolved-chunks
         :final-payload final-payload

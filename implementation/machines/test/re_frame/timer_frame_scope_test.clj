@@ -17,7 +17,7 @@
 
   Post-rf2-ysa94 the table is `{<frame-id> {<inner-key> <entry>}}` and
   the public API gains a 1-arity `reset-timers!` / `cancel-all-timers!`
-  for per-frame teardown. The destroy-frame hook
+  for per-frame teardown. The destroy-frame! hook
   `:machines/on-frame-destroyed!` releases a destroyed frame's timers
   without disturbing siblings.
 
@@ -102,7 +102,7 @@
       (is (contains? tt :iso/right)
           "the right frame's table survives a sibling-frame's reset"))))
 
-;; ---- regression: destroy-frame clears just the destroyed frame's timers --
+;; ---- regression: destroy-frame! clears just the destroyed frame's timers --
 
 (deftest destroy-frame-clears-only-the-destroyed-frames-timers
   (testing "the :machines/on-frame-destroyed! late-bind hook releases just the destroyed frame's entries"
@@ -114,11 +114,11 @@
     (is (and (contains? @timer/after-timers :ds/keep)
              (contains? @timer/after-timers :ds/discard))
         "preconditions: both frames have entries")
-    (rf/destroy-frame :ds/discard)
+    (rf/destroy-frame! :ds/discard)
     (is (not (contains? @timer/after-timers :ds/discard))
         ":machines/on-frame-destroyed! hook clears the destroyed frame's entries")
     (is (contains? @timer/after-timers :ds/keep)
-        "destroy-frame on the discarded frame must not touch the survivor's entries")))
+        "destroy-frame! on the discarded frame must not touch the survivor's entries")))
 
 ;; ---- regression: 0-arity reset still clears everything --------------------
 

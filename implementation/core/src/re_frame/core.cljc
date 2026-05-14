@@ -291,8 +291,8 @@
 ;; ---- frame management ----------------------------------------------------
 
 (def make-frame    frame/make-frame)
-(def reset-frame   frame/reset-frame!)
-(def destroy-frame frame/destroy-frame!)
+(def reset-frame!   frame/reset-frame!)
+(def destroy-frame! frame/destroy-frame!)
 
 ;; ---- flows / schemas — plain-fn re-exports -------------------------------
 

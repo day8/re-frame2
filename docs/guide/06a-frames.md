@@ -73,7 +73,7 @@ Two API shapes, picking one mostly by whether you'll dispatch into the frame by 
 ;; tear it down explicitly.
 (let [f (rf/make-frame {:on-create [:counter/initialise]})]
   ;; ... use f for as long as the surrounding code needs it ...
-  (rf/destroy-frame f))
+  (rf/destroy-frame! f))
 ```
 
 `reg-frame` is the right shape for frames whose identity is fixed at app-load (the two analytics panels, named story variants, the SSR cascade you'll dispatch into from request-handler code). `make-frame` is the right shape for frames whose lifecycle is controlled by surrounding code — tests, per-mount devcards, modal stacks — where there's no pre-chosen name and you want the gensym.

@@ -482,7 +482,7 @@
 
 (defn reset-frame!
   "destroy-frame! followed by reg-frame with the same config. Per Spec 002
-  §reset-frame — full replace, opt-in."
+  §reset-frame! — full replace, opt-in."
   [id]
   (when-let [f (frame id)]
     (let [config (:config f)]

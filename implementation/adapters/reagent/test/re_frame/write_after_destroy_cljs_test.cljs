@@ -80,7 +80,7 @@
           {:keys [traces stop!]} (collect-traces!)]
       (try
         (rf/reg-frame frame-id {:doc "rf2-9od6t race reproducer"})
-        (rf/destroy-frame frame-id)
+        (rf/destroy-frame! frame-id)
         (let [container (frame/get-frame-db frame-id)]
           (is (nil? container)
               "get-frame-db on a destroyed frame returns nil — the rf2-ft2b precondition")

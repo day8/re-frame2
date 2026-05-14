@@ -459,7 +459,7 @@ Three things to notice about the shape:
 
 3. **The test runs on the JVM.** No browser, no DOM. The trace stream is just data; the listener is a function. The whole cycle — registration, dispatch, trace emission, assertion — runs headlessly.
 
-The same shape applies to every `:rf.error/*` category: register a listener, do the thing that should fail, filter for the operation you expect, assert on the `:tags`. `dispatch-sync` for events; `compute-sub` for subs; `make-frame` + `destroy-frame` for frame-lifecycle errors.
+The same shape applies to every `:rf.error/*` category: register a listener, do the thing that should fail, filter for the operation you expect, assert on the `:tags`. `dispatch-sync` for events; `compute-sub` for subs; `make-frame` + `destroy-frame!` for frame-lifecycle errors.
 
 For a test fixture that resets per-frame error listeners across tests, see the `reset-runtime` fixture in [`implementation/core/test/re_frame/cofx_test.clj`](../../implementation/core/test/re_frame/cofx_test.clj) — that's the canonical test harness shape the framework's own suite uses.
 

@@ -34,7 +34,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 ### 1. Frame disposal with active machine instances
 
 - **Specs:** [002-Frames §Destroy](002-Frames.md#destroy), [005-StateMachines §Hierarchical compound states §Entry/exit cascading](005-StateMachines.md#entryexit-cascading-along-the-lca).
-- **Scenario:** `(rf/destroy-frame :auth)` is called while the frame holds active machine instances mid-flight.
+- **Scenario:** `(rf/destroy-frame! :auth)` is called while the frame holds active machine instances mid-flight.
 - **Behaviour:** Each active machine runs its `:exit` cascade from leaf to root in **reverse-creation order** (the most recently spawned instance disposes first). Pending `:after` timers are cancelled — staleness via the epoch idiom (per [005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) means timers that fire after destroy land against an unmatching epoch and no-op. Outbound `:fx` from those `:exit` actions runs through `do-fx`. After every machine has settled, the sub-cache disposes (per [006 §Subscription cache — Lifetime contract](006-ReactiveSubstrate.md#lifetime-contract--frame-disposal)). The substrate adapter releases frame-scoped resources. `:rf.frame/destroyed` traces; `:rf.machine/disposed` traces fire per instance.
 - **Reason:** Run-to-completion (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)) extends to disposal — letting `:exit` cascades complete preserves the invariant that every state has its symmetric exit. Reverse-creation order matches the actor-disposal convention.
 - **Status:** `Provisional` — fixture pending: `frame-destroy-with-machines.edn`.
@@ -96,7 +96,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 ### 8. Frame disposal during render
 
 - **Specs:** [002-Frames §Destroy](002-Frames.md#destroy), [006-ReactiveSubstrate §Adapter disposal lifecycle](006-ReactiveSubstrate.md#adapter-disposal-lifecycle).
-- **Scenario:** `destroy-frame` is called while the substrate adapter is mid-render (a React render pass for the CLJS reference, or equivalent in another host).
+- **Scenario:** `destroy-frame!` is called while the substrate adapter is mid-render (a React render pass for the CLJS reference, or equivalent in another host).
 - **Behaviour:** The current render pass completes against the snapshot it began with — render is single-tick, observably atomic from the substrate's perspective. After the render commits, the next reactive update is the disposal: sub-cache disposes, the substrate releases the frame-scoped subtree (in CLJS-Reagent: unmount), the lifecycle listeners fire. No render mid-disposal observes a partial state.
 - **Reason:** Run-to-completion at the render boundary. React's commit cycle (and equivalents) is uninterruptible; cooperating with that cycle keeps the contract simple.
 - **Status:** `Provisional` — fixture pending: `frame-destroy-during-render.edn`.

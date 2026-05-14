@@ -235,7 +235,7 @@
   (testing "destroyed frames do not appear in (frame-ids ns-prefix)"
     (rf/reg-frame :fi.zone/one {})
     (rf/reg-frame :fi.zone/two {})
-    (rf/destroy-frame :fi.zone/one)
+    (rf/destroy-frame! :fi.zone/one)
     (let [zone-ids (rf/frame-ids "fi.zone")]
       (is (= #{:fi.zone/two} zone-ids)
           "destroyed :fi.zone/one is filtered out"))))

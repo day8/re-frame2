@@ -19,9 +19,9 @@ each variant *is* a frame. At variant-mount time the runtime:
    modes, substrates) in `tools.story.registry/*variants*`.
 3. Runs the four-phase lifecycle (below).
 
-At variant-unmount the runtime calls `(rf/destroy-frame variant-id)`.
+At variant-unmount the runtime calls `(rf/destroy-frame! variant-id)`.
 Hot-reload preserves the side-table; a re-registration of the same
-variant calls `reset-frame` and re-runs the lifecycle.
+variant calls `reset-frame!` and re-runs the lifecycle.
 
 ## Args resolution precedence
 
@@ -172,7 +172,7 @@ revisions without breaking baselines.
 
 `run-variant` runs the four-phase lifecycle:
 
-1. Allocate (or `reset-frame`) the variant's frame.
+1. Allocate (or `reset-frame!`) the variant's frame.
 2. Run `:loaders` (phase 1), wait for `:loaders-complete-when`
    predicate.
 3. Run `:events` (phase 2).

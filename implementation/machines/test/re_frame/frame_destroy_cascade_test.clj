@@ -4,7 +4,7 @@
   adapter teardown. Spec 005 §Cross-Spec Interactions §1 enumerates
   the contract:
 
-    `(rf/destroy-frame :auth)` is called while the frame holds active
+    `(rf/destroy-frame! :auth)` is called while the frame holds active
     machine instances mid-flight. Each active machine runs its `:exit`
     cascade in **reverse-creation order** (most recently spawned
     disposes first). After every machine has settled, sub-cache
@@ -77,7 +77,7 @@
 ;; ---- frame destroy walks recorded actors in reverse-creation order -------
 
 (deftest frame-destroy-runs-exit-cascade-in-reverse-creation-order
-  (testing "destroy-frame walks live machines newest-spawn-first, running each :exit before clearing"
+  (testing "destroy-frame! walks live machines newest-spawn-first, running each :exit before clearing"
     (rf/reg-frame :fc/auth {:doc "scratch frame"})
     (let [exit-log (atom [])
           child    {:initial :running
@@ -113,7 +113,7 @@
              (spawn-order/frame-order :fc/auth))
           "spawn-order vector ordered oldest → newest")
       ;; Destroy the frame.
-      (rf/destroy-frame :fc/auth)
+      (rf/destroy-frame! :fc/auth)
       ;; :exit fired three times in REVERSE-spawn order.
       (is (= [:fc/child#3 :fc/child#2 :fc/child#1] @exit-log)
           ":exit ran newest-first per Spec 005 §Cross-Spec Interactions §1")
@@ -138,7 +138,7 @@
 ;; ---- :rf/system-ids reverse index is released ----------------------------
 
 (deftest frame-destroy-releases-system-id-reverse-index
-  (testing "destroy-frame clears [:rf/system-ids <sid>] for every system-id-bound spawned actor"
+  (testing "destroy-frame! clears [:rf/system-ids <sid>] for every system-id-bound spawned actor"
     (rf/reg-frame :si/auth {:doc "system-id reverse-index test frame"})
     (let [child   {:initial :running :data {} :states {:running {}}}
           parent  {:initial :idle
@@ -157,7 +157,7 @@
       (let [db (rf/get-frame-db :si/auth)]
         (is (= :si/child#1 (get-in db [:rf/system-ids :session/primary]))
             "system-id was bound to the spawned actor before destroy"))
-      (rf/destroy-frame :si/auth)
+      (rf/destroy-frame! :si/auth)
       ;; Frame is gone — and the actor's handler was unregistered as
       ;; part of the cascade.
       (is (nil? (frame/frame :si/auth))
@@ -168,7 +168,7 @@
 ;; ---- :rf.machine.lifecycle/destroyed trace contract ----------------------
 
 (deftest frame-destroy-emits-lifecycle-trace-per-active-machine
-  (testing "destroy-frame emits :rf.machine.lifecycle/destroyed per active actor with :reason :parent-frame-destroyed"
+  (testing "destroy-frame! emits :rf.machine.lifecycle/destroyed per active actor with :reason :parent-frame-destroyed"
     (rf/reg-frame :lt/auth {:doc "lifecycle-trace frame"})
     (let [traces (atom [])
           child  {:initial :running :data {} :states {:running {}}}
@@ -187,7 +187,7 @@
       (rf/reg-machine :lt/boot boot)
       (rf/dispatch-sync [:lt/boot [:start]] {:frame :lt/auth})
       (rf/register-trace-cb! ::lt (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame :lt/auth)
+      (rf/destroy-frame! :lt/auth)
       (rf/remove-trace-cb! ::lt)
       (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
                               @traces)]
@@ -206,7 +206,7 @@
 ;; ---- HTTP abort preserved for every active actor -------------------------
 
 (deftest frame-destroy-fires-http-abort-per-active-actor
-  (testing "destroy-frame invokes the :http/abort-on-actor-destroy hook against every active actor"
+  (testing "destroy-frame! invokes the :http/abort-on-actor-destroy hook against every active actor"
     (rf/reg-frame :ha/auth {:doc "http-abort hook test frame"})
     (let [aborted (atom [])
           ;; Install the hook explicitly. `re-frame.http-managed`
@@ -230,14 +230,14 @@
       (rf/reg-machine :ha/child child)
       (rf/reg-machine :ha/boot boot)
       (rf/dispatch-sync [:ha/boot [:go]] {:frame :ha/auth})
-      (rf/destroy-frame :ha/auth)
+      (rf/destroy-frame! :ha/auth)
       (is (= #{:ha/child#1 :ha/child#2 :ha/boot} (set @aborted))
           "the abort hook fired once per active actor — spawned plus singleton"))))
 
 ;; ---- multiple frames isolated -------------------------------------------
 
 (deftest destroy-of-one-frame-does-not-disturb-anothers-machines
-  (testing "destroy-frame walks only the destroyed frame's spawn-order channel"
+  (testing "destroy-frame! walks only the destroyed frame's spawn-order channel"
     (rf/reg-frame :iso/frame-a {:doc "frame A"})
     (rf/reg-frame :iso/frame-b {:doc "frame B"})
     (let [exit-log (atom [])
@@ -274,7 +274,7 @@
       (is (= [:iso/child-a#1] (spawn-order/frame-order :iso/frame-a)))
       (is (= [:iso/child-b#1] (spawn-order/frame-order :iso/frame-b)))
       ;; Destroy A; B's actor stays alive and its handler stays registered.
-      (rf/destroy-frame :iso/frame-a)
+      (rf/destroy-frame! :iso/frame-a)
       (is (= [:iso/child-a#1] @exit-log)
           "only frame A's spawned actor ran its :exit")
       (is (nil? (registrar/lookup :event :iso/child-a#1))

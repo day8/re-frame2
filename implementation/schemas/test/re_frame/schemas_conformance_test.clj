@@ -330,7 +330,7 @@
     ;; (parity with the machines / SSR / privacy destroy hooks), so
     ;; schema registration must follow the runner's destroy+reg-frame
     ;; cycle. Event / sub / cofx / fx registrations are global on
-    ;; the registrar and survive destroy-frame, so they continue to
+    ;; the registrar and survive destroy-frame!, so they continue to
     ;; live here so `:on-create` can fire against them.
     nil))
 
@@ -343,7 +343,7 @@
   registered against the frame (parity with the machines / SSR /
   privacy destroy hooks). Pre-fix the runner relied on the leak —
   registering app-schemas inside `realise-handlers` BEFORE
-  `destroy-frame` and counting on the schemas to survive. With the
+  `destroy-frame!` and counting on the schemas to survive. With the
   leak closed, app-schema registration is sequenced explicitly
   after `reg-frame`."
   [fixture]
@@ -452,7 +452,7 @@
           ;; surgical update that does NOT re-fire :on-create (Spec 002).
           ;; Destroy first so the fixture's :on-create cascade fires
           ;; under its declared frame config.
-          _            (rf/destroy-frame :rf/default)
+          _            (rf/destroy-frame! :rf/default)
           ;; Per rf2-wkxng / rf2-6m0se: register app-db schemas
           ;; AFTER the destroy step (the new
           ;; `:schemas/on-frame-destroyed!` hook drops the frame's

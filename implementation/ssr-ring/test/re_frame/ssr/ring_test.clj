@@ -1078,7 +1078,7 @@
             cleanup hooks funnel through `safe-call-hook!` which
             swallows). To exercise destroy-quietly's catch arm we
             simulate a hard runtime failure — `with-redefs` makes
-            `rf/destroy-frame` itself throw. This pins the wire
+            `rf/destroy-frame!` itself throw. This pins the wire
             contract: when destroy throws for any reason, the trace
             surfaces."
     (let [destroy-quietly! (requiring-resolve
@@ -1087,7 +1087,7 @@
           f                :rf.frame/test-destroy-throws]
       (rf/register-trace-cb! ::dfq (fn [ev] (swap! traces conj ev)))
       (try
-        (with-redefs [rf/destroy-frame
+        (with-redefs [rf/destroy-frame!
                       (fn [_] (throw (ex-info "synthetic destroy failure"
                                               {:reason :test})))]
           (destroy-quietly! f))

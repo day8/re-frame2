@@ -461,7 +461,7 @@ These are **dev-tool conveniences with documented egress, not gated**. Both endp
 
 ## What the framework supplies vs. what the library adds
 
-**Framework hooks (in 002):** `make-frame`/`destroy-frame`/`reset-frame`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`registrations`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
+**Framework hooks (in 002):** `make-frame`/`destroy-frame!`/`reset-frame!`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`registrations`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
 
 **`re-frame.stories` library:** `reg-story`/`reg-variant`/`reg-workspace`; side-table registries; `run-variant` (programmatic execution + assertions); `reset-variant`; `variants-with-tags`; the story-tool UI.
 

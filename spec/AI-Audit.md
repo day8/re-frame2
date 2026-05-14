@@ -142,7 +142,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | One fixture lifecycle (`make-frame` / `destroy-frame`); one synchronous trigger; one assertion macro. |
+| P1 Regularity | ✓ | One fixture lifecycle (`make-frame` / `destroy-frame!`); one synchronous trigger; one assertion macro. |
 | P2 Named things | ✓ | Frames, handlers, fixtures all id'd. |
 | P3 Data before magic | ✓ | `compute-sub` operates on data; `dispatch-sequence` is a vector of events. |
 | P4 Public query surfaces | ✓ | Tests use the same query API tooling does. |

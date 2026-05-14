@@ -39,7 +39,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/frame-provider` | (CLJS) Reagent component `[frame-provider {:frame ...} & children]` |
 | `rf/get-frame-db` | `(frame-id)` — value-form app-db read |
 | `rf/snapshot-of` | `(path)` / `(path opts)` — `get-in` over the active frame |
-| `rf/make-frame` / `rf/reset-frame` / `rf/destroy-frame` | low-level frame lifecycle |
+| `rf/make-frame` / `rf/reset-frame!` / `rf/destroy-frame!` | low-level frame lifecycle |
 
 ## Machines
 
