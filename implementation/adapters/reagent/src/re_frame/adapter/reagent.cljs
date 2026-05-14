@@ -115,11 +115,41 @@
 ;; ---- disposal -------------------------------------------------------------
 
 (defn- dispose-adapter! []
-  ;; Reagent's reaction caches GC themselves when their owners go away,
-  ;; but mounted React 18+ Roots do not — Spec 006 §Adapter disposal
-  ;; lifecycle (rf2-9fdkb) requires the adapter to unmount any roots
-  ;; it spun up. Drain the active-roots set; swallow per-root unmount
-  ;; throws so one misbehaving root cannot strand the rest of the drain.
+  ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq). The
+  ;; four-MUST list:
+  ;;
+  ;;   1. Cancel all in-flight reactive subscriptions — walk every live
+  ;;      frame's per-frame sub-cache and dispose each cached Reaction.
+  ;;      Component-unmount-driven disposal handles the mounted case
+  ;;      (Reagent reaps Reactions when their last watcher drops); the
+  ;;      explicit walk covers the test-fixture / headless path where
+  ;;      no component unmount fires before the adapter goes away.
+  ;;      `interop/dispose!` routes through `:adapter/dispose!` which is
+  ;;      still wired for this adapter at this point in the teardown
+  ;;      (substrate-adapter clears the install slot AFTER calling us).
+  ;;
+  ;;   2. Release host-specific resources — drain the active-roots set
+  ;;      (React 18+ Roots; mounted-but-not-unmounted at process exit /
+  ;;      hot-reload). Swallow per-root throws so one misbehaving root
+  ;;      cannot strand the rest of the drain.
+  ;;
+  ;;   3. Discard internal caches — clear hiccup-emitter (the SSR
+  ;;      late-bind sink; the registered fn captures `re-frame.ssr`
+  ;;      state that must not survive the adapter).
+  ;;
+  ;;   4. Make subsequent calls return `:rf.error/adapter-disposed` —
+  ;;      handled one level up by `substrate-adapter/dispose-adapter!`
+  ;;      via the `disposed?` breadcrumb (rf2-6wxys).
+  (doseq [[_ frame-record] @frame/frames]
+    (when-let [cache (:sub-cache frame-record)]
+      (doseq [[_k entry] @cache]
+        (when-let [h (:pending-dispose entry)]
+          (try (interop/clear-timeout! h)
+               (catch :default _ nil)))
+        (when-let [r (:reaction entry)]
+          (try (interop/dispose! r)
+               (catch :default _ nil))))
+      (reset! cache {})))
   (doseq [root @active-roots]
     (try (rdc/unmount root)
          (catch :default _ nil)))
