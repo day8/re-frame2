@@ -42,7 +42,10 @@
 
 ;; ---- configuration --------------------------------------------------------
 
-(def ^:private default-depth 50)
+(def ^:private default-depth
+  ;; Deep enough to hold a typical debug session's cascade history;
+  ;; trades bounded heap for stable time-travel coverage.
+  50)
 
 (defonce ^:private config
   ;; Currently a single key (:depth) but kept as a map so future

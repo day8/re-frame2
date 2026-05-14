@@ -163,7 +163,10 @@
 ;; bridge typical React render churn. Tests that want to assert on disposal
 ;; configure a short or zero value via configure!.
 
-(def ^:private default-grace-period-ms 50)
+(def ^:private default-grace-period-ms
+  ;; Long enough to bridge typical React render churn; short enough not
+  ;; to leak under genuine disposal.
+  50)
 
 (defonce ^:private config
   ;; Map shape so future :sub-cache configure-keys land additively.

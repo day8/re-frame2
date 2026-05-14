@@ -149,7 +149,9 @@
 ;; ---- retain-N trace ring buffer (dev-only) -------------------------------
 
 (def ^:private default-buffer-depth
-  "Per Spec 009 §Retain-N trace ring buffer: default 200 events."
+  "Per Spec 009 §Retain-N trace ring buffer: default 200 events —
+  enough for one drained cascade plus prior history without per-frame
+  memory pressure."
   200)
 
 (defonce ^:private buffer-depth (atom default-buffer-depth))
