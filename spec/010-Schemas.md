@@ -471,7 +471,17 @@ Both fns are registered at boot, before the first `reg-app-schema` or `:spec`-be
 ;;     schema. Apps that want zero validation surface (and zero
 ;;     schema-library bundle cost) install nil at boot.
 (rf/set-schema-validator! nil)
+
+;; (5) Install the schema-print companion the digest pipeline hashes
+;;     (see §Schema digest below). Parallel to set-schema-validator! —
+;;     non-Malli ports register their own serialiser so the digest
+;;     reflects the port's own validation contract. Last-write-wins;
+;;     passing nil reinstalls the default EDN canonicaliser so the
+;;     digest is never undefined for a present schema set.
+(rf/set-schema-printer! my-printer-fn)
 ```
+
+The three setters — `set-schema-validator!`, `set-schema-explainer!`, `set-schema-printer!` — are the **public** validator-surface seam. Each setter is also rowed in [API.md §Schemas](API.md#schemas). Together they let a port (or an app) swap out Malli wholesale: validator + explainer + printer = the entire schema-language surface the framework consults.
 
 ### Per-port default
 
