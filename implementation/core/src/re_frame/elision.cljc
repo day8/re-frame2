@@ -29,7 +29,14 @@
                                     walker) and pre-populates
                                     `[:rf/elision :declarations]` for every
                                     path whose schema carries `:large? true`
-                                    in its per-slot properties at any depth."
+                                    in its per-slot properties at any depth.
+   - `populate-sensitive-from-schemas!`
+                                  — privacy sibling of the above: walks
+                                    every registered app-schema deeply and
+                                    pre-populates
+                                    `[:rf/elision :sensitive-declarations]`
+                                    for every path whose schema carries
+                                    `:sensitive? true`."
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
@@ -132,6 +139,15 @@
                 [:runtime-flagged path]
                 {:bytes (long bytes)}))))
 
+(defn- write-sensitive-declaration!
+  "Write `[:rf/elision :sensitive-declarations <path>] -> entry` on the
+   frame's app-db. Idempotent — last-write-wins on duplicate paths.
+   Privacy sibling of `write-declaration!`."
+  [frame-id path entry]
+  (swap-registry! frame-id
+    (fn [reg]
+      (assoc-in (or reg {}) [:sensitive-declarations path] entry))))
+
 ;; ---- public registry surface ----------------------------------------------
 
 (defn declarations
@@ -148,6 +164,17 @@
   ([] (runtime-flagged :rf/default))
   ([frame-id]
    (or (get (registry-of frame-id) :runtime-flagged) {})))
+
+(defn sensitive-declarations
+  "Return the current `[:rf/elision :sensitive-declarations]` map for a
+   frame, or `{}`. Privacy sibling of `declarations` — pair tools and
+   the schema-validation emit-site read this to introspect which paths
+   are marked `:sensitive?` (declared- or schema-sourced). Default frame
+   is `:rf/default`. Per [Spec 010 §`:sensitive?` — privacy in schema-
+   validation error traces]."
+  ([] (sensitive-declarations :rf/default))
+  ([frame-id]
+   (or (get (registry-of frame-id) :sensitive-declarations) {})))
 
 (defn- resolve-declaration
   "Given a frame's `[:rf/elision]` registry and a path, return the
@@ -319,6 +346,61 @@
                                        {:large? true
                                         :hint   (:hint decl)
                                         :source :schema})
+                   (conj acc path)))))
+           []
+           schema-decls))
+       []))))
+
+(defn populate-sensitive-from-schemas!
+  "Privacy sibling of `populate-elision-from-schemas!`. Walk every
+   registered app-schema for a frame and write
+   `{:sensitive? true :source :schema}` entries into the
+   `[:rf/elision :sensitive-declarations]` registry for every path
+   whose schema (at any depth) carries `:sensitive? true` in its
+   Malli per-slot properties.
+
+   Per [Spec 010 §`:sensitive?` — privacy in schema-validation error
+   traces] (lines 333-349) and [Spec-Schemas §`:rf/elision-registry`].
+   Nested declarations are honoured — a `:sensitive?` slot at
+   `[:map [:a [:map [:b {:sensitive? true} :string]]]]` registered at
+   `[:root]` lands at `[:root :a :b]`. The orthogonal-composition rule
+   holds: a slot flagged BOTH `:large?` and `:sensitive?` populates BOTH
+   sibling registries (the walker's sensitive-wins precedence is
+   resolved at trace time, not registry time).
+
+   Idempotent — re-populating updates existing `:source :schema`
+   entries in place. **Declared entries are preserved** (`:source
+   :declared` wins over `:source :schema`, mirroring the `:large?`
+   sibling's conflict-resolution rule).
+
+   No-op when the schemas artefact (day8/re-frame2-schemas) is not on
+   the classpath — both required late-bind hooks
+   (`:schemas/frame-schema-entries` and
+   `:schemas/extract-sensitive-paths-from-schema`) must be present.
+   Returns the vector of paths that were populated (possibly empty)."
+  ([] (populate-sensitive-from-schemas! (frame/current-frame)))
+  ([frame-id]
+   (let [entries-fn (late-bind/get-fn :schemas/frame-schema-entries)
+         extract-fn (late-bind/get-fn :schemas/extract-sensitive-paths-from-schema)]
+     (if (and entries-fn extract-fn)
+       (let [entries (entries-fn frame-id)
+             schema-decls (reduce-kv
+                            (fn [acc base-path entry]
+                              (merge acc (extract-fn (:schema entry) base-path)))
+                            {}
+                            entries)]
+         (reduce-kv
+           (fn [acc path decl]
+             (let [existing (get-in (registry-of frame-id)
+                                    [:sensitive-declarations path])]
+               ;; Preserve declared entries — declared beats schema.
+               (if (= :declared (:source existing))
+                 acc
+                 (do
+                   (write-sensitive-declaration! frame-id path
+                                                 {:sensitive? true
+                                                  :hint       (:hint decl)
+                                                  :source     :schema})
                    (conj acc path)))))
            []
            schema-decls))
