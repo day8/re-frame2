@@ -64,7 +64,8 @@
   `:event` (duplicate of `:received`) and `:malli-error` (duplicate of
   `:explain`) tags have been dropped — consumers reach for `:received`
   / `:value` / `:explain`."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validator :as validator]
@@ -138,18 +139,6 @@
         (when (seq paths)
           (reduce common-prefix (first paths) (rest paths)))))))
 
-(defn- type-of-value [v]
-  (cond
-    (string? v)  "string"
-    (integer? v) "integer"
-    (number? v)  "number"
-    (boolean? v) "boolean"
-    (keyword? v) "keyword"
-    (map? v)     "map"
-    (vector? v)  "vector"
-    (nil? v)     "nil"
-    :else        (str (type v))))
-
 (defn- reason-string
   "Build the human-readable `:reason` slot for a schema-validation
   failure trace. Single template covering every emit-site:
@@ -175,10 +164,10 @@
     - `value`: the value that failed.
 
   Shape: \"<subject><id-or-path><slot-tail><pr-str schema>, got
-  <type-of-value>.\""
+  <error/type-of-value>.\""
   [subject id-or-path slot-tail schema value]
   (str subject id-or-path slot-tail (pr-str schema)
-       ", got " (type-of-value value) "."))
+       ", got " (error/type-of-value value) "."))
 
 (defn- run-validation
   "Shared core of the four meta-bearing validate-*! fns (event / cofx /
