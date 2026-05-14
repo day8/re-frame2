@@ -1110,13 +1110,14 @@ Each category's `:tags` shape is registered as a Malli schema so consumers can v
 
 (def SchemaValidationTags
   [:map
-   [:category    [:= :rf.error/schema-validation-failure]]
-   [:failing-id  :keyword]
-   [:reason      :string]
-   [:where       [:enum :event :sub-return :app-db :fx-args :cofx-args :on-create]]
-   [:path        [:vector :any]]
-   [:value       :any]
-   [:explain :any]])                             ;; Malli explanation shape
+   [:category        [:= :rf.error/schema-validation-failure]]
+   [:failing-id      :keyword]
+   [:reason          :string]
+   [:where           [:enum :event :sub-return :app-db :fx-args :cofx-args :on-create]]
+   [:path            [:vector :any]]
+   [:value           :any]
+   [:explain         :any]                          ;; Malli explanation shape
+   [:registered-path {:optional true} [:vector :any]]]) ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
 
 ;; ... and so on for each category — see Spec-Schemas for the full set.
 ```

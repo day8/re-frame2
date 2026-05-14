@@ -631,14 +631,15 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def SchemaValidationTags
   [:map
-   [:category    [:= :rf.error/schema-validation-failure]]
-   [:failing-id  :keyword]
-   [:reason      {:optional true} :string]
-   [:where       [:enum :event :sub-return :app-db :fx-args :cofx :cofx-args :on-create]]
-   [:path        {:optional true} [:vector :any]]
-   [:value       {:optional true} :any]
-   [:explain     {:optional true} :any]                ;; Malli explanation shape
-   [:rollback?   {:optional true} :boolean]])          ;; (:where :app-db only) true when :db was rolled back to pre-handler value
+   [:category        [:= :rf.error/schema-validation-failure]]
+   [:failing-id      :keyword]
+   [:reason          {:optional true} :string]
+   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :cofx-args :on-create]]
+   [:path            {:optional true} [:vector :any]]
+   [:value           {:optional true} :any]
+   [:explain         {:optional true} :any]            ;; Malli explanation shape
+   [:rollback?       {:optional true} :boolean]        ;; (:where :app-db only) true when :db was rolled back to pre-handler value
+   [:registered-path {:optional true} [:vector :any]]]) ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
 
 (def DrainDepthExceededTags
   [:map
