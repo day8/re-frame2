@@ -42,10 +42,13 @@
                        → dedup → indicator-count. No summary; the
                        epoch shape is already bounded by the cursor
                        `:limit`.
-  - `:scalar-value`  — single value (`get-path`). The eval form
-                       already ran `re-frame.core/elide-wire-value`
-                       server-side, so the pipeline here is just
-                       indicator-count; the value passes through.
+  - `:scalar-value`  — the literal post-`get-in` value (`get-path`).
+                       The eval form already ran
+                       `re-frame.core/elide-wire-value` server-side,
+                       so the pipeline here is just indicator-count;
+                       the value passes through. The CALLER strips
+                       the value off its envelope and re-assembles
+                       afterwards — the arm walks only what ships.
 
   Each kind returns `{:value v :indicators {:dropped N :elided N
   :path-status M}}`. `:path-status` is the per-frame path-not-found
@@ -116,9 +119,17 @@
                   :count   (count encoded)}}))
 
 (defn- run-scalar-value
-  "Minimal pipeline for `get-path` results. The eval form already ran
-  `re-frame.core/elide-wire-value` server-side, so the pipeline here
-  is indicator-count only. The value passes through unchanged.
+  "Minimal pipeline for the literal post-`get-in` value. The eval form
+  already ran `re-frame.core/elide-wire-value` server-side, so the
+  pipeline here is indicator-count only. The value passes through
+  unchanged.
+
+  The contract is the SCALAR — the value the caller intends to ship
+  on the wire — NOT the envelope around it. `get-path` strips the
+  `:value` slot off its result map, runs it through here, and
+  rebuilds the envelope. That way the indicator count reflects only
+  what's actually being shipped — a `:path-not-found` envelope (no
+  `:value` slot) bypasses the walk entirely.
 
   Returns `{:value v :indicators {:elided N}}`."
   [v _opts]
