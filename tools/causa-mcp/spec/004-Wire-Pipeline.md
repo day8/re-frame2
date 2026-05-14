@@ -360,7 +360,7 @@ declare which mechanisms apply, the **typical-token** hint, the
 **cap-reached** behaviour, and the default `:mode` /
 `:limit` / `:dedup?` values. No tool ships without these slots.
 
-### Streaming over batch (cross-cutting)
+## Streaming over batch (cross-cut)
 
 The `subscribe` stream returns one event per JSON-RPC
 `notifications/progress`, not a buffered batch. The cap applies
