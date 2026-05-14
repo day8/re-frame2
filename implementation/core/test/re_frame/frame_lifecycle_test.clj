@@ -336,6 +336,130 @@
           (is (< run-end-idx created-idx)
               ":on-create's :run-end precedes :frame/created — frame is fully booted before listeners observe it"))))))
 
+;; ---- rf2-cufbh — child-frame :on-create is queued asynchronously --------
+;;
+;; Per Spec 002 §`reg-frame` / `make-frame` called from inside a handler:
+;; when a handler spawns a child frame, the child's `:on-create` MUST be
+;; dispatched (queued on the child's router) rather than dispatch-sync'd.
+;; Synchronous dispatch from inside a handler is an error (per Spec 002
+;; §dispatch-sync inside a handler is an error), and the no-cross-frame-
+;; drain rule (Spec 002 §Run-to-completion) forbids interleaving the two
+;; cascades anyway.
+;;
+;; These tests pin both halves of the contract:
+;;
+;;   (1) top-level reg-frame (no in-flight handler) — `:on-create` is
+;;       dispatch-sync'd, the cascade settles before reg-frame returns
+;;       (already covered by `reg-frame-on-create-runs-synchronously`
+;;       above; the rf2-cufbh test below adds the negative-axis pin —
+;;       no async-queue residue under the top-level path).
+;;   (2) handler-created reg-frame — `:on-create` is dispatched
+;;       asynchronously. The child frame's :on-create handler does NOT
+;;       run before the parent handler returns; it runs on a later
+;;       drain cycle for the child's router.
+
+(deftest child-frame-on-create-is-async-when-created-from-handler
+  (testing "reg-frame called inside a handler queues the child's :on-create
+            asynchronously on the child's router — Spec 002 §reg-frame /
+            make-frame called from inside a handler"
+    (let [event-order  (atom [])
+          captured-tick (atom [])]
+      (rf/reg-event-db :child/boot
+        (fn [db _]
+          (swap! event-order conj :child/boot-ran)
+          (assoc db :child-booted? true)))
+      (rf/reg-event-fx :parent/spawn-child
+        (fn [_ _]
+          (swap! event-order conj :parent/before-reg-frame)
+          (rf/reg-frame :child {:on-create [:child/boot]})
+          (swap! event-order conj :parent/after-reg-frame)
+          {}))
+      ;; Capture the child's next-tick so we can deterministically inspect
+      ;; the queue state at the moment the parent handler returns.
+      (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
+        (rf/dispatch-sync [:parent/spawn-child])
+
+        ;; The parent's handler body ran end-to-end, but the child's
+        ;; :on-create handler did NOT run inline.
+        (is (= [:parent/before-reg-frame :parent/after-reg-frame]
+               @event-order)
+            ":child/boot is NOT in the order — it was queued, not dispatch-sync'd")
+
+        ;; The child frame exists; its app-db reflects the pre-:on-create
+        ;; state (fresh {}, not the booted shape).
+        (let [child (frame/frame :child)]
+          (is (some? child) ":child frame is registered")
+          (is (= {} (rf/get-frame-db :child))
+              "child app-db is still {} — :on-create has not yet drained")
+          ;; The child's router queue holds exactly the :on-create event.
+          (let [queue (:queue @(:router child))]
+            (is (= 1 (count queue))
+                "child router has the :on-create envelope queued")
+            (is (= [:child/boot] (-> queue first :event))
+                "queued event is :child/boot"))))
+
+      ;; Now run the captured tick — the child's drain fires and
+      ;; :child/boot runs on the child's drain cycle, after the parent
+      ;; cascade settled.
+      (doseq [tick @captured-tick] (tick))
+      (is (= [:parent/before-reg-frame
+              :parent/after-reg-frame
+              :child/boot-ran]
+             @event-order)
+          ":child/boot ran AFTER the parent cascade settled, on the
+           child's own drain cycle")
+      (is (true? (:child-booted? (rf/get-frame-db :child)))
+          "child app-db reflects :on-create commit once the child drain fires"))))
+
+(deftest top-level-reg-frame-on-create-still-runs-synchronously
+  (testing "Top-level reg-frame (NOT inside a handler) still dispatch-sync's
+            :on-create — the rf2-cufbh fix preserves the fast path"
+    (let [order (atom [])]
+      (rf/reg-event-db :top/init
+        (fn [_ _]
+          (swap! order conj :top/init-ran)
+          {:initialised? true}))
+      ;; No in-flight handler; *current-frame* is nil. :on-create must run
+      ;; synchronously, before reg-frame returns.
+      (rf/reg-frame :top {:on-create [:top/init]})
+      (is (= [:top/init-ran] @order)
+          ":top/init ran inside reg-frame (synchronous top-level path)")
+      (is (true? (:initialised? (rf/get-frame-db :top)))
+          "top-level app-db reflects :on-create commit by reg-frame return"))))
+
+(deftest child-frame-via-make-frame-also-async-from-handler
+  (testing "make-frame from inside a handler also queues :on-create
+            asynchronously — it shares the reg-frame code path"
+    (let [order         (atom [])
+          captured-tick (atom [])
+          child-id      (atom nil)]
+      (rf/reg-event-db :sub-actor/boot
+        (fn [db _]
+          (swap! order conj :sub-actor/boot-ran)
+          (assoc db :booted? true)))
+      (rf/reg-event-fx :parent/spawn-sub-actor
+        (fn [_ _]
+          (swap! order conj :parent/before-make-frame)
+          (reset! child-id (rf/make-frame {:on-create [:sub-actor/boot]}))
+          (swap! order conj :parent/after-make-frame)
+          {}))
+      (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
+        (rf/dispatch-sync [:parent/spawn-sub-actor])
+        (is (= [:parent/before-make-frame :parent/after-make-frame] @order)
+            ":sub-actor/boot did not run inline")
+        (is (some? @child-id) "make-frame returned a gensym'd id")
+        (is (= {} (rf/get-frame-db @child-id))
+            "child app-db is still empty before its own drain runs"))
+      ;; Drain the child's tick.
+      (doseq [tick @captured-tick] (tick))
+      (is (= [:parent/before-make-frame
+              :parent/after-make-frame
+              :sub-actor/boot-ran]
+             @order)
+          ":sub-actor/boot ran on the child's own drain cycle")
+      (is (true? (:booted? (rf/get-frame-db @child-id)))
+          "child app-db reflects :on-create commit after its drain"))))
+
 ;; ---- Spec 002 §Frame presets — closed v1 expansion table -----------------
 ;;
 ;; Presets expand at registration time into a fixed bundle of metadata
