@@ -333,6 +333,19 @@ additions are deliberate (a Lock entry here, a discussion).
   signal to promote it to its own catalogue entry — but the
   promotion is a deliberate Lock entry, not a silent merge.
 
+### Where future catalogue growth lands
+
+When a tool is promoted from `eval-cljs` recurrence (or from any
+other recurrent-workflow signal) to a named tool, the addition
+lands in `003-Tool-Catalogue.md` (once impl ships it) and a
+Lock-N entry pins the rationale. The canonical band-and-count
+fact is [`README.md` §Canonical counts](./README.md#canonical-counts);
+[`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
+and the future `003-Tool-Catalogue.md` cite that subsection
+rather than restating the totals. Lock #12 is the worked
+example: catalogue grew by one, README's counts table moved,
+Lock entry landed.
+
 ### Date locked
 
 2026-05-12 (Mike). The seventeen-tool catalogue was assembled
@@ -663,9 +676,10 @@ typical-token hint, its cap-reached behaviour, and its default
   reserved `:rf.mcp/overflow` / `:rf.mcp/summary` keys are
   cross-server reservations, not Causa-MCP-private vocabulary.
   Where pair2-mcp's wording is silent (path slicing, structural
-  dedup, `:max-tokens` override, the overflow marker shape),
-  Causa-MCP's spec is the forward-locking site — a follow-up
-  alignment bead may lift the wording back into pair2-mcp.
+  dedup, `max-tokens` override, the overflow marker shape),
+  Causa-MCP's spec is the forward-locking site — the follow-up
+  alignment bead that lifts the wording back into pair2-mcp is
+  tracked at rf2-uebll.
 - **Structural dedup is the new mechanism.** Mechanisms 1–4 are
   refinements of pair2-mcp's three-axis discipline. Mechanism 5
   (`day8/de-dupe` substitution-table for trace bursts) is novel
@@ -718,8 +732,8 @@ line 1163.
   (recommendation #10, local-only) — the source-of-truth
   investigation that motivated baking before impl.
 - [`day8/de-dupe`](https://github.com/day8/de-dupe) — the
-  substitution-table substrate for mechanism 5; proven on
-  re-frame-10x's epoch payloads.
+  substitution-table substrate for mechanism 5; originally
+  proven on re-frame-10x's epoch payloads, re-applied here.
 - [Spec 009](../../../spec/009-Instrumentation.md) — the trace
   bus whose burst-shape mechanism 5 compresses.
 
@@ -750,9 +764,26 @@ mechanism in `Principles.md` before impl begins, on the same
 "bake-before-impl" calculus as Lock #9 — or wait until impl
 surfaces the same drift?
 
+### Options considered
+
+- **Option A — bake the sixth mechanism now.** Promote
+  `:rf.size/large-elided` to a named sixth mechanism in
+  `Principles.md` (now `004-Wire-Pipeline.md` post rf2-erimb)
+  alongside the first five. Bind every catalogue entry to
+  declare `:include-large?` / `:elided-large` slots.
+- **Option B — reference the marker without promoting it.**
+  Keep the existing in-line mention inside the streaming section
+  (the position after rf2-04ozp / PR #709) but leave the count
+  at "five mechanisms". The marker still ships; the spec just
+  doesn't name it as a peer mechanism.
+- **Option C — wait until impl.** Defer the promotion until
+  `tools/causa-mcp/src/` lands and the catalogue's per-tool
+  contract surfaces the same drift pair2-mcp paid down via
+  rf2-urjnc.
+
 ### Pick
 
-**Promote `:rf.size/large-elided` to mechanism #6 in
+**Option A — promote `:rf.size/large-elided` to mechanism #6 in
 `Principles.md`.** Bake the marker shape, the `:sensitive?`
 composition rule ("sensitive wins"), the `:include-large?`
 opt-out slot, the `:elided-large` indicator field, and the

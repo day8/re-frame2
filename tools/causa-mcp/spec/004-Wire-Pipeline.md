@@ -114,8 +114,9 @@ posture (file header).
 The **5,000-token default** is the per-response budget. Every
 tool that returns to the agent MUST measure the rendered
 payload (post-EDN-encoding, post-JSON-wrap) against the cap
-before returning. Each call MAY override via a `:max-tokens`
-integer argument (server clamps to `[1, 50000]`).
+before returning. Each call MAY override via a `max-tokens`
+integer JSON-RPC argument (server clamps to `[500, 50000]`;
+the corresponding parsed CLJS keyword is `:max-tokens`).
 
 A tool that would exceed the cap MUST NOT silently truncate.
 Instead it MUST return a structured overflow marker at the top
@@ -201,7 +202,9 @@ integer id; the wire payload carries
 
 The dedup algorithm is the
 [`day8/de-dupe`](https://github.com/day8/de-dupe) substitution
-table — proven on re-frame-10x's epoch payloads. The agent
+table — originally proven on re-frame-10x's epoch payloads;
+re-applied here to re-frame2's structurally-similar trace and
+epoch shapes. The agent
 reconstructs the full structure with a one-pass walk
 substituting refs against the table. Dedup is **opt-out** per
 call (`:dedup? false`); on by default for trace-shaped
