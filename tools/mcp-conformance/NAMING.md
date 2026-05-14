@@ -127,6 +127,47 @@ extension** to pair2-mcp / story-mcp.
 | `restore-epoch` | `restore-` | Conformant. |
 | `reset-frame-db` | `reset-` | Conformant. |
 
+## Single source of truth for tool counts
+
+Each per-server spec carries its catalogue count in prose ("the 17 tools",
+"the nine tools"). Past drift episodes (story-mcp shipped both "16 tools"
+and "17 tools" across five docs after `list-subscriptions` was added; the
+audit that surfaced it had to grep across `tools/story-mcp/` to find every
+mention) trace to one root cause: **the count is repeated, not extracted**.
+Every doc that recites the number ages independently when a tool lands or
+gets retired.
+
+The convention for per-server tool-catalogue docs:
+
+- **One canonical count site per server.** Pin the integer in exactly one
+  place — the catalogue file's `# <Server> — Tool Registry` heading or its
+  introductory paragraph (`tools/pair2-mcp/spec/003-Tool-Catalogue.md`,
+  `tools/story-mcp/spec/002-Tool-Registry.md`, `tools/causa-mcp/spec/`
+  forthcoming). Every other doc that needs to cite the count **links to
+  the catalogue** rather than repeating the integer:
+  ```md
+  See [`002-Tool-Registry.md`](002-Tool-Registry.md) for the full tool list.
+  ```
+  rather than
+  ```md
+  See [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 17 tools.
+  ```
+- **PR-review rule.** A PR that adds or removes a tool MUST update the
+  canonical count site in the catalogue heading. Any other doc that still
+  reads "the N tools" after the catalogue update is a stale citation — fix
+  it or convert it to a count-free link. The cross-MCP audit walks the
+  triplet once per release looking for the pattern; until that audit is
+  automated, the discipline lives here.
+- **`Server alignment today` (above)** carries explicit counts because the
+  audit table is the canonical comparison — those counts WILL drift unless
+  this NAMING.md is itself updated when the catalogues are. The table's
+  counts are pinned **to this doc's last audit pass**, not asserted as
+  always-current; the catalogue is always the live source.
+
+This is the same single-source-of-truth principle that governs the verb
+table above — the table is the lock, the per-server catalogues are the
+projections.
+
 ## Error-vocabulary alignment
 
 The `:reason` keyword on `{:ok? false ...}` returns follows the same
