@@ -207,3 +207,25 @@
         [out dropped] (sensitive/scrub-snapshot snap false strip-by-id-2)]
     (is (= 2 dropped))
     (is (= [{:id 1} {:id 3}] (get-in out [:rf/default :traces])))))
+
+(deftest scrub-snapshot-2-arity-delegates-to-strip-sensitive
+  ;; The 2-arity form is the default-suppress shape used by story-mcp /
+  ;; causa-mcp; its contract that it delegates to `strip-sensitive` is
+  ;; the load-bearing spec/009 §Privacy MUST. A regression that flipped
+  ;; the default to a no-op (or any other predicate) wouldn't trip the
+  ;; existing tests — those only exercise the 2-arity form's outputs
+  ;; against trace-event-stamp inputs, never the parity-with-3-arity
+  ;; contract directly. Pin it: the 2-arity output MUST equal the
+  ;; 3-arity call with `strip-sensitive` explicit (rf2-jj46n / F21).
+  (let [snap {:rf/default
+              {:traces [{:id 1 :sensitive? false}
+                        {:id 2 :sensitive? true}
+                        {:id 3}
+                        {:id 4 :sensitive? true}]
+               :epochs [{:event-id :foo}
+                        {:event-id :auth/sign-in :sensitive? true}]
+               :machines {}}}
+        two-arity   (sensitive/scrub-snapshot snap false)
+        three-arity (sensitive/scrub-snapshot snap false sensitive/strip-sensitive)]
+    (is (= two-arity three-arity)
+        "2-arity MUST delegate to strip-sensitive — spec/009 §Privacy default")))

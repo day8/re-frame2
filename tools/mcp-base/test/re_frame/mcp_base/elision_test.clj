@@ -53,3 +53,26 @@
                                         {:bytes 1}}}}]
       (is (= 1 (elision/count-elided-markers body-with-collision))
           "Marker body is opaque; nested marker-shape isn't double-counted."))))
+
+(deftest count-elided-markers-handles-lazy-seq-input
+  ;; Mirror sensitive_test.clj's lazy-seq pin (rf2-cwqc8 / round-2 F17).
+  ;; The walker accepts `seq?` per `elision.cljc` so a slice composed via
+  ;; `concat` / `map` / `filter` (lazy seqs) must count the same as the
+  ;; equivalent vector. Regression pin for rf2-jj46n / F20.
+  (let [marker {:rf.size/large-elided
+                {:path   [:user :pdf]
+                 :bytes  102400
+                 :type   :string
+                 :reason :declared
+                 :handle [:rf.elision/at [:user :pdf]]}}
+        contents [{:slice 1} marker {:slice 2 :nested marker}]
+        as-lazy  (map identity contents)]
+    (is (seq? as-lazy)
+        "precondition: `map` yields a lazy seq, not a vector")
+    (is (= 2 (elision/count-elided-markers as-lazy))
+        "lazy seqs count markers identically to the vector path")
+    (is (= 2 (elision/count-elided-markers contents))
+        "vector path baseline matches the lazy path")
+    (is (= 2 (elision/count-elided-markers
+              (filter (constantly true) contents)))
+        "filter-derived lazy seq counts identically")))
