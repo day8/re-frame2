@@ -327,19 +327,37 @@
         :boolean (case v "true" true "false" false v)
         v))))
 
+(defn- split-fragment
+  "Split a URL into [url-without-fragment fragment]. Returns
+  [path-and-query nil] when no '#' is present, else
+  [before-hash after-hash]. The fragment is returned as nil when absent
+  and as the raw substring (sans leading '#') when present; an empty
+  fragment (URL ends with bare '#') decodes to \"\"."
+  [^String url]
+  (let [hash-idx (.indexOf url "#")]
+    (if (neg? hash-idx)
+      [url nil]
+      [(subs url 0 hash-idx) (subs url (inc hash-idx))])))
+
 (defn match-url
   "Per Spec 012 §Bidirectional URL ↔ params. Try each registered route's
-  pattern against url; return {:route-id :params :query :validation-failed?}
-  for the first match, or nil if no route matches.
+  pattern against url; return
+  {:route-id :params :query :fragment :validation-failed?} for the first
+  match, or nil if no route matches.
 
   Query string coercion: if the route declares a :query Malli schema,
   string values are coerced per key type. :query-defaults populate
-  absent keys."
+  absent keys. The URL's '#fragment' portion (per Spec 012 §Fragments)
+  is parsed off the front and surfaced as :fragment (string or nil);
+  fragments do not participate in route matching."
   [url]
-  ;; Strip query string for pattern matching; parse query separately.
-  ;; Uses array-map to preserve the URL's left-to-right key order so
-  ;; round-trip URLs come back byte-identical.
-  (let [[path query-str] (clojure.string/split url #"\?" 2)
+  ;; Split off the fragment first (per Spec 012 §Fragments — fragments
+  ;; do not participate in route matching); then strip query string for
+  ;; pattern matching and parse query separately. Uses array-map to
+  ;; preserve the URL's left-to-right key order so round-trip URLs come
+  ;; back byte-identical.
+  (let [[url-no-frag fragment] (split-fragment url)
+        [path query-str]       (clojure.string/split url-no-frag #"\?" 2)
         raw-query        (when query-str
                            (reduce
                              (fn [m pair]
@@ -378,6 +396,7 @@
                                            [0 0 0 0 0 0])
                    :params             params
                    :query              with-defaults
+                   :fragment           fragment
                    :validation-failed? false}))))
           (registrar/handlers :route))
         winner (->> candidates (sort-by :rank #(compare %2 %1)) first)]
@@ -409,12 +428,18 @@
 
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
-  route-id + path-params. Inverse of match-url.
+  route-id + path-params (+ optional query-params + optional fragment).
+  Inverse of match-url.
 
   Optional groups ({...}?) are emitted only when ALL their inner params
-  are supplied in path-params; otherwise the group is silently elided."
-  ([route-id path-params] (route-url route-id path-params {}))
-  ([route-id path-params query-params]
+  are supplied in path-params; otherwise the group is silently elided.
+
+  4-arity: when `fragment` is non-nil and non-empty, appends `#fragment`
+  to the URL (per Spec 012 §Fragments §Programmatic navigation with
+  fragments). nil or empty-string fragments are not appended."
+  ([route-id path-params] (route-url route-id path-params {} nil))
+  ([route-id path-params query-params] (route-url route-id path-params query-params nil))
+  ([route-id path-params query-params fragment]
    (let [meta    (registrar/lookup :route route-id)
          pattern (:path meta)
          _ (when (nil? pattern)
@@ -491,8 +516,13 @@
                      (map (fn [[k v]]
                             (str (url-encode (name k)) "="
                                  (url-encode v)))
-                          query-params))))]
-     (str path-out qs))))
+                          query-params))))
+         ;; Per Spec 012 §Fragments §Programmatic navigation with
+         ;; fragments: the 4-arity emits `#fragment` when non-nil and
+         ;; non-empty. Empty-string fragments collapse to no fragment.
+         frag (when (and fragment (not= "" fragment))
+                (str "#" fragment))]
+     (str path-out qs frag))))
 
 ;; ---- standard handlers ----------------------------------------------------
 
@@ -563,20 +593,30 @@
 
 (events/reg-event-fx :rf.route/navigate
   (fn [{:keys [db]} [_ target params opts]]
-    (let [{:keys [route-id path-params query-params]}
+    ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
+    ;; navigation with fragments. Fragment may be supplied in opts
+    ;; (`{:fragment "x"}`), on the target-map form (`{:url "/x"
+    ;; :fragment "y"}`), or — for URL-string targets — embedded in the
+    ;; URL itself; match-url surfaces the latter. Opts/target-map win
+    ;; over a URL-embedded fragment.
+    (let [{:keys [route-id path-params query-params matched-fragment]}
           (cond
             (keyword? target)
-            {:route-id target
-             :path-params (or params {})
+            {:route-id     target
+             :path-params  (or params {})
              :query-params (:query opts {})}
 
             (and (map? target) (:url target))
             (let [m (match-url (:url target))]
-              {:route-id     (or (:route-id m) :rf.route/not-found)
-               :path-params  (:params m {:url (:url target)})
-               :query-params (:query m {})}))
-          route-meta (registrar/lookup :route route-id)
-          url (try (route-url route-id path-params query-params)
+              {:route-id         (or (:route-id m) :rf.route/not-found)
+               :path-params      (:params m {:url (:url target)})
+               :query-params     (:query m {})
+               :matched-fragment (:fragment m)}))
+          fragment    (or (:fragment opts)
+                          (and (map? target) (:fragment target))
+                          matched-fragment)
+          route-meta  (registrar/lookup :route route-id)
+          url (try (route-url route-id path-params query-params fragment)
                    (catch #?(:clj Throwable :cljs :default) _ "/"))
           push-fx (if (:replace? opts)
                     [:rf.nav/replace-url url]
@@ -584,7 +624,6 @@
           on-match-vec (vec (or (:on-match route-meta) []))
           ;; Per Spec 012 §Scroll restoration: forward navigation defaults
           ;; to :top. Resolve the strategy from opts → route-meta → default.
-          fragment    (:fragment opts)
           to-route    (cond-> {:id route-id}
                         (seq path-params)  (assoc :params path-params)
                         (seq query-params) (assoc :query  query-params))
@@ -607,16 +646,6 @@
        :fx (vec (concat [push-fx]
                         (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                         (when scroll-fx [scroll-fx])))})))
-
-(defn- split-fragment
-  "Split a URL into [url-without-fragment fragment]. Returns
-  [path-and-query nil] when no '#' is present, else
-  [before-hash after-hash]."
-  [url]
-  (let [hash-idx (.indexOf url "#")]
-    (if (neg? hash-idx)
-      [url nil]
-      [(subs url 0 hash-idx) (subs url (inc hash-idx))])))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
 ;; counters live under the frame boundary — each frame has its own
@@ -734,13 +763,14 @@
 
 (events/reg-event-fx :rf/url-changed
   (fn [{:keys [db]} [_ url]]
-    ;; Per Spec 012 §URL changes are events / §Fragments. Splits URL into
-    ;; path-with-query and fragment. If only the fragment differs from the
-    ;; current slice, update :fragment but DO NOT re-fire :on-match — emit
-    ;; :rf.route/url-changed instead. Otherwise full nav: allocate a
-    ;; nav-token, write new slice, fire :on-match.
-    (let [[path-q fragment] (split-fragment url)
-          m                 (match-url path-q)
+    ;; Per Spec 012 §URL changes are events / §Fragments. match-url
+    ;; surfaces the URL's `#fragment` directly on its result; if only
+    ;; the fragment differs from the current slice, update :fragment but
+    ;; DO NOT re-fire :on-match — emit :rf.route/url-changed instead.
+    ;; Otherwise full nav: allocate a nav-token, write new slice, fire
+    ;; :on-match.
+    (let [m                 (match-url url)
+          fragment          (:fragment m)
           prev              (:rf/route db)
           fragment-only?    (and prev m
                                  (= (:id prev)     (:route-id m))
@@ -810,8 +840,8 @@
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db frame]} [_ url]]
-    (let [[path-q fragment] (split-fragment url)
-          m                 (match-url path-q)]
+    (let [m        (match-url url)
+          fragment (:fragment m)]
       (when (nil? m)
         ;; Unmatched URL — fixture corpus calls this :rf.error/no-such-handler
         ;; in the routing context. The default error projector maps it to a
@@ -1001,25 +1031,22 @@ unknown strategies as :preserve (no-op)."}
      apply: plain left-click → `preventDefault` + dispatch
      `:rf/url-requested`; modifier-key or middle-click → no interception."
      [{:keys [to params query fragment on-click] :as props} & children]
-     (let [base-url (route-url to (or params {}) (or query {}))
-           url      (if (and fragment (not= "" fragment))
-                      (str base-url "#" fragment)
-                      base-url)
-           attrs    (-> props
-                        (dissoc :to :params :query :fragment :on-click)
-                        (assoc :href url
-                               :on-click
-                               (fn [e]
-                                 (when on-click (on-click e))
-                                 (when (and (not (.-defaultPrevented e))
-                                            (plain-left-click? e))
-                                   (.preventDefault e)
-                                   (router/dispatch!
-                                     [:rf/url-requested
-                                      (cond-> {:url url :to to}
-                                        (seq params)   (assoc :params params)
-                                        (seq query)    (assoc :query  query)
-                                        fragment       (assoc :fragment fragment))])))))]
+     (let [url   (route-url to (or params {}) (or query {}) fragment)
+           attrs (-> props
+                     (dissoc :to :params :query :fragment :on-click)
+                     (assoc :href url
+                            :on-click
+                            (fn [e]
+                              (when on-click (on-click e))
+                              (when (and (not (.-defaultPrevented e))
+                                         (plain-left-click? e))
+                                (.preventDefault e)
+                                (router/dispatch!
+                                  [:rf/url-requested
+                                   (cond-> {:url url :to to}
+                                     (seq params)   (assoc :params params)
+                                     (seq query)    (assoc :query  query)
+                                     fragment       (assoc :fragment fragment))])))))]
        (into [:a attrs] children))))
 
 (defn route-link-render-ssr
@@ -1030,13 +1057,10 @@ unknown strategies as :preserve (no-op)."}
    Spec 011 the render tree is the contract; this is the JVM half of
    that contract for the `:route/link` view."
    [{:keys [to params query fragment] :as props} & children]
-   (let [base-url (route-url to (or params {}) (or query {}))
-         url      (if (and fragment (not= "" fragment))
-                    (str base-url "#" fragment)
-                    base-url)
-         attrs    (-> props
-                      (dissoc :to :params :query :fragment :on-click)
-                      (assoc :href url))]
+   (let [url   (route-url to (or params {}) (or query {}) fragment)
+         attrs (-> props
+                   (dissoc :to :params :query :fragment :on-click)
+                   (assoc :href url))]
      (into [:a attrs] children)))
 
 #?(:cljs

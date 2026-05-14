@@ -3,9 +3,10 @@
 ;; are pure functions. Pure-function tests; no frame, no dispatch.
 ;;
 ;; Per Spec 012 §Path-pattern grammar (canonical) and §Bidirectional URL ↔ params:
-;; - match-url returns {:route-id :params :query :validation-failed?} or nil.
+;; - match-url returns {:route-id :params :query :fragment :validation-failed?} or nil.
 ;; - :params is the path-params map; :query is the query-params map (separate).
-;; - route-url has 2- and 3-arity forms: (route-url id path-params) and (route-url id path-params query-params).
+;; - :fragment is the URL's '#fragment' (string or nil; fragments do NOT participate in matching).
+;; - route-url has 2-/3-/4-arity forms: (route-url id path-params [query-params [fragment]]).
 
 {:fixture/id           :routing/match-url
  :fixture/spec-version "1.0"
@@ -27,29 +28,29 @@
  :fixture/calls
  ;; match-url: URL → {:route-id :params :query :validation-failed?}.
  [{:call :match-url :url "/"
-   :expect {:route-id :route/home :params {} :query {} :validation-failed? false}}
+   :expect {:route-id :route/home :params {} :query {} :fragment nil :validation-failed? false}}
 
   {:call :match-url :url "/articles"
-   :expect {:route-id :route/articles :params {} :query {} :validation-failed? false}}
+   :expect {:route-id :route/articles :params {} :query {} :fragment nil :validation-failed? false}}
 
   {:call :match-url :url "/articles/intro"
-   :expect {:route-id :route/article-detail :params {:id "intro"} :query {} :validation-failed? false}}
+   :expect {:route-id :route/article-detail :params {:id "intro"} :query {} :fragment nil :validation-failed? false}}
 
   ;; Optional segment present
   {:call :match-url :url "/articles/intro/welcome"
-   :expect {:route-id :route/article-with-slug :params {:id "intro" :slug "welcome"} :query {} :validation-failed? false}}
+   :expect {:route-id :route/article-with-slug :params {:id "intro" :slug "welcome"} :query {} :fragment nil :validation-failed? false}}
 
   ;; Splat capture
   {:call :match-url :url "/files/a/b/c.txt"
-   :expect {:route-id :route/files :params {:rest "a/b/c.txt"} :query {} :validation-failed? false}}
+   :expect {:route-id :route/files :params {:rest "a/b/c.txt"} :query {} :fragment nil :validation-failed? false}}
 
   ;; Query coercion via :query schema (string "2" → int 2 for :page)
   {:call :match-url :url "/search?q=clojure&page=2"
-   :expect {:route-id :route/search :params {} :query {:q "clojure" :page 2} :validation-failed? false}}
+   :expect {:route-id :route/search :params {} :query {:q "clojure" :page 2} :fragment nil :validation-failed? false}}
 
   ;; :query-defaults populates absent keys (page → 1)
   {:call :match-url :url "/search?q=clojure"
-   :expect {:route-id :route/search :params {} :query {:q "clojure" :page 1} :validation-failed? false}}
+   :expect {:route-id :route/search :params {} :query {:q "clojure" :page 1} :fragment nil :validation-failed? false}}
 
   {:call :match-url :url "/garbage/path"
    :expect nil}                                       ;; unmatched
@@ -69,7 +70,31 @@
   {:call :route-url :route-id :route/files :params {:rest "a/b/c.txt"}
    :expect "/files/a/b/c.txt"}
 
+  ;; Fragments: match-url surfaces the URL's '#fragment' as :fragment;
+  ;; route-url's 4-arity appends it back. Per Spec 012 §Fragments §Bidirectional URL ↔ params.
+  {:call :match-url :url "/articles/intro#section-1"
+   :expect {:route-id :route/article-detail :params {:id "intro"} :query {} :fragment "section-1" :validation-failed? false}}
+
+  {:call :match-url :url "/search?q=hi#anchor"
+   :expect {:route-id :route/search :params {} :query {:q "hi" :page 1} :fragment "anchor" :validation-failed? false}}
+
+  ;; route-url 4-arity emits '#fragment' when non-nil and non-empty.
+  {:call :route-url :route-id :route/article-detail :params {:id "intro"} :query {} :fragment "section-1"
+   :expect "/articles/intro#section-1"}
+
+  ;; Empty-string fragment is treated as absent — no trailing '#'.
+  {:call :route-url :route-id :route/article-detail :params {:id "intro"} :query {} :fragment ""
+   :expect "/articles/intro"}
+
+  ;; nil fragment is identical to omission — no trailing '#'.
+  {:call :route-url :route-id :route/article-detail :params {:id "intro"} :query {} :fragment nil
+   :expect "/articles/intro"}
+
   ;; Round-trip property: for every registered route, route-url ∘ match-url is identity.
   {:call :round-trip :url "/articles/intro"}
   {:call :round-trip :url "/files/a/b/c.txt"}
-  {:call :round-trip :url "/search?q=test&page=3"}]}
+  {:call :round-trip :url "/search?q=test&page=3"}
+
+  ;; Fragment round-trip: URL with '#fragment' parses, rebuilds back byte-identical.
+  {:call :round-trip :url "/articles/intro#section-1"}
+  {:call :round-trip :url "/search?q=test&page=3#results"}]}

@@ -28,20 +28,26 @@
 
 (defwrapper match-url
   "Per Spec 012 §Bidirectional URL ↔ params. Match a URL against
-  registered routes; return `{:route-id :params :query
+  registered routes; return `{:route-id :params :query :fragment
   :validation-failed?}` for the first match, or `nil` if no route
-  matches. Late-bound via :routing/match-url."
+  matches. The URL's `#fragment` portion (per Spec 012 §Fragments) is
+  parsed off the front and surfaced as `:fragment` (string or `nil`).
+  Late-bound via :routing/match-url."
   {:hook :routing/match-url :artefact routing-artefact :on-absent :throw}
   ([url] :delegate))
 
 (defwrapper route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Inverse of `match-url` —
-  build a URL string from a route-id + path-params (and optional
-  query-params). Late-bound via :routing/route-url."
+  build a URL string from a route-id + path-params (+ optional
+  query-params + optional fragment). The 4-arity form appends
+  `#fragment` to the URL when `fragment` is non-nil and non-empty
+  (per Spec 012 §Fragments §Programmatic navigation with fragments).
+  Late-bound via :routing/route-url."
   {:hook :routing/route-url :artefact routing-artefact :on-absent :throw
    :ex-data {:route-id route-id}}
-  ([route-id path-params]              [route-id path-params {}])
-  ([route-id path-params query-params] :delegate))
+  ([route-id path-params]                       [route-id path-params {} nil])
+  ([route-id path-params query-params]          [route-id path-params query-params nil])
+  ([route-id path-params query-params fragment] :delegate))
 
 (defwrapper reg-route
   "Fn-form delegate that performs the late-bind lookup for `reg-route`.

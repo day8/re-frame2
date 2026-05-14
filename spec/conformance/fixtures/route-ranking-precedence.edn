@@ -40,27 +40,27 @@
  :fixture/calls
  [;; Rule 1: /users/me — :route/users.me wins over :route/users.detail
   {:call :match-url :url "/users/me"
-   :expect {:route-id :route/users.me :params {} :query {} :validation-failed? false}}
+   :expect {:route-id :route/users.me :params {} :query {} :fragment nil :validation-failed? false}}
 
   ;; Rule 2: /users/abc/edit — :route/users.id.edit wins over :route/users.id
   {:call :match-url :url "/users/abc/edit"
-   :expect {:route-id :route/users.id.edit :params {:id "abc"} :query {} :validation-failed? false}}
+   :expect {:route-id :route/users.id.edit :params {:id "abc"} :query {} :fragment nil :validation-failed? false}}
 
   ;; Rule 3: /files/x.txt — :route/files.named (named) wins over :route/files.splat
   {:call :match-url :url "/files/x.txt"
-   :expect {:route-id :route/files.named :params {:name "x.txt"} :query {} :validation-failed? false}}
+   :expect {:route-id :route/files.named :params {:name "x.txt"} :query {} :fragment nil :validation-failed? false}}
 
   ;; Rule 4: /files/a/b/c — :route/files.rest wins over :route/catch-all
   {:call :match-url :url "/files/a/b/c"
-   :expect {:route-id :route/files.rest :params {:rest "a/b/c"} :query {} :validation-failed? false}}
+   :expect {:route-id :route/files.rest :params {:rest "a/b/c"} :query {} :fragment nil :validation-failed? false}}
 
   ;; Rule 5: /about — :route/about (exact) wins over :route/optional-about
   {:call :match-url :url "/about"
-   :expect {:route-id :route/about :params {} :query {} :validation-failed? false}}
+   :expect {:route-id :route/about :params {} :query {} :fragment nil :validation-failed? false}}
 
   ;; Rule 6: /equal-score/x — :rf.route/equal.first wins (registered first)
   {:call :match-url :url "/equal-score/x"
-   :expect {:route-id :rf.route/equal.first :params {:x "x"} :query {} :validation-failed? false}}
+   :expect {:route-id :rf.route/equal.first :params {:x "x"} :query {} :fragment nil :validation-failed? false}}
 
   ;; Rank tuples are queryable via handler-meta — tooling reads :rf.route/rank
   ;; (registrar-attached at registration time, conforms to :rf/route-rank).
