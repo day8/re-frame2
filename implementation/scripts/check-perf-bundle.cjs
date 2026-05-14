@@ -30,8 +30,8 @@
 
 'use strict';
 
-const fs   = require('fs');
 const path = require('path');
+const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -59,27 +59,12 @@ const PERF_SENTINELS = [
 
 // ----- helpers ---------------------------------------------------------------
 
-function readAllJs(dir) {
-  if (!fs.existsSync(dir)) {
-    return null;
-  }
-  const out = [];
-  const walk = (d) => {
-    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      const full = path.join(d, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.js')) {
-        out.push(fs.readFileSync(full, 'utf8'));
-      }
-    }
-  };
-  walk(dir);
-  return out.join('\n');
-}
+// Bundle reading is shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). Top-level *.js
+// only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function checkBundle(label, bundlePath, mustContain) {
-  const blob = readAllJs(bundlePath);
+  const blob = readReleaseBlob(bundlePath);
   if (blob == null) {
     console.error(`[perf-bundle] ${label}: bundle path missing — ${bundlePath}`);
     console.error('              Did you run the matching shadow-cljs release?');
@@ -128,8 +113,8 @@ function main() {
                             onDir,  true);
 
   // Report the counts the bead asks for.
-  const offBlob = readAllJs(offDir);
-  const onBlob  = readAllJs(onDir);
+  const offBlob = readReleaseBlob(offDir);
+  const onBlob  = readReleaseBlob(onDir);
   const patterns = ['performance\\.mark',
                     'performance\\.measure',
                     're-frame\\.performance'];

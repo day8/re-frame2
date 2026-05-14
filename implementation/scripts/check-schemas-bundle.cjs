@@ -37,6 +37,7 @@
 const fs   = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const { listReleaseJsFiles } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -65,24 +66,9 @@ const BUNDLES = [
 
 // ----- helpers ---------------------------------------------------------------
 
-function listJsFiles(dir) {
-  if (!fs.existsSync(dir)) {
-    return null;
-  }
-  const out = [];
-  const walk = (d) => {
-    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      const full = path.join(d, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.js')) {
-        out.push(full);
-      }
-    }
-  };
-  walk(dir);
-  return out;
-}
+// Bundle file listing is shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). Top-level *.js
+// only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function gzippedSize(file) {
   const raw = fs.readFileSync(file);
@@ -90,7 +76,7 @@ function gzippedSize(file) {
 }
 
 function sumGzippedBytes(dir) {
-  const files = listJsFiles(dir);
+  const files = listReleaseJsFiles(dir);
   if (files == null) {
     return null;
   }

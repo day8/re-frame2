@@ -34,6 +34,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -228,31 +229,12 @@ const DEV_ONLY_SENTINELS = [
 
 // ----- helpers ---------------------------------------------------------------
 
-function readAllJs(dir) {
-  // Collect every *.js file under dir into a single concatenated blob.
-  // shadow-cljs :browser :advanced may split the runtime across files
-  // (cljs_base, the module's own file); a global grep is the right
-  // shape for the elision contract.
-  if (!fs.existsSync(dir)) {
-    return null;
-  }
-  const out = [];
-  const walk = (d) => {
-    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      const full = path.join(d, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.js')) {
-        out.push(fs.readFileSync(full, 'utf8'));
-      }
-    }
-  };
-  walk(dir);
-  return out.join('\n');
-}
+// Bundle reading is shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). Top-level *.js
+// only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function checkBundle(label, bundlePath, mustContain) {
-  const blob = readAllJs(bundlePath);
+  const blob = readReleaseBlob(bundlePath);
   if (blob == null) {
     console.error(`[elision] ${label}: bundle path missing — ${bundlePath}`);
     console.error('         Did you run "shadow-cljs release elision-probe"?');
