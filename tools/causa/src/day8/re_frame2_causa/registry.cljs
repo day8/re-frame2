@@ -255,6 +255,18 @@
       (fn [db _query]
         (get db :selected-dispatch-id)))
 
+    ;; Shared cascade projection. The event-detail, causality-graph,
+    ;; and performance composites all consume `projection/group-cascades`
+    ;; over the same trace-buffer; routing them through one intermediate
+    ;; sub collapses three O(buffer) passes per push to one. Each
+    ;; downstream composite declares the dependency via `:<-` so the
+    ;; reactive graph stays correct (and idle composites still don't pay
+    ;; for the projection).
+    (rf/reg-sub :rf.causa/cascades
+      :<- [:rf.causa/trace-buffer]
+      (fn [buffer _query]
+        (projection/group-cascades buffer)))
+
     ;; Event-detail composite — produces everything the panel needs in
     ;; one read so the view stays a thin renderer. Shape:
     ;;
@@ -268,18 +280,17 @@
     ;; Per spec/007-UX-IA.md §Performance budget the panel renders at
     ;; most ~200 cascades; the projection is O(n) over the buffer.
     (rf/reg-sub :rf.causa/event-detail
-      ;; Signal layer: depend on the trace-buffer sub +
-      ;; selected-dispatch-id sub so this composite recomputes when
-      ;; either changes. The `:<-` chain is the only sub-registration
-      ;; form in v2 (per Spec 002 §Subscriptions composing —
-      ;; reg-sub-raw is dropped; see `re-frame.subs/parse-reg-sub-args`).
-      :<- [:rf.causa/trace-buffer]
+      ;; Signal layer: depend on the shared `:rf.causa/cascades`
+      ;; projection + selected-dispatch-id so this composite recomputes
+      ;; when either changes. The `:<-` chain is the only sub-
+      ;; registration form in v2 (per Spec 002 §Subscriptions composing
+      ;; — reg-sub-raw is dropped; see `re-frame.subs/parse-reg-sub-args`).
+      :<- [:rf.causa/cascades]
       :<- [:rf.causa/selected-dispatch-id]
-      (fn [[buffer selected-id] _query]
-        (let [cascades (projection/group-cascades buffer)
-              by-id    (when selected-id
-                         (some #(when (= selected-id (:dispatch-id %)) %)
-                               cascades))]
+      (fn [[cascades selected-id] _query]
+        (let [by-id (when selected-id
+                      (some #(when (= selected-id (:dispatch-id %)) %)
+                            cascades))]
           {:cascades             cascades
            :selected-dispatch-id selected-id
            :selected-cascade     by-id})))
@@ -373,13 +384,19 @@
     ;; The composite recomputes when any of its signals change — the
     ;; reactive surface is the same as the event-detail composite.
     (rf/reg-sub :rf.causa/causality-graph-data
+      ;; The graph still depends on the raw `trace-buffer` for the
+      ;; `enrich-cascades` walk (it surfaces `:event/dispatched` traces
+      ;; that aren't preserved in the projected cascade vector). The
+      ;; cascade vector itself is read from the shared
+      ;; `:rf.causa/cascades` projection so the O(buffer) `group-
+      ;; cascades` pass happens once per push instead of three times.
+      :<- [:rf.causa/cascades]
       :<- [:rf.causa/trace-buffer]
       :<- [:rf.causa/selected-dispatch-id]
       :<- [:rf.causa/selected-epoch-id]
       :<- [:rf.causa/epoch-history]
-      (fn [[buffer selected-id selected-epoch-id history] _query]
-        (let [cascades         (projection/group-cascades buffer)
-              enriched         (cg-helpers/enrich-cascades cascades buffer)
+      (fn [[cascades buffer selected-id selected-epoch-id history] _query]
+        (let [enriched         (cg-helpers/enrich-cascades cascades buffer)
               graph            (cg-helpers/project-cascades-to-graph enriched)
               ;; When Time Travel's selected-epoch resolves to a
               ;; cascade-id, filter the graph to that cascade family.
@@ -1458,11 +1475,10 @@
         (get db :performance-budget-ms perf-helpers/default-budget-ms)))
 
     (rf/reg-sub :rf.causa/performance-data
-      :<- [:rf.causa/trace-buffer]
+      :<- [:rf.causa/cascades]
       :<- [:rf.causa/performance-budget-ms]
-      (fn [[buffer budget-ms] _query]
-        (let [cascades (projection/group-cascades buffer)]
-          (perf-helpers/project-feed cascades budget-ms))))
+      (fn [[cascades budget-ms] _query]
+        (perf-helpers/project-feed cascades budget-ms)))
 
     ;; Set the over-budget threshold. Pass nil to reset to default.
     (rf/reg-event-db :rf.causa/set-performance-budget-ms
