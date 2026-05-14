@@ -9,16 +9,44 @@ The **load-bearing decisions** live in [000-Vision.md](000-Vision.md). Each per-
 
 The directory has two orthogonal axes:
 
-1. **Bucket axis (normative vs. companion).** Numbered Specs (000–014) plus [API.md](API.md) and [MIGRATION.md](MIGRATION.md) define the contract. Everything else explains, scaffolds, validates, or demonstrates that contract.
+1. **Bucket axis (normative vs. supporting).** Numbered Specs (000–014) are the primary normative bucket — they own pattern-level contract surfaces. The Companion layer (below) is mixed: most companion docs *support* the contract (rationale, scaffolding, audit, examples), but a small subset are **normative companions** — they own contract surfaces of their own. The Ownership matrix in [Ownership.md](Ownership.md) is the single source for "which companion owns what."
 2. **Layer axis (foundation / capability / companion).** Three explicit layers structure the corpus:
 
 | Layer | What it contains | Role |
 |---|---|---|
 | **Foundation** | [000-Vision](000-Vision.md), [001-Registration](001-Registration.md), [002-Frames](002-Frames.md) | Load-bearing decisions every other doc consumes — goals, identity primitive, registration grammar, frame model, dispatch envelope, drain semantics. Reshape these and the rest of the corpus moves. |
 | **Capability** | [004-Views](004-Views.md), [005-StateMachines](005-StateMachines.md), [006-ReactiveSubstrate](006-ReactiveSubstrate.md), [007-Stories](007-Stories.md), [008-Testing](008-Testing.md), [009-Instrumentation](009-Instrumentation.md), [010-Schemas](010-Schemas.md), [011-SSR](011-SSR.md), [012-Routing](012-Routing.md), [013-Flows](013-Flows.md), [014-HTTPRequests](014-HTTPRequests.md) | Per-area normative Specs. Each consumes Foundation; none reshapes it. Optional capabilities (see the [host-profile matrix](000-Vision.md#host-profile-matrix)) live here. |
-| **Companion** | [API](API.md), [MIGRATION](MIGRATION.md), [Principles](Principles.md), [Conventions](Conventions.md), [Construction-Prompts](Construction-Prompts.md), [AI-Audit](AI-Audit.md), [Tool-Pair](Tool-Pair.md), [Implementor-Checklist](Implementor-Checklist.md), [Runtime-Architecture](Runtime-Architecture.md), [Cross-Spec-Interactions](Cross-Spec-Interactions.md), [Ownership](Ownership.md), [Spec-Schemas](Spec-Schemas.md), [Conformance Corpus](conformance/README.md), the `Pattern-*` docs, [worked examples](../examples/) | Supporting / scaffolding / verifying material. None *defines* the contract. API.md and MIGRATION.md are normative companions — normative for what they describe but deferring to the per-Spec doc for design rationale. |
+| **Companion** | [API](API.md), [MIGRATION](MIGRATION.md), [Principles](Principles.md), [Conventions](Conventions.md), [Construction-Prompts](Construction-Prompts.md), [Security](Security.md), [AI-Audit](AI-Audit.md), [Tool-Pair](Tool-Pair.md), [Implementor-Checklist](Implementor-Checklist.md), [Runtime-Architecture](Runtime-Architecture.md), [Cross-Spec-Interactions](Cross-Spec-Interactions.md), [Ownership](Ownership.md), [Spec-Schemas](Spec-Schemas.md), [Conformance Corpus](conformance/README.md), the `Pattern-*` docs, [worked examples](../examples/) | Mixed: see the §[Normative status within the Companion layer](#normative-status-within-the-companion-layer) breakdown immediately below. Some companion docs are **normative companions** (own contract surfaces of their own); the rest are supporting material that scaffolds, validates, or demonstrates the contract owned elsewhere. |
 
 Within the Companion layer, each doc carries a **Type** (the companion-document genre axis): Reference, Migration, Convention, Construction Prompts, Audit, Schemas, or Pattern. Every doc declares its Type via the `> **Type:**` header. The Foundation and Capability layers do not carry a Type header — their layer is determined by numbering. The Type vocabulary is closed for v1; new Types require a companion-doc convention update.
+
+### Normative status within the Companion layer
+
+The Companion layer is **mixed-normativity**. Some companion docs own pattern-level contract surfaces (a **normative companion**); others *cite* the owning spec without defining the contract (a **supporting companion**). The Ownership matrix in [Ownership.md](Ownership.md) is the authoritative split per surface — read this section to understand the categories, then read Ownership.md to see which doc owns which contract surface.
+
+| Companion doc | Status | What it owns (per [Ownership.md](Ownership.md)) |
+|---|---|---|
+| [MIGRATION](MIGRATION.md) | **Normative companion** | Migration rules (re-frame v1.x → re-frame2, CLJS reference). |
+| [Conventions](Conventions.md) | **Normative companion** | Reserved-namespace policy, reserved fx-ids, reserved `app-db` keys, packaging conventions, cross-MCP indicator-field vocabulary, privacy config-knob naming. |
+| [Tool-Pair](Tool-Pair.md) | **Normative companion** | Pair-tool runtime contract (inspect, dispatch, hot-swap, time-travel, fx-stub, source-map; direct-read privacy posture). |
+| [Construction-Prompts](Construction-Prompts.md) | **Normative companion** | Construction-prompt scaffolding templates (per-kind AI-scaffolding shapes). |
+| [Security](Security.md) | **Normative companion** | Pattern-level security posture — threat model + behavioural MUSTs + pragmatic stance + decisions log. CLJS-reference specifics live in [`../implementation/SECURITY.md`](../implementation/SECURITY.md) under the canonical-homes-outside-`/spec` rule. |
+| [conformance/](conformance/README.md) | **Normative companion** | Conformance fixtures (canonical interactions and expected emissions, in EDN) — the verification surface for [Goal 2 — AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone). |
+| [API](API.md) | **Projection** | Consolidated reference: signatures, status, cross-references. Non-canonical — defers to each per-Spec owner of the surface. |
+| [Spec-Schemas](Spec-Schemas.md) | **Projection** | Collected EDN form for each runtime shape. Non-canonical — defers to each per-Spec owner of the shape. |
+| [Principles](Principles.md) | Supporting | Discipline principles + foundational essays; rationale layer. |
+| [AI-Audit](AI-Audit.md) | Supporting | Score of every Spec against the AI-first principles; surfaces gaps. |
+| [Runtime-Architecture](Runtime-Architecture.md) | Supporting | Bird's-eye view of the runtime — eight components + interop + data-flow diagram. Cites owners; defines nothing. |
+| [Cross-Spec-Interactions](Cross-Spec-Interactions.md) | Supporting | Edge cases at boundaries between Specs. Each interaction names which Specs meet and the decided behaviour; defines nothing. |
+| [Cross-Cutting Designs](Cross-Cutting-Designs.md) | Supporting | Inventory of design surfaces that span multiple Specs / tool artefacts / skills. Non-normative; the cited home wins on drift. |
+| [Implementor-Checklist](Implementor-Checklist.md) | Supporting | Decision-ordered companion to [000 §Host-profile matrix](000-Vision.md#host-profile-matrix). |
+| [Ownership](Ownership.md) | Supporting | The "where does X live?" matrix; the authoritative split between normative and supporting companions. Lists owners; defines no contract surfaces of its own. |
+| `Pattern-*` (8 docs) | Supporting | Worked-example conventions — *Pattern* status, not Spec status. Convention is normative-by-convention but not pattern-level contract. |
+| [worked examples](../examples/) | Supporting | Browser-runnable apps demonstrating the contract owned elsewhere. |
+
+**The rule.** A companion doc may **own** a contract surface when the surface is genuinely cross-cutting (touches multiple numbered Specs) — Conventions owns reserved namespaces because the policy spans every Spec, Tool-Pair owns the pair-tool contract because the surface spans 001/002/006/009 plus the time-travel slice. A companion doc **must not** redefine a contract surface that has a numbered-Spec owner. Drift detection is the same as for in-tree surfaces — a second normative definition is a corpus bug. Per [Ownership.md §Drift rule](Ownership.md).
+
+External canonical homes (per §[Canonical homes outside `/spec`](#canonical-homes-outside-spec) below) are the third option — surfaces downstream of the pattern that live with their tool / implementation artefact rather than with the framework spec.
 
 **About Spec 003.** The numbering 000–014 has one gap: there is no `003-*.md`. Slot 003 is **reserved** for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology) — design work that depends on Specs 002 and 005 being settled. The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
 
@@ -56,6 +84,7 @@ Normative companions (defer to per-Spec doc for design rationale):
 |---|---|---|
 | [API](API.md) | Reference | Consolidated reference: signatures, status, cross-references. |
 | [MIGRATION](MIGRATION.md) | Migration | Migration spec for upgrading re-frame v1.x codebases (CLJS reference). |
+| [Security](Security.md) | Reference | Pattern-level security posture — threat model + behavioural MUSTs + pragmatic stance + decisions log. CLJS-reference specifics (named fns, numeric defaults, JVM-vs-CLJS stub semantics) live in [`../implementation/SECURITY.md`](../implementation/SECURITY.md) under the canonical-homes-outside-`/spec` rule. |
 
 Reference, scaffolding, and audit:
 
