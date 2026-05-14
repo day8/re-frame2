@@ -695,6 +695,16 @@ typical-token hint, its cap-reached behaviour, and its default
 forestall the same drift pair2-mcp is paying down. Pre-dates
 `tools/causa-mcp/src/` by design.
 
+### Date amended
+
+2026-05-13 (Mike). Same-day [Lock #10](#lock-10--size-elision-marker-shape-is-normative-across-mcp-servers)
+(rf2-knshj) promoted `:rf.size/large-elided` to mechanism #6 in
+[`004-Wire-Pipeline.md`](./004-Wire-Pipeline.md). The
+five-mechanism framing in §Pick and §Why bullets is historical
+(the lock as first written). The current normative count is six;
+see Lock #10 for the sixth mechanism and the summary table at
+line 1163.
+
 ### Trail-of-thought citations
 
 - pair2-mcp
