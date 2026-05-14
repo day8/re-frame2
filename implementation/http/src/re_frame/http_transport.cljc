@@ -141,8 +141,22 @@
        (when timeout-ms
          (.timeout b (Duration/ofMillis (long timeout-ms))))
        (doseq [[k v] headers]
+         ;; rf2-9lun0 — surface JDK HttpClient header-validation throws
+         ;; via a `:rf.warning/http-header-invalid` trace rather than
+         ;; silently dropping. Stray `\r`/`\n` / control chars / empty
+         ;; name / forbidden header (`Host`, `Connection`, …) all hit
+         ;; this path. Security-relevant middleware (e.g. auth-header
+         ;; attachment) needs the signal — the canonical "swallowed
+         ;; error" anti-pattern. The request still proceeds without
+         ;; the offending header so a stray bad header doesn't sink
+         ;; an otherwise-valid request; the trace is the alarm.
          (try (.header b (str k) (str v))
-              (catch Throwable _ nil)))
+              (catch Throwable t
+                (when interop/debug-enabled?
+                  (trace/emit! :warning :rf.warning/http-header-invalid
+                               {:url     url
+                                :header  (str k)
+                                :cause   (.getMessage t)})))))
        (.build b))))
 
 #?(:clj
