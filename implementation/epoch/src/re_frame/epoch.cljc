@@ -613,7 +613,12 @@
 
   When the cascade had no successful event handler (e.g. an unknown
   event id or a frame-destroyed dispatch), no :run-start fires; fall
-  back to the first event we can find with an `:event-id` tag.
+  back to the first event we can find with an `:event-id` tag. Per
+  rf2-7kxxx (audit r3 §F2): if that fallback event carries no `:event`
+  tag we DO NOT synthesise `[eid]` — that would misrepresent an event
+  that originally carried payload as payload-less. `build-record`'s
+  conditional `cond->` (rf2-kl5p1) omits the `:trigger-event` slot
+  when `:event` is nil, which the schema's open map admits.
 
   Per rf2-txrq9: single-walk reduction over `events` — the original
   two-pass `or`-of-`some` reordered both walks across the buffer
@@ -634,12 +639,15 @@
                 (reduced {:run-start {:event-id (:event-id tags)
                                       :event    (:event tags)}})
                 ;; Capture the first :event-id we see as the fallback.
+                ;; Per rf2-7kxxx: do NOT fabricate `:event` — when the
+                ;; tag is absent we leave the field nil, and downstream
+                ;; `build-record` (rf2-kl5p1) omits the
+                ;; `:trigger-event` slot entirely rather than emit a
+                ;; misleading synthesised vector.
                 (if (or (:fallback acc) (nil? (:event-id tags)))
                   acc
-                  (assoc acc :fallback
-                         (let [eid (:event-id tags)]
-                           {:event-id eid
-                            :event    (or (:event tags) [eid])}))))))
+                  (assoc acc :fallback {:event-id (:event-id tags)
+                                        :event    (:event tags)})))))
           {}
           events)]
     (or (:run-start result) (:fallback result))))
