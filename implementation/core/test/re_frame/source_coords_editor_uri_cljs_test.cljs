@@ -41,3 +41,18 @@
   (testing "has-source? on CLJS"
     (is (eu/has-source? coord))
     (is (not (eu/has-source? nil)))))
+
+(deftest forbidden-custom-schemes-on-cljs
+  (testing "javascript: / data: / vbscript: custom URIs return nil on CLJS (rf2-vwcsq)"
+    (is (nil? (eu/editor-uri {:custom "javascript:alert(1)"}                 coord)))
+    (is (nil? (eu/editor-uri {:custom "JavaScript:alert(1)"}                 coord)))
+    (is (nil? (eu/editor-uri {:custom "data:text/html,<script>x</script>"}   coord)))
+    (is (nil? (eu/editor-uri {:custom "DATA:text/html,xxx"}                  coord)))
+    (is (nil? (eu/editor-uri {:custom "vbscript:msgbox(1)"}                  coord)))
+    (is (nil? (eu/editor-uri {:custom " javascript:alert(1)"}                coord)))))
+
+(deftest legitimate-custom-schemes-pass-on-cljs
+  (testing "ordinary custom editor templates still resolve on CLJS"
+    (is (some? (eu/editor-uri {:custom "jetbrains://idea/{path}:{line}"}      coord)))
+    (is (some? (eu/editor-uri {:custom "subl://open?path={path}&line={line}"} coord)))
+    (is (some? (eu/editor-uri {:custom "emacsclient://open?file={path}"}      coord)))))

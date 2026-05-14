@@ -80,7 +80,16 @@
 (def ^:const axe-cdn-url
   "axe-core's CDN URL. Pin to a recent stable version (4.x line).
   Per IMPL-SPEC §6.2 only loads on first panel open — the script tag
-  injects from `ensure-axe-loaded!`."
+  injects from `ensure-axe-loaded!`.
+
+  Per rf2-su313 (pragmatic stance, 2026-05-14): kept as a third-party
+  CDN fetch in v1. Bundling axe-core (~700 KB minified) would balloon
+  the Story bundle for the minority of devs who open the a11y panel;
+  the lazy-load shape means the bundle pays nothing until the first
+  panel open. Hosts on offline / strict-CSP networks see a load-failure
+  message in the panel; the rest of the Story shell is unaffected.
+  Documented at the v1 SOTA tier in
+  `tools/story/spec/005-SOTA-Features.md` §Third-party network egress."
   "https://cdn.jsdelivr.net/npm/axe-core@4.10.0/axe.min.js")
 
 (defn ensure-axe-loaded!

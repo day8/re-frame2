@@ -127,6 +127,18 @@ own static-export build:
 | `STORY_BUILD_OUTPUT_DIR` | `implementation/out/<target>/` | output directory |
 | `STORY_BUILD_INDEX_HTML` | `examples/reagent/counter_with_stories/story_static.index.html` | HTML to stage |
 
+These are **CI-internal knobs**, not a stable public configuration
+surface — re-frame2 reserves the right to rename / drop them between
+releases. Per rf2-21rfv (pragmatic stance, 2026-05-14): path-policy
+constrains `STORY_BUILD_OUTPUT_DIR` to `implementation/out/` and
+`STORY_BUILD_INDEX_HTML` to `<repo>/implementation/` or
+`<repo>/examples/`. Out-of-tree paths require the explicit opt-in
+`RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1`. The check is a safety net
+against accidents (env unset / mistyped path turning a build into a
+`rm -rf` outside the repo), not a hardened sandbox — devs running this
+script already control the process. Downstream consumers publishing
+into a sibling docs-site staging area set the opt-in flag explicitly.
+
 ## Output shape
 
 After `npm run story:build`:

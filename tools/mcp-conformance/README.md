@@ -178,6 +178,30 @@ Watchdog: 360s for the whole hermetic run. The pair2-mcp server
 bundle must already be compiled — the script bails with a structured
 error if `tools/pair2-mcp/out/server.js` is missing.
 
+#### Fixture dependency install — supported pattern (rf2-o0tpo)
+
+The hermetic orchestrator's step 2 (`npm install` inside the pair2
+fixture at `skills/re-frame-pair2/tests/fixture/`) is the **supported
+pattern** for this artefact, confirmed by rf2-o0tpo (pragmatic stance,
+2026-05-14). Rationale:
+
+- The fixture is a self-contained Node project with its own
+  `package.json`; nested `npm install` is how Node projects compose.
+- The dev runs the orchestrator deliberately; this isn't a hidden side
+  effect of a generic test invocation.
+- The install is idempotent (skips when `node_modules/` already exists)
+  so the second run is hot.
+- Moving the install to an explicit bootstrap script would add a
+  separate setup step every dev / CI runner has to remember and gate.
+  The current shape — invoke the orchestrator, it ensures its own
+  dependencies — is simpler and the failure mode is loud (the install
+  fails or shadow-cljs fails to boot; nothing silent).
+
+If you adopt this orchestrator's pattern for a new conformance fixture,
+follow the same shape: nest the fixture's `package.json`, gate the
+install behind an existence check on `node_modules/`, and document the
+fixture's location and entry script in the orchestrator's preamble.
+
 ### `end-to-end-story.js`
 
 1. Connect — `clojure -M -m re-frame.story-mcp.server --allow-writes`

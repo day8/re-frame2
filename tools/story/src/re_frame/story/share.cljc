@@ -118,13 +118,26 @@
      (str base-url sep (str/join "&" params)))))
 
 ;; ---- QR endpoint --------------------------------------------------------
+;;
+;; Per rf2-su313 (pragmatic stance, 2026-05-14): the QR rendering is
+;; deliberately a third-party fetch (user-triggered, off-canvas-mount).
+;; Bundling a JS QR codec would balloon the bundle for the minority of
+;; devs who use share popovers; hosts on strict-CSP / offline networks
+;; see the URL fallback. The full share URL — variant id + active modes
+;; + author-declared `cell-overrides` — is what travels to `api.qrserver.com`;
+;; no app-db payload rides through. Documented at the v1 SOTA tier in
+;; `tools/story/spec/005-SOTA-Features.md` §Third-party network egress.
 
 (def ^:const qr-endpoint
   "External QR rendering endpoint. The share UI builds an `<img>`
   sourcing this URL with the share-URL embedded as `data=`.
 
   Hosts that block this endpoint (offline, air-gapped, strict-CSP) see
-  the URL fallback; the share popover always shows the bare URL too."
+  the URL fallback; the share popover always shows the bare URL too.
+
+  Per rf2-su313: kept in v1 as an explicit dev-session egress;
+  alternatives (bundling a QR codec, self-hosting) would balloon the
+  bundle for the minority of devs using share popovers."
   "https://api.qrserver.com/v1/create-qr-code/")
 
 (defn qr-image-url

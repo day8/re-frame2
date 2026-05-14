@@ -61,7 +61,13 @@
 
 (defn- open!
   "Set `window.location.href` to `uri`. Custom URI schemes hand off to
-  the OS handler chain. Returns nothing."
+  the OS handler chain. Returns nothing.
+
+  Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
+  already rejects `javascript:` / `data:` / `vbscript:` schemes by
+  returning `nil`. The `(when uri ...)` guard below is the call site's
+  enforcement seam — a forbidden custom template never reaches
+  `window.location`."
   [uri]
   (when (and uri js/window)
     (set! (.-location js/window) uri)

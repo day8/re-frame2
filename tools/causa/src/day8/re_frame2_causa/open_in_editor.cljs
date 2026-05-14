@@ -37,7 +37,13 @@
 
 (defn- open!
   "Set `window.location.href` to `uri`. Custom URI schemes hand off to
-  the OS handler chain. Returns nothing."
+  the OS handler chain. Returns nothing.
+
+  Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
+  already rejects `javascript:` / `data:` / `vbscript:` schemes by
+  returning `nil`. The `(when uri ...)` guard below is the single
+  enforcement seam at the call sites that consume `editor-uri` (this fn
+  + Story's mirror `re-frame.story.ui.open-in-editor/open!`)."
   [uri]
   (when (and uri js/window)
     (set! (.-location js/window) uri)

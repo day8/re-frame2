@@ -119,6 +119,10 @@ BOTH                          →  :rf/redacted (sensitive wins; no marker emitt
 
 Reason: the `:rf.size/large-elided` marker itself carries `:path` / `:bytes` / `:digest`, which would leak the existence of a sensitive value. The walker short-circuits at the sensitive predicate (`elision.cljc:494-540`).
 
+## Story recorder — record-but-redact (rf2-hdadz)
+
+The Story Test Codegen recorder is a special-case consumer: it captures dispatches into a `:play` body that the dev pastes into source. Per rf2-hdadz: a `:sensitive? true` dispatch is RECORDED with its event vector replaced by `[:rf/redacted]` — not dropped — so the row's temporal position is preserved for correlation while the credential / PII / auth-token never rides into the snippet. The suppressed-events counter still increments so the recorder overlay's REDACTED indicator stays accurate. See `story-recorder.md` §Sensitive events. The MCP `record-as-variant` tool inherits this behaviour by construction (it wraps the same recorder primitives).
+
 ## `:rf/elision` app-db reserved key
 
 The runtime owns `[:rf/elision]` in every frame's app-db; user code MUST NOT write there. Layout per Spec-Schemas `:rf/elision-registry`:

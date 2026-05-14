@@ -82,6 +82,37 @@ Per Phase 2 §5.2 #6. Tiny implementation, high signal. Adds `qr-code`
 dep. Surfaces the share affordance: tap the QR on a phone, get the
 current variant URL with all cell-local overrides encoded.
 
+### Third-party network egress (rf2-su313)
+
+Story is a **developer-session tool**, not a production runtime — by
+design it contacts two third-party services from the browser when
+specific affordances are exercised. Per rf2-su313 (pragmatic stance,
+2026-05-14): both egress paths stay in v1; the alternatives (bundling
+axe-core, shipping a JS QR codec) would balloon the Story bundle for
+the minority of devs using those features. Both paths are
+**user-triggered**, never load on shell mount, and are clearly
+documented so devs can decide whether the egress is acceptable in
+their environment.
+
+| Endpoint | Triggered by | Carries | Avoid by |
+|---|---|---|---|
+| `https://api.qrserver.com/v1/create-qr-code/` | User opens the per-variant share popover | The full share URL (variant id + active modes + cell-override EDN, percent-encoded) | Don't open the popover. URL fallback is always rendered alongside the QR. |
+| `https://cdn.jsdelivr.net/npm/axe-core@4.10.0/axe.min.js` | User opens the a11y panel for the first time in a session | None (one-way script load) | Don't open the panel. |
+
+Hosts on offline / air-gapped / strict-CSP networks see the URL
+fallback for the share popover and a load-failure message in the a11y
+panel; the rest of the Story shell is unaffected. The share URL itself
+is constructed locally (`re-frame.story.share/variant-share-url`) and
+carries no app-db payload — only variant identity + author-declared
+`cell-overrides` round-trip through it.
+
+Production builds (`:rf.story/enabled?` false under `:advanced`) elide
+the entire Story UI shell; neither endpoint is reached when the shell
+is disabled. Static-build deploys (rf2-8wgpm, see
+[`013-Static-Build.md`](013-Static-Build.md)) keep both endpoints
+live — the a11y panel + share QR are dev affordances that ride into
+the static playground.
+
 ### Causa epoch panel embed (stub + contract)
 
 Story registers Causa's existing epoch / time-travel panel as a story
