@@ -106,6 +106,45 @@ docs.
 Canonical EDN form, text-only result for byte-stable round-tripping
 (content is text, not JSON, to avoid lossy JSON encoding of EDN).
 
+### `subscribe` / `unsubscribe` (rf2-p8u13, deferred)
+
+**Status: deferred to a future drop.** Pair2-MCP has streaming
+`subscribe` / `unsubscribe` — long-running `tools/call` that emits
+matching events as `notifications/progress` notifications (push
+mode). Story-MCP's read tools are all pull-mode today. An agent
+watching for "the next time variant X fails an assertion" or "the
+next variant registered" has to poll `run-variant` / `list-stories`
+repeatedly.
+
+**v2 sketch (not implemented).** Add `subscribe` / `unsubscribe`
+mirroring pair2-mcp's shape — same wire-protocol slot
+(`notifications/progress` correlated by the call's
+`progressToken`), same idempotent `unsubscribe`, same
+`subscription-info` peer for the "what streams are open?"
+diagnostic.
+
+Topics to expose:
+
+- `:next-variant-failure` — fire when any variant assertion fails
+  (filter by `:variant-id` to narrow to one).
+- `:variant-registered` — fire on `reg-variant` (filter by
+  `:story-id-prefix` to scope to one story or a subtree).
+- `:mode-changed` — fire when the active mode set changes.
+- `:story-reloaded` — fire on hot-reload (boundary aligns with
+  `re-frame.story/clear-all!` + re-registration).
+
+Open questions: how Story-side state changes (run-variant
+assertions, registrar mutations) surface as observable events
+without the runtime's epoch ring (pair2-mcp's substrate is rich;
+Story-MCP runs on the JVM with no equivalent today), whether the
+streaming machinery shares an abstraction with pair2-mcp's
+`subscribe` (likely yes — extracting the queue + progress-callback
+plumbing into a shared `tools/mcp-base/streaming` ns is the
+implementation-first step), and what the wire-cap / dedup posture
+looks like for these payloads (assertion records and variant
+bodies are bounded, so the per-tick cap likely matches pair2-mcp's
+5,000-token default without further per-tool tuning).
+
 ### `evaluate-cljs` (rf2-vilu3, deferred)
 
 **Status: deferred to a future drop.** Pair2-MCP has `eval-cljs`
