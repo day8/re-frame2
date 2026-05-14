@@ -220,6 +220,9 @@
 
 #?(:clj
    (defonce ^:private jvm-http-client
+     ;; 10s connect timeout — distinct from `:timeout-ms` (which bounds
+     ;; the whole request). Caps the TCP/TLS handshake so a black-holed
+     ;; host fails fast instead of leaning on the per-request timeout.
      (delay (-> (HttpClient/newBuilder)
                 (.connectTimeout (Duration/ofSeconds 10))
                 (.build)))))
