@@ -57,6 +57,10 @@ const TESTS = [
     argv: ['test/live-pair2-overflow.cjs'],
   },
   {
+    name: 'pair2-mcp live-subscribe (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
+    argv: ['test/live-pair2-subscribe.cjs'],
+  },
+  {
     name: 'story-mcp end-to-end',
     argv: ['test/end-to-end-story.cjs'],
   },

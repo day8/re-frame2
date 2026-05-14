@@ -67,12 +67,20 @@ on the server side surfaces as an SDK parse-error.
   unset = clean SKIP (degraded mode can't trip the cap naturally),
   set = full live-runtime cap-trigger conformance against the
   canonical `OverflowBody` schema pinned by `wire-vocab/`.
+- `test/live-pair2-subscribe.cjs` — pair2-mcp **live**-runtime variant
+  (rf2-zb5z6) that exercises the `notifications/progress` streaming
+  wire surface. Subscribes to `:trace`, dispatches a known event,
+  collects every progress frame the server emits, and validates each
+  against the canonical `Pair2ProgressNotificationParams` schema
+  pinned by `wire-vocab/`. Gated on `$SHADOW_CLJS_NREPL_PORT` (same
+  posture as the overflow variant).
 - `scripts/run-live-pair2-overflow-hermetic.cjs` — hermetic
   orchestrator (rf2-uw6d6) that boots shadow-cljs against the pair2
   fixture (`skills/re-frame-pair2/tests/fixture/`), launches headless
-  Chromium so the runtime preload lands, then runs `live-pair2-overflow.cjs`
-  with `SHADOW_CLJS_NREPL_PORT` set to the spawned port. Closes the
-  CI-coverage gap the SKIP path leaves.
+  Chromium so the runtime preload lands, then runs both
+  `live-pair2-overflow.cjs` and `live-pair2-subscribe.cjs` against
+  the spawned `SHADOW_CLJS_NREPL_PORT`. Closes the CI-coverage gap
+  the SKIP path leaves on each.
 - `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
   with `--allow-writes` enabled)
 - `test/end-to-end-causa.cjs` — placeholder; exits 0 with a `SKIP`

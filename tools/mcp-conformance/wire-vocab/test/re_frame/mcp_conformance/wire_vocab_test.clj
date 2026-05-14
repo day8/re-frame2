@@ -278,6 +278,45 @@
   "`{:rf.mcp/cache-hit CacheHitBody}` — the wrapper shape."
   [:map [:rf.mcp/cache-hit CacheHitBody]])
 
+(def Pair2ProgressNotificationParams
+  "Canonical `notifications/progress` params shape for pair2-mcp's
+  `subscribe` streaming tool (per `tools/subscribe.cljs/
+  progress-payload`).
+
+  The MCP envelope shape is:
+
+      {:method \"notifications/progress\"
+       :params {:progressToken <opaque>          ;; echoed from caller's _meta
+                :progress      <tick :int>        ;; monotonically increasing
+                :message       <edn-string>       ;; EDN-printed batch
+                :data          {:dropped-events  :int
+                                :dropped-bytes   :int
+                                :overflow-reason [:maybe :string]}}}
+
+  `:dropped-events` / `:dropped-bytes` ride non-negative; the runtime
+  emits them on every tick (zero values are valid — the slot is the
+  load-bearing shape). `:overflow-reason` is the `pr-str` of the
+  runtime sentinel keyword (`:max-buffered-events` /
+  `:max-buffered-bytes` per rf2-ho4ve) or null when no overflow tripped
+  this tick.
+
+  Pinned cross-server today as a pair2-mcp-only shape: causa-mcp's spec
+  reserves the same streaming pair (`subscribe`/`unsubscribe`) under
+  NAMING.md but has no impl. When causa-mcp's `subscribe` lands, the
+  emit MUST satisfy this schema or extend it as a `[:or ...]` (same
+  posture as OverflowBody)."
+  [:map
+   {:closed false}
+   [:progressToken :any]                          ;; opaque per MCP spec
+   [:progress      :int]
+   [:message       :string]
+   [:data
+    [:map
+     {:closed false}
+     [:dropped-events nat-int?]
+     [:dropped-bytes  nat-int?]
+     [:overflow-reason [:maybe :string]]]]])
+
 (def CursorStaleResult
   "Structured error-result envelope where `:reason :rf.mcp/cursor-stale`
   signals the cursor's epoch-id is no longer in the runtime ring (per
@@ -1102,3 +1141,149 @@
           (str "Found near-miss variant " variant
                " for :rf.mcp/cursor-stale in " server "/" rel
                " — vocabulary-drift bug.")))))
+
+;; ---------------------------------------------------------------------------
+;; `notifications/progress` streaming gate (rf2-i3ffz F-GAP-1).
+;;
+;; pair2-mcp's `subscribe` streaming tool emits exactly one
+;; `notifications/progress` per matching batch (per `NAMING.md`
+;; §"subscribe / unsubscribe"). Before this gate landed:
+;;
+;;   - `end-to-end-pair2.cjs` exercised `subscribe` only in degraded
+;;     mode (returns `isError: true` with `:nrepl-port-not-found`); the
+;;     streaming wire-shape was never asserted.
+;;   - `live-pair2-overflow.cjs` only exercised `eval-cljs`.
+;;   - No test observed a real `notifications/progress` frame.
+;;
+;; The pin shape mirrors the OverflowBody cross-encoding posture above:
+;;
+;;   1. fixture validates against `Pair2ProgressNotificationParams`.
+;;   2. literal `"notifications/progress"` appears in pair2-mcp's emit
+;;      site (`tools/subscribe.cljs`).
+;;   3. the JS-side hand-rolled assertion in
+;;      `live-pair2-subscribe.cjs` carries a substring for every
+;;      required field on the Malli schema (the cross-encoding gate;
+;;      a tightening on one side without the other trips this test).
+;; ---------------------------------------------------------------------------
+
+(def ^:private pair2-progress-fixture
+  "Canonical pair2-mcp `notifications/progress` params shape — what
+  `subscribe` emits per tick. The `:message` slot is the EDN-printed
+  batch (variable per-tick); `:data` carries the structured counts +
+  overflow-reason slot."
+  {:progressToken "probe-token-42"
+   :progress      1
+   :message       "{:sub-id \"sub-abc\" :events [] :dropped-events 0 :dropped-bytes 0}"
+   :data          {:dropped-events  0
+                   :dropped-bytes   0
+                   :overflow-reason nil}})
+
+(deftest pair2-progress-fixture-conforms-to-schema
+  (is (m/validate Pair2ProgressNotificationParams pair2-progress-fixture)
+      (str "Fixture for notifications/progress failed schema validation:\n"
+           (me/humanize
+             (m/explain Pair2ProgressNotificationParams pair2-progress-fixture)))))
+
+(deftest pair2-progress-overflow-reason-variant-conforms
+  ;; The :overflow-reason slot is `[:maybe :string]` — it carries
+  ;; either a pr-str'd keyword (`:max-buffered-events` /
+  ;; `:max-buffered-bytes`) or nil. Validate both shapes.
+  (is (m/validate
+        Pair2ProgressNotificationParams
+        (assoc-in pair2-progress-fixture
+                  [:data :overflow-reason]
+                  ":max-buffered-events"))
+      "overflow-reason as pr-str'd keyword MUST validate")
+  (is (m/validate
+        Pair2ProgressNotificationParams
+        (assoc-in pair2-progress-fixture
+                  [:data :overflow-reason]
+                  ":max-buffered-bytes"))
+      "overflow-reason as pr-str'd keyword (bytes) MUST validate"))
+
+(deftest pair2-progress-rejects-missing-required-slots
+  ;; Tightening: an emit missing `:progressToken`, `:progress`, or
+  ;; `:data` MUST fail. The slot is the load-bearing contract; a
+  ;; future regression that drops one would silently break agent-host
+  ;; correlation (progressToken) or polling cadence (progress).
+  (is (not (m/validate Pair2ProgressNotificationParams
+                       (dissoc pair2-progress-fixture :progressToken)))
+      "missing :progressToken MUST fail")
+  (is (not (m/validate Pair2ProgressNotificationParams
+                       (dissoc pair2-progress-fixture :progress)))
+      "missing :progress MUST fail")
+  (is (not (m/validate Pair2ProgressNotificationParams
+                       (dissoc pair2-progress-fixture :data)))
+      "missing :data MUST fail")
+  (is (not (m/validate Pair2ProgressNotificationParams
+                       (update pair2-progress-fixture :data dissoc :dropped-events)))
+      "missing :data.dropped-events MUST fail"))
+
+(deftest pair2-progress-emit-literal-in-source
+  ;; Source-text pin: the literal `"notifications/progress"` MUST
+  ;; appear in pair2-mcp's `subscribe.cljs` emit site. The MCP spec
+  ;; pins the method name; a regression that emitted
+  ;; `"notifications/progressing"` or moved the emit to a non-streaming
+  ;; method would surface here.
+  ;;
+  ;; NOTE: this literal lives INSIDE a string slot (`{:method
+  ;; "notifications/progress"}`), so the usual
+  ;; `strip-comments-and-strings` discriminator can't be applied — it
+  ;; would zero out the string body we need to grep. Raw `str/includes?`
+  ;; against the source is the right tool: docstrings on this file do
+  ;; not mention the method name, so a false positive from a comment
+  ;; cannot happen.
+  (let [rel "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"
+        src (fx/read-source rel)]
+    (is (str/includes? src "\"notifications/progress\"")
+        (str "literal \"notifications/progress\" missing from " rel
+             ". The emit moved or the method name drifted."))))
+
+(def ^:private live-pair2-subscribe-js-rel
+  "Relative path to the hand-rolled JS `notifications/progress`
+  assertion. Mirrors `live-pair2-overflow-js-rel` for the OverflowBody
+  cross-encoding gate."
+  "tools/mcp-conformance/test/live-pair2-subscribe.cjs")
+
+(def ^:private pair2-progress-js-required-grep-markers
+  "Substrings the JS `assertProgressParams` MUST contain to pin every
+  required field on `Pair2ProgressNotificationParams`. Each entry is
+  `[malli-path js-substring]` — the path for error reporting, the
+  substring as the grep target. Mirrors the OverflowBody table above:
+  a field added to the Malli schema MUST add a row here; a field
+  removed MUST remove a row."
+  [[":progressToken"
+    "'progressToken',  (v) => v !== undefined,"]
+   [":progress : int"
+    "'progress',       (v) => typeof v === 'number',"]
+   [":message : string"
+    "'message',        (v) => typeof v === 'string',"]
+   [":data : map"
+    "'data',           (v) => v && typeof v === 'object',"]
+   [":data.dropped-events : nat-int"
+    "'dropped-events', (v) => typeof v === 'number' && v >= 0"]
+   [":data.dropped-bytes : nat-int"
+    "'dropped-bytes',  (v) => typeof v === 'number' && v >= 0"]
+   [":data.overflow-reason : maybe-string"
+    "'overflow-reason'"]])
+
+(deftest js-assertProgressParams-pins-every-pair2-progress-required-field
+  ;; Cross-encoding sanity gate (rf2-i3ffz F-GAP-1, mirrors rf2-0zqox
+  ;; for OverflowBody). For every required field on the Malli
+  ;; `Pair2ProgressNotificationParams` schema, the JS
+  ;; `assertProgressParams` function MUST carry a substring that
+  ;; asserts the same shape. Missing fields trip this gate with the
+  ;; field name in the error.
+  (let [js-src (fx/read-source live-pair2-subscribe-js-rel)]
+    (doseq [[field grep-pattern] pair2-progress-js-required-grep-markers]
+      (testing (str "JS assertProgressParams pins field " field)
+        (is (str/includes? js-src grep-pattern)
+            (str "Field `" field
+                 "` (Malli `Pair2ProgressNotificationParams`) is not "
+                 "pinned by the JS `assertProgressParams` in "
+                 live-pair2-subscribe-js-rel
+                 ". Looked for substring: " (pr-str grep-pattern)
+                 ".\nIf you tightened the Malli schema, mirror the "
+                 "change in the JS assertion; if you loosened it, "
+                 "remove the entry from "
+                 "`pair2-progress-js-required-grep-markers`."))))))
