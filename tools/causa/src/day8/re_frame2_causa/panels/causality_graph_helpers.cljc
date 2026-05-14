@@ -51,7 +51,8 @@
   a stable O(n) pass over the cascade vector. The full incremental-
   layout pass lands once the panel's perf budget is measured against
   a real cascade stream."
-  (:require [clojure.set :as set]))
+  (:require [clojure.set :as set]
+            [day8.re-frame2-causa.panels.common-helpers :as common]))
 
 ;; ---- layout constants ----------------------------------------------------
 
@@ -444,19 +445,11 @@
 
 ;; ---- node selection from an epoch-id ------------------------------------
 
-(defn dispatch-id-of-epoch
-  "Resolve an `:rf/epoch-record`'s settling cascade-id by walking its
-  `:trace-events` for the first `:dispatch-id`-bearing event. Mirrors
-  `time-travel-helpers/dispatch-id-from-epoch` so the panel can route
-  a selected-epoch → 'filter to this cascade' without depending on
-  the time-travel namespace.
-
-  Pure data → id-or-nil."
-  [epoch-record]
-  (some (fn [ev]
-          (or (get-in ev [:tags :dispatch-id])
-              (get-in ev [:tags :parent-dispatch-id])))
-        (:trace-events epoch-record)))
+;; Re-export — canonical body lives in `common-helpers` so the panel
+;; can route a selected-epoch → 'filter to this cascade' through the
+;; same algebra `time-travel-helpers` uses for pin construction. Prior
+;; to rf2-78xmg these were two identical defs in two helper nses.
+(def dispatch-id-of-epoch common/dispatch-id-of-epoch)
 
 ;; ---- node visual tokens (pure-data — view consumes via index) -----------
 
