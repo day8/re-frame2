@@ -45,10 +45,60 @@
   #{:area :base :br :col :embed :hr :img :input :link :meta :param :source
     :track :wbr})
 
+;; rf2-z7gor / security audit 2026-05-14 — tag-name injection gate.
+;; `parse-tag-name` historically split the keyword on `#` / `.` and handed
+;; the leading fragment straight to `<...>` / `</...>` emission with no
+;; grammar check. A keyword like `(keyword "img src=x onerror=alert(1)")`
+;; emitted `<img src=x onerror=alert(1)></img src=x onerror=alert(1)>` —
+;; the attribute-name validator was bypassed entirely. We gate the tag
+;; component itself: HTML5 / SVG / MathML element names require an ASCII
+;; letter start, then letters / digits / hyphens. Reject anything else.
+;;
+;; Decision: fail-fast (throw) rather than escape-and-emit. A tag-name
+;; outside the grammar has no safe wire interpretation — escaping would
+;; produce `<img&#x20;src=...>` which no browser parses as a tag, just a
+;; visible glyph. Same shape as the rf2-hbty2 header-value gate.
+;;
+;; `:<>` (React fragment) and `:>` (Reagent-native) are special heads
+;; consumed by `emit-element` BEFORE this validator runs — they never
+;; reach `parse-tag-name`. The grammar below applies only to actual DOM
+;; tag emissions.
+(def ^:private tag-name-re
+  ;; HTML5 §element-name + SVG element-name + MathML element-name all
+  ;; share the same conservative ASCII grammar: leading letter, then
+  ;; letters / digits / hyphens. Custom elements (per HTML5 §custom-
+  ;; element-name) require an ASCII-lower first letter + a `-`; the
+  ;; conservative grammar admits both standard elements and well-formed
+  ;; custom-element names.
+  #"[A-Za-z][A-Za-z0-9-]*")
+
+(defn- validate-tag-name!
+  "Throw `:rf.error/invalid-tag-name` if `tag-name` does not match the
+  HTML5 / SVG / MathML element-name grammar (`[A-Za-z][A-Za-z0-9-]*`).
+  Per rf2-z7gor — DOM tag-name component of a hiccup keyword was emitted
+  without validation, allowing tag-injection through hostile keywords
+  like `(keyword \"img src=x onerror=alert(1)\")`."
+  [tag-name source-kw]
+  (when-not (and (string? tag-name)
+                 (re-matches tag-name-re tag-name))
+    (throw (ex-info ":rf.error/invalid-tag-name"
+                    {:reason   (str "tag-name " (pr-str tag-name)
+                                    " (from hiccup head " (pr-str source-kw) ")"
+                                    " does not match the HTML5/SVG/MathML"
+                                    " element-name grammar"
+                                    " ([A-Za-z][A-Za-z0-9-]*) — DOM tag-name"
+                                    " injection forbidden")
+                     :tag-name tag-name
+                     :source   source-kw
+                     :recovery :no-recovery})))
+  tag-name)
+
 ;; Tag-name parsing for the :div#id.cls syntax. Reagent / Hiccup convention.
 (defn parse-tag-name
   "Split a keyword like :div#main.col-12.bold into [:div {:id \"main\"
-  :class \"col-12 bold\"}] components."
+  :class \"col-12 bold\"}] components. Throws `:rf.error/invalid-tag-name`
+  (rf2-z7gor) if the tag component is not a well-formed HTML5/SVG/MathML
+  element name."
   [tag-kw]
   (let [s     (name tag-kw)
         ;; Match: tag-name optionally followed by #id and .class fragments.
@@ -59,6 +109,7 @@
                      (->> (clojure.string/split classes #"\.")
                           (remove empty?)
                           (clojure.string/join " ")))]
+    (validate-tag-name! tag tag-kw)
     [tag
      (cond-> {}
        id         (assoc :id id)
@@ -173,6 +224,16 @@
      (vector? el)
      (let [head (first el)]
        (cond
+         ;; Fragment `:<>` and Reagent-native `:>` are special heads — not
+         ;; DOM tag-name keywords. Per Spec 011: a fragment emits its
+         ;; rendered children with no wrapper; root-attrs (rf2-lxwse) skip
+         ;; these heads, source-coord annotation skips these heads, and
+         ;; the tag-name validator (rf2-z7gor) does not apply. Handled
+         ;; ahead of the general keyword branch so they never reach
+         ;; `parse-tag-name`.
+         (or (= :<> head) (= :> head))
+         (emit-children (rest el))
+
          (keyword? head)
          (let [;; Look up registered view first.
                maybe-view (registrar/lookup :view head)]
@@ -195,13 +256,7 @@
                      [(second el) (drop 2 el)]
                      [{} (rest el)])
                    merged-attrs (merge-class-attrs tag-attrs user-attrs)
-                   ;; Fragment `:<>` and Reagent-native `:>` heads are
-                   ;; exempt from root-attrs injection (matches the
-                   ;; `inject-coord-on-root-hiccup` skip-list per
-                   ;; rf2-lxwse acceptance criteria) — drop root-attrs
-                   ;; on these heads.
-                   skip-attrs?  (or (= :<> head) (= :> head))
-                   attrs        (if (and root-attrs (not skip-attrs?))
+                   attrs        (if root-attrs
                                   (merge-root-attrs merged-attrs root-attrs)
                                   merged-attrs)
                    void?        (contains? void-elements (keyword tag-name))]
