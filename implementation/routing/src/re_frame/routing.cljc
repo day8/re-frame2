@@ -810,19 +810,36 @@
     true))
 
 (events/reg-event-fx :rf/url-requested
-  (fn [{:keys [db frame]} [_ {:keys [url] :as request}]]
-    (let [m              (match-url url)
-          current-route  (:rf/route db)
+  (fn [{:keys [db frame]}
+       [_ {:keys [url bypass-leave-guard?] :as request} :as event-vec]]
+    ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
+    ;; runtime fires :can-leave for the active route on every
+    ;; :rf/url-requested; rejection writes :rf/pending-navigation with
+    ;; the full slot shape `{:id :requested-by-event :requested-url
+    ;; :reason :rejecting-route :rejecting-guard}` per Spec-Schemas.md
+    ;; §:rf/pending-navigation (rf2-b8ugt).
+    ;;
+    ;; The :bypass-leave-guard? request flag is the rf2-yursn one-shot
+    ;; escape hatch :rf.route/continue uses to re-issue the original
+    ;; navigation request without re-running the leave guard.
+    (let [current-route  (:rf/route db)
           current-meta   (registrar/lookup :route (:id current-route))
-          ok?            (can-leave? (or frame :rf/default) current-meta)]
+          ok?            (or bypass-leave-guard?
+                             (can-leave? (or frame :rf/default) current-meta))]
       (cond
         (not ok?)
-        (let [[db' pn-id] (alloc-pending-nav-id db)]
+        (let [[db' pn-id] (alloc-pending-nav-id db)
+              guard-id    (:can-leave current-meta)]
           (trace/emit! :event :rf.route/navigation-blocked
                        {:requested-url   url
-                        :rejecting-route (:id current-route)})
+                        :rejecting-route (:id current-route)
+                        :rejecting-guard guard-id})
           {:db (assoc db' :rf/pending-navigation
-                      {:id pn-id :request request})})
+                      (cond-> {:id                 pn-id
+                               :requested-by-event (vec event-vec)
+                               :requested-url      url
+                               :rejecting-route    (:id current-route)}
+                        guard-id (assoc :rejecting-guard guard-id)))})
 
         :else
         ;; can leave — just dispatch :rf/url-changed for the new URL.
@@ -830,11 +847,37 @@
 
 (events/reg-event-fx :rf.route/continue
   (fn [{:keys [db]} [_ _pn-id]]
-    (let [pending (:rf/pending-navigation db)
-          url     (get-in pending [:request :url])]
+    ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue
+    ;; re-issues the original navigation request, *bypassing* the leave
+    ;; guard for this one shot. Pre-rf2-yursn this dispatched
+    ;; :rf/url-changed + :rf.nav/push-url directly, skipping
+    ;; :rf/url-requested's policy interceptors and racing the slice
+    ;; write with the URL push. Right model: re-emit
+    ;; :rf/url-requested with :bypass-leave-guard? true so the same
+    ;; policy chain runs.
+    (let [pending  (:rf/pending-navigation db)
+          original (:requested-by-event pending)
+          url      (:requested-url pending)]
       (cond-> {:db (dissoc db :rf/pending-navigation)}
-        url (assoc :fx [[:dispatch [:rf/url-changed url]]
-                        [:rf.nav/push-url url]])))))
+        ;; Prefer re-dispatching the original event vector with the
+        ;; bypass flag injected; fall back to a synthetic
+        ;; :rf/url-requested for older pending shapes that only carry
+        ;; :requested-url (defensive, for migrations).
+        (vector? original)
+        (assoc :fx
+               [[:dispatch
+                 (cond
+                   (and (= :rf/url-requested (first original))
+                        (map? (second original)))
+                   [:rf/url-requested (assoc (second original)
+                                             :bypass-leave-guard? true)]
+                   :else
+                   [:rf/url-requested {:url url :bypass-leave-guard? true}])]])
+
+        (and (nil? original) url)
+        (assoc :fx [[:dispatch
+                     [:rf/url-requested {:url url
+                                         :bypass-leave-guard? true}]]])))))
 
 (events/reg-event-fx :rf.route/cancel
   (fn [{:keys [db]} [_ _pn-id]]
