@@ -87,13 +87,22 @@
                             "  {:ok? true :exists? true :path path :value " elide-call "})"))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [v]
-                     (let [{:keys [value indicators]}
-                           (wp/run-wire-pipeline v {:kind :scalar-value})
+            (.then (fn [envelope]
+                     ;; rf2-6by5s — strip the `:value` slot off, run only
+                     ;; the literal value through the wire-pipeline, and
+                     ;; rebuild the envelope. The indicator count reflects
+                     ;; exactly what ships; `:path-not-found` results
+                     ;; (no `:value` slot) report zero elision — correct
+                     ;; by construction, not by accident of which keys
+                     ;; the walker happens to ignore.
+                     (let [ok?             (:ok? envelope)
+                           scalar          (when ok? (:value envelope))
+                           {:keys [indicators]}
+                                           (wp/run-wire-pipeline scalar {:kind :scalar-value})
                            {:keys [elided]} indicators]
                        (wire/ok-text (wire/with-indicators
-                                       (cond-> value
-                                         frame           (assoc :frame frame)
-                                         (:ok? value)    (assoc :elision elision?))
+                                       (cond-> envelope
+                                         frame (assoc :frame frame)
+                                         ok?   (assoc :elision elision?))
                                        {:elided elided})))))
             (.catch (fn [err] (probe/err->result :get-path-failed err))))))))
