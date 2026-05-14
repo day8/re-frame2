@@ -150,3 +150,42 @@
         edn  (cljs.reader/read-string form)]
     (is (= 're-frame-pair2.runtime/snapshot-state (first edn)))
     (is (= opts (second edn)))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-lbfzu — `::call*` qsym handling + collection-recursion.
+;; ---------------------------------------------------------------------------
+
+(deftest rt-call*-symbol-qsym-emits-fully-qualified
+  ;; Symbol qsyms emit via `(str sym)` — the namespace prefix is
+  ;; included verbatim.
+  (is (= "(re-frame.core/elide-wire-value)"
+         (ef/emit (ef/rt-call* 're-frame.core/elide-wire-value)))))
+
+(deftest rt-call*-bare-symbol-emits-verbatim
+  ;; A bare symbol (no namespace) emits as just the name. The
+  ;; precheck-form's `(rt-call* 'hash ...)` relies on this.
+  (is (= "(hash)" (ef/emit (ef/rt-call* 'hash)))))
+
+(deftest rt-call*-string-qsym-emits-verbatim
+  ;; Round-2 dead-branch fix: the previous impl had
+  ;; `(if (symbol? qsym) (str qsym) (str qsym))` — both arms
+  ;; identical. Pin that a string qsym renders the same way the
+  ;; symbol does (verbatim, no auto-quoting), so a future caller
+  ;; can pass a pre-qualified string and get correct source.
+  (is (= "(some.ns/foo 1)"
+         (ef/emit (ef/rt-call* "some.ns/foo" 1)))))
+
+(deftest emit-arg-recurses-into-vectors-of-nodes
+  ;; rf2-lbfzu / EF3 — a vector mixing scalar data and IR nodes
+  ;; previously `pr-str`'d the whole vector, including the IR
+  ;; literal. Now the recursion walks element-wise.
+  (is (= "(re-frame-pair2.runtime/foo [1 bar])"
+         (ef/emit (ef/rt-call 'foo [1 (ef/rt-raw "bar")])))))
+
+(deftest emit-arg-passes-pure-scalar-vectors-unchanged
+  ;; Pure-scalar vectors still go through `pr-str` byte-for-byte —
+  ;; the recursion only triggers when the vector contains at least
+  ;; one IR node. Pin so the contains-node check doesn't change
+  ;; the output for the existing tool sites.
+  (is (= "(re-frame-pair2.runtime/foo [1 2 3])"
+         (ef/emit (ef/rt-call 'foo [1 2 3])))))

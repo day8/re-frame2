@@ -102,10 +102,25 @@
 
 (defn- emit-arg
   "Render a single arg / binding-value to source. DSL nodes recurse;
-  everything else (strings, keywords, numbers, maps, vectors, …)
-  `pr-str`'d as an EDN literal."
+  collections of nodes recurse element-wise; everything else
+  (strings, keywords, numbers, scalar maps, scalar vectors, …) is
+  `pr-str`'d as an EDN literal.
+
+  rf2-lbfzu — without the collection-recursion arm, a mixed
+  data-and-nodes vector like `(rt-call 'foo [bar (rt-raw \"x\")])`
+  would `pr-str` the whole vector including the `[::raw \"x\"]` IR
+  node, producing garbage source. The recursion lets callers mix
+  scalar data with IR nodes naturally; pure-scalar collections
+  still go through `pr-str` unchanged (no contains-node walk →
+  same byte-for-byte output)."
   [v]
-  (if (node? v) (emit v) (pr-str v)))
+  (cond
+    (node? v)   (emit v)
+    (and (vector? v) (some node? v))
+    (str "[" (str/join " " (map emit-arg v)) "]")
+    (and (list? v) (some node? v))
+    (str "(" (str/join " " (map emit-arg v)) ")")
+    :else       (pr-str v)))
 
 (defn- emit-name [n]
   ;; Binding names must be symbols — they appear verbatim in the source
@@ -141,7 +156,11 @@
                       ")"))
 
         ::call* (let [[_ qsym args] form]
-                  (str "(" (if (symbol? qsym) (str qsym) (str qsym))
+                  ;; rf2-lbfzu — `(str qsym)` handles both shapes
+                  ;; uniformly: a symbol prints as its fully-qualified
+                  ;; name, a string prints verbatim. The prior `if`
+                  ;; had two identical arms.
+                  (str "(" (str qsym)
                        (when (seq args)
                          (apply str (for [a args] (str " " (emit-arg a)))))
                        ")"))
