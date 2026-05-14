@@ -101,8 +101,12 @@
   new fn on the next lookup).
 
   When this is a re-registration, every replacement-hook fires and a
-  :rf.registry/handler-replaced trace event is emitted (per Spec 009).
-  Hooks run AFTER the swap so listeners observe the new state."
+  :rf.registry/handler-replaced trace event is emitted on EVERY
+  re-registration (per Spec 001 §Hot-reload trace surface + Spec 009 —
+  devtools refresh their view from this event). The trace's `:tags`
+  carry `:different-fn?` so tooling can branch idempotent reloads from
+  real fn-identity changes without re-emitting through a separate
+  surface — `(rf2-6w7zn)`."
   [kind id metadata]
   (when-not (valid-kind? kind)
     (throw (ex-info (str "re-frame2: unknown registry kind: " kind)
@@ -110,8 +114,7 @@
   (let [previous (get-in @kind->id->metadata [kind id])]
     (swap! kind->id->metadata assoc-in [kind id] metadata)
     (cond
-      ;; Re-registration path — fire hooks and emit handler-replaced when
-      ;; the handler-fn actually changed.
+      ;; Re-registration path — fire hooks and emit handler-replaced.
       previous
       (let [different? (not= (:handler-fn previous) (:handler-fn metadata))]
         ;; Hot-reload notifications. Hooks run isolated — listener failures
@@ -122,19 +125,21 @@
           (try (f {:kind kind :id id :was previous :now metadata
                    :different-fn? different?})
                (catch #?(:clj Throwable :cljs :default) _ nil)))
-        ;; Only trace when the handler-fn actually changed — idempotent
-        ;; re-registrations (same fn instance, common during ns reload of
-        ;; static defs) would otherwise spam the trace stream.
-        ;; The interop/debug-enabled? gate is OUTERMOST so :advanced +
-        ;; goog.DEBUG=false can constant-fold the entire branch (per
-        ;; Spec 009 §Production builds).  Inverting this — for example,
-        ;; `(when (and different? interop/debug-enabled?) ...)` —
-        ;; defeats the constant-fold because Closure can't statically
-        ;; rule out `different?`.
+        ;; Per Spec 001 §Hot-reload trace surface (rf2-6w7zn): emit
+        ;; `:rf.registry/handler-replaced` on EVERY re-registration —
+        ;; not only when the handler-fn changes. Kinds like `:frame`
+        ;; replace the slot without rotating `:handler-fn`, so a
+        ;; `different?`-gated emit dropped legitimate re-registration
+        ;; events on the floor. The `:different-fn?` tag is preserved
+        ;; for tools that want to suppress idempotent-reload noise on
+        ;; their side.
+        ;;
+        ;; The `interop/debug-enabled?` gate stays OUTERMOST so
+        ;; `:advanced + goog.DEBUG=false` constant-folds the entire
+        ;; branch (per Spec 009 §Production builds).
         (when interop/debug-enabled?
-          (when different?
-            (emit! :rf.registry/handler-replaced
-                   {:kind kind :id id :different-fn? true}))))
+          (emit! :rf.registry/handler-replaced
+                 {:kind kind :id id :different-fn? different?})))
       ;; First-time registration — emit handler-registered per Spec 009
       ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
       ;; this to track when fresh ids appear in the registry.
