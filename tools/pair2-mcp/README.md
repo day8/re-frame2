@@ -219,6 +219,35 @@ Example session: the browser MCP clicks a button → pair2-mcp's
 inspects the new app-db slice via `get-path`. Each server stays
 single-purpose; the agent host glues them at the workflow level.
 
+## Concurrent agents (rf2-hrcoj)
+
+**v1 posture: single-agent per session.** Today's pair2-mcp assumes
+one agent host (Claude Code, Cursor, or Copilot) per running server
+process. The shared mutable state — the nREPL connection, the
+per-session response cache (`cache.cljs`), and the active
+subscription registry — is **not** partitioned by agent.
+
+Two agents attaching to the same pair2-mcp instance simultaneously
+work today (no lock-out), but they will see each other's
+side-effects: a `dispatch` from agent A may show up in agent B's
+`watch-epochs` poll; a `subscribe` from agent A counts against
+agent B's `subscription-info`. For pre-alpha this is the documented
+behaviour, not a bug — single-agent is the expected workflow.
+
+**v2 sketch (not implemented; deferred).** Multi-agent semantics
+would need: agent-scoped session ids on every `tools/call`,
+per-agent subscription tables, optional lock-out on mutating ops
+(`dispatch` with `:trace` mode + `eval-cljs` + `tail-build`), and
+either per-agent response caches or a shared cache keyed by the
+agent's request hash. The cache layer (`cache.cljs`) already keys
+by request-args hash, which makes the shared-cache path the
+likely first step.
+
+If a workflow needs concurrent-agent isolation **today**, the
+recourse is **one pair2-mcp instance per agent host**, each
+holding its own nREPL socket — shadow-cljs's nREPL supports
+multiple concurrent clients.
+
 ## Back-compat with the bash shims
 
 The shims under `skills/re-frame-pair2/scripts/` still work and are
