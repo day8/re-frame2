@@ -767,3 +767,30 @@
         ":right's slot is now gone")
     (is (nil? (registrar/lookup :flow :compute))
         "registrar slot was unregistered once the LAST frame released the id")))
+
+;; ---------------------------------------------------------------------------
+;; 8. `_hot-reload-hook` defonce-idempotency on namespace reload
+;;
+;; Per audit rf2-0b2eh §TC-3 / rf2-5ay09. The flows registry installs a
+;; registrar replacement-hook (`invalidate-flow-on-replace!`) once at
+;; namespace load via `(defonce ^:private _hot-reload-hook
+;; (registrar/add-replacement-hook! ...))`. If the `defonce` protection
+;; ever regressed to a plain `def`, every namespace reload would push a
+;; duplicate hook into `re-frame.registrar/replacement-hooks` — every
+;; subsequent flow re-registration would invalidate `last-inputs` twice
+;; (functionally harmless because `dissoc` is idempotent, but a silent
+;; bookkeeping leak that would compound across many hot-reload cycles in
+;; long dev sessions).
+;;
+;; Pin the idempotency: `(require 're-frame.flows.registry :reload)`
+;; MUST NOT push a duplicate hook.
+;; ---------------------------------------------------------------------------
+
+(deftest hot-reload-hook-is-defonce-idempotent
+  (testing "reloading re-frame.flows.registry does NOT install a duplicate replacement-hook"
+    (let [hooks-var (resolve 're-frame.registrar/replacement-hooks)
+          before    (count @(deref hooks-var))]
+      (require 're-frame.flows.registry :reload)
+      (let [after (count @(deref hooks-var))]
+        (is (= before after)
+            "the hook count is unchanged across a namespace reload — `defonce` guards the install")))))
