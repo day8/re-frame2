@@ -38,9 +38,8 @@ This is a normative MUST for Causa-MCP. When implementation lands,
 every tool that surfaces trace-stream-shaped payloads — the canonical
 list is `get-trace-buffer`, `subscribe`, and any tool whose return
 includes raw `:rf/trace-event` items or epoch-records carrying the
-flag (`get-epoch-history`, `get-causality-graph` when it walks raw
-traces) — MUST apply the default-suppress filter at the MCP boundary
-before any data crosses into the agent surface.
+flag (`get-epoch-history`) — MUST apply the default-suppress filter
+at the MCP boundary before any data crosses into the agent surface.
 
 The contract, identical to `tools/pair2-mcp/`'s implementation
 (rf2-zq0n1) and `tools/story-mcp/`'s `re-frame.story-mcp.sensitive`
@@ -56,7 +55,7 @@ helper:
   the same slot on the others.
 - **Scope**: only the trace-stream surface. Mutating ops (`dispatch`,
   `restore-epoch`, `reset-frame-db`) and read-mostly per-frame state
-  ops (`get-app-db`, `app-db-diff`, `get-machine-snapshot`) don't
+  ops (`get-app-db`, `get-app-db-diff`, `get-machine-state`) don't
   carry `:sensitive?` stamps — payload redaction in those slots is
   the `with-redacted` interceptor's job, not the forwarder's.
 
@@ -96,7 +95,7 @@ agent host with a 200k context window can absorb a handful of
 20k tool returns, but the realistic working session fires
 dozens of tool calls — Causa-MCP is the most exposed of the
 triplet because its catalogue includes
-`get-trace-buffer`, `get-epoch-history`, `app-db-diff`, and
+`get-trace-buffer`, `get-epoch-history`, `get-app-db-diff`, and
 the `subscribe` stream, all of which return payloads whose
 size scales with runtime state.
 
@@ -141,7 +140,7 @@ recognises it once recognises it everywhere.
 ### 2. Path slicing
 
 Tools returning rich nested values (`get-app-db`,
-`get-machine-snapshot`, `get-epoch`, `get-causality-graph`)
+`get-machine-state`, `get-epoch-history`)
 MUST accept an optional `:path` argument — an EDN-encoded
 vector of keys (e.g. `"[:cart :items 3 :sku]"`) addressing a
 subtree.
@@ -158,8 +157,7 @@ slicing convention pair2-mcp's `snapshot` op already uses.
 ### 3. Cursor pagination
 
 Sequence-returning tools (`get-trace-buffer`,
-`get-epoch-history`, `list-subscriptions`,
-`get-causality-graph` when walking trace events, and any read
+`get-epoch-history`, `list-subscriptions`, and any read
 tool whose return size is a function of trace-bus depth) MUST
 accept `:cursor` (opaque server-managed string, omitted on the
 first call) and `:limit` (integer, default chosen so the
@@ -191,7 +189,7 @@ Tools MUST expose a `:mode` argument with at least `:summary`
 sizes attached), and `:full` (paginated complete payload).
 Agents drill down via `:path` (mechanism 2) or `:cursor`
 (mechanism 3); `:full` is opt-in for the cases where the agent
-genuinely needs everything. `app-db-diff` in particular MUST
+genuinely needs everything. `get-app-db-diff` in particular MUST
 default to changed-paths-with-cardinalities, not the nested
 diff.
 
@@ -293,13 +291,13 @@ predictable cascade. Per
 [`spec/009-Instrumentation.md §Composition`](../../../spec/009-Instrumentation.md#size-elision-in-traces).
 
 **When this fires**. Any tool emitting a tree-typed payload —
-the canonical Causa-MCP set is `get-app-db`, `app-db-diff`,
-`get-epoch`, `get-epoch-history` (per-record `:db-before` /
-`:db-after`), `get-machine-snapshot`, `get-causality-graph`,
-and `subscribe` payloads carrying trace events with rich
-coeffect / effect slots. Each runs the elided slice through
-the walker inside the eval form sent over nREPL (the registry
-lives in app-db; the Node process can't reach it directly).
+the canonical Causa-MCP set is `get-app-db`, `get-app-db-diff`,
+`get-epoch-history` (per-record `:db-before` / `:db-after`),
+`get-machine-state`, and `subscribe` payloads carrying trace
+events with rich coeffect / effect slots. Each runs the elided
+slice through the walker inside the eval form sent over nREPL
+(the registry lives in app-db; the Node process can't reach it
+directly).
 The walker is the **single normative emission site** — per-tool
 reimplementation is prohibited.
 
