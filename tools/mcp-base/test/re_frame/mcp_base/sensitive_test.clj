@@ -208,6 +208,46 @@
     (is (= 2 dropped))
     (is (= [{:id 1} {:id 3}] (get-in out [:rf/default :traces])))))
 
+;; ---------------------------------------------------------------------------
+;; Malformed counter — operator-surface observability for the fail-
+;; closed gate (rf2-8cpsg / F19).
+;; ---------------------------------------------------------------------------
+
+(deftest malformed-count-increments-on-fail-closed-drop
+  ;; The fail-closed posture (rf2-ih7g4) drops a non-boolean truthy
+  ;; `:sensitive?` stamp AND increments a process-wide counter so
+  ;; operator surfaces can see the contract drift. Pre-fix, the
+  ;; counter was private and untestable; now `malformed-count` /
+  ;; `reset-malformed-count!` are public so this regression pin
+  ;; exists.
+  (sensitive/reset-malformed-count!)
+  (is (zero? (sensitive/malformed-count))
+      "precondition: counter starts at zero after reset")
+  (binding [*err* (java.io.StringWriter.)] ; absorb the warning
+    (sensitive/sensitive-event? {:sensitive? "true"})
+    (sensitive/sensitive-event? {:sensitive? :yes})
+    (sensitive/sensitive-event? {:sensitive? 1}))
+  (is (= 3 (sensitive/malformed-count))
+      "every fail-closed drop bumps the counter once")
+  ;; Well-formed stamps don't bump the counter.
+  (sensitive/sensitive-event? {:sensitive? true})
+  (sensitive/sensitive-event? {:sensitive? false})
+  (sensitive/sensitive-event? {:sensitive? nil})
+  (sensitive/sensitive-event? {})
+  (is (= 3 (sensitive/malformed-count))
+      "true / false / nil / absent stamps do NOT bump the counter")
+  (sensitive/reset-malformed-count!))
+
+(deftest reset-malformed-count!-zeroes-the-counter
+  (binding [*err* (java.io.StringWriter.)]
+    (sensitive/sensitive-event? {:sensitive? "true"}))
+  (is (pos? (sensitive/malformed-count))
+      "precondition: a fail-closed drop has bumped the counter")
+  (is (zero? (sensitive/reset-malformed-count!))
+      "reset returns the new value (zero)")
+  (is (zero? (sensitive/malformed-count))
+      "reset zeroes the counter for the next test"))
+
 (deftest scrub-snapshot-2-arity-delegates-to-strip-sensitive
   ;; The 2-arity form is the default-suppress shape used by story-mcp /
   ;; causa-mcp; its contract that it delegates to `strip-sensitive` is

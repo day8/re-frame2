@@ -54,13 +54,28 @@
            (java.util.concurrent.atomic.AtomicLong. 0))
    :cljs (defonce ^:private malformed-counter (atom 0)))
 
-(defn- malformed-count
+(defn malformed-count
   "Read the count of malformed `:sensitive?` stamps observed since
-  process start. Exposed for tests and operator surfaces; not part of
-  the wire vocabulary."
+  process start (or since the last `reset-malformed-count!`). The
+  fail-closed posture (rf2-ih7g4) is silent on the wire — the counter
+  is the operator-surface observability hook. Public so operator
+  dashboards and tests can read the gate's activity.
+
+  Returns a non-negative integer."
   []
   #?(:clj  (.get ^java.util.concurrent.atomic.AtomicLong malformed-counter)
      :cljs @malformed-counter))
+
+(defn reset-malformed-count!
+  "Reset the malformed-stamp counter to zero. The counter is a
+  process-wide singleton; tests that exercise the fail-closed path
+  call this to isolate their increments from other tests' increments.
+  Returns the new value (always zero)."
+  []
+  #?(:clj  (do (.set ^java.util.concurrent.atomic.AtomicLong malformed-counter 0)
+               0)
+     :cljs (do (reset! malformed-counter 0)
+               0)))
 
 (defn- bump-malformed!
   "Increment the malformed-stamp counter. Internal."

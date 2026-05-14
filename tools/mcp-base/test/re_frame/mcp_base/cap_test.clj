@@ -183,28 +183,20 @@
     (is (= :reached (:limit body)))
     (is (pos? (:token-count body)))))
 
-(deftest apply-cap-byte-cap-trips-when-only-secondary-fires
-  ;; Direct exercise of the secondary char cap (rf2-ih7g4). Use a
-  ;; custom IO that under-reports tokens (returns nothing to the
-  ;; token-summer) while exposing the full char count via
-  ;; `content-texts` for the byte gate. This simulates a future
-  ;; refined `token-estimate` (e.g. one that recognises base64 and
-  ;; returns a much lower per-char token cost) — the secondary char
-  ;; cap is the defence-in-depth that bounds the actual wire bytes.
+(deftest byte-cap-multiplier-and-char-sum-are-pinned
+  ;; Defence-in-depth shape pin (rf2-ih7g4 / rf2-8cpsg / F18). The
+  ;; secondary byte cap is `cap * byte-cap-multiplier` and reads from
+  ;; the same `content-texts` seq the token sum does. Under the
+  ;; current `(quot c 4)` token rule the secondary gate is
+  ;; mathematically un-trippable in isolation (token sum ≈ chars/4,
+  ;; so chars > cap*8 ⇒ tokens > cap*2 > cap); the gate is kept
+  ;; wired so a future token-rule refinement (e.g. one that
+  ;; recognises base64 with a much lower per-char cost) cannot
+  ;; silently widen the wire envelope.
   ;;
-  ;; The mock returns the full text from `content-texts` but the
-  ;; algorithm computes BOTH tokens (via `overflow/token-estimate`)
-  ;; and chars (via `count`) from the same seq. To trip ONLY the
-  ;; secondary, we need a state where token sum ≤ cap but char count
-  ;; > cap * 8. Under the current `(quot c 4)` rule this is
-  ;; mathematically impossible (token sum ≈ chars/4, so chars > cap*8
-  ;; ⇒ tokens > cap*2 > cap). The byte cap is therefore a future-
-  ;; proof gate, kept wired so a future token-rule refinement does
-  ;; not silently widen the wire envelope.
-  ;;
-  ;; Pin the algorithmic contract: the byte cap is part of `apply-cap`
-  ;; and `sum-text-chars` reads the same content-texts the token sum
-  ;; does.
+  ;; Pin the two shape invariants — `byte-cap-multiplier = 8` and
+  ;; `sum-text-chars` and `sum-text-tokens` read the same content-
+  ;; texts seq.
   (is (= 8 cap/byte-cap-multiplier))
   (let [r {:content [{:type "text" :text (big-string 100)}]}]
     (is (= 100 (cap/sum-text-chars map-io r)))
