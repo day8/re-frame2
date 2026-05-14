@@ -190,8 +190,18 @@
          ;; Only unregister from the registrar if this was the LAST
          ;; frame holding the flow id — otherwise other frames still
          ;; need the registry slot for hot-reload tracking.
-         (when (every? (fn [[_ frame-flows]] (not (contains? frame-flows id)))
-                       @flows)
+         ;;
+         ;; Cost shape: O(F) over frame count, short-circuits on first
+         ;; hit via `not-any?` (cheaper than the prior double-negated
+         ;; `every? not contains?`). At v1 frame counts (typically 1-3
+         ;; — :rf/default plus the occasional `:left`/`:right`/`:scratch`)
+         ;; this is trivial. If a profile-driven hot path shows
+         ;; many-frame topologies stressing `clear-flow`, the optimisation
+         ;; is a reverse index `{flow-id #{frame-id ...}}` maintained by
+         ;; `reg-flow` and `clear-flow` — the contains-by-other-frame
+         ;; check then becomes O(1). Deferred until measurement warrants
+         ;; the extra atom.
+         (when (not-any? #(contains? % id) (vals @flows))
            (registrar/unregister! :flow id))
          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
          ;; clear-flow has removed the flow from the per-frame registry
