@@ -39,9 +39,6 @@
        `:sensitive?` stamp on the event)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.flows :as flows]
             [re-frame.schemas :as schemas]
             ;; Per rf2-t0hq + rf2-qyfie — the Malli adapter ns must be
             ;; required at boot to publish the late-bind hook the
@@ -49,20 +46,9 @@
             ;; the validator soft-passes per Spec 010 §Recommended
             ;; soft-pass.
             [re-frame.schemas.malli]
-            [re-frame.spec :as spec]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.schemas.test-fixture :as tf]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  (schemas/reset-schema-validator!)
-  (spec/clear-boundary-warned-handler-ids!)
-  (rf/init! plain-atom/adapter)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each tf/reset-runtime)
 
 ;; ---- walker unit tests ----------------------------------------------------
 

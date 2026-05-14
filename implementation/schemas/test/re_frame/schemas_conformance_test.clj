@@ -80,9 +80,7 @@
             [re-frame.conformance :as conformance]
             [re-frame.core :as rf]
             [re-frame.cofx :as cofx]
-            [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             ;; Per rf2-t0hq + rf2-qyfie — the Malli adapter ns must be
             ;; required at boot to publish the late-bind hook the
@@ -90,34 +88,12 @@
             ;; expects Malli-backed validation outcomes; absent the
             ;; require the validator soft-passes (no failure traces).
             [re-frame.schemas.malli]
-            [re-frame.spec :as spec]
+            [re-frame.schemas.test-fixture :as tf]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
-;; ---- shared reset fixture -------------------------------------------------
-;;
-;; Same shape as `schemas_test/reset-runtime`. Per Spec 010 §Schemas as
-;; tooling, the `schemas-by-frame` slot accumulates registrations across
-;; tests; clearing between fixtures keeps each run isolated.
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  ;; Per rf2-froe — `set-schema-validator!` swaps the framework
-  ;; validator/explainer atoms; restore Malli defaults so a fixture
-  ;; that hot-swaps them does not poison sibling fixtures.
-  (schemas/reset-schema-validator!)
-  ;; Per rf2-r2uh — the boundary interceptor's warn-once cache must
-  ;; reset between tests so each fixture sees a clean suppression slate.
-  (spec/clear-boundary-warned-handler-ids!)
-  (rf/init! plain-atom/adapter)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each tf/reset-runtime)
 
 ;; ---- fixture discovery ----------------------------------------------------
 

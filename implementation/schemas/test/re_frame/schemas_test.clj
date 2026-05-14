@@ -28,10 +28,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.flows :as flows]
             [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
             ;; Per rf2-t0hq the default validator routes through the
@@ -42,27 +39,11 @@
             ;; opt-in on both runtimes; without it the default
             ;; validator soft-passes (Spec 010 §Recommended soft-pass).
             [re-frame.schemas.malli]
+            [re-frame.schemas.test-fixture :as tf]
             [re-frame.spec :as spec]
-            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  ;; Per rf2-froe — `set-schema-validator!` swaps the framework
-  ;; validator/explainer atoms; restore the Malli defaults so a test
-  ;; that mutates them does not poison sibling tests.
-  (schemas/reset-schema-validator!)
-  ;; Per rf2-r2uh — the boundary interceptor's warn-once cache for
-  ;; `:rf.warning/boundary-without-spec` must reset between tests so
-  ;; each test sees a clean suppression slate.
-  (spec/clear-boundary-warned-handler-ids!)
-  (rf/init! plain-atom/adapter)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each tf/reset-runtime)
 
 ;; ---- elision toggle -------------------------------------------------------
 
