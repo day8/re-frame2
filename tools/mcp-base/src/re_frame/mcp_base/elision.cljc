@@ -49,11 +49,10 @@
   per Conventions §Cross-MCP indicator-field vocabulary."
   [v]
   (cond
-    (and (map? v) (contains? v vocab/large-elided-key))
-    1
-
     (map? v)
-    (reduce-kv (fn [n _k child] (+ n (count-elided-markers child))) 0 v)
+    (if (contains? v vocab/large-elided-key)
+      1
+      (reduce-kv (fn [n _k child] (+ n (count-elided-markers child))) 0 v))
 
     (or (vector? v) (set? v) (seq? v))
     (reduce (fn [n child] (+ n (count-elided-markers child))) 0 v)
