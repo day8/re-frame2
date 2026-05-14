@@ -463,7 +463,7 @@ process and reload-safely.
 | `:rf.causa/copilot-stream-token` | `[_ token]` | Appends one streamed token to the in-flight answer. |
 | `:rf.causa/copilot-stream-end` | `[_]` | Marks the in-flight turn as no-longer streaming. |
 | `:rf.causa/copilot-clear-conversation` | `[_]` | Clears the buffer. Per spec §Ephemeral conversation, in-memory only. |
-| `:rf.causa/copilot-chip-clicked` | `[_ {:target :value}]` | `event-fx` — dispatches the resolved target with the chip's value. Unknown chips no-op. |
+| `:rf.causa/copilot-chip-clicked` | `[_ {:chip-key :value}]` | `event-fx` — resolves the target server-side from the fixed `chip-targets` allowlist in `ai-co-pilot-helpers` and dispatches it with the chip's value as arg. Unknown chip-keys no-op. Per rf2-cm93v the handler accepts only `:chip-key` + `:value`; any caller-supplied `:target` slot is ignored. |
 
 ### Effects
 
