@@ -13,7 +13,7 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 
 | Sub-namespace | Used for | Spec |
 |---|---|---|
-| `:rf/*` | Pattern-level events emitted or consumed by the framework (e.g. `:rf/hydrate`, `:rf/server-init`); reserved app-db keys (`:rf/machines`, `:rf/route`); pattern-level effect-map keys; the universal default frame id (`:rf/default`) | 002 / 011 / 012 |
+| `:rf/*` | Pattern-level events emitted or consumed by the framework (e.g. `:rf/hydrate`, `:rf/server-init`); reserved app-db keys (`:rf/machines`, `:rf/route`); pattern-level effect-map keys; reserved hiccup heads (`:rf/suspense-boundary` per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — rf2-ojakd / rf2-olb64 (a)); the universal default frame id (`:rf/default`) | 002 / 011 / 012 |
 | `:rf.frame/<gensym>` | Anonymous frame-identifier namespace, owned by `make-frame` (e.g. `:rf.frame/123` for a gensym'd frame id). | 002 |
 | `:rf.frame/<operation>` | Frame-lifecycle trace-operation namespace, owned by the router and frame lifecycle (e.g. `:rf.frame/drain-interrupted`, `:rf.frame/destroyed`). | 002 / 009 |
 | `:rf.registry/*` | Registrar mutation trace operations (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`) | 001 / 009 |
