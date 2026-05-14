@@ -5,11 +5,12 @@ description: >
   improvement ideas for the `re-frame-pair2` skill, scripts, MCP
   surface, or upstream `re-frame2` Tool-Pair contract. Surfaces
   friction, wasted effort, missing observability, workflow mismatches,
-  and high-leverage product gaps; optionally drafts a `bd` bead the
-  user can file. Activates on two triggers: (a) **explicit pull** —
-  user asks for a retrospective on a recent pair session ("retro on
-  this pair session", "what went wrong with my pair session", "review
-  my re-frame-pair2 session", "draft a bead about that"); or (b)
+  and high-leverage product gaps; optionally drafts a GitHub issue
+  the user can file against the target repo. Activates on two
+  triggers: (a) **explicit pull** — user asks for a retrospective
+  on a recent pair session ("retro on this pair session", "what went
+  wrong with my pair session", "review my re-frame-pair2 session",
+  "draft an issue about that"); or (b)
   **post-error within a pair2 session** — after a stack trace, failed
   dispatch, red CI, or `:on-error` policy fire during live pair2 work,
   to post-mortem the immediate firefight. Acceptable evidence is
