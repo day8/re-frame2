@@ -1,4 +1,4 @@
-# 10. App-DB diff
+# 9. App-DB diff
 
 You just dispatched `:checkout/start` on the cart-total testbed and half the tree moved. The Event-detail panel's mini-diff is the right size for "one leaf changed" — what you want now is the *whole* delta, slice by slice, with the un-touched 90% of the tree out of the way. App-DB panel is what you escalate to.
 
@@ -6,7 +6,7 @@ You just dispatched `:checkout/start` on the cart-total testbed and half the tre
 
 The panel renders the diff of the **current epoch** (the one selected in Event detail or the time-travel scrubber) — `:db-before` and `:db-after`, slice-aware.
 
-![App-DB diff for a cascade](../images/causa/10-app-db-diff.png)
+![App-DB diff for a cascade](../images/causa/09-app-db-diff.png)
 
 ## Slice-centric, not tree dump
 
@@ -20,7 +20,7 @@ It renders **only the slices that changed**, plus any slices you've explicitly *
 
 You pick the rendering mode that fits the diff size. The first cascade after app boot is a big diff (everything went from `{}` to seeded); subsequent cascades are usually a single nested update.
 
-![App-DB panel — the three rendering modes side-by-side](../images/causa/10-app-db-modes.png)
+![App-DB panel — the three rendering modes side-by-side](../images/causa/09-app-db-modes.png)
 
 ## Pinning slices
 
@@ -57,4 +57,4 @@ Three patterns the diff handles distinctively:
 - "I think a sub is stale, but `app-db` says the value's right." — pin both the slot and the sub's recompute marker; watch them tick together.
 - "I want a session-long watch on `:auth/state`." — pin it; the panel paints it on every epoch.
 
-Next: [the MCP-server panel](11-mcp-server.md).
+Next: [the AI co-pilot rail](10-ai-copilot.md).

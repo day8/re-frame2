@@ -1,4 +1,4 @@
-# 9. Machine inspector
+# 8. Machine inspector
 
 You have a login flow with six states — `:idle`, `:submitting`, `:error`, `:submitting-retry`, `:authenticated`, `:locked-out` — and the user reports they can't get back from `:error` to `:submitting-retry`. The retry button is wired; the click fires; nothing transitions. You squint at the machine spec; the guard looks fine.
 
@@ -6,7 +6,7 @@ You open Causa, click *Machines*, and there it is: the diagram paints the attemp
 
 The panel renders each registered machine as a Stately-quality state-chart. Live.
 
-![Machine inspector with state-chart](../images/causa/09-machines.png)
+![Machine inspector with state-chart](../images/causa/08-machines.png)
 
 ## What you see
 
@@ -55,4 +55,4 @@ This is a deliberate split: the panel is a *read* tool. The runtime exposes the 
 - **Machines in stopped frames.** If a frame has been destroyed, its machines are gone too. The panel only shows live frames.
 - **History across `restore-epoch`.** Rewinding the host frame rewinds the machine too — that's the snapshot-as-value contract. The diagram retargets at the historical state without "playing back" the transitions; if you want the played-back transitions, walk the trace stream around the rewind.
 
-Next: [the app-DB diff](10-app-db-diff.md).
+Next: [the app-DB diff](09-app-db-diff.md).
