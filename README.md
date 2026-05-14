@@ -115,7 +115,7 @@ The reference implementation and tooling is **Beta adjacent**. The first goal wa
 
 To smoke test, we are building apps on the reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
-You should absolutely not use it yet — it is certainly stabilising but may yet change at any time. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. Use the Skills, Luke: [re-frame-migration] for you-know-what, then [re-frame-pair] for coding. Finally, use [re-frame-pair-retro] to file an issue if you find friction.
+You should absolutely not use it yet — it is certainly stabilising but may yet change at any time. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. Use the Skills, Luke: [re-frame-migration] for you-know-what, then [re-frame-pair] for coding. Finally, use [re-frame-pair-retro] to do a session retrospective and file an issue if you find friction.
 
 
 ## AI first
