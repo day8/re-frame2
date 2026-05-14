@@ -1,10 +1,6 @@
 # The re-frame2 Guide
 
-This is the **human-facing** track. It tells the *why*, in narrative voice, with examples and opinions. It's marketing for the pattern.
-
-If you're an AI agent or implementor, you want the [specification](../../spec/README.md) instead — drier, more precise, built for one-shot scaffolding.
-
-> Coming straight to this folder? The site [front page](../index.md) has the three-pillar pitch (spec-first, views-derivative, tooling-first-class). This guide picks up from there and walks the pattern in narrative form, with ClojureScript code, end to end.
+This is the human-facing guide for the ClojureScript reference implementation.
 
 ## Chapters
 
