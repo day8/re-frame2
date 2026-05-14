@@ -6,7 +6,7 @@
   reify, story-mcp's CLJ-map reify) are exercised against the real
   pipeline in their respective test suites; the unit tests here pin
   the algorithm itself."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.mcp-base.cap :as cap]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]))
