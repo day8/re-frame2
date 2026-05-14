@@ -86,6 +86,31 @@
     (when-not (get-in f [:lifecycle :destroyed?])
       f)))
 
+(defn frame-disposed-for-drain?
+  "Per rf2-68kok / Spec 002 §Frame disposal mid-drain: predicate used
+  by the router's drain loop to interrupt a pass when the frame was
+  destroyed mid-cycle. True when EITHER:
+
+    (a) The frame record still exists but `:destroyed?` is flipped
+        (post-step-3 of `destroy-frame!`, before step-6 dissoc), OR
+    (b) The frame record is absent from the `frames` atom (post-step-6
+        of `destroy-frame!` — the dissoc step has run).
+
+  Returns false when `id` is registered and not destroyed. Calling for
+  a never-registered `id` returns true — that case is benign for the
+  drain-loop caller (a drain cannot run on a frame that was never
+  registered), but the predicate is named `*-for-drain?` to make the
+  intended seam explicit and avoid suggesting general
+  destroyed-vs-never-registered discrimination."
+  [id]
+  (if-let [f (get @frames id)]
+    (true? (get-in f [:lifecycle :destroyed?]))
+    ;; Absent from the atom — destroy-frame!'s step 6 ran, OR the id
+    ;; was never registered. The drain-loop caller only consults this
+    ;; while a pass is already in flight, so the latter case cannot
+    ;; arise from that seam.
+    true))
+
 (defn frame-meta
   "Per Spec 002 §The public registrar query API and Spec-Schemas
   §`:rf/frame-meta`: return the effective metadata map for a frame as a
