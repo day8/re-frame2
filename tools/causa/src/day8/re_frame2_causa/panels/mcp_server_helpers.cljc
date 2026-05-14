@@ -308,8 +308,14 @@
 ;; ---- composite projection (the panel reads this) ------------------------
 
 (defn project-feed
-  "Top-level projection — produces every slot the view needs in one
-  pass. Pure data → data; JVM-testable.
+  "Top-level projection — produces every slot the view needs. Pure
+  data → data; JVM-testable.
+
+  Walks the trace buffer once via `project-rows`, applies the filter
+  pass, and computes the op-type histogram + distinct-axis off the
+  projection. Cost is bounded by the trace ring depth (Spec 009
+  §Trace bus). The single-pass collapse is deferred until row caps
+  land and measurable residual cost remains (rf2-60vcu).
 
   Returns:
 
