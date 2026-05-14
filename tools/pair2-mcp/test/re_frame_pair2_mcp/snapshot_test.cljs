@@ -71,8 +71,13 @@
 ;; `:include-sensitive?` into the walker's opt) is pinned in
 ;; `re-frame-pair2-mcp.elision-test` via the production `build-snapshot-form`
 ;; mirror — see `snapshot-form-walks-both-app-db-and-sub-cache` and
-;; `snapshot-form-threads-include-sensitive`. Driving `snapshot-tool`
-;; directly here would race against `invoke-test`'s var-swap stubs of
-;; `snapshot/snapshot-tool` itself (their `.finally` restores can outrun
-;; the next async test's start), so we keep the mirror approach.
+;; `snapshot-form-threads-include-sensitive`.
+;;
+;; Historical note: `invoke-test` used to stub `snapshot/snapshot-tool`
+;; via direct `set!` with `.finally` restoration; the `.finally` could
+;; outrun the test's `(done)`, leaking the stub into the next async
+;; test (rf2-wb06a). Fixed by moving restoration to a `use-fixtures`
+;; `:after` step — cleanup is now Promise-chain-independent. The
+;; mirror approach here is still preferred for isolation, but it is
+;; no longer a race-safety necessity.
 ;; ---------------------------------------------------------------------------
