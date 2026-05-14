@@ -162,7 +162,7 @@ Body:
 ```
 
 Per [spec/007 §Story-tool extension hook](../../../spec/007-Stories.md).
-The render shell reads `(rf/registrations :story-panel)` and lays them out.
+The render shell reads `(story/registrations :story-panel)` and lays them out.
 The five-rule embed contract is defined in
 [`006-MCP-Surface.md`](006-MCP-Surface.md) and
 [`003-Render-Shell.md`](003-Render-Shell.md).
@@ -216,11 +216,11 @@ Query the default-excluded set via:
 - `(story/tags-default-excluded)` — set of tag ids with `:default-filter :exclude`.
 
 ```clojure
-(rf/reg-tag :auth/regression-set
+(story/reg-tag :auth/regression-set
   {:doc  "Auth regression-suite variants."
    :axis :team})
 
-(rf/reg-tag :alpha
+(story/reg-tag :alpha
   {:doc            "Pre-release status."
    :axis           :status
    :default-filter :exclude})
@@ -256,11 +256,11 @@ toolbar grouping hint.
 Example:
 
 ```clojure
-(rf/reg-mode :Mode.app/dark-mobile
+(story/reg-mode :Mode.app/dark-mobile
   {:doc  "Dark theme on a mobile viewport."
    :args {:theme :dark :viewport :mobile :locale :en}})
 
-(rf/reg-mode :Mode.app/light-desktop
+(story/reg-mode :Mode.app/light-desktop
   {:args {:theme :light :viewport :desktop :locale :en}})
 ```
 
@@ -278,12 +278,17 @@ Worked examples illustrating every aspect of the authoring grammar.
 
 ```clojure
 (ns app.stories.button
-  (:require [re-frame.story :as story]
-            [app.ui.button :refer [button]]))
+  (:require [re-frame.core :as rf]
+            [re-frame.story :as story]))
+
+;; The view is registered under a keyword id (per spec/004 §reg-view).
+(rf/reg-view :app.ui/button
+  (fn [args]
+    [:button.btn (:label args)]))
 
 (story/reg-story :story.ui.button
   {:doc       "Primary action button."
-   :component button
+   :component :app.ui/button             ;; keyword id of a registered :view
    :args      {:label "Click me"}})
 
 (story/reg-variant :story.ui.button/default
@@ -325,13 +330,13 @@ Author writes zero `:argtypes` unless overriding the auto-derivation.
 ### Decorators and `:args->events`
 
 ```clojure
-(rf/reg-decorator :centered-layout
+(story/reg-decorator :centered-layout
   {:doc  "Centre the rendered content."
    :kind :hiccup
    :wrap (fn [body _]
            [:div.flex.items-center.justify-center.h-screen body])})
 
-(rf/reg-decorator :mock-auth
+(story/reg-decorator :mock-auth
   {:doc  "Inject a mock authenticated user into the variant's frame."
    :kind :frame-setup
    :init [[:auth/restore-session {:user "alice"}]]})
@@ -412,10 +417,10 @@ Resolution at registration time. Cycles raise
 ### Modes (saved tuples)
 
 ```clojure
-(rf/reg-mode :Mode.app/dark-mobile
+(story/reg-mode :Mode.app/dark-mobile
   {:args {:theme :dark :viewport :mobile}})
 
-(rf/reg-mode :Mode.app/light-desktop
+(story/reg-mode :Mode.app/light-desktop
   {:args {:theme :light :viewport :desktop}})
 
 (story/reg-story :story.ui.button

@@ -629,14 +629,14 @@
   adapter pattern from spec/007 §Portable into tests:
 
       (deftest counter-empty-state
-        (let [result @(rf/run-variant :story.counter/empty {})]
-          (is (rf.story/assertions-passing? result))))"
+        (let [result @(story/run-variant :story.counter/empty {})]
+          (is (story/assertions-passing? result))))"
   [assertions-or-result]
   (assertions/passing? assertions-or-result))
 
 (defn read-assertions
   "Per IMPL-SPEC §3.5 — return the assertions vector accumulated against
-  `variant-id`'s frame. Identical to `(:assertions (rf/run-variant ...))`
+  `variant-id`'s frame. Identical to `(:assertions (story/run-variant ...))`
   but doesn't re-run the variant. Useful for live introspection from the
   UI shell or REPL."
   [variant-id]

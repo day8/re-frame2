@@ -130,7 +130,7 @@ panel (Causa is the structural successor to re-frame-10x, per
 Lock #1):
 
 ```clojure
-(rf/reg-story-panel :rf.story/causa-epoch
+(story/reg-story-panel :rf.story/causa-epoch
   {:doc       "Causa's epoch buffer for the active variant."
    :title     "Epochs (Causa)"
    :placement :bottom

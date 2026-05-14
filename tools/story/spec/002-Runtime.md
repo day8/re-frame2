@@ -227,13 +227,17 @@ each; substrate-specific failures show inline (see
 ## Tag-vocabulary queries
 
 ```clojure
-(rf/registrations :tag)                               ; all registered tags
-(rf/registrations :tag #(contains? (:tags %) :auth))  ; filtered
+(story/registrations :tag)                               ; all registered tags
+(story/registrations :tag #(contains? (:tags %) :auth))  ; filtered
 ```
 
-Already framework-supplied via the
-[spec/001 registrar query API](../../../spec/001-Registration.md);
-Story registers the seven canonical tags at load.
+`story/registrations` is the Public-query parity bridge over the
+tool-owned side-table at `tools.story.registry/*` (see
+[spec/007 §Story-tool extension hook](../../../spec/007-Stories.md));
+it mirrors the framework's
+[spec/001 registrar query API](../../../spec/001-Registration.md)
+shape over Story's own kinds. Story registers the seven canonical
+tags at load.
 
 ## Open items (Stage 3 picks)
 

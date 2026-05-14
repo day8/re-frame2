@@ -7,7 +7,7 @@
   Per IMPL-SPEC §3.1 + §4.5 (Stage 6 addition) — a story panel is
   registered via:
 
-      (rf/reg-story-panel <panel-id>
+      (story/reg-story-panel <panel-id>
         {:doc          \"...\"
          :title        \"...\"             ;; sidebar / tab label
          :placement    :right|:left|:bottom|:top|:modal
@@ -15,7 +15,7 @@
          :enabled-when (optional)         ;; predicate fn from registry → boolean
          :for          #{<context-id>}})  ;; optional: contexts the panel belongs to
 
-  The shell's panel-host component reads `(rf/registrations :story-panel)`
+  The shell's panel-host component reads `(story/registrations :story-panel)`
   + the shell's `:panel-visibility` map and renders every visible
   panel into its `:placement` slot. The `:render` view receives the
   current variant-id as its single arg.
@@ -38,7 +38,7 @@
 
   When Causa is ready, the stub registration replaces with:
 
-      (rf/reg-story-panel :rf.story.panel/epoch
+      (story/reg-story-panel :rf.story.panel/epoch
         {:title \"Epochs (10x)\"
          :placement :bottom
          :render :rf.epoch-10x/panel-view})
@@ -133,7 +133,7 @@
     "view will register under the same id (" (pr-str epoch-panel-render-id)
     ") when " [:code "day8/re-frame2-10x"] " is on the classpath."]
    [:pre {:style (:stub-code styles)}
-    (str "(rf/reg-story-panel " epoch-panel-id "\n"
+    (str "(story/reg-story-panel " epoch-panel-id "\n"
          "  {:title     \"Epochs (10x)\"\n"
          "   :placement :bottom\n"
          "   :render    " epoch-panel-render-id "})")]])

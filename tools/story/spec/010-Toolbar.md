@@ -101,17 +101,17 @@ A `reg-mode` body MAY carry an optional `:axis` keyword that groups
 modes for the toolbar's chip layout:
 
 ```clojure
-(rf/reg-mode :Mode.app/dark-theme
+(story/reg-mode :Mode.app/dark-theme
   {:doc  "Dark theme."
    :axis :theme
    :args {:theme :dark}})
 
-(rf/reg-mode :Mode.app/light-theme
+(story/reg-mode :Mode.app/light-theme
   {:doc  "Light theme."
    :axis :theme
    :args {:theme :light}})
 
-(rf/reg-mode :Mode.app/mobile-viewport
+(story/reg-mode :Mode.app/mobile-viewport
   {:doc  "Mobile viewport."
    :axis :viewport
    :args {:viewport :mobile}})

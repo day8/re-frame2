@@ -29,7 +29,7 @@
 
   Add one or more to a variant's `:decorators`:
 
-      (rf/reg-variant :story.button/pressed
+      (story/reg-variant :story.button/pressed
         {:decorators [[:rf.story/layout-debug.outline]
                       [:rf.story/layout-debug.pseudo #{:hover :focus}]]
          :events     [...]})
