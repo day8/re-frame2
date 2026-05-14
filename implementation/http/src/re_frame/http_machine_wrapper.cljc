@@ -42,6 +42,7 @@
   façade for source-coord capture) — per Spec 014 §Testing."
   (:require [re-frame.fx           :as fx]
             [re-frame.http-encoding :as encoding]
+            [re-frame.http-middleware :as middleware]
             [re-frame.late-bind    :as late-bind]))
 
 ;; rf2-2utlm — the canned stubs delegate to `encoding/dispatch-reply-
@@ -59,9 +60,35 @@
 ;; `encoding/resolve-origin-event` (single source of truth shared with
 ;; `http-managed/managed-handler`).
 
-(defn canned-success-handler
-  "Stub fx — synthesises a success reply per Spec 014 §Testing."
+(defn- run-request-chain
+  "Per rf2-yhfgf — the request-side middleware chain (Spec 014 §Middleware)
+  fires for every issued request, not just real-transport ones. The canned
+  stub fxs replace the TRANSPORT, not the entire managed pipeline, so they
+  walk the chain before synthesising the reply. The chain's `:before` fns
+  may carry load-bearing side effects (auth-token attachment, idempotency-
+  key stamping, observability) that the canned path would otherwise mask.
+
+  A throw inside any `:before` raises `:rf.error/http-interceptor-failed`
+  with the same classification the real handler emits (per `run-interceptor-
+  chain!`), and the canned reply is NOT dispatched."
   [frame-ctx args-map]
+  (let [frame-id     (or (:frame frame-ctx) :rf/default)
+        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        ctx0         {:request (:request args-map)
+                      :args    args-map
+                      :frame   frame-id
+                      :event   origin-event}]
+    (middleware/run-interceptor-chain! frame-id ctx0)))
+
+(defn canned-success-handler
+  "Stub fx — synthesises a success reply per Spec 014 §Testing.
+
+  Per rf2-yhfgf — walks the per-frame request-side interceptor chain
+  before synthesising the reply, so `:before` interceptors with
+  load-bearing side effects (auth headers, observability) fire on the
+  canned path the same way they fire on the real-transport path."
+  [frame-ctx args-map]
+  (run-request-chain frame-ctx args-map)
   (let [value (get args-map :value {:stubbed true})]
     (encoding/dispatch-reply-via-late-bind!
       {:origin-event  (encoding/resolve-origin-event frame-ctx args-map)
@@ -73,7 +100,14 @@
     nil))
 
 (defn canned-failure-handler
+  "Stub fx — synthesises a failure reply per Spec 014 §Testing.
+
+  Per rf2-yhfgf — walks the per-frame request-side interceptor chain
+  before synthesising the reply (symmetric with `canned-success-handler`).
+  Real-transport failures still go through the chain too; the canned path
+  honours the same pre-transport contract."
   [frame-ctx args-map]
+  (run-request-chain frame-ctx args-map)
   (let [kind    (or (:kind args-map) :rf.http/transport)
         tags    (or (:tags args-map) {})
         failure (assoc tags :kind kind)]

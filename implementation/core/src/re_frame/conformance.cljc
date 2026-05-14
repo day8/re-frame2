@@ -31,7 +31,8 @@
     [:fn :keyword arg1 ...]         partial application of a builtin
 
   Builtins: :inc :dec :+ :- :* :/ :identity :conj :assoc :dissoc
-            :item-amount :count")
+            :item-amount :count"
+  (:require [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -200,12 +201,85 @@
         :else
         (resolve-value last-step ctx)))))
 
+;; ---- :rf.fx/reg-http-interceptor — DSL `:before` body --------------------
+;;
+;; Per rf2-yhfgf — the conformance corpus drives `:rf.fx/reg-http-interceptor`
+;; via pure-data EDN, so an interceptor's `:before` slot is a DSL body
+;; rather than a fn literal. The harness realises that DSL into a real
+;; `(fn [ctx] ctx')` at fx-resolution time so the chain runner (which
+;; lives in `re-frame.http-middleware`, unaware of the DSL) can invoke
+;; it the same way it invokes a hand-written `:before`.
+;;
+;; Body operator set is minimal — the chain's contract is "transform the
+;; request map and return the modified ctx", so the DSL covers the pieces
+;; that touch ctx.:request plus the dispatch escape hatch fixtures use to
+;; record "the interceptor fired" observably:
+;;
+;;   [:assoc-in-request path value]   — `(assoc-in ctx [:request & path] value)`
+;;   [:dispatch event-vec]            — enqueue `event-vec` on the originating
+;;                                       frame (lands in the next drain cycle)
+;;
+;; The realised fn looks up the router's dispatch entry point via the
+;; `:router/dispatch!` late-bind hook so the conformance ns stays free
+;; of a static require on `re-frame.router` (mirrors how `frame.cljc`
+;; reaches dispatch from the lifecycle path). The dispatched event is
+;; the deterministic seam fixtures use to write "interceptor fired"
+;; markers into app-db.
+
+(defn realise-interceptor-before-fn
+  "DSL `:before` body → `(fn [chain-ctx] chain-ctx')`.
+
+  Operators:
+    [:assoc-in-request path v]   — `(assoc-in ctx [:request & path] v)`
+    [:dispatch event-vec]        — enqueue `event-vec` on `(:frame ctx)`;
+                                    the dispatch lands in the next drain
+                                    cycle, after the current request
+                                    settles.
+    [:noop]                       — explicit no-op
+
+  Value forms inside `path` / `v` / `event-vec` resolve via `resolve-value`
+  against a ctx exposing `:request` (the live request slot at body time)
+  and `:event` (the originating event vector)."
+  [steps]
+  (fn [chain-ctx]
+    (let [dispatch! (late-bind/get-fn :router/dispatch!)
+          frame-id  (:frame chain-ctx)]
+      (reduce
+        (fn [acc step]
+          (let [resolver-ctx {:request (:request acc)
+                              :event   (:event acc)
+                              :db      (:request acc)}]
+            (case (first step)
+              :assoc-in-request
+              (let [[_ path v] step
+                    rv (resolve-value v resolver-ctx)]
+                (update acc :request #(assoc-in % path rv)))
+
+              :dispatch
+              (let [[_ event-form] step
+                    ev (resolve-value event-form resolver-ctx)]
+                (when dispatch!
+                  (dispatch! ev {:frame frame-id}))
+                acc)
+
+              :noop acc
+
+              (throw (ex-info "unknown :before DSL op"
+                              {:op step :allowed #{:assoc-in-request
+                                                   :dispatch :noop}})))))
+        chain-ctx
+        steps))))
+
 (defn- resolve-fx-args
   "Resolve fx args, leaving DSL fields that the conformance harness owns
   alone. `:rf.fx/reg-flow`'s `:body` is itself a DSL body — it must NOT
   be walked through resolve-value (which would treat `[:fn :k ...]` as
   a value form and partially-apply it). Pull `:body` aside, resolve the
-  rest of the map normally, then realise `:body` into `:output`."
+  rest of the map normally, then realise `:body` into `:output`.
+
+  Per rf2-yhfgf — `:rf.fx/reg-http-interceptor`'s `:before` is also a
+  DSL body. Same shape, different realisation: the body becomes a
+  `(fn [chain-ctx] chain-ctx')` for the request-side middleware chain."
   [fx-id args ctx]
   (case fx-id
     :rf.fx/reg-flow
@@ -213,6 +287,14 @@
       (let [body          (:body args)
             other-resolved (resolve-value (dissoc args :body) ctx)]
         (assoc other-resolved :output (realise-flow-output-fn body)))
+      (resolve-value args ctx))
+
+    :rf.fx/reg-http-interceptor
+    (if (and (map? args) (contains? args :before))
+      (let [before-body    (:before args)
+            other-resolved (resolve-value (dissoc args :before) ctx)]
+        (assoc other-resolved :before
+               (realise-interceptor-before-fn before-body)))
       (resolve-value args ctx))
 
     (resolve-value args ctx)))

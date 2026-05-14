@@ -350,8 +350,10 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `epoch-ring-multi-dispatch.edn` | `:epoch/ring-multi-dispatch` | Multiple settled drains append to the epoch-history ring in oldest-first order; each record's `:db-before` chains from the previous `:db-after` |
 | `trace-buffer-filter-categories.edn` | `:trace-buffer/filter-categories` | One cascade reaches all four trace-bus categories — `:event` (lifecycle), `:rf.fx/handled`, `:sub/run`, `:rf.error/handler-exception` — so the trace-buffer's filter axes (`:op-type` / `:operation` / `:severity`) have reachable data per category |
 | `view-registration.edn` | `:view/registration` | `reg-view` registers a view body that consumes a sub; the registrar accepts the registration and the dependent sub returns the live post-drain value (the data a render-trigger would consume). Render-time observables remain out of scope per the §Render-time observables note below |
+| `http-interceptor-before-transforms.edn` | `:rf.http.interceptor/before-transforms` | `:rf.fx/reg-http-interceptor` registers a request-side `:before` interceptor (Spec 014 §Middleware, rf2-6y3q + rf2-yhfgf); the `:rf.http.interceptor/registered` trace fires at registration, and the body executes against the live ctx on a subsequent canned-success request — observable via a marker the body dispatches into app-db |
+| `http-interceptor-clear.edn` | `:rf.http.interceptor/clear` | `:rf.fx/clear-http-interceptor` unregisters an interceptor by id; the `:rf.http.interceptor/cleared` trace fires; a subsequent request runs WITHOUT the cleared body — the dispatched-marker counter advances on the pre-clear request and STAYS at one through the post-clear request |
 
-Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, and view registration.
+Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, and HTTP request interceptors.
 
 ## Render-time observables (out of scope)
 

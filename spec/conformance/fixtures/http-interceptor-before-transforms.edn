@@ -1,0 +1,118 @@
+;; Conformance fixture: rf.http.interceptor/before-transforms
+;;
+;; Per Spec 014 §Middleware (rf2-6y3q) + rf2-yhfgf — `:rf.fx/reg-http-
+;; interceptor` registers a request-side `:before` interceptor as an fx
+;; (rather than the direct fn-call `reg-http-interceptor`, which the
+;; pure-data conformance corpus has no surface for). The runtime emits
+;; a `:rf.http.interceptor/registered` trace at the registration site.
+;;
+;; The fixture exercises the contract end-to-end:
+;;   1. `:rf.fx/reg-http-interceptor` fires from `:app/init`, registering
+;;      a `:before` whose body adds an "Authorization" header to the
+;;      outbound request AND dispatches a fixture-internal event that
+;;      writes a marker into app-db so the chain-firing is observable.
+;;   2. `:article/load` issues a `:rf.http/managed` request; the runtime
+;;      walks the chain (per Spec 014 §Middleware) — for canned-success
+;;      fxs the chain walks too (rf2-yhfgf), so the `:before`'s side-
+;;      effects fire in the canned path. The fixture asserts on the
+;;      `:fixture/interceptor-fired` marker landing in app-db AND on
+;;      the canned-success reply reaching the `:on-success` target.
+;;
+;; The fixture takes no position on the chain modifying the OUTGOING
+;; request headers — the canned-success path doesn't reach a real
+;; transport, so the modified request is not externally observable
+;; here. The dispatched marker IS observable and proves the body
+;; executed against the live ctx.
+
+{:fixture/id           :rf.http.interceptor/before-transforms
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/fx :core/trace
+                         :rf.http/managed}
+ :fixture/doc          "reg-http-interceptor via :rf.fx/reg-http-interceptor — the registered :before's body modifies the request shape AND dispatches an observability marker; the marker lands in app-db. The :rf.http.interceptor/registered trace fires at registration; the canned-success reply reaches the :on-success target."
+
+ :fixture/registry
+ {:event {:app/init                     {:doc "Boot — register the interceptor."}
+          :article/load                 {:doc "Issue the GET."}
+          :article/loaded               {:doc "Receive the canned-success payload."}
+          :fixture/interceptor-fired    {:doc "Recorded by the :before's :dispatch op."}}
+  :sub   {:article            {:doc "The article slice."}
+          :interceptor-marker {:doc "The marker recorded by the :before."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-success {:platforms #{:client :server}}
+          :rf.fx/reg-http-interceptor     {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:app/init
+   [[:fx [[:rf.fx/reg-http-interceptor
+           {:id     :auth
+            :before [[:assoc-in-request [:headers "Authorization"]
+                      "Bearer fixture-token"]
+                     [:dispatch [:fixture/interceptor-fired :auth-applied]]]}]]]]
+
+   ;; The :fx-overrides redirect this to :rf.http/managed-canned-success
+   ;; (framework, rf2-yhfgf) which walks the middleware chain THEN
+   ;; synthesises the reply. :value is the payload the canned reply
+   ;; carries — the framework canned-success uses it verbatim.
+   :article/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :value      {:title "hello" :id 42}
+            :on-success [:article/loaded]}]]]]
+
+   :article/loaded
+   [[:set [:article] [:event-arg 1]]]
+
+   :fixture/interceptor-fired
+   [[:set [:interceptor-marker] [:event-arg 1]]]}
+
+  :sub
+  {:article            [[:get [:article]]]
+   :interceptor-marker [[:get [:interceptor-marker]]]}
+
+  ;; :rf.fx/reg-http-interceptor and :rf.http/managed-canned-success are
+  ;; intentionally NOT given fixture-DSL bodies — per the rf2-yhfgf harness
+  ;; rule, declaring an id in :fixture/registry :fx WITHOUT an explicit
+  ;; body in :fixture/handlers :fx leaves the framework registration in
+  ;; place. The framework's canned-success now walks the middleware
+  ;; chain before synthesising the reply (rf2-yhfgf), so the registered
+  ;; :before interceptor fires through the canned path.
+  :fx
+  {:rf.http/managed [[:noop]]}}
+
+ :fixture/frame-config
+ {:on-create    [:app/init]
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+
+ :fixture/dispatches
+ [[:article/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:article            {:kind  :success
+                        :value {:title "hello" :id 42}}
+   :interceptor-marker :auth-applied}
+
+  :sub-values
+  {[:article]            {:kind  :success
+                          :value {:title "hello" :id 42}}
+   [:interceptor-marker] :auth-applied}
+
+  ;; Order: the registration trace fires at :app/init. The first
+  ;; :article/load fires the canned-success fx (override-applied),
+  ;; which walks the middleware chain (rf2-yhfgf) — the :before
+  ;; dispatches :fixture/interceptor-fired BEFORE returning. Once the
+  ;; chain settles, canned-success synthesises the reply event
+  ;; :article/loaded which dispatches AFTER. The two dispatched events
+  ;; drain in FIFO order: :fixture/interceptor-fired first,
+  ;; :article/loaded second.
+  :trace-emissions
+  [{:operation :rf.http.interceptor/registered
+    :tags      {:frame :rf/default :id :auth}}
+   {:operation :event :tags {:event-id :article/load}}
+   {:operation :rf.fx/override-applied
+    :tags      {:from :rf.http/managed
+                :to   :rf.http/managed-canned-success}}
+   {:operation :event :tags {:event-id :fixture/interceptor-fired}}
+   {:operation :event :tags {:event-id :article/loaded}}]}}
