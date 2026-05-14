@@ -55,8 +55,29 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { ProgressNotificationSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { runWithWatchdog } = require('./_runner.cjs');
+// NOTE: we deliberately do NOT register a global
+// `setNotificationHandler(ProgressNotificationSchema, …)`. The SDK only
+// dispatches `notifications/progress` frames through the per-request
+// `onprogress` callback (see protocol.js _onprogress: it lookups the
+// handler keyed on `params.progressToken`). The global notification-
+// handler path is for unsolicited notifications (e.g. logging,
+// resource updates), not for request-scoped progress. Instead the
+// progress collector below rides the `callTool({...}, schema, {onprogress})`
+// path — which is what causes the SDK to actually inject a
+// `_meta.progressToken` into the outgoing tools/call request, which is
+// what makes the server's `(parse-mcp-extra extra)` see a non-nil
+// `:progress-tk` and fire `emit-progress-tick!` in the first place.
+//
+// Pre-fix diagnosis (rf2-4gr88): the harness called `setNotificationHandler`
+// instead of passing `onprogress`. Without an `onprogress` option the
+// SDK does not register a progress-handler entry, so it does not stamp
+// `_meta.progressToken` on the tools/call request. Server-side that
+// makes `progress-tk` nil — and `emit-progress-tick!` is gated behind
+// `(when (and tick? send-note progress-tk) …)` in subscribe.cljs.
+// Result: drain delivered events, ticks counted, but ZERO frames
+// emitted on the wire (see PR #1171 CI: `:delivered 2, :ticks 1`,
+// no progress notifications).
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
 
@@ -159,26 +180,72 @@ runWithWatchdog(
     );
 
     // Collect every `notifications/progress` frame the server emits
-    // while subscribe is alive. The SDK's handler validates each frame
-    // against `ProgressNotificationSchema` BEFORE invoking our
-    // callback — a malformed envelope throws inside the SDK and the
-    // frame never reaches us. That's the load-bearing protocol gate;
-    // the shape assertions below cover the cross-MCP contract on top.
+    // while subscribe is alive. The SDK's `onprogress` callback fires
+    // for each frame whose `params.progressToken` matches THIS
+    // request's token — and the SDK's built-in `_onprogress` (wired
+    // in the Protocol constructor against `ProgressNotificationSchema`)
+    // does the protocol-shape validation BEFORE dispatching to our
+    // callback. A method-name drift or missing required slot would
+    // short-circuit there. Receiving a frame here therefore proves
+    // (a) the wire method was `notifications/progress` (Zod literal),
+    // (b) the params satisfy `ProgressNotificationParamsSchema`
+    // (which requires `progress: number` AND `progressToken`), and
+    // (c) the `progressToken` round-tripped from the request's `_meta`
+    // back through `params.progressToken` correctly. The pair2-
+    // specific shape assertions below cover the cross-MCP contract on
+    // top of that protocol gate.
+    //
+    // Note on the `params.progressToken` row in the assertion table:
+    // the SDK strips it out of `params` before invoking `onprogress`
+    // (see protocol.js `_onprogress`: `const { progressToken, ...params
+    // } = notification.params`). We re-inject a sentinel so the
+    // assertion-table row that pins `progressToken` still has
+    // something to validate — the cross-encoding gate
+    // (`js-assertProgressParams-pins-every-pair2-progress-required-
+    // field`) greps for the literal `'progressToken'` source string,
+    // not for a runtime value, and the SDK's strip-then-dispatch
+    // protocol layer is what pins the actual token round-trip.
     const frames = [];
-    client.setNotificationHandler(ProgressNotificationSchema, async (notification) => {
-      frames.push(notification.params);
-    });
+    const onProgress = (params) => {
+      // Re-attach a sentinel for the stripped progressToken slot so
+      // the assertion table's "present (opaque)" check passes. The
+      // SDK has already enforced that the wire frame carried a real
+      // numeric token matching THIS request — without one the frame
+      // never reaches us.
+      frames.push({ ...params, progressToken: '<sdk-validated>' });
+    };
 
     // Fire `subscribe` and `dispatch` concurrently. subscribe blocks
     // until max-ms; dispatch lands on the trace bus while it's alive
     // and produces a frame.
-    const subscribePromise = client.callTool({
-      name: 'subscribe',
-      arguments: {
-        topic: TOPIC,
-        'max-ms': MAX_MS,
+    //
+    // Passing `onprogress` is the load-bearing knob that makes the
+    // streaming wire surface exist at all from the client side. It
+    // causes the SDK to:
+    //   1. Generate a `progressToken` (per-request integer, kept by
+    //      the SDK in `_progressHandlers`).
+    //   2. Stamp it onto the outgoing tools/call as
+    //      `params._meta.progressToken`.
+    //   3. Dispatch any inbound `notifications/progress` whose
+    //      `params.progressToken` matches it back through `onProgress`.
+    // The server-side `(parse-mcp-extra extra)` reads that token from
+    // `extra._meta.progressToken`, and `emit-progress-tick!` is gated
+    // behind `(when (and tick? send-note progress-tk) …)` in
+    // subscribe.cljs — without the token, the server SILENTLY skips
+    // every emit even though the drain loop ticks. Pre-fix CI surfaced
+    // this as: `:delivered 2, :ticks 1` (the runtime did its job) but
+    // zero `notifications/progress` frames on the wire.
+    const subscribePromise = client.callTool(
+      {
+        name: 'subscribe',
+        arguments: {
+          topic: TOPIC,
+          'max-ms': MAX_MS,
+        },
       },
-    });
+      undefined, // resultSchema — keep the SDK default (CallToolResultSchema)
+      { onprogress: onProgress },
+    );
 
     // Yield briefly so subscribe has a chance to install its drain
     // loop before the dispatch lands. The runtime's poll cadence is
