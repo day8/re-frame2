@@ -111,9 +111,19 @@ function withTimeout(promise, ms, label) {
   const results = [];
   let anyFailed = false;
 
+  // Silent-on-success (rf2-try1x): buffer per-spec narration into
+  // `lines` and only flush it for specs that FAIL. Green specs emit
+  // nothing; the final summary is a single counts line. SKIP specs
+  // still flush so the reason is visible.
   for (const spec of specs) {
     const label = spec.name || path.basename(spec.file);
-    console.log(`\n=== ${label} ===`);
+    const lines = [];
+    const log = (s) => lines.push(s);
+    const flush = () => {
+      for (const ln of lines) console.log(ln);
+    };
+
+    log(`\n=== ${label} ===`);
 
     if (spec.skip) {
       // Spec opted out at the spec-module level (truthy `skip`
@@ -122,7 +132,8 @@ function withTimeout(promise, ms, label) {
       // example's bundle (per its EXAMPLES entry) — so under-
       // construction examples remain compile-checked, just not
       // smoke-tested at the user-visible behaviour level.
-      console.log(`SKIP  ${label}: ${spec.skip}`);
+      log(`SKIP  ${label}: ${spec.skip}`);
+      flush();
       results.push({ label, passed: true, skipped: true, reason: spec.skip });
       continue;
     }
@@ -134,17 +145,17 @@ function withTimeout(promise, ms, label) {
     page.on('console', (msg) => {
       const text = msg.text();
       consoleLines.push(text);
-      console.log(`[browser:${msg.type()}] ${text}`);
+      log(`[browser:${msg.type()}] ${text}`);
     });
     let pageErrored = null;
     page.on('pageerror', (err) => {
       pageErrored = err;
-      console.error(`[browser:pageerror] ${err.message}`);
-      if (err.stack) console.error(err.stack);
+      log(`[browser:pageerror] ${err.message}`);
+      if (err.stack) log(err.stack);
     });
 
     const fullUrl = spec.url.startsWith('http') ? spec.url : BASE_URL + spec.url;
-    console.log(`Navigating to ${fullUrl}`);
+    log(`Navigating to ${fullUrl}`);
 
     let passed = false;
     let failure = null;
@@ -158,25 +169,37 @@ function withTimeout(promise, ms, label) {
     } catch (err) {
       failure = err;
       anyFailed = true;
-      console.error(`FAIL ${label}: ${err.message}`);
-      if (err.stack) console.error(err.stack);
+      log(`FAIL ${label}: ${err.message}`);
+      if (err.stack) log(err.stack);
     } finally {
       await context.close();
     }
 
+    if (!passed) flush();
     results.push({ label, passed, failure });
   }
 
   await browser.close();
 
-  console.log('\n=== summary ===');
-  for (const r of results) {
-    if (r.skipped) {
-      console.log(`SKIP  ${r.label}  (${r.reason})`);
-    } else {
-      console.log(`${r.passed ? 'PASS' : 'FAIL'}  ${r.label}`);
+  // Silent-on-success (rf2-try1x): green runs emit the canonical
+  // single-line summary; red runs also list the failing labels for
+  // quick triage.
+  const passedCount = results.filter((r) => r.passed && !r.skipped).length;
+  const skippedCount = results.filter((r) => r.skipped).length;
+  const failedCount = results.filter((r) => !r.passed).length;
+  if (anyFailed) {
+    console.log('\n=== summary ===');
+    for (const r of results) {
+      if (r.skipped) {
+        console.log(`SKIP  ${r.label}  (${r.reason})`);
+      } else {
+        console.log(`${r.passed ? 'PASS' : 'FAIL'}  ${r.label}`);
+      }
     }
   }
+  console.log(
+    `Ran ${results.length} example specs. ${failedCount} failures, ${skippedCount} skipped.`,
+  );
 
   process.exit(anyFailed ? 1 : 0);
 })().catch((err) => {

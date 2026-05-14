@@ -505,7 +505,10 @@ def main(argv: Iterable[str]) -> int:
     if saw_setup_error:
         return 2
 
-    if args.verbose or not all_info:
+    # Silent-on-success (rf2-try1x): emit the success line only under
+    # --verbose. Green CI runs and local invocations otherwise produce
+    # no stdout — the exit code is the success signal.
+    if args.verbose:
         print("No skill <-> MCP drift detected.")
     _warn_stale_baseline(all_drift, args.no_baseline, ci)
     return 0
