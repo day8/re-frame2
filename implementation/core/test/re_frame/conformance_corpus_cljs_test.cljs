@@ -160,7 +160,17 @@
   "Capabilities this build INTENTIONALLY does not claim. Fixtures whose
   capabilities fall here are reported as out-of-claim skips but do not
   block the suite."
-  #{})
+  ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR ships in the JVM-only
+  ;; `re-frame.ssr.streaming` ns + `re-frame.ssr.ring.streaming` host
+  ;; adapter (chunked HTTP needs Ring + a writer thread). The CLJS
+  ;; conformance runner cannot exercise the wire shape; the JVM-side
+  ;; `re-frame.ssr-conformance-test` + `re-frame.ssr-streaming-conformance-test`
+  ;; gate the fixture. Listed here so the CLJS runner reports the
+  ;; streaming fixture as an intentional out-of-claim skip rather than
+  ;; failing the suite.
+  #{:ssr/suspense-boundary
+    :ssr/hydration-payload
+    :ssr/chunked-response})
 
 ;; ---- fixture loading (compile-time inlined) -------------------------------
 
