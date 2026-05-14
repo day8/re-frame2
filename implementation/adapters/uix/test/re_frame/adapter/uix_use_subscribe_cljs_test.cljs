@@ -23,6 +23,7 @@
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.subs :as subs]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -58,6 +59,32 @@
         v (uix-adapter/use-subscribe target
                                       [:rf.uix-use-subscribe-test/m])]
     ($ :div (str "m=" v))))
+
+;; ---- rf2-mwft2 regression probes ------------------------------------------
+;; A parent that owns a tick state (used to force re-renders) plus a child
+;; that reads a fixed query-v via use-subscribe. The literal `[:rf.uix-mwft2/p]`
+;; vector evaluates to a fresh JS object each render — *exactly* the shape
+;; the bug-without-fix walks into. The parent stashes its set-tick fn into
+;; a side-channel atom so the test can drive forced re-renders from outside.
+
+(def ^:private mwft2-set-tick      (atom nil))
+
+(defui ProbeMwft2Child []
+  (let [v (uix-adapter/use-subscribe :rf.uix-mwft2/probe-frame
+                                      [:rf.uix-mwft2/p])]
+    ($ :div (str "p=" v))))
+
+(defui ProbeMwft2Parent []
+  (let [[tick set-tick] (uix/use-state 0)]
+    (uix/use-effect
+      ;; React state-setters have stable identity across renders so an
+      ;; empty deps vec is correct — silences UIx's lint and matches
+      ;; React's "set-state setter is stable" guarantee. The effect runs
+      ;; once on mount to stash the setter for the test driver.
+      (fn [] (reset! mwft2-set-tick set-tick) js/undefined)
+      [])
+    ($ :div {:data-tick tick}
+       ($ ProbeMwft2Child))))
 
 ;; ---- browser gate ---------------------------------------------------------
 
@@ -277,3 +304,112 @@
                     "post-unmount ref-count is zero (or entry already dropped) — rf2-7g959 cleanup fired")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
+
+;; ---- stable structural-equality deps key (rf2-mwft2) ----------------------
+;;
+;; Pre-rf2-mwft2, `use-subscribe-2` passed the CLJS query-v vector
+;; directly into useMemo / useCallback / useEffect deps arrays.
+;; CLJS persistent vectors are =-equal across renders for the same
+;; literal but produce a *fresh JS object* per render, so React's
+;; Object.is deps comparison fired every render — useMemo re-ran
+;; `subs/subscribe` (cache-hit ref-count churn), useEffect tore down
+;; and rebuilt subscribe/unsubscribe pairs.
+;;
+;; With the fix the deps element is JS-ref-stable across renders
+;; (useRef + = compare), so a stable-literal query-v causes exactly
+;; one subs/subscribe call across N forced re-renders, and the
+;; useEffect cleanup fires only on unmount.
+
+(deftest use-subscribe-stable-deps-key
+  (testing "rf2-mwft2: stable-literal query-v across N re-renders ⇒ one subs/subscribe call"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+      (let [target :rf.uix-mwft2/probe-frame
+            act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (do
+            (enable-react-act-env!)
+            (reset! mwft2-set-tick nil)
+            (rf/reg-frame target {:doc "rf2-mwft2 probe frame"})
+            (rf/reg-event-db :rf.uix-mwft2/seed (fn [_ _] {:p 0}))
+            (rf/dispatch-sync [:rf.uix-mwft2/seed] {:frame target})
+            (rf/reg-sub :rf.uix-mwft2/p (fn [db _] (:p db)))
+            (let [subscribe-calls   (atom 0)
+                  unsubscribe-calls (atom 0)
+                  real-subscribe    subs/subscribe
+                  real-unsubscribe  subs/unsubscribe
+                  cache-key-v       [:rf.uix-mwft2/p]
+                  cache             (:sub-cache (frame/frame target))
+                  mount-node        (make-mount-node!)
+                  root              (react-dom-client/createRoot mount-node)]
+              ;; Spies preserve the multi-arity shape of subs/subscribe
+              ;; (`[query-v]` and `[frame-id query-v]`) so spine call
+              ;; sites that bind the arity-2 invoke-slot resolve. A bare
+              ;; `[& args]` variadic spy compiles only the variadic
+              ;; slot and trips `…cljs$core$IFn$_invoke$arity$2 is not
+              ;; a function` at the spine's `subs/subscribe` call.
+              ;;
+              ;; `unsubscribe`'s 1- and 2-arity bodies recur into the
+              ;; 3-arity through the Var — so without bypassing, a single
+              ;; logical unsubscribe would trip the spy twice (once on
+              ;; entry, once on the recursive 3-arity tail). Each spy
+              ;; arity therefore calls the 3-arity REAL directly,
+              ;; resolving the canonical default-arg shape itself instead
+              ;; of routing back through the Var.
+              (with-redefs [subs/subscribe
+                            (fn spy-subscribe
+                              ([query-v]
+                               (swap! subscribe-calls inc)
+                               (real-subscribe (frame/resolve-current-frame) query-v))
+                              ([frame-id query-v]
+                               (swap! subscribe-calls inc)
+                               (real-subscribe frame-id query-v)))
+                            subs/unsubscribe
+                            (fn spy-unsubscribe
+                              ([query-v]
+                               (swap! unsubscribe-calls inc)
+                               (real-unsubscribe (frame/resolve-current-frame)
+                                                 query-v nil))
+                              ([frame-id query-v]
+                               (swap! unsubscribe-calls inc)
+                               (real-unsubscribe frame-id query-v nil))
+                              ([frame-id query-v opts]
+                               (swap! unsubscribe-calls inc)
+                               (real-unsubscribe frame-id query-v opts)))]
+                (try
+                  ;; Mount the probe — one subs/subscribe for the
+                  ;; useMemo factory.
+                  (act-fn (fn [] (.render root (uix/$ ProbeMwft2Parent))))
+                  (let [mounted-subs @subscribe-calls]
+                    (is (= 1 mounted-subs)
+                        "mount triggered exactly one subs/subscribe call")
+                    (is (zero? @unsubscribe-calls)
+                        "no subs/unsubscribe fires during initial mount")
+                    ;; Force five re-renders by bumping the parent's
+                    ;; tick state. Each parent render also re-renders
+                    ;; the child probe with a freshly-allocated CLJS
+                    ;; vector for [:rf.uix-mwft2/p] — without the fix
+                    ;; the deps mismatch would re-run useMemo (extra
+                    ;; subs/subscribe) and useEffect (extra
+                    ;; subs/unsubscribe) each render.
+                    (dotimes [_ 5]
+                      (act-fn (fn [] (when-let [set-tick @mwft2-set-tick]
+                                       (set-tick inc)))))
+                    (is (= 1 @subscribe-calls)
+                        "subs/subscribe still called only once after 5 re-renders (no per-render churn)")
+                    (is (zero? @unsubscribe-calls)
+                        "subs/unsubscribe never fired across re-renders — useEffect cleanup is unmount-only")
+                    (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                        "sub-cache ref-count remains pinned at 1 across re-renders"))
+                  ;; Unmount must fire exactly one unsubscribe — the
+                  ;; rf2-7g959 cleanup pairing must survive the
+                  ;; rf2-mwft2 rewrite.
+                  (act-fn (fn [] (.unmount root)))
+                  (is (= 1 @unsubscribe-calls)
+                      "unmount fired exactly one subs/unsubscribe (rf2-7g959 cleanup survives the rf2-mwft2 rewrite)")
+                  (is (or (nil? (get @cache cache-key-v))
+                          (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                      "post-unmount cache entry dropped or ref-count at zero")
+                  (finally
+                    (try (.unmount root) (catch :default _ nil))))))))))))

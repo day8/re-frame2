@@ -526,11 +526,61 @@
         ;; Two-arity body extracted so the 1-arg arm can call into it
         ;; without a self-reference on the let-bound `use-subscribe`
         ;; (CLJS let-bound fns cannot name themselves).
+        ;;
+        ;; ---- stable-key derivation (rf2-mwft2) -------------------------------
+        ;;
+        ;; React's deps comparison is `Object.is` (≈ `===`). Both
+        ;; `frame-kw` (a CLJS keyword) and `query-v` (a CLJS persistent
+        ;; vector) are value-equal across renders for the same logical
+        ;; subscribe call but produce *fresh JS objects* per render —
+        ;; keyword literals compile to `new cljs.core.Keyword(...)` in
+        ;; the render body, vector literals to `new
+        ;; cljs.core.PersistentVector(...)`, so neither survives the
+        ;; render boundary by identity even though both survive by `=`.
+        ;; The deps array `#js [frame-kw query-v]` therefore mismatches
+        ;; every render and useMemo / useCallback / useEffect re-fire
+        ;; their factories — driving cache-hit `subs/subscribe`,
+        ;; watch add/remove, and cache-entry ref-count churn even when
+        ;; the subscription is unchanged.
+        ;;
+        ;; Fix: hold the previous `[frame-kw query-v]` tuple in a
+        ;; `useRef`. Each render we compare the incoming tuple to
+        ;; `ref.current` by CLJS `=`. If equal, we read the stored
+        ;; tuple's components back, returning JS-ref-stable elements
+        ;; for the deps array. If not equal, we update the ref to the
+        ;; new tuple. Writing to a ref during render is sanctioned by
+        ;; React for exactly this memo-by-value pattern — the write is
+        ;; idempotent given identical inputs and never mutates after a
+        ;; commit.
+        ;;
+        ;; The bead (rf2-mwft2) flagged `(hash [frame-kw query-v])` as
+        ;; the simpler candidate. We chose `useRef` + `=` over `hash`
+        ;; because Murmur3 collisions, however rare, would have
+        ;; useMemo return the wrong reaction for a colliding (frame,
+        ;; query) pair — a silent correctness bug. The `useRef` path
+        ;; has no false-positive equality and stays cheap (one extra
+        ;; ref, one allocation-free `=` compare per render).
         use-subscribe-2
         (fn use-subscribe-2 [frame-kw query-v]
-          (let [reaction
-                (use-memo (fn [] (subs/subscribe frame-kw query-v))
-                          #js [frame-kw query-v])
+          (let [key-ref (React/useRef nil)
+                stable-key
+                (let [prev (.-current key-ref)
+                      new-key #js [frame-kw query-v]]
+                  (if (and prev
+                           (= (aget prev 0) frame-kw)
+                           (= (aget prev 1) query-v))
+                    prev
+                    (do (set! (.-current key-ref) new-key)
+                        new-key)))
+                ;; Destructure the stable tuple's components so the
+                ;; downstream call sites see JS-ref-stable values for
+                ;; same-by-= subsequent renders.
+                stable-frame-kw (aget stable-key 0)
+                stable-query-v  (aget stable-key 1)
+                reaction
+                (use-memo (fn []
+                            (subs/subscribe stable-frame-kw stable-query-v))
+                          #js [stable-key])
                 ;; The store-snapshot fn React calls on every render to
                 ;; detect tearing. Pure deref of the reaction.
                 get-snap
@@ -560,10 +610,7 @@
             ;; subscribe-fn's `remove-watch` — which freed the React
             ;; listener but left the sub-cache entry pinned at
             ;; ref-count 1 for the rest of the process. Per
-            ;; Spec 006 §Reference counting and disposal. Empty deps
-            ;; vec on the useEffect is intentional — the per-render
-            ;; (frame-kw, query-v) is closed over the cleanup fn and
-            ;; React only fires the cleanup on unmount.
+            ;; Spec 006 §Reference counting and disposal.
             ;;
             ;; Memo can rebuild on key change; pairing the subscribe
             ;; with a useEffect keyed on the same deps means React
@@ -573,8 +620,8 @@
             (React/useEffect
               (fn use-subscribe-effect []
                 (fn cleanup []
-                  (subs/unsubscribe frame-kw query-v)))
-              #js [frame-kw query-v])
+                  (subs/unsubscribe stable-frame-kw stable-query-v)))
+              #js [stable-key])
             (React/useSyncExternalStore subscribe-fn get-snap get-snap)))
         use-subscribe
         (fn use-subscribe
