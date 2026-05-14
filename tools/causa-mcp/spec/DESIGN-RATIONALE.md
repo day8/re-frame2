@@ -679,7 +679,7 @@ typical-token hint, its cap-reached behaviour, and its default
   compress **~10×** (~90% reduction), epoch slices compress
   **5-10×** (already pinned at 89.5% by `dedup_test.cljs` for
   rf2-obpa9). The catalogue-entry contract in
-  [`003-Tool-Catalogue.md`](#) (when it lands) cites the
+  `003-Tool-Catalogue.md` (when it lands) cites the
   regime-appropriate factor per tool. Dedup is opt-out, not
   opt-in, so the default agent experience is the compressed
   wire.

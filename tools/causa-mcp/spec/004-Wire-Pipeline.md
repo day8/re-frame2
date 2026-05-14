@@ -19,11 +19,9 @@ principles for Causa-MCP (origin tagging, EDN canonical, closed-set
 catalogue, two-namespace split, etc.); the wire-pipeline rules
 below were split out into this file (rf2-erimb) because the section
 grew large enough to deserve its own scaffold — mirroring the
-pair2-mcp-shape capability files
-([`001-Wire-Protocol.md`](#),
-[`002-nREPL-Transport.md`](#),
-[`003-Tool-Catalogue.md`](#) — the latter three land at impl-pass
-time).
+pair2-mcp-shape capability files (`001-Wire-Protocol.md`,
+`002-nREPL-Transport.md`, `003-Tool-Catalogue.md` — the latter
+three land at impl-pass time).
 
 ## Privacy: default-drop `:sensitive?` events at the MCP boundary
 
@@ -224,7 +222,7 @@ matches the call-site shape:
 
 The earlier "3-5×" range in this section was vibes; the measured
 numbers above supersede it. Catalogue entries in
-[`003-Tool-Catalogue.md`](#) (when it lands) MUST cite the
+`003-Tool-Catalogue.md` (when it lands) MUST cite the
 regime-appropriate factor when declaring `:typical-tokens` —
 trace-bus-shaped tools use **~1.4×**, recurring-cascade tools
 use **~10×**, epoch-slice tools use **5-10×**.
