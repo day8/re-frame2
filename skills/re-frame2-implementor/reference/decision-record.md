@@ -15,6 +15,15 @@ Every Phase 2 step references this record. If a Phase 2 step forces a Phase 1 de
 > Captured before Phase 2 implementation began.
 > Locked: <YYYY-MM-DD>.
 
+## Spec pin (load-bearing — record before D1)
+
+- **Upstream:** `https://github.com/day8/re-frame2`
+- **Pinned commit / tag:** <SHA-or-tag>
+- **Pin verified:** `git -C <path-to-re-frame2> rev-parse HEAD` == `<SHA-or-tag>` on <YYYY-MM-DD>
+- **Origin verified:** `git -C <path-to-re-frame2> remote get-url origin` == `https://github.com/day8/re-frame2(.git)`
+
+Every spec citation in this record (and in subsequent code) is against the pinned hash. If the engineer later pulls a newer `day8/re-frame2` HEAD, that's a deliberate retarget event — add a Revision log entry and re-walk the affected decisions.
+
 ## D1. Target host language
 
 - **Host:** <language + version, e.g. "TypeScript 5.4">

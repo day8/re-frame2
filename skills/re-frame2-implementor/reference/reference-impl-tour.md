@@ -142,7 +142,7 @@ EP 011 implementation. Pure hiccup → HTML emitter (~200 lines) for the server 
 
 - **Phase 1.** As a sanity check on Phase 1 decisions — "the CLJS reference picked X for D4.5; I'm picking Y because my host gives me Z." The tour grounds the choice.
 - **Phase 2, per EP.** As a starting point for "where would I look to see how to handle the awkward case in EP N?" Open the matching directory above; read the corresponding source file.
-- **Spec gaps.** When a spec section is ambiguous and the tour shows the reference made a specific choice — that's not the spec's choice, that's the reference's. File a GitHub issue against `day8/re-frame2` asking for the spec to clarify (see [`cardinal-rules.md` §§8–9](cardinal-rules.md) for the filing pattern and cross-repo announce rule).
+- **Spec gaps.** When a spec section is ambiguous and the tour shows the reference made a specific choice — that's not the spec's choice, that's the reference's. Draft a GitHub issue against `day8/re-frame2` asking for the spec to clarify, show the engineer the draft, wait for explicit OK before filing (see [`cardinal-rules.md` §§8–9](cardinal-rules.md) for the filing pattern and the per-issue approval gate).
 
 ## When NOT to consult the tour
 

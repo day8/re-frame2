@@ -6,6 +6,7 @@ Every decision in Phase 1 propagates through every line of Phase 2 code. Spendin
 
 ## Contents
 
+- Spec pin (load-bearing preamble — record before D1)
 - D1. Target host language
 - D2. Substrate / view layer
 - D3. Scope — which EPs ship now
@@ -15,6 +16,32 @@ Every decision in Phase 1 propagates through every line of Phase 2 code. Spendin
 - D7. Conformance capability tag set
 
 For each block: the question, what's at stake, options, how to choose, where the spec speaks to it.
+
+---
+
+## Spec pin (preamble — record before D1)
+
+**The question.** Which `day8/re-frame2` commit or tag is the contract for this port?
+
+**What's at stake.** Every spec citation in this record (and in subsequent code) is against the pinned hash. A floating HEAD is not a contract — it's whatever happens to be on the filesystem the moment the agent reads it. Pinning makes the contract reproducible and pins the conformance score to a known corpus state.
+
+**How to choose.** Pick the latest stable tag, or the HEAD the engineer cloned at kickoff. Either way, record the specific SHA.
+
+**Verify before reading.** Before reading any file under `<path-to-re-frame2>/spec/`:
+
+```bash
+# Origin check — confirm the checkout is the real day8/re-frame2 repo
+git -C <path-to-re-frame2> remote get-url origin
+# expect: https://github.com/day8/re-frame2(.git) or git@github.com:day8/re-frame2(.git)
+
+# Pin check — confirm HEAD matches the chosen pin
+git -C <path-to-re-frame2> rev-parse HEAD
+# expect: <SHA-or-tag>
+```
+
+Record the pinned SHA, the verification date, and both confirmations in the `Spec pin` block of `DECISIONS.md` (template at [`decision-record.md`](decision-record.md)).
+
+**Retarget event.** If the engineer later pulls a newer `day8/re-frame2` HEAD, that's a deliberate retarget: append a Revision log entry to `DECISIONS.md` naming the new pin, and re-walk the affected decisions.
 
 ---
 
