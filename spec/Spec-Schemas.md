@@ -1127,6 +1127,17 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category :keyword]
    [:reason   :string]])
 
+;; --- warning: runtime auto-detect of an oversized app-db path (rf2-vnmt6 / rf2-hmmx7 / rf2-123y5) ---
+
+(def RuntimeLargeElisionTags
+  [:map
+   [:category       [:= :rf.warning/runtime-large-elision]]
+   [:frame          :keyword]
+   [:path           [:vector :any]]            ;; the app-db path the walker auto-flagged
+   [:bytes          :int]                       ;; `pr-str` byte count that tripped the threshold
+   [:max-bytes-cap  :int]                       ;; the threshold that tripped (per :rf.size/threshold-bytes)
+   [:reason         :string]])
+
 ;; --- info: managed-HTTP retry advisories ---
 
 (def CljsOnlyKeyIgnoredOnJvmTags
