@@ -34,7 +34,7 @@
        buffer carrying no mismatch traces; the explicit 'hydration
        happened' signal (a `:rf.ssr/hydration-complete` trace, or the
        `[:rf/hydration :server-hash]` slot on app-db) lands when the
-       SSR artefact integration deepens (rf2-xxx). Until then the
+       SSR artefact integration deepens. Until then the
        'No SSR in this app' state is the default; the
        'SSR present, no mismatches' state is reached by the user via
        the panel's `show clean state` affordance (a checkbox in the

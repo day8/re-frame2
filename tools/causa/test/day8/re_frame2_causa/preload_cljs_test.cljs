@@ -30,7 +30,7 @@
   ring-buffer manipulation. Neither the DOM nor a substrate's React-
   context tier is exercised. Browser-side concerns (mount, keydown
   listener, shell render) live in browser-test files filed under
-  subsequent panel beads (rf2-xxx) — keeping the foundation's tests
+  per-panel browser tests — keeping the foundation's tests
   on node-test keeps them fast and host-portable."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

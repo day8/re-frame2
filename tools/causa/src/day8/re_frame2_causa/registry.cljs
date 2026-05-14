@@ -63,10 +63,10 @@
 (def default-target-frame
   "The host frame Causa's time-travel scrubber inspects by default.
   Per spec/002-Time-Travel.md §Cross-frame scrubbing the scrubber is
-  per-frame — the frame picker (rf2-xxx, not Phase 3 scope) lets
-  the user pick a different host frame. Until that picker lands the
-  scrubber is hard-bound to :rf/default — the canonical host frame
-  per Tool-Pair §Frame naming.
+  per-frame — once a frame picker ships it lets the user pick a
+  different host frame. Until then the scrubber is hard-bound to
+  :rf/default — the canonical host frame per Tool-Pair §Frame
+  naming.
 
   Note this is the *host*'s frame, not :rf/causa — Causa's own
   state (selection, pin store) lives in :rf/causa via the shell's
@@ -180,8 +180,8 @@
     ;; ---- Phase 3 (rf2-t53ze) — Time Travel scrubber subs ---------
 
     ;; Target frame the scrubber inspects. Hard-bound to :rf/default
-    ;; until the frame picker (rf2-xxx) lands; the sub abstracts so
-    ;; the picker can drop in without rewiring every consumer.
+    ;; until a frame picker lands; the sub abstracts so the picker can
+    ;; drop in without rewiring every consumer.
     (rf/reg-sub :rf.causa/target-frame
       (fn [db _query]
         (get db :target-frame default-target-frame)))
@@ -739,9 +739,9 @@
               ;; pinned every mismatch surfaces. The view's header
               ;; reads :target-frame to label the active filter.
               ;;
-              ;; Phase 5 ships with target-frame = :rf/default (the
-              ;; canonical host frame); cross-frame swimlanes ride a
-              ;; follow-on bead (rf2-xxx) once the picker lands.
+              ;; The default surface ships with target-frame =
+              ;; :rf/default (the canonical host frame); cross-frame
+              ;; swimlanes ride a follow-on once a picker lands.
               summary           (hd-helpers/mismatch-list-summary
                                   buffer target-frame)
               has-mismatch?     (boolean (seq summary))
@@ -890,7 +890,7 @@
         (let [latest-epoch    (peek (vec history))
               sub-runs        (:sub-runs latest-epoch)
               ;; v1 has no first-class :changed-paths slot on the
-              ;; epoch-record yet (rf2-xxx will surface it); fall
+              ;; epoch-record yet (a follow-on will surface it); fall
               ;; back to nil so the chain shows every layer-1 input
               ;; path it knows about.
               changed-paths   (:changed-paths latest-epoch)

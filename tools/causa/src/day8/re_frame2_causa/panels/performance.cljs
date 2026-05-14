@@ -54,7 +54,7 @@
       Trace panel will share that effect once both panels are live).
     - No drag-zoom horizontal ribbon. v1 ships the row view; the
       ribbon canvas is follow-on work alongside the time-axis
-      synchronisation with the Trace panel (rf2-xxx).
+      synchronisation with the Trace panel.
     - No re-render-counts-per-epoch projection from the epoch-record's
       `:renders` slot. The row's render-count is a cheap proxy
       (count of `:view/render` traces in the cascade) until that slot
