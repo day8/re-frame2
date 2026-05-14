@@ -56,7 +56,7 @@ Common ops (per the corpus's existing fixtures):
 
 The interpreter is ~50 lines per host. The CLJS reference's interpreter lives in `implementation/core/src/re_frame/test_support.cljc`; copy the dispatch-style and adapt the literal-op handlers.
 
-**Spec-gap signal.** When a fixture uses an op that isn't documented anywhere — that's a spec gap. File a GitHub issue against `day8/re-frame2` asking for the DSL to be documented in [`spec/conformance/README.md`](../../../spec/conformance/README.md). Body via stdin or a here-doc file, never inline interpolation — see [`cardinal-rules.md` §8](cardinal-rules.md).
+**Spec-gap signal.** When a fixture uses an op that isn't documented anywhere — that's a spec gap. Draft a GitHub issue against `day8/re-frame2` asking for the DSL to be documented in [`spec/conformance/README.md`](../../../spec/conformance/README.md), show the engineer the draft, wait for explicit OK before filing. Body via stdin or a here-doc file, never inline interpolation — see [`cardinal-rules.md` §8](cardinal-rules.md) and §9 (approval gate).
 
 ## Capability tagging
 
@@ -93,7 +93,7 @@ When a fixture fails, the question is: who's at fault?
 - The fixture's expectation seems to reflect a choice the CLJS reference made that isn't normative.
 - An AI armed only with `spec/` + the corpus + this skill couldn't reproduce the expectation without consulting `implementation/`.
 
-**Action:** file a GitHub issue against `day8/re-frame2`. Don't patch the port to match. The spec needs to grow to cover the case; once it does, the port (and every other port) can target the explicit contract. Use the here-doc + `--body "$(cat /tmp/file)"` pattern from [`cardinal-rules.md` §8](cardinal-rules.md), and announce the cross-repo side effect first (rule 9).
+**Action:** draft a GitHub issue against `day8/re-frame2` and ask the engineer for explicit OK before filing (rule 9). Don't patch the port to match. The spec needs to grow to cover the case; once it does, the port (and every other port) can target the explicit contract. Use the here-doc + `--body "$(cat /tmp/file)"` pattern from [`cardinal-rules.md` §8](cardinal-rules.md), restrict the body to public spec-quoted evidence (no private port source), and never run `gh issue create` until the engineer has approved the specific draft.
 
 The framing from [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/) is normative here: *"A fixture an AI cannot reproduce without consulting outside sources is a **spec gap**, not an implementation gap."*
 
@@ -123,7 +123,7 @@ Wire the harness into the port's CI; every commit should report the score. Confo
 
 ## When the corpus itself is incomplete
 
-The corpus is a living artefact — it grows as the spec grows. If your port implements a surface the corpus has no fixture for (e.g. a specific error category from EP 009, or a `:fsm/tags` interaction), that's not a port-side problem — that's a corpus gap. File a GitHub issue against `day8/re-frame2` requesting the missing fixture; ideally include a draft fixture in the body.
+The corpus is a living artefact — it grows as the spec grows. If your port implements a surface the corpus has no fixture for (e.g. a specific error category from EP 009, or a `:fsm/tags` interaction), that's not a port-side problem — that's a corpus gap. Draft a GitHub issue against `day8/re-frame2` requesting the missing fixture; show the engineer the draft (ideally including a draft fixture in the body) and wait for explicit OK before filing — see [`cardinal-rules.md` §9](cardinal-rules.md).
 
 ## Reporting conformance
 
