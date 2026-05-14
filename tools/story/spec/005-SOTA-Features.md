@@ -1,7 +1,7 @@
 # Story — SOTA Features
 
 > The layout-debug overlay trio; a11y axe-core panel; per-variant QR
-> share; multi-substrate side-by-side rendering; the 10x epoch panel
+> share; multi-substrate side-by-side rendering; the Causa epoch panel
 > embed contract (stub); the v1.1 deferrals (perf ribbon, design
 > tokens); production elision under `:advanced` (`:rf.story/enabled?`
 > sentinel pattern). The contract Stage 6 implements + the production
@@ -82,29 +82,32 @@ Per Phase 2 §5.2 #6. Tiny implementation, high signal. Adds `qr-code`
 dep. Surfaces the share affordance: tap the QR on a phone, get the
 current variant URL with all cell-local overrides encoded.
 
-### 10x epoch panel embed (stub + contract)
+### Causa epoch panel embed (stub + contract)
 
-Story registers re-frame-10x's existing epoch panel as a story panel:
+Story registers Causa's existing epoch / time-travel panel as a story
+panel (Causa is the structural successor to re-frame-10x, per
+[`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md)
+Lock #1):
 
 ```clojure
-(rf/reg-story-panel :rf.story/10x-epoch
-  {:doc       "re-frame-10x's epoch buffer for the active variant."
-   :title     "Epochs (10x)"
+(rf/reg-story-panel :rf.story/causa-epoch
+  {:doc       "Causa's epoch buffer for the active variant."
+   :title     "Epochs (Causa)"
    :placement :bottom
-   :render    :re-frame-10x.epoch-panel/view})
+   :render    :day8.re-frame2-causa.panels.time-travel/time-travel-view})
 ```
 
-The 10x epoch view is consumed from `day8/re-frame2-causa` (per the
+The view is consumed from `day8/re-frame2-causa` (per the
 `tools/causa/` alpha-phase line in
 [`tools/README.md`](../../README.md)). Story's panel is the
 **adapter**; Causa stays its own artefact, on its own release cadence.
 
-Story's `:rf.story/10x-epoch` registration ships with v1 but the panel
-only activates if `day8/re-frame2-causa` is on the classpath (per the
-late-bind hook in spec/002). If Causa is absent, the sidebar entry
-hides. The Causa artefact owns the actual view; Story owns the
+Story's `:rf.story/causa-epoch` registration ships with v1 but the
+panel only activates if `day8/re-frame2-causa` is on the classpath
+(per the late-bind hook in spec/002). If Causa is absent, the sidebar
+entry hides. The Causa artefact owns the actual view; Story owns the
 *integration*. See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
-§10x-embed.
+§causa-embed.
 
 ### Test Codegen — record-as-`:play` (rf2-5fc15)
 
@@ -503,7 +506,7 @@ phase-2 SOTA adds that are cheap.
 | 5. Three-level args + auto-derived controls from Spec 010 schemas | Stages 2, 4 |
 | 6. MSW-shaped effect mocking via `force-fx-stub` decorator | Stage 2 |
 | 7. Six-domino trace panel per variant via `register-trace-cb!` | Stage 6 |
-| 8. re-frame-10x epoch panel embedded as `reg-story-panel` | Stage 6 |
+| 8. Causa epoch panel embedded as `reg-story-panel` | Stage 6 |
 | 9. Story portability — `run-variant` returns `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` | Stage 3 |
 | 10. EDN-first variant artefact (no `:render` fn-slot, round-trippable) | Stage 2 |
 | 11. Inclusion tags (seven canonical + `!`-prefix removal) | Stage 2 |
@@ -513,7 +516,7 @@ phase-2 SOTA adds that are cheap.
 | `:variants-grid` workspace layout | Stage 4 |
 | Per-variant QR code in share menu | Stage 6 |
 | Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 |
-| 10x epoch panel embed (stub + contract) | Stage 6 |
+| Causa epoch panel embed (stub + contract) | Stage 6 |
 | Test Codegen — record canvas dispatches as `:play` (rf2-5fc15) | Stage 6 |
 
 ## v1.1 ship list (first follow-up)
@@ -538,7 +541,7 @@ phase-2 SOTA adds that are cheap.
 | Remote Storybook federation (multi-host composition) | Phase 1 §2.2 |
 | App-db snapshot diff (data-space visual regression) | Phase 2 §5.2 #7 |
 | oEmbed URLs for Notion / static-doc inlining | Phase 2 §5.2 #6 (deferred) |
-| BackstopJS-style pixel scrubber UI | Phase 2 §2.1 (out of scope; data-space scrubber via 10x suffices) |
+| BackstopJS-style pixel scrubber UI | Phase 2 §2.1 (out of scope; data-space scrubber via Causa suffices) |
 
 ## What we deliberately don't ship
 
@@ -558,7 +561,7 @@ list with reasoning; the short version:
 - **Statechart visualisation engine.** Deferred to
   `day8/re-frame2-machines-viz`.
 - **Pixel-scrubber UI (BackstopJS slider).** Data-space scrubber via
-  10x's epoch panel covers the same UX better.
+  Causa's epoch panel covers the same UX better.
 - **BackstopJS-style baseline storage.** Services handle baselines.
 - **First-party SSR rendering pipeline.** Owned by Spec 011 +
   `day8/re-frame2-ssr`.
@@ -566,5 +569,6 @@ list with reasoning; the short version:
   [`006-MCP-Surface.md`](006-MCP-Surface.md).
 - **Built-in pixel diff under `:test` tag.** Stories-as-tests are
   state-space tests, not pixel-space tests.
-- **Full re-frame-10x reimplementation.** Story embeds 10x's epoch
-  panel; does not own a parallel implementation.
+- **Full Causa reimplementation.** Story embeds Causa's epoch panel
+  (the structural successor to re-frame-10x); does not own a parallel
+  implementation.

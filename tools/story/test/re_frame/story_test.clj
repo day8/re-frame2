@@ -246,17 +246,17 @@
 
 ;; ---- story-panel -------------------------------------------------------
 
-(deftest reg-story-panel-10x-shape
-  (testing "the canonical re-frame-10x embed registration"
-    (story/reg-story-panel :rf.story/epoch-10x
-      {:doc       "re-frame-10x's epoch buffer."
-       :title     "Epochs (10x)"
+(deftest reg-story-panel-causa-shape
+  (testing "the canonical Causa embed registration (per 005-SOTA-Features.md §Causa epoch panel embed)"
+    (story/reg-story-panel :rf.story/causa-epoch
+      {:doc       "Causa's epoch buffer."
+       :title     "Epochs (Causa)"
        :placement :bottom
-       :render    :re-frame-10x.epoch-panel/view})
-    (let [body (story/handler-meta :story-panel :rf.story/epoch-10x)]
-      (is (= "Epochs (10x)" (:title body)))
+       :render    :day8.re-frame2-causa.panels.time-travel/time-travel-view})
+    (let [body (story/handler-meta :story-panel :rf.story/causa-epoch)]
+      (is (= "Epochs (Causa)" (:title body)))
       (is (= :bottom (:placement body)))
-      (is (= :re-frame-10x.epoch-panel/view (:render body))))))
+      (is (= :day8.re-frame2-causa.panels.time-travel/time-travel-view (:render body))))))
 
 ;; ---- decorator (per-kind) ---------------------------------------------
 

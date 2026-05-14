@@ -149,36 +149,40 @@ registration call) and to `nil` in production. Compile-time flag is
 override to `false` for prod builds). See
 [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production elision.
 
-### §10x-embed — embed via `reg-story-panel`
+### §causa-embed — embed via `reg-story-panel`
 
 **Decision.** Story does **not** reimplement an epoch UI. Story
-registers re-frame-10x's existing epoch panel as a story panel via:
+registers Causa's existing epoch / time-travel panel as a story panel
+via (Causa is the structural successor to re-frame-10x, per
+[`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md)
+Lock #1):
 
 ```clojure
-(rf/reg-story-panel :rf.story/10x-epoch
-  {:doc       "re-frame-10x's epoch buffer for the active variant."
-   :title     "Epochs (10x)"
+(rf/reg-story-panel :rf.story/causa-epoch
+  {:doc       "Causa's epoch buffer for the active variant."
+   :title     "Epochs (Causa)"
    :placement :bottom
-   :render    :re-frame-10x.epoch-panel/view})
+   :render    :day8.re-frame2-causa.panels.time-travel/time-travel-view})
 ```
 
-The Causa epoch view is consumed from `day8/re-frame2-causa` (per the
-`tools/causa/` line in [`tools/README.md`](../../README.md)). Story's
-panel is the **adapter**; Causa stays its own artefact, on its own
-release cadence.
+The view is consumed from `day8/re-frame2-causa` (per the
+`tools/causa/` line in [`tools/README.md`](../../README.md)).
+Story's panel is the **adapter**; Causa stays its own artefact, on
+its own release cadence.
 
 **Rationale.** The epoch panel's UX (time-travel scrubber, app-db
-follower, event replay) is already best-in-class inside
-re-frame-10x. Reimplementing it inside Story would (a) double the
-implementation surface, (b) split the maintenance work, (c) drift
-over time. Embedding keeps one source of truth.
+follower, event replay) is already best-in-class inside Causa
+(carrying forward the design re-frame-10x established). Reimplementing
+it inside Story would (a) double the implementation surface, (b) split
+the maintenance work, (c) drift over time. Embedding keeps one source
+of truth.
 
-**Implication.** Story's `:rf.story/10x-epoch` registration ships
+**Implication.** Story's `:rf.story/causa-epoch` registration ships
 with v1 but the panel only activates if `day8/re-frame2-causa` is on
 the classpath (per the late-bind hook in spec/002). If Causa is
 absent, the sidebar entry hides. The Causa artefact owns the actual
 view; Story owns the *integration*. See
-[`005-SOTA-Features.md`](005-SOTA-Features.md) §10x epoch panel
+[`005-SOTA-Features.md`](005-SOTA-Features.md) §Causa epoch panel
 embed.
 
 ## Decisions surfaced during IMPL-SPEC drafting
@@ -244,12 +248,12 @@ Per Phase 2 §5.2 #5. Iff `re-com` or the host design system emits
 Style-Dictionary-shaped tokens. Stage 6 ships the panel; activation
 is conditional on token emission upstream.
 
-### §10x-embed-inert-without-causa — 10x embed registration ships in v1 but stays inert if 10x absent
+### §causa-embed-inert-without-causa — Causa embed registration ships in v1 but stays inert if Causa absent
 
-Per §10x-embed above. The `reg-story-panel` call is unconditional; the
-panel's `:render` resolves via late-bind to a hidden no-op if 10x
-isn't present. This keeps the user experience graceful when 10x isn't
-on the classpath.
+Per §causa-embed above. The `reg-story-panel` call is unconditional;
+the panel's `:render` resolves via late-bind to a hidden no-op if
+Causa isn't present. This keeps the user experience graceful when
+Causa isn't on the classpath.
 
 ## Phase-2 SOTA additions — tier choices
 
@@ -335,7 +339,7 @@ bundle weight of layout engines (`@xyflow/react`, `d3-hierarchy`,
 **Rejected.** BackstopJS's tactile pixel scrubber is a great UX for
 pixel visual regression.
 
-**Why.** Story's data-space scrubber via 10x's epoch panel covers
+**Why.** Story's data-space scrubber via Causa's epoch panel covers
 the same UX *better* for re-frame2 apps — scrub through events with
 `app-db` following, not through static pixels. Pixel scrubbing is a
 downstream visual-regression-service concern. Story does not host
@@ -376,13 +380,14 @@ on `:assertions` + `:app-db`. It does **not** capture or diff pixels.
 pixel-space tests. This is the
 [Spec 007 §Story-as-test-duality](../../../spec/007-Stories.md) lock.
 
-### Rejected: Full re-frame-10x reimplementation
+### Rejected: Full Causa reimplementation
 
-**Rejected (delegated).** Story embeds 10x's epoch panel; does not
-own a parallel implementation. See §10x-embed above.
+**Rejected (delegated).** Story embeds Causa's epoch panel (the
+structural successor to re-frame-10x); does not own a parallel
+implementation. See §causa-embed above.
 
-**Why.** 10x's UX is mature; replicating it would split maintenance
-and drift. The right primitive is "10x is a peer artefact, Story
+**Why.** Causa's UX is mature; replicating it would split maintenance
+and drift. The right primitive is "Causa is a peer artefact, Story
 integrates."
 
 ## Open items (deliberate punts)
