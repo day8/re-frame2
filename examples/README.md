@@ -21,7 +21,6 @@ examples/
       counter.spec.cjs
       index.html
     counter_slim_and_fast/              <-- same dataflow, mounted on day8/reagent-slim
-    counter_with_stories/                <-- Story Stage 8 — counter + seven reg-* Story macros
     todomvc/
     realworld/
     7Guis/                              <-- 7GUIs benchmark cluster (one sub-folder per task)
@@ -52,7 +51,7 @@ The orchestrator and the runner consume `playwright` and `http-server` out of `i
 
 ## Reagent
 
-The full set of worked examples — twenty in total (counting each 7GUIs task individually), each paired with a Playwright smoke spec (`<name>.spec.cjs`) and a shadow-cljs build id. The orchestrator at [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs) compiles every build, stages the example's hand-written `index.html`, serves the lot, and runs the specs against a real Chromium. Run the full sweep from `implementation/`:
+The full set of worked examples — nineteen in total (counting each 7GUIs task individually), each paired with a Playwright smoke spec (`<name>.spec.cjs`) and a shadow-cljs build id. The orchestrator at [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs) compiles every build, stages the example's hand-written `index.html`, serves the lot, and runs the specs against a real Chromium. Run the full sweep from `implementation/`:
 
 ```bash
 npm run test:examples
@@ -79,7 +78,8 @@ npm run test:examples
 | 17 | [`reagent/7Guis/circle_drawer/`](reagent/7Guis/circle_drawer/circle_drawer.cljs) | Benchmark | `examples/circle-drawer` | [004 Views](../spec/004-Views.md), [002 Frames](../spec/002-Frames.md) | 7GUIs #6 — Circle drawer. Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state. |
 | 18 | [`reagent/7Guis/cells/`](reagent/7Guis/cells/cells.cljs) | Benchmark | `examples/cells` | [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [004 Views](../spec/004-Views.md) | 7GUIs #7 — Cells. Formula evaluation; subscription-graph propagation; cycle detection; pure parser+evaluator. |
 | 19 | [`reagent/realworld/`](reagent/realworld/README.md) | Worked scaffold | `examples/realworld` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [012 Routing](../spec/012-Routing.md), [005 StateMachines](../spec/005-StateMachines.md), [011 SSR](../spec/011-SSR.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md) | [RealWorld (Conduit)](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark. Auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue are all sketched on the current API surface. |
-| 20 | [`reagent/counter_with_stories/`](reagent/counter_with_stories/README.md) | Pedagogical sketch | `examples/counter-with-stories` | [007 Stories](../spec/007-Stories.md), [002 Frames](../spec/002-Frames.md), [008 Testing](../spec/008-Testing.md), [009 Instrumentation §Privacy + §Event-emit](../spec/009-Instrumentation.md), [010 Schemas §`:large?`](../spec/010-Schemas.md) | The counter with `tools/story` wired end-to-end — seven `reg-*` macros, four variants, two workspaces, the `force-fx-stub` decorator, three of seven `:rf.assert/*` events. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. Also embeds the **privacy + size elision demo** (rf2-vw0to): `:sensitive?` + `with-redacted` on `:auth/sign-in`, the `:large?` schema slot at `:user/avatar-pdf`, runtime auto-detect at the event-emit boundary, and the always-on `register-event-emit-listener!` substrate consuming the elided records. |
+
+> Story Stage 8 (`tools/story` end-to-end on the canonical counter — seven `reg-*` macros, four variants, two workspaces, plus the privacy + size elision demo) lives as a **tool-owned testbed** at [`tools/story/testbeds/counter_with_stories/`](../tools/story/testbeds/counter_with_stories/). It still builds under `:examples/counter-with-stories` and is exercised by the `npm run test:examples` runner — but it's catalogued with the tool that owns it rather than with the tutorial examples. Same for [`tools/causa/testbeds/`](../tools/causa/) (counter-driven Causa smokes, the rigorous mount/keybinding sweep, and the perf-instrumented variant).
 
 For the 7GUIs cluster's own narrative (entries 13–18 above plus the counter from entry 1), see the cluster README at [`reagent/7Guis/README.md`](reagent/7Guis/README.md).
 
@@ -140,7 +140,7 @@ Each spec module exports `{name, url, run}`; `run` is an `async (page) => ...` t
 3. Append an entry to the `EXAMPLES` array in `examples/scripts/serve-and-run-examples-tests.cjs` declaring `{build, htmlSrc, outDir, extraFiles?}`.
 4. Update this catalogue and any per-Spec cross-references that the new example exercises.
 
-The spec runner discovers specs by filesystem walk under `examples/`, so no additional registration is needed beyond the orchestrator entry.
+The spec runner discovers specs by filesystem walk under `examples/`, `tools/`, and `testbeds/` (rf2-p8f2s), so no additional registration is needed beyond the orchestrator entry. Tool-owned testbeds at `tools/<tool>/testbeds/<scenario>/spec.cjs` are picked up the same way as in-tree example specs.
 
 ### Running a single example interactively
 

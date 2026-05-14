@@ -194,7 +194,7 @@ keyed on `frame-id`, so the analogy did not transfer):
 - `:rf/causa` is never registered in production. The preload runs
   at ns-load time, before the host's `rf/init!` installs a substrate
   adapter; `reg-frame` cannot run in that window. The dispatch
-  silently no-op'd and step 5 of `examples/.../causa.spec.cjs` went
+  silently no-op'd and step 5 of `tools/causa/testbeds/counter-driven/spec.cjs` went
   red (the `rf2-e9s81` regression).
 - Chain-resolving to `:rf/default` (the recipe `rf2-higwg` applied
   to the suppressed-counter path) consumed drain-depth headroom on

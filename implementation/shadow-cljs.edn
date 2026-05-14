@@ -76,6 +76,21 @@
                 ;; implementation/ may :require anything under tools/.
                 "../tools/causa/src"
                 "../tools/causa/test"
+                ;; tools/causa/testbeds (rf2-p8f2s — examples-split step 1).
+                ;; Tool-owned testbeds colocate the testbed app source (where
+                ;; an app is needed — perf-counter) with the spec that drives
+                ;; it. Source path added so `perf-counter.core` resolves for
+                ;; the `:examples/counter-perf` build below; bundle-isolation
+                ;; contract still holds (nothing under implementation/ may
+                ;; :require anything under tools/).
+                "../tools/causa/testbeds"
+                ;; tools/story/testbeds (rf2-p8f2s — examples-split step 1).
+                ;; The `counter_with_stories/` testbed (formerly under
+                ;; examples/reagent/) lives here. Source path added so
+                ;; `counter-with-stories.*` namespaces resolve for the
+                ;; `:examples/counter-with-stories` and
+                ;; `:story-static/counter-with-stories` builds below.
+                "../tools/story/testbeds"
                 ;; Per rf2-kx74 examples/ is grouped per substrate. Each
                 ;; substrate root is its own shadow-cljs source path so
                 ;; the per-example namespaces (counter.core,
@@ -344,7 +359,7 @@
   ;;   1. The bundle-presence assertion in scripts/check-perf-bundle.cjs:
   ;;      `performance.mark` / `performance.measure` and the helper's
   ;;      bracketing strings MUST appear in this bundle.
-  ;;   2. The browser-smoke spec at examples/reagent/counter/counter-perf.spec.cjs:
+  ;;   2. The browser-smoke spec at tools/causa/testbeds/perf_counter/spec.cjs:
   ;;      after a dispatch, `performance.getEntriesByType('measure')`
   ;;      returns at least one entry per bucket (`rf:event:*`, `rf:sub:*`,
   ;;      `rf:fx:*`, `rf:render:*`).
@@ -353,12 +368,20 @@
   ;; surface. Default :examples/counter is the shape every other example
   ;; ships in (perf elided); this counter-perf variant proves the toggle
   ;; produces the expected bracket entries when consumers want them.
+  ;;
+  ;; rf2-p8f2s (examples-split step 1): the perf-instrumented variant is a
+  ;; tool-owned testbed (tools/causa/testbeds/perf_counter/) so the
+  ;; canonical tutorial counter (examples/reagent/counter/core.cljs) can
+  ;; stay on the idiomatic `reg-event-db` shape every other example uses
+  ;; for its initialiser. The non-canonical `reg-event-fx :db + :fx` shape
+  ;; the perf bundle needs (to populate the `rf:fx:*` bucket on init) lives
+  ;; here in the testbed.
   :examples/counter-perf
   {:target           :browser
    :output-dir       "out/examples/counter-perf"
    :asset-path       "."
    :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
-   :modules          {:main {:init-fn counter.core/run}}}
+   :modules          {:main {:init-fn perf-counter.core/run}}}
 
   :examples/temperature
   {:target     :browser
@@ -524,9 +547,10 @@
   ;; `reg-*` Story macros wired up. URL-hash-routed: `#/` renders
   ;; the live counter; `#/stories` mounts the Story shell via
   ;; `re-frame.story/mount-shell!`. Sources live under
-  ;; examples/reagent/counter_with_stories/; tools/story/src is
-  ;; already on shadow's :source-paths so the namespace resolves
-  ;; without per-build deps fiddling.
+  ;; tools/story/testbeds/counter_with_stories/ (rf2-p8f2s relocated
+  ;; from examples/reagent/); tools/story/src is already on shadow's
+  ;; :source-paths so the namespace resolves without per-build deps
+  ;; fiddling.
   ;;
   ;; This build deliberately leaves Story ENABLED (no :closure-defines
   ;; override of re-frame.story.config/enabled?). The :advanced +
@@ -551,7 +575,7 @@
   ;; The `story:build` npm script (per
   ;; tools/story/spec/013-Static-Build.md §Invocation) drives this build
   ;; via `shadow-cljs release`, then stages
-  ;; examples/reagent/counter_with_stories/story_static.index.html as
+  ;; tools/story/testbeds/counter_with_stories/story_static.index.html as
   ;; index.html so the output directory is publishable as-is to GitHub
   ;; Pages / Netlify / S3.
   :story-static/counter-with-stories

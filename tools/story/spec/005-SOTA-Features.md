@@ -497,7 +497,7 @@ builds against this sentinel.
 
 ### Bundle-size comparison (rf2-xgay8)
 
-Measured 2026-05-13 on `examples/reagent/counter_with_stories` via
+Measured 2026-05-13 on `tools/story/testbeds/counter_with_stories` via
 `shadow-cljs release`:
 
 - Counter with Story enabled (dev-bundle-equivalent, `:advanced`):

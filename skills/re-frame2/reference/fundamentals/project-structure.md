@@ -77,13 +77,13 @@ either works as long as the file's path tracks the ns.
 
 In the canonical example the four counter variants live in one
 `stories.cljs` next to `events.cljs` / `subs.cljs` / `views.cljs`
-(`examples/reagent/counter_with_stories/stories.cljs:1-40`). The
+(`tools/story/testbeds/counter_with_stories/stories.cljs:1-40`). The
 stories file requires its feature's events / subs / views so the
 registrations fire before the variant bodies are read.
 
 Story integration tests live alongside the stories file, not under
 `test/` — they need the same load order
-(`examples/reagent/counter_with_stories/stories_cljs_test.cljs:1-25`).
+(`tools/story/testbeds/counter_with_stories/stories_cljs_test.cljs:1-25`).
 
 ## Schemas — one `schema.cljs` per feature tree
 
@@ -184,4 +184,4 @@ frame — and let `core` orchestrate the wiring.
 
 ---
 
-*Derived from the canonical worked examples (`examples/reagent/realworld/`, `examples/reagent/counter/`, `examples/reagent/login/`, `examples/reagent/ssr/`, `examples/reagent/counter_with_stories/`) @ main `89bd9c3`. The shape is example-driven; re-verify after substantial restructure of those examples.*
+*Derived from the canonical worked examples (`examples/reagent/realworld/`, `examples/reagent/counter/`, `examples/reagent/login/`, `examples/reagent/ssr/`, `tools/story/testbeds/counter_with_stories/`) @ main `89bd9c3`. The shape is example-driven; re-verify after substantial restructure of those examples.*

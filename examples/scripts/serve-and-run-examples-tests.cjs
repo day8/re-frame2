@@ -56,14 +56,17 @@ const EXAMPLES = [
     outDir: path.join(OUT_ROOT, 'counter-slim-and-fast'),
   },
   // Performance-API instrumented variant of the counter.
-  // Same source, same :advanced compilation, but with the
-  // `re-frame.performance/enabled?` goog-define flipped to true. The
-  // paired counter-perf.spec.cjs asserts that a real dispatch through
-  // the perf-on bundle produces `rf:event:*` / `rf:sub:*` / `rf:fx:*` /
-  // `rf:render:*` measure entries on `performance.getEntriesByType`.
+  // rf2-p8f2s — the perf testbed is tool-owned (lives under
+  // tools/causa/testbeds/perf_counter/) so the canonical tutorial
+  // counter (examples/reagent/counter/) stays on the idiomatic
+  // reg-event-db :initialise shape. The paired
+  // tools/causa/testbeds/perf_counter/spec.cjs asserts a real
+  // dispatch through the perf-on bundle produces `rf:event:*` /
+  // `rf:sub:*` / `rf:fx:*` / `rf:render:*` measure entries on
+  // `performance.getEntriesByType`.
   {
     build: 'examples/counter-perf',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'perf_counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-perf'),
   },
   {
@@ -201,9 +204,11 @@ const EXAMPLES = [
   // Story Stage 8 — the canonical counter app with the
   // seven `reg-*` Story macros wired up. URL-hash-routed: `#/`
   // renders the live counter; `#/stories` mounts the Story shell.
+  // rf2-p8f2s — testbed-shaped (33× canonical counter); now lives
+  // under tools/story/testbeds/counter_with_stories/.
   {
     build: 'examples/counter-with-stories',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter_with_stories', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'counter_with_stories', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-with-stories'),
   },
   // Pattern-LongRunningWork worked example (rf2-o9fg) —

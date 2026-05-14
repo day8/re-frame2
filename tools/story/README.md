@@ -122,6 +122,6 @@ The substantive implementation contract is decomposed into
   contract.
 - [Guide chapter 21 — Stories](../../docs/guide/21-stories.md) — the narrative
   walkthrough; the friendly entry-point for human readers.
-- [`examples/reagent/counter_with_stories/`](../../examples/reagent/counter_with_stories/) —
-  the worked example wiring the seven `reg-*` macros against the canonical
-  counter app.
+- [`tools/story/testbeds/counter_with_stories/`](testbeds/counter_with_stories/) —
+  the tool-owned testbed wiring the seven `reg-*` macros against the canonical
+  counter app (rf2-p8f2s — relocated from `examples/reagent/`).

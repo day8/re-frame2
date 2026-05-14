@@ -9,7 +9,7 @@
  *      `re-frame.story.config/static-mode?` true).
  *
  *   2. Stages
- *      examples/reagent/counter_with_stories/story_static.index.html as
+ *      tools/story/testbeds/counter_with_stories/story_static.index.html as
  *      `index.html` next to the bundled `main.js` so the output
  *      directory is publishable as-is (the `:asset-path "."` means
  *      every cljs_base / cljs-runtime sibling resolves relative to the
@@ -91,8 +91,9 @@ const HTML_SRC = enforcePolicy(
   process.env.STORY_BUILD_INDEX_HTML ||
     path.join(
       REPO_ROOT,
-      'examples',
-      'reagent',
+      'tools',
+      'story',
+      'testbeds',
       'counter_with_stories',
       'story_static.index.html',
     ),

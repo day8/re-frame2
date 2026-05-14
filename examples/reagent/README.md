@@ -2,7 +2,9 @@
 
 The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, every Pattern-* doc) was authored against the Reagent adapter, and every JVM `clojure -M:test` run, every shadow-cljs `node-test` build, every `:browser-test` run, and every `npm run test:examples` invocation exercises the Reagent path end-to-end. See [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) for the policy and rationale.
 
-This directory holds the **full set of twenty worked Reagent examples** (counting each 7GUIs task individually) that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source, a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The 7GUIs cluster has its own internal grouping under [`7Guis/`](7Guis/README.md).
+This directory holds the **full set of nineteen worked Reagent examples** (counting each 7GUIs task individually) that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source, a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The 7GUIs cluster has its own internal grouping under [`7Guis/`](7Guis/README.md).
+
+Story Stage 8 (`tools/story` end-to-end on the counter) moved out to a tool-owned testbed at [`tools/story/testbeds/counter_with_stories/`](../../tools/story/testbeds/counter_with_stories/) per rf2-p8f2s.
 
 ## Layout
 
@@ -10,7 +12,6 @@ This directory holds the **full set of twenty worked Reagent examples** (countin
 reagent/
   counter/                     <-- the smallest possible app (CP-1, CP-2, CP-4)
   counter_slim_and_fast/       <-- same dataflow on day8/reagent-slim (bundle-comparison contract)
-  counter_with_stories/        <-- counter + tools/story wired end-to-end (Stage 8 / Spec 007)
   login/                       <-- single-feature scaffold (CP-5, CP-6)
   todomvc/                     <-- canonical benchmark (TodoMVC spec)
   routing/                     <-- CP-7 worked example (Spec 012)

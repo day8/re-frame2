@@ -45,6 +45,10 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const DEFAULT_OUT_ROOT = path.join(IMPL_ROOT, 'out');
 const DEFAULT_HTML_ROOTS = [
   path.join(REPO_ROOT, 'examples'),
+  // rf2-p8f2s — tool-owned testbeds may host index.html templates
+  // (e.g. tools/story/testbeds/counter_with_stories/story_static.index.html
+  // and tools/causa/testbeds/perf_counter/index.html).
+  path.join(REPO_ROOT, 'tools'),
   IMPL_ROOT,
 ];
 

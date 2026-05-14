@@ -177,7 +177,7 @@ scaffold. Reserved for a future iteration.
   day8/re-frame2-story {:mvn/version "..."}
   ```
 
-  And points at `examples/reagent/counter_with_stories/` for the
+  And points at `tools/story/testbeds/counter_with_stories/` for the
   shape.
 
 The follow-up: once Story stabilises post-1.0, add an

@@ -8,7 +8,7 @@
  * -------
  *
  * Measures the shipped byte cost of Story on a representative worked
- * example (`examples/reagent/counter_with_stories`) under three views:
+ * example (`tools/story/testbeds/counter_with_stories`) under three views:
  *
  *   A. Plain counter, no Story registrations            (:examples/counter)
  *   B. Counter + Story (the rf/story panels enabled)    (:examples/counter-with-stories)
