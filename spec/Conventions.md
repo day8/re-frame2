@@ -240,6 +240,29 @@ A feature does not reach into another feature's slice directly — it goes throu
 
 Full rationale: [000-Vision §Pointers to per-area Specs (Features)](000-Vision.md#pointers-to-per-area-specs) and [Construction-Prompts.md §CP-6](Construction-Prompts.md).
 
+## Canonical event-vector shape (best practice)
+
+The **canonical** call-shape for an event vector — and for the parallel subscribe query vector — is **id-first, with at most one trailing map**:
+
+```clojure
+[<event-id>]                   ;; trivial — id only
+[<event-id> <single-scalar>]   ;; single-argument
+[<event-id> {<k> <v> ...}]     ;; multi-argument — single map payload
+```
+
+Same shape for `subscribe`: `[:items-filtered {:status :pending :limit 20}]`.
+
+This is **best practice, not enforced**. The framework runtime accepts variadic vectors (`[<id> a b c]`) — the v1 multi-positional shape is tolerated for migration and caller convenience, and the linter nudges new code toward the map form (per [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). Boundary validators (`dispatch`, `dispatch-sync`, the pair-tool MCP dispatch surface) check `vector?` only; they do not reject variadic shape.
+
+Why the canonical form is `[<id> <map>]`:
+
+- **Name over place.** Map keys carry meaning that positional args don't; see [Principles §Name over place](Principles.md#name-over-place).
+- **Refactor stability.** Adding a field is one key, not a coordinated edit across every call site.
+- **Generator-amenable.** AI scaffolds (per [Construction-Prompts §CP-1](Construction-Prompts.md#cp-1-add-an-event-handler)) emit the map form; round-tripping through the spec preserves it.
+- **`unwrap` sugar.** The optional `unwrap` interceptor (per [API §Standard interceptors](API.md#standard-interceptors)) assumes this exact shape — handlers using it destructure the payload directly: `(fn [_ {:keys [...]}] ...)`.
+
+Cross-refs: [002 §Routing — canonical call shapes table](002-Frames.md#routing-the-dispatch-envelope), [Construction-Prompts §CP-1 — Call-shape convention](Construction-Prompts.md#cp-1-add-an-event-handler), [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in).
+
 ## `:interceptors` is positional, not metadata (`reg-event-*`)
 
 For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the **interceptor chain lives in the positional middle slot**, not inside the metadata-map. The metadata-map is reserved for *reflection* (`:doc`, `:spec`, `:tags`, `:platforms`, `:ns`, `:line`, `:file`) — keys tooling reads back from the registrar to describe what was registered.
