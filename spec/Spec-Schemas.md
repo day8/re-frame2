@@ -1,16 +1,16 @@
 # Spec-Internal Shape Descriptions
 
 > **Type:** Schemas
-> The canonical shapes of the spec's runtime data, written in Malli (for the CLJS reference). Shape description is required (so AIs and tools can read shapes); the *mechanism* is not. **Dynamically typed hosts** (CLJS, Python, Ruby, JS) realise these shapes as runtime schemas — Malli, Pydantic, dry-rb, Zod. **Statically typed hosts** (TypeScript, Kotlin, Rust, F#) realise the same shapes as types in the language's own type system, generally without a runtime schema library. Both are first-class.
+> The canonical shapes of the spec's runtime data, written in Malli (for the CLJS reference). Shape description is required (so AIs and tools can read shapes); the *mechanism* is not. Among the eight in-scope JS-cross-compile hosts (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic)), **dynamically typed hosts** (CLJS, Squint) realise these shapes as runtime schemas — Malli (CLJS reference) or Zod (Squint, via JS-FFI). **Statically typed hosts** (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS) realise the same shapes as types in the language's own type system, generally without a runtime schema library. Both are first-class.
 
 ## Scope
 
-The Malli forms below are the **canonical** shape descriptions for the CLJS reference. For a different host:
+The Malli forms below are the **canonical** shape descriptions for the CLJS reference. For a different in-scope host:
 
-- **Schema-bearing dynamic host** (Python+Pydantic, Ruby+dry-rb, JS+Zod): translate each Malli form into the host's schema language. The shape is identical; the syntax differs.
-- **Statically typed host** (TypeScript, Kotlin, Rust, F#): translate each Malli form into a type definition. The shape is identical; runtime validation is unnecessary if the type system enforces correctness throughout. A boundary validator (e.g., Zod for incoming JSON) may still be useful at system edges.
+- **Schema-bearing dynamic host** (CLJS+Malli; Squint+Zod): translate each Malli form into the host's schema language. The shape is identical; the syntax differs.
+- **Statically typed host** (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS): translate each Malli form into a type definition. The shape is identical; runtime validation is unnecessary if the type system enforces correctness throughout. A boundary validator (e.g., Zod for incoming JSON) may still be useful at system edges.
 
-A port can translate the Malli forms below mechanically:
+A port can translate the Malli forms below mechanically. The CLJS canonical and TypeScript transcription:
 
 ```clojure
 ;; Malli (CLJS reference)
@@ -35,19 +35,9 @@ type DispatchEnvelope = {
 };
 ```
 
-```python
-# Python equivalent (Pydantic; dynamic host)
-class DispatchEnvelope(BaseModel):
-    model_config = ConfigDict(extra='allow')   # open
-    event: list
-    frame: Id
-    fx_overrides: Optional[Dict[Id, Any]] = None
-    interceptor_overrides: Optional[Dict[Id, Any]] = None
-    trace_id: Optional[str] = None
-    source: Optional[Literal['ui', 'timer', 'http', 'machine', 'repl', 'ssr-hydration', 'test', 'other']] = None
-```
+The shape is the same in both; the mechanism is local to the host. The remaining in-scope hosts (Melange / ReScript / Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS) follow the same shape, expressed in the host's native type-or-schema vocabulary.
 
-The shape is the same in all three; the mechanism is local to the host.
+> **Non-normative background.** A Python/Pydantic, Ruby/dry-rb, or Rust transcription of the same shape would be straightforward, but server-side hosts are out of scope as first-class implementation targets per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic). The shape-discipline contract this doc pins applies only to the eight in-scope JS-cross-compile hosts.
 
 ## Schema convention
 
@@ -1263,7 +1253,7 @@ Both keys are namespaced under `:rf/`, so user-installed interceptors that read 
 
 > **Layer:** Conformance
 
-Conformance-corpus event/sub/view handler bodies are described as data so any host can interpret them without shipping CLJS lambdas. The DSL is a small fixed vocabulary of operations the harness in each host implements. Grammar:
+Conformance-corpus event/sub/view handler bodies are described as data so any in-scope host (per [§Scope](#scope)) can interpret them without shipping CLJS lambdas. The DSL is a small fixed vocabulary of operations the harness in each host implements. Grammar:
 
 ```clojure
 (def HandlerBodyOp
@@ -2367,8 +2357,8 @@ The open-shape `:rf/registration-metadata` describes the common keys every `reg-
 
 An implementation conforms if every runtime shape it produces *matches* the structures described above. Multiple paths to conformance:
 
-- **Dynamically typed hosts with a runtime schema layer** (CLJS+Malli; Python+Pydantic; JS+Zod; Ruby+dry-rb): validate emitted shapes against registered schemas. Failures are surfaced as `:rf.error/schema-validation-failure` trace events ([009 §Error contract](009-Instrumentation.md#error-contract)).
-- **Statically typed hosts** (TypeScript, Kotlin, Rust, F#): the type system enforces shape correctness through the runtime. Mismatches at the boundary (incoming JSON, deserialised state) are caught by a small boundary validator if needed. Most internal shape errors don't arise at all because the compiler rejected them.
+- **Dynamically typed in-scope hosts with a runtime schema layer** (CLJS+Malli; Squint+Zod): validate emitted shapes against registered schemas. Failures are surfaced as `:rf.error/schema-validation-failure` trace events ([009 §Error contract](009-Instrumentation.md#error-contract)).
+- **Statically typed in-scope hosts** (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS): the type system enforces shape correctness through the runtime. Mismatches at the boundary (incoming JSON, deserialised state) are caught by a small boundary validator if needed. Most internal shape errors don't arise at all because the compiler rejected them.
 - **Dynamically typed hosts without a runtime schema layer** (rare; primarily early-stage prototypes): match shapes by convention. Conformance is verified by the fixture corpus alone.
 
 The conformance test corpus is built from canonical interactions (a counter increment, a feature scaffolding, a state-machine transition, a server-side render + hydration round-trip) along with the expected emissions. The corpus format is itself data — an EDN/JSON file — so an AI can read it, generate test code in the host language, and report conformance scores.
