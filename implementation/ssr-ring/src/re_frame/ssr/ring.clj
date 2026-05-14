@@ -17,9 +17,9 @@
   carry server-only response data (Set-Cookie auth tokens, internal
   `X-*` headers, redirect targets) by accident — the boundary is
   enforced at the storage layer rather than via `:payload-keys`
-  filtering on every host endpoint. `build-payload` below ships the
-  app-db slice exactly because the accumulator is structurally outside
-  app-db.
+  filtering on every host endpoint. `build-payload` (in
+  `re-frame.ssr.ring.payload`) ships the app-db slice exactly because
+  the accumulator is structurally outside app-db.
 
   This namespace ships that adapter for Ring (https://github.com/ring-clojure).
   Ring is the canonical Clojure HTTP-server abstraction; the
@@ -30,588 +30,87 @@
   and Jetty all accept Ring-shaped handlers, so a single adapter covers
   the bulk of the Clojure HTTP ecosystem.
 
+  ---- file split (rf2-pjsrc) ----
+
+  Pre-split this namespace was 747 LoC carrying nine independent
+  concerns enumerated by its own `;; ----` banners. It's now a thin
+  façade over eight flat sub-namespaces:
+
+    - `re-frame.ssr.ring.cookie`           — RFC 6265 Set-Cookie wire
+                                             serialisation.
+    - `re-frame.ssr.ring.headers`          — pair-vec → Ring header-map
+                                             collapse, multi-valued
+                                             headers, content-type
+                                             default.
+    - `re-frame.ssr.ring.response`         — `ssr-response->ring-response`.
+    - `re-frame.ssr.ring.shell`            — `default-html-shell`.
+    - `re-frame.ssr.ring.payload`          — `build-payload`,
+                                             `resolve-version`.
+    - `re-frame.ssr.ring.lifecycle`        — frame teardown, root-view /
+                                             head resolution, on-create
+                                             enrichment.
+    - `re-frame.ssr.ring.handler-defaults` — default opts + caller-opt
+                                             validation.
+    - `re-frame.ssr.ring.pipeline`         — `setup-request-frame!` +
+                                             `build-full-response` (the
+                                             4-step request pipeline).
+
+  This façade re-exposes the public surface (`ssr-handler`,
+  `ssr-middleware`, `cookie->set-cookie-header`, `default-html-shell`)
+  and wires the sub-namespaces into the request lifecycle.
+
   Public surface:
 
-    (ssr-handler opts)  → ring-handler-fn
-    (ssr-middleware opts) → ((handler) → wrapped-handler)
+    (ssr-handler opts)                     → ring-handler-fn
+    (ssr-middleware opts)                  → ((handler) → wrapped-handler)
+    (cookie->set-cookie-header cookie-map) → string
+    (default-html-shell body-html payload-edn opts) → string
 
-  Per-request flow inside `ssr-handler`:
+  Per-request flow inside `ssr-handler` (the four pipeline steps live
+  in `re-frame.ssr.ring.pipeline`):
 
-    1. Gensym a per-request frame-id (under `:rf.frame/`), then
-       populate the per-frame request slot via
-       `(ssr/set-request! frame-id request)` BEFORE registering the
-       frame — `reg-frame` drains `:on-create` synchronously, so the
-       slot must be set first or the `:rf.server/request` cofx would
-       resolve nil during the drain (Spec 011 §Request storage
-       substrate). This is the same id-then-register pattern
-       `make-frame` runs internally; the adapter inlines it because
-       it needs the id between gensym and drain.
-    2. Register the frame via `(rf/reg-frame frame-id config)` with
-       `:platform :server`, the caller's `:on-create` event (with the
-       request map conj'd as an argument), and the caller's optional
-       `:fx-overrides` / `:ssr` config.
-    3. The drain runs synchronously inside `reg-frame`'s `:on-create`
-       dispatch path (Spec 002 §dispatch).
-    4. Read the response accumulator via `ssr/get-response` (flushes
-       any pending error projection per Spec 011 §Server error
-       projection).
-    5. If :redirect is set on the response, emit a Ring response with
-       just status + Location header — no body, no payload (Spec 011
-       §Redirect precedence step 4).
-    6. Otherwise render the caller's `:root-view` against the frame
-       (with-frame binds *current-frame* across the render), wrap in
-       the caller's `:html-shell` envelope, and emit a Ring response
-       with status / headers / body.
-    7. Materialise structured cookies to Set-Cookie headers per
-       RFC 6265 — re-frame.ssr stores cookies as structured maps
-       (Spec 011 §Cookie shape); the host adapter is where the wire
-       string is built so user code never touches the per-attribute
-       quoting / encoding pitfalls.
-    8. Destroy the per-request frame in a `finally` block — pending
-       :dispatch-later calls, sub-cache reactions, and trace-buffer
-       state all release on destroy (Spec 002 §Destroy); the
-       `:ssr/on-frame-destroyed` hook drops the request slot in the
-       same step.
+    1. `setup-request-frame!` — populate the per-frame request slot
+       via `ssr/set-request!` BEFORE registering the frame so the
+       synchronous `:on-create` drain can resolve `:rf.server/request`
+       (Spec 011 §Request storage substrate).
+    2. `ssr/get-response` — read the resolved response accumulator
+       (flushes any pending error projection per Spec 011 §Server
+       error projection).
+    3. Branch on `:redirect` — emit a Ring response with status +
+       Location header only, no body, no payload (Spec 011 §Redirect
+       precedence). Otherwise `build-full-response` renders the
+       `:root-view`, builds the hydration payload, wraps in the
+       `:html-shell` envelope, and materialises structured cookies to
+       Set-Cookie headers per RFC 6265.
+    4. `destroy-frame!` in `finally` — the `:ssr/on-frame-destroyed`
+       hook clears the per-frame request slot in the same step
+       (rf2-fcj33).
 
-  Coordination with `:rf.server/request` cofx:
+  Out of scope (deferred / other beads):
 
-    Per Spec 011 §Request storage substrate, the host adapter MUST
-    populate the per-frame request slot before the drain begins and
-    MUST clear it after the response is materialised. A single
-    dynamic `Var` / thread-local binding is explicitly forbidden as
-    a substrate — under concurrent drains (the canonical SSR shape
-    under load) frames sharing a thread would bleed request data
-    across requests. This adapter gensyms the per-request frame-id,
-    calls `ssr/set-request!` with that id, and only then registers
-    the frame via `reg-frame` (which kicks off the synchronous
-    `:on-create` drain — by which time the cofx can resolve the
-    request). The slot is cleared as part of `destroy-frame!` via
-    the `:ssr/on-frame-destroyed` teardown hook (rf2-fcj33).
+    - Streaming SSR (rf2-olb64) — `render-to-string` is single-shot;
+      this adapter mirrors that.
+    - Async Ring handler (3-arity) — synchronous-only in v1;
+      extension is additive."
+  (:require [re-frame.ssr :as ssr]
+            [re-frame.ssr.ring.cookie :as cookie]
+            [re-frame.ssr.ring.handler-defaults :as defaults]
+            [re-frame.ssr.ring.lifecycle :as lifecycle]
+            [re-frame.ssr.ring.pipeline :as pipeline]
+            [re-frame.ssr.ring.response :as response]
+            [re-frame.ssr.ring.shell :as shell]))
 
-  Head/meta integration (rf2-4dra9):
-
-    The adapter resolves the active route's `:head` registration via
-    `rf/active-head` after the drain settles; the produced
-    `:rf/head-model` is rendered to its inner-head HTML fragment via
-    `rf/head-model->html` and threaded into the shell as the `:head`
-    opt. Custom shells (`:html-shell` opt) receive the resolved head
-    fragment in the merged opts map. Routes that don't declare `:head`
-    fall back to the default head model (Spec 011 §Default head); the
-    fragment is empty when there is no useful head data.
-
-  Out of scope here (deferred / other beads):
-
-    - Streaming SSR (rf2-olb64)            — `render-to-string` is
-                                             a single-shot emitter; this
-                                             adapter mirrors that.
-    - Async Ring handler (3-arity)         — synchronous-only in v1;
-                                             extension is additive."
-  (:require [clojure.string :as str]
-            [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.ssr :as ssr]
-            [re-frame.trace :as trace])
-  (:import [java.net URLEncoder]
-           [java.nio.charset StandardCharsets]
-           [java.time Instant ZoneOffset ZonedDateTime]
-           [java.time.format DateTimeFormatter]))
-
-;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
-;; The JVM-side `Instant/ofEpochMilli` in `cookie->set-cookie-header`
-;; has a primitive-long contract; surfacing reflection at compile time
-;; flags accidentally-Long-boxed args before they NPE in production.
 (set! *warn-on-reflection* true)
 
-;; ---- cookie serialisation (RFC 6265) -------------------------------------
+;; ---- public-surface re-exports --------------------------------------------
 ;;
-;; Per Spec 011 §Cookie shape, re-frame.ssr stores cookies as structured
-;; maps and lets the host adapter materialise the Set-Cookie wire string.
-;; This intentionally keeps the per-attribute quoting / encoding details
-;; out of user code.
+;; `def`s expose the sub-namespace fns at `re-frame.ssr.ring/<name>` so
+;; consumers see the same surface they did pre-split.
 
-(def ^:private ^DateTimeFormatter rfc1123-formatter
-  ;; Set-Cookie's :Expires uses RFC 7231 IMF-fixdate (a fixed-format
-  ;; subset of RFC 1123): "Sun, 06 Nov 1994 08:49:37 GMT".
-  (.withZone DateTimeFormatter/RFC_1123_DATE_TIME ZoneOffset/UTC))
+(def cookie->set-cookie-header cookie/cookie->set-cookie-header)
+(def default-html-shell        shell/default-html-shell)
 
-(defn- url-encode
-  "URL-encode a cookie value. java.net.URLEncoder emits `+` for space
-  (form-encoded shape, RFC 1866), but RFC 6265 cookie values follow
-  RFC 3986 percent-encoding — space is `%20`. Post-process the
-  form-encoded output to convert `+` back to `%20` so the wire shape is
-  RFC-3986-clean."
-  [s]
-  (-> (URLEncoder/encode (str s) (.name StandardCharsets/UTF_8))
-      (str/replace "+" "%20")))
-
-(defn- same-site-token [v]
-  (case v
-    :strict "Strict"
-    :lax    "Lax"
-    :none   "None"
-    ;; tolerant of string-shaped values
-    (cond
-      (string? v) v
-      (keyword? v) (str/capitalize (name v))
-      :else (str v))))
-
-(defn cookie->set-cookie-header
-  "Serialise one re-frame.ssr cookie map to a Set-Cookie header value
-  per RFC 6265 §4.1. Per Spec 011 §Cookie shape — the cookie's :name /
-  :value are required; everything else is an attribute appended after
-  semicolons. The :value is URL-encoded.
-
-  Public surface so tests, alt host adapters (Pedestal, HttpKit), and
-  user code that needs a one-off serialisation can call it directly."
-  [{:keys [name value max-age secure http-only same-site path domain expires]
-    :as cookie}]
-  (when (nil? name)
-    (throw (ex-info ":rf.error/cookie-missing-name"
-                    {:reason "cookie map must carry :name"
-                     :cookie cookie})))
-  ;; Per audit rf2-asmj1 R7 / cluster rf2-sljs1: `Instant/ofEpochMilli`
-  ;; takes a primitive long; passing anything else (a string-shaped
-  ;; epoch from a misconfigured projector, a `java.util.Date`, …) would
-  ;; NPE deep inside the format path. Catch the type-mismatch up front
-  ;; with a clear `:rf.error/cookie-invalid-expires` so the misuse
-  ;; surfaces with the cookie's actual shape attached.
-  (when (and (some? expires) (not (integer? expires)))
-    (throw (ex-info ":rf.error/cookie-invalid-expires"
-                    {:reason   (str ":expires must be an epoch-millis long; got " (.getName (class expires)))
-                     :expires  expires
-                     :cookie   cookie
-                     :recovery :no-recovery})))
-  (let [parts (cond-> [(str (clojure.core/name name)
-                            "="
-                            (url-encode (or value "")))]
-                ;; Order doesn't matter to the RFC, but the canonical
-                ;; serving order in most libraries is:
-                ;;   Max-Age, Domain, Path, Expires, Secure, HttpOnly, SameSite
-                (some? max-age)  (conj (str "Max-Age=" max-age))
-                (some? domain)   (conj (str "Domain=" domain))
-                (some? path)     (conj (str "Path=" path))
-                (some? expires)
-                (conj (str "Expires="
-                           (.format rfc1123-formatter
-                                    (ZonedDateTime/ofInstant
-                                      ;; `expires` was type-checked above
-                                      ;; (`integer?`); coerce to a
-                                      ;; primitive long so the static-
-                                      ;; method dispatch picks the long
-                                      ;; arity without reflection.
-                                      (Instant/ofEpochMilli (long expires))
-                                      ZoneOffset/UTC))))
-                (true? secure)    (conj "Secure")
-                (true? http-only) (conj "HttpOnly")
-                (some? same-site) (conj (str "SameSite=" (same-site-token same-site))))]
-    (str/join "; " parts)))
-
-;; ---- header materialisation ----------------------------------------------
-;;
-;; re-frame.ssr stores headers internally as an ordered vector of
-;; [name value] pairs (case-insensitive name match). Ring accepts
-;; headers as a map of name → string OR name → vector-of-strings;
-;; multiple values under one name go via a vector. We collapse repeated
-;; pairs into vectors so multi-valued headers (Set-Cookie, Vary,
-;; Link, ...) round-trip correctly.
-
-(defn- merge-pair-into-header-map
-  "Fold a `[name value]` header pair into the accumulating Ring headers
-  map. The accumulator only ever carries `nil`, `string`, or `vector`
-  values per the contract upstream — no other shapes flow in — so the
-  three arms here are exhaustive (audit rf2-asmj1 R8 / cluster
-  rf2-sljs1: the prior `:else` arm was dead)."
-  [m [k v]]
-  (let [existing (get m k)]
-    (cond
-      (nil? existing)        (assoc m k v)
-      (string? existing)     (assoc m k [existing v])
-      (vector? existing)     (assoc m k (conj existing v)))))
-
-(defn- headers->ring-map
-  "Collapse an ordered vec-of-[name value] pairs into Ring's
-  `{name string-or-vec}` shape, preserving the multi-valued case.
-
-  Ordering note (audit rf2-asmj1 R9 / cluster rf2-sljs1) — the
-  PER-NAME ordering of multi-valued headers (e.g. multiple `Set-Cookie`
-  entries) is preserved by `merge-pair-into-header-map`'s `conj` onto
-  the existing vector. The ACROSS-NAME ordering (the iteration order
-  Ring's downstream wire-writer sees when it walks the map's keys) is
-  the JDK's HAMT iteration order — stable per Clojure's persistent-map
-  contract but not first-seen-pair order. Ring servers don't promise
-  cross-name header order on the wire either; debug logs that compare
-  serialised output across requests should sort the keys before
-  diffing."
-  [pairs]
-  (reduce merge-pair-into-header-map {} pairs))
-
-(defn- append-set-cookies
-  "For every cookie map in the response's :cookies vector, append one
-  Set-Cookie header to the headers map. Returns the updated headers
-  map."
-  [headers-map cookies]
-  (reduce
-    (fn [m cookie]
-      (merge-pair-into-header-map m ["Set-Cookie"
-                                     (cookie->set-cookie-header cookie)]))
-    headers-map
-    cookies))
-
-;; ---- response materialisation --------------------------------------------
-
-(defn- ssr-response->ring-response
-  "Materialise the runtime's resolved response accumulator (per
-  Spec 011 §HTTP response contract) into a Ring response map. The
-  `:body` arg is the rendered HTML (or nil for redirect-only
-  responses). `:redirect` short-circuits per Spec 011 §Redirect
-  precedence — status + Location header, no body."
-  [{:keys [status headers cookies redirect]} body]
-  (if redirect
-    (let [{:keys [location url to] redirect-status :status} redirect
-          target (or location url to)]
-      {:status  (or redirect-status status 302)
-       :headers (-> (headers->ring-map headers)
-                    (append-set-cookies cookies)
-                    (cond-> target (assoc "Location" target)))
-       :body    ""})
-    {:status  (or status 200)
-     :headers (-> (headers->ring-map headers)
-                  (append-set-cookies cookies))
-     :body    (or body "")}))
-
-;; ---- html shell ----------------------------------------------------------
-;;
-;; A small, sane default. Users with their own envelope (custom
-;; `<head>`, asset-hash-pinned `<script>` tags, JSON-LD blocks, ...)
-;; pass an :html-shell option to override. The default exists so a
-;; first-time user gets a working SSR endpoint without writing string
-;; concatenation glue.
-
-(defn default-html-shell
-  "The default HTML envelope. Returns a string wrapping the rendered
-  body in a minimal-but-runnable document. Override via `:html-shell`
-  in `ssr-handler` opts when you need custom <head> / scripts / styles.
-
-  `<title>` is NOT emitted by the shell — the head fragment is the
-  canonical source per Spec 011 §Head/meta contract (rf2-4dra9, rf2-3z841).
-  `default-head` rolls the frame's `:doc` into `:title` when a route does
-  not declare `:head`, so a sensible title is always present in the
-  resolved head fragment threaded in as the `:head` opt. Emitting one
-  here would produce two `<title>` tags per document — malformed HTML.
-
-  Args:
-    body-html — the string returned by re-frame.ssr/render-to-string
-    payload-edn — the hydration payload, pre-serialised with pr-str
-    opts — the caller's adapter opts (merged with any per-request
-           overrides); standard keys :head / :body-end / :script-src /
-           :app-element-id / :lang influence the envelope.
-
-  Safety — `:body-end` is concatenated as RAW HTML; no escaping is
-  applied. The shell is caller-controlled config (app boot decides what
-  scripts/analytics tags to inject), so the trust-the-caller model is
-  load-bearing here. Hosts that route user-controlled content through
-  `:body-end` (e.g. config-driven analytics blocks sourced from a
-  customer settings UI) MUST escape upstream — the shell will not.
-  Audit rf2-asmj1 R12 / cluster rf2-sljs1."
-  [body-html payload-edn
-   {:keys [head body-end script-src app-element-id lang]
-    :or   {app-element-id  "app"
-           script-src      "/main.js"
-           lang            "en"}}]
-  (str "<!DOCTYPE html>"
-       "<html lang=\"" lang "\">"
-       "<head>"
-       "<meta charset=\"utf-8\">"
-       (or head "")
-       "</head>"
-       "<body>"
-       "<div id=\"" app-element-id "\">" body-html "</div>"
-       "<script id=\"__rf_payload\" type=\"application/edn\">"
-       payload-edn
-       "</script>"
-       (when script-src
-         (str "<script src=\"" script-src "\"></script>"))
-       (or body-end "")
-       "</body>"
-       "</html>"))
-
-;; ---- payload construction ------------------------------------------------
-
-(def ^:private default-pattern-protocol-version
-  "The v1 pattern-protocol version stamp (per Spec-Schemas
-  §`:rf/hydration-payload` line 1839 — \"integer; v1 = 1\"). Used as the
-  terminal fallback in `resolve-version` so the canonical payload key
-  is always present (Malli `:int` slot, not `:optional`)."
-  1)
-
-(defn- resolve-version
-  "Pick the `:rf/version` value to ship in the hydration payload. The
-  resolution order is:
-
-    1. An explicit `:version` opt from the caller (host-supplied stamp;
-       wins so test fixtures and apps that ship their own version source
-       stay in control).
-    2. The framework-global `:rf2/runtime-version` late-bind hook — the
-       same source the client-side `:rf.ssr/check-version` fx reads. When
-       the host registers this hook at boot, both sides of the wire pin
-       the same value with no further wiring (per Spec 011 §The hydration
-       payload + §fx-input shape + Conventions §Late-bind hook key
-       grammar).
-    3. `default-pattern-protocol-version` (v1 = 1) — the canonical schema
-       slot is required (per Spec-Schemas §`:rf/hydration-payload`), so a
-       terminal numeric fallback is structurally necessary. The
-       check-version fx still no-ops cleanly on the client when neither
-       side has the hook registered (matched value → no mismatch).
-
-  Audit rf2-asmj1 S8 / cluster rf2-l8fi6: prior to this the adapter
-  hard-coded `(or version 1)` inline, which silently disagreed with
-  whatever the client-side `:rf2/runtime-version` hook returned and
-  defeated the version-mismatch check on every host that hadn't passed
-  `:version` explicitly. Threading both sides through the same hook
-  eliminates the silent-divergence trap; the terminal `1` is the v1
-  pattern-protocol stamp, named instead of inlined so the convention
-  travels back to Spec-Schemas via search."
-  [explicit-version]
-  (or explicit-version
-      (when-let [f (late-bind/get-fn :rf2/runtime-version)]
-        (f))
-      default-pattern-protocol-version))
-
-(defn- build-payload
-  "Per Spec 011 §The hydration payload — emit the four canonical keys
-  (`:rf/version`, `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`)
-  plus the optional `:rf/schema-digest`. Schema-digest is supplied
-  by the caller when their app participates in the schema-digest
-  check; nil otherwise. Version source-of-truth: `resolve-version`
-  above — caller opt wins, falling back to the `:rf2/runtime-version`
-  late-bind hook so server and client read from the same source."
-  [frame-id app-db render-hash {:keys [version schema-digest payload-keys]}]
-  (let [db-slice (if (seq payload-keys)
-                   (select-keys app-db payload-keys)
-                   app-db)]
-    (cond-> {:rf/version     (resolve-version version)
-             :rf/frame-id    frame-id
-             :rf/app-db      db-slice
-             :rf/render-hash render-hash}
-      schema-digest (assoc :rf/schema-digest schema-digest))))
-
-;; ---- handler -------------------------------------------------------------
-
-(defn- destroy-frame-quietly!
-  "Best-effort frame teardown. Exceptions during destroy must not mask
-  a real handler error; swallow + emit a `:warning` trace is preferred
-  over propagation.
-
-  Per audit rf2-asmj1 R6 / cluster rf2-sljs1: prior to this change the
-  catch silently returned nil, so a destroy-time throw vanished entirely
-  whenever the trace listener fired before the destroy. Surfacing the
-  throwable on the trace bus keeps the error visible to dev tooling
-  without escalating to a user-visible 500 (the handler-side error has
-  already been materialised by the time this fn runs)."
-  [frame-id]
-  (try
-    (rf/destroy-frame frame-id)
-    (catch Throwable t
-      (trace/emit! :warning :rf.ssr/destroy-frame-failed
-                   {:frame    frame-id
-                    :reason   (or (.getMessage t) (.getName (class t)))
-                    :ex-class (.getName (class t))
-                    :recovery :warned-and-skipped})
-      nil)))
-
-(defn- resolve-root-view
-  "Resolve the caller's `:root-view` opt to a hiccup vector. Accepts
-  either a hiccup vector directly OR a 0-arity fn that returns hiccup.
-  Per rf2-6t36h this MUST run exactly once per request — the fn-form
-  branch is not guaranteed to be idempotent (unsorted-map iteration,
-  gensym'd keys, time-of-day props can all vary between calls) and any
-  variance between two invocations produces a hash mismatch on the wire
-  vs the payload, firing a spurious `:rf.ssr/hydration-mismatch` on a
-  perfectly successful hydration. Resolve once, thread the result."
-  [root-view]
-  (cond
-    (vector? root-view) root-view
-    (fn?     root-view) (root-view)
-    :else
-    (throw (ex-info ":rf.error/invalid-root-view"
-                    {:reason   "root-view must be a hiccup vector or a 0-arity fn"
-                     :received root-view}))))
-
-(defn- resolve-head-html
-  "Resolve the active route's `:head` against `frame-id` (or the default
-  head when the route doesn't declare one). Returns the inner-head HTML
-  fragment as a string. Exceptions during resolution degrade gracefully
-  to an empty string so a buggy head fn can't take down the request —
-  the trace surface still carries the throw for monitoring.
-
-  Per Spec 011 §Head/meta contract (rf2-4dra9)."
-  [frame-id]
-  (try
-    (let [model (rf/active-head frame-id)]
-      (rf/head-model->html model))
-    (catch Throwable _ "")))
-
-(defn- on-create-with-request
-  "Conj the Ring request map onto the caller's :on-create event vector
-  so handlers can read it as an event arg. The `:rf.server/request`
-  cofx (rf2-e825b) is the canonical read path; this is the fallback
-  for handlers that don't inject the cofx and want the request as a
-  positional arg, matching the worked example in
-  examples/reagent/ssr/core.cljc."
-  [on-create request]
-  (cond
-    (nil? on-create)    nil
-    (vector? on-create) (conj on-create request)
-    :else
-    (throw (ex-info ":rf.error/invalid-on-create"
-                    {:reason   ":on-create must be a vector (event)"
-                     :received on-create}))))
-
-;; ---- handler defaults ----------------------------------------------------
-;;
-;; Merged into caller-supplied opts once at handler-construction time
-;; so the pipeline helpers below can destructure a single uniform
-;; `opts` map without re-stating the defaults.
-
-(defn- default-on-error
-  "Minimal 500 response used when the caller doesn't supply `:on-error`.
-  The SSR runtime's error projector handles trace-emitted errors
-  during drain; this hook covers exceptions the projector can't see
-  (Ring-layer throws, render-time CLJ exceptions).
-
-  Falls back to the exception's class name when `getMessage` returns
-  nil (some throwable types throw `null` from `.getMessage`) so the
-  body never renders as `\"SSR error: null\"` on the wire — audit
-  rf2-asmj1 R5 / cluster rf2-sljs1."
-  [_request ^Throwable t]
-  {:status  500
-   :headers {"Content-Type" "text/plain; charset=utf-8"}
-   :body    (str "SSR error: " (or (.getMessage t) (.getName (class t))))})
-
-(def ^:private handler-defaults
-  {:emit-hash?   true
-   :html-shell   default-html-shell
-   :content-type "text/html; charset=utf-8"
-   :on-error     default-on-error})
-
-(defn- validate-handler-opts!
-  "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
-  caller omits a required `ssr-handler` opt. Extracted from the
-  handler body per audit rf2-asmj1 R3 / cluster rf2-sljs1 so the body
-  of `ssr-handler` reads as the lifecycle wiring rather than a
-  validation-then-wire two-step."
-  [{:keys [on-create root-view]}]
-  (when-not on-create
-    (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
-                    {:reason "ssr-handler requires :on-create (an event vector)"})))
-  (when-not root-view
-    (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
-                    {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"}))))
-
-;; ---- request lifecycle pipeline ------------------------------------------
-;;
-;; The Ring handler is a 4-step pipeline:
-;;
-;;   1. setup-request-frame! — gensym frame-id, populate request slot,
-;;      register the per-request frame (which drains :on-create
-;;      synchronously). On failure, returns a {:short-circuit ring-resp}
-;;      map so the outer pipeline emits the on-error response without
-;;      attempting render.
-;;   2. ssr/get-response       — read the resolved response accumulator
-;;      (flushes any pending error projection).
-;;   3. branch on :redirect    — short-circuit to a Location response,
-;;      OR build-full-response — render the root-view, build the
-;;      hydration payload, wrap in the html-shell, materialise to Ring.
-;;   4. destroy-frame-quietly! in `finally` — `:ssr/on-frame-destroyed`
-;;      (rf2-fcj33) clears the per-frame request slot.
-
-(defn- ensure-content-type
-  "If the response's header pairs already declare Content-Type
-  (case-insensitive), return them unchanged; otherwise append a
-  pair carrying `content-type`. Pure helper."
-  [pairs content-type]
-  (let [m (headers->ring-map pairs)]
-    (if (or (get m "content-type")
-            (get m "Content-Type"))
-      pairs
-      (conj (vec pairs) ["Content-Type" content-type]))))
-
-(defn- setup-request-frame!
-  "Register a per-request frame and populate the request slot. Returns
-  `{:frame-id fid}` on success, or `{:short-circuit ring-response}` when
-  setup fails (the caller short-circuits to that response, skipping
-  render).
-
-  The slot is populated BEFORE `reg-frame` so the synchronous
-  `:on-create` drain can resolve the `:rf.server/request` cofx (Spec
-  011 §Request storage substrate). `make-frame` gensyms the id
-  internally and would return only after the drain, so we inline its
-  (gensym + reg-frame) shape here and call `ssr/set-request!` between
-  them. The assembled config is identical to what `make-frame` would
-  have submitted.
-
-  On failure mid-drain, the request slot AND any partial frame
-  registration are cleared so neither leaks across requests. The frame
-  may be registered in the `frames` atom (see frame.cljc — `swap!
-  frames` happens before `dispatch-sync`), so the best-effort destroy
-  is required even though `reg-frame` threw."
-  [{:keys [on-create fx-overrides ssr on-error]} request]
-  (let [fid (keyword "rf.frame" (str (gensym "")))]
-    (ssr/set-request! fid request)
-    (try
-      (rf/reg-frame fid
-        (cond-> {:doc       "ssr-ring per-request frame"
-                 :platform  :server
-                 :on-create (on-create-with-request on-create request)}
-          fx-overrides (assoc :fx-overrides fx-overrides)
-          ssr          (assoc :ssr           ssr)))
-      {:frame-id fid}
-      (catch Throwable t
-        (ssr/clear-request! fid)
-        (destroy-frame-quietly! fid)
-        {:short-circuit (on-error request t)}))))
-
-(defn- build-full-response
-  "Render the caller's `:root-view` against `frame-id`, build the
-  hydration payload, wrap in the html-shell, and materialise to a Ring
-  response.
-
-  Per rf2-6t36h the root-view resolves EXACTLY ONCE per request — both
-  the wire HTML (via `render-to-string` + its embedded
-  `data-rf-render-hash`) and the payload's `:rf/render-hash` derive
-  from the same hiccup tree, so a non-idempotent fn-form root-view
-  cannot fire a spurious `:rf.ssr/hydration-mismatch` on a successful
-  hydration."
-  [frame-id response
-   {:keys [root-view emit-hash? version schema-digest payload-keys
-           html-shell content-type]
-    :as   opts}]
-  (let [hiccup      (rf/with-frame frame-id (resolve-root-view root-view))
-        body-html   (rf/with-frame frame-id
-                      (ssr/render-to-string hiccup
-                                            {:doctype?   false
-                                             :emit-hash? emit-hash?}))
-        hash-str    (ssr/render-tree-hash hiccup)
-        app-db      (rf/get-frame-db frame-id)
-        payload     (build-payload frame-id app-db hash-str
-                                   {:version       version
-                                    :schema-digest schema-digest
-                                    :payload-keys  payload-keys})
-        payload-edn (pr-str payload)
-        ;; rf2-4dra9: resolve the active route's :head (or
-        ;; default-head fallback) and pass the rendered fragment as
-        ;; the :head opt. Callers that supplied an explicit :head opt
-        ;; take precedence — they chose to bypass route-driven head
-        ;; resolution.
-        head-html   (or (:head opts) (resolve-head-html frame-id))
-        shell-opts  (assoc opts :head head-html)
-        html        (html-shell body-html payload-edn shell-opts)
-        ;; Ensure Content-Type is set; the SSR runtime defaults
-        ;; [:rf/response :headers] to include content-type so this is
-        ;; usually a no-op, but we let opts override and trust the
-        ;; runtime's default in absence.
-        response*   (update response :headers ensure-content-type content-type)]
-    (ssr-response->ring-response response* html)))
+;; ---- ssr-handler ----------------------------------------------------------
 
 (defn ssr-handler
   "Return a Ring-shaped (synchronous) handler that renders one
@@ -688,30 +187,31 @@
                              :html-shell ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
   [raw-opts]
-  (validate-handler-opts! raw-opts)
+  (defaults/validate-handler-opts! raw-opts)
   ;; Merge defaults once at construction time so the pipeline helpers
   ;; (`setup-request-frame!`, `build-full-response`) can destructure
   ;; without re-stating the `:or` map. Caller-supplied values win.
-  (let [opts        (merge handler-defaults raw-opts)
+  (let [opts        (merge defaults/handler-defaults raw-opts)
         {:keys [on-error]} opts]
     (fn ring-handler [request]
-      (let [{:keys [frame-id short-circuit]} (setup-request-frame! opts request)]
+      (let [{:keys [frame-id short-circuit]}
+            (pipeline/setup-request-frame! opts request)]
         (if short-circuit
           short-circuit
           (try
-            (let [response (ssr/get-response frame-id)]
-              (if (some? (:redirect response))
+            (let [resp (ssr/get-response frame-id)]
+              (if (some? (:redirect resp))
                 ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-                (ssr-response->ring-response response nil)
-                (build-full-response frame-id response opts)))
+                (response/ssr-response->ring-response resp nil)
+                (pipeline/build-full-response frame-id resp opts)))
             (catch Throwable t
               (on-error request t))
             (finally
               ;; `destroy-frame!` invokes `:ssr/on-frame-destroyed`
               ;; (rf2-fcj33), which clears the per-frame request slot.
-              (destroy-frame-quietly! frame-id))))))))
+              (lifecycle/destroy-frame-quietly! frame-id))))))))
 
-;; ---- middleware ----------------------------------------------------------
+;; ---- ssr-middleware -------------------------------------------------------
 
 (defn ssr-middleware
   "Return Ring middleware that delegates to `ssr-handler` for the
