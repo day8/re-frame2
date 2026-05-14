@@ -163,8 +163,14 @@
   reads :rf/interceptor-error after the chain ends and emits
   :rf.error/handler-exception (or similar)."
   [interceptors initial-context]
-  (let [;; Apply :before stages in order (short-circuits on first error).
-        ctx-after-befores (reduce invoke-before initial-context interceptors)
-        ;; Apply :after stages in reverse order (always runs for teardown).
-        ctx-after-afters  (reduce invoke-after ctx-after-befores (reverse interceptors))]
-    ctx-after-afters))
+  ;; Apply :before stages in order (short-circuits on first error).
+  (let [ctx-after-befores (reduce invoke-before initial-context interceptors)]
+    ;; Apply :after stages in reverse order (always runs for teardown).
+    ;; Indexed-vec backward walk avoids the per-dispatch lazy-seq allocation
+    ;; `(reverse interceptors)` would produce. `interceptors` is the
+    ;; declaration-order vector built by the registration factories.
+    (loop [i   (dec (count interceptors))
+           ctx ctx-after-befores]
+      (if (neg? i)
+        ctx
+        (recur (dec i) (invoke-after ctx (nth interceptors i)))))))
