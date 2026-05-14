@@ -114,7 +114,7 @@ node out/server.js
 
 ## Tool surface
 
-The nine tools, in the order a typical session uses them. Argument
+The twelve tools, in the order a typical session uses them. Argument
 schemas and result shapes are specified in
 [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
 
@@ -127,8 +127,11 @@ schemas and result shapes are specified in
 | `watch-epochs` | Pull-mode poll for matching epochs since a given id. |
 | `tail-build` | Wait for a hot-reload to land by polling a probe form. |
 | `snapshot`   | Coarse-grained per-frame state read in one round-trip. Returns `:app-db` + `:sub-cache` + `:machines` + `:epochs` + `:traces` slices for every (or a subset of) frame(s). Mega-op for investigate-X workflows. |
+| `get-path` | Direct slice read at a path inside `app-db`. The deep-read peer of `snapshot`; agents drill in once a `:rf.mcp/summary` or elision marker names the path of interest. |
 | `subscribe` | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe` | Close a streaming subscription out-of-band. Idempotent. |
+| `subscription-info` | Diagnostic peer for `subscribe` / `unsubscribe` (rf2-zjz9q) — "what streams are open?" snapshot of the active subscription set. |
+| `get-pair2-instructions` | Returns the agent-onboarding text — how pair2 connects, how `:origin :pair` works, the canonical workflow per dispatch / eval / snapshot. Read once at session start (rf2-fnpqg). |
 
 (Pre-rf2-7dvg drops also exposed `inject-runtime`. That tool is gone:
 the runtime ships into consumer apps via shadow-cljs `:devtools
@@ -258,7 +261,7 @@ vocabulary changes.
 ## What this doesn't expose
 
 - **No new framework primitives.** No new registries, no new
-  dispatch types, no new effect substrates. The nine ops route
+  dispatch types, no new effect substrates. The twelve ops route
   through existing `re-frame-pair2.runtime` surfaces. See
   [`Principles.md`](./Principles.md) § Tool consumes the framework.
 - **No remote-attach protocol.** pair2-mcp is stdio-only; the agent
