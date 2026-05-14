@@ -146,6 +146,79 @@
   ([path frame-id]
    (rf/snapshot-of path {:frame frame-id})))
 
+;; ---------------------------------------------------------------------------
+;; Raw-state posture (rf2-c2dtu)
+;; ---------------------------------------------------------------------------
+;;
+;; The MCP server (`tools/pair2-mcp/`) carries a `--allow-raw-state` boot
+;; gate (default OFF). When OFF, the runtime MUST default-elide any
+;; verbatim app-db value before emitting it through `tap>` — otherwise
+;; an `app-db-reset!` log entry would surface the same raw payload that
+;; the wire path already redacts.
+;;
+;; The MCP server signals the runtime once per build per server lifetime
+;; via `(configure-raw-state! {:allow-raw-state? bool})`. The flag is
+;; consulted by `app-db-reset!` (and any future raw-state tap site)
+;; before deciding whether to ship verbatim payloads or run them through
+;; `re-frame.core/elide-wire-value`.
+;;
+;; Default OFF — a runtime loaded into an app without a pair2-mcp server
+;; sees the gate as "raw allowed", which preserves the original behaviour
+;; for direct CLJS callers (developer at the REPL invoking
+;; `app-db-reset!`). The pair2-mcp server flips it on first tool use to
+;; "raw gated" when its own boot flag is OFF.
+
+(defonce ^:private raw-state-config
+  ;; {:allow-raw-state? bool}
+  ;; Default true — raw `tap>` payloads ride unmodified UNTIL the MCP
+  ;; server signals otherwise. A bare CLJS REPL session (no pair2-mcp
+  ;; attached) sees the legacy verbatim behaviour.
+  (atom {:allow-raw-state? true}))
+
+(defn configure-raw-state!
+  "Set the raw-state posture for tap>-emitting surfaces. Opts:
+
+     :allow-raw-state?  boolean — when true (default), `app-db-reset!`
+                        taps verbatim pre- and post-reset app-db
+                        values. When false, the values are walked
+                        through `re-frame.core/elide-wire-value` so
+                        large / sensitive slots redact before any tap
+                        consumer sees them.
+
+   Returns the merged config map. Idempotent. Called by
+   `re-frame-pair2-mcp.tools.raw-state/signal-runtime!` once per build
+   per server lifetime; safe to call by hand from a REPL to flip the
+   posture.
+
+   Per Spec 009 §Privacy: pair2-mcp's published-build default has the
+   server's boot gate OFF, so the runtime ends up in
+   `:allow-raw-state? false` mode the moment a state-emitting MCP tool
+   first fires. Operators who passed `--allow-raw-state` at server
+   launch get `:allow-raw-state? true` instead."
+  [{:keys [allow-raw-state?] :as opts}]
+  (swap! raw-state-config merge (select-keys opts [:allow-raw-state?]))
+  (assoc @raw-state-config :ok? true))
+
+(defn raw-state-config-snapshot
+  "Return the current raw-state config — diagnostic helper."
+  []
+  (assoc @raw-state-config :ok? true))
+
+(defn- maybe-elide-for-tap
+  "Walk `v` through `re-frame.core/elide-wire-value` when the raw-state
+  gate is OFF, otherwise pass through. The walker substitutes large
+  slots with the `:rf.size/large-elided` marker and sensitive slots
+  with `:rf/redacted` — same redaction the wire path applies before
+  emitting state over MCP, applied here BEFORE any registered tap
+  consumer sees the payload.
+
+  `frame-id` is supplied so the walker resolves the right
+  `[:rf/elision]` registry."
+  [v frame-id]
+  (if (:allow-raw-state? @raw-state-config)
+    v
+    (rf/elide-wire-value v {:frame frame-id})))
+
 (defn app-db-reset!
   "Replace the operating frame's app-db with v. Logged explicitly via
    `tap>` so the human sees what the agent changed.
@@ -157,6 +230,13 @@
    `:event-id :rf.epoch/db-replaced` so that `restore-epoch` can
    rewind past the injection. Use sparingly — prefer `dispatch` for
    any change you want the data loop to see.
+
+   Per rf2-c2dtu: the `tap>` emission default-elides both `:previous`
+   and `:next` slots when the raw-state gate is OFF (the published-
+   build default for pair2-mcp). The wire walker's normal large- and
+   sensitive- predicates apply; large slots collapse to
+   `:rf.size/large-elided` markers, sensitive slots to `:rf/redacted`.
+   Operators who passed `--allow-raw-state` see verbatim payloads.
 
    Returns `{:ok? true :frame frame-id}` on success.
 
@@ -170,8 +250,8 @@
   ([v frame-id]
    (tap> {:re-frame-pair2/op :app-db/reset
           :frame              frame-id
-          :previous           (rf/get-frame-db frame-id)
-          :next               v
+          :previous           (maybe-elide-for-tap (rf/get-frame-db frame-id) frame-id)
+          :next               (maybe-elide-for-tap v frame-id)
           :t                  (js/Date.now)})
    (try
      (if (rf/reset-frame-db! frame-id v)
