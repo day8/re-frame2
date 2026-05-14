@@ -244,7 +244,7 @@
    ;; helper independently (per Conventions:159 — "Streaming payloads.
    ;; Subscribe-style notifications ... carry the same two slots on
    ;; each progress payload and on the final summary").
-   :subscribe    "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe_emit.cljs"})
+   :subscribe    "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"})
 
 (deftest every-tree-walking-tool-routes-through-the-helper
   (doseq [[tool rel] tree-walking-tool-sources]
@@ -265,7 +265,7 @@
   ;; splice would silently ship per-tick payloads without indicator
   ;; counts on the streaming path while still showing them on the
   ;; final summary — invisible to single-payload conformance.
-  (let [rel "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe_emit.cljs"
+  (let [rel "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"
         src (fx/read-source rel)
         n   (count (re-seq #"wire/with-indicators" src))]
     (is (>= n 2)
@@ -328,7 +328,7 @@
                          appear as KEYS of an INTERNAL options map
                          passed to `subscribe-emit`, never as keys of
                          an emitted envelope. The emit happens in
-                         `subscribe_emit.cljs` and goes through the
+                         `subscribe.cljs` and goes through the
                          helper."
   #{"tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs"
     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"
@@ -356,7 +356,7 @@
   ;; descriptions ship the slot names as user-visible documentation
   ;; (e.g. `"Dropped count surfaces as `:dropped-sensitive` ..."` in
   ;; `descriptors_data.cljs`), and tool-source docstrings cross-link the
-  ;; helper they delegate to (e.g. `subscribe_emit.cljs`'s
+  ;; helper they delegate to (e.g. `subscribe.cljs`'s
   ;; `final-summary` docstring names both slots while the actual emit
   ;; goes through `wire/with-indicators`). Those are documentation, not
   ;; emissions; the strip-then-grep posture catches real inline emits
