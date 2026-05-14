@@ -125,7 +125,10 @@
   Returns nil when no adapter has registered the hook (JVM / headless
   builds; no-adapter tests)."
   []
-  (when-let [hook (late-bind/get-fn :adapter/current-component)]
+  ;; Sticky hook (rf2-f72pd) — published once per loaded React-shaped
+  ;; adapter; called per Reagent render path that consults its
+  ;; component identity.
+  (when-let [hook (late-bind/get-fn-cached :adapter/current-component)]
     (hook)))
 
 ;; ---- frame resolution at render time -------------------------------------

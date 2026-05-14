@@ -79,7 +79,8 @@
   :rf/skip-handler? when validation fails so the handler-as-interceptor
   short-circuits."
   [ctx cofx-id cofx-meta]
-  (if-let [validate (late-bind/get-fn :schemas/validate-cofx!)]
+  ;; Sticky hook (rf2-f72pd) — fires per-cofx invocation.
+  (if-let [validate (late-bind/get-fn-cached :schemas/validate-cofx!)]
     (let [event    (interceptor/get-coeffect ctx :event)
           event-id (first event)
           ;; The cofx's injected value is whatever it just stashed under

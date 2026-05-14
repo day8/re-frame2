@@ -205,7 +205,8 @@
   surprises)."
   [value query-v sub-id sub-meta]
   (if (and sub-meta (:spec sub-meta))
-    (if-let [validate (late-bind/get-fn :schemas/validate-sub-return!)]
+    ;; Sticky hook (rf2-f72pd) — fires per-sub recompute.
+    (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub-return!)]
       (if (try (validate sub-id query-v value sub-meta)
                (catch #?(:clj Throwable :cljs :default) _ true))
         value

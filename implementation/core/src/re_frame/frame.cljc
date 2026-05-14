@@ -71,7 +71,11 @@
   `core/current-frame` all delegate here so the React-context tier is
   single-sourced (rf2-jj8xf)."
   []
-  #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
+  ;; Sticky hook (rf2-f72pd) — `:adapter/current-frame` is published
+  ;; once per loaded React-shaped adapter at ns-load time and routed
+  ;; via `current-adapter`; it fires on every default-frame resolution
+  ;; (every dispatch and every subscribe).
+  #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
              (f)
              (current-frame))
      :clj  (current-frame)))
