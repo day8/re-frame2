@@ -33,7 +33,8 @@
   Violations are stored in a local atom `frame-id → [violation ...]`
   keyed by the variant frame id. The right-panel component reads this
   atom reactively."
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as string]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.trace :as trace]
             [re-frame.story.config :as config]
@@ -140,54 +141,129 @@
      :id     (.-id violation)
      :help   (.-help violation)}))
 
+(defn variant-root-selector
+  "CSS selector for the variant root element of `frame-id`. Per
+  rf2-qgms1: canvas.cljs / workspace.cljc stamp
+  `data-rf-story-variant-root` (with the variant id pr-str'd) on the
+  immediate wrapper around the user-authored decorated view, so a11y
+  can scope axe-core's scan to ONLY the variant's tree — excluding
+  Story chrome (sidebar, toolbar, panels, title bar).
+
+  Returns a string CSS selector (`[data-rf-story-variant-root='…']`)
+  with the pr-str'd id properly escaped so namespaced keywords (e.g.
+  `:story.counter/incrementing`) survive the quoting boundary."
+  [frame-id]
+  (let [printed (pr-str frame-id)
+        ;; CSS attribute-selector values quoted in single-quotes: escape
+        ;; backslashes and embedded single-quotes. pr-str of a keyword
+        ;; produces ASCII without quotes, so in practice this is a
+        ;; no-op for normal frame-ids — but defensive against odd ids.
+        escaped (-> printed
+                    (string/replace #"\\" "\\\\\\\\")
+                    (string/replace #"'"  "\\\\'"))]
+    (str "[data-rf-story-variant-root='" escaped "']")))
+
+(defn find-variant-root
+  "Resolve the DOM element marked as `frame-id`'s variant root, or nil
+  if not mounted (e.g. the user is viewing the variant in :docs or
+  :test mode, or has selected a workspace). Per rf2-qgms1 the canvas /
+  workspace stamp `data-rf-story-variant-root` on the wrapper around
+  the user-authored tree.
+
+  Wrapped in a try/catch so the helper is safe to call in node-runtime
+  test contexts where `js/document` is undefined (raw access throws
+  ReferenceError); a node-runtime call returns nil and `run-axe!`'s
+  caller surfaces a :no-root state."
+  [frame-id]
+  (try
+    (let [doc (.-document js/globalThis)]
+      (when doc
+        (.querySelector doc (variant-root-selector frame-id))))
+    (catch :default _ nil)))
+
 (defn- record-violation-overlay!
   "Decorate the violation's DOM nodes so the inline stylesheet
   highlights them. Each axe-core node has `:target` (a CSS selector
   list); we attach `data-rf-a11y-violation` to each matching element.
 
+  Per rf2-qgms1 the query is rooted at `scope-el` (the variant root)
+  so we never decorate Story-chrome nodes — even if axe-core somehow
+  returned a selector matching outside the scope, the overlay stays
+  inside the variant.
+
   Best-effort: if the selectors don't match (e.g. the DOM mutated
   since the run) the overlay simply doesn't appear."
-  [violation]
-  (let [nodes (.-nodes violation)]
+  [scope-el violation]
+  (let [nodes (.-nodes violation)
+        root  (or scope-el js/document)]
     (doseq [node (array-seq nodes)]
       (doseq [target (array-seq (.-target node))]
         (try
-          (let [el (.querySelector js/document target)]
+          (let [el (.querySelector root target)]
             (when el
               (.setAttribute el "data-rf-a11y-violation"
                              (or (.-impact violation) "moderate"))))
           (catch :default _ nil))))))
 
 (defn run-axe!
-  "Run axe-core against `:rf-story-canvas` or the whole document and
-  store violations under `frame-id`. Returns a `js/Promise` that
-  resolves to the violations vector.
+  "Run axe-core against the variant root for `frame-id` and store
+  violations under `frame-id`. Returns a `js/Promise` that resolves to
+  the violations vector — or nil when the variant root cannot be
+  resolved (e.g. the user is in :docs/:test mode, or the variant is
+  not currently mounted).
+
+  Per rf2-qgms1 the default scope is the variant's
+  `data-rf-story-variant-root` element, NOT `document.body`. Scanning
+  the whole body flagged Story's OWN chrome (sidebar buttons, toolbar
+  tabs, side-rail items) as violations — which is wrong: Story chrome
+  a11y is Story's concern, not the variant author's.
+
+  An explicit `context` second-arg overrides the lookup (used by
+  tests). Pass an Element, a CSS-selector string, or an axe-core
+  context object.
 
   Per IMPL-SPEC §11.1 surfaces violations into `:rf.assert/no-warnings`
   via the trace-warning hook."
   ([frame-id]
-   (run-axe! frame-id (.-body js/document)))
+   (run-axe! frame-id (find-variant-root frame-id)))
   ([frame-id context]
-   (swap! run-state assoc frame-id :loading)
-   (-> (ensure-axe-loaded!)
-       (.then
-         (fn [axe]
-           (swap! run-state assoc frame-id :running)
-           (.run axe context)))
-       (.then
-         (fn [results]
-           (let [vs (.-violations results)]
-             (swap! violations-by-frame assoc frame-id (vec (array-seq vs)))
-             (doseq [v (array-seq vs)]
-               (record-violation-overlay! v)
-               (emit-warning-for-violation frame-id v))
-             (swap! run-state assoc frame-id :done)
-             vs)))
-       (.catch
-         (fn [e]
-           (swap! run-state assoc frame-id :error)
-           (js/console.error "[story.a11y]" e)
-           nil)))))
+   (cond
+     ;; No variant root and no explicit context → surface the
+     ;; degraded state instead of silently scanning the wrong tree.
+     (nil? context)
+     (do
+       (swap! run-state assoc frame-id :no-root)
+       (js/console.warn
+         "[story.a11y] no variant root found for"
+         (pr-str frame-id)
+         "— switch to :dev mode to mount the variant, or pass an explicit context.")
+       (js/Promise.resolve nil))
+
+     :else
+     (do
+       (swap! run-state assoc frame-id :loading)
+       (-> (ensure-axe-loaded!)
+           (.then
+             (fn [axe]
+               (swap! run-state assoc frame-id :running)
+               (.run axe context)))
+           (.then
+             (fn [results]
+               (let [vs        (.-violations results)
+                     scope-el  (when (and (some? context)
+                                          (some? (.-nodeType context)))
+                                 context)]
+                 (swap! violations-by-frame assoc frame-id (vec (array-seq vs)))
+                 (doseq [v (array-seq vs)]
+                   (record-violation-overlay! scope-el v)
+                   (emit-warning-for-violation frame-id v))
+                 (swap! run-state assoc frame-id :done)
+                 vs)))
+           (.catch
+             (fn [e]
+               (swap! run-state assoc frame-id :error)
+               (js/console.error "[story.a11y]" e)
+               nil)))))))
 
 ;; ---- styling ------------------------------------------------------------
 
@@ -314,15 +390,17 @@
          :loading  "loading…"
          :running  "running…"
          :error    "retry"
+         :no-root  "retry"
          :idle     "run"
          "re-run")]]
      [:div {:style (:status styles)}
       (case state
-        :idle    "click run to scan the rendered output"
+        :idle    "click run to scan the variant (Story chrome is excluded)"
         :loading "fetching axe-core…"
         :running "scanning…"
         :error   "axe-core failed to load (offline or CSP)"
-        :done    (str (count vs) " violation(s) found"))]
+        :no-root "no variant mounted — switch to :dev mode and re-run"
+        :done    (str (count vs) " violation(s) found in variant"))]
      (cond
        (= state :idle)
        nil
