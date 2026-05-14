@@ -106,7 +106,7 @@ Summary as it pertains to the MCP surface:
    register from `install-canonical-vocabulary!`; third-party tooling
    (Causa's epoch view, future statechart-viz panels) registers from
    its own boot.
-5. **The 10x embed is the canonical late-bind example.** Stub view
+5. **The Causa embed is the canonical late-bind example.** Stub view
    ships with Story; Causa registers the live view under the same
    `:rf.story.panel/epoch-view` id when present; shell picks
    Causa's view automatically.

@@ -13,7 +13,7 @@ See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the `:dev` / `:docs` /
 ## UI shell substrate
 
 Story's own UI shell (sidebar, control panel, trace ribbon, embedded
-10x panel, etc.) renders using **Reagent** at v1, sourced from
+Causa panel, etc.) renders using **Reagent** at v1, sourced from
 `implementation/adapters/reagent/`. The UI shell namespaces live under
 `tools.story.ui.*`.
 
@@ -201,7 +201,7 @@ tools/story/
 │           │   ├── variants_grid.cljs           ; :variants-grid layout
 │           │   ├── controls.cljs                ; auto-derived controls
 │           │   ├── multi_substrate.cljs         ; side-by-side substrate panes
-│           │   └── time_travel.cljs             ; epoch scrubber (10x embed adapter)
+│           │   └── time_travel.cljs             ; epoch scrubber (Causa embed adapter)
 │           ├── panels/
 │           │   ├── trace.cljs                   ; six-domino panel
 │           │   ├── a11y.cljs                    ; axe-core integration

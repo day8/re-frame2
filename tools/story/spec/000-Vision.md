@@ -79,10 +79,12 @@ required by the
 - **A visual-regression service.** Story ships the `snapshot-identity`
   hook and emits stable iframes; pixel capture and diff happen
   downstream.
-- **A reimplementation of re-frame-10x.** Story embeds 10x's epoch
-  panel as a registered story panel (see
+- **A reimplementation of Causa.** Story embeds Causa's epoch
+  panel (Causa is the structural successor to re-frame-10x; see
+  [`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md)
+  Lock #1) as a registered story panel (see
   [`003-Render-Shell.md`](003-Render-Shell.md) and
-  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §10x-embed). The two
+  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §causa-embed). The two
   artefacts share the epoch buffer.
 - **A statechart visualisation engine.** Story ships a one-line
   current-state indicator for active machines; full chart rendering
@@ -95,8 +97,8 @@ required by the
   code. See [`006-MCP-Surface.md`](006-MCP-Surface.md).
 - **A static-site generator.** Deferred to v2.
 - **A pixel-scrubbing UI.** BackstopJS-style before-after slider is
-  out of scope; the epoch scrubber inside 10x's embedded panel is the
-  equivalent in re-frame2's data-space.
+  out of scope; the epoch scrubber inside Causa's embedded panel is
+  the equivalent in re-frame2's data-space.
 
 ## Research lineage
 

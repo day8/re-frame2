@@ -7,7 +7,7 @@
 - **[002-Runtime.md](002-Runtime.md)** — Per-variant frame allocation; args-precedence resolution; decorator composition; four-phase loader lifecycle; `run-variant` / `reset-variant` / `watch-variant` / `snapshot-identity` / `destroy-variant!`.
 - **[003-Render-Shell.md](003-Render-Shell.md)** — The UI: sidebar, canvas, controls, workspaces, scrubber, trace; five workspace layouts; hot-reload decorator fingerprinting; `mount-shell!` / `unmount-shell!` / `active-shell`.
 - **[004-Assertions.md](004-Assertions.md)** — The seven canonical `:rf.assert/*` events with record-don't-throw semantics; play-sequence execution; `force-fx-stub` decorator.
-- **[005-SOTA-Features.md](005-SOTA-Features.md)** — Layout-debug overlays; a11y axe-core panel; per-variant QR share; multi-substrate side-by-side; 10x epoch embed stub; production elision under `:advanced`.
+- **[005-SOTA-Features.md](005-SOTA-Features.md)** — Layout-debug overlays; a11y axe-core panel; per-variant QR share; multi-substrate side-by-side; Causa epoch embed stub; production elision under `:advanced`.
 - **[006-MCP-Surface.md](006-MCP-Surface.md)** — The boundary between Story and `tools/story-mcp/`; surfaces Story exposes for the MCP jar; late-bind `reg-story-panel` for tooling embeds.
 - **[007-Mode-Tabs.md](007-Mode-Tabs.md)** — The render-shell's top-of-canvas `:dev` / `:docs` / `:test` switcher; the chrome-level primitive every 2026 component playground ships (rf2-9hc8).
 - **[008-Docs-Mode.md](008-Docs-Mode.md)** — The `:docs` mode pane — read-only AutoDocs-equivalent: header, prose, args, decorators, parameters, tags for the active variant (rf2-rodx).
