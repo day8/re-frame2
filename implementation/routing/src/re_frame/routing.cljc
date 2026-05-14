@@ -861,6 +861,13 @@
     ;; DO NOT re-fire :on-match — emit :rf.route/url-changed instead.
     ;; Otherwise full nav: allocate a nav-token, write new slice, fire
     ;; :on-match.
+    ;;
+    ;; Per Spec 012 §Route-not-found an unmatched URL routes to
+    ;; `:rf.route/not-found` with `{:url url}` in :params — the slice
+    ;; MUST be rewritten so the view tree's case-over-:rf.route/id
+    ;; renders the 404 page. Leaving the previous slice intact (the
+    ;; pre-rf2-h4r9n behaviour) caused the previous route's UI to show
+    ;; through a navigation to a nonexistent URL.
     (let [m                 (match-url url)
           fragment          (:fragment m)
           prev              (:rf/route db)
@@ -883,52 +890,70 @@
                           :next-fragment fragment})
             {:db (assoc-in db [:rf/route :fragment] fragment)})
 
-        (some? m)
-        (let [route-meta    (registrar/lookup :route (:route-id m))
-              on-match-vec  (vec (or (:on-match route-meta) []))
+        :else
+        ;; Per Spec 012 §Route-not-found: matched / unmatched share the
+        ;; same slice-write + nav-token allocation. An unmatched URL
+        ;; substitutes route-id :rf.route/not-found and params {:url url};
+        ;; matched URLs use the route's id / params / query.
+        (let [matched?     (some? m)
+              route-id     (if matched? (:route-id m) :rf.route/not-found)
+              params       (if matched? (:params m) {:url url})
+              query        (if matched? (:query m) {})
+              route-meta   (registrar/lookup :route route-id)
+              on-match-vec (vec (or (:on-match route-meta) []))
+              ;; Per Spec 012 §Per-route data loading: :transition is
+              ;; :loading while :on-match drains, else :idle. Computed
+              ;; from the resolved route-meta so the matched and
+              ;; not-found branches share the same FSM.
+              transition   (if (seq on-match-vec) :loading :idle)
               ;; Per Spec 012 §Multi-frame routing: nav-token allocation
-              ;; bumps the per-frame counter — the [db' token] tuple is
-              ;; threaded through the :db write below.
-              [db' token]   (alloc-nav-token db)
-              ;; Per Spec 012 §Scroll restoration: a URL-driven navigation
-              ;; emits :rf.nav/scroll. URL changes from clicked links /
-              ;; programmatic pushes are forward-style (default :top); the
+              ;; bumps the per-frame counter — both branches allocate a
+              ;; fresh token (an unmatched URL is still a navigation;
+              ;; the not-found page may have :on-match loaders of its
+              ;; own that need staleness suppression).
+              [db' token]  (alloc-nav-token db)
+              ;; Per Spec 012 §Scroll restoration: URL-driven nav from
+              ;; clicked links / programmatic pushes defaults to :top;
               ;; route metadata's :scroll wins when declared.
-              to-route      (cond-> {:id (:route-id m)}
-                              (seq (:params m)) (assoc :params (:params m))
-                              (seq (:query m))  (assoc :query  (:query m)))
-              strategy      (resolve-scroll-strategy route-meta nil :top)
-              scroll-fx     (scroll-fx-entry
-                              {:strategy  strategy
-                               :from      (route-descriptor prev)
-                               :to        to-route
-                               :saved-pos (when (= :restore strategy)
-                                            (lookup-scroll-position db url))
-                               :fragment  fragment})]
+              to-route     (cond-> {:id route-id}
+                             (seq params) (assoc :params params)
+                             (seq query)  (assoc :query  query))
+              strategy     (resolve-scroll-strategy route-meta nil :top)
+              scroll-fx    (scroll-fx-entry
+                             {:strategy  strategy
+                              :from      (route-descriptor prev)
+                              :to        to-route
+                              :saved-pos (when (= :restore strategy)
+                                           (lookup-scroll-position db url))
+                              :fragment  fragment})]
+          ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
+          ;; when the unmatched-URL path resolves to :rf.route/not-found AND
+          ;; no such route is registered. Tools / AI scaffolds read this to
+          ;; flag the missing 404 registration.
+          (when (and (not matched?) (nil? route-meta))
+            (trace/emit! :warning :rf.warning/no-not-found-route
+                         {:url url}))
+          ;; The :no-such-handler error trace is preserved for tooling
+          ;; that already keys off it; it discriminates from event /
+          ;; frame handler misses by :kind :route.
+          (when (not matched?)
+            (trace/emit-error! :rf.error/no-such-handler
+                               {:url url
+                                :kind :route
+                                :recovery :replaced-with-default}))
           (trace/emit! :event :rf.route.nav-token/allocated
-                       {:route-id  (:route-id m)
+                       {:route-id  route-id
                         :nav-token token})
           {:db (assoc db' :rf/route
-                      {:id         (:route-id m)
-                       :params     (:params m)
-                       :query      (:query m)
+                      {:id         route-id
+                       :params     params
+                       :query      query
                        :fragment   fragment
-                       :transition :idle
+                       :transition transition
                        :error      nil
                        :nav-token  token})
            :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                            (when scroll-fx [scroll-fx])))})
-
-        :else
-        ;; Unmatched URL — same operation as event/frame handler-lookup
-        ;; misses, discriminated by `:kind :route`. See [Spec 009 §Error
-        ;; categories — :rf.error/no-such-handler] for the three-way `:kind`
-        ;; vocabulary (`:event`, `:frame`, `:route`).
-        (do (trace/emit-error! :rf.error/no-such-handler
-                               {:url url
-                                :kind :route
-                                :recovery :replaced-with-default})
-            {})))))
+                            (when scroll-fx [scroll-fx])))})))))
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db frame]} [_ url]]

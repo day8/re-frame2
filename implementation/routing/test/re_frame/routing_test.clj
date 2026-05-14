@@ -825,6 +825,102 @@
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           "fragment in the URL-string target round-trips through the push"))))
 
+;; ---- rf2-h4r9n: unmatched URL writes :rf.route/not-found slice -----------
+;;
+;; Per Spec 012 §Route-not-found an unmatched URL routes to
+;; `:rf.route/not-found` with `{:url url}` in :params. The slice MUST be
+;; rewritten so the view tree's `case` over `:rf.route/id` renders the 404
+;; page; leaving the previous slice intact (pre-fix) showed the previous
+;; route's UI through a navigation to a nonexistent URL.
+
+(deftest url-changed-unmatched-url-routes-to-not-found
+  (testing ":rf/url-changed for an unmatched URL writes the
+            :rf.route/not-found slice with {:url url} in :params"
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Land on home first so we have a previous slice to displace.
+    (rf/dispatch-sync [:rf/url-changed "/"])
+    (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+        "initial nav landed on home")
+    ;; Navigate to a URL that matches no registered route.
+    (rf/dispatch-sync [:rf/url-changed "/this/does/not/exist"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :rf.route/not-found (:id slice))
+          "unmatched URL → slice id becomes :rf.route/not-found")
+      (is (= {:url "/this/does/not/exist"} (:params slice))
+          "params carries the unmatched URL under :url")
+      (is (= :idle (:transition slice))
+          "no :on-match on not-found → transition is :idle")
+      (is (some? (:nav-token slice))
+          "a fresh nav-token is allocated even for not-found navigation"))))
+
+(deftest url-changed-not-found-without-route-registered-warns
+  (testing "when :rf.route/not-found is NOT registered, an unmatched URL
+            still rewrites the slice AND emits :rf.warning/no-not-found-route"
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::no-not-found
+                             (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-changed "/somewhere/unknown"])
+      (rf/remove-trace-cb! ::no-not-found)
+      (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+        (is (= :rf.route/not-found (:id slice))
+            "slice still rewrites to :rf.route/not-found"))
+      (is (some (fn [ev]
+                  (= :rf.warning/no-not-found-route (:operation ev)))
+                @traces)
+          ":rf.warning/no-not-found-route trace fires when no 404 route is registered"))))
+
+;; ---- rf2-oaj2s: :transition computed from :on-match on URL-driven nav ----
+;;
+;; Per Spec 012 §URL changes are events the :transition slice key must be
+;; :loading while :on-match drains, :idle when nothing to dispatch.
+;; Pre-fix the URL-driven handler hardcoded :idle, so URL-driven loaders
+;; never observed the :loading state.
+
+(deftest url-changed-transition-loading-when-on-match-fires
+  (testing ":rf/url-changed sets :transition :loading when the route
+            declares :on-match events"
+    (rf/reg-event-db :prefs/loaded (fn [db _] (assoc db :prefs/loaded? true)))
+    (rf/reg-route :route/cart
+                  {:path     "/cart"
+                   :on-match [[:prefs/loaded]]})
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Capture transition mid-drain via a custom interceptor that snapshots
+    ;; the slice between the :db write and the :on-match dispatch. The
+    ;; cleanest assertion is: a route WITHOUT :on-match observes :idle;
+    ;; a route WITH :on-match observes :loading immediately after the
+    ;; :db write — we read the slice between the synchronous slice-write
+    ;; and the :on-match drain, using a manual two-step pattern.
+    ;;
+    ;; Simpler observation: register an :on-match handler that captures
+    ;; the slice at its dispatch time. Per spec, the slice is written
+    ;; FIRST and then :on-match dispatches — so the handler observes
+    ;; the new slice's :transition.
+    (let [observed (atom nil)]
+      (rf/reg-event-db :prefs/loaded
+                       (fn [db _]
+                         (reset! observed
+                                 (get-in db [:rf/route :transition]))
+                         (assoc db :prefs/loaded? true)))
+      (rf/dispatch-sync [:rf/url-changed "/cart"])
+      (is (= :loading @observed)
+          ":on-match handler observed :transition :loading mid-drain"))
+    ;; Route without :on-match → :idle.
+    (rf/dispatch-sync [:rf/url-changed "/"])
+    (is (= :idle (get-in (rf/get-frame-db :rf/default)
+                         [:rf/route :transition]))
+        "route with no :on-match — transition stays :idle")))
+
 ;; ---- rf2-k72qn: framework subs — fragment, chain, pending-navigation ------
 ;;
 ;; Per Spec 012 §Subscriptions the framework ships nine canonical subs over
