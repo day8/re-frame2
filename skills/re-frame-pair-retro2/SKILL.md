@@ -29,14 +29,12 @@ description: >
   a real `re-frame-pair2` session must have occurred in this
   conversation or be summarised by the user as a recap.
 allowed-tools:
-  - Bash(gh issue *)
-  - Bash(gh pr *)
   - Read
-  - Edit
-  - Write
   - Grep
   - Glob
-  - mcp__re-frame-pair2__discover-app
+  - Bash(gh issue list *)
+  - Bash(gh issue view *)
+  - Bash(gh issue create *)
 ---
 
 # re-frame-pair-retro2
@@ -56,8 +54,9 @@ Deliver:
 
 - **Always start with session analysis.** Do not jump to fixes.
 - **Friction points before root causes.** Let the user pick which ones to dig into.
-- **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue or propose a patch.
-- **Never file a GitHub issue or edit another repo without explicit user approval.**
+- **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue or propose a patch. The default tool grant is read-only — `Read`, `Grep`, `Glob`, plus `gh issue list` / `gh issue view` for searching existing issues. Mutation (`gh issue create`) is granted but gated by the approval rule below.
+- **Never file a GitHub issue without explicit user approval.** Drafting issue text is fine; running `gh issue create` is not, until the user has seen the draft and said go. The skill does NOT carry `Edit` or `Write` in its tool grant — proposing source rewrites in another repo is out of scope; route those as issue suggestions, not edits.
+- **Live-runtime probes are opt-in.** The skill operates on a session transcript or a user-supplied recap — it does not probe the live re-frame2 runtime by default. `mcp__re-frame-pair2__discover-app` and other pair2 MCP tools are NOT in the default tool grant; reach for them only when the retro is explicitly tied to an in-conversation live pair2 session whose runtime is already attached and the user has confirmed a runtime probe is wanted. Recap-only and offline retros never probe.
 - **Stay focused on improving `re-frame-pair2`.** If the right fix is upstream in `re-frame2` (Tool-Pair surfaces, trace stream, epoch-history, schema reflection, source-coord annotation), say so and route the proposal to a GitHub issue against the `re-frame2` repo, not `re-frame-pair2`.
 - **Tracker boundary — file GitHub issues, never `bd` beads.** `bd` is the re-frame2 monorepo's internal tracker; skills consumed downstream file against the target repo's GitHub issues via `gh issue create`. See the shell-safety pattern below.
 - **Do not propose fixes via `re-frame-10x`.** v2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation).
@@ -107,7 +106,12 @@ If the session is too thin, say so plainly and ask for a recap or permission to 
 
 ## Filing improvements
 
-Never file a GitHub issue without explicit user approval. After presenting the retrospective, offer filing work only if useful: draft issue text, file via `gh issue create` against the appropriate repo, or split into multiple focused issues.
+Filing is a **two-step, approval-gated** mode — distinct from the default diagnose-only mode:
+
+1. **Default mode (no approval needed).** Read the transcript, surface findings, draft issue text inline in the conversation. Use `gh issue list` / `gh issue view` to check whether an existing issue already covers the friction (the default tool grant permits these read paths).
+2. **Filing mode (explicit approval required).** Only after the user has seen a draft and explicitly says "file it" (or equivalent), invoke `gh issue create` against the appropriate repo. The skill MUST NOT run `gh issue create` on its own initiative — `Bash(gh issue create *)` is granted in the frontmatter solely to enable this user-approved transition.
+
+After presenting the retrospective, offer filing work only if useful: draft issue text, file via `gh issue create` against the appropriate repo, or split into multiple focused issues.
 
 **Routing.** `re-frame-pair2` — friction in the pair tool (SKILL.md, scripts, recipes, structured results, attach/discovery, cross-platform). `re-frame2` — friction caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings).
 

@@ -139,9 +139,9 @@ Signals:
 - a "why didn't they use tool X?" thread surfaces with no way to confirm X was actually callable in that session
 
 Typical improvements:
-- run `mcp__re-frame-pair2__discover-app` once at the start of a retrospective to capture the live build's id, health, and session sentinel — confirms the runtime the user was operating against and (combined with the server's `tools/list`) sanity-checks "tool X was actually available"
-- when proposing a fix that adds or renames a tool, cross-reference the live catalogue rather than the skill's docs alone
-- if `discover-app` itself fails or returns `:reason :runtime-not-preloaded`, that becomes evidence the user's environment never had the pair2 surface — a finding in its own right, not a retro blocker
+- when the retro is explicitly tied to an in-conversation live pair2 session whose runtime is already attached AND the user has confirmed a runtime probe is wanted, `mcp__re-frame-pair2__discover-app` MAY be invoked to capture the live build's id, health, and session sentinel — confirms the runtime the user was operating against and (combined with the server's `tools/list`) sanity-checks "tool X was actually available". This is **opt-in only** — recap-only or offline retros never probe (the skill's primary contract per `spec/inputs.md` is transcript-only; `mcp__re-frame-pair2__discover-app` is not in the default tool grant). If the user has not confirmed a probe, reason from the transcript alone — the skill's domain is the session shape, not the live runtime.
+- when proposing a fix that adds or renames a tool, cross-reference the live catalogue rather than the skill's docs alone (same opt-in gate applies — only when runtime access is already part of the conversation)
+- if `discover-app` was invoked and itself fails or returns `:reason :runtime-not-preloaded`, that becomes evidence the user's environment never had the pair2 surface — a finding in its own right, not a retro blocker
 
 ### Source-coordinate availability
 
