@@ -35,14 +35,15 @@ const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.j
 
 // Expected tools advertised by pair2-mcp's tools/list. Pinned exact so
 // accidental renames / additions / deletions surface here. Mirrors the
-// upstream stdio-roundtrip baseline (eleven tools post-rf2-zjz9q, which
-// added `subscription-info` as a dedicated read-side wrapper around
-// `re-frame-pair2.runtime/subscription-info`).
+// upstream stdio-roundtrip baseline (twelve tools post-rf2-fnpqg, which
+// added `get-pair2-instructions` as an agent-paste preamble tool on top
+// of the eleven-tool post-rf2-zjz9q baseline).
 const EXPECTED_TOOLS = [
   'discover-app',
   'dispatch',
   'eval-cljs',
   'get-path',
+  'get-pair2-instructions',
   'snapshot',
   'subscribe',
   'subscription-info',

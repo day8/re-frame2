@@ -106,15 +106,18 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all 17 tools per spec/002-Tool-Registry.md +
-      // rf2-luhdu (record-as-variant landing).
+      // 2. tools/list — expect all 19 tools per spec/002-Tool-Registry.md
+      // (rf2-luhdu record-as-variant, rf2-mqp1u list-decorators,
+      //  rf2-i0kyy get-docs-markdown).
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
       const expected = [
+        'get-docs-markdown',
         'get-story',
         'get-story-instructions',
         'get-variant',
         'list-assertions',
+        'list-decorators',
         'list-modes',
         'list-stories',
         'list-substrates',
@@ -137,7 +140,7 @@ function run() {
             JSON.stringify(names),
         );
       }
-      console.log('OK   tools/list -> 17 tools:', names.join(', '));
+      console.log('OK   tools/list -> 19 tools:', names.join(', '));
 
       // 2b. Verify the preview-variant descriptor: required `variant-id`,
       // optional `substrate`/`active-modes`/`cell-overrides`/`base-url`.
