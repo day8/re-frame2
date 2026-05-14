@@ -152,7 +152,9 @@
 (deftest subscribe-emit-site-routes-through-with-indicators
   ;; Subscribe emits indicators on each progress tick AND on the
   ;; final result. Either site routes through with-indicators; the
-  ;; module-level grep is fine.
-  (let [src (read-source "src/re_frame_pair2_mcp/tools/subscribe_emit.cljs")]
+  ;; module-level grep is fine. Post rf2-zkca8.3 the emit helpers
+  ;; (progress-payload, emit-progress-tick!, final-summary) live
+  ;; in subscribe.cljs alongside the streaming-loop body.
+  (let [src (read-source "src/re_frame_pair2_mcp/tools/subscribe.cljs")]
     (is (contains-with-indicators? src)
-        "subscribe_emit.cljs MUST route its envelope through wire/with-indicators")))
+        "subscribe.cljs MUST route its envelope through wire/with-indicators")))
