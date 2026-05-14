@@ -263,10 +263,3 @@
   "Just the id set for a kind."
   [kind]
   (-> (registrations kind) keys set))
-
-(defn all-kinds-with-counts
-  "{kind → count} — useful in dev tooling overlays."
-  []
-  (into {}
-        (map (fn [[k m]] [k (count m)]))
-        @kind->id->metadata))

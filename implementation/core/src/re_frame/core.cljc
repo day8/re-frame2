@@ -520,7 +520,6 @@
 (def registrations registrar/registrations)
 (def handler-meta registrar/handler-meta)
 (def handler-ids  registrar/ids)
-(def registry-summary registrar/all-kinds-with-counts)
 (def frame-ids    frame/frame-ids)
 (def frame-meta   frame/frame-meta)
 
