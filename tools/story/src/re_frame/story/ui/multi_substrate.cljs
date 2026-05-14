@@ -32,7 +32,6 @@
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.args :as args]
-            [re-frame.story.decorators :as decorators]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.ui.state :as state]))
 
@@ -214,7 +213,12 @@
   here when a variant's substrate set has more than one entry.
 
   Each cell renders inside a Reagent error boundary so a throw in one
-  substrate's render doesn't take down its neighbours (IMPL-SPEC §2.2)."
+  substrate's render doesn't take down its neighbours (IMPL-SPEC §2.2).
+
+  Note (rf2-77nuq): per-substrate decorator stacks (IMPL-SPEC §5.3)
+  are not yet threaded through here — `safe-render-cell` renders the
+  raw view-id under each substrate. When that work lands, resolve the
+  decorator pack here and thread it into each cell's render."
   [variant-id]
   (let [shell        @state/shell-state-atom
         variant-body (registrar/handler-meta :variant variant-id)
@@ -223,7 +227,6 @@
         substrates   (resolve-substrate-set variant-body story-body
                                             (or (:substrate shell) :reagent))
         view-id      (or (:component variant-body) (:component story-body))
-        decor-pack   (decorators/resolve-decorators variant-id)
         eff-args     (args/resolve-args
                        variant-id
                        {:active-modes   (:active-modes shell)
