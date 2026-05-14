@@ -285,7 +285,7 @@ Full wire details in
 - [`000-Vision.md`](000-Vision.md) — what this jar is for.
 - [`001-Wire-Protocol.md`](001-Wire-Protocol.md) — JSON-RPC envelope
   + framing.
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 17 tools in
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 19 tools in
   prose.
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   write-gate behaviour.

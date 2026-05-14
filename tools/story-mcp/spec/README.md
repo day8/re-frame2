@@ -4,7 +4,7 @@
 
 - **[000-Vision.md](000-Vision.md)** — What `day8/re-frame2-story-mcp` is, why it ships as a separate jar from `day8/re-frame2-story`, and how it relates to Story's runtime and the Tool-Pair contract.
 - **[001-Wire-Protocol.md](001-Wire-Protocol.md)** — JSON-RPC 2.0 over stdio; the `initialize` handshake; `tools/list` + `tools/call`; the protocol-version pin.
-- **[002-Tool-Registry.md](002-Tool-Registry.md)** — The 16 tools across four categories (Dev / Docs / Testing / Write) — one paragraph orientation per tool.
+- **[002-Tool-Registry.md](002-Tool-Registry.md)** — The 19 tools across four categories — Dev (3: `get-story-instructions`, `preview-variant`, `list-substrates`), Docs (9: `list-stories`, `get-story`, `get-variant`, `list-tags`, `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`, `get-docs-markdown`), Testing (4: `run-variant`, `snapshot-identity`, `run-a11y`, `read-failures`), Write (3, gated: `register-variant`, `unregister-variant`, `record-as-variant`). One paragraph orientation per tool.
 - **[003-Write-Surface-Gating.md](003-Write-Surface-Gating.md)** — The `:rf.story-mcp/allow-writes?` config gate: what's gated, how it errors clean rather than no-ops.
 - **[API.md](API.md)** — Consolidated tool surface: per-tool input schema, output shape, error mode; cross-links to the category doc.
 - **[Principles.md](Principles.md)** — story-mcp-specific load-bearing principles, downstream of framework + Story principles.

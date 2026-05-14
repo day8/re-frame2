@@ -79,7 +79,7 @@
 
 (defn- handle-tools-list
   "Return the tool registry descriptors. We don't paginate — the
-  registry is small enough (sixteen tools at Stage 7) that a single
+  registry is small enough (nineteen tools at Stage 7) that a single
   response is fine."
   [id _params]
   (proto/response id {:tools (registry/tool-descriptors)}))

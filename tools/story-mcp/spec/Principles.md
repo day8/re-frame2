@@ -245,7 +245,7 @@ NOT ship `dispatch`, `eval-cljs`, or the streaming pair — its
 mutation surface is `register-variant` / `unregister-variant` and
 its runtime is JVM-side without a browser eval substrate.
 
-Story-mcp's seventeen current tools are conformant. Two grandfathered
+Story-mcp's nineteen current tools are conformant. Two grandfathered
 deviations carry explicit catalogue exceptions in
 [`NAMING.md`](../../mcp-conformance/NAMING.md):
 
@@ -266,7 +266,7 @@ When in doubt, defer to the framework's [Principles](../../../spec/Principles.md
 and Story's [Principles](../../story/spec/Principles.md):
 
 - **Regularity over cleverness** — one obvious way to do a thing.
-  Tool names and shapes are stable; the 16-tool surface is small on
+  Tool names and shapes are stable; the 19-tool surface is small on
   purpose.
 - **Named things over anonymous things** — every tool has a stable
   name; every error reason keyword is stable.

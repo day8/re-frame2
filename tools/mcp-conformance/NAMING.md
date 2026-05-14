@@ -68,7 +68,7 @@ every README example, and every CI fixture. The convention is the lock
 for **new tools landing under causa-mcp's impl** and for **any future
 extension** to pair2-mcp / story-mcp.
 
-### Pair2-mcp (11 tools)
+### Pair2-mcp (12 tools)
 
 | Tool | Verb shape | Notes |
 |---|---|---|
@@ -82,8 +82,9 @@ extension** to pair2-mcp / story-mcp.
 | `get-path` | `get-` | Conformant. |
 | `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
 | `subscription-info` | bare-noun read | **Non-conformant** — bare-noun read of a streaming-subscription's status; see causa-mcp's `list-subscriptions` for the conformant cross-server pair. The current name predates the cross-MCP convention (rf2-zjz9q landed it before the rf2-3we2k Lock #12 picked the conformant verb). A future rename to `list-subscriptions` aligns the triplet; today the divergence is acknowledged. |
+| `get-pair2-instructions` | `get-` | Conformant — single-record read of the agent-onboarding instructions blob (rf2-fnpqg). Mirrors story-mcp's `get-story-instructions`. |
 
-### Story-mcp (17 tools)
+### Story-mcp (19 tools)
 
 | Tool | Verb shape | Notes |
 |---|---|---|
@@ -95,7 +96,9 @@ extension** to pair2-mcp / story-mcp.
 | `get-variant` | `get-` | Conformant. |
 | `list-tags` | `list-` | Conformant. |
 | `list-modes` | `list-` | Conformant. |
+| `list-decorators` | `list-` | Conformant — read-only `(rf/handlers :decorator)` enumeration (rf2-mqp1u). |
 | `list-assertions` | `list-` | Conformant. |
+| `get-docs-markdown` | `get-` | Conformant — single-record read of a story's GFM-projected documentation (rf2-i0kyy). Sibling shape to `get-story`. |
 | `variant->edn` | bare (Clojure idiom) | **Deviation** — `->edn` is a Clojure-idiomatic projection name (mirrors `into`, `seq->vec` etc.). The convention catalogues this as an accepted exception: when the operation is a **canonical-form serialiser** of a known artefact, `<thing>->edn` is preferable to `get-<thing>-edn` because the arrow signals the projection direction. Story-mcp ships exactly one of these; if a sibling appears (`variant->json`, etc.) it follows the same shape. |
 | `run-variant` | `run-` | Conformant. |
 | `snapshot-identity` | bare (Clojure idiom) | **Deviation** — bare-noun read of a content-hash. The convention catalogues this as an accepted bare-noun exception when the return value is a single primitive (a hash, a count, a digest) and the call is read-only. An alternative future shape `get-variant-identity` would also be conformant; the current name is grandfathered. |
@@ -129,8 +132,8 @@ extension** to pair2-mcp / story-mcp.
 
 ## Single source of truth for tool counts
 
-Each per-server spec carries its catalogue count in prose ("the 17 tools",
-"the nine tools"). Past drift episodes (story-mcp shipped both "16 tools"
+Each per-server spec carries its catalogue count in prose ("the 19 tools",
+"the twelve tools"). Past drift episodes (story-mcp shipped both "16 tools"
 and "17 tools" across five docs after `list-subscriptions` was added; the
 audit that surfaced it had to grep across `tools/story-mcp/` to find every
 mention) trace to one root cause: **the count is repeated, not extracted**.
