@@ -5,6 +5,7 @@
   simplified because the JVM has no DOM, no Reagent, no animation frame.
   See Spec 011 §JVM-runnable view rendering and Spec 008 §JVM-runnable
   test suites."
+  (:require [clojure.string :as str])
   (:import [java.util.concurrent Executor Executors ScheduledExecutorService TimeUnit ScheduledFuture]))
 
 (set! *warn-on-reflection* true)
@@ -101,5 +102,63 @@
 (def platform :server)
 
 ;; ---- compile-time constants -----------------------------------------------
+;;
+;; Per rf2-vnjfg / rf2-0la4f (security audit): JVM/SSR/headless deployments
+;; need an explicit production gate, the JVM-side counterpart to CLJS
+;; `goog.DEBUG=false`. Without it, the always-dev posture keeps the trace
+;; surface live in SSR (per-frame `:trace-cb` listeners, the 200-entry
+;; retain-N ring buffer, registry trace emits, source-coord metadata) AND
+;; keeps the epoch-history dev surfaces (`restore-epoch`, `reset-frame-db!`,
+;; the per-frame ring buffer of `:db-before`/`:db-after`/`:trace-events`)
+;; reachable from any in-process code. Those carry secrets that should not
+;; live in a production server's heap, crash dumps, or log files.
+;;
+;; The gate is read ONCE at namespace-load time from two sources, with
+;; explicit-off precedence (set `:require`-time, not per-call, so the
+;; downstream `when interop/debug-enabled?` checks stay branchless on the
+;; hot path):
+;;
+;;   1. Java system property `re-frame.debug` — set with
+;;      `-Dre-frame.debug=false` on the JVM command line. The lowercase
+;;      dotted form matches the conventional JVM system-property style.
+;;
+;;   2. Environment variable `RE_FRAME_DEBUG` — set in the process
+;;      environment, conventional uppercase + underscores. Same semantic
+;;      as the system property; the system property wins on conflict.
+;;
+;; Both sources accept the conventional false-y vocabulary:
+;;
+;;   "false" / "0" / "no" / "off" / "" (empty)
+;;
+;; case-insensitively. Anything else — including absent / unset — leaves
+;; the flag at its default (`true`, dev-on, matching the historical
+;; behaviour). Setting the flag to a recognised false-y value disables
+;; trace emission, trace-buffer retention, epoch-history capture,
+;; `restore-epoch`, `reset-frame-db!`, and the source-coord trace
+;; enrichment — the same surfaces that Closure DCE elides in CLJS
+;; `:advanced` + `goog.DEBUG=false` builds.
+;;
+;; This is the SSR-mode production switch. Local dev / tests leave it
+;; alone (the default is `true`).
 
-(def debug-enabled? true)
+(defn- ^:private read-debug-flag
+  "Read the JVM debug gate. System property `re-frame.debug` wins; falls
+  back to env var `RE_FRAME_DEBUG`. A nil / absent reading returns
+  `true` (dev default). A reading from the conventional false-y
+  vocabulary returns `false`; any other value returns `true`."
+  []
+  (let [raw (or (System/getProperty "re-frame.debug")
+                (System/getenv "RE_FRAME_DEBUG"))]
+    (if (nil? raw)
+      true
+      (let [v (-> raw str str/trim str/lower-case)]
+        (not (contains? #{"false" "0" "no" "off" ""} v))))))
+
+(def debug-enabled?
+  "JVM-side dev/prod gate. True by default; explicitly disabled by
+  `-Dre-frame.debug=false` or `RE_FRAME_DEBUG=false` (and the
+  conventional false-y vocabulary: `0`, `no`, `off`, empty string).
+  The JVM counterpart to CLJS `goog.DEBUG`. Read once at namespace
+  load — set the property / env var BEFORE `re-frame.interop` loads.
+  Per rf2-vnjfg / rf2-0la4f."
+  (read-debug-flag))
