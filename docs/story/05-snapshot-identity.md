@@ -20,6 +20,8 @@ The hash is a SHA-256 of a transit-printed `{:variant-id :resolved-args :mode-ar
 
 Story's *share via QR* button renders the snapshot-identity (plus the picked workspace + mode + cell-overrides) into a QR code, displayed inline. Scan with a phone; the phone opens a URL into your locally-served Story instance at that exact picked state.
 
+![QR sharing — scan to open the picked variant state on another device](../images/story/05-qr-share.png)
+
 The QR encoder is **vendored locally** (per [rf2-20w5i](https://github.com/day8/re-frame2)). No CDN hit, no external dependency at render time. The vendored encoder is ~3kB after `:advanced` (DCE handles dead modes); production builds short-circuit before the encoder code is reachable.
 
 Two affordances on the QR:

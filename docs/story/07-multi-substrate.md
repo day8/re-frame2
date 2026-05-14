@@ -17,6 +17,8 @@ Now every variant under `:story.counter` mounts under all three substrates, side
 
 Three columns. Same variant. Three substrates rendering it. The component must be substrate-agnostic — keyword view-id, registered through `reg-view`, no substrate-specific imports in the view body. The runtime knows how to invoke the keyword under each substrate.
 
+![Same variant rendered side-by-side under Reagent, UIx, and Helix](../images/story/07-multi-substrate.png)
+
 If a substrate-specific behaviour diverges (e.g., Reagent's r-atom mount semantics vs UIx's signal mount), the three columns diverge visibly. That's the point of the side-by-side: visual confirmation of behaviour parity.
 
 ## The contract on substrate-agnostic views

@@ -33,6 +33,8 @@ Story renders the failure mode inline at the scrubber — same red toast, same `
 
 In a `:grid` workspace, every cell gets a *mini-scrubber* affordance — a small thumbnail rail at the bottom of the cell with epoch markers. Dragging it scrubs that cell. The right-side panel scrubber is the "currently focused cell" scrubber; click any other cell to switch focus.
 
+![Per-cell mini-scrubbers across a 2x2 workspace — independent epoch buffers](../images/story/06-time-travel-mini.png)
+
 This is heavy on screen real estate when you have eight cells. The shell hides the mini-scrubbers behind a *show scrubbers* toggle; default off. The picked state is per-workspace.
 
 ## When time-travel isn't the right tool

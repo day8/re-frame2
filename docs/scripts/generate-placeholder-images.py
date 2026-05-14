@@ -33,6 +33,8 @@ OUT_STORY = REPO_ROOT / "docs" / "images" / "story"
 # outputs. The Playwright pipeline overwrites these placeholders with
 # real captures (annotated per docs/scripts/tutorial-annotation-spec.json).
 PLACEHOLDERS = [
+    # rf2-6e53j originals (captures already live; this generator is the
+    # fallback for fresh checkouts before someone runs Playwright):
     ("causa", "01-floating-pill.png",   "The Causa floating pill on the live counter app"),
     ("causa", "02-shell-opened.png",    "The Causa shell, opened over the live app"),
     ("causa", "02-sidebar-panels.png",  "Sixteen panels in three bands"),
@@ -43,13 +45,27 @@ PLACEHOLDERS = [
     ("causa", "05-dom-attribute.png",   "data-rf2-source-coord on every rendered element"),
     ("causa", "09-machines.png",        "Machine inspector with state-chart"),
     ("causa", "10-app-db-diff.png",     "App-DB diff for a cascade"),
+    # rf2-duat7 new Causa scenes:
+    ("causa", "06-copilot-rail.png",    "AI co-pilot rail — pull-only, slash commands"),
+    ("causa", "07-schema-timeline.png", "Schema-violation timeline — dot per epoch"),
+    ("causa", "08-hydration.png",       "Hydration debugger — server vs client trees"),
+    ("causa", "10-app-db-modes.png",    "App-DB diff — three rendering modes"),
 
+    # rf2-6e53j originals:
     ("story", "01-shell-overview.png",  "The Story shell — sidebar / canvas / inspectors"),
     ("story", "01-variant-loaded.png",  "A registered variant rendered in the canvas"),
     ("story", "02-mode-tabs.png",       "Mode-tab strip on a variant canvas"),
     ("story", "02-docs-mode.png",       "Docs mode for a variant"),
-    ("story", "03-test-mode.png",       "Test mode — every assertion in order"),
+    # rf2-duat7: renamed from 03-test-mode.png — the file is referenced
+    # from chapter 2 (02-mode-tabs.md), so the filename now matches its
+    # referring chapter:
+    ("story", "02-test-mode.png",       "Test mode — every assertion in order"),
     ("story", "04-workspace-grid.png",  "A 2×2 workspace mounting four variants"),
+    # rf2-duat7 new Story scenes:
+    ("story", "03-recorder-modal.png",  "Recorder modal — generated :play body (EDN)"),
+    ("story", "05-qr-share.png",        "QR sharing — snapshot identity as a scannable code"),
+    ("story", "06-time-travel-mini.png", "Per-cell mini-scrubbers across a workspace"),
+    ("story", "07-multi-substrate.png", "Same variant rendered under three substrates"),
 ]
 
 SIZE = (1280, 800)

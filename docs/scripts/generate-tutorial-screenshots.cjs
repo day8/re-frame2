@@ -467,6 +467,73 @@ SCENES.push({
   },
 });
 
+// --- rf2-duat7: new Causa scenes -----------------------------------------
+
+SCENES.push({
+  id: 'causa-copilot-rail',
+  out: path.join(OUT_CAUSA, '06-copilot-rail.png'),
+  url: '/counter/',
+  before: async (page) => {
+    await page.locator('span').first().waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: '+' }).click();
+    await openCausa(page);
+    // The co-pilot cue is rendered in the shell's bottom rail; click it
+    // to slide the rail open. The rigorous spec exercises this path.
+    await page.locator('[data-testid="rf-causa-copilot-cue"]').click();
+    await page.locator('[data-testid="rf-causa-copilot-rail"]')
+      .waitFor({ state: 'visible', timeout: 5000 });
+    // Type a slash to render the slash-command popover so the rail has
+    // visible content — the empty rail is less informative.
+    await page.locator('[data-testid="rf-causa-copilot-input"]').fill('/explain');
+  },
+});
+
+SCENES.push({
+  id: 'causa-schemas-empty',
+  out: path.join(OUT_CAUSA, '07-schema-timeline.png'),
+  url: '/counter/',
+  before: async (page) => {
+    // The counter example registers no schemas — the panel renders its
+    // empty-state. The screenshot still illustrates the panel chrome;
+    // the prose can carry the "what it'd look like populated" weight
+    // until a schemas-registered testbed lands.
+    await page.locator('span').first().waitFor({ state: 'visible' });
+    await openCausa(page);
+    await navCausa(page, 'schemas');
+  },
+});
+
+SCENES.push({
+  id: 'causa-hydration-empty',
+  out: path.join(OUT_CAUSA, '08-hydration.png'),
+  url: '/counter/',
+  before: async (page) => {
+    // Counter is SPA-only — the hydration panel renders its
+    // empty-state (no SSR detected). Same rationale as schemas: the
+    // screenshot illustrates the panel; a hydration-mismatch testbed
+    // can supersede this scene later.
+    await page.locator('span').first().waitFor({ state: 'visible' });
+    await openCausa(page);
+    await navCausa(page, 'hydration');
+  },
+});
+
+SCENES.push({
+  id: 'causa-app-db-modes',
+  out: path.join(OUT_CAUSA, '10-app-db-modes.png'),
+  url: '/counter/',
+  before: async (page) => {
+    await page.locator('span').first().waitFor({ state: 'visible' });
+    // Multiple dispatches so the diff panel has several slices to
+    // illustrate the three rendering modes prose describes.
+    await page.getByRole('button', { name: '+' }).click();
+    await page.getByRole('button', { name: '+' }).click();
+    await page.getByRole('button', { name: '-' }).click();
+    await openCausa(page);
+    await navCausa(page, 'app-db');
+  },
+});
+
 // ------------------------------ Story scenes ------------------------------
 
 SCENES.push({
@@ -527,9 +594,11 @@ SCENES.push({
   },
 });
 
+// rf2-duat7: file renamed from 03-test-mode.png to 02-test-mode.png to
+// match its referring chapter (02-mode-tabs.md).
 SCENES.push({
   id: 'story-test-mode',
-  out: path.join(OUT_STORY, '03-test-mode.png'),
+  out: path.join(OUT_STORY, '02-test-mode.png'),
   url: '/counter-with-stories/#/stories',
   before: async (page) => {
     await dismissStoryHelp(page);
@@ -555,6 +624,107 @@ SCENES.push({
     if (await ws.count()) {
       await ws.click();
       // Wait for at least two counter cells to confirm the workspace mounted.
+      await page.waitForTimeout(500);
+    }
+  },
+});
+
+// --- rf2-duat7: new Story scenes ----------------------------------------
+
+SCENES.push({
+  id: 'story-recorder-modal',
+  out: path.join(OUT_STORY, '03-recorder-modal.png'),
+  url: '/counter-with-stories/#/stories',
+  before: async (page) => {
+    await dismissStoryHelp(page);
+    await page.reload();
+    await page.getByRole('navigation').waitFor({ state: 'visible' });
+    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
+    await row.click();
+    // The recorder UX: click record, interact, click stop, modal opens
+    // with the captured :play body. Each affordance has a stable
+    // data-test; if the recorder UI hasn't shipped on the testbed yet
+    // the scene falls back to capturing the canvas with a callout —
+    // resolveRegion returns null for missing selectors, so the shot
+    // still happens un-annotated. Re-run after wiring lands.
+    const recordBtn = page.locator('[data-test="story-recorder-record"]');
+    if (await recordBtn.count()) {
+      await recordBtn.click();
+      // Drive the counter a few times so the recorder captures events.
+      const inc = page.getByRole('button', { name: '+' }).first();
+      if (await inc.count()) {
+        await inc.click();
+        await inc.click();
+      }
+      const stopBtn = page.locator('[data-test="story-recorder-stop"]');
+      if (await stopBtn.count()) {
+        await stopBtn.click();
+        await page.locator('[data-test="story-recorder-modal"]')
+          .waitFor({ state: 'visible', timeout: 5000 });
+      }
+    }
+  },
+});
+
+SCENES.push({
+  id: 'story-qr-share',
+  out: path.join(OUT_STORY, '05-qr-share.png'),
+  url: '/counter-with-stories/#/stories',
+  before: async (page) => {
+    await dismissStoryHelp(page);
+    await page.reload();
+    await page.getByRole('navigation').waitFor({ state: 'visible' });
+    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
+    await row.click();
+    // QR-share affordance — opens an inline QR rendering of the picked
+    // (variant × mode × per-cell args) tuple. Tolerant to a not-yet-
+    // wired affordance per the recorder note above.
+    const shareBtn = page.locator('[data-test="story-share-qr"]');
+    if (await shareBtn.count()) {
+      await shareBtn.click();
+      await page.locator('[data-test="story-qr-share"]')
+        .waitFor({ state: 'visible', timeout: 5000 });
+    }
+  },
+});
+
+SCENES.push({
+  id: 'story-time-travel-mini',
+  out: path.join(OUT_STORY, '06-time-travel-mini.png'),
+  url: '/counter-with-stories/#/stories',
+  before: async (page) => {
+    await dismissStoryHelp(page);
+    await page.reload();
+    await page.getByRole('navigation').waitFor({ state: 'visible' });
+    const ws = page.getByRole('navigation').getByText(':Workspace.counter/all-states', { exact: false }).first();
+    if (await ws.count()) {
+      await ws.click();
+      await page.waitForTimeout(500);
+      // Toggle the per-cell mini-scrubbers on (default off) — the
+      // workspace exposes a `show scrubbers` chip on its top rail.
+      const toggle = page.locator('[data-test="story-show-mini-scrubbers"]');
+      if (await toggle.count()) await toggle.click();
+    }
+  },
+});
+
+SCENES.push({
+  id: 'story-multi-substrate',
+  out: path.join(OUT_STORY, '07-multi-substrate.png'),
+  url: '/counter-with-stories/#/stories',
+  before: async (page) => {
+    await dismissStoryHelp(page);
+    await page.reload();
+    await page.getByRole('navigation').waitFor({ state: 'visible' });
+    // Multi-substrate workspaces declare :substrates on the parent
+    // story; the canvas mounts three columns. The counter testbed may
+    // not yet declare :substrates — the scene captures whatever the
+    // sidebar exposes as a `:substrate-grid/*` entry.
+    const grid = page.getByRole('navigation')
+      .getByText(':substrate-grid', { exact: false })
+      .first();
+    if (await grid.count()) {
+      await grid.click();
       await page.waitForTimeout(500);
     }
   },

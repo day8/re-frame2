@@ -116,6 +116,45 @@
     }
   ],
 
+  "causa-copilot-rail": [
+    {
+      "selector": "[data-testid=\"rf-causa-copilot-rail\"]",
+      "colour": "#7e57c2",
+      "label": "Pull-only AI rail - Ctrl+Shift+/",
+      "labelPos": "left"
+    }
+  ],
+
+  "causa-schemas-empty": [
+    {
+      "selector": "[data-testid=\"rf-causa-schema-violation-timeline\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+      "colour": "#c62828",
+      "label": "Schema timeline - lit up when schemas are registered",
+      "labelPos": "below"
+    }
+  ],
+
+  "causa-hydration-empty": [
+    {
+      "selector": "[data-testid=\"rf-causa-hydration-debugger\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+      "colour": "#00838f",
+      "label": "Hydration panel - server | client side-by-side",
+      "labelPos": "below"
+    }
+  ],
+
+  "causa-app-db-modes": [
+    {
+      "selector": "[data-testid=\"rf-causa-app-db-diff\"]",
+      "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
+      "colour": "#388e3c",
+      "label": "Three render modes - inline / side-by-side / just-the-delta",
+      "labelPos": "below"
+    }
+  ],
+
   "story-shell-overview": [
     {
       "selector": "nav",
@@ -186,6 +225,45 @@
       "inset": { "x": 0, "y": 4, "w": 0, "h": 24 },
       "colour": "#7e57c2",
       "label": "Workspace - one frame per cell, independent state",
+      "labelPos": "below"
+    }
+  ],
+
+  "story-recorder-modal": [
+    {
+      "selector": "[data-test=\"story-recorder-modal\"]",
+      "colour": "#e53935",
+      "label": "Generated :play body - EDN, paste-ready",
+      "labelPos": "left"
+    }
+  ],
+
+  "story-qr-share": [
+    {
+      "selector": "[data-test=\"story-qr-share\"]",
+      "padding": 6,
+      "colour": "#5d4037",
+      "label": "Snapshot identity - scan to open the picked state",
+      "labelPos": "left"
+    }
+  ],
+
+  "story-time-travel-mini": [
+    {
+      "selector": "[data-test=\"story-cell\"]",
+      "groupExtendTo": "[data-test=\"story-cell\"]:last-of-type",
+      "colour": "#7e57c2",
+      "label": "Per-cell mini-scrubbers - independent epoch buffers",
+      "labelPos": "below"
+    }
+  ],
+
+  "story-multi-substrate": [
+    {
+      "selector": "main",
+      "inset": { "x": 0, "y": 4, "w": 0, "h": 24 },
+      "colour": "#00838f",
+      "label": "Same variant - three substrates side-by-side",
       "labelPos": "below"
     }
   ]
