@@ -433,22 +433,36 @@
 
   When the cascade had no successful event handler (e.g. an unknown
   event id or a frame-destroyed dispatch), no :run-start fires; fall
-  back to the first event we can find with an `:event-id` tag."
+  back to the first event we can find with an `:event-id` tag.
+
+  Per rf2-txrq9: single-walk reduction over `events` — the original
+  two-pass `or`-of-`some` reordered both walks across the buffer
+  on the degenerate path. We now accumulate the first
+  `:event/run-start` AND the first fallback `:event-id` in one
+  traversal and prefer the run-start. Either match short-circuits
+  at the earliest moment it can — a run-start hit immediately
+  reduces to the final result; a fallback-only stream walks once."
   [events]
-  (or
-    (some (fn [ev]
-            (when (and (= :event (:op-type ev))
+  (let [result
+        (reduce
+          (fn [acc ev]
+            (let [tags (:tags ev)]
+              (if (and (= :event (:op-type ev))
                        (= :event (:operation ev))
-                       (= :run-start (get-in ev [:tags :phase])))
-              {:event-id (get-in ev [:tags :event-id])
-               :event    (get-in ev [:tags :event])}))
-          events)
-    (some (fn [ev]
-            (when-let [eid (get-in ev [:tags :event-id])]
-              {:event-id eid
-               :event    (or (get-in ev [:tags :event])
-                             [eid])}))
-          events)))
+                       (= :run-start (:phase tags)))
+                ;; run-start beats the fallback; short-circuit.
+                (reduced {:run-start {:event-id (:event-id tags)
+                                      :event    (:event tags)}})
+                ;; Capture the first :event-id we see as the fallback.
+                (if (or (:fallback acc) (nil? (:event-id tags)))
+                  acc
+                  (assoc acc :fallback
+                         (let [eid (:event-id tags)]
+                           {:event-id eid
+                            :event    (or (:event tags) [eid])}))))))
+          {}
+          events)]
+    (or (:run-start result) (:fallback result))))
 
 (defn- current-schema-digest
   "Return the live digest of the named frame's registered app-schema set,
