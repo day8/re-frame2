@@ -217,6 +217,53 @@
 ;; Pure-data + JVM-runnable so the JVM test suite can drive every axis
 ;; without booting a CLJS runtime. No atoms, no interop, no swap!.
 
+(defn build-filter-predicate
+  "Compile the 13-axis filter map into a single predicate `(fn [ev] truthy)`.
+
+  Lifted from `filter-events` (rf2-7mwc8 / audit 2a) so the trace
+  panel's `project-feed` can fold filtering into a single walk over
+  the buffer rather than running a separate `filter-events` pass.
+  Pure data → fn; JVM-runnable.
+
+  Returns a fn that always returns true when `opts` is empty or nil
+  — callers MAY skip the filter when no axis is active."
+  [opts]
+  (if (empty? opts)
+    (fn [_ev] true)
+    (let [{:keys [operation op-type since frame
+                  severity event-id handler-id source origin
+                  dispatch-id since-ms between pred]} opts
+          [between-t0 between-t1] (when (and (sequential? between)
+                                             (= 2 (count between)))
+                                    between)]
+      (fn [ev]
+        (and (or (nil? operation) (= operation (:operation ev)))
+             (or (nil? op-type)   (= op-type   (:op-type ev)))
+             (or (nil? since)     (and (number? (:id ev))
+                                       (> (:id ev) since)))
+             (or (nil? frame)
+                 (= frame (or (:frame ev)
+                              (get-in ev [:tags :frame]))))
+             (or (nil? severity) (= severity (:op-type ev)))
+             (or (nil? event-id)
+                 (= event-id (get-in ev [:tags :event-id])))
+             (or (nil? handler-id)
+                 (= handler-id (get-in ev [:tags :handler-id])))
+             (or (nil? source)
+                 (= source (or (:source ev)
+                               (get-in ev [:tags :source]))))
+             (or (nil? origin)
+                 (= origin (get-in ev [:tags :origin])))
+             (or (nil? dispatch-id)
+                 (= dispatch-id (get-in ev [:tags :dispatch-id])))
+             (or (nil? since-ms)
+                 (and (number? (:time ev))
+                      (> (:time ev) since-ms)))
+             (or (nil? between-t0)
+                 (and (number? (:time ev))
+                      (<= between-t0 (:time ev) between-t1)))
+             (or (nil? pred) (pred ev)))))))
+
 (defn filter-events
   "Apply the trace-buffer filter vocabulary to an arbitrary event vector.
   Returns a vector containing only events where every supplied filter
@@ -256,41 +303,7 @@
   ([events opts]
    (if (empty? opts)
      (vec events)
-     (let [{:keys [operation op-type since frame
-                   severity event-id handler-id source origin
-                   dispatch-id since-ms between pred]} opts
-           [between-t0 between-t1] (when (and (sequential? between)
-                                              (= 2 (count between)))
-                                     between)
-           predicate
-           (fn [ev]
-             (and (or (nil? operation) (= operation (:operation ev)))
-                  (or (nil? op-type)   (= op-type   (:op-type ev)))
-                  (or (nil? since)     (and (number? (:id ev))
-                                            (> (:id ev) since)))
-                  (or (nil? frame)
-                      (= frame (or (:frame ev)
-                                   (get-in ev [:tags :frame]))))
-                  (or (nil? severity) (= severity (:op-type ev)))
-                  (or (nil? event-id)
-                      (= event-id (get-in ev [:tags :event-id])))
-                  (or (nil? handler-id)
-                      (= handler-id (get-in ev [:tags :handler-id])))
-                  (or (nil? source)
-                      (= source (or (:source ev)
-                                    (get-in ev [:tags :source]))))
-                  (or (nil? origin)
-                      (= origin (get-in ev [:tags :origin])))
-                  (or (nil? dispatch-id)
-                      (= dispatch-id (get-in ev [:tags :dispatch-id])))
-                  (or (nil? since-ms)
-                      (and (number? (:time ev))
-                           (> (:time ev) since-ms)))
-                  (or (nil? between-t0)
-                      (and (number? (:time ev))
-                           (<= between-t0 (:time ev) between-t1)))
-                  (or (nil? pred) (pred ev))))]
-       (filterv predicate events)))))
+     (filterv (build-filter-predicate opts) events))))
 
 (defn clear-buffer!
   "Empty the buffer. Tooling uses this between sessions. No-op in
