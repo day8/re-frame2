@@ -47,8 +47,9 @@
 (defn- render [render-tree mount-point opts]
   ;; React 18+ Root API: create-root → render → unmount; hydrate-root
   ;; on the SSR path returns its own Root (rf2-fn5rk + rf2-6hyy slim
-  ;; parity). Pin: `adapter-render-cljs-test`.
-  (let [hydrate? (boolean (:hydrate? opts))
+  ;; parity). Pin: `adapter-render-cljs-test`. Per rf2-gwkvr: Spec 006
+  ;; §`render` types `:hydrate?` as a boolean; no defensive coercion.
+  (let [hydrate? (:hydrate? opts)
         root     (if hydrate?
                    (rdc/hydrate-root mount-point render-tree)
                    (let [r (rdc/create-root mount-point)]

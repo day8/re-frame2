@@ -188,7 +188,10 @@
   root from the cell before calling `.unmount`. Per rf2-9fdkb."
   [active-roots-cell]
   (fn render [render-tree mount-point opts]
-    (let [hydrate? (boolean (:hydrate? opts))
+    ;; Per rf2-gwkvr: Spec 006 §`render` types `:hydrate?` as a boolean;
+    ;; non-bool truthy values are undefined-behaviour. No defensive
+    ;; `boolean` coercion.
+    (let [hydrate? (:hydrate? opts)
           root     (if hydrate?
                      (react-dom-client/hydrateRoot mount-point render-tree)
                      (let [r (react-dom-client/createRoot mount-point)]
