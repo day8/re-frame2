@@ -240,12 +240,19 @@
   "Top-level projection — produces every slot the view needs. Pure
   data → data; JVM-testable.
 
-  The body projects the trace buffer twice (raw + filtered) and then
-  runs an axis-distinct + axis-count pass for each filter axis. Cost
-  is bounded by the 1000-event trace ring (Spec 009 §Trace bus). A
-  single-pass collapse is on the deferred follow-on list once row
-  caps have landed and we can measure residual cost in practice
-  (rf2-60vcu).
+  Single-pass over the trace buffer (rf2-7mwc8 / audit 2a): the
+  earlier shape ran 28 row-touching passes per recompute (project-
+  rows ×2 + apply-filters + 13× distinct-values + 13× axis-counts).
+  This shape collapses to:
+
+    1. one walk to project + filter (also accumulates pre-filter
+       per-axis distinct + count maps in the same reduce);
+    2. one reverse over the filtered rows for newest-first display.
+
+  Total: ~2× over the buffer instead of 28×. The filter test runs
+  inside the same walk via `trace-bus/event-passes-filters?`. Per
+  Spec 009 §Filter vocabulary the algebra delegates to the framework
+  filter so the contract stays in lockstep.
 
   Returns:
 
@@ -269,28 +276,66 @@
                     filters' with a clear-filters affordance.
       nil         — at least one event passes; render the ribbon."
   [events filters]
-  (let [all-rows         (project-rows events)
-        normalised       (normalise-filters filters)
-        filtered-events  (apply-filters events normalised)
-        filtered-rows    (project-rows filtered-events)
-        ;; Newest first for display per the bead's contract
-        ;; (scrollable timestamped event ribbon).
-        sorted-display   (vec (reverse filtered-rows))
-        distinct-by      (into {}
-                               (for [axis filter-axes]
-                                 [axis (distinct-values all-rows axis)]))
-        counts-by        (into {}
-                               (for [axis filter-axes]
-                                 [axis (axis-counts all-rows axis)]))
-        empty-kind       (cond
-                           (empty? all-rows)        :no-events
-                           (empty? filtered-rows)   :no-matches
-                           :else                    nil)]
+  (let [normalised   (normalise-filters filters)
+        passes?      (trace-bus/build-filter-predicate normalised)
+        ;; Single-pass accumulator state:
+        ;;   :rev-filtered — filtered rows in REVERSE order (newest
+        ;;                   first, as the view wants); we conj rather
+        ;;                   than build oldest-first then reverse.
+        ;;   :total        — pre-filter row count.
+        ;;   :rendered     — post-filter row count.
+        ;;   :distinct     — {axis [first-seen-value ...]}; built
+        ;;                   alongside :seen so the order is stable.
+        ;;   :seen         — {axis #{value ...}} membership set used
+        ;;                   to dedupe :distinct.
+        ;;   :counts       — {axis {value n}} histogram.
+        init-state   {:rev-filtered ()
+                      :total        0
+                      :rendered     0
+                      :distinct     (into {} (map (fn [a] [a []])) filter-axes)
+                      :seen         (into {} (map (fn [a] [a #{}])) filter-axes)
+                      :counts       (into {} (map (fn [a] [a {}])) filter-axes)}
+        accumulate
+        (fn [state ev]
+          (let [row    (project-row ev)
+                ;; Distinct + counts walk every axis once per row,
+                ;; folding into the per-axis maps.
+                state' (reduce
+                         (fn [s axis]
+                           (let [v (get row axis)]
+                             (cond
+                               (nil? v)
+                               s
+
+                               (contains? (get-in s [:seen axis]) v)
+                               (update-in s [:counts axis v]
+                                          (fnil inc 0))
+
+                               :else
+                               (-> s
+                                   (update-in [:distinct axis] conj v)
+                                   (update-in [:seen axis] conj v)
+                                   (update-in [:counts axis v]
+                                              (fnil inc 0))))))
+                         state
+                         filter-axes)
+                state'' (update state' :total inc)]
+            (if (passes? ev)
+              (-> state''
+                  (update :rev-filtered conj row)
+                  (update :rendered inc))
+              state'')))
+        result         (reduce accumulate init-state events)
+        sorted-display (vec (:rev-filtered result))
+        empty-kind  (cond
+                      (zero? (:total result))    :no-events
+                      (zero? (:rendered result)) :no-matches
+                      :else                      nil)]
     {:rows         sorted-display
-     :total        (count all-rows)
-     :rendered     (count filtered-rows)
-     :distinct     distinct-by
-     :counts       counts-by
+     :total        (:total result)
+     :rendered     (:rendered result)
+     :distinct     (:distinct result)
+     :counts       (:counts result)
      :filters      normalised
      :any-filter?  (boolean (seq normalised))
      :empty-kind   empty-kind}))
