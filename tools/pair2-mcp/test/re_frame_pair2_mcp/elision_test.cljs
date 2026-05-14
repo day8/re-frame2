@@ -27,7 +27,8 @@
   The CLJS layer here just pins the wiring."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
-            [re-frame-pair2-mcp.tools.elision :as elision]))
+            [re-frame-pair2-mcp.tools.elision :as elision]
+            [re-frame-pair2-mcp.tools.wire-pipeline :as wp]))
 
 ;; ---------------------------------------------------------------------------
 ;; elision-opts-edn — EDN-render the walker's opts map for inlining.
@@ -79,35 +80,45 @@
 
 (defn- build-snapshot-form
   "Mirror of the snapshot-tool's eval-form composition. Two arms:
-  elision on/off. Keep in lockstep with `snapshot-tool` in tools.cljs."
+  elision on/off. Keep in lockstep with `snapshot-tool` in
+  `tools/snapshot.cljs`. Post-rf2-e35a5 both arms wrap the snapshot
+  in `{:value <snap> :elided-count N}` so the count piggybacks on
+  the same nREPL round-trip — no separate client-side walk."
   [opts elision?]
   (let [elision-opts-form (elision/elision-opts-edn elision?)]
     (if elision?
       (str "(let [snap (re-frame-pair2.runtime/snapshot-state "
-           (pr-str opts) ")]"
-           "  (reduce-kv"
-           "    (fn [m fid fmap]"
-           "      (assoc m fid"
-           "             (if (and (map? fmap) (contains? fmap :app-db))"
-           "               (update fmap :app-db"
-           "                       (fn [db] (re-frame.core/elide-wire-value db"
-           "                                  (merge {:frame fid} "
+           (pr-str opts) ")"
+           "      walked (reduce-kv"
+           "               (fn [m fid fmap]"
+           "                 (assoc m fid"
+           "                        (if (and (map? fmap) (contains? fmap :app-db))"
+           "                          (update fmap :app-db"
+           "                                  (fn [db] (re-frame.core/elide-wire-value db"
+           "                                             (merge {:frame fid} "
            elision-opts-form
            "))))"
-           "               fmap)))"
-           "    {} snap))")
-      (str "(re-frame-pair2.runtime/snapshot-state "
-           (pr-str opts) ")"))))
+           "                          fmap)))"
+           "               {} snap)]"
+           "  {:value walked"
+           "   :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+           "                                (tree-seq coll? seq walked)))})")
+      (str "{:value (re-frame-pair2.runtime/snapshot-state "
+           (pr-str opts) ") :elided-count 0}"))))
 
-(deftest snapshot-form-elision-off-is-plain-call
-  ;; Elision off = the original form, no walker wrap. Backwards-
-  ;; compatible with the pre-rf2-urjnc shape so a slow runtime that
-  ;; doesn't yet ship the walker still answers when the agent opts out.
+(deftest snapshot-form-elision-off-wraps-bare-snap-with-zero-count
+  ;; Post-rf2-e35a5: even with elision off, the form returns the
+  ;; `{:value v :elided-count N}` envelope so the wire-pipeline
+  ;; doesn't need an elision-branched response shape.
   (let [form (build-snapshot-form {:frames :all
                                    :include [:app-db]}
                                   false)]
-    (is (= "(re-frame-pair2.runtime/snapshot-state {:frames :all, :include [:app-db]})"
-           form))))
+    (is (re-find #":value \(re-frame-pair2\.runtime/snapshot-state" form))
+    (is (re-find #":elided-count 0" form))
+    ;; No walker call — elision-off path skips elide-wire-value
+    ;; entirely (a value pass-through is cheaper than walking with
+    ;; `:rf.size/include-large? true`).
+    (is (not (re-find #"elide-wire-value" form)))))
 
 (deftest snapshot-form-elision-on-wraps-with-walker
   ;; Elision on = the walker wrap. The form should reference both
@@ -138,6 +149,21 @@
     (is (= 1 (count (re-seq #"elide-wire-value" form))))
     (is (re-find #"contains\? fmap :app-db" form))))
 
+(deftest snapshot-form-counts-elision-markers-server-side
+  ;; rf2-e35a5: the eval form returns `{:value <snap> :elided-count N}`
+  ;; so the elision count rides back on the same nREPL round-trip.
+  ;; The wire-pipeline reads the count from opts instead of re-walking
+  ;; client-side.
+  (let [form (build-snapshot-form {:frames :all
+                                   :include [:app-db]}
+                                  true)]
+    (is (re-find #":value walked" form))
+    (is (re-find #":elided-count " form))
+    ;; The count predicate matches the cross-MCP vocabulary
+    ;; (`re-frame.mcp-base.vocab/large-elided-key`).
+    (is (re-find #":rf\.size/large-elided" form))
+    (is (re-find #"tree-seq coll\? seq walked" form))))
+
 ;; ---------------------------------------------------------------------------
 ;; Eval-form composition for get-path-tool (rf2-urjnc).
 ;;
@@ -149,7 +175,9 @@
 
 (defn- build-get-path-form
   "Mirror of the get-path-tool's eval-form composition. Keep in
-  lockstep with `get-path-tool` in tools.cljs."
+  lockstep with `get-path-tool` in tools.cljs. Post-rf2-e35a5: the
+  happy-path envelope carries `:elided-count` so the wire-pipeline
+  reads the count from opts instead of re-walking the scalar."
   [path frame elision?]
   (let [path-edn      (pr-str path)
         snapshot-call (if frame
@@ -161,11 +189,17 @@
                         (str "(re-frame.core/elide-wire-value v"
                              "  (merge {:path path :frame " frame-edn "}"
                              "         " elision-opts "))")
-                        "v")]
+                        "v")
+        count-expr    (if elision?
+                        (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+                             "               (tree-seq coll? seq elided-v)))")
+                        "0")]
     (str "(let [db " snapshot-call
          "      path " path-edn
          "      missing #js {}"
-         "      v (get-in db path missing)]"
+         "      v (get-in db path missing)"
+         "      elided-v " elide-call
+         "      n " count-expr "]"
          "  (if (identical? v missing)"
          "    {:ok? false :reason :path-not-found"
          "     :path path"
@@ -179,14 +213,18 @@
          "              (<= 0 (first rem) (dec (count cur))))"
          "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
          "         :else acc))}"
-         "    {:ok? true :exists? true :path path :value " elide-call "}))")))
+         "    {:ok? true :exists? true :path path :value elided-v :elided-count n}))")))
 
 (deftest get-path-form-elision-off-bypasses-walker
   ;; Elision off = the raw value rides the wire. Backwards-compatible
-  ;; with the pre-rf2-urjnc shape.
+  ;; with the pre-rf2-urjnc shape. Post-rf2-e35a5 the value flows
+  ;; through the `elided-v` binding (a pass-through when elision is
+  ;; off) and the count is unconditionally zero.
   (let [form (build-get-path-form [:user :uploaded-pdf] :rf/default false)]
     (is (not (re-find #"elide-wire-value" form)))
-    (is (re-find #":value v" form))))
+    (is (re-find #"elided-v v" form))
+    (is (re-find #":elided-count n" form))
+    (is (re-find #"n 0" form))))
 
 (deftest get-path-form-elision-on-wraps-value
   ;; Elision on = the value is walked. The walker call inherits the
@@ -260,6 +298,88 @@
 ;; namespaces / app-db keys / fx-ids and Spec 009 §Size elision in
 ;; traces. Pin the literals so a vocabulary drift surfaces here.
 ;; ---------------------------------------------------------------------------
+
+;; ---------------------------------------------------------------------------
+;; Wire-pipeline `:server-elided` opt (rf2-e35a5).
+;;
+;; The wire-pipeline's `:snapshot-map` and `:scalar-value` arms read
+;; the elision count from the `:server-elided` opt instead of re-walking
+;; the payload. The server-side eval form pre-counts and ships the
+;; integer back on the same nREPL round-trip; the client-side walk is
+;; eliminated for these payload kinds.
+;;
+;; The `:epoch-vector` arm continues to walk locally — its payload
+;; (runtime trace/epoch records) may carry markers from upstream
+;; `event_emit/elide-wire-value`, and the runtime drain doesn't
+;; pre-count them.
+;; ---------------------------------------------------------------------------
+
+(def ^:private marker
+  "A standalone `:rf.size/large-elided` marker, as the framework
+  `elide-wire-value` walker would emit."
+  {:rf.size/large-elided
+   {:path [:user :uploaded-pdf] :bytes 102400 :type :string
+    :reason :declared :handle [:rf.elision/at [:user :uploaded-pdf]]}})
+
+(deftest snapshot-map-arm-uses-server-elided-when-supplied
+  ;; rf2-e35a5: when `:server-elided` is on opts, the arm uses it
+  ;; directly. The payload might or might not actually contain
+  ;; markers — we trust the server-side count because the walker
+  ;; that inserted the markers was the one counting.
+  (let [snap {:rf/default {:app-db {:k :v}}}
+        {:keys [indicators]}
+        (wp/run-wire-pipeline snap
+                              {:kind          :snapshot-map
+                               :incl?         false
+                               :mode          :diff
+                               :dedup?        false
+                               :slice-mode    :full
+                               :slice-modes   {}
+                               :server-elided 7})]
+    (is (= 7 (:elided indicators))
+        "Server-side count flows through verbatim")))
+
+(deftest snapshot-map-arm-falls-back-to-walk-when-missing
+  ;; Defensive: a degraded eval-form / a test shape that doesn't
+  ;; supply `:server-elided` falls back to a local walk. The arm
+  ;; still produces a correct count.
+  (let [snap {:rf/default {:app-db marker}}
+        {:keys [indicators]}
+        (wp/run-wire-pipeline snap
+                              {:kind        :snapshot-map
+                               :incl?       false
+                               :mode        :diff
+                               :dedup?      false
+                               :slice-mode  :full
+                               :slice-modes {}})]
+    (is (= 1 (:elided indicators))
+        "Missing :server-elided ⇒ local walk picks up the marker")))
+
+(deftest scalar-value-arm-uses-server-elided-when-supplied
+  ;; rf2-e35a5: `:scalar-value` arm reads `:server-elided` for the
+  ;; common `get-path` path — the eval form pre-counts.
+  (let [{:keys [indicators]}
+        (wp/run-wire-pipeline marker
+                              {:kind          :scalar-value
+                               :server-elided 1})]
+    (is (= 1 (:elided indicators)))))
+
+(deftest scalar-value-arm-falls-back-to-walk-when-missing
+  ;; Sanity: no `:server-elided` ⇒ walk the scalar locally.
+  (let [{:keys [indicators]}
+        (wp/run-wire-pipeline marker {:kind :scalar-value})]
+    (is (= 1 (:elided indicators)))))
+
+(deftest scalar-value-arm-server-elided-zero-respected
+  ;; A `0` server-side count must be honoured (not treated as
+  ;; "absent ⇒ walk"). Pin the `some?` semantics — zero is a valid
+  ;; count, not a sentinel.
+  (let [{:keys [indicators]}
+        (wp/run-wire-pipeline marker
+                              {:kind          :scalar-value
+                               :server-elided 0})]
+    (is (= 0 (:elided indicators))
+        "Zero is a valid server-side count, not a fall-back trigger")))
 
 (deftest cross-mcp-vocabulary-rf-size-include-large
   ;; The walker's switch keyword is `:rf.size/include-large?`. We

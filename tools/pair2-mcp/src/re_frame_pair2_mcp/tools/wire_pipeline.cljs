@@ -23,10 +23,24 @@
         → path-slice          (snapshot only — :app-db sliced before summary)
         → diff-encode         (epoch records)
         → dedup               (structural sharing across the wire)
-        → indicator-count     (count :rf.size/large-elided markers AFTER
-                               dedup so the count reflects the elision
-                               footprint of the post-shrink payload)
+        → indicator-count     (count :rf.size/large-elided markers)
         → summary             (lazy-summary for non-app-db rich slices)
+
+  ## Indicator counting (rf2-e35a5)
+
+  When the SERVER-SIDE eval form already counted markers (snapshot +
+  get-path, where `elide-wire-value` ran app-side and the count flows
+  back via `:server-elided` on the opts map), the pipeline uses the
+  pre-shipped count directly — the walker that inserted the marker is
+  the only thing that needs to know about it. For these kinds, dedup
+  never touches the slice carrying the markers (dedup re-shapes
+  `:epochs` only; elision fires on `:app-db` for snapshot and on the
+  scalar payload for get-path), so the server-side count is exact.
+
+  When the count was NOT pre-shipped (`:epoch-vector` — runtime drain
+  records may already carry markers from upstream
+  `event_emit/elide-wire-value`), the arm falls back to walking the
+  post-dedup payload.
 
   Cap is NOT part of the pipeline — it runs at the `invoke` boundary
   on the rendered envelope. Indicator-counting runs INSIDE this ns;
@@ -71,18 +85,26 @@
       → slice-app-db (path-slice or full)
       → diff-encode-epochs
       → dedup-epochs
-      → count elision markers (after dedup, before summary)
+      → count elision markers (from `:server-elided` opt; rf2-e35a5)
       → summarise other slices
 
   Returns `{:value snapshot :indicators {:dropped N :elided N
-  :path-status M :resolved-modes M}}`."
-  [snapshot {:keys [incl? mode dedup? path slice-mode slice-modes]}]
+  :path-status M :resolved-modes M}}`.
+
+  Per rf2-e35a5: `:server-elided` rides in on opts when the
+  `snapshot` eval form counted markers app-side. Dedup never
+  touches `:app-db` (only `:epochs`), so the server-side count is
+  exact post-pipeline. Falls back to a tree-walk when the opt is
+  missing (older eval-form shape)."
+  [snapshot {:keys [incl? mode dedup? path slice-mode slice-modes server-elided]}]
   (let [app-db-mode           (pipeline/resolve-slice-mode :app-db slice-modes slice-mode)
         [scrubbed dropped]    (sensitive/scrub-snapshot-sensitive snapshot incl?)
         [sliced path-status]  (pipeline/slice-app-db-in-snapshot scrubbed path app-db-mode)
         diff-encoded          (pipeline/diff-encode-epochs-in-snapshot sliced mode)
         deduped               (pipeline/dedup-epochs-in-snapshot diff-encoded dedup?)
-        elided                (base-elision/count-elided-markers deduped)
+        elided                (if (some? server-elided)
+                                server-elided
+                                (base-elision/count-elided-markers deduped))
         {summarised  :snapshot
          other-modes :resolved-modes} (pipeline/summarise-other-slices-in-snapshot
                                         deduped slice-modes slice-mode)
@@ -131,10 +153,17 @@
   what's actually being shipped — a `:path-not-found` envelope (no
   `:value` slot) bypasses the walk entirely.
 
+  Per rf2-e35a5 the count is sourced from `:server-elided` on opts
+  when the eval form counted markers app-side (the common path).
+  Falls back to a local walk only when the opt is missing — a
+  defensive seam for tests or a degraded eval-form shape.
+
   Returns `{:value v :indicators {:elided N}}`."
-  [v _opts]
+  [v {:keys [server-elided]}]
   {:value      v
-   :indicators {:elided (base-elision/count-elided-markers v)}})
+   :indicators {:elided (if (some? server-elided)
+                          server-elided
+                          (base-elision/count-elided-markers v))}})
 
 (defn run-wire-pipeline
   "Single named pipeline for every MCP tool that returns a tree-typed
@@ -145,13 +174,18 @@
 
   Opts:
 
-  - `:kind`         one of `:snapshot-map`, `:epoch-vector`, `:scalar-value`.
-  - `:incl?`        sensitive opt-in flag (true ⇒ no drop).
-  - `:mode`         epochs-mode keyword (`:diff` / `:full`).
-  - `:dedup?`       boolean — run structural dedup at the wire boundary.
-  - `:path`         path vector (snapshot path-slicing).
-  - `:slice-mode`   global `:summary` / `:full` mode for non-app-db slices.
-  - `:slice-modes`  per-slice override map.
+  - `:kind`           one of `:snapshot-map`, `:epoch-vector`, `:scalar-value`.
+  - `:incl?`          sensitive opt-in flag (true ⇒ no drop).
+  - `:mode`           epochs-mode keyword (`:diff` / `:full`).
+  - `:dedup?`         boolean — run structural dedup at the wire boundary.
+  - `:path`           path vector (snapshot path-slicing).
+  - `:slice-mode`     global `:summary` / `:full` mode for non-app-db slices.
+  - `:slice-modes`    per-slice override map.
+  - `:server-elided`  integer count of `:rf.size/large-elided` markers
+                      inserted server-side (rf2-e35a5). When present,
+                      the `:snapshot-map` and `:scalar-value` arms use
+                      this instead of re-walking the payload. Missing
+                      ⇒ falls back to a local walk.
 
   Unknown `:kind` throws — the dispatch is closed to three cases and
   silently degrading would mask a programmer typo / a new-payload

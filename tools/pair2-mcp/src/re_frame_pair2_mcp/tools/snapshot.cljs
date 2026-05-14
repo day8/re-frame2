@@ -34,46 +34,76 @@
         dedup?      (args/parse-bool-arg raw-args :dedup)
         elision?    (args/parse-bool-arg raw-args :elision)
         opts        {:frames frames :include include}
-        ;; Eval form composition (rf2-urjnc). The snapshot composer
-        ;; returns a per-frame map; we wrap each frame's `:app-db`
-        ;; slice with `re-frame.core/elide-wire-value` so large /
-        ;; sensitive slots get the `:rf.size/large-elided` marker
-        ;; server-side, before the EDN crosses the wire. The walker
-        ;; reads the `[:rf/elision]` registry from the live app-db
-        ;; — it has to run app-side, where the registry is reachable.
-        ;; When elision is disabled the eval form skips the walk
-        ;; entirely (a value pass-through is cheaper than walking
-        ;; with `:rf.size/include-large? true`).
+        ;; Eval form composition (rf2-urjnc + rf2-e35a5). The snapshot
+        ;; composer returns a per-frame map; we wrap each frame's
+        ;; `:app-db` slice with `re-frame.core/elide-wire-value` so
+        ;; large / sensitive slots get the `:rf.size/large-elided`
+        ;; marker server-side, before the EDN crosses the wire. The
+        ;; walker reads the `[:rf/elision]` registry from the live
+        ;; app-db — it has to run app-side, where the registry is
+        ;; reachable. When elision is disabled the eval form skips
+        ;; the walk entirely (a value pass-through is cheaper than
+        ;; walking with `:rf.size/include-large? true`).
+        ;;
+        ;; Per rf2-e35a5: the eval form now ALSO counts elision
+        ;; markers server-side and returns `{:value <snap>
+        ;; :elided-count N}`. The client-side wire-pipeline reads the
+        ;; count from opts instead of re-walking the post-pipeline
+        ;; payload — the walker is the only thing that inserts
+        ;; markers, so it can hand the count back as a piggyback on
+        ;; the same round-trip. Dedup never touches the `:app-db`
+        ;; slice (where elision fired) — it only re-shapes `:epochs`
+        ;; — so the pre-dedup server count equals the post-dedup
+        ;; client count.
         elision-opts-form (elision/elision-opts-edn elision?)
         form     (if elision?
                    (ef/emit
                      (ef/rt-let
-                       ['snap (ef/rt-call 'snapshot-state opts)]
+                       ['snap (ef/rt-call 'snapshot-state opts)
+                        'walked (ef/rt-raw
+                                  (str "(reduce-kv"
+                                       " (fn [m fid fmap]"
+                                       "   (assoc m fid"
+                                       "          (if (and (map? fmap) (contains? fmap :app-db))"
+                                       "            (update fmap :app-db"
+                                       "                    (fn [db] (re-frame.core/elide-wire-value db"
+                                       "                               (merge {:frame fid} "
+                                       elision-opts-form
+                                       "))))"
+                                       "            fmap)))"
+                                       " {} snap)"))]
                        (ef/rt-raw
-                         (str "(reduce-kv"
-                              " (fn [m fid fmap]"
-                              "   (assoc m fid"
-                              "          (if (and (map? fmap) (contains? fmap :app-db))"
-                              "            (update fmap :app-db"
-                              "                    (fn [db] (re-frame.core/elide-wire-value db"
-                              "                               (merge {:frame fid} "
-                              elision-opts-form
-                              "))))"
-                              "            fmap)))"
-                              " {} snap)"))))
-                   (ef/emit (ef/rt-call 'snapshot-state opts)))]
+                         (str "{:value walked"
+                              " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+                              "                              (tree-seq coll? seq walked)))}"))))
+                   (ef/emit
+                     (ef/rt-raw
+                       (str "{:value "
+                            (ef/emit (ef/rt-call 'snapshot-state opts))
+                            " :elided-count 0}"))))]
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-        (.then (fn [v]
-                 (let [{:keys [value indicators]}
-                       (wp/run-wire-pipeline v
-                                             {:kind        :snapshot-map
-                                              :incl?       incl?
-                                              :mode        mode
-                                              :dedup?      dedup?
-                                              :path        path
-                                              :slice-mode  slice-mode
-                                              :slice-modes slice-modes})
+        (.then (fn [resp]
+                 ;; New eval-form shape (rf2-e35a5): `{:value <snap>
+                 ;; :elided-count N}`. Defensively fall back to the
+                 ;; bare-snap shape — a degraded runtime / stubbed
+                 ;; eval might return the raw per-frame map.
+                 ;; Recognised via the `:elided-count` marker key,
+                 ;; not via `(map? resp)`, because the bare snapshot
+                 ;; IS itself a map (`{<frame-id> {...}}`).
+                 (let [new-shape?    (and (map? resp) (contains? resp :elided-count))
+                       snap-value    (if new-shape? (:value resp) resp)
+                       server-elided (when new-shape? (:elided-count resp))
+                       {:keys [value indicators]}
+                       (wp/run-wire-pipeline snap-value
+                                             {:kind          :snapshot-map
+                                              :incl?         incl?
+                                              :mode          mode
+                                              :dedup?        dedup?
+                                              :path          path
+                                              :slice-mode    slice-mode
+                                              :slice-modes   slice-modes
+                                              :server-elided server-elided})
                        {:keys [dropped elided path-status
                                resolved-modes app-db-mode]} indicators
                        response-mode (cond
