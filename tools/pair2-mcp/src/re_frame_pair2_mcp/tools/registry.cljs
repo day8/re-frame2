@@ -72,7 +72,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Handler shape — every registered handler is `(fn [conn args extra])`.
 ;; Per-tool fns that don't need `extra` (i.e. everything except `subscribe`)
-;; are wrapped inline at registration so the dispatcher can call all
+;; are adapted via `ignoring-extra` so the dispatcher can call all
 ;; handlers uniformly.
 ;;
 ;; Handlers in the registry are LATE-BINDING — they call the per-tool fn
@@ -80,8 +80,24 @@
 ;; time. The `invoke-test` suite (rf2-nogok) stubs per-tool fns by
 ;; `set!`-ing their vars and expects subsequent dispatches to hit the
 ;; replacement. A captured reference would freeze the original and
-;; break the seam.
+;; break the seam. `ignoring-extra` takes a NAMESPACE-QUALIFIED var
+;; (not a value) so the deref happens per-call — preserving the seam.
 ;; ---------------------------------------------------------------------------
+
+(defn- ignoring-extra
+  "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
+  3-arity convention `(fn [conn args _extra])`. Ten of the eleven
+  registered tools ignore `extra` (only `subscribe` consults it);
+  this adapter collapses the verbatim `(fn [conn args _extra]
+  (per-tool-fn conn args))` boilerplate at the call sites.
+
+  Callers wrap the per-tool fn in a `#(per-tool-fn %1 %2)` literal
+  so the namespaced-symbol lookup happens per-call. That preserves
+  the test seam (rf2-nogok): `(set! snapshot/snapshot-tool ...)`
+  updates the namespace's JS slot and the next dispatch finds the
+  replacement."
+  [f]
+  (fn [conn args _extra] (f conn args)))
 
 ;; ---------------------------------------------------------------------------
 ;; The catalogue — one entry per tool. ORDER matters: `tool-descriptors`
@@ -96,52 +112,53 @@
   `tools/list` descriptors, the `tools/call` dispatcher, and the
   per-tool cache opt-in. See ns docstring for the entry shape.
 
-  Each `:handler` is a thin late-binding wrapper around the per-tool fn
-  — `(fn [conn args _] (per-tool-fn conn args))` — so test seams that
-  `set!` the underlying var (rf2-nogok) take effect on the next
-  dispatch."
+  Each `:handler` is a thin late-binding wrapper around the per-tool
+  fn — `ignoring-extra` for the ten tools that ignore `extra`, or an
+  inline `(fn [conn args extra] ...)` for `subscribe`. Both shapes
+  resolve the underlying fn per-call so test seams that `set!` the
+  var (rf2-nogok) take effect on the next dispatch."
   [{:name       "discover-app"
-    :handler    (fn [conn args _extra] (discover-app/discover-app conn args))
+    :handler    (ignoring-extra #(discover-app/discover-app %1 %2))
     :cacheable? true
     :descriptor data/discover-app}
    {:name       "eval-cljs"
-    :handler    (fn [conn args _extra] (eval-cljs/eval-cljs-tool conn args))
+    :handler    (ignoring-extra #(eval-cljs/eval-cljs-tool %1 %2))
     :cacheable? false
     :descriptor data/eval-cljs}
    {:name       "dispatch"
-    :handler    (fn [conn args _extra] (dispatch/dispatch-tool conn args))
+    :handler    (ignoring-extra #(dispatch/dispatch-tool %1 %2))
     :cacheable? false
     :descriptor data/dispatch}
    {:name       "trace-window"
-    :handler    (fn [conn args _extra] (trace-window/trace-window-tool conn args))
+    :handler    (ignoring-extra #(trace-window/trace-window-tool %1 %2))
     :cacheable? true
     :descriptor data/trace-window}
    {:name       "watch-epochs"
-    :handler    (fn [conn args _extra] (watch-epochs/watch-epochs-tool conn args))
+    :handler    (ignoring-extra #(watch-epochs/watch-epochs-tool %1 %2))
     :cacheable? true
     :descriptor data/watch-epochs}
    {:name       "tail-build"
-    :handler    (fn [conn args _extra] (tail-build/tail-build-tool conn args))
+    :handler    (ignoring-extra #(tail-build/tail-build-tool %1 %2))
     :cacheable? false
     :descriptor data/tail-build}
    {:name       "snapshot"
-    :handler    (fn [conn args _extra] (snapshot/snapshot-tool conn args))
+    :handler    (ignoring-extra #(snapshot/snapshot-tool %1 %2))
     :cacheable? true
     :descriptor data/snapshot}
    {:name       "get-path"
-    :handler    (fn [conn args _extra] (get-path/get-path-tool conn args))
+    :handler    (ignoring-extra #(get-path/get-path-tool %1 %2))
     :cacheable? true
     :descriptor data/get-path}
    {:name       "subscribe"
-    :handler    (fn [conn args extra]  (subscribe/subscribe-tool conn args extra))
+    :handler    (fn [conn args extra] (subscribe/subscribe-tool conn args extra))
     :cacheable? false
     :descriptor data/subscribe}
    {:name       "unsubscribe"
-    :handler    (fn [conn args _extra] (unsubscribe/unsubscribe-tool conn args))
+    :handler    (ignoring-extra #(unsubscribe/unsubscribe-tool %1 %2))
     :cacheable? false
     :descriptor data/unsubscribe}
    {:name       "subscription-info"
-    :handler    (fn [conn args _extra] (subscription-info/subscription-info-tool conn args))
+    :handler    (ignoring-extra #(subscription-info/subscription-info-tool %1 %2))
     :cacheable? false
     :descriptor data/subscription-info}])
 
