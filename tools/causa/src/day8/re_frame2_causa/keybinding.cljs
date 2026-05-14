@@ -27,9 +27,12 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.mount :as mount]))
 
-(defonce ^:private attached?
+(defonce ^:private attached-state
   ;; Sentinel — true once the keydown listener is installed. defonce
   ;; means the value survives shadow-cljs `:after-load` reloads.
+  ;; Named `-state` (not `attached?`) so the test-introspection
+  ;; predicate can keep the user-facing `attached?` name without
+  ;; shadowing.
   (atom false))
 
 (defn- ctrl-shift-key?
@@ -85,10 +88,10 @@
 
 (defn attach!
   "Install the global Ctrl+Shift+C listener once. No-op on second +
-  subsequent calls (the `attached?` sentinel survives reloads)."
+  subsequent calls (the `attached-state` sentinel survives reloads)."
   []
   (when (and (exists? js/document)
-             (compare-and-set! attached? false true))
+             (compare-and-set! attached-state false true))
     (.addEventListener js/document "keydown" handle-keydown true))
   nil)
 
@@ -97,12 +100,12 @@
   call this."
   []
   (when (and (exists? js/document)
-             (compare-and-set! attached? true false))
+             (compare-and-set! attached-state true false))
     (.removeEventListener js/document "keydown" handle-keydown true))
   nil)
 
-(defn attached?* []
-  ;; Test introspection helper — answers 'is the keydown listener
-  ;; currently installed?'. The arity-renamed name (`attached?*`)
-  ;; avoids shadowing the `attached?` defonce atom.
-  @attached?)
+(defn attached?
+  "Test introspection helper — answers 'is the keydown listener
+  currently installed?'. Reads the `attached-state` defonce atom."
+  []
+  @attached-state)

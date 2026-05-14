@@ -62,8 +62,8 @@ test harnesses, and Settings UIs.
 (causa/toggle!)      ;; Toggle.
 (causa/popout!)      ;; Open the same-browser pop-out window.
 
-(causa/active-frame)        ;; Return the frame currently selected in the picker.
-(causa/set-active-frame! :app/main)
+(causa/target-frame)        ;; Return the host frame Causa is currently targeting.
+(causa/set-target-frame! :app/main)
 
 (causa/active-panel)        ;; Return the active panel id (one of :events, :app-db, :causality, ...).
 (causa/set-active-panel! :causality)
@@ -295,5 +295,5 @@ major bumps with it.
 - **No "private" surfaces** (`/-` namespaces, internal helpers) —
   callers must not reach for `day8.re-frame2-causa.internal/*`.
 - **No global state mutators** beyond `init!` / `open!` / `close!`
-  / `toggle!` / `set-active-frame!` / `set-active-panel!`. The
+  / `toggle!` / `set-target-frame!` / `set-active-panel!`. The
   panel's internal state is encapsulated.

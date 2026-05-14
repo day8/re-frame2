@@ -77,7 +77,7 @@ and listens for `Ctrl+Shift+C`. No code change in the app itself.
 |---|---|
 | Open | `Ctrl+Shift+C` or click the floating pill (bottom-right) |
 | Close | `Esc` or `Ctrl+Shift+C` again |
-| Pop out to second window | `Ctrl+Shift+P` (same browser, `window.opener` reference) |
+| Pop out to second window | TBD — programmatic `(causa/popout!)` only until the keybinding + window plumbing lands |
 | Open AI co-pilot rail | `Ctrl+Shift+/` |
 | Command palette | `Ctrl+K` |
 
@@ -143,7 +143,7 @@ tools/causa/
 ├── spec/                                      ; normative contract (see above)
 ├── src/day8/re_frame2_causa/
 │   ├── preload.cljs                           ; registers listeners, mounts DOM
-│   ├── core.cljs                              ; user-facing facade (init!, open!, active-frame, ...)
+│   ├── core.cljs                              ; user-facing facade (init!, open!, target-frame, ...)
 │   ├── panels/                                ; one ns per panel
 │   ├── causality/                             ; graph layout + rendering
 │   ├── ai/                                    ; co-pilot panel, provider abstraction

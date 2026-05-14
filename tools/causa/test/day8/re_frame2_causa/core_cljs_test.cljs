@@ -10,7 +10,7 @@
      `core/toggle!` into its keybinding catalogue must land on the
      same Var the preload's listener calls.
 
-  2. **Frame / panel wiring.** `set-active-frame!` and
+  2. **Frame / panel wiring.** `set-target-frame!` and
      `set-active-panel!` dispatch into the `:rf/causa` frame; the
      dispatch updates `:rf.causa/target-frame` /
      `:rf.causa/selected-panel` slots in Causa's app-db, so the
@@ -69,41 +69,41 @@
 
 ;; ---- (2) frame wiring --------------------------------------------------
 ;;
-;; The facade's `set-active-frame!` calls `rf/dispatch` (async — the
+;; The facade's `set-target-frame!` calls `rf/dispatch` (async — the
 ;; user-facing contract; the runtime dispatch queues into the
 ;; `:rf/causa` frame's router so it lands inside the next drain). The
 ;; tests assert the same wiring contract via `dispatch-sync` so the
 ;; drain runs to completion inside the assertion — mirrors the pattern
 ;; the registry / shell tests use for `:rf.causa/select-panel` etc.
 
-(deftest active-frame-default-is-rf-default
-  (testing "active-frame defaults to :rf/default (per defaults/default-target-frame)"
+(deftest target-frame-default-is-rf-default
+  (testing "target-frame defaults to :rf/default (per defaults/default-target-frame)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (= :rf/default (core/active-frame))))))
+      (is (= :rf/default (core/target-frame))))))
 
-(deftest set-target-frame-wires-active-frame
-  (testing ":rf.causa/set-target-frame updates the slot active-frame reads"
+(deftest set-target-frame-wires-target-frame
+  (testing ":rf.causa/set-target-frame updates the slot target-frame reads"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-target-frame :app/main])
-      (is (= :app/main (core/active-frame))
+      (is (= :app/main (core/target-frame))
           "after dispatch the facade's read returns the new value")
       (rf/dispatch-sync [:rf.causa/set-target-frame :worker/db])
-      (is (= :worker/db (core/active-frame))
+      (is (= :worker/db (core/target-frame))
           "subsequent flips also land")
       (rf/dispatch-sync [:rf.causa/set-target-frame nil])
-      (is (= :rf/default (core/active-frame))
+      (is (= :rf/default (core/target-frame))
           "nil resets to the default target frame"))))
 
-(deftest set-active-frame!-dispatches-set-target-frame
-  (testing "set-active-frame! dispatches :rf.causa/set-target-frame into :rf/causa"
+(deftest set-target-frame!-dispatches-set-target-frame
+  (testing "set-target-frame! dispatches :rf.causa/set-target-frame into :rf/causa"
     ;; The `rf/dispatch` macro expands to `re-frame.core/dispatch*`, so
     ;; with-redefs the underlying fn — redef'ing the macro Var would have
     ;; no effect on already-compiled call sites.
     (let [seen (atom [])]
       (with-redefs [rf/dispatch* (fn [ev & _opts] (swap! seen conj ev))]
-        (core/set-active-frame! :app/main))
+        (core/set-target-frame! :app/main))
       (is (= [[:rf.causa/set-target-frame :app/main]] @seen)
           "facade dispatches the right event with the right arg"))))
 
@@ -186,7 +186,7 @@
     ;; The dispatch is async (queues into :rf/causa's router); we capture
     ;; the call to verify the facade routes through the registered event.
     ;; The dispatch-sync-driven landing is covered by
-    ;; `set-target-frame-wires-active-frame` above.
+    ;; `set-target-frame-wires-target-frame` above.
     (setup-causa-frame!)
     (let [seen (atom [])]
       (with-redefs [rf/dispatch* (fn [ev & _opts] (swap! seen conj ev))]

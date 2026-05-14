@@ -206,7 +206,7 @@
                :on-click    #(when (seq history)
                                (rf/dispatch
                                  [:rf.causa/select-epoch
-                                  (:epoch-id (peek (vec history)))] {:frame :rf/causa}))
+                                  (:epoch-id (peek history))] {:frame :rf/causa}))
                :title       "Jump to newest"
                :style       {:background  "transparent"
                              :border      (str "1px solid " (:border-default tokens))
@@ -366,7 +366,7 @@
       (get db :target-frame defaults/default-target-frame)))
 
   ;; Set the active target frame. The `core.cljs` facade's
-  ;; `set-active-frame!` dispatches this; once a UI frame picker
+  ;; `set-target-frame!` dispatches this; once a UI frame picker
   ;; lands it will dispatch the same event. `nil` resets to the
   ;; default target frame (`:rf/default`).
   (rf/reg-event-db :rf.causa/set-target-frame

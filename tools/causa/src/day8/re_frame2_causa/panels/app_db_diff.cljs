@@ -566,7 +566,7 @@
       (fn [[history selected-id] _query]
         (let [record (if selected-id
                        (tt-helpers/find-epoch-in-history history selected-id)
-                       (peek (vec history)))]
+                       (peek history))]
           (when record
             (let [epoch-id (:epoch-id record)
                   ;; Cheap hit path — most renders.
