@@ -508,6 +508,20 @@
         active-roots-cell  (make-active-roots-cell)
         subscribe-cont     (make-subscribe-container gensym-prefix-sub)
         make-derived       (make-derived-value-fn gensym-prefix-derived)
+        ;; Per rf2-y1hbg: precompute the `use-subscribe` watch-key
+        ;; keyword namespace once (outside the render hot path). The
+        ;; per-reaction key derives from `(hash reaction)` so the
+        ;; subscribe-fn closure pays one hash + one keyword intern per
+        ;; reaction-identity change — no process-wide gensym counter
+        ;; tick per render.
+        use-sub-watch-ns   (let [s gensym-prefix-use-sub
+                                 n (count s)]
+                             ;; Strip the trailing "-" the gensym prefix
+                             ;; carried so the keyword namespace reads
+                             ;; cleanly (`:rf-uix-use-sub/<hash>`).
+                             (if (and (pos? n) (= "-" (subs s (dec n))))
+                               (subs s 0 (dec n))
+                               s))
         wrap-view-fn       (make-wrap-view warn-fn)
         render-fn          (make-render active-roots-cell)
         dispose-fn         (make-dispose-adapter!
@@ -536,7 +550,13 @@
                 subscribe-fn
                 (use-callback
                   (fn [on-change]
-                    (let [k (gensym gensym-prefix-use-sub)]
+                    ;; Per rf2-y1hbg: hash-of-reaction-identity keyword
+                    ;; rather than a fresh `gensym` per call. The
+                    ;; per-reaction key is stable for the reaction's
+                    ;; lifetime, sidesteps the process-wide gensym
+                    ;; counter, and remains unique across distinct
+                    ;; reactions.
+                    (let [k (keyword use-sub-watch-ns (str (hash reaction)))]
                       (when reaction
                         (add-watch reaction k (fn [_ _ _ _] (on-change))))
                       (fn unsubscribe []
