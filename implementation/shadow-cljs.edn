@@ -673,4 +673,15 @@
    :output-dir "out/testbeds/long-flow-w-failure"
    :asset-path "."
    :modules    {:main {:init-fn long-flow-w-failure.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim Tier 3 — drain-depth-trigger testbed (one handler that
+  ;; recursively dispatches itself; the runtime's run-to-completion
+  ;; drain halts at the frame's :drain-depth ceiling and rolls back
+  ;; per Spec 002 rule 3 + Spec 009 :rf.error/drain-depth-exceeded).
+  :testbeds/drain-depth-trigger
+  {:target     :browser
+   :output-dir "out/testbeds/drain-depth-trigger"
+   :asset-path "."
+   :modules    {:main {:init-fn drain-depth-trigger.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
