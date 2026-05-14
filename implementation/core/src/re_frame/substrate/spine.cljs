@@ -543,6 +543,29 @@
                       (fn unsubscribe []
                         (when reaction (remove-watch reaction k)))))
                   #js [reaction])]
+            ;; Pair the memoised `subs/subscribe` (above) with an
+            ;; explicit `subs/unsubscribe` on unmount / key-change so
+            ;; the sub-cache's ref-count is decremented when the
+            ;; component drops the reaction. Pre-rf2-7g959 the cleanup
+            ;; was implicit only via the useSyncExternalStore
+            ;; subscribe-fn's `remove-watch` — which freed the React
+            ;; listener but left the sub-cache entry pinned at
+            ;; ref-count 1 for the rest of the process. Per
+            ;; Spec 006 §Reference counting and disposal. Empty deps
+            ;; vec on the useEffect is intentional — the per-render
+            ;; (frame-kw, query-v) is closed over the cleanup fn and
+            ;; React only fires the cleanup on unmount.
+            ;;
+            ;; Memo can rebuild on key change; pairing the subscribe
+            ;; with a useEffect keyed on the same deps means React
+            ;; fires the previous deps' cleanup before the new effect,
+            ;; so dec-then-inc happens in order and the sub-cache
+            ;; grace-period rules absorb any momentary 0 ref-count.
+            (React/useEffect
+              (fn use-subscribe-effect []
+                (fn cleanup []
+                  (subs/unsubscribe frame-kw query-v)))
+              #js [frame-kw query-v])
             (React/useSyncExternalStore subscribe-fn get-snap get-snap)))
         use-subscribe
         (fn use-subscribe
