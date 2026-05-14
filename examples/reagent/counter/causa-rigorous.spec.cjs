@@ -298,25 +298,40 @@ module.exports = {
     // the buffer cap when we observe growth. The rigorous spec exercises
     // many surfaces (the rail, sidebar pivots, ...) before reaching
     // this section; without the reset the trace buffer may already be
-    // at its 1000-event cap and a `+` click would evict as many events
-    // as it adds, leaving the rendered row count flat.
+    // at its 1000-event cap and a `-` click would evict as many events
+    // as it adds, leaving `total` flat at 1000.
     // ----------------------------------------------------------------
     await clickSidebar(page, 'trace', 'rf-causa-trace');
 
-    const traceCountsBefore = await readTraceCounts(page);
-    if (traceCountsBefore.rendered !== traceCountsBefore.total) {
+    // Reset the buffer so we have headroom below the 1000-event cap.
+    // Background render cascades will repopulate it immediately, but
+    // we just need `totalBefore` to be < 1000 so the post-click delta
+    // is observable on `total`.
+    const clearedForGrowthCheck = await clearTraceBuffer(page);
+    if (!clearedForGrowthCheck.ok) {
       throw new Error(
-        `Expected unfiltered trace counts to be equal; got ${traceCountsBefore.rendered}/${traceCountsBefore.total}.`,
+        `Could not clear the trace buffer before growth check: ${clearedForGrowthCheck.reason}`,
       );
     }
+    // Wait for the panel to settle into a below-cap unfiltered state
+    // so the subsequent host-click delta is observable. Background
+    // render cascades may push the buffer back up quickly, but they
+    // won't reach 1000 in this window — we just need a stable read.
+    const traceCountsBefore = await waitForCondition(
+      () => readTraceCounts(page),
+      ({ rendered, total }) => rendered === total && total < 1000,
+      'trace panel to settle below the 1000-event buffer cap after clear',
+      5000,
+    );
 
     // Capture the current count, dispatch, and assert the *total*
     // (read from the panel's :rf.causa/trace-counts surface) grew.
     // We assert on `total` rather than rendered-row count because the
     // 1000-event buffer cap may evict events on push when the buffer
     // is full — the total reported by the panel reflects the raw
-    // buffer size post-eviction. Either way, the cascade from the
-    // host `-` click produces a non-zero net delta on `total`.
+    // buffer size post-eviction. After the clear above we are below
+    // the cap so the cascade from the host `-` click produces a
+    // non-zero net delta on `total`.
     const totalBefore = traceCountsBefore.total;
     await clickHostButtonByLabel(page, '-');
     await expectTextEquals(counterValue, '6', 5000);
