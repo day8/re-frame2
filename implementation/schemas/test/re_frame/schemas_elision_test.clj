@@ -279,6 +279,56 @@
           db-in    {:count 42}]
       (is (= db-in (schemas/populate-elision-declarations db-in frame-id))))))
 
+(deftest populate-prunes-stale-schema-entry-on-flag-removal
+  (testing "re-registering a schema without :large? prunes the prior :source :schema entry (rf2-kr3vp)"
+    ;; Bug class: implementation drift from spec. Spec says
+    ;; schema-derived declarations are authoritative after re-
+    ;; registration; the prior shape only overwrote paths still
+    ;; present in the new schema, so stale `:source :schema` entries
+    ;; lingered after the flag was removed.
+    (rf/reg-app-schema [:user]
+                       [:map [:pdf {:large? true :hint "uploads"} :string]])
+    (let [frame-id (frame/current-frame)
+          db-1     (schemas/populate-elision-declarations {} frame-id)]
+      (is (= {[:user :pdf] {:large? true :source :schema :hint "uploads"}}
+             (get-in db-1 [:rf/elision :declarations]))
+          "baseline: schema-derived entry present")
+      ;; Re-register the same schema with `:large?` removed.
+      (rf/reg-app-schema [:user]
+                         [:map [:pdf :string]])
+      (let [db-2 (schemas/populate-elision-declarations db-1 frame-id)]
+        (is (= {} (get-in db-2 [:rf/elision :declarations]))
+            "after flag removal — stale schema entry pruned")))))
+
+(deftest populate-prunes-and-preserves-declared
+  (testing "pruning leaves :source :declared entries untouched (rf2-kr3vp)"
+    ;; Pruning the schema-derived subset MUST NOT collateral-damage
+    ;; user-declared paths.  The conflict rule (declared beats schema)
+    ;; still holds: an app-declared `[:rf.size/declare-large :secrets]`
+    ;; survives even when the schema set is wiped.
+    (rf/reg-app-schema [:user]
+                       [:map [:pdf {:large? true} :string]])
+    (let [frame-id (frame/current-frame)
+          db-with-declared
+          {:rf/elision
+           {:declarations
+            {[:secrets] {:large? true
+                         :source :declared
+                         :hint   "user-fx"}}}}
+          db-1 (schemas/populate-elision-declarations db-with-declared frame-id)]
+      (is (= "user-fx"
+             (get-in db-1 [:rf/elision :declarations [:secrets] :hint]))
+          "declared entry rides through populate")
+      (is (= :schema
+             (get-in db-1 [:rf/elision :declarations [:user :pdf] :source]))
+          "schema entry installed alongside the declared entry")
+      ;; Now wipe the schema set entirely (drop the registration).
+      (reset! schemas/schemas-by-frame {})
+      (let [db-2 (schemas/populate-elision-declarations db-1 frame-id)]
+        (is (= {[:secrets] {:large? true :source :declared :hint "user-fx"}}
+               (get-in db-2 [:rf/elision :declarations]))
+            "schema entry pruned; declared entry preserved")))))
+
 (deftest populate-preserves-runtime-flagged-source
   (testing "runtime-flagged entries are NEVER overwritten — schema doesn't beat runtime-flagged"
     ;; Conflict rule per Spec 009: declared > schema > runtime-flagged.
