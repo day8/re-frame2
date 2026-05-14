@@ -4,7 +4,7 @@
 ;;
 ;; Two re-frame2 coords:
 ;;   - day8/re-frame2          — core runtime.
-;;   - day8/re-frame2-helix    — the Helix substrate adapter (rf2-2qit).
+;;   - day8/re-frame2-helix    — the Helix substrate adapter.
 ;;
 ;; Both ride the same version. Bump them together when you upgrade
 ;; re-frame2.

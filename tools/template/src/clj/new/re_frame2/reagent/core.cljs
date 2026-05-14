@@ -21,8 +21,8 @@
   "Called by shadow-cljs (see :init-fn in shadow-cljs.edn). Idempotent —
    shadow's hot-reload pipeline re-invokes it on each rebuild."
   []
-  ;; rf2-agql: rf/init! takes the adapter spec map directly. There is no
-  ;; default-adapter registry — pass the adapter var explicitly.
+  ;; `rf/init!` takes the adapter spec map directly — pass the adapter
+  ;; var explicitly (there is no default-adapter registry).
   (rf/init! reagent-adapter/adapter)
   ;; dispatch-sync so the initial render sees the seeded app-db rather
   ;; than a transient empty frame.

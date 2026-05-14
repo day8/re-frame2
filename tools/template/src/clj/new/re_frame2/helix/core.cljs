@@ -15,7 +15,7 @@
 (defn ^:export init
   "Called by shadow-cljs. Idempotent — re-invoked on each hot reload."
   []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! helix-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (.render root ($ views/counter-app)))
