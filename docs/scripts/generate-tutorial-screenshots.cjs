@@ -68,51 +68,52 @@ const VIEWPORT = { width: 1280, height: 800 };
 // rectangles + arrows. The overlay is added to <body> and torn down after
 // the shot. We pass a list of {x,y,w,h,label,colour} regions.
 
-const ANNOTATE_FN_SOURCE = `
-  function annotate(regions) {
-    const root = document.createElement('div');
-    root.id = '__rf2-tutorial-annotations';
-    root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
-    document.body.appendChild(root);
-    for (const r of regions) {
-      const box = document.createElement('div');
-      const colour = r.colour || '#e53935';
-      box.style.cssText = [
+// Annotation function — passed as a Playwright `pageFunction` so it
+// executes inside the page context. We don't use addInitScript because
+// the SPA's own JS may rewrite window before our handler attaches.
+function inPageAnnotate(regions) {
+  const root = document.createElement('div');
+  root.id = '__rf2-tutorial-annotations';
+  root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
+  document.body.appendChild(root);
+  for (const r of regions) {
+    const box = document.createElement('div');
+    const colour = r.colour || '#e53935';
+    box.style.cssText = [
+      'position:absolute',
+      'left:' + r.x + 'px',
+      'top:' + r.y + 'px',
+      'width:' + r.w + 'px',
+      'height:' + r.h + 'px',
+      'border:3px solid ' + colour,
+      'border-radius:4px',
+      'box-shadow:0 0 0 2px rgba(255,255,255,0.85)',
+    ].join(';');
+    root.appendChild(box);
+    if (r.label) {
+      const lbl = document.createElement('div');
+      const placeBelow = r.y < 40;
+      lbl.textContent = r.label;
+      lbl.style.cssText = [
         'position:absolute',
         'left:' + r.x + 'px',
-        'top:' + r.y + 'px',
-        'width:' + r.w + 'px',
-        'height:' + r.h + 'px',
-        'border:3px solid ' + colour,
-        'border-radius:4px',
-        'box-shadow:0 0 0 2px rgba(255,255,255,0.85)',
+        (placeBelow ? 'top:' : 'top:') + (placeBelow ? (r.y + r.h + 6) : (r.y - 28)) + 'px',
+        'background:' + colour,
+        'color:#fff',
+        'font:600 13px/1.2 -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif',
+        'padding:4px 8px',
+        'border-radius:3px',
+        'white-space:nowrap',
       ].join(';');
-      root.appendChild(box);
-      if (r.label) {
-        const lbl = document.createElement('div');
-        // Decide above-vs-below based on space
-        const placeBelow = r.y < 40;
-        lbl.textContent = r.label;
-        lbl.style.cssText = [
-          'position:absolute',
-          'left:' + r.x + 'px',
-          (placeBelow ? 'top:' : 'top:') + (placeBelow ? (r.y + r.h + 6) : (r.y - 28)) + 'px',
-          'background:' + colour,
-          'color:#fff',
-          'font:600 13px/1.2 -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif',
-          'padding:4px 8px',
-          'border-radius:3px',
-          'white-space:nowrap',
-        ].join(';');
-        root.appendChild(lbl);
-      }
+      root.appendChild(lbl);
     }
   }
-  function clearAnnotations() {
-    const n = document.getElementById('__rf2-tutorial-annotations');
-    if (n) n.remove();
-  }
-`;
+}
+
+function inPageClearAnnotations() {
+  const n = document.getElementById('__rf2-tutorial-annotations');
+  if (n) n.remove();
+}
 
 // ---------------------------------------------------------------------------
 // Scenes — one per output screenshot. Each declares:
@@ -511,8 +512,6 @@ async function probeBaseUrl() {
   const context = await browser.newContext({ viewport: VIEWPORT });
   const page = await context.newPage();
 
-  await page.addInitScript(ANNOTATE_FN_SOURCE);
-
   const failures = [];
   let n = 0;
 
@@ -523,12 +522,12 @@ async function probeBaseUrl() {
       await scene.before(page);
       const regions = await scene.regions(page);
       if (regions && regions.length > 0) {
-        await page.evaluate((rs) => window.annotate(rs), regions);
+        await page.evaluate(inPageAnnotate, regions);
       }
       ensureDir(path.dirname(scene.out));
       await page.screenshot({ path: scene.out, fullPage: false });
       if (regions && regions.length > 0) {
-        await page.evaluate(() => window.clearAnnotations());
+        await page.evaluate(inPageClearAnnotations);
       }
       console.log(`OK  [${n}/${SCENES.length}]  ${scene.id} → ${path.relative(REPO_ROOT, scene.out)}`);
     } catch (err) {
