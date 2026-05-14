@@ -189,9 +189,63 @@
     (coll? v) (->> v (keep named->str) (str/join " "))
     :else     (str v)))
 
+;; ---------------------------------------------------------------------------
+;; React-internal / non-HTML attribute filtering (rf2-dwds9 HIGH)
+;;
+;; React event-handler props (`onClick`, `onChange`, …) MUST NOT appear
+;; in the static HTML output:
+;;
+;;   - They are not HTML attributes — `react-dom/server.renderToStaticMarkup`
+;;     omits them entirely.
+;;   - Serialising `{:on-click handler-string}` as `onclick="..."` would
+;;     turn a server-side render of user-supplied data into an XSS
+;;     vector (an `:on-click` whose value is a JavaScript expression
+;;     would execute on every click of the rendered HTML).
+;;   - Function-valued props (event handlers, ref callbacks) coerced
+;;     through `(str f)` leak `function (...) { ... }` source into the
+;;     attribute, which is both useless and potentially sensitive.
+;;
+;; Strategy: drop `on*`-prefixed names AND drop any fn-valued prop value
+;; regardless of name. The two checks are complementary — `on*` covers
+;; the case where the value is a string template (XSS shape); the
+;; fn-value check covers any non-event prop that happens to carry a
+;; callback (`:on-frame`, `:loader`, `:ref-fn`, …).
+;;
+;; Also covered: React-internal props that have no HTML meaning
+;; (`:key`, `:ref`, `:dangerouslySetInnerHTML` — handled by caller).
+;; ---------------------------------------------------------------------------
+
+(defn- ^boolean event-handler-prop?
+  "True when `k`'s name looks like a React event-handler prop
+  (`onClick`, `onChange`, `on-click`, …). Matches both kebab- and
+  camelCase forms before `attr-name` lowercasing."
+  [k]
+  (let [n (cond
+            (keyword? k) (name k)
+            (symbol? k)  (name k)
+            (string? k)  k
+            :else        nil)]
+    (and (some? n)
+         (>= (count n) 3)
+         ;; Match `on-` (kebab) and `on[A-Z]` (camel).
+         (or (and (str/starts-with? n "on-") (> (count n) 3))
+             (and (str/starts-with? n "on")
+                  (let [ch (.charAt n 2)]
+                    (and (>= (.charCodeAt ch 0) 65)   ; 'A'
+                         (<= (.charCodeAt ch 0) 90)))))))) ; 'Z'
+
 (defn- emit-attr
   "Emit one [k v] attribute pair to the StringBuilder. Skips nil and
-  false values; emits boolean-attribute short form for true."
+  false values; emits boolean-attribute short form for true.
+
+  Drops React-internal / non-HTML props (rf2-dwds9 HIGH):
+    - `:key` / `:ref` — React-internal.
+    - `:dangerouslySetInnerHTML` — handled by caller (children path).
+    - Event-handler props (`on*`) — not HTML attrs; emitting them as
+      `onclick=\"...\"` would be an XSS surface and diverges from
+      `react-dom/server.renderToStaticMarkup`.
+    - Fn-valued props of any name — `(str f)` leaks `function () {…}`
+      source into the attribute. React-DOM-server elides these too."
   [^StringBuffer sb k v]
   (cond
     (nil? v)   nil
@@ -206,6 +260,17 @@
     ;; :dangerouslySetInnerHTML is handled by the caller (children
     ;; emission); skip here.
     (= :dangerouslySetInnerHTML k) nil
+
+    ;; rf2-dwds9 HIGH: drop React event-handler props from static
+    ;; markup. Matches `react-dom/server.renderToStaticMarkup`'s
+    ;; behaviour and closes the XSS surface where a stringy `on*` value
+    ;; would be emitted as an inline event handler.
+    (event-handler-prop? k) nil
+
+    ;; rf2-dwds9 HIGH: drop fn-valued props (event handlers, ref
+    ;; callbacks, custom callback props). Stringifying a fn would leak
+    ;; source text into the attribute and serves no HTML purpose.
+    (fn? v) nil
 
     (= :style k)
     (when (and (map? v) (seq v))
