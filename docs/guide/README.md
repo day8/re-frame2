@@ -12,6 +12,10 @@ Registered handlers are the instruction set. Events — coming from user actions
 
 *Derived data, flowing.* Water moves around a loop — sea to cloud to rain to river to sea — propelled by gravity, evaporation, and convection. Two phases, two directions, one cycle. Nothing in the loop has to decide *that* it moves; the forces handle that. What changes between turns of the cycle is only *what* is moving and *where*. A re-frame2 app is shaped the same way: data flows around a loop, and the runtime supplies the conveyance. You hang pure functions on it; the framework moves the data between them.
 
+<p align="center"><img src="../images/guide/6dominoes.png" alt="The six dominoes: dispatch, event handler, effects produced, effects executed, subscriptions, views." width="500"></p>
+
+*The six dominoes.* Every event runs through the same six steps: dispatch, event handler, effects produced, effects executed, subscriptions, views. The central store labelled `app-db` in the diagram is **the frame's** `app-db` — each frame carries its own (the single-frame case is what most apps start with; see ch.06 for the multi-frame story). [Chapter 04 §Walking one event through every domino](04-events-state-cycle.md#walking-one-event-through-every-domino) walks one event through all six.
+
 This guide walks you through what's in the box. Here's what the reference implementation gives you:
 
 - **A single immutable store, `app-db`.** Every piece of state lives at a path in one map. You can `pprint` it, `diff` it, ship it across the wire for SSR, dump it on disk, reload tomorrow and inspect it in a REPL.
