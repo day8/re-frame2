@@ -264,3 +264,12 @@
 (late-bind/set-fn! :flows/run-flows!         run-flows!)
 (late-bind/set-fn! :flows/reset-last-inputs! reset-last-inputs!)
 (late-bind/set-fn! :flows/reset-flows!       reset-flows!)
+;; Per rf2-wbtjn — frame-destroy teardown hook (symmetric with the
+;; machines `:machines/teardown-on-frame-destroy!` hook landed by
+;; rf2-vsigt). `frame/destroy-frame!` invokes this hook so per-frame
+;; flow-registry entries, the matching `last-inputs` rows, and any
+;; `:flow` registrar slots whose last owning frame was destroyed all
+;; clear in one step. Without the hook a long-running SSR JVM (per-
+;; request frame churn) leaks flow state indefinitely.
+(late-bind/set-fn! :flows/teardown-on-frame-destroy!
+                   registry/teardown-on-frame-destroy!)

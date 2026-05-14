@@ -431,6 +431,13 @@
          :machines/on-frame-destroyed!      — clear the machines
                                               artefact's frame-scoped
                                               `:after` timer table.
+         :schemas/on-frame-destroyed!       — drop schemas registered
+                                              against this frame
+                                              (rf2-wkxng / rf2-6m0se).
+         :flows/teardown-on-frame-destroy!  — drop flows + last-inputs
+                                              rows + dead `:flow`
+                                              registrar slots
+                                              (rf2-wbtjn).
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
                                       machine cascade.
     6. dissoc-frame!                — remove from the `frames` atom.
@@ -458,6 +465,15 @@
     ;; re-frame.schemas is absent (the artefact is optional per
     ;; rf2-p7va).
     (safe-call-hook! :schemas/on-frame-destroyed! id)
+    ;; Per rf2-wbtjn: drop every flow registered against the destroyed
+    ;; frame plus its cached `last-inputs` rows, and prune the
+    ;; `:flow` registrar slot when the destroyed frame was the last
+    ;; owner. Symmetric with the machines teardown hook above
+    ;; (rf2-vsigt). Without this hook a long-running SSR JVM with
+    ;; per-request frame churn grows the flow registry unboundedly.
+    ;; No-op when re-frame.flows is absent (the artefact is optional
+    ;; per rf2-tfw3).
+    (safe-call-hook! :flows/teardown-on-frame-destroy! id)
     (emit-frame-destroyed-trace! id)
     (dissoc-frame! id)
     (unregister-frame! id)

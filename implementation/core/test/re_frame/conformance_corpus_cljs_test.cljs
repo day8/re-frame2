@@ -423,15 +423,10 @@
               meta    (get fx-registry id {})
               handler (conformance/realise-fx-handler id body adapter-helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
-    ;; flow registrations
-    (let [flow-registry (get-in fixture [:fixture/registry :flow] {})
-          flow-bodies   (or (:fixture/flow-bodies fixture) {})]
-      (doseq [[flow-id flow-meta] flow-registry]
-        (when-let [body (get flow-bodies flow-id)]
-          (let [output-fn (conformance/realise-flow-output-fn body)]
-            (rf/reg-flow (-> flow-meta
-                             (assoc :id flow-id)
-                             (assoc :output output-fn)))))))
+    ;; Flow registration is intentionally NOT done here — flows are
+    ;; FRAME-SCOPED (per Spec 013), so the destroy-frame call later in
+    ;; `run-fixture` would wipe them via the rf2-wbtjn teardown hook.
+    ;; `realise-flows!` (called after `reg-frame`) handles them.
     ;; route registrations
     (doseq [[id meta] (get handlers-map :route)]
       (rf/reg-route id meta))
@@ -470,6 +465,25 @@
   [fixture]
   (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
     (rf/reg-app-schema path schema)))
+
+(defn- realise-flows!
+  "Register the fixture's static flows. Called AFTER `reg-frame` — per
+  Spec 013 flows are FRAME-SCOPED, so the destroy-frame teardown hook
+  (rf2-wbtjn) clears any flows registered before the destroy step.
+
+  The static flow shape lives under `:fixture/registry :flow` (with
+  `:inputs` / `:path` / `:doc`) and the body DSL under
+  `:fixture/flow-bodies`. Dynamic flow registration via
+  `:rf.fx/reg-flow` is handled in the conformance DSL interpreter."
+  [fixture]
+  (let [flow-registry (get-in fixture [:fixture/registry :flow] {})
+        flow-bodies   (or (:fixture/flow-bodies fixture) {})]
+    (doseq [[flow-id flow-meta] flow-registry]
+      (when-let [body (get flow-bodies flow-id)]
+        (let [output-fn (conformance/realise-flow-output-fn body)]
+          (rf/reg-flow (-> flow-meta
+                           (assoc :id flow-id)
+                           (assoc :output output-fn))))))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
@@ -803,6 +817,10 @@
                            (rf/reg-frame (:id f) (dissoc f :id)))
                          :else
                          (rf/reg-frame :rf/default frame-config))
+          ;; Flow registration runs AFTER reg-frame: per Spec 013 flows
+          ;; are frame-scoped, and the rf2-wbtjn destroy-frame teardown
+          ;; hook would wipe any flows registered before the destroy.
+          _            (realise-flows! fixture)
           dispatches   (or (:fixture/dispatches fixture) [])]
       (doseq [ev dispatches]
         (cond
