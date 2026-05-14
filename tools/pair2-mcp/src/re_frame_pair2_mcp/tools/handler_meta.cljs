@@ -18,8 +18,12 @@
   immediate jump-to-editor link off the handler-meta response.
 
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `view`, `frame`,
-  `machine`. The first six map directly to `rf/handler-meta`'s
-  registrar kinds; `machine` routes through the dedicated
+  `route`, `flow`, `head`, `error-projector`, `machine` — the closed
+  v1 registrar set (per Spec 001 §Registry model) minus `:app-schema`
+  (intentionally empty registrar slot — its metadata lives in the
+  schemas artefact's per-frame side-table, surfaced via
+  `rf/app-schemas`). The ten registrar kinds map directly to
+  `rf/handler-meta`; `machine` routes through the dedicated
   `rf/machine-meta` surface (Spec 005 §Querying machines — machines
   are registered as `:event` handlers carrying `:rf/machine? true`
   with their spec in the `:rf/machine` slot, and `machine-meta`
@@ -35,7 +39,8 @@
   surface. Agents call `registry-list {kind \"event\"}` first to find
   out what's registered, then `handler-meta` to drill in.
 
-  For `event` / `sub` / `fx` / `cofx` / `view` / `frame` the list
+  For every registrar kind (`event` / `sub` / `fx` / `cofx` / `view`
+  / `frame` / `route` / `flow` / `head` / `error-projector`) the list
   comes from `re-frame-pair2.runtime/registrar-list`. For `machine`
   the list comes from `re-frame.core/machines` — every event handler
   flagged `:rf/machine? true`.
@@ -65,14 +70,17 @@
 
 (def ^:private registrar-kinds
   "Kinds that map directly to the registrar's `kind->id->metadata`
-  table. `machine` is intentionally absent — it routes through
+  table — the closed v1 registrar set (per Spec 001 §Registry model)
+  minus `:app-schema` (intentionally empty registrar slot — schema
+  metadata lives in the schemas artefact's per-frame side-table).
+  `machine` is intentionally absent here too — it routes through
   `rf/machine-meta` (which inspects `:event`-kind metadata for the
-  `:rf/machine?` flag)."
-  #{:event :sub :fx :cofx :view :frame})
+  `:rf/machine?` flag) — but is in `supported-kinds` below."
+  #{:event :sub :fx :cofx :view :frame :route :flow :head :error-projector})
 
 (def ^:private supported-kinds
-  "The full set of kinds the tool accepts. Mirrors the bead's contract:
-  `event | sub | fx | cofx | view | machine | frame`."
+  "The full set of kinds the tool accepts. The ten registrar kinds
+  above plus the virtual `:machine` kind."
   (conj registrar-kinds :machine))
 
 (defn- parse-kind
