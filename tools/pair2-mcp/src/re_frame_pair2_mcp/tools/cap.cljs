@@ -48,7 +48,8 @@
     each tool's internals."
   (:require [applied-science.js-interop :as j]
             [re-frame.mcp-base.cap :as base-cap]
-            [re-frame.mcp-base.overflow :as base-overflow]))
+            [re-frame.mcp-base.overflow :as base-overflow]
+            [re-frame-pair2-mcp.tools.wire :as wire]))
 
 ;; `default-max-tokens` and `token-estimate` come from
 ;; `re-frame.mcp-base.overflow` (rf2-vw4sq) — the cap value and the
@@ -132,11 +133,21 @@
   `:truncate-with-marker` is wired; unknown strategies degrade safely.
 
   Adds pair2-mcp's `overflow-hints` table lookup before delegating to
-  `base-cap/apply-cap`."
+  `base-cap/apply-cap`.
+
+  Short-circuits on a wire-bounded marker (`:rf.mcp/cache-hit`,
+  `:rf.mcp/overflow` — rf2-gktyn). Such envelopes are sub-cap by
+  construction; the token-sum walk would be wasted work. The
+  `invoke` pipeline (rf2-3z0zi) already short-circuits before this
+  fn runs in the orchestrated path, but the guard here makes the
+  invariant local to `apply-cap` too — direct callers (tests, future
+  consumers) get the same skip."
   [result-js {:keys [tool cap strategy]
               :or   {strategy :truncate-with-marker}}]
-  (base-cap/apply-cap result-io result-js
-                      {:tool     tool
-                       :cap      cap
-                       :hint     (get overflow-hints tool)
-                       :strategy strategy}))
+  (if (wire/marker? result-js)
+    result-js
+    (base-cap/apply-cap result-io result-js
+                        {:tool     tool
+                         :cap      cap
+                         :hint     (get overflow-hints tool)
+                         :strategy strategy})))

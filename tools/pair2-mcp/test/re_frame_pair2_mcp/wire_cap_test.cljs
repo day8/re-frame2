@@ -196,3 +196,44 @@
     (doseq [t tools-with-data-volume]
       (is (contains? cap/overflow-hints t)
           (str "Missing overflow hint for tool: " t)))))
+
+;; ---------------------------------------------------------------------------
+;; apply-cap short-circuits on wire-bounded markers (rf2-gktyn).
+;;
+;; Cache-hit and overflow envelopes are emitted by the cache + cap
+;; steps themselves; they are sub-cap by construction. Re-applying
+;; the token walk to a marker is wasted work — and worse, if the
+;; cap somehow tripped on a marker (it can't today, but a regression
+;; could lower the cap below the marker's size), the result would
+;; be an overflow OF an overflow.
+;; ---------------------------------------------------------------------------
+
+(deftest apply-cap-short-circuits-on-cache-hit-marker
+  ;; Construct a result that LOOKS like a cache-hit marker. apply-cap
+  ;; must pass it through identical, regardless of cap.
+  (let [marker  {:rf.mcp/cache-hit {:hash 42 :unchanged-since 0
+                                     :tool "snapshot" :via :result-hash
+                                     :hint "..."}}
+        r       (ok-text-result marker)
+        out     (cap/apply-cap r {:tool "snapshot" :cap 1})]
+    (is (identical? r out)
+        "marker passes through unchanged even under a 1-token cap")))
+
+(deftest apply-cap-short-circuits-on-overflow-marker
+  (let [marker  {:rf.mcp/overflow {:limit :reached :tool "snapshot"
+                                    :cap-tokens 100 :token-count 200
+                                    :hint "..."}}
+        r       (ok-text-result marker)
+        out     (cap/apply-cap r {:tool "snapshot" :cap 1})]
+    (is (identical? r out)
+        "overflow marker passes through unchanged — no recursion")))
+
+(deftest apply-cap-runs-walk-on-non-marker-payloads
+  ;; Negative — a normal map that doesn't open with the marker
+  ;; namespace MUST be subject to the cap walk.
+  (let [big   (apply str (repeat 8000 "x"))
+        r     (ok-text-result {:huge big})
+        out   (cap/apply-cap r {:tool "snapshot" :cap 500})
+        edn   (read-edn out)]
+    (is (contains? edn :rf.mcp/overflow)
+        "non-marker payload over budget is still capped")))
