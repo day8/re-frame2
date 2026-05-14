@@ -132,8 +132,8 @@ Default to Var-ref form unless the call site comments / context indicate late-bi
 Drop / rewrite the dropped public surfaces:
 
 ```clojure
-(rf/with-trace ...)                  → (rf/emit-trace! op-type operation tags)
-(rf/merge-trace! ...)                → no equivalent; drop or convert to one emit-trace!
+(rf/with-trace ...)                  → (rf/emit-trace-event! op-type operation tags)
+(rf/merge-trace! ...)                → no equivalent; drop or convert to one emit-trace-event!
 (rf/finish-trace ...)                → drop
 rf/trace-api-version                 → drop (no replacement)
 (rf/purge-event-queue)               → drop (no replacement); rewrite tests to use 008's helpers

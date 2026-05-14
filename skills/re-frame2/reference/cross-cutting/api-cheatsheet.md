@@ -99,7 +99,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `rf/register-trace-cb!` / `rf/remove-trace-cb!` / `rf/emit-trace!` | trace plumbing |
+| `rf/register-trace-cb!` / `rf/remove-trace-cb!` / `rf/emit-trace-event!` | trace plumbing |
 | `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch` | `(frame-id epoch-id)` → bool |
