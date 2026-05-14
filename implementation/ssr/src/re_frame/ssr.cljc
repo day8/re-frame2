@@ -1,66 +1,36 @@
 (ns re-frame.ssr
   "Server-side rendering and hydration. Per Spec 011.
 
-  Public façade for the day8/re-frame2-ssr artefact (rf2-uo7v, sixth
-  per-feature split per rf2-5vjj Strategy B). Per Spec 006 §Adapter
-  shipping convention — this artefact depends on core; core never
-  depends on this artefact. The cross-references from core to ssr flow
-  through `re-frame.late-bind`.
+  Public façade for the day8/re-frame2-ssr artefact. This artefact
+  depends on core; core never depends on it — cross-references from
+  core flow through `re-frame.late-bind`.
 
-  ---- file split (rf2-gxgo7) ----
-
-  Pre-split this namespace was 1380 LoC carrying seven independent
-  concerns enumerated by its own `;; ----` banners. It's now a thin
-  façade over eight flat sub-namespaces:
+  Thin façade over eight flat sub-namespaces:
 
     - `re-frame.ssr.emit`            — hiccup → HTML emitter,
                                        `render-to-string`, source-coord
-                                       annotation, substrate-adapter
-                                       wire-up.
+                                       annotation, substrate wire-up.
     - `re-frame.ssr.hash`            — `canonical-edn`, `fnv-1a-32`,
                                        `render-tree-hash`.
     - `re-frame.ssr.adapter`         — the SSR adapter map + helpers.
-    - `re-frame.ssr.hydrate`         — `:rf/hydrate` handler + the two
-                                       `:rf.ssr/check-*` fx handlers
-                                       (rf2-69ad2), `verify-hydration!`.
-    - `re-frame.ssr.response`        — response accumulator + handler
-                                       fns for the six `:rf.server/*` fxs.
+    - `re-frame.ssr.hydrate`         — `:rf/hydrate` handler, the two
+                                       `:rf.ssr/check-*` fx handlers,
+                                       `verify-hydration!`.
+    - `re-frame.ssr.response`        — response accumulator + handlers
+                                       for the six `:rf.server/*` fxs.
     - `re-frame.ssr.error-projector` — projector registry + default +
                                        `project-error`.
     - `re-frame.ssr.error-listener`  — trace listener + per-frame buffer
                                        + drain + `get-response`.
     - `re-frame.ssr.request`         — `request-slots`, set/get/clear
                                        helpers, `on-frame-destroyed!`,
-                                       the `:rf.server/request` cofx
-                                       handler.
+                                       the `:rf.server/request` cofx.
 
   All `reg-fx` / `reg-cofx` / `reg-event-fx` / `reg-error-projector` /
   `register-trace-cb!` side-effects fire HERE so a
-  `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)` —
-  the canonical test-fixture reset shape — re-installs every
-  registration. Sub-namespaces export pure handler fns only.
-
-  Implements:
-    - Pure hiccup → HTML emitter (HTML5 void elements, doctype prefix,
-      attr/text escaping, `:tag#id.cls` parsing, registered-view
-      resolution). Per Spec 011 §The render-tree → HTML emitter.
-    - `:rf/hydrate` event with `:replace-app-db` semantics; the server-
-      supplied payload's `:rf/app-db` replaces the client app-db.
-    - The six `:rf.server/*` response-shape fxs gated by `:platforms
-      #{:server}`; the accumulator at `[:rf/response]` is consumed by
-      the host adapter after drain. Per §HTTP response contract.
-    - `reg-error-projector` + default `:rf.ssr/default-error-projector`,
-      plus the SSR error path that calls the active projector when an
-      error trace fires inside a server frame. Per §Server error
-      projection.
-    - `:rf.server/request` cofx + per-frame request slot
-      (`set-request!` / `get-request` / `clear-request!`). Per
-      §Server-only `reg-cofx` for request context.
-
-  Conformance fixtures cover all of the above (ssr/render-to-string,
-  ssr/hydrate, ssr/hydration-mismatch, ssr/head-emits, ssr/head-hydration,
-  ssr/error-known-mapping, ssr/error-sanitisation, ssr/cookie,
-  ssr/redirect, ssr/set-status, fx/platforms)."
+  `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`
+  re-installs every registration. Sub-namespaces export pure handler
+  fns only."
   (:require [re-frame.cofx :as cofx]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
@@ -69,12 +39,11 @@
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.error-projector :as error-projector]
-            ;; rf2-4dra9 — head/meta contract surface (Spec 011 §Head/meta).
-            ;; The head ns publishes its late-bind hooks at ns-load time;
-            ;; static `:require` here ensures the hooks are available
-            ;; before any user code calls `rf/reg-head` / `rf/render-head`
-            ;; / `rf/active-head`. The dependency is acyclic — head.cljc
-            ;; only pulls re-frame.frame / re-frame.registrar.
+            ;; Static `:require` of `re-frame.ssr.head` is load-bearing
+            ;; — head publishes its late-bind hooks at ns-load time, so
+            ;; this require ensures the hooks are available before any
+            ;; user code calls `rf/reg-head` / `rf/render-head` /
+            ;; `rf/active-head`.
             re-frame.ssr.head
             [re-frame.ssr.hash :as hash]
             [re-frame.ssr.hydrate :as hydrate]
@@ -98,11 +67,10 @@
 (def adapter                         adapter-ns/adapter)
 (def verify-hydration!               hydrate/verify-hydration!)
 (def default-response                response/default-response)
-;; framework-private — Spec 011 §Response storage substrate (rf2-jbcmt).
-;; The accumulator lives in a side-channel atom keyed by frame-id, NOT
-;; in app-db, so it cannot ride the hydration payload to the client and
-;; per-fx writes are O(small-map) rather than a full app-db replacement.
-;; Tests reach the var via `(resolve 're-frame.ssr/response-slots)`.
+;; framework-private — Spec 011 §Response storage substrate. The
+;; accumulator lives in a side-channel atom keyed by frame-id, NOT in
+;; app-db, so it cannot ride the hydration payload to the client and
+;; per-fx writes are O(small-map) rather than full app-db replacement.
 (def ^:private response-slots        response/response-slots)
 (def public-error-keys               error-projector/public-error-keys)
 (def fallback-public-error           error-projector/fallback-public-error)
@@ -111,20 +79,15 @@
 (def project-error                   error-projector/project-error)
 (def apply-error-projection!         error-listener/apply-error-projection!)
 (def get-response                    error-listener/get-response)
-;; Audit rf2-asmj1 P5 / cluster rf2-sljs1 — split the side-effect from
-;; the pure read. `peek-response` is a pure read (no projector drain);
-;; `flush-response!` drains pending error projections then reads.
-;; `get-response` is kept as the drain-then-read host-adapter alias.
+;; `peek-response` is pure (no projector drain); `flush-response!`
+;; drains pending error projections then reads. `get-response` is the
+;; drain-then-read host-adapter alias.
 (def peek-response                   error-listener/peek-response)
 (def flush-response!                 error-listener/flush-response!)
-;; framework-private at the public surface — Spec 011 §Per-request
-;; frame teardown. Tests reach the var via `(resolve ...)`.
+;; framework-private — Spec 011 §Per-request frame teardown.
 (def ^:private pending-error-traces  error-listener/pending-error-traces)
-;; rf2-i3qc0 — private at the façade so the public surface stays symmetric
-;; with `response-slots` and `pending-error-traces`. Tests reach via
-;; `re-frame.ssr.test-fixture/reset-runtime` (the canonical reset surface)
-;; or by `:require`-ing `re-frame.ssr.request` directly. Production
-;; consumers go through `set-request!` / `get-request` / `clear-request!`.
+;; framework-private at the public surface — production consumers go
+;; through `set-request!` / `get-request` / `clear-request!`.
 (def ^:private request-slots         request/request-slots)
 (def set-request!                    request/set-request!)
 (def get-request                     request/get-request)
@@ -132,9 +95,7 @@
 (def on-frame-destroyed!             request/on-frame-destroyed!)
 
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
-;;
-;; Spec 011 §The :rf/hydrate event + §Hydration-mismatch detection +
-;; rf2-69ad2 compatibility checks.
+;; Spec 011 §The :rf/hydrate event + §Hydration-mismatch detection.
 
 (events/reg-event-fx :rf/hydrate hydrate/hydrate-event-handler)
 
@@ -206,8 +167,8 @@ on the wire. Per Spec 011 §Cookie shape."
 
 (cofx/reg-cofx :rf.server/request
   {:doc       "The active HTTP request. Server only. Surfaces the
-host-supplied request map (Ring shape under rf2-ny6v7's Ring adapter;
-host-defined for other adapters) so handlers can read URL, headers,
+host-supplied request map (Ring shape under the Ring adapter; host-
+defined for other adapters) so handlers can read URL, headers,
 session cookies, etc. without threading the request as an event arg.
 
 The host adapter populates the slot via `re-frame.ssr/set-request!`
@@ -234,31 +195,12 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
                           error-listener/error-projection-listener)
 
 ;; ---- late-bind hook registration ------------------------------------------
-;;
-;; Per rf2-uo7v re-frame.ssr ships in `day8/re-frame2-ssr`. The core
-;; artefact's `re-frame.core/render-to-string`, `render-tree-hash`,
-;; `reg-error-projector`, and `project-error` re-exports look the
-;; producing fns up through this hook table — core never statically
-;; `:require`s `re-frame.ssr`. When the ssr artefact is not on the
-;; classpath the lookups return nil and the consumer raises
-;; `:rf.error/ssr-artefact-missing`.
 
 (late-bind/set-fn! :ssr/render-tree-hash    render-tree-hash)
 (late-bind/set-fn! :ssr/render-to-string    render-to-string)
 (late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
 (late-bind/set-fn! :ssr/project-error       project-error)
-;; rf2-fcj33 + rf2-jbcmt — per-request frame teardown. `frame/destroy-frame!`
-;; looks up this hook and clears the SSR side-channel atoms
-;; (`pending-error-traces`, `request-slots`, `response-slots`) for the
-;; destroyed frame. `response-slots` joined the set under rf2-jbcmt when
-;; the `:rf/response` accumulator moved off `app-db` to plug the hydration-
-;; payload leak / per-fx full-app-db swap.
+;; Per-request frame teardown. `frame/destroy-frame!` looks up this
+;; hook and clears the SSR side-channel atoms (`pending-error-traces`,
+;; `request-slots`, `response-slots`) for the destroyed frame.
 (late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
-
-;; rf2-4dra9 — `re-frame.ssr.head` is required from the top-of-file ns
-;; form so its late-bind hooks (`:ssr/reg-head`, `:ssr/render-head`,
-;; `:ssr/active-head`, `:ssr/head-snapshot`, `:ssr/head-model-html`) AND
-;; the per-frame head-snapshot cleanup hook
-;; (`:ssr.head/on-frame-destroyed`) land at ssr-ns load time on both JVM
-;; and CLJS. `on-frame-destroyed!` above invokes the head cleanup hook
-;; by key — load order between this ns and head.cljc is symmetric.

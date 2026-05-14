@@ -1,24 +1,15 @@
 (ns re-frame.core-machines
   "Public-API wrappers for the optional machines artefact (Spec 005).
-  Implementation ships in `day8/re-frame2-machines`
-  (`re-frame.machines` ns) per rf2-xbtj.
+  Implementation ships in `day8/re-frame2-machines` (`re-frame.machines`
+  ns).
 
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention).
 
-  Per-feature carve-out: the machines artefact pulls the machine
-  registry, the entry/exit cascade engine, and the `:rf/machine` /
-  `:rf/machine-has-tag?` framework subs — none of which appear on a
-  consumer's classpath when this wrapper's hooks are unregistered.
-
-  Per rf2-h824v the canonical late-bind wrappers below are emitted by
-  the `re-frame.core-artefact/defwrapper` factory. `reg-machine` /
-  `reg-machine*` keep a bespoke shape — they share the `:where`-symbol
-  parameter via `reg-machine-impl` so the macro and the plain-fn
-  surface raise with their own faithful `:where` symbol. Sugar fns
-  (`dispatch-to-system`, `sub-machine`, `has-tag?`) are not late-bind
-  surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
+  `reg-machine` / `reg-machine*` keep a bespoke shape — they share the
+  `:where`-symbol parameter via `reg-machine-impl` so the macro and the
+  plain-fn surface each raise with their own faithful `:where` symbol.
+  Sugar fns (`dispatch-to-system`, `sub-machine`, `has-tag?`) layer
+  over `router/dispatch!` / `subs/subscribe`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
             [re-frame.late-bind :as late-bind]
@@ -71,11 +62,10 @@
   ([system-id]          :delegate)
   ([system-id frame-id] :delegate))
 
-;; ---- reg-machine* / reg-machine — bespoke per rf2-8bp3 -------------------
-;;
-;; Both surfaces share the late-bind throw via `reg-machine-impl` but stamp
-;; their own `:where` symbol on the missing-artefact ex-info so the trace
-;; matches what the user wrote at the call site.
+;; ---- reg-machine* / reg-machine -----------------------------------------
+;; Both share the late-bind throw via `reg-machine-impl` but stamp their
+;; own `:where` symbol so the missing-artefact ex-info matches what the
+;; user wrote at the call site.
 
 (defn ^:private reg-machine-impl
   "Shared impl behind both `reg-machine*` (plain-fn surface) and the
@@ -92,11 +82,11 @@
 
 (defn reg-machine*
   "Plain-fn surface for machine registration. Per Spec 005 §reg-machine
-  vs reg-machine* (rf2-8bp3). Used by code-gen pipelines that already
-  carry a stamped spec, REPL workflows that bypass the macro path, and
-  the macro's own emitted form. Programmatic callers see no
-  per-element source-coord index (only the macro can walk the literal
-  spec at expansion time). Late-bound via :machines/reg-machine."
+  vs reg-machine*. Used by code-gen pipelines that already carry a
+  stamped spec, REPL workflows that bypass the macro path, and the
+  macro's own emitted form. Programmatic callers see no per-element
+  source-coord index (only the macro can walk the literal spec at
+  expansion time)."
   [machine-id machine]
   (reg-machine-impl 'rf/reg-machine* machine-id machine))
 
@@ -143,7 +133,7 @@
   snapshot's `:tags` set contains `tag` — `false` for an unknown or
   not-yet-initialised machine.
 
-  Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1).
+  Per Spec 005 §State tags.
 
   Composable with the rest of the sub graph (a Layer-3 sub may chain
   off this one) and elides on production builds the same way every

@@ -11,41 +11,34 @@
   views; use a flow only if it must live in app-db for SSR / time-travel
   / inspector reasons.
 
-  ## Artefact (rf2-tfw3, fourth per-feature split per rf2-5vjj Strategy B)
+  ## Artefact
 
-  This namespace ships in `day8/re-frame2-flows`, separate from the
-  core artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
-  re-exports of `reg-flow` / `clear-flow`, and the `:rf.fx/reg-flow` /
-  `:rf.fx/clear-flow` runtime fxs in `re-frame.fx`, look this
-  namespace's entry points up via the `re-frame.late-bind` hook table —
-  loading this namespace publishes the hooks. Apps that don't register
-  any flows don't drag the per-frame flow registry, the topological-
-  sort engine, the dirty-check `last-inputs` map, or the post-drain
-  `run-flows!` walker onto the classpath.
+  Ships in `day8/re-frame2-flows`, separate from the core artefact.
+  `re-frame.core` looks this namespace's entry points up through
+  `re-frame.late-bind`; loading this ns publishes the hooks.
 
-  ## Internal layout (rf2-mnu8z)
+  ## Internal layout
 
-  Per the rf2-zkca8 leaf-size ceiling the original 431-LoC monolith
-  was split along its three natural seams; this namespace is now the
-  public FAÇADE — it owns the post-drain evaluation walker, the fx-
-  call indirections, and the late-bind hook publications, and re-
-  exports the registry's public-surface symbols. The split is:
+  This namespace is the public FAÇADE — it owns the post-drain
+  evaluation walker, the fx-call indirections, and the late-bind hook
+  publications, and re-exports the registry's public-surface symbols.
+  The split is:
 
     - `re-frame.flows.topo`     — pure Kahn's topological sort +
-      cycle-path extraction. Unit-testable in isolation, no atoms,
-      no traces.
+                                  cycle-path extraction.
     - `re-frame.flows.registry` — per-frame `flows` + `last-inputs`
-      atoms, validation, `reg-flow` / `clear-flow`, the registrar
-      replacement-hook for hot-reload invalidation, and the
-      test-only `reset-flows!` / `reset-last-inputs!` resets.
+                                  atoms, validation, `reg-flow` /
+                                  `clear-flow`, the registrar
+                                  replacement-hook, and the test-only
+                                  resets.
     - `re-frame.flows` (this)   — `evaluate-flow!` / `run-flows!`,
-      fx-call indirections, late-bind hook publication, and the
-      public re-export surface.
+                                  fx-call indirections, late-bind
+                                  publication, public re-exports.
 
-  External consumers continue to reach every documented symbol at
-  `re-frame.flows/<name>` — production code via the late-bind hooks,
-  the per-artefact test fixtures via `re-frame.flows/flows` and
-  `(resolve 're-frame.flows/last-inputs)`."
+  Test fixtures across artefacts reach `re-frame.flows/flows` and
+  `re-frame.flows/last-inputs` directly (sometimes via `resolve`); the
+  re-exports below MUST land on a Var deref-equal to the registry's
+  own atom."
   (:require [re-frame.elision :as elision]
             [re-frame.flows.registry :as registry]
             [re-frame.flows.topo :as topo]
@@ -55,15 +48,6 @@
             [re-frame.trace :as trace]))
 
 ;; ---- public-surface re-exports -------------------------------------------
-;;
-;; Atoms re-exported as Vars so test fixtures across artefacts
-;; (`flows_test.clj`, `flows_trace_test.clj`, `smoke_test.clj`,
-;; `epoch_test.clj`, `core_api_additions_test.clj`, `reg_view_test.clj`,
-;; `source_coords_test.clj`, `ssr/test_fixture.clj`) keep working
-;; against the SAME atom value at `re-frame.flows/flows` and
-;; `re-frame.flows/last-inputs`. Several tests reach `last-inputs`
-;; via `(resolve 're-frame.flows/last-inputs)`; that resolve must
-;; continue to land on a var deref-equal to the registry's atom.
 
 (def flows       registry/flows)
 (def last-inputs registry/last-inputs)
@@ -87,24 +71,20 @@
   router's outer catch emits the cascade-level
   `:rf.error/flow-eval-exception`. Trace semantics live in Spec 009
   §Flow trace events; this docstring just names the failure-path
-  unwind (rf2-rlmla Q11 — the prior docstring claimed `[db false]`
-  was returned and downstream flows still walked, which contradicts
-  the actual `(throw e)` impl at the catch site below)."
+  unwind."
   [frame-id db flow]
   (let [flow-id    (:id flow)
         new-inputs (read-inputs db flow)
         ;; `last-inputs` is shaped {flow-id {frame-id inputs}} so the
         ;; hot-reload invalidation hook can drop a flow's whole row
-        ;; with one O(1) dissoc (rf2-2xq8w / PERF Q10). Per-frame
-        ;; dirty-check windows stay independent.
+        ;; with one O(1) dissoc; per-frame dirty-check windows stay
+        ;; independent.
         old-inputs (get-in @last-inputs [flow-id frame-id])]
     (if (= new-inputs old-inputs)
       (do
-        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/skip records the
-        ;; suppressed recompute (per rf2-719e value-equal recompute
-        ;; suppression). Tools use this to surface "flow ran but inputs
-        ;; were stable" — distinct from "flow didn't fire at all because
-        ;; nothing wrote".
+        ;; :rf.flow/skip records value-equal recompute suppression so
+        ;; tools can distinguish "flow ran but inputs were stable" from
+        ;; "flow didn't fire at all". Per Spec 009 §:op-type vocabulary.
         (trace/emit! :flow :rf.flow/skip
                      {:flow-id flow-id
                       :reason  :inputs-value-equal
@@ -114,9 +94,9 @@
         (let [new-output (apply (:output flow) new-inputs)
               new-db     (assoc-in db (:path flow) new-output)]
           (swap! last-inputs assoc-in [flow-id frame-id] new-inputs)
-          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/computed records
-          ;; a successful recompute. Per rf2-719e the dirty-check is
-          ;; =-equality so this only fires when inputs actually changed.
+          ;; :rf.flow/computed records a successful recompute. The
+          ;; dirty-check is =-equality so this only fires when inputs
+          ;; actually changed. Per Spec 009 §:op-type vocabulary.
           ;;
           ;; Wire-bearing payloads (`:input-values`, `:result`) ride
           ;; through `elision/elide-wire-value` per Spec 009 §Size
@@ -202,19 +182,9 @@
               (recur (rest remaining) new-db (or any-dirty? dirty?)))))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
-;;
-;; re-frame.core, re-frame.fx, re-frame.router and re-frame.test-support
-;; need to call into flows but per rf2-tfw3 ship in the core artefact
-;; — they cannot `:require` this namespace because the flows artefact
-;; is optional (apps that don't register flows don't carry it). Publish
-;; entry points through the late-bind hook registry; consumers look the
-;; fns up at call time. See re-frame.late-bind.
-;;
-;; Calls are written as literal `set-fn!` invocations with a literal
-;; keyword (one per line) — the late-bind drift gate
-;; (`re-frame.late-bind-drift-test`) detects each publication via regex
-;; over `implementation/**/src/**`, matching every other artefact's
-;; publication block (schemas / machines / routing / http / ssr).
+;; Literal `set-fn!` invocations with literal keywords (one per line) —
+;; the late-bind drift gate `re-frame.late-bind-drift-test` detects each
+;; publication via regex.
 
 (late-bind/set-fn! :flows/reg-flow           reg-flow)
 (late-bind/set-fn! :flows/clear-flow         clear-flow)

@@ -1,27 +1,17 @@
 (ns re-frame.core-epoch
   "Public-API wrappers for the optional epoch artefact (Tool-Pair
   §Time-travel). Implementation ships in `day8/re-frame2-epoch`
-  (`re-frame.epoch` ns) per rf2-lt4e.
+  (`re-frame.epoch` ns).
 
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention).
 
-  Per-feature carve-out: the epoch artefact pulls the per-frame
-  `:rf/epoch-record` ring buffer, the per-cascade trace-capture path,
-  the `:sub-runs` / `:renders` / `:effects` projection walker, and
-  every `:rf.epoch/*` keyword string. The entire epoch surface is also
-  gated on `interop/debug-enabled?` (Tool-Pair §Time-travel §Production
-  elision).
+  The entire epoch surface is gated on `interop/debug-enabled?` so
+  production builds DCE.
 
   Absent-artefact behaviour: wrappers degrade silently (empty vector /
-  `false` / no-op) so a release build that omits the artefact does not
-  raise. `reset-frame-db!` is the exception — it records an epoch as
-  part of its contract and raises `:rf.error/epoch-artefact-missing`.
-
-  Per rf2-h824v the wrappers below are emitted by the
-  `re-frame.core-artefact/defwrapper` factory from a declarative table —
-  one row per public surface."
+  `false` / no-op). `reset-frame-db!` is the exception — it records an
+  epoch as part of its contract, so it raises
+  `:rf.error/epoch-artefact-missing` when the artefact is absent."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
@@ -69,7 +59,7 @@
 
 (defwrapper reset-frame-db!
   "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
-  loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
+  loop. Per Tool-Pair §Pair-tool writes.
 
   The canonical Tool-Pair write surface for state injection — pair
   tools use it for evolved-state-shape probes after a handler hot-swap,

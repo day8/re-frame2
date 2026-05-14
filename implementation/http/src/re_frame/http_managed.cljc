@@ -28,62 +28,38 @@
   The `:rf.http/managed` fx itself is dev+prod (user-facing). The canned
   stub fxs gate on `interop/debug-enabled?` so they elide in production.
 
-  ## Artefact (rf2-5kpd, fifth per-feature split per rf2-5vjj Strategy B)
+  ## Artefact
 
-  This namespace ships in `day8/re-frame2-http`, separate from the core
-  artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
-  re-exports of `install-managed-request-stubs!` /
-  `uninstall-managed-request-stubs!` / `with-managed-request-stubs*` /
-  `with-managed-request-stubs` look this namespace's entry points up via
-  the `re-frame.late-bind` hook table — loading this namespace publishes
-  the hooks AND registers the `:rf.http/managed`,
-  `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, and
-  `:rf.http/managed-canned-failure` fxs. Apps that don't issue any
-  managed-HTTP requests don't drag the in-flight request registry, the
-  Fetch / HttpClient transport adapters, the encode / decode pipeline,
-  the retry-with-backoff machinery, the eight-category `:rf.http/*`
-  failure taxonomy, or any of the `:rf.http/*` keyword strings onto the
-  classpath.
+  Ships in `day8/re-frame2-http`, separate from the core artefact.
+  Loading this ns publishes the late-bind hooks `re-frame.core` reaches
+  through AND registers the `:rf.http/managed` family of fxs.
 
-  ## File split (rf2-3i9b, rf2-p7da, rf2-0eyp2)
+  ## File split
 
-  This namespace was 1790 LoC pre-split; it's now a thin public façade.
-  The implementation is in per-concern sibling namespaces (flat
-  dash-form naming, NOT dot-form — per rf2-2vbm `re-frame.http.X` would
-  collide with `goog.provide('re_frame.http')` on CLJS):
+  Thin public façade over per-concern sibling namespaces (flat dash-form
+  naming — `re-frame.http.X` would collide with `goog.provide` on CLJS):
 
-   - `re-frame.http-encoding`       — URL/query/body encoding, decode
-                                      pipeline, `:accept` normalisation,
-                                      failure-map / build-reply-event /
-                                      `dispatch-reply-via-late-bind!`,
-                                      backoff. All pure fns.
-   - `re-frame.http-registry`       — in-flight request + actor-id
-                                      indexes, supersede semantics,
-                                      `abort-on-actor-destroy` (rf2-wvkn),
-                                      spawned-actor detection.
-   - `re-frame.http-middleware`     — per-frame request-side interceptor
-                                      chain (rf2-6y3q).
-   - `re-frame.http-transport`     — shared Fetch (CLJS) + HttpClient
-                                      (JVM) transport + attempt loop;
-                                      platform-specific fragments are
-                                      gated with reader conditionals
-                                      (rf2-921qy).
-   - `re-frame.http-handlers`      — `:rf.http/managed` /
-                                      `:rf.http/managed-abort` fx
-                                      handler bodies (rf2-0eyp2).
-   - `re-frame.http-machine-wrapper`— machine-shape wrapper (rf2-ijm7),
-                                      canned stub handlers,
-                                      with-managed-request-stubs*.
-   - `re-frame.util-json`           — pure-Clojure JSON reader extracted
-                                      per rf2-p7da; shared by the decode
-                                      pipeline. (Currently shipped in
-                                      the http artefact; lift to core
-                                      if a second consumer appears.)
+   - `re-frame.http-encoding`        — pure encoding / decode pipeline /
+                                       backoff.
+   - `re-frame.http-registry`        — in-flight + actor-id indexes,
+                                       supersede semantics, abort-on-
+                                       actor-destroy.
+   - `re-frame.http-middleware`      — per-frame request-side interceptor
+                                       chain.
+   - `re-frame.http-transport`       — shared Fetch (CLJS) + HttpClient
+                                       (JVM) transport + attempt loop.
+   - `re-frame.http-handlers`        — `:rf.http/managed` /
+                                       `:rf.http/managed-abort` fx
+                                       handler bodies.
+   - `re-frame.http-machine-wrapper` — machine-shape wrapper, canned
+                                       stub handlers,
+                                       with-managed-request-stubs*.
+   - `re-frame.util-json`            — pure-Clojure JSON reader shared by
+                                       the decode pipeline.
 
-  This façade re-exports the public surface of those sub-namespaces
-  AND performs the artefact's load-time side-effects: the
-  `:rf.http/*` fx registrations and the `late-bind/set-fn!` hook
-  publications that `re-frame.core` reaches through."
+  This façade re-exports the public surface and performs the load-time
+  side-effects: `:rf.http/*` fx registrations and `late-bind/set-fn!`
+  hook publications."
   (:require [re-frame.fx                   :as fx]
             [re-frame.http-handlers        :as handlers]
             [re-frame.http-machine-wrapper :as machine-wrapper]
@@ -94,12 +70,6 @@
             [re-frame.late-bind            :as late-bind]))
 
 ;; ---- public-surface re-exports --------------------------------------------
-;;
-;; These `def`s make the sub-namespace fns reachable as
-;; `re-frame.http-managed/<name>` so consumers (the `re-frame.core` late-
-;; bind bridge, the test fixtures, examples that
-;; `:require [re-frame.http-managed :as http-managed]`) see the same
-;; surface they did pre-split.
 
 ;; Registry surface — tests deref the atoms and call the snapshot fns.
 (def in-flight                   registry/in-flight)
@@ -109,7 +79,7 @@
 (def actor-in-flight-snapshot    registry/actor-in-flight-snapshot)
 (def abort-on-actor-destroy      registry/abort-on-actor-destroy)
 
-;; Middleware surface — per rf2-6y3q. Tests deref @http-managed/interceptors.
+;; Middleware surface. Tests deref @http-managed/interceptors.
 (def interceptors                middleware/interceptors)
 (def reg-http-interceptor        middleware/reg-http-interceptor)
 (def clear-http-interceptor      middleware/clear-http-interceptor)
@@ -120,21 +90,17 @@
 (def uninstall-managed-request-stubs! machine-wrapper/uninstall-managed-request-stubs!)
 (def with-managed-request-stubs*      machine-wrapper/with-managed-request-stubs*)
 
-;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Header denylist lives
-;; in `re-frame.http-privacy-headers`; the orchestrating composers
+;; Privacy surface — Spec 014 §Privacy. Header denylist lives in
+;; `re-frame.http-privacy-headers`; the orchestrating composers
 ;; (request-sensitive?, prepare-emit-*) stay in `re-frame.http-privacy`.
 (def declare-sensitive-header!  privacy-headers/declare-sensitive-header!)
 (def clear-sensitive-headers!   privacy-headers/clear-sensitive-headers!)
 (def default-header-denylist    privacy-headers/default-header-denylist)
 
 ;; ---- registration ---------------------------------------------------------
-;;
-;; The `:rf.http/managed` and `:rf.http/managed-abort` fx handler bodies
-;; live in `re-frame.http-handlers` (per rf2-0eyp2). The façade only
-;; performs the `(fx/reg-fx ...)` registrations and the canned-stub
-;; registrations gated on `interop/debug-enabled?`. Apps that don't
-;; load `re-frame.http-managed` don't carry the handlers either —
-;; the registration site is the load-time anchor.
+;; The handler bodies live in `re-frame.http-handlers`; the façade
+;; performs the registrations and gates the canned stubs on
+;; `interop/debug-enabled?` so they DCE in production.
 
 (fx/reg-fx :rf.http/managed
            {:doc "Spec 014 — managed HTTP request."}
@@ -144,13 +110,8 @@
            {:doc "Spec 014 — abort an in-flight :rf.http/managed by request-id."}
            handlers/managed-abort-handler)
 
-;; The two canned-stub fxs are gated on `interop/debug-enabled?` so they
-;; elide in production. Per Spec 014 §Testing — "Don't ship the canned-
-;; stub fxs as production-eligible". The gate applies on BOTH hosts: on
-;; JVM `debug-enabled?` is `true` so the registrations run; on CLJS the
-;; gate folds to `(when goog/DEBUG ...)` and `:advanced + goog.DEBUG=
-;; false` DCEs the entire body — fx-id keywords, doc string, handler
-;; var references and all (rf2-omsae).
+;; Canned-stub fxs are gated on `interop/debug-enabled?` so they DCE in
+;; production builds. Per Spec 014 §Testing.
 (when interop/debug-enabled?
   (fx/reg-fx :rf.http/managed-canned-success
              {:doc "Spec 014 — synthesised success reply (test stub)."}
@@ -178,17 +139,7 @@
      [stubs & body]
      `(with-managed-request-stubs* ~stubs (fn [] ~@body))))
 
-;; ---- late-bind hook registration ------------------------------------------
-;;
-;; re-frame.core needs to call into the test-time helpers but per
-;; rf2-5kpd ships in the core artefact — it cannot `:require` this
-;; namespace because the http artefact is optional (apps that don't
-;; issue any managed-HTTP requests don't carry it). Publish entry
-;; points through the late-bind hook registry; consumers look the fns
-;; up at call time. The contracts live in each sub-namespace's
-;; docstring (see e.g. `registry/abort-on-actor-destroy`,
-;; `middleware/reg-http-interceptor`); the listing below is alphabetical
-;; for scan-ability.
+;; ---- late-bind hook registration (alphabetised) -------------------------
 
 (late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 (late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)

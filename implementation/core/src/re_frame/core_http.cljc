@@ -1,22 +1,9 @@
 (ns re-frame.core-http
   "Public-API wrappers for the optional managed-HTTP artefact (Spec 014).
-  Implementation ships in `day8/re-frame2-http`
-  (`re-frame.http-managed` ns) per rf2-5kpd.
+  Implementation ships in `day8/re-frame2-http` (`re-frame.http-managed`
+  ns).
 
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
-
-  Per-feature carve-out: the http artefact pulls the in-flight request
-  registry, the Fetch / `java.net.http.HttpClient` transport adapters,
-  the encode/decode pipeline, the retry-with-backoff machinery, the
-  eight-category `:rf.http/*` failure taxonomy, and every `:rf.http/*`
-  keyword string — none of which appear on a consumer's classpath when
-  this wrapper's hooks are unregistered.
-
-  Per rf2-h824v the wrappers below are emitted by the
-  `re-frame.core-artefact/defwrapper` factory from a declarative table —
-  one row per public surface."
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
@@ -47,7 +34,7 @@
   {:hook :http/with-managed-request-stubs* :artefact http-artefact :on-absent :throw}
   ([stubs thunk] :delegate))
 
-;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
+;; ---- Spec 014 §Middleware — per-frame request interceptors --------------
 
 (defwrapper reg-http-interceptor
   "Spec 014 §Middleware — register a request-side interceptor on a

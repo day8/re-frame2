@@ -1,20 +1,13 @@
 (ns re-frame.core-schemas
   "Public-API wrappers for the optional schemas artefact (Spec 010).
-  Implementation ships in `day8/re-frame2-schemas`
-  (`re-frame.schemas` ns) per rf2-p7va.
+  Implementation ships in `day8/re-frame2-schemas` (`re-frame.schemas`
+  ns).
 
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention).
 
-  Per-feature carve-out: the schemas artefact pulls Malli (the default
-  validator) onto the classpath — apps that want to drop the ~24 KB
-  gzipped Malli surface omit the artefact and either use a substitute
-  validator (per rf2-froe) or skip schema validation entirely.
-
-  Per rf2-h824v the wrappers below are emitted by the
-  `re-frame.core-artefact/defwrapper` factory from a declarative table —
-  one row per public surface."
+  Apps that want to drop the ~24 KB gzipped Malli surface omit the
+  artefact and either install a substitute validator (see
+  `set-schema-validator!`) or skip schema validation entirely."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
@@ -51,10 +44,9 @@
 
 (defwrapper set-schema-validator!
   "Register the validator fn that every dev-time schema-validation site
-  routes through. Per Spec 010 §Non-Malli validators (rf2-froe) the
-  seam is the substitute-Malli extension point — apps that want to
-  drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle audit) swap
-  in their own validator at boot.
+  routes through. Per Spec 010 §Non-Malli validators the seam is the
+  substitute-Malli extension point — apps that want to drop the ~24 KB
+  gzipped Malli surface swap in their own validator at boot.
 
   Argument shapes:
 
@@ -75,20 +67,19 @@
 (defwrapper set-schema-explainer!
   "Register the explainer fn — `(fn [schema value] explanation)` — used
   to enrich schema-validation-failure traces' `:explain` key. Per
-  Spec 010 §Non-Malli validators (rf2-froe). See
-  `set-schema-validator!` for the validator companion. Returns nil
-  when the schemas artefact is not on the classpath."
+  Spec 010 §Non-Malli validators. See `set-schema-validator!` for the
+  validator companion. Returns nil when the schemas artefact is not on
+  the classpath."
   {:hook :schemas/set-schema-explainer! :artefact schemas-artefact :on-absent :nil}
   ([explain-fn] :delegate))
 
 (defwrapper set-schema-printer!
   "Register the schema-print companion — `(fn [schema-value]
   canonical-string)` — the digest pipeline hashes (Spec 010 §Schema
-  digest line 491, rf2-wla45). Parallel to `set-schema-validator!`
-  and `set-schema-explainer!`: ports that ship a non-Malli schema
-  language register their own serialiser so the digest reflects the
-  validator's own contract rather than the framework's Malli-EDN
-  default.
+  digest line 491). Parallel to `set-schema-validator!` and
+  `set-schema-explainer!`: ports that ship a non-Malli schema language
+  register their own serialiser so the digest reflects the validator's
+  own contract rather than the framework's Malli-EDN default.
 
   The fn MUST be pure and cross-runtime deterministic — a CLJS
   server and a CLJS client running the same schema set MUST produce
@@ -112,9 +103,8 @@
 
 (defwrapper reg-app-schemas
   "Bulk-register `{path -> schema}` against the active frame (or the
-  `:frame` opt). Per rf2-jzs9 — the plural form of `reg-app-schema`,
-  aimed at feature-modular apps (per Conventions §Feature-modularity
-  prefix convention).
+  `:frame` opt). Plural form of `reg-app-schema`, aimed at feature-
+  modular apps (per Conventions §Feature-modularity prefix convention).
 
   Shape:
 

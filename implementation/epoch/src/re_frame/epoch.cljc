@@ -73,24 +73,18 @@
                         projections (`:sub-runs` / `:renders` /
                         `:effects`) but drop `:trace-events` to
                         bound memory. Per Spec-Schemas
-                        §`:rf/epoch-record` line 2224
-                        (`:trace-events` is optional —
-                        'implementations may choose to drop traces
-                        from older epochs') and refactor-audit r2
-                        (rf2-lwn4t) §F3.1.
+                        §`:rf/epoch-record` line 2224 — `:trace-events`
+                        is optional, implementations may drop traces
+                        from older epochs.
 
-  Absent / nil `:trace-events-keep` keeps every record's
-  `:trace-events` slot (the default, pre-rf2-iegsz behaviour);
-  the cap kicks in only when explicitly configured.
+  Absent / nil `:trace-events-keep` keeps every record's `:trace-events`
+  slot; the cap kicks in only when explicitly configured.
 
-  Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: both keys are validated
-  at the boundary. A `:depth` or `:trace-events-keep` that isn't a
-  non-negative integer is silently dropped from `opts` rather than
-  stored — a `nil` or non-numeric value would otherwise survive
-  configuration and explode at the next `record!` call when `pos?` /
-  `nat-int?` runs on the stored value. Validation mirrors the
-  pattern `re-frame.trace/configure-trace-buffer!` applies at its
-  own config boundary."
+  Both keys are validated at the boundary. A `:depth` or
+  `:trace-events-keep` that isn't a non-negative integer is silently
+  dropped from `opts` rather than stored — a non-numeric value would
+  otherwise explode at the next `record!` call. Mirrors the pattern
+  `re-frame.trace/configure-trace-buffer!` applies at its own boundary."
   [opts]
   (when (map? opts)
     (let [picked (select-keys opts [:depth :trace-events-keep])
@@ -175,13 +169,10 @@
   nil)
 
 (defn- clear-frame-history!
-  "Drop every recorded epoch for the named frame. Per rf2-sh5g6: no
-  late-bind hook is published for this; the fn is invoked only from
-  the in-artefact test pin (via the `#'epoch/clear-frame-history!`
-  var). The test fixture uses the unscoped `clear-history!`
-  hook so scoped clearing is not on the integration critical path —
-  marking `defn-` keeps the surface area of the epoch public API
-  tight without losing the pinned-seam test."
+  "Drop every recorded epoch for the named frame. Private — invoked
+  only from the in-artefact test pin via `#'epoch/clear-frame-history!`;
+  no late-bind hook is published. Production callers go through the
+  unscoped `clear-history!` hook."
   [frame-id]
   (swap! histories dissoc frame-id)
   nil)
@@ -190,8 +181,8 @@
 
 (defonce ^:private listeners (atom {}))
 
-;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
-;; track which frames each cb has been delivered records for. When a
+;; Per Tool-Pair §Surface behaviour against destroyed frames: track
+;; which frames each cb has been delivered records for. When a
 ;; frame is destroyed, every cb whose observed-frames set contains
 ;; that frame receives a one-shot :rf.epoch.cb/silenced-on-frame-destroy
 ;; trace. The frame is then dropped from the cb's entry so a
@@ -282,14 +273,14 @@
 ;; The defonce lands in the per-cascade capture section further down
 ;; (kept there because every other consumer — `buffer-event!`,
 ;; `harvest-buffer!`, `capture-event!` — co-locates with the defonce).
-;; The destroy hook also needs to clear stragglers (rf2-zzper), but the
+;; The destroy hook also needs to clear stragglers, but the
 ;; destroy-hook section reads more clearly here alongside
 ;; `observed-frames-by-cb` cleanup, so we forward-declare rather than
 ;; re-ordering the whole capture section.
 (declare capture-buffers)
 
 (defn on-frame-destroyed!
-  "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
+  "Per Tool-Pair §Surface behaviour against destroyed frames:
 
     1. Emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb whose
        observed-frames set contains `frame-id`, then drop `frame-id`
@@ -298,9 +289,9 @@
     2. Drop the destroyed frame's per-frame ring buffer so subsequent
        `(rf/epoch-history frame-id)` calls return the empty vector
        (the read-empty shape the contract commits to).
-    3. Drop any in-flight capture buffer entry for `frame-id`
-       (rf2-zzper) so a mid-drain destroy can't leak its pre-destroy
-       events into the first cascade of the next same-keyed frame.
+    3. Drop any in-flight capture buffer entry for `frame-id` so a
+       mid-drain destroy can't leak its pre-destroy events into the
+       first cascade of the next same-keyed frame.
 
   Called from `re-frame.frame/destroy-frame!` via the
   `:epoch/on-frame-destroyed` late-bind hook. Idempotent across
@@ -324,17 +315,13 @@
     ;; by reg-frame, so the ring buffer for the new same-keyed frame
     ;; starts empty per Spec 002 §reset-frame.)
     (swap! histories dissoc frame-id)
-    ;; Per rf2-zzper: also drop any in-flight capture buffer. The
-    ;; router's `discard-buffer!` call handles the cascade-abort path
-    ;; for routine drains, but a destroy that races a mid-flight
-    ;; drain (e.g. a hot-reload firing while the drain has buffered
-    ;; events but has not yet settled) would otherwise leave a stale
-    ;; partial buffer hanging on `frame-id`. The next cascade that
-    ;; registers a same-keyed frame would then harvest those
-    ;; pre-destroy events as belonging to its first record — a silent
-    ;; cross-contamination from the destroyed frame's previous life.
-    ;; Drop the buffer entry here as a belt-and-braces guarantee
-    ;; symmetric to the ring-buffer drop above.
+    ;; Also drop any in-flight capture buffer. The router's
+    ;; `discard-buffer!` handles routine cascade-aborts, but a destroy
+    ;; that races a mid-flight drain (e.g. hot-reload while events are
+    ;; buffered but the drain has not settled) would otherwise leave a
+    ;; stale partial buffer. The next same-keyed frame would harvest
+    ;; those pre-destroy events as its first record — silent cross-
+    ;; contamination from the destroyed frame's previous life.
     (swap! capture-buffers dissoc frame-id)))
 
 ;; ---- per-cascade trace capture --------------------------------------------
@@ -391,8 +378,8 @@
     :rf.epoch/restore-version-mismatch
     :rf.epoch/restore-during-drain
     ;; reset-frame-db! success + its two failure modes (Tool-Pair §Pair-
-    ;; tool writes, rf2-zq55). All three fire after the synthetic record
-    ;; has been built and the cascade-buffer (if any) has been harvested.
+    ;; tool writes). All three fire after the synthetic record has been
+    ;; built and the cascade-buffer (if any) has been harvested.
     :rf.epoch/db-replaced
     :rf.epoch/reset-frame-db-during-drain
     :rf.epoch/reset-frame-db-schema-mismatch})
@@ -429,9 +416,9 @@
 (defn- project-sub-runs
   "Walk the captured trace events and build the `:sub-runs` vector.
   Each :sub/run trace event surfaces as one entry with `:recomputed?
-  true`. Per Spec-Schemas §`:rf/epoch-record`: a sub queried via the
-  rf2-719e cache hit path does NOT emit `:sub/run` (the body fn does
-  not re-run), so cache-hit subs are absent from this projection."
+  true`. A sub queried via the cache-hit path does NOT emit `:sub/run`
+  (the body fn does not re-run), so cache-hit subs are absent from
+  this projection. Per Spec-Schemas §`:rf/epoch-record`."
   [events]
   (into []
         (comp
@@ -447,12 +434,12 @@
   "Walk the captured trace events and build the `:renders` vector.
   Renders are emitted by the view layer as `:view/render` trace events
   with `:render-key`, `:triggered-by`, and `:elapsed-ms` tags. Per
-  Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree primitives
-  (rf2-t5tx Option C / rf2-piag): `:render-key` is the tuple
-  `[<view-id> <instance-token>]` — the view-id names the kind, the
-  instance-token disambiguates concurrently-mounted instances. For
-  renders that bypass reg-view (plain Reagent fns), the trace recorder
-  emits `[:rf.view/anonymous nil]` as the documented fallback shape."
+  Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree primitives:
+  `:render-key` is the tuple `[<view-id> <instance-token>]` — the
+  view-id names the kind, the instance-token disambiguates concurrently-
+  mounted instances. For renders that bypass reg-view (plain Reagent
+  fns), the trace recorder emits `[:rf.view/anonymous nil]` as the
+  documented fallback shape."
   [events]
   (into []
         (comp
@@ -531,13 +518,10 @@
   event id or a frame-destroyed dispatch), no :run-start fires; fall
   back to the first event we can find with an `:event-id` tag.
 
-  Per rf2-txrq9: single-walk reduction over `events` — the original
-  two-pass `or`-of-`some` reordered both walks across the buffer
-  on the degenerate path. We now accumulate the first
+  Single-walk reduction over `events`: accumulate the first
   `:event/run-start` AND the first fallback `:event-id` in one
-  traversal and prefer the run-start. Either match short-circuits
-  at the earliest moment it can — a run-start hit immediately
-  reduces to the final result; a fallback-only stream walks once."
+  traversal, preferring the run-start. A run-start hit short-circuits
+  via `reduced`; a fallback-only stream walks the buffer once."
   [events]
   (let [result
         (reduce
@@ -623,13 +607,9 @@
   avoid leaking a partial buffer into the next cascade. No record
   is committed.
 
-  Per rf2-hul9q: the only consumer is `router.cljc`'s drain-abort
-  path via the `:epoch/discard-buffer!` late-bind hook (see the
-  registration at the foot of this namespace). The fn itself takes
-  no direct callers, so the visibility stays `defn-` to keep the
-  late-bind seam the sole public access path — matches the
-  `capture-event!` pattern used elsewhere in this ns for hook-only
-  producers."
+  Only consumer is `router.cljc`'s drain-abort path via the
+  `:epoch/discard-buffer!` late-bind hook. Visibility stays `defn-`
+  so the hook is the sole public access path."
   [frame-id]
   (when interop/debug-enabled?
     (harvest-buffer! frame-id))
@@ -638,18 +618,15 @@
 ;; ---- restore failure-mode predicates --------------------------------------
 
 (defn- malli-validate-fn
-  "Return the malli validate fn or nil.
+  "Return the malli validate fn or nil. Lookup order matches
+  `re-frame.schemas/default-malli-validate`:
 
-  Per rf2-t0hq — CLJS has no runtime `resolve`, so the lookup order on
-  CLJS is: late-bind hook then nil. Returning nil is treated as
-  soft-pass by callers ('cannot disprove, treat as valid').
-
-  Lookup order matches `re-frame.schemas/default-malli-validate`:
     1. Late-bind hook `:schemas/malli-validate` (published by
        `re-frame.schemas.malli` when loaded).
-    2. JVM only — fall back to `(requiring-resolve 'malli.core/validate)`.
-    3. Return nil (soft-pass — the schema-validate-ok? caller treats
-       a nil validate fn as 'cannot disprove, treat as valid')."
+    2. JVM only — `(requiring-resolve 'malli.core/validate)`.
+    3. Return nil (soft-pass — callers treat nil as 'cannot disprove,
+       treat as valid'; CLJS has no runtime `resolve` so the JVM
+       fallback is JVM-only)."
   []
   (or (late-bind/get-fn :schemas/malli-validate)
       #?(:clj  (try (requiring-resolve 'malli.core/validate)
@@ -704,9 +681,8 @@
   and `:rf/machine` (the spec map). Returns the registration map
   when machine-id names a registered machine, nil otherwise.
 
-  Per rf2-ocg1: epoch restore validates against this public surface,
-  not against the internal `:head` registrar kind that machines
-  never used."
+  Epoch restore validates against this public surface, not against
+  the internal `:head` registrar kind that machines never used."
   [machine-id]
   (let [reg (registrar/lookup :event machine-id)]
     (when (:rf/machine? reg)
@@ -736,9 +712,8 @@
   with `:rf/machine?`) and `:route` (`:id` must reference a registered
   :route).
 
-  Per rf2-ocg1: machine lookup goes through the event registry, NOT
-  the internal `:head` registrar kind. The latter is unrelated to
-  the public machine contract.
+  Machine lookup goes through the event registry — the `:head`
+  registrar kind is unrelated to the public machine contract.
 
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
@@ -765,9 +740,9 @@
   `{:machine-id <id> :recorded <int> :current <int>}`. nil when no
   mismatch is found.
 
-  Per rf2-ocg1: both versions are read through the public Spec 005
-  §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`
-  and the registered machine's `[:meta :rf/snapshot-version]`."
+  Both versions are read through the public Spec 005 §Snapshot shape
+  contract — the snapshot's and the registered machine's
+  `[:meta :rf/snapshot-version]`."
   [db]
   (some (fn [[machine-id snapshot]]
           (let [recorded (snapshot-version snapshot)]
@@ -785,8 +760,8 @@
   "Search a resolved history vector for the record matching `epoch-id`.
   Caller has already paid the `@histories` deref — `check-restore-
   preconditions!` reads history once at the top and reuses the vector
-  for both the lookup and the `:history-size` count on the
-  unknown-epoch failure path (rf2-3g7x3 — was two derefs)."
+  for both the lookup and the `:history-size` count on the unknown-
+  epoch failure path."
   [history epoch-id]
   (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
         history))
@@ -862,7 +837,7 @@
           (let [db-target (:db-after epoch)]
             ;; Each helper is called once and its result bound, so the
             ;; failure path walks the recorded db / schema set / machine
-            ;; map exactly once per check (rf2-081zk).
+            ;; map exactly once per check.
             (if-let [failing-paths (seq (failing-paths-for frame-id db-target))]
               ;; (4) Schema mismatch?
               ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
@@ -933,30 +908,17 @@
         :fail (do (emit-precondition-failure! (second result) (nth result 2))
                   false)))))
 
-;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
+;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes) ----------------------
+;; Dev-only — gated on `interop/debug-enabled?`. Replaces a frame's
+;; `app-db` with an arbitrary new value, bypassing the dispatch loop, and
+;; records a synthetic `:rf/epoch-record` so undo via `restore-epoch`
+;; works against the previous state. Failure modes (each is a no-op on
+;; `app-db` and returns `false`):
 ;;
-;; Per Tool-Pair §Pair-tool writes: a public Tool-Pair write surface that
-;; replaces a frame's `app-db` with an arbitrary new value, bypassing the
-;; dispatch loop. Used by pair-shaped tools for state injection (evolved-
-;; state-shape probes after a handler hot-swap), story tools, conformance
-;; harnesses, and time-travel from JSON-loaded bug repros.
-;;
-;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
-;; gate as `restore-epoch` / `register-epoch-cb!` / the rest of the
-;; epoch-history machinery. Production builds (`:advanced` +
-;; goog.DEBUG=false) elide the body via Closure DCE; the surface is not
-;; available in shipped binaries.
-;;
-;; Failure modes (each is a no-op on `app-db` and returns `false`):
 ;;   :rf.error/no-such-handler            (kind :frame) — frame not registered
-;;   :rf.epoch/reset-frame-db-during-drain — called while drain is in flight
+;;   :rf.epoch/reset-frame-db-during-drain — drain in flight
 ;;   :rf.epoch/reset-frame-db-schema-mismatch — `new-db` fails the frame's
 ;;                                              registered app-schema set
-;;
-;; On success: records a synthetic `:rf/epoch-record` (so undo via
-;; `restore-epoch` works against the previous state), emits
-;; `:rf.epoch/db-replaced`, replaces the container, and fires registered
-;; epoch listeners with the assembled record.
 
 (defn- check-reset-frame-db-preconditions!
   "Validate the three documented preconditions for `reset-frame-db!`.
@@ -1010,7 +972,7 @@
 
 (defn reset-frame-db!
   "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
-  loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
+  loop. Per Tool-Pair §Pair-tool writes.
 
   Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind
   the previous state; emits `:rf.epoch/db-replaced` on success.
@@ -1035,22 +997,10 @@
                   false)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
-;;
-;; The router calls into settle! at drain-empty; the trace surface calls
-;; into capture-event! on every emit. Publishing through the late-bind
-;; registry keeps router.cljc / trace.cljc free of a require on this ns.
-;;
-;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
-;; Strategy B), this namespace ships in `day8/re-frame2-epoch`; the
-;; core artefact MUST NOT statically `:require` it. Core's public
-;; re-exports (`rf/epoch-history`, `rf/restore-epoch`,
-;; `rf/register-epoch-cb!`, `rf/remove-epoch-cb!`) and the
-;; `(rf/configure :epoch-history ...)` knob look the producing fns up
-;; through the hook table at call time; when this artefact is not on
-;; the classpath those queries return nil / empty / false and the
-;; (rf/configure :epoch-history ...) call is a silent no-op — the
-;; epoch surface is dev-tier so an absent artefact degrades quietly
-;; rather than throwing.
+;; Core's re-exports look the producing fns up through this hook table
+;; so core never statically `:require`s the epoch artefact. Absent
+;; artefact: queries return nil / empty / false and `(rf/configure
+;; :epoch-history ...)` is a silent no-op.
 
 (late-bind/set-fn! :epoch/settle!             settle!)
 (late-bind/set-fn! :epoch/discard-buffer!     discard-buffer!)

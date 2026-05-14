@@ -1042,18 +1042,11 @@ unknown strategies as :preserve (no-op)."}
                     {:fx-id :rf.nav/scroll :strategy strategy}))))
 
 ;; ---- framework-shipped subs over the slice -------------------------------
-;;
-;; Per Spec 012 the framework ships `:rf/route` (the layer-1 read of the
-;; :rf/route slice) and the layer-2 derivations `:rf.route/{id,params,query,
-;; transition,error}`. Per rf2-k682 these subs ship in this artefact
-;; (rather than `re-frame.core`) so apps that don't pull
-;; `day8/re-frame2-routing` carry neither the registration metadata nor
-;; the `:rf.route/*` keyword strings on their production-elision bundle.
-;;
-;; Lives in this namespace (rather than core.cljc) so the smoke-test
-;; fixture's `require :reload` re-installs the registrations after
-;; `registrar/clear-all!` — exactly the same ergonomic the machines
-;; namespace's `:rf/machine` reg-sub uses.
+;; Spec 012's `:rf/route` (layer-1) and `:rf.route/{id,params,query,
+;; transition,error}` (layer-2) live here (not core.cljc) so apps that
+;; don't pull `day8/re-frame2-routing` carry neither the registration
+;; metadata nor the `:rf.route/*` keyword strings, and so the smoke-test
+;; fixture's `require :reload` re-installs them after `registrar/clear-all!`.
 
 (defn route-sub-fn
   "Layer-1 sub fn for :rf/route — reads the slice from app-db. Exposed
@@ -1196,17 +1189,9 @@ unknown strategies as :preserve (no-op)."}
                                :handler-fn route-link-render-ssr)))
 
 ;; ---- late-bind hook registration ------------------------------------------
-;;
-;; Per rf2-k682 the routing surface ships in `day8/re-frame2-routing`.
-;; `re-frame.core` MUST NOT `:require [re-frame.routing]` — the artefact
-;; is optional, and a static require would force every consumer of the
-;; core artefact to drag the namespace, the route-rank / pattern-compile
-;; / nav-token machinery, the `:rf/route` reg-sub family, and every
-;; `:rf.route/*` / `:rf.nav/*` trace/event keyword onto the classpath.
-;; The public-API re-exports (`reg-route`, `match-url`, `route-url`) are
-;; published through the late-bind table; consumers without the routing
-;; artefact see the hooks unregistered and the active surfaces throw
-;; cleanly while the read-only surfaces return safe defaults.
+;; The public-API re-exports are published through the late-bind table
+;; so `re-frame.core` can be required without dragging in the optional
+;; routing artefact.
 
 (late-bind/set-fn! :routing/reg-route        reg-route)
 (late-bind/set-fn! :routing/match-url        match-url)
