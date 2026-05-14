@@ -77,6 +77,15 @@
   equivalent publications."
   #"\(substrate-adapter/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
+(def ^:private chain-fn-call-re
+  "Match `(late-bind/chain-fn! :namespace/key ...`.
+
+  Per rf2-1fh5h chained hooks are published through `chain-fn!`
+  (which calls `set-fn!` internally, wrapping the step-fn in a
+  chain-into-previous closure). Drift scan treats this call shape as
+  equivalent to direct `set-fn!` publication."
+  #"\(late-bind/chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+
 (defn- match-keys
   [re content]
   (->> (re-seq re content)
@@ -86,8 +95,9 @@
 (defn- published-keys-in-file
   [^java.io.File f]
   (let [content (slurp f)]
-    (into (match-keys set-fn-call-re content)
-          (match-keys route-hook-call-re content))))
+    (-> (match-keys set-fn-call-re content)
+        (into (match-keys route-hook-call-re content))
+        (into (match-keys chain-fn-call-re content)))))
 
 (defn- published-keys
   "Set of every late-bind key published from in-tree source files."

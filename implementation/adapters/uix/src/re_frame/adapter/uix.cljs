@@ -206,3 +206,16 @@
 ;; Production behaviour is unchanged: the warn-once defonce is still
 ;; per-process for users; only test-time clearing is new.
 (spine/install-clear-warn-once-step! clear-warned-non-dom-roots!)
+
+;; Per rf2-4z7bp: chain this adapter's `set-hiccup-emitter!` into the
+;; `:reagent/set-hiccup-emitter!` late-bind hook so SSR (which calls
+;; the hook at `re-frame.ssr.emit` ns-load time) auto-wires the UIx
+;; adapter's :render-to-string slot. The hook name is historical
+;; (Reagent published it first per rf2-uo7v); behaviour is adapter-
+;; agnostic and chained — every loaded React-shaped adapter contributes
+;; its own install-into-the-emitter-cell step, so a process with both
+;; Reagent and UIx loaded gets BOTH adapters' emitters wired by a
+;; single `(require '[re-frame.ssr])`. Before this chain entry, an
+;; SSR-from-UIx user had to call `(uix-adapter/set-hiccup-emitter!
+;; render-to-string)` directly — see the rf2-gc5v9 test docstring.
+(late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)

@@ -10,17 +10,17 @@
   `set-hiccup-emitter!` installer, and a `render-to-string` fn that
   throws when the emitter is nil. The contract surface is identical.
 
-  Difference vs the Reagent test: as of rf2-gc5v9, UIx does NOT publish
-  its `set-hiccup-emitter!` through a late-bind hook (rf2-4z7bp tracks
-  the parity gap). Until rf2-4z7bp lands, the SSR consumer under UIx
-  has to call `set-hiccup-emitter!` directly. This test pins the
-  shipped behaviour for both the throw path AND the direct-install
-  success path; when rf2-4z7bp publishes the hook, an additional test
-  asserting the post-(require re-frame.ssr) auto-wire can land here.
+  Per rf2-4z7bp the UIx adapter publishes its `set-hiccup-emitter!`
+  through the chained `:reagent/set-hiccup-emitter!` late-bind hook
+  (`re-frame.adapter.uix` calls `late-bind/chain-fn!` at ns-load);
+  SSR's `re-frame.ssr.emit` consumes that hook at its own ns-load
+  and auto-wires the emitter. This file pins both the direct-install
+  surface and the late-bind chain entry.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -97,3 +97,36 @@
           "the installed emitter received the render-tree the caller passed in"))
     ;; Restore the slot to nil so subsequent tests don't see the mock.
     (uix-adapter/set-hiccup-emitter! nil)))
+
+;; ---- test (3) — late-bind chain wiring (rf2-4z7bp) -------------------------
+
+(deftest set-hiccup-emitter-published-through-late-bind-chain
+  (testing "rf2-4z7bp: the UIx adapter chains its set-hiccup-emitter! into
+            `:reagent/set-hiccup-emitter!` at ns-load (the same hook key
+            Reagent / reagent-slim publish to, treated as adapter-agnostic
+            and chained). Calling the hook installs the emitter into the
+            UIx adapter's slot, so SSR's `re-frame.ssr.emit` ns-load
+            auto-wires UIx's render-to-string without a direct
+            `set-hiccup-emitter!` call from user code."
+    (let [hook-fn (late-bind/get-fn :reagent/set-hiccup-emitter!)]
+      (is (some? hook-fn)
+          "the chained hook is registered after the UIx adapter ns has loaded")
+      (with-cleared-emitter
+        (fn []
+          ;; Pre-condition: emitter cleared, render-to-string throws.
+          (let [render-fn (:render-to-string uix-adapter/adapter)]
+            (is (thrown? :default (render-fn [:div] {}))
+                "precondition: emitter cleared"))
+          ;; Drive the chained hook with our test emitter. The chain
+          ;; fans the install across every loaded React-shaped adapter
+          ;; (Reagent, reagent-slim, UIx) — the slot we care about for
+          ;; this test is UIx's. After the call, render-to-string on
+          ;; the UIx adapter returns the emitter's output.
+          (hook-fn a-mock-emitter)
+          (let [render-fn (:render-to-string uix-adapter/adapter)
+                html      (render-fn [:div "via-chain"] {})]
+            (is (clojure.string/starts-with? html "<mock>")
+                "the chained hook wired the UIx adapter's emitter slot"))
+          ;; Cleanup: drive the chain again with nil so loaded sibling
+          ;; adapter slots reset, not just UIx's.
+          (hook-fn nil))))))
