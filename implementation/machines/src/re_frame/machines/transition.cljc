@@ -40,7 +40,7 @@
                              nil)
       :else                nil)))
 
-(defn resolve-guard
+(defn- resolve-guard
   "Look up a guard reference. If keyword, follow the chain in the machine's
   :guards map. If a fn, use directly."
   [machine guard]
@@ -174,7 +174,7 @@
   (keyword (namespace machine-id)
            (str (name machine-id) "#" n)))
 
-(defn allocate-spawned-id
+(defn- allocate-spawned-id
   "Pure allocator. Given a snapshot and the spawned actor's machine-id,
   return `[snap' spawned-id]` where snap' carries the bumped counter at
   `[:rf/spawn-counter <machine-id>]` and spawned-id is
@@ -282,7 +282,7 @@
         nodes (nodes-along-path machine path)]
     (transduce (keep (fn [[_ n]] (node-tags n))) set/union #{} nodes)))
 
-(defn commit-tags
+(defn- commit-tags
   "Stamp the active-configuration tag union onto `snapshot` at `:tags`.
   Per Spec 005 §State tags §Snapshot shape change: the slot is OPTIONAL
   — when the union is empty, the runtime elides the key entirely to

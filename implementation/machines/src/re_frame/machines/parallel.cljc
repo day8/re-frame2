@@ -92,7 +92,7 @@
     (vary-meta parent-machine assoc ::region-cache (atom {}))
     parent-machine))
 
-(defn region-initial-state
+(defn- region-initial-state
   "Compute the initial-state value for one region — applying that region's
   `:initial` cascade through any compound chain. Returns the region's
   state value (keyword for flat regions, vector path for compound regions)."
@@ -113,7 +113,7 @@
     #{}
     state-map))
 
-(defn commit-tags-parallel
+(defn- commit-tags-parallel
   "Variant of `commit-tags` that dispatches on `(:type machine)`. For
   parallel-region machines, recomputes the union across every region.
   For flat/compound machines, defers to the standard `compute-tags`."
