@@ -18,13 +18,17 @@ Steps:
 
 > *I'm migrating this ClojureScript codebase from re-frame v1.x to re-frame2. Walk the migration end-to-end per the `re-frame-migration` skill in this session.*
 >
-> *Phase 1 — Orient. Read the dep file (whichever exists: `deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), confirm we're actually on `re-frame/re-frame` today, and identify the substrate (assume Reagent unless the codebase shows otherwise). Then load [`MIGRATION.md`](../../../spec/MIGRATION.md) from the re-frame2 repo (clone it locally if you don't already have it; `https://github.com/day8/re-frame2` → [`MIGRATION.md`](../../../spec/MIGRATION.md)) and skim Part 1's rule index so you know what's available.*
+> *Migration-corpus pin (load-bearing). The re-frame2 spec corpus is at `<path-to-re-frame2>` (clone https://github.com/day8/re-frame2 locally and check out the pinned commit/tag below if you don't have it). Pinned commit/tag: `<sha-or-tag>`. Before reading `<path-to-re-frame2>/spec/MIGRATION.md`, verify `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin and that `git -C <path-to-re-frame2> remote get-url origin` is `https://github.com/day8/re-frame2`. Treat that local pinned `MIGRATION.md` as the contract — do not fetch the doc from GitHub at runtime.*
 >
-> *Phase 2 — Apply M-0. Swap `re-frame/re-frame` for `day8/re-frame2` + the substrate-adapter coord (`day8/re-frame2-reagent` for Reagent). Then **stop**. Run a compile (`shadow-cljs compile <build>` or `clj -M:dev` or whatever the project's equivalent is). If it compiles, run the tests. Most codebases require no other changes — verify that before doing more work.*
+> *Target v2 version (load-bearing). The v2 release I want to land on is `<v2-version>`. Use that exact string in every dep coord. Do not auto-select "latest from GitHub"; if `<v2-version>` is unset, stop and ask me.*
+>
+> *Phase 1 — Orient. Read the dep file (whichever exists: `deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), confirm we're actually on `re-frame/re-frame` today, and identify the substrate (assume Reagent unless the codebase shows otherwise). Then load the pinned [`MIGRATION.md`](../../../spec/MIGRATION.md) from the local checkout above and skim Part 1's rule index so you know what's available.*
+>
+> *Phase 2 — Apply M-0. Swap `re-frame/re-frame` for `day8/re-frame2` + the substrate-adapter coord (`day8/re-frame2-reagent` for Reagent), at `<v2-version>`. Then **stop**. Print the exact compile command for this project's build tool (`shadow-cljs compile <build>`, `clj -M:dev`, the npm script — whatever fits) and ask me to run it and paste the output. Do **not** run compile/test/smoke commands yourself — that's my loop, not yours (see cardinal rule 10). If the compile is clean, ask me to run the tests. Most codebases require no other changes — verify that before doing more work.*
 >
 > *Phase 3 — If anything broke. Sweep the failures against the M-rules in [`MIGRATION.md`](../../../spec/MIGRATION.md), in the order they're listed. Apply Type A (mechanical) rules without asking. For Type B (judgment-call) rules, identify every affected call site, explain the risk the rule documents, and **wait for my approval** before rewriting. Cite the rule id (`M-N`) for every change.*
 >
-> *Phase 4 — Re-verify. Re-compile, re-run tests, smoke-test the running app. Iterate until everything passes.*
+> *Phase 4 — Re-verify. Print the re-compile / re-test / smoke-test commands; I run them and paste the output. Iterate until everything passes. The skill never invokes build/test commands itself.*
 >
 > *Phase 5 — Do NOT apply opt-in modernisations (the `O-N` rules — `reg-view`, frames, schemas, state machines, ...) unless I explicitly ask. The goal is "v1 code compiles and runs on v2," not "v1 code rewritten in v2 style."*
 >
