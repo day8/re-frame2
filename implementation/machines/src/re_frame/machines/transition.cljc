@@ -1102,8 +1102,20 @@
         (when hit
           {:transition (assoc hit :decl-path prefix) :decl-path prefix})))))
 
-(def ^:private always-depth-limit-default 16)
-(def ^:private raise-depth-limit-default  16)
+(def ^:private always-depth-limit-default
+  ;; Per Spec 005 §Drain semantics: bounds the `:always` microstep loop
+  ;; (each iteration drains every match leaf→root). 16 leaves plenty of
+  ;; headroom for legitimate cascades while still catching `:always`
+  ;; loops within a single macrostep. Overridable per machine via
+  ;; `:always-depth-limit`.
+  16)
+
+(def ^:private raise-depth-limit-default
+  ;; Per Spec 005 §Drain semantics: bounds the recursive `:raise` queue
+  ;; drain. Symmetric with `always-depth-limit-default` — 16 is generous
+  ;; for hand-authored event-chains and catches accidental cycles.
+  ;; Overridable per machine via `:raise-depth-limit`.
+  16)
 
 ;; Forward-declared so `drain-raises` can call `machine-transition-single`
 ;; directly. The recursive `:raise` step is always against an already-
