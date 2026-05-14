@@ -12,23 +12,17 @@
  * slot carrying the canonical `:failure :kind` category keyword.
  *
  * Observation surface — the testbed routes seven of eight failure
- * categories through `:rf.http/managed-canned-failure` (Spec 014
- * §Testing). The framework emits `:rf.fx/handled` on the trace bus
- * for every fx call (per `re-frame.fx`'s `trace/emit!` line 294), so
- * a canned-failure click produces ONE `:rf.fx/handled` trace event
- * whose `:tags :fx-id` is `:rf.http/managed-canned-failure`. The
- * configured `:kind` rides through the reply payload to the
- * dispatched handler, which writes it onto app-db; the substrate
- * re-renders the `[data-testid="failure-kind"]` mirror.
- *
- * Trace surface vs. README claim — the testbed README aspirationally
- * lists `:rf.http/dispatched` / `:rf.http/<kind>` as the emitted
- * trace events. In the current implementation, only the LIVE
- * failure path (`re-frame.http-transport/finalise-failure!`) emits
- * `:operation (:kind failure)` via `trace/emit-error!` — the
- * canned-failure stub bypasses that path. The cross-cutting
- * observable that survives both code paths is the
- * (fx → reply → mirror) round-trip, which is what we assert.
+ * categories through `:http-toggle/canned-failure-with-trace` (a
+ * per-testbed wrapper around `:rf.http/managed-canned-failure` that
+ * replays the live failure path's `trace/emit-error!` emit; see
+ * rf2-3g16l). Every failure click produces a category-attributed
+ * `:operation :rf.http/<kind>` error-trace event whose `:tags :kind`
+ * matches the dropdown selection — the same shape the live path's
+ * `re-frame.http-transport/finalise-failure!` emits before
+ * dispatching the reply. The reply payload also rides through to the
+ * dispatched handler, which writes the category keyword onto app-db;
+ * the substrate re-renders the `[data-testid="failure-kind"]`
+ * mirror.
  *
  * Categories exercised — drive THREE categories that span the
  * classification surface: `:rf.http/http-4xx` (status-before-decode,
@@ -80,22 +74,27 @@ module.exports = {
       await outcomeSelect.selectOption({ value: optionValue });
       await goButton.click();
 
-      // ---- Trace-bus contract — fx-handled with canned-failure fx ---
-      // Every fx fires `:rf.fx/handled` per `re-frame.fx`. The testbed
-      // routes failures through `:rf.http/managed-canned-failure`, so
-      // a trace event with `:operation :rf.fx/handled` and
-      // `:fx-id :rf.http/managed-canned-failure` MUST land in the
-      // buffer for THIS click. That single event carries the request's
-      // `:kind` in its `:fx-args` slot — category attribution survives
-      // the fx-walk boundary.
+      // ---- Trace-bus contract — category-attributed error trace ----
+      // The per-testbed wrapper fx
+      // (`:http-toggle/canned-failure-with-trace`) emits a single
+      // `:operation :rf.http/<kind>` error-trace event before
+      // delegating to the framework canned stub — same shape the live
+      // failure path's `finalise-failure!` emits. Asserting on this
+      // event directly proves end-to-end category attribution on the
+      // trace bus (the canonical Spec 009 observable), not via the
+      // generic `:rf.fx/handled` proxy.
+      const expectedOperation = new RegExp(
+        `:operation\\s+${failureKind.replace(/\./g, '\\.')}`,
+      );
       await pollUntil(async () => {
         const probe = await readTraceEventsAsEdn(page);
         if (!probe.ok) throw new Error(`could not read trace bus: ${probe.reason}`);
         return probe.events.find((s) =>
-          /:operation\s+:rf\.fx\/handled/.test(s) &&
-          /:fx-id\s+:rf\.http\/managed-canned-failure/.test(s),
+          /:op-type\s+:error/.test(s) &&
+          expectedOperation.test(s) &&
+          new RegExp(`:kind\\s+${failureKind.replace(/\./g, '\\.')}`).test(s),
         );
-      }, `:rf.fx/handled trace event for :rf.http/managed-canned-failure after ${optionValue} Go click`, 10000);
+      }, `:operation ${failureKind} error trace after ${optionValue} Go click`, 10000);
 
       // ---- Reply contract — DOM mirror lands at the same category ---
       // The handler's `(:rf/reply msg)` branch reads

@@ -36,21 +36,32 @@ origin. No CI environment refuses it.
 
 ## Trace shape per click (per [spec/009 §:op-type vocabulary](../../spec/009-Instrumentation.md))
 
-The `:rf.http/managed` envelope emits a sequence of `:rf.http/*` trace
-events through the request lifecycle. Per Spec 014 §Trace events, the
-consumer sees at least:
+Every failure click emits one category-attributed error-trace event
+whose `:operation` is the failure `:kind`, matching the live failure
+path's emit from `re-frame.http-transport/finalise-failure!`:
 
 ```
-:rf.http/dispatched            ;; request issued
-:rf.http/<success | failure>   ;; reply received
-:rf.http/<:kind from above>    ;; the category tag, e.g. :rf.http/http-4xx
+:operation :rf.http/<:kind>    ;; :op-type :error, e.g. :rf.http/http-4xx
+                               ;; :tags {:kind :rf.http/<kind>
+                               ;;        :request-id ...
+                               ;;        :url ...
+                               ;;        :recovery :no-recovery
+                               ;;        + category-specific tags}
 ```
+
+For the seven canned-failure outcomes, the per-testbed
+`:http-toggle/canned-failure-with-trace` fx replays this emit before
+delegating to the framework's `:rf.http/managed-canned-failure` stub
+(see [rf2-3g16l](../../../.beads) — the framework stub bypasses
+`trace/emit-error!`, so the testbed wraps it to preserve the live
+path's contract). The successful `:success` outcome rides the live
+transport path and emits no error trace.
 
 The category-attribution scenario in rf2-fe84r reads: *"HTTP failure
 cascade visible as ordered `:rf.http/*` with category attribution"* —
 this testbed walks one outcome per dropdown entry, so the consumer's
 spec can iterate the dropdown values and assert each emits its expected
-`:kind` tag.
+`:kind` tag directly on the trace bus.
 
 ## What's deliberately *missing*
 
