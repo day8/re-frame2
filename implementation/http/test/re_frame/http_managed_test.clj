@@ -11,6 +11,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
@@ -527,6 +528,78 @@
       (let [db (await-reply! #(some? (:result %)) 2000)]
         (is (= :success (get-in db [:result :kind])))
         (is (= [:hello :world] (get-in db [:result :value])))))))
+
+;; ---- 11b. canned-stub fxs gate on interop/debug-enabled? (rf2-ga3pv) ------
+;;
+;; Round-2 audit finding 5.4: http_managed.cljc:154 gates the canned-stub
+;; fx registrations on `interop/debug-enabled?`. On CLJS+advanced+
+;; goog.DEBUG=false the entire (when ...) body DCEs — fx-id keyword
+;; string fragments, doc strings, and handler var references all elide.
+;; The CLJS elision contract is already pinned by sentinels in
+;; scripts/check-elision.cjs (lines 102-116) which grep the production
+;; bundle for `rf.http/managed-canned-success` /
+;; `rf.http/managed-canned-failure`.
+;;
+;; This JVM-side test pins the GATE BEHAVIOUR directly — the
+;; complementary assertion to the bundle grep. It flips
+;; `interop/debug-enabled?` to false, clears + reloads
+;; `re-frame.http-managed`, and asserts the canned-stub fxs are NOT
+;; registered while the production-eligible `:rf.http/managed` and
+;; `:rf.http/managed-abort` ARE registered. A regression that moved the
+;; canned stubs outside the gate (or registered an additional dev-only
+;; fx without gating it) would fail here long before a CLJS bundle build
+;; could surface it.
+;;
+;; The fixture's `(require 're-frame.http-managed :reload)` restores
+;; the standard registrations between tests, so this test is hermetic.
+
+(deftest canned-stub-fxs-elide-when-debug-disabled
+  (testing "rf2-ga3pv — gate behaviour: under (binding [debug-enabled? false])
+            the canned-stub fx registrations do NOT happen. Production-
+            eligible :rf.http/managed and :rf.http/managed-abort still do."
+    (try
+      ;; Clear the registry so we're observing a fresh load.
+      (registrar/clear-all!)
+      ;; Flip the gate. interop/debug-enabled? is a plain `def`, so we
+      ;; alter-var-root to rebind for the duration of the namespace load.
+      (alter-var-root #'interop/debug-enabled? (constantly false))
+      ;; Force the http-managed ns body to re-evaluate so its load-time
+      ;; (when interop/debug-enabled? ...) gate reads the new value.
+      (require 're-frame.http-managed :reload)
+      ;; The two production-eligible fxs MUST be registered regardless of
+      ;; the gate — they are user-facing per Spec 014.
+      (is (some? (registrar/lookup :fx :rf.http/managed))
+          ":rf.http/managed is dev+prod — registered regardless of debug-enabled?")
+      (is (some? (registrar/lookup :fx :rf.http/managed-abort))
+          ":rf.http/managed-abort is dev+prod — registered regardless of debug-enabled?")
+      ;; The canned-stub fxs MUST NOT be registered when the gate is false
+      ;; — this is the load-bearing assertion for prod-bundle isolation.
+      (is (nil? (registrar/lookup :fx :rf.http/managed-canned-success))
+          ":rf.http/managed-canned-success MUST NOT be registered under debug-enabled? false")
+      (is (nil? (registrar/lookup :fx :rf.http/managed-canned-failure))
+          ":rf.http/managed-canned-failure MUST NOT be registered under debug-enabled? false")
+      (finally
+        ;; Restore the gate so the fixture's subsequent reload re-registers
+        ;; the canned stubs for the rest of the suite.
+        (alter-var-root #'interop/debug-enabled? (constantly true))
+        (require 're-frame.http-managed :reload)))))
+
+(deftest canned-stub-fxs-registered-under-debug-true
+  (testing "rf2-ga3pv companion — under debug-enabled? true (the default,
+            and the only value on JVM in production use) BOTH canned-stub
+            fxs are registered. This is the methodology check: the
+            negative assertion above would be vacuous if the gate-true
+            case didn't actually register the stubs."
+    ;; The standard fixture has just (require ...:reload)'d so debug-
+    ;; enabled? is true and the canned stubs are registered. Assert both
+    ;; are present so a refactor that mistakenly dropped a registration
+    ;; couldn't silently turn the elision assertion into a vacuous pass.
+    (is (true? interop/debug-enabled?)
+        "JVM baseline — debug-enabled? is true")
+    (is (some? (registrar/lookup :fx :rf.http/managed-canned-success))
+        ":rf.http/managed-canned-success registered under debug-enabled? true")
+    (is (some? (registrar/lookup :fx :rf.http/managed-canned-failure))
+        ":rf.http/managed-canned-failure registered under debug-enabled? true")))
 
 ;; ---- 12. decode reflection metadata ---------------------------------------
 
