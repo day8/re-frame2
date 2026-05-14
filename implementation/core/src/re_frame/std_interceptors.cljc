@@ -42,12 +42,11 @@
                       (get-in (:db (:coeffects ctx)) path-vec))))
       :after
       (fn [ctx]
-        ;; Per rf2-rwlj2: the splice-back only fires when the handler
-        ;; actually emitted a `:db` effect. If the handler returned no
-        ;; `:db`, the slice didn't change and we MUST NOT synthesise a
-        ;; `:db` effect — downstream tools rely on "no `:db` effect = no
-        ;; DB write" (the docstring contract). The original code
-        ;; unconditionally wrote `:db`, which was idempotent at the
+        ;; The splice-back only fires when the handler actually emitted
+        ;; a `:db` effect. If the handler returned no `:db`, the slice
+        ;; didn't change and we MUST NOT synthesise a `:db` effect —
+        ;; downstream tools rely on "no `:db` effect = no DB write" (the
+        ;; docstring contract). Synthesising would be idempotent at the
         ;; value level (same `original-db` re-spliced with the same
         ;; pre-handler slice) but allocated a fresh map per path-walk-
         ;; step and produced a spurious `:db` effect from a no-`:db`

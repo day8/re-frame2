@@ -1,5 +1,5 @@
 (ns re-frame.source-coords.editor-uri
-  "Build an 'open in editor' URI from a source-coord map (per rf2-evgf5).
+  "Build an 'open in editor' URI from a source-coord map.
 
   Tools that surface a `{:file :line :column :ns}` source-coord — Story's
   variant canvas, Story's per-test failure detail, Causa's event-detail
@@ -46,7 +46,7 @@
 
   Source-coord `:file` is what the macro layer captured at registration
   time. Under CLJS it's typically `\"path/to/file.cljs\"` relative to the
-  classpath root (resolved via the form-meta `:file` slot, per rf2-mdjp).
+  classpath root (resolved via the form-meta `:file` slot).
   The editor opens the file from disk, so the URI must carry a path the
   editor's resolver can find.
 

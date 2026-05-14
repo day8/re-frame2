@@ -188,8 +188,8 @@
           ;; runtime's emit sites to consult (per the in-chain
           ;; emits listed in the with-redacted docstring above).
           ;;
-          ;; Per rf2-isdwf: also force `:sensitive? true` for the
-          ;; rest of this handler's scope. The interceptor itself
+          ;; Also force `:sensitive? true` for the rest of this
+          ;; handler's scope. The interceptor itself
           ;; runs INSIDE the event-handler's `*handler-scope*`
           ;; binding (router.cljc binds before the chain runs), so
           ;; we can't `binding`-shadow it here. Instead we stash a

@@ -82,8 +82,8 @@
   `*file*` arg when non-sentinel, else `nil` (caller `cond->`s it in,
   so nil means omit the slot).
 
-  Per rf2-mdjp: the CLJS analyzer never binds Clojure's `*file*` during
-  macro expansion, so reading `*file*` alone returns the JVM
+  The CLJS analyzer never binds Clojure's `*file*` during macro
+  expansion, so reading `*file*` alone returns the JVM
   `\"NO_SOURCE_PATH\"` sentinel under CLJS. Form-meta `:file` is the
   portable answer."
   [form-meta file]
@@ -102,7 +102,7 @@
   data the caller splices into its expansion.
 
   :file picks the form-meta value over `*file*` and rejects the
-  `\"NO_SOURCE_PATH\"` sentinel per `resolve-file` (rf2-mdjp)."
+  `\"NO_SOURCE_PATH\"` sentinel via `resolve-file`."
   [form-meta file ns-sym]
   (let [chosen-file (resolve-file form-meta file)]
     `(cond-> {:ns '~ns-sym}
@@ -110,9 +110,9 @@
        ~(:line form-meta)   (assoc :line ~(:line form-meta))
        ~(:column form-meta) (assoc :column ~(:column form-meta)))))
 
-;; ---- per-element spec stamping (rf2-8bp3) --------------------------------
+;; ---- per-element spec stamping -------------------------------------------
 ;;
-;; Per Spec 005 §Source-coord stamping (rf2-8bp3): the `reg-machine` macro
+;; Per Spec 005 §Source-coord stamping: the `reg-machine` macro
 ;; walks its literal machine-spec form at expansion time and produces a
 ;; per-element coord index keyed by **path through the spec**. Tools (pair,
 ;; 10x, IDE jump-to-source) read the index back via `(rf/handler-meta :event
@@ -142,9 +142,9 @@
   decorated (lists, vectors, maps, symbols) carry `:line` / `:column` from
   the source position. Returns nil when the form has no positional meta.
 
-  Per rf2-mdjp the same `:file` resolution as the call-site path applies:
-  prefer the reader-attached `:file` on the form's metadata over the
-  macro's `*file*` arg, and reject the `\"NO_SOURCE_PATH\"` sentinel."
+  The same `:file` resolution as the call-site path applies: prefer
+  the reader-attached `:file` on the form's metadata over the macro's
+  `*file*` arg, and reject the `\"NO_SOURCE_PATH\"` sentinel."
   [form ns-sym file]
   (let [m            (meta form)
         chosen-file  (resolve-file m file)]
@@ -167,9 +167,8 @@
   is private to this namespace and used only inside `walk-states-tree`
   and `walk-machine-spec`, both of which bind those three locals.
 
-  Per rf2-7bha1: hides the repetitive shape behind a single two-arg call
-  at every reference-site stamp, dropping ~45 LoC of nested `when-let`s
-  for a ~20 LoC macro+helpers definition."
+  Hides the repetitive shape behind a single two-arg call at every
+  reference-site stamp."
   [path form]
   `(when-let [c# (form-coords ~form ~'ns-sym ~'file)]
      (assoc! ~'acc ~path c#)))

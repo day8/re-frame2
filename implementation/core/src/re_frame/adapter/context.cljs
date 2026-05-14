@@ -22,8 +22,8 @@
        Provider/Consumer pairs do not interact. Putting the createContext
        call in a single shared ns guarantees identity.
 
-  Per rf2-3yij Decision 2: factored out of re-frame.views for the UIx
-  adapter to read."
+  Factored out of re-frame.views so every React-shaped adapter (UIx,
+  Helix) reads the same context object."
   (:require ["react" :as React]
             [re-frame.frame :as frame]
             [re-frame.trace :as trace]))
@@ -118,8 +118,7 @@
   site (`_currentValue`) was a shape `coerce-context-value` cannot
   resolve to a frame keyword — typically nil, false, a number, an
   empty string, or a JS object. Recovery is `:replaced-with-default`:
-  the resolution chain falls through to `:rf/default` (current
-  observable behaviour preserved). Per rf2-8q66."
+  the resolution chain falls through to `:rf/default`."
   [v]
   (trace/emit-error! :rf.error/frame-context-corrupted
                      {:received v

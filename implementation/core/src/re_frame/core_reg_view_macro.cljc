@@ -5,17 +5,15 @@
   Spec 005 §Source-coord stamping, Spec 002 §with-frame / §bound-fn /
   §`:fx-overrides`, Spec 014 §Testing.
 
-  Carved out of `re-frame.core` per rf2-4rnui so the public namespace
-  stays under the 250-LoC leaf ceiling (rf2-zkca8). The user-facing
-  `defmacro reg-view` / `with-frame` / etc. shells live in
-  `re-frame.core` itself (they MUST, so `rf/reg-view` resolves alias-
-  qualified per Clojure's standard `ns-alias/Var` lookup); each shell
-  is a one-line call into the matching `expand-…` plain fn here.
+  Carved out of `re-frame.core` so the public namespace stays under
+  the 250-LoC leaf ceiling. The user-facing `defmacro reg-view` /
+  `with-frame` / etc. shells live in `re-frame.core` itself (they MUST,
+  so `rf/reg-view` resolves alias-qualified per Clojure's
+  `ns-alias/Var` lookup); each shell is a one-line call into the
+  matching `expand-…` plain fn here.
 
   The expander helpers stay plain CLJ fns so CLJS test files can also
-  exercise them JVM-side.
-
-  File naming uses the flat dash-form (per rf2-2vbm)."
+  exercise them JVM-side."
   (:require [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -77,11 +75,11 @@
      form does not reference `*ns*` / `*file*` at runtime (required for
      CLJS, where `cljs.core/*ns*` is nil at runtime).
 
-     Per rf2-yfbx: when reagent-slim is on the classpath the body is
-     classified (Form-1 / Form-2) at expansion time and the wrapper fn
-     is stamped with `^{:reagent2/form ...}` meta — an additive perf
-     hint; the runtime detection in `reagent2.impl.component/wrap-
-     render` remains load-bearing for correctness."
+     When reagent-slim is on the classpath the body is classified
+     (Form-1 / Form-2) at expansion time and the wrapper fn is stamped
+     with `^{:reagent2/form ...}` meta — an additive perf hint; the
+     runtime detection in `reagent2.impl.component/wrap-render` remains
+     load-bearing for correctness."
      [form-meta current-ns-sym current-file sym more]
      (let [parsed   (parse-reg-view-args more)
            sym-meta (or (meta sym) {})

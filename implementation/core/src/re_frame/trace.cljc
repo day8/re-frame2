@@ -263,9 +263,9 @@
                   (or (nil? between-t0)
                       (and (number? (:time ev))
                            (<= between-t0 (:time ev) between-t1)))
-                  ;; Per rf2-isdwf: top-level `:sensitive?` is hoisted
-                  ;; (NOT nested under :tags). Match against the
-                  ;; top-level slot only; absent reads as false.
+                  ;; Top-level `:sensitive?` is hoisted (NOT nested
+                  ;; under `:tags`). Match against the top-level slot
+                  ;; only; absent reads as false.
                   (or (nil? sensitive-filter)
                       (= (true? sensitive-filter)
                          (true? (:sensitive? ev))))
