@@ -351,6 +351,70 @@
               (str (.getName file) " (" substrate ") requires " target-ns
                    " but no source file found under implementation/core/src/")))))))
 
+;; --- scratch.cljs with-frame shape audit (rf2-ah0gi) -----------------------
+;;
+;; The emitted dev/scratch.cljs is the user's REPL on-ramp. Any
+;; `(rf/with-frame …)` call in the (comment …) block MUST use Shape 1
+;; (a keyword) or Shape 2 (a 2-elem `[sym expr]` vector) per Spec 002
+;; §with-frame and the macro definition at
+;; `implementation/core/src/re_frame/core_reg_view_macro.cljc`. A map
+;; first-arg (or any other literal) falls through to Shape 1 and binds
+;; `*current-frame*` to a non-frame value — runtime breaks far from
+;; the call site. The audit walks every `with-frame` form in scratch
+;; and asserts the first-arg shape.
+
+(defn- with-frame-call?
+  "True when `form` is `(rf-or-alias/with-frame …)` — covers both
+  alias-qualified (`rf/with-frame`) and bare (`with-frame`) usage."
+  [form]
+  (and (seq? form)
+       (symbol? (first form))
+       (= "with-frame" (name (first form)))))
+
+(defn- valid-with-frame-first-arg?
+  "Shape 1 = keyword; Shape 2 = 2-elem [sym expr] vector. Anything
+  else is the bug rf2-ah0gi found."
+  [arg]
+  (or (keyword? arg)
+      (and (vector? arg)
+           (= 2 (count arg))
+           (symbol? (first arg)))))
+
+(defn- collect-with-frame-calls
+  "Walk `forms` and return every `(with-frame …)` call form, including
+  those nested inside `(comment …)` blocks (which is where the emitted
+  scratch ns puts its examples)."
+  [forms]
+  (let [acc (volatile! [])]
+    (walk/postwalk
+      (fn [x]
+        (when (with-frame-call? x)
+          (vswap! acc conj x))
+        x)
+      forms)
+    @acc))
+
+(defn- assert-scratch-with-frame-shape!
+  [substrate ^java.io.File root]
+  (let [scratch (io/file root "dev/scratch.cljs")]
+    (is (.isFile scratch)
+        (str "dev/scratch.cljs emitted for " substrate))
+    (let [forms (read-cljs-forms scratch)
+          calls (collect-with-frame-calls forms)]
+      (is (seq calls)
+          (str "scratch.cljs (" substrate
+               ") contains at least one (with-frame …) example — "
+               "the REPL on-ramp should demonstrate the shape"))
+      (doseq [call calls]
+        (let [first-arg (second call)]
+          (is (valid-with-frame-first-arg? first-arg)
+              (str "scratch.cljs (" substrate ") (with-frame "
+                   (pr-str first-arg) " …) — first arg must be a "
+                   "keyword (Shape 1) or a 2-elem [sym expr] vector "
+                   "(Shape 2). Per Spec 002 §with-frame, anything "
+                   "else binds *current-frame* to a non-frame "
+                   "value and breaks downstream dispatch/subscribe.")))))))
+
 (defn- run-for-substrate!
   [substrate]
   (let [tmp  (tmp-dir (str "rf2-emission-" (name substrate) "-"))
@@ -358,10 +422,12 @@
     (try
       (let [proj (run-template! tmp "acme/my-app" substrate)]
         (assert-events-test-shape! substrate proj)
+        (assert-scratch-with-frame-shape! substrate proj)
         (doseq [rel ["test/acme/my_app/events_test.cljs"
                      "src/acme/my_app/events.cljs"
                      "src/acme/my_app/subs.cljs"
-                     "src/acme/my_app/views.cljs"]]
+                     "src/acme/my_app/views.cljs"
+                     "dev/scratch.cljs"]]
           (audit-framework-surface! substrate (io/file proj rel) root)))
       (finally
         (delete-recursively tmp)))))
