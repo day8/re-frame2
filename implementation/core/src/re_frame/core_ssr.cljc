@@ -1,23 +1,7 @@
 (ns re-frame.core-ssr
   "Public-API wrappers for the optional SSR artefact (Spec 011).
-  Implementation ships in `day8/re-frame2-ssr` (`re-frame.ssr` ns)
-  per rf2-uo7v.
-
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
-
-  Per-feature carve-out: the SSR artefact pulls the hiccup → HTML
-  emitter, the FNV-1a render-tree-hash machinery, the per-request HTTP
-  response accumulator (a framework-private side-channel atom per
-  rf2-jbcmt), the six `:rf.server/*` fxs, the `reg-error-projector`
-  registry kind plus its default, the `:rf/hydrate` event, and every
-  `:rf.ssr/*` / `:rf.server/*` keyword string — none of which appear
-  on a consumer's classpath when this wrapper's hooks are unregistered.
-
-  Per rf2-h824v the wrappers below are emitted by the
-  `re-frame.core-artefact/defwrapper` factory from a declarative table —
-  one row per public surface."
+  Implementation ships in `day8/re-frame2-ssr` (`re-frame.ssr`).
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 

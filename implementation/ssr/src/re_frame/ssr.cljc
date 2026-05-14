@@ -1,44 +1,18 @@
 (ns re-frame.ssr
   "Server-side rendering and hydration. Per Spec 011.
 
-  Public façade for the day8/re-frame2-ssr artefact (rf2-uo7v, sixth
-  per-feature split per rf2-5vjj Strategy B). Per Spec 006 §Adapter
-  shipping convention — this artefact depends on core; core never
-  depends on this artefact. The cross-references from core to ssr flow
-  through `re-frame.late-bind`.
+  Public façade for the day8/re-frame2-ssr artefact. Per Spec 006
+  §Adapter shipping convention — this artefact depends on core; core
+  never depends on this artefact. Cross-references from core to ssr
+  flow through `re-frame.late-bind`.
 
-  ---- file split (rf2-gxgo7) ----
-
-  Pre-split this namespace was 1380 LoC carrying seven independent
-  concerns enumerated by its own `;; ----` banners. It's now a thin
-  façade over eight flat sub-namespaces:
-
-    - `re-frame.ssr.emit`            — hiccup → HTML emitter,
-                                       `render-to-string`, source-coord
-                                       annotation, substrate-adapter
-                                       wire-up.
-    - `re-frame.ssr.hash`            — `canonical-edn`, `fnv-1a-32`,
-                                       `render-tree-hash`.
-    - `re-frame.ssr.adapter`         — the SSR adapter map + helpers.
-    - `re-frame.ssr.hydrate`         — `:rf/hydrate` handler + the two
-                                       `:rf.ssr/check-*` fx handlers
-                                       (rf2-69ad2), `verify-hydration!`.
-    - `re-frame.ssr.response`        — response accumulator + handler
-                                       fns for the six `:rf.server/*` fxs.
-    - `re-frame.ssr.error-projector` — projector registry + default +
-                                       `project-error`.
-    - `re-frame.ssr.error-listener`  — trace listener + per-frame buffer
-                                       + drain + `get-response`.
-    - `re-frame.ssr.request`         — `request-slots`, set/get/clear
-                                       helpers, `on-frame-destroyed!`,
-                                       the `:rf.server/request` cofx
-                                       handler.
-
-  All `reg-fx` / `reg-cofx` / `reg-event-fx` / `reg-error-projector` /
-  `register-trace-cb!` side-effects fire HERE so a
-  `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)` —
-  the canonical test-fixture reset shape — re-installs every
-  registration. Sub-namespaces export pure handler fns only.
+  Façade over eight flat sub-namespaces (`emit`, `hash`, `adapter`,
+  `hydrate`, `response`, `error-projector`, `error-listener`,
+  `request`). All `reg-fx` / `reg-cofx` / `reg-event-fx` /
+  `reg-error-projector` / `register-trace-cb!` side-effects fire HERE
+  so `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`
+  re-installs every registration. Sub-namespaces export pure handler
+  fns only.
 
   Implements:
     - Pure hiccup → HTML emitter (HTML5 void elements, doctype prefix,

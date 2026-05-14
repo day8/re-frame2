@@ -11,41 +11,15 @@
   views; use a flow only if it must live in app-db for SSR / time-travel
   / inspector reasons.
 
-  ## Artefact (rf2-tfw3, fourth per-feature split per rf2-5vjj Strategy B)
+  Ships in `day8/re-frame2-flows`; entry points are published through
+  `re-frame.late-bind` so the core artefact's `re-frame.core` re-exports
+  reach them. Apps that don't register any flows don't pull the per-
+  frame flow registry, the topological-sort engine, the dirty-check
+  `last-inputs` map, or the post-drain `run-flows!` walker.
 
-  This namespace ships in `day8/re-frame2-flows`, separate from the
-  core artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
-  re-exports of `reg-flow` / `clear-flow`, and the `:rf.fx/reg-flow` /
-  `:rf.fx/clear-flow` runtime fxs in `re-frame.fx`, look this
-  namespace's entry points up via the `re-frame.late-bind` hook table —
-  loading this namespace publishes the hooks. Apps that don't register
-  any flows don't drag the per-frame flow registry, the topological-
-  sort engine, the dirty-check `last-inputs` map, or the post-drain
-  `run-flows!` walker onto the classpath.
-
-  ## Internal layout (rf2-mnu8z)
-
-  Per the rf2-zkca8 leaf-size ceiling the original 431-LoC monolith
-  was split along its three natural seams; this namespace is now the
-  public FAÇADE — it owns the post-drain evaluation walker, the fx-
-  call indirections, and the late-bind hook publications, and re-
-  exports the registry's public-surface symbols. The split is:
-
-    - `re-frame.flows.topo`     — pure Kahn's topological sort +
-      cycle-path extraction. Unit-testable in isolation, no atoms,
-      no traces.
-    - `re-frame.flows.registry` — per-frame `flows` + `last-inputs`
-      atoms, validation, `reg-flow` / `clear-flow`, the registrar
-      replacement-hook for hot-reload invalidation, and the
-      test-only `reset-flows!` / `reset-last-inputs!` resets.
-    - `re-frame.flows` (this)   — `evaluate-flow!` / `run-flows!`,
-      fx-call indirections, late-bind hook publication, and the
-      public re-export surface.
-
-  External consumers continue to reach every documented symbol at
-  `re-frame.flows/<name>` — production code via the late-bind hooks,
-  the per-artefact test fixtures via `re-frame.flows/flows` and
-  `(resolve 're-frame.flows/last-inputs)`."
+  Public façade over `re-frame.flows.topo` (pure Kahn's + cycle-path
+  extraction) and `re-frame.flows.registry` (per-frame `flows` +
+  `last-inputs` atoms, `reg-flow` / `clear-flow`)."
   (:require [re-frame.elision :as elision]
             [re-frame.flows.registry :as registry]
             [re-frame.flows.topo :as topo]

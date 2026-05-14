@@ -15,48 +15,15 @@
   the active frame (`(frame/current-frame)`); `(reg-app-schema path
   schema {:frame frame-id})` registers explicitly.
 
-  Per Spec 010 §Non-Malli validators (rf2-froe) the validator and
-  explainer fns are pluggable via `set-schema-validator!` /
-  `set-schema-explainer!`. The default validator delegates to Malli
-  (`(resolve 'malli.core/validate)`); apps that want to opt out — to
-  drop the ~24 KB gzipped Malli surface measured in
-  findings/malli-bundle-cost-audit.md — register a different fn (or
-  `nil` for a hard no-op). The `:spec` value remains opaque to the
-  framework; only the registered validator interprets it.
+  Per Spec 010 §Non-Malli validators the validator/explainer fns are
+  pluggable via `set-schema-validator!` / `set-schema-explainer!`. The
+  default validator delegates to Malli; apps drop Malli by registering
+  a different fn (or `nil` for a hard no-op).
 
-  Per rf2-dgug5 the original 1247-LoC monolith was split along the
-  banner-line concerns the file's own opening docstring described:
-
-    - `re-frame.schemas.validator`      — pluggable validator/explainer
-      atoms + `set-schema-validator!` / `set-schema-explainer!` /
-      `reset-schema-validator!` / `run-validator` / `run-explainer`
-      (rf2-froe / rf2-t0hq).
-    - `re-frame.schemas.storage`        — per-frame schema registry
-      (`schemas-by-frame`, `reg-app-schema` / `reg-app-schemas`,
-      `app-schema-at` / `app-schema-meta-at` / `app-schemas`,
-      `frame-schema-entries`, snapshot/restore/clear). Per rf2-0frdi
-      this is the single source of truth — there is no registrar
-      `:app-schema` slot.
-    - `re-frame.schemas.walker`         — unified per-slot flag walker
-      (rf2-nwv63 / rf2-kj51z / rf2-oghml) parameterised on the flag
-      key, plus `extract-large-paths-from-schema`,
-      `extract-sensitive-paths-from-schema`, `schema-has-sensitive?`.
-    - `re-frame.schemas.elision-feeder` — per-frame `:large?` /
-      `:sensitive?` declaration aggregators + idempotent
-      `[:rf/elision]` populators (rf2-v9tw2 / rf2-c1l4d).
-    - `re-frame.schemas.digest`         — Spec 010 §Digest algorithm
-      and `app-schemas-digest`.
-    - `re-frame.schemas.validate`       — the five dev-time validation
-      entry points (`validate-event!` / `validate-cofx!` /
-      `validate-fx!` / `validate-app-db!` / `validate-sub-return!`)
-      and the production-side boundary-validation seam
-      (`validate-with-registered-fn` / `explain-with-registered-fn`).
-
-  This namespace is the public façade — it re-exports the symbols
-  every external consumer reaches through (tests, `re-frame.core-
-  schemas`, the late-bind hook table) and owns the late-bind hook
-  registration so consumer artefacts pick up the schemas surface
-  without statically requiring it."
+  Public façade over `re-frame.schemas.{validator,storage,walker,
+  elision-feeder,digest,validate}` — re-exports the symbols external
+  consumers reach through (tests, `re-frame.core-schemas`, the late-
+  bind hook table) and owns the late-bind hook publication."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.schemas.digest :as digest]
             [re-frame.schemas.elision-feeder :as elision-feeder]

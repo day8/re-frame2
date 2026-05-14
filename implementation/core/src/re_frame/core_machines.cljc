@@ -1,24 +1,13 @@
 (ns re-frame.core-machines
   "Public-API wrappers for the optional machines artefact (Spec 005).
-  Implementation ships in `day8/re-frame2-machines`
-  (`re-frame.machines` ns) per rf2-xbtj.
+  Implementation ships in `day8/re-frame2-machines` (`re-frame.machines`).
+  See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention).
 
-  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
-  look the producing fns up via the late-bind hook table at call time;
-  consumers reach the surfaces through `re-frame.core` re-exports.
-
-  Per-feature carve-out: the machines artefact pulls the machine
-  registry, the entry/exit cascade engine, and the `:rf/machine` /
-  `:rf/machine-has-tag?` framework subs — none of which appear on a
-  consumer's classpath when this wrapper's hooks are unregistered.
-
-  Per rf2-h824v the canonical late-bind wrappers below are emitted by
-  the `re-frame.core-artefact/defwrapper` factory. `reg-machine` /
-  `reg-machine*` keep a bespoke shape — they share the `:where`-symbol
-  parameter via `reg-machine-impl` so the macro and the plain-fn
-  surface raise with their own faithful `:where` symbol. Sugar fns
-  (`dispatch-to-system`, `sub-machine`, `has-tag?`) are not late-bind
-  surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
+  `reg-machine` / `reg-machine*` keep a bespoke shape (they share the
+  `:where`-symbol parameter via `reg-machine-impl` so the macro and the
+  plain-fn surface raise with their own faithful `:where` symbol). Sugar
+  fns (`dispatch-to-system`, `sub-machine`, `has-tag?`) are not late-
+  bind surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
             [re-frame.late-bind :as late-bind]

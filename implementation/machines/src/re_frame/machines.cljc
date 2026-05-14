@@ -1,13 +1,3 @@
-;; day8/re-frame2-machines — public façade for the state-machine
-;; artefact. Per Spec 005 §State machines.
-;;
-;; The implementation lives in `re-frame.machines.{transition, parallel,
-;; timer, lifecycle-fx}` (plus the `lifecycle_fx/*` sub-namespaces).
-;; This namespace re-exports their public surface and runs the
-;; artefact's load-time side-effects — registering the `:rf.machine/*`
-;; reserved fxs and publishing the `late-bind/set-fn!` hooks that
-;; `re-frame.core` reaches through.
-
 (ns re-frame.machines
   "State machines. Per Spec 005.
 
@@ -19,16 +9,15 @@
       depth-exceeded.
     - :after delayed transitions with per-machine :rf/after-epoch
       tracking; the synthetic :rf.machine.timer/after-elapsed event
-      fires the transition only when the carried epoch matches. Per
-      rf2-3y3y, `:after` delays admit three forms — pos-int? literal,
-      subscription vector ([:sub-id & args]; re-resolves on sub change),
-      and (fn [snapshot] ms) computed once at state entry.
+      fires the transition only when the carried epoch matches. `:after`
+      delays admit three forms — pos-int? literal, subscription vector
+      ([:sub-id & args]; re-resolves on sub change), and
+      (fn [snapshot] ms) computed once at state entry.
     - Declarative :invoke that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via a per-process counter.
-    - Declarative :invoke-all (rf2-6vmw) — spawn-and-join sugar over N
-      parallel :invoke's plus a join condition (:all / :any / {:n N} /
-      {:fn pred}).
+    - Declarative :invoke-all — spawn-and-join sugar over N parallel
+      :invoke's plus a join condition (:all / :any / {:n N} / {:fn pred}).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
     - Snapshot at [:rf/machines <id>] in app-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
@@ -44,22 +33,7 @@
     - `spawn-fx`, `invoke-all-init-fx` —
       `re-frame.machines.lifecycle-fx.spawn`
     - `destroy-machine-fx` — `re-frame.machines.lifecycle-fx.destroy`
-    - `after-schedule-fx`, `after-cancel-fx` — `re-frame.machines.timer`
-
-  Per rf2-zkca8.2 the former `re-frame.machines.lifecycle-fx` façade was
-  dissolved (façade-of-a-façade — its 5 def re-exports were re-exported
-  again from here, adding a hop without semantic value). The 3 query
-  fns it carried (`machines`, `machine-meta`, `machine-by-system-id`)
-  moved verbatim into this namespace where they belong on the public
-  artefact surface; the 5 def re-exports now reach directly to the
-  concrete leaves (`registration`, `spawn`, `destroy`). The 7 cohesive
-  leaves under `lifecycle_fx/` stand — each owns a Spec 005 surface.
-
-  Conformance fixtures cover all of the above (machine-transition,
-  hierarchical-{compound,cross-level,parent-fallthrough}-transition,
-  always-{single-microstep,depth-exceeded}, after-{single-delay,
-  stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit,
-  invoke-all-{join-all-completes,join-any-fails-cancels,n-of-cancels-extras})."
+    - `after-schedule-fx`, `after-cancel-fx` — `re-frame.machines.timer`"
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
