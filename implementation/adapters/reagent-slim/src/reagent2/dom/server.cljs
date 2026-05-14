@@ -247,29 +247,20 @@
 ;; so the SSR walker sees the same parsed shape the React walker does.
 ;; ---------------------------------------------------------------------------
 
-(defn- class-string
-  "Coerce a class-attribute value (string, keyword, coll) to its
-  HTML-string form."
-  [c]
-  (cond
-    (nil? c)  nil
-    (coll? c) (->> c (keep named->str) (str/join " "))
-    :else     (named->str c)))
-
 (defn- merge-shorthand
   "Merge HiccupTag's id/class shorthand into the user-supplied attrs.
   User :id wins over shorthand id; shorthand class is prepended to
   user :class (matches stock Reagent's behaviour). Returns nil when
-  the result has no entries (suppresses the empty `attrs` doseq)."
+  the result has no entries (suppresses the empty `attrs` doseq).
+
+  Class merging uses `template/class-names` (the same coercion the
+  React-element path uses) — both artefacts ship in the same bundle,
+  so deduplicating avoids drift on the keyword/coll/string handling."
   [parsed user-attrs]
   (let [id      (.-id parsed)
         s-class (.-className parsed)
         u-class-raw (or (:class user-attrs) (:className user-attrs))
-        u-class (class-string u-class-raw)
-        merged  (cond
-                  (and s-class u-class) (str s-class " " u-class)
-                  s-class                s-class
-                  :else                  u-class)
+        merged  (template/class-names s-class u-class-raw)
         base    (cond-> (or user-attrs {})
                   ;; Drop :className duplicate; we collapse into :class.
                   (contains? user-attrs :className) (dissoc :className))
