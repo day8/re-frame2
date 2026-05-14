@@ -276,3 +276,55 @@
           (is (= :rf.error/bad-diff-patches
                  (:rf.error/code (ex-data e)))
               "ex-info carries the reserved :rf.error/* code"))))))
+
+;; ---------------------------------------------------------------------------
+;; Decoder-boundary validation (rf2-8e61v / F17).
+;;
+;; `apply-patches` is the wire-decoder entry point. A malformed patch
+;; reaching this fn is a contract violation — the previous behaviour
+;; silently no-op'd on the offending tuple (fell through the `cond` to
+;; `:else acc` and dropped the corrupted patch without a peep). Mirror
+;; the encoder boundary's gate: validate against `patches-schema` and
+;; throw `:rf.error/bad-diff-patches`.
+;; ---------------------------------------------------------------------------
+
+(deftest apply-patches-rejects-malformed-tuples
+  (testing "missing op (2-element tuple with no op) throws"
+    ;; Pre-fix: silently no-op'd because the destructure put `nil` in
+    ;; `op` and the cond fell through to `:else acc`. Post-fix: the
+    ;; validate-patches! gate trips on the malformed tuple BEFORE the
+    ;; reduce starts.
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"diff-encode patch grammar violated"
+          (de/apply-patches {} [[[:a]]]))))
+  (testing "unknown op throws"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"diff-encode patch grammar violated"
+          (de/apply-patches {} [[[:a] :replace 1]]))))
+  (testing "non-vector path throws"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"diff-encode patch grammar violated"
+          (de/apply-patches {} [[:a :assoc 1]]))))
+  (testing "ex-info carries reserved :rf.error/bad-diff-patches code"
+    (try
+      (de/apply-patches {} [[[:a] :replace 1]])
+      (is false "expected throw")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/bad-diff-patches
+               (:rf.error/code (ex-data e))))))))
+
+(deftest apply-patches-well-formed-input-passes-validation
+  ;; Soft contract: well-formed patches pass the gate silently and
+  ;; produce the same output the pre-validation implementation did.
+  (is (= {:a 1 :b 2}
+         (de/apply-patches {:a 1} [[[:b] :assoc 2]])))
+  (is (= {:a 1}
+         (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))
+  (is (= []
+         (let [out (de/apply-patches {:a 1} [])]
+           ;; empty patches: identity passthrough
+           (is (= {:a 1} out))
+           []))))
