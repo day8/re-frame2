@@ -7,7 +7,8 @@
   multiple values under one name go via a vector. We collapse repeated
   pairs into vectors so multi-valued headers (Set-Cookie, Vary,
   Link, ...) round-trip correctly."
-  (:require [re-frame.ssr.ring.cookie :as cookie]))
+  (:require [clojure.string :as str]
+            [re-frame.ssr.ring.cookie :as cookie]))
 
 (set! *warn-on-reflection* true)
 
@@ -56,10 +57,21 @@
 (defn ensure-content-type
   "If the response's header pairs already declare Content-Type
   (case-insensitive), return them unchanged; otherwise append a
-  pair carrying `content-type`. Pure helper."
+  pair carrying `content-type`. Pure helper.
+
+  rf2-depii — the prior check looked up `\"content-type\"` /
+  `\"Content-Type\"` only, missing every other case variant
+  (`\"CONTENT-TYPE\"`, `\"CoNtEnT-TyPe\"`, …) the caller might supply.
+  An existing mixed-case header would slip past and the helper would
+  duplicate the Content-Type, breaking Ring's multi-valued-header
+  collapse downstream. We now lower-case every pair's name once and
+  scan the lower-cased set — true case-insensitive match per RFC 7230
+  §3.2 (header names are tokens; tokens are case-insensitive)."
   [pairs content-type]
-  (let [m (headers->ring-map pairs)]
-    (if (or (get m "content-type")
-            (get m "Content-Type"))
+  (let [has-ct? (some (fn [[k _v]]
+                        (= "content-type"
+                           (str/lower-case (str k))))
+                      pairs)]
+    (if has-ct?
       pairs
       (conj (vec pairs) ["Content-Type" content-type]))))
