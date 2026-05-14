@@ -115,17 +115,19 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
 ```clojure
 (def RegistrationMetadata
   [:map
-   [:doc       {:optional true} :string]                                   ;; SHOULD per [001 §:doc is dev-warned when absent]; structurally optional so re-registrations and programmatic paths still validate
-   [:spec      {:optional true} :any]                                      ;; Malli schema (or implementation equivalent)
-   [:ns        {:optional true} :symbol]                                   ;; auto-supplied by macros
-   [:line      {:optional true} :int]
-   [:file      {:optional true} :string]
-   [:tags      {:optional true} [:set :keyword]]                           ;; user-defined tags
-   [:platforms {:optional true} [:set [:enum :server :client]]]            ;; for reg-fx / reg-cofx; per [011](011-SSR.md)
+   [:doc        {:optional true} :string]                                  ;; SHOULD per [001 §:doc is dev-warned when absent]; structurally optional so re-registrations and programmatic paths still validate
+   [:spec       {:optional true} :any]                                     ;; Malli schema (or implementation equivalent)
+   [:ns         {:optional true} :symbol]                                  ;; auto-supplied by macros — flat per [§`:rf/source-coord-meta`](#rfsource-coord-meta)
+   [:line       {:optional true} :int]
+   [:column     {:optional true} :int]
+   [:file       {:optional true} :string]
+   [:tags       {:optional true} [:set :keyword]]                          ;; user-defined tags
+   [:platforms  {:optional true} [:set [:enum :server :client]]]           ;; for reg-fx / reg-cofx; per [011](011-SSR.md)
+   [:sensitive? {:optional true} :boolean]                                 ;; privacy flag — every reg-* accepts it; per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) and the `:sensitive?` registration-metadata key contract therein. When `true`, the runtime stamps `:sensitive? true` on every trace event whose in-scope handler carries the flag and listeners default-drop those events (per Spec 009).
    ])
 ```
 
-Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps that conform to RegistrationMetadata's open shape. Each kind has its own narrowed schema enumerated below — `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata` further below — and tools that need the per-kind shape look up the schema by registered id (e.g. via `(app-schema-at [:rf/event-handler-meta])`).
+Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps that conform to RegistrationMetadata's open shape. Each kind has its own narrowed schema enumerated below — `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, `:rf/http-interceptor-meta`, and the route-shaped `:rf/route-metadata` further below — and tools that need the per-kind shape look up the schema by registered id (e.g. via `(app-schema-at [:rf/event-handler-meta])`).
 
 `:doc` is `{:optional true}` in the schema but normatively SHOULD appear on every registration. The dev runtime surfaces missing-`:doc` registrations through `:rf.warning/missing-doc` (emitted at most once per `(kind, id)` pair; production-elided) — see [001 §`:doc` is dev-warned when absent](001-Registration.md#doc-is-dev-warned-when-absent) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) for the emission contract. The schema stays `{:optional true}` so programmatic re-registration paths and tooling that compose metadata maps without `:doc` still validate; the warning is the nudge, not a structural gate.
 
