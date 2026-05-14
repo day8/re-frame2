@@ -168,7 +168,7 @@
 (substrate-adapter/route-hook! adapter :adapter/ratom
   r/atom)
 (substrate-adapter/route-hook! adapter :adapter/ratom?
-  (fn ratom?-impl [x] (satisfies? ratom/IReactiveAtom ^js x))
+  (fn ratom?-impl [x] (satisfies? ratom/IReactiveAtom x))
   (constantly false))
 (substrate-adapter/route-hook! adapter :adapter/make-reaction
   ratom/make-reaction)
