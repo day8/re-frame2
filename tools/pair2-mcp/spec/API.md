@@ -71,6 +71,10 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 |---|---|---|
 | `SHADOW_CLJS_BUILD_ID` | `"app"` | Default build id passed to `cljs-eval`. Overridable per-op via the `build` argument. |
 | `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; takes precedence over port-file discovery. |
+| `RE_FRAME_PAIR2_MCP_MAX_STREAMS` | `10` | Max concurrent open streaming subscriptions per session (rf2-3ijbl). |
+| `RE_FRAME_PAIR2_MCP_MAX_EVENTS_PER_SEC` | `100` | Per-session rate-limit on progress-notification ticks (rf2-3ijbl). |
+| `RE_FRAME_PAIR2_MCP_ABUSE_OVERFLOW_THRESHOLD` | `50` | Overflow events over the rolling window beyond which a stream is terminated for abuse (rf2-3ijbl). |
+| `RE_FRAME_PAIR2_MCP_ABUSE_WINDOW_MS` | `10000` | Rolling-window length for abuse detection, in milliseconds (rf2-3ijbl). |
 
 ### Launch flags
 
@@ -78,22 +82,30 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 |---|---|---|
 | `--allow-eval`      | OFF | Enable the `eval-cljs` tool (rf2-cxx5s). Without the flag, `eval-cljs` calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
 | `--allow-raw-state` | OFF | Honour caller-supplied `:include-sensitive? true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). |
+| `--max-concurrent-streams=N` | `10` | Resource control: cap concurrent open streaming subscriptions per session (rf2-3ijbl). CLI value wins over the matching env var. |
+| `--max-events-per-sec=N` | `100` | Resource control: token-bucket rate-limit on progress-notification ticks emitted across all open streams (rf2-3ijbl). Excess ticks tally as `:rate-dropped` on the final summary. |
+| `--abuse-overflow-threshold=N` | `50` | Resource control: rolling-window overflow count beyond which the offending stream terminates with `:reason :rf.error/stream-abuse-detected` (rf2-3ijbl). |
+| `--abuse-window-ms=N` | `10000` | Resource control: abuse-detection window length in milliseconds (rf2-3ijbl). |
 
-Both flags pass after the binary name:
+Boolean flags + integer caps pass after the binary name:
 
 ```json
 {
   "mcpServers": {
     "re-frame-pair2": {
       "command": "re-frame-pair2-mcp",
-      "args": ["--allow-eval", "--allow-raw-state"]
+      "args": ["--allow-eval", "--allow-raw-state",
+               "--max-concurrent-streams=20",
+               "--max-events-per-sec=200"]
     }
   }
 }
 ```
 
 The normative contract for both gates lives in
-[`003-Tool-Catalogue.md` §Universal: server launch flags](./003-Tool-Catalogue.md#universal-server-launch-flags).
+[`003-Tool-Catalogue.md` §Universal: server launch flags](./003-Tool-Catalogue.md#universal-server-launch-flags);
+the resource-control caps live in
+[`003-Tool-Catalogue.md` §Universal: server resource controls](./003-Tool-Catalogue.md#universal-server-resource-controls-streaming-surfaces).
 
 ### nREPL port discovery
 

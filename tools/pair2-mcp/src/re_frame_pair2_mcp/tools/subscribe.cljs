@@ -50,7 +50,8 @@
             [re-frame-pair2-mcp.tools.dedup :as dedup]
             [re-frame-pair2-mcp.tools.elision :as elision]
             [re-frame-pair2-mcp.tools.sensitive :as sensitive]
-            [re-frame-pair2-mcp.tools.raw-state :as raw-state]))
+            [re-frame-pair2-mcp.tools.raw-state :as raw-state]
+            [re-frame-pair2-mcp.tools.resource-controls :as resource]))
 
 (def ^:private default-poll-ms 100)
 ;; `:max-buffered-events` / `:max-buffered-bytes` are NOT mirrored here
@@ -62,7 +63,14 @@
   "The rolling per-stream accounting map (rf2-w5etd). Held inside one
   atom for the lifetime of a `subscribe-tool` call; merged once per
   drain. Indicator slots (`:dropped-sensitive`, `:elided-large`) feed
-  `wire/with-indicators` at terminal-summary emit time."
+  `wire/with-indicators` at terminal-summary emit time.
+
+  rf2-3ijbl extends this with `:rate-dropped` — the count of ticks
+  the per-session rate-limit (resource-controls token bucket) silenced
+  to keep the wire under the operator-configured events/sec cap. The
+  count surfaces on the final summary so the operator can see whether
+  the cap was tripped (a signal to raise `--max-events-per-sec` or
+  to look at why a consumer is sending so much)."
   ;; :elided-large counts upstream-pre-elided markers per
   ;; Spec 009 §Indicator field (rf2-8cntr) — cumulative across drains.
   {:tick              0
@@ -71,7 +79,8 @@
    :dropped-bytes     0
    :overflow-reason   nil
    :dropped-sensitive 0
-   :elided-large      0})
+   :elided-large      0
+   :rate-dropped      0})
 
 (defn drain-produced-output?
   "Did this drain produce a tick the client should see? True iff the
@@ -144,15 +153,19 @@
 
 (defn final-summary
   "The terminal `ok-text` result emitted when the subscription ends —
-  client cancel, unsubscribe, max-events / max-ms hit, or sub-gone.
+  client cancel, unsubscribe, max-events / max-ms hit, sub-gone, or
+  abuse-detected (rf2-3ijbl).
 
   `state` is the deref'd rolling accumulators map (see
   `initial-state`); `wire/with-indicators` splices the
   `:dropped-sensitive` / `:elided-large` counters onto the envelope
-  per the cross-MCP indicator-field convention."
+  per the cross-MCP indicator-field convention. `:rate-dropped`
+  surfaces only when non-zero — same suppress-when-zero discipline
+  as the indicator-field MUSTs."
   [{:keys [sub-id topic state reason]}]
   (let [{:keys [tick delivered dropped-events dropped-bytes
-                overflow-reason dropped-sensitive elided-large]} state]
+                overflow-reason dropped-sensitive elided-large
+                rate-dropped]} state]
     (wire/ok-text
       (wire/with-indicators
         (cond-> {:ok?            true
@@ -164,7 +177,9 @@
                  :ticks          tick
                  :reason         reason}
           overflow-reason
-          (assoc :overflow-reason overflow-reason))
+          (assoc :overflow-reason overflow-reason)
+          (pos? (or rate-dropped 0))
+          (assoc :rate-dropped rate-dropped))
         {:dropped dropped-sensitive :elided elided-large}))))
 
 (defn emit-progress-tick!
@@ -258,26 +273,36 @@
   invoked.
 
   Both fns close over the same atom. `terminate` issues the
-  runtime-side `unsubscribe!`, then `resolve`s the outer `tools/call`
-  Promise with the final-summary envelope. `poll` runs the drain →
-  state-merge → progress-emit → reschedule cycle until termination
-  triggers (client abort, max-events reached, or sub-gone)."
+  runtime-side `unsubscribe!`, releases the resource-controls
+  stream slot (rf2-3ijbl — must run on EVERY exit path so the
+  concurrent-stream counter doesn't leak), then `resolve`s the outer
+  `tools/call` Promise with the final-summary envelope. `poll` runs
+  the drain → state-merge → progress-emit → reschedule cycle until
+  termination triggers (client abort, max-events reached, sub-gone,
+  or abuse-detected)."
   [{:keys [conn build-id sub-id topic resolve state
            signal send-note progress-tk poll-ms max-events
            incl? elision? dedup?]}]
-  (let [drain-src (drain-form sub-id elision? incl?)
+  (let [drain-src    (drain-form sub-id elision? incl?)
+        terminated?  (atom false)
         terminate
         (fn terminate [reason]
-          (-> (nrepl/cljs-eval-value
-                conn build-id
-                (ef/emit (ef/rt-call 'unsubscribe! sub-id)))
-              (.catch (fn [_] nil))
-              (.then
-                (fn [_]
-                  (resolve
-                    (final-summary
-                      {:sub-id sub-id :topic topic
-                       :state  @state :reason reason}))))))
+          ;; Idempotent: a double-fire (e.g. abuse-detected fires the
+          ;; same tick the max-events cap was reached) would otherwise
+          ;; release the resource slot twice and double-resolve the
+          ;; outer Promise. The atom guards the first-wins path.
+          (when (compare-and-set! terminated? false true)
+            (resource/release-stream!)
+            (-> (nrepl/cljs-eval-value
+                  conn build-id
+                  (ef/emit (ef/rt-call 'unsubscribe! sub-id)))
+                (.catch (fn [_] nil))
+                (.then
+                  (fn [_]
+                    (resolve
+                      (final-summary
+                        {:sub-id sub-id :topic topic
+                         :state  @state :reason reason})))))))
         poll
         (fn poll []
           (cond
@@ -310,28 +335,104 @@
                                             :ov-reason   ov-reason
                                             :dropped     dropped
                                             :tick-elided tick-elided}
-                            s'             (swap! state merge-drain drain-delta)]
-                        (when (drain-produced-output? drain-delta)
-                          (when (and send-note progress-tk)
-                            (emit-progress-tick!
-                              {:send-note   send-note
-                               :progress-tk progress-tk
-                               :sub-id      sub-id}
-                              dedup?
-                              {:tick         (:tick s')
-                               :dedup-events (dedup/dedup-value evts dedup?)
-                               :ev-dropped   ev-dropped
-                               :by-dropped   by-dropped
-                               :ov-reason    ov-reason
-                               :dropped      dropped
-                               :tick-elided  tick-elided})))
-                        (js/setTimeout poll poll-ms)))))
+                            tick?          (drain-produced-output? drain-delta)
+                            ;; rf2-3ijbl — per-session rate-limit gate. The
+                            ;; token bucket holds at most `max-events-per-sec`
+                            ;; tokens; one tick (= one progress notification)
+                            ;; consumes one token. When the bucket is empty
+                            ;; the tick is dropped silently and counted as
+                            ;; `:rate-dropped` on the final summary.
+                            allow?         (or (not tick?) (resource/check-rate!))]
+                        (if allow?
+                          (let [s' (swap! state merge-drain drain-delta)]
+                            (when (and tick? send-note progress-tk)
+                              (emit-progress-tick!
+                                {:send-note   send-note
+                                 :progress-tk progress-tk
+                                 :sub-id      sub-id}
+                                dedup?
+                                {:tick         (:tick s')
+                                 :dedup-events (dedup/dedup-value evts dedup?)
+                                 :ev-dropped   ev-dropped
+                                 :by-dropped   by-dropped
+                                 :ov-reason    ov-reason
+                                 :dropped      dropped
+                                 :tick-elided  tick-elided})))
+                          ;; Rate-dropped — tally and skip the emit. The
+                          ;; runtime-side queue still holds the events;
+                          ;; subsequent ticks drain them when tokens
+                          ;; refill.
+                          (swap! state update :rate-dropped inc))
+                        ;; rf2-3ijbl — abuse-detection: any drain that
+                        ;; reported a queue overflow contributes to the
+                        ;; session's rolling window. Sustained overflow
+                        ;; (the consumer can't keep up) terminates the
+                        ;; stream rather than churning forever.
+                        (if (and ov-reason
+                                 (= :abuse-detected (resource/record-overflow!)))
+                          (do (js/console.error
+                                (str "[pair2-mcp] stream abuse detected "
+                                     "(sub-id=" sub-id " topic=" topic
+                                     ") — sustained overflow exceeded threshold; "
+                                     "terminating."))
+                              (terminate :rf.error/stream-abuse-detected))
+                          (js/setTimeout poll poll-ms))))))
                 (.catch
                   (fn [_err]
                     ;; nREPL hiccup — back off and try again rather
                     ;; than collapsing the stream.
                     (js/setTimeout poll (* 2 poll-ms)))))))]
     {:state state :terminate terminate :poll poll}))
+
+(defn- run-acquired
+  "Drive the subscription lifecycle once the resource-controls
+  stream slot is reserved (rf2-3ijbl). Returns a Promise resolving to
+  the MCP tool result; on any pre-controller exit path the slot is
+  released here — the stream-controller's `terminate` only fires
+  AFTER `make-stream-controller` wires up, so failures before that
+  point need explicit release."
+  [{:keys [conn raw-args topic build-id filter-map max-buf-events
+           max-buf-bytes poll-ms max-ms max-events
+           incl? elision? dedup? signal send-note progress-tk]}]
+  (let [subscribe-form
+        (ef/emit
+          (ef/rt-call 'subscribe!
+                      ;; Only inline slots the caller actually
+                      ;; supplied — the runtime applies its own
+                      ;; defaults for absent budget knobs (rf2-ambfv).
+                      (cond-> {:topic topic}
+                        max-buf-events (assoc :max-buffered-events max-buf-events)
+                        max-buf-bytes  (assoc :max-buffered-bytes  max-buf-bytes)
+                        filter-map     (assoc :filter              filter-map))))]
+    (-> (probe/ensure-runtime! conn build-id)
+        (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
+        (.then (fn [_] (nrepl/cljs-eval-value conn build-id subscribe-form)))
+        (.then
+          (fn [subscribe-resp]
+            (if-not (:ok? subscribe-resp)
+              (do (resource/release-stream!)
+                  (wire/ok-text subscribe-resp))
+              (let [sub-id (:sub-id subscribe-resp)]
+                (js/Promise.
+                  (fn [resolve _reject]
+                    (let [{:keys [terminate poll]}
+                          (make-stream-controller
+                            {:conn        conn        :build-id    build-id
+                             :sub-id      sub-id      :topic       topic
+                             :resolve     resolve     :state       (atom initial-state)
+                             :signal      signal      :send-note   send-note
+                             :progress-tk progress-tk :poll-ms     poll-ms
+                             :max-events  max-events  :incl?       incl?
+                             :elision?    elision?    :dedup?      dedup?})]
+                      (when (pos? max-ms)
+                        (js/setTimeout #(terminate :max-ms-reached) max-ms))
+                      (poll))))))))
+        (.catch (fn [err]
+                  ;; Probe / signal-runtime / subscribe-eval failure —
+                  ;; controller never wired, so terminate's release
+                  ;; never fires. Release here.
+                  (resource/release-stream!)
+                  (probe/err->result :subscribe-failed err))))))
 
 (defn subscribe-tool [conn raw-args extra]
   (let [build-id           (wire/arg-build raw-args)
@@ -372,36 +473,17 @@
                         :hint  "Recognised topics: trace, epoch, fx, error."}))
 
       :else
-      (let [subscribe-form
-            (ef/emit
-              (ef/rt-call 'subscribe!
-                          ;; Only inline slots the caller actually
-                          ;; supplied — the runtime applies its own
-                          ;; defaults for absent budget knobs (rf2-ambfv).
-                          (cond-> {:topic topic}
-                            max-buf-events (assoc :max-buffered-events max-buf-events)
-                            max-buf-bytes  (assoc :max-buffered-bytes  max-buf-bytes)
-                            filter-map     (assoc :filter              filter-map))))]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id subscribe-form)))
-            (.then
-              (fn [subscribe-resp]
-                (if-not (:ok? subscribe-resp)
-                  (wire/ok-text subscribe-resp)
-                  (let [sub-id (:sub-id subscribe-resp)]
-                    (js/Promise.
-                      (fn [resolve _reject]
-                        (let [{:keys [terminate poll]}
-                              (make-stream-controller
-                                {:conn        conn        :build-id    build-id
-                                 :sub-id      sub-id      :topic       topic
-                                 :resolve     resolve     :state       (atom initial-state)
-                                 :signal      signal      :send-note   send-note
-                                 :progress-tk progress-tk :poll-ms     poll-ms
-                                 :max-events  max-events  :incl?       incl?
-                                 :elision?    elision?    :dedup?      dedup?})]
-                          (when (pos? max-ms)
-                            (js/setTimeout #(terminate :max-ms-reached) max-ms))
-                          (poll))))))))
-            (.catch (fn [err] (probe/err->result :subscribe-failed err))))))))
+      ;; rf2-3ijbl — reserve a session-wide stream slot BEFORE any
+      ;; runtime allocation. A rejection at this gate returns an
+      ;; isError result without touching the nREPL socket — the
+      ;; client must close an existing subscription first.
+      (let [acquire (resource/acquire-stream!)]
+        (if-not (:ok? acquire)
+          (js/Promise.resolve (wire/err-text acquire))
+          (run-acquired
+            {:conn conn :raw-args raw-args :topic topic :build-id build-id
+             :filter-map filter-map
+             :max-buf-events max-buf-events :max-buf-bytes max-buf-bytes
+             :poll-ms poll-ms :max-ms max-ms :max-events max-events
+             :incl? incl? :elision? elision? :dedup? dedup?
+             :signal signal :send-note send-note :progress-tk progress-tk}))))))

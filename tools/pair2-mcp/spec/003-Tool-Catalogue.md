@@ -247,6 +247,86 @@ causa-mcp's `--allow-eval` (rf2-zyoj2 — same gate as pair2-mcp's
 `eval-cljs`). The same pattern across MCP servers gives operators one
 posture vocabulary.
 
+## Universal: server resource controls (streaming surfaces)
+
+Four operator-configurable integer caps bound the server's exposure
+to a runaway or hostile client of the streaming `subscribe` surface
+(rf2-3ijbl, follow-on to the rf2-7adwg MEDIUM finding). Each cap has
+a documented default, an override CLI flag (`--<name>=N`), and an
+override env var (`<ENV_NAME>=N`). CLI flags win over env vars on
+conflict. Values must be positive integers; non-positive or
+unparseable values fall back to the default silently.
+
+| Cap                          | Default | CLI flag                          | Env var                                          |
+|------------------------------|---------|-----------------------------------|--------------------------------------------------|
+| max-concurrent-streams       | 10      | `--max-concurrent-streams=N`      | `RE_FRAME_PAIR2_MCP_MAX_STREAMS`                 |
+| max-events-per-sec           | 100     | `--max-events-per-sec=N`          | `RE_FRAME_PAIR2_MCP_MAX_EVENTS_PER_SEC`          |
+| abuse-overflow-threshold     | 50      | `--abuse-overflow-threshold=N`    | `RE_FRAME_PAIR2_MCP_ABUSE_OVERFLOW_THRESHOLD`    |
+| abuse-window-ms              | 10000   | `--abuse-window-ms=N`             | `RE_FRAME_PAIR2_MCP_ABUSE_WINDOW_MS`             |
+
+### Concurrent-stream cap
+
+`subscribe` calls allocate a runtime-side queue + a server-side poll
+loop. The cap bounds the number of simultaneously-open streams per
+MCP session (= per server process). When the cap is reached, the
+next `subscribe` call rejects WITHOUT touching the nREPL socket:
+
+```clojure
+{:ok?    false
+ :reason :rf.error/concurrent-stream-limit
+ :limit  10
+ :active 10
+ :hint   "max-concurrent-streams cap reached. Close an existing
+          subscription (via the `unsubscribe` tool or by cancelling
+          its `tools/call`) before opening another, or raise the
+          cap with --max-concurrent-streams=N at server launch."}
+```
+
+The slot is released on every stream-termination path (client
+cancel, `unsubscribe`, `:max-events` / `:max-ms` / `:sub-gone` /
+`:rf.error/stream-abuse-detected`, probe / signal / subscribe-eval
+failure).
+
+### Per-session event rate-limit
+
+A session-wide token bucket caps the rate of progress-notification
+ticks emitted across all open streams. Refill rate = bucket capacity
+= `max-events-per-sec`. Excess ticks are silently dropped (the
+runtime-side queue still holds the events; subsequent ticks drain
+them when tokens refill). The `tools/call` final summary surfaces
+the cumulative count as `:rate-dropped` (omitted when zero).
+
+Token-bucket over leaky-bucket: streaming trace events are bursty
+by nature (one event triggers a cascade of fx + sub-runs + renders
+in one drain). Token-bucket allows brief bursts up to the cap while
+still bounding the long-run rate.
+
+### Disconnect-on-abuse heuristic
+
+Whenever a drain reports `:overflow-reason` non-nil (the runtime's
+per-sub queue evicted), the server records the overflow on a
+session-wide rolling window of length `abuse-window-ms`. When the
+count over the window exceeds `abuse-overflow-threshold`, the stream
+terminates with `:reason :rf.error/stream-abuse-detected` and a
+stderr log line. The default (50 overflows in 10s ≈ sustained
+5/sec eviction) indicates the consumer can't keep up; continuing
+the stream burns CPU + wire bandwidth.
+
+The abuse window is session-wide (not per-stream): a hostile client
+that opens one abusive stream, hits the threshold, then opens
+another starts with a non-empty window. Resetting requires either
+ending the session (closing the MCP-server process) or letting the
+window expire naturally.
+
+### Symmetric with sibling DoS bounds
+
+Mirrors story-mcp's rf2-g9fje DoS-bounds shape (JSON frame size,
+timeout caps, cancellation) — same posture vocabulary across MCP
+servers: operator-configurable bounds with documented defaults,
+structured rejection envelopes, indicator-field counters on the
+result. The `:rf.error/*` keyword vocabulary stays consistent
+across the cross-MCP error surface.
+
 ## eval-cljs
 
 Evaluate a CLJS form in the connected browser runtime via
@@ -771,15 +851,20 @@ On termination, the `tools/call` result is
  :dropped-events <integer>   ; total events evicted from the runtime queue
  :dropped-bytes  <integer>   ; total bytes evicted
  :overflow-reason :max-buffered-events | :max-buffered-bytes | (key absent)
+ :rate-dropped   <integer>   ; ticks silenced by the per-session rate cap (omitted when zero)
  :ticks     <integer>
- :reason    :aborted | :sub-gone | :max-ms-reached | :max-events-reached}
+ :reason    :aborted | :sub-gone | :max-ms-reached | :max-events-reached |
+            :rf.error/stream-abuse-detected}
 ```
 
 `:reason` is `:aborted` when the client cancelled the call,
 `:sub-gone` when the runtime's subscription disappeared (typically a
 full page reload, or an `unsubscribe` op fired separately),
 `:max-ms-reached` / `:max-events-reached` when the caller's
-upper-bounds fire.
+upper-bounds fire, or `:rf.error/stream-abuse-detected` when the
+session's rolling-window overflow count exceeded
+`abuse-overflow-threshold` (rf2-3ijbl — see [§Universal: server
+resource controls](#universal-server-resource-controls-streaming-surfaces)).
 
 ### Termination paths
 
@@ -792,6 +877,12 @@ upper-bounds fire.
    The next drain returns `:gone? true`; the poll loop resolves
    with `:reason :sub-gone`.
 3. **Cap reached** — `max-ms` or `max-events` is exceeded.
+4. **Abuse detected (rf2-3ijbl)** — sustained queue overflow exceeded
+   `abuse-overflow-threshold` over `abuse-window-ms`. The stream
+   terminates with `:reason :rf.error/stream-abuse-detected` and a
+   stderr log line; the operator can raise the threshold via
+   `--abuse-overflow-threshold=N` if the workload legitimately
+   produces high overflow rates.
 
 ### Failure modes
 
@@ -799,6 +890,11 @@ upper-bounds fire.
   four. Surfaced as `isError: true`.
 - `:reason :runtime-not-preloaded` if the preload hasn't run.
 - `:reason :subscribe-failed` on any other failure during subscribe.
+- `:reason :rf.error/concurrent-stream-limit` if the session already
+  has `max-concurrent-streams` open subscriptions. Surfaced as
+  `isError: true` WITHOUT touching the nREPL socket. The error
+  envelope carries `:limit` / `:active` / `:hint` for the operator
+  to act on. See [§Universal: server resource controls](#universal-server-resource-controls-streaming-surfaces).
 
 ### Diagnostics
 
