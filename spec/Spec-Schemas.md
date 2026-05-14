@@ -339,7 +339,7 @@ The route-shape — `:rf/route-metadata` — is defined separately further below
 
 > **Layer:** Public
 
-The registration-metadata source-coord sub-shape captured at `reg-*` macro-expansion time. Returned (as a sub-map of `:rf/registration-metadata`) from `(rf/handler-meta kind id)` and `(rf/frame-meta id)`; pair-shaped tools and IDE jump-to-source consumers read it for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code).
+The registration-metadata source-coord shape captured at `reg-*` macro-expansion time. The four keys (`:ns` / `:line` / `:column` / `:file`) are merged **flat** onto `:rf/registration-metadata` — the same level as `:doc` / `:spec` / `:tags` — so `(rf/handler-meta kind id)` and `(rf/frame-meta id)` returns expose them as top-level keys: `(:line meta)` / `(:file meta)` / `(:ns meta)` / `(:column meta)`. Pair-shaped tools and IDE jump-to-source consumers read them for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code). Trace events are the one shape that nests these keys under a `:source-coord` sub-map — see `:rf.trace/trigger-handler` on `:rf/trace-event` below — because traces carry coords for *another* handler (the in-scope trigger), so a sub-map keeps the trigger-handler shape self-contained alongside the trace's own keys.
 
 ```clojure
 (def SourceCoordMeta
@@ -372,7 +372,7 @@ The DOM-attribute string contract emitted by Reagent / SSR adapters as the value
   [:re #"^[^:]+:[^:]+:(?:\d+|\?):(?:\d+|\?)$"])                             ;; pragmatic regex; consumers parse 4 segments
 ```
 
-Consumers parse the four segments pragmatically (split on `:` from the right twice to recover `<line>` and `<col>`, then on `:` once more for `<ns>`/`<sym>`). To recover the full `:rf/source-coord-meta` shape — including `:file` — look up the handler-id via `(rf/handler-meta :view <handler-id>)` and read its source-coord sub-map; `:file` is **not** recoverable by parsing the attribute alone (it is not encoded in the 4-segment string).
+Consumers parse the four segments pragmatically (split on `:` from the right twice to recover `<line>` and `<col>`, then on `:` once more for `<ns>`/`<sym>`). To recover the full `:rf/source-coord-meta` shape — including `:file` — look up the handler-id via `(rf/handler-meta :view <handler-id>)` and read the flat top-level `:ns` / `:line` / `:column` / `:file` keys off the returned registration-metadata map; `:file` is **not** recoverable by parsing the attribute alone (it is not encoded in the 4-segment string).
 
 The string format is committed as a public contract (rf2-q7r0): pair-shaped tools, conformance harnesses, and CDP-driven test runners all parse it directly. Future extensions are additive — additional trailing segments may appear; consumers MUST handle the 4-segment shape and tolerate (ignore) trailing segments they do not recognise.
 

@@ -7,13 +7,15 @@
   ## handler-meta
 
   Returns `(rf/handler-meta kind id)` for the requested
-  `(kind, id)` pair — the registration-metadata map carrying
-  `:source-coord` (file/line/column/ns), `:doc`, `:tags`, the registrar
+  `(kind, id)` pair — the registration-metadata map carrying the flat
+  top-level source-coord keys `:ns` / `:line` / `:column` / `:file`
+  (per Spec-Schemas `:rf/source-coord-meta` — merged flat onto
+  `:rf/registration-metadata`), plus `:doc`, `:tags`, the registrar
   kind, and (per Spec 001 §The public registrar query API) whatever
   custom slots the `reg-*` macro emitted. The wire-pipeline (post-
-  rf2-cibp8) decorates every `:source-coord` map with an
-  `:rf.source/uri` string — so the AI host renders an immediate
-  jump-to-editor link off the handler-meta response.
+  rf2-cibp8) decorates every map that carries a usable source-coord
+  shape with an `:rf.source/uri` string — so the AI host renders an
+  immediate jump-to-editor link off the handler-meta response.
 
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `view`, `frame`,
   `machine`. The first six map directly to `rf/handler-meta`'s
