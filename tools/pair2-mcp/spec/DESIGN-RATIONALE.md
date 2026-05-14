@@ -507,7 +507,7 @@ arg (integer; `0` disables the cap for explicit escape).
 itself landed in [`Principles.md`](Principles.md#tight-token-budget-per-response)
 with MUST wording; this lock captures the comparative reasoning
 that the principle alone doesn't carry. Causa-MCP's parallel
-[Lock #9 — Wire-protocol budget posture](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-five-mechanisms)
+[Lock #9 — Wire-protocol budget posture](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-the-mechanism-cascade)
 (rf2-lwgg8) bakes the same five mechanisms into the Causa-MCP
 spec before its impl exists, deliberately aligned with the
 posture locked here.
@@ -522,7 +522,7 @@ posture locked here.
 - [`tools/pair2-mcp/spec/003-Tool-Catalogue.md`](003-Tool-Catalogue.md)
   §The universal `max-tokens` arg — the per-tool surface for
   the override.
-- [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-five-mechanisms)
+- [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-the-mechanism-cascade)
   Lock #9 — the aligned posture on the Causa-MCP side; the two
   servers share the `:rf.mcp/overflow` / `:rf.mcp/summary` /
   `:rf.mcp/dedup-table` reserved keys.
