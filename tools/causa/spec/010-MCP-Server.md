@@ -180,8 +180,12 @@ Request-response is the wrong shape for "tell me when the next
 streaming surface (per
 [`pair2-mcp/spec/003-Tool-Catalogue.md`](../../pair2-mcp/spec/003-Tool-Catalogue.md)
 §subscribe), reusing the rf2-hq49 substrate. The `tools/call` request
-stays open for the lifetime of the subscription; each batch of
-matching events is emitted as a `notifications/progress` notification
+stays open for the lifetime of the subscription; **each batch of
+matching events is emitted as a `notifications/progress` notification**
+(per-drain-batch, not per-event — the single MCP wire-batching idiom
+across `tools/pair2-mcp/` + `tools/causa-mcp/`; decided in rf2-h95hl
+and pinned normatively at
+[`tools/causa-mcp/spec/004-Wire-Pipeline.md` §Streaming over batch](../../causa-mcp/spec/004-Wire-Pipeline.md#streaming-over-batch-cross-cut))
 correlated to the original call via `extra._meta.progressToken`. The
 final `tools/call` result is a summary
 `{:ok? true :sub-id <uuid> :delivered N :overflow N :ticks K :reason
