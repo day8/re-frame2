@@ -1199,3 +1199,92 @@
           "two violating scripts → two traces")
       (is (= #{"bad1.example.com" "bad2.example.com"} (set hosts))
           "each violating host is flagged independently"))))
+
+;; ===========================================================================
+;; rf2-axq1y / parent rf2-bof8i — resolve-head emits
+;; :rf.error/ssr-head-resolution-failed before falling back
+;; ===========================================================================
+;;
+;; Per rf2-bof8i (Mike decision, Option B — observability over silent
+;; fallback) `resolve-head` wraps the `:head` walk in try/catch and emits
+;; `:rf.error/ssr-head-resolution-failed` with the throw before degrading
+;; to the empty fragment. Earlier the helper's docstring promised "the
+;; trace surface still carries the throw" but the impl was silent — a
+;; broken `:head` fn produced a visually-broken page with zero diagnostic.
+;; The trace category is catalogued in Spec 009 §Error event catalogue.
+
+(deftest resolve-head-emits-trace-on-throwing-head-fn
+  (testing "rf2-axq1y: a throwing :head fn → :rf.error/ssr-head-resolution-failed
+            trace fires AND the resolver returns the empty fallback shape
+            (preserves rf2-h2ujj's degrade-gracefully contract)"
+    (let [resolve-head! (requiring-resolve
+                          're-frame.ssr.ring.lifecycle/resolve-head)
+          traces        (atom [])
+          frame-id      :rf.frame/test-head-throws]
+      (rf/register-trace-cb! ::rh
+                             (fn [ev]
+                               (when (= :rf.error/ssr-head-resolution-failed
+                                        (:operation ev))
+                                 (swap! traces conj ev))))
+      (let [result (try
+                     (with-redefs [rf/active-head
+                                   (fn [_]
+                                     (throw (ex-info "synthetic head failure"
+                                                     {:reason :test})))]
+                       (resolve-head! frame-id))
+                     (finally
+                       (rf/remove-trace-cb! ::rh)))]
+        (testing "fallback shape preserved (rf2-h2ujj contract)"
+          (is (= "" (:head-html result))
+              "empty fragment so a buggy head fn can't take down the request")
+          (is (nil? (:html-attrs result))
+              "no html-attrs in the fallback shape")
+          (is (nil? (:body-attrs result))
+              "no body-attrs in the fallback shape"))
+
+        (testing "trace emitted (rf2-bof8i Option B contract)"
+          (is (= 1 (count @traces))
+              (str "expected one :rf.error/ssr-head-resolution-failed trace;"
+                   " saw " (count @traces)))
+          (when (seq @traces)
+            (let [ev (first @traces)]
+              (is (= :error (:op-type ev))
+                  "trace is severity :error per Spec 009 §Error event catalogue")
+              (is (= :rf.error/ssr-head-resolution-failed (:operation ev))
+                  ":operation names the category")
+              (is (= frame-id (-> ev :tags :frame))
+                  ":frame tag identifies which request the head fn failed for")
+              (is (instance? Throwable (-> ev :tags :exception))
+                  ":exception tag carries the caught throwable verbatim")
+              (is (= "synthetic head failure"
+                     (some-> ev :tags :exception .getMessage))
+                  "the throwable preserves the underlying failure message")
+              (is (= :no-recovery (:recovery ev))
+                  ":recovery names the policy — empty fallback is not a recovery"))))))))
+
+(deftest resolve-head-happy-path-no-trace
+  (testing "rf2-axq1y: a non-throwing :head fn (mocked to return nil
+            so head-model->html produces an empty fragment) → no
+            :rf.error/ssr-head-resolution-failed trace fires.
+            Belt-and-braces against accidentally emitting the trace on
+            the success path."
+    (let [resolve-head! (requiring-resolve
+                          're-frame.ssr.ring.lifecycle/resolve-head)
+          traces        (atom [])
+          frame-id      :rf.frame/test-head-ok]
+      (rf/register-trace-cb! ::rh-ok
+                             (fn [ev]
+                               (when (= :rf.error/ssr-head-resolution-failed
+                                        (:operation ev))
+                                 (swap! traces conj ev))))
+      (try
+        (with-redefs [rf/active-head (fn [_] nil)]
+          (let [result (resolve-head! frame-id)]
+            (is (= "" (:head-html result))
+                "nil head-model → empty fragment (canonical empty-head shape)")
+            (is (nil? (:html-attrs result)))
+            (is (nil? (:body-attrs result)))))
+        (finally
+          (rf/remove-trace-cb! ::rh-ok)))
+      (is (zero? (count @traces))
+          "success path must NOT emit the head-resolution-failed trace"))))

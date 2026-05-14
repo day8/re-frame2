@@ -80,16 +80,26 @@
 
   Exceptions during resolution degrade gracefully — empty fragment,
   no attrs — so a buggy head fn can't take down the request. The trace
-  surface still carries the throw for monitoring.
+  surface carries the throw via `:rf.error/ssr-head-resolution-failed`
+  (per Spec 009 §Error event catalogue) so production observability
+  stacks see the failing head fn even though the wire response continues.
 
-  Per Spec 011 §Head/meta contract (rf2-4dra9, rf2-h2ujj)."
+  Per Spec 011 §Head/meta contract (rf2-4dra9, rf2-h2ujj) and
+  rf2-bof8i (trace-emit on caught throw, Mike decision Option B over
+  silent fallback — the always-on error-emit substrate per rf2-vnjfg /
+  rf2-bacs4 carries the trace independent of the trace ring buffer's
+  dev-only gating)."
   [frame-id]
   (try
     (let [model (rf/active-head frame-id)]
       {:head-html  (rf/head-model->html model)
        :html-attrs (:html-attrs model)
        :body-attrs (:body-attrs model)})
-    (catch Throwable _
+    (catch Throwable t
+      (trace/emit-error! :rf.error/ssr-head-resolution-failed
+                         {:frame     frame-id
+                          :exception t
+                          :recovery  :no-recovery})
       {:head-html "" :html-attrs nil :body-attrs nil})))
 
 (defn validate-on-create!
