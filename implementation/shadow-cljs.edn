@@ -684,4 +684,15 @@
    :output-dir "out/testbeds/drain-depth-trigger"
    :asset-path "."
    :modules    {:main {:init-fn drain-depth-trigger.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim Tier 3 — non-trivial-app-db testbed (a 55-leaf app-db
+  ;; nested up to 5 levels deep; six buttons each trigger a
+  ;; structurally distinct diff shape at a known path — exercises the
+  ;; consumer's diff visualisation under realistic depth).
+  :testbeds/non-trivial-app-db
+  {:target     :browser
+   :output-dir "out/testbeds/non-trivial-app-db"
+   :asset-path "."
+   :modules    {:main {:init-fn non-trivial-app-db.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
