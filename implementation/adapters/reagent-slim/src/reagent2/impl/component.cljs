@@ -84,13 +84,24 @@
 
 (defn- ->react-element
   "Convert wrap-render's hiccup output to a React element via the
-  registered `as-element` fn. Pass-through when no fn is registered
-  (preserves the pre-rf2-08t0 shape for early-load / test paths that
-  don't require template)."
+  registered `as-element` fn. Unregistered → throw
+  `:rf.error/as-element-fn-unregistered` — honest failure over silent
+  pass-through (the pre-rf2-08t0 shape that reached React with a raw
+  CLJS vector and surfaced as 'Objects are not valid as a React
+  child'). The unregistered fallback is reachable only via a
+  hand-rolled bundle that requires component without template;
+  production load via reagent2.core pulls both."
   [hiccup]
   (if-let [f @as-element-fn]
     (f hiccup)
-    hiccup))
+    (throw (ex-info ":rf.error/as-element-fn-unregistered"
+             {:type     :rf.error/as-element-fn-unregistered
+              :hiccup   hiccup
+              :reason   (str "reagent2.impl.template/as-element was not"
+                             " registered before render. Require"
+                             " reagent2.impl.template (or reagent2.core)"
+                             " so its ns-load wires the as-element seam.")
+              :recovery :no-recovery}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dynamic var: in-flight component instance
