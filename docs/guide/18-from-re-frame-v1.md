@@ -1,10 +1,10 @@
 # 18 — From re-frame v1
 
-> **If you're skipping this chapter, the upshot:** re-frame2 is a small breaking-change set with an automated migration skill (`re-frame-migration`). Bump the deps, run the skill, fix a handful of compile errors — that's the median migration.
+## TL;DR
 
-This is the appendix-shaped chapter for migrators. It tells you which deps move, which skill drives the work, and the broad categories of breakage to expect. The exhaustive rule list lives in [`spec/MIGRATION.md`](../../spec/MIGRATION.md) (40+ M- and O-rules) and is consumed by the migration skill; this chapter does not duplicate it.
+You're on re-frame v1 and want to move to v2. This page tells you which deps change, which skill automates the migration, and what to expect along the way.
 
-If you don't have a v1 codebase to bring across, skip to [19 — Adapters](19-adapters.md) and [20 — Where to go next](20-where-next.md).
+The exhaustive rule list lives in [`spec/MIGRATION.md`](../../spec/MIGRATION.md) (40+ M- and O-rules) and is consumed by the migration skill; this chapter does not duplicate it.
 
 ## Deps to update
 

@@ -1,6 +1,8 @@
 # 09 — Forms
 
-> **If you're skipping this chapter, the upshot:** re-frame2 doesn't ship a forms library — it ships a *convention*. Every form lives at a slice with seven standard keys (`:draft`, `:submitted`, `:submit-attempted?`, `:status`, `:errors`, `:touched`, `:submit-error`), is driven by seven standard events (initialise / edit-field / blur-field / submit / submit-success / submit-error / reset), and follows one error-visibility rule: a per-field error is visible when the field is in `:touched` **OR** when `:submit-attempted?` is `true`. Pick the chapter up the first time you have to build a non-trivial form; the full normative spec lives in `spec/Pattern-Forms.md`.
+## TL;DR
+
+You want to build a form — fields, validation, submit, server-returned errors — without reinventing the shape every time. This page shows the seven-key / seven-event convention re-frame2 settles on.
 
 Most apps have at least one form, and most apps' forms are quietly identical underneath. A user types into a field. They tab away. They click submit. The server responds — accepts, rejects with field-level complaints, or fails for a reason that isn't any one field's fault. The user fixes something. The cycle repeats.
 

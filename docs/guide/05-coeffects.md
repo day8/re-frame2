@@ -1,12 +1,8 @@
 # 05 — Coeffects
 
-Chapter 04 set up the symmetry that re-frame2 leans on: a handler is a pure function from inputs to outputs. The outputs are an **effect map** — `:db`, `:fx`, and friends — describing what the runtime should do next. This chapter is about the matching half on the way in: the **coeffects map**.
+Coeffects are the *side-causes* — the data a handler reads from the world that isn't `app-db`: the current wall-clock time, a freshly-generated UUID, a value retrieved from `localStorage`, the browser's preferred language. Just as effects keep the handler from *performing* side-effects, coeffects keep the handler from *causing* them — no `(js/Date.)` in the handler body, no `(.getItem js/localStorage ...)`, no `(random-uuid)`. Inputs arrive in the coeffects map; the handler stays a function.
 
-Coeffects are the *side-causes*. They're the data a handler reads from the world that isn't `app-db` — the current wall-clock time, a freshly-generated UUID, a value retrieved from `localStorage`, the browser's preferred language. Just as effects keep the handler from *performing* side-effects, coeffects keep the handler from *causing* them — no `(js/Date.)` in the handler body, no `(.getItem js/localStorage ...)`, no `(random-uuid)`. Inputs arrive in the coeffects map; the handler stays a function.
-
-You'll meet this surface the moment an event needs to stamp something with the current time, persist with a new id, or seed itself from a previously-saved value. If you've already seen `(inject-cofx :now)` or `(inject-cofx :todo.storage/todos)` in someone else's code and wondered what it was doing, this chapter is the answer.
-
-It's optional like 07 and 09 — a side-track between 04 and 06. The core path doesn't require writing your own coeffect; `:db` and `:event` are wired in automatically. Pick this up the first time you want a handler to read something the runtime hasn't already put under its nose.
+You'll meet this surface the moment an event needs to stamp something with the current time, persist with a new id, or seed itself from a previously-saved value. The core path doesn't require writing your own coeffect; `:db` and `:event` are wired in automatically. Pick this up the first time you want a handler to read something the runtime hasn't already put under its nose.
 
 ## The side-cause
 

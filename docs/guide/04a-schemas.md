@@ -1,6 +1,8 @@
 # 04a — Schemas
 
-> **If you're skipping this chapter, the upshot:** re-frame2 uses **Malli** schemas to describe the shape of `app-db` slices and event vectors. You attach an `app-db`-slice schema with `(rf/reg-app-schema [:path] Schema)` and an event schema as `:spec` metadata on `reg-event-*`. The runtime validates in **dev**; production builds elide every validation site to zero overhead (system-boundary handlers can opt back in). Reach for schemas the moment a slice has more than one or two keys, or an event payload has more than one argument. The full surface lives in [Spec 010](../../spec/010-Schemas.md); this chapter is the warmup.
+## TL;DR
+
+You want to catch shape-of-data bugs early — wrong key, wrong type, typo in a path — the kind CLJS won't flag and tests often miss. This page shows how Malli schemas attach to `app-db` slices and event vectors so the dev runtime catches them at the boundary, with zero production cost.
 
 A re-frame2 app's runtime story is "events change `app-db`, views read it." It works because every handler is a pure function over plain Clojure data — but "plain Clojure data" is also a category roomy enough to hide bugs. Did `:status` end up as `:submitted` or `"submitted"`? Did `:user/id` arrive as an `int` or a `string`? Did the form handler clobber `:auth/user` with a typo'd path? These are the kinds of mistake the type system doesn't catch (CLJS doesn't have one), the test suite often misses (you didn't think to assert it), and that surface six weeks later as "the page renders but the avatar is gone."
 

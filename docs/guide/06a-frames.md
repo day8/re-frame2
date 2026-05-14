@@ -1,8 +1,10 @@
 # 06a — Frames
 
-> **If you're skipping this chapter, the upshot:** A **frame** is an *isolated runtime boundary* — its own `app-db`, its own event queue, its own subscription cache, identified by a keyword. Every re-frame2 app has at least one frame; single-frame apps run inside an invisible default frame called `:rf/default` and never name it. Reach for multiple frames when you need *multiple instances of the same app's handlers with different state* — a split-screen widget, a story variant, a per-test fixture, a per-request server-side render. Create them with `(rf/reg-frame :id {...})` or `(rf/make-frame {...})`; scope a subtree to one with `[rf/frame-provider {:frame :id} ...]`. The full normative surface lives in [Spec 002](../../spec/002-Frames.md); this chapter is the motivation.
+## TL;DR
 
-Up to this point in the guide, the word *frame* has barely appeared — [chapter 06](06-views-and-frames.md) introduced it as the boundary `reg-view` routes against, with a split-counter example. The mental model you've been carrying is "one app, one `app-db`, one queue, one sub-cache." That mental model is right for 90% of apps. This chapter is for the other 10%, and for the small piece of vocabulary even the 90% case has to recognise — `:rf/default`.
+You want multiple instances of the same app's state — a split-screen widget, a story variant, a per-test fixture, a per-request server-side render — without them sharing `app-db`, event queue, or sub cache. This page explains the **frame** boundary that gives you that, and why most apps never have to name one.
+
+The mental model "one app, one `app-db`, one queue, one sub-cache" is right for 90% of apps. This chapter is for the other 10%, and for the small piece of vocabulary even the 90% case has to recognise — `:rf/default`.
 
 ## The motivating need
 

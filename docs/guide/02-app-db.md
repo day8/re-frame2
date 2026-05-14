@@ -3,9 +3,7 @@
 > *Programs must be written for people to read, and only incidentally for machines to execute.*
 > — Abelson & Sussman
 
-Chapter [01](01-why-re-frame2.md) made the argument that re-frame2's dynamic model is the load-bearing thing. This short chapter introduces the single most important *noun* in that model: **app-db**.
-
-The next chapter — [03 — Your first app](03-your-first-app.md) — uses app-db throughout. Read this first; ten minutes here saves an afternoon of wondering "but where does the data actually *live*?"
+This short chapter introduces the single most important *noun* in re-frame2's dynamic model: **app-db**. Ten minutes here saves an afternoon of wondering "but where does the data actually *live*?"
 
 ## What app-db is
 

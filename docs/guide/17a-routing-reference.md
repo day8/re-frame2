@@ -1,8 +1,6 @@
 # 17a — Routing: reference and advanced topics
 
-The previous chapter walked through the basics of routes-as-state: registering routes, navigating, reading the route in views, the `:on-match` loader, the not-found route, and a one-paragraph mention of the navigation token. That was the tutorial track.
-
-This chapter is the per-topic reference. The sections are independent of one another — reach for them when the topic comes up, not as the next link in a linear sequence. `:on-error` is the route's response to a load failure. `:can-leave` blocks navigation when there's unsaved work. The nav-token section expands the basics-half callout into the full mechanism — cofx shape, the `:rf.route/with-nav-token` wrapper, a step-by-step worked example. Query strings, multi-frame routing, and the pure `match-url` / `route-url` helpers round out the surface. A RealWorld worked example shows the pieces wired together, and a closing section says what the AI-track gets from routing-as-state.
+This chapter is the per-topic reference for routing. The sections are independent of one another — reach for them when the topic comes up, not as the next link in a linear sequence. `:on-error` is the route's response to a load failure. `:can-leave` blocks navigation when there's unsaved work. The nav-token section expands the basics-half callout into the full mechanism — cofx shape, the `:rf.route/with-nav-token` wrapper, a step-by-step worked example. Query strings, multi-frame routing, and the pure `match-url` / `route-url` helpers round out the surface. A RealWorld worked example shows the pieces wired together, and a closing section says what the AI-track gets from routing-as-state.
 
 ## Per-route error handling: `:on-error`
 

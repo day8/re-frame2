@@ -2,7 +2,7 @@
 
 Most SPAs spend their lives talking to a server. A handler dispatches; a fetch goes out; some milliseconds later a reply lands; the handler integrates the reply; the view re-renders. Repeat a few thousand times per session.
 
-[Chapter 04](04-events-state-cycle.md) gave the counter a network reach: `:counter/inc-from-server` issued a managed request, the reply landed back, the count moved. That sketch is the spine of this chapter. We'll keep the counter as the worked example and unpack every contract row `:rf.http/managed` carries — request shape, decode pipeline, retry, abort, frame-aware reply — by extending the counter one feature at a time. This chapter is the human-track for managed HTTP.
+This chapter is the human-track for managed HTTP. We'll use the counter from chapter 03 as the worked example and unpack every contract row `:rf.http/managed` carries — request shape, decode pipeline, retry, abort, frame-aware reply — by extending the counter one feature at a time.
 
 ## What `:rf.http/managed` is
 

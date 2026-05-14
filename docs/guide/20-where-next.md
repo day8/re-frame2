@@ -1,6 +1,6 @@
 # 20 — Where to go next
 
-You've now seen the shape of re-frame2 from twelve angles — the argument, the cycle, views and frames, machines, HTTP, the server side, the v1 migration story, the dynamic-model essay, testing, devtools, and routing. The mental model is in place. A few directions from here.
+The mental model is in place. A few directions from here.
 
 ## What you've now seen
 

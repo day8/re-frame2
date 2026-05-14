@@ -3,9 +3,7 @@
 > *Errors should never pass silently. Unless explicitly silenced.*
 > — The Zen of Python
 
-By this point in the guide you've seen events, handlers, fxs, machines, schemas, and tests. What you haven't seen yet is what happens when something goes wrong — when a handler throws, when a schema rejects, when a dispatched event has no registered handler, when an fx misfires.
-
-This chapter is the answer. re-frame2's stance on errors is deliberate and structural: **errors are first-class structured data, surfaced through the same trace-event stream that surfaces everything else**. They're not exceptions you catch with try/catch in user code. They're not strings in a logger. They're maps, with a stable shape, that consumers — dev panels, error-monitor integrations, AI tools, your tests — read off the wire.
+When something goes wrong — a handler throws, a schema rejects, a dispatched event has no registered handler, an fx misfires — re-frame2's stance is deliberate and structural: **errors are first-class structured data, surfaced through the same trace-event stream that surfaces everything else**. They're not exceptions you catch with try/catch in user code. They're not strings in a logger. They're maps, with a stable shape, that consumers — dev panels, error-monitor integrations, AI tools, your tests — read off the wire.
 
 You'll know:
 

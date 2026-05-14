@@ -1,6 +1,8 @@
-# 22 — Production observability (Datadog, Sentry, Honeycomb)
+# 22 — Production observability
 
-> **If you're skipping this chapter, the upshot:** production observability uses two **always-on listener APIs** that survive `goog.DEBUG=false` — `register-event-emit-listener!` (one record per dispatched event) and `register-error-emit-listener!` (one record per runtime error). Each record runs through `rf/elide-wire-value` for privacy + size elision, then ships to Datadog via [`:rf.http/managed`](10-doing-http-requests.md) for free retry + abort-on-destroy. Datadog is **production-only**; in dev you have Causa, pair2, and story. The recipe is Datadog-shaped; the shape is generic — Honeycomb, Sentry, Mezmo, Mixpanel, your in-house pipeline all attach the same way.
+## TL;DR
+
+You want your production app to log to a service like Datadog, Sentry, or Honeycomb so you can see what real users are doing and what's breaking. This page explains how.
 
 Real apps need observability. You want to know, in production, which events are firing on which page, how often, against what cohort. You want a dashboard that lights up when a release stops dispatching `:checkout/submit` at the rate it used to. You want SLO alerts you can trust. You want to see errors with their event-context, so when something fails at 3am you know what the user was doing.
 

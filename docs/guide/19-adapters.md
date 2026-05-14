@@ -1,8 +1,10 @@
 # 19 — Adapters
 
-> **If you're skipping this chapter, the upshot:** re-frame2's runtime is substrate-agnostic. Three adapters ship today — Reagent, UIx, and Helix — and you wire one into `init!` at the call site. Pick the one your team already uses; the events/subs/fx primitives are identical across all three.
+## TL;DR
 
-[Chapter 03](03-your-first-app.md) walked the counter end-to-end on Reagent. This chapter widens the lens. re-frame2's runtime — the registry, the dispatch loop, events, fx, subs, machines — is **substrate-agnostic**. The primitives you've used in `app-db`, in event handlers, and in subs are identical regardless of which substrate is rendering. What differs is how the view layer is wired into React.
+You want to use re-frame2 with Reagent, UIx, or Helix — or you're choosing between them. This page explains how the substrate-agnostic runtime wires into each, and why the events/subs/fx primitives don't care which you pick.
+
+re-frame2's runtime — the registry, the dispatch loop, events, fx, subs, machines — is **substrate-agnostic**. The primitives in `app-db`, event handlers, and subs are identical regardless of which substrate is rendering. What differs is how the view layer is wired into React.
 
 ## The three substrate adapters
 
