@@ -209,6 +209,6 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 ## Acceptance gate 2 — full claimed-capability conformance pass
 
-When every claimed capability is implemented, run the full conformance harness with the capability filter set to D7's claim list. Score must be `claimed-applicable / claimed-applicable`. Any failure that's not a spec gap is a port bug; any spec gap files a `bd create` bead.
+When every claimed capability is implemented, run the full conformance harness with the capability filter set to D7's claim list. Score must be `claimed-applicable / claimed-applicable`. Any failure that's not a spec gap is a port bug; any spec gap files a GitHub issue against `day8/re-frame2` (per [`cardinal-rules.md` §§8–9](cardinal-rules.md)).
 
 When the gate passes, the port is v1-complete against its claim.

@@ -55,9 +55,11 @@ The skill frames `spec/conformance/` consistently as the **objective measure of 
 
 **Why**: without the corpus passing, no claim of "this is a re-frame2 implementation" is objectively verifiable. The corpus is the contract surface for downstream consumers.
 
-### L6 — Spec gaps file beads, not silent extrapolations
+### L6 — Spec gaps file GitHub issues, not silent extrapolations
 
-When implementing surfaces a spec gap — a missing surface, an inconsistency, an undocumented decision — the agent files a `bd create` bead against the re-frame2 repo. Does not silently invent an answer; does not extrapolate from the reference. This matches Mike's standing memory rule "File spec beads for implementation findings".
+When implementing surfaces a spec gap — a missing surface, an inconsistency, an undocumented decision — the agent files a GitHub issue against `day8/re-frame2`. Does not silently invent an answer; does not extrapolate from the reference.
+
+**Tracker boundary (rf2-s6k4i / rf2-80grk / rf2-hpkkx, decisions on 2026-05-14)**: `bd` (beads) is the re-frame2 monorepo's internal tracker. Published skills run in *consumer* repos (an engineer's port repo, in this skill's case) and must never invoke `bd` — cross-repo side effects target the *target* repo's GitHub issues. The published skill announces the cross-repo filing before it lands (cardinal rule 9), and passes the body via stdin / here-doc, never inline interpolation (shell-safety baseline in `skills/README.md`).
 
 **Why**: spec gaps are findings. The reference's prior solution to a spec gap was *one engineer's call at one moment*. Treating it as the contract retroactively conflates worked-example and contract — undercutting L1.
 
@@ -101,7 +103,7 @@ Reverse cross-links (this skill → the application-side skills) live in SKILL.m
 - Migrating a v1 codebase to the reference — that's `skills/re-frame-migration/`.
 - Live-runtime inspection of a running v2 app — that's `skills/re-frame-pair2/`.
 - Proposing a *different* pattern — re-frame2's pattern is specified; engineers proposing alternatives need a different conversation.
-- Editing `spec/` — gaps file `bd create` beads; the skill never patches `spec/` inline.
+- Editing `spec/` — gaps file GitHub issues against `day8/re-frame2`; the skill never patches `spec/` inline.
 
 ## 5. File structure (locked)
 
@@ -173,7 +175,7 @@ The acceptance gates are operational, not advisory: gate 1 between core + option
 
 - **Treating the CLJS reference as normative.** Cardinal rule #1 in SKILL.md; L1 in this design.
 - **Skipping Phase 1.** Cardinal rule #2 in SKILL.md; the kickoff prompt is explicit about Phase 1 before Phase 2.
-- **Inventing surfaces when the spec is silent.** Cardinal rule #8 + the bead-files-not-extrapolation rule in `reference-impl-tour.md` and `conformance.md`.
+- **Inventing surfaces when the spec is silent.** Cardinal rule #8 + the GH-issue-files-not-extrapolation rule in `reference-impl-tour.md` and `conformance.md`.
 - **Skipping the conformance corpus.** L5; the leaf `conformance.md` frames it as the acceptance test.
 - **Bundling CLJS-specific framings into normative voice.** L4; the tour leaf is the only place CLJS framings appear, and even there they're explicitly tagged as descriptive.
 
