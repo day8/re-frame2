@@ -637,7 +637,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:where       [:enum :event :sub-return :app-db :fx-args :cofx :cofx-args :on-create]]
    [:path        {:optional true} [:vector :any]]
    [:value       {:optional true} :any]
-   [:explain     {:optional true} :any]])              ;; Malli explanation shape
+   [:explain     {:optional true} :any]                ;; Malli explanation shape
+   [:rollback?   {:optional true} :boolean]])          ;; (:where :app-db only) true when :db was rolled back to pre-handler value
 
 (def DrainDepthExceededTags
   [:map

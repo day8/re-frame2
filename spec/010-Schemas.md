@@ -138,7 +138,7 @@ A failure at any step aborts the dispatch with a structured error.
 | 1. Event-vector | The dispatched event vector doesn't conform to the handler's `:spec`. | Handler is **not invoked**; emit `:rf.error/schema-validation-failure` with `:where :event`. The cascade stops at this event; downstream events in the queue continue. |
 | 2. Cofx | A cofx's injected value doesn't conform to its `:spec`. | Handler is **not invoked**; emit with `:where :cofx`; same cascade behaviour as step 1. |
 | 3. Handler exception | A registered handler throws. | `:rf.error/handler-exception` (per [009](009-Instrumentation.md)); cascade halts. |
-| 4. `app-db` path | The post-handler `app-db` value at a registered schema-bound path doesn't conform. | Emit with `:where :app-db`. The `:db` effect is **rolled back** (the pre-handler value is restored) and the dispatch is treated as failed. |
+| 4. `app-db` path | The post-handler `app-db` value at a registered schema-bound path doesn't conform. | Emit with `:where :app-db`; the trace tag carries `:rollback? true` and `:recovery :no-recovery`. The `:db` effect is **rolled back** (the pre-handler value is restored) and the dispatch is treated as failed — flows do **not** evaluate and `:fx` does **not** walk for this dispatch. Downstream queued events still drain (per run-to-completion). |
 | 5. Fx-args | A registered fx's args map doesn't conform to its `:spec`. | The **offending fx is skipped**; emit with `:where :fx-args`, `:fx-id`, `:fx-args`. Other fx in the same `:fx` vector continue to run (per the run-to-completion drain — fx are independent). The cascade does **not** halt; downstream events in the queue still drain. The skipped-fx outcome is `:recovery :skipped`, mirroring `:rf.fx/skipped-on-platform`. |
 | 6. Sub return-value | A schema'd sub's computed value doesn't conform. | Emit with `:where :sub-return`. Default recovery: `:replaced-with-default` — the sub returns `nil` to its consumer; views see no value. Strict mode re-raises. |
 
@@ -315,8 +315,9 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
              :explain    :rf/redacted      ;; Malli explanation redacted (re-leaks)
              :sensitive? true              ;; consumers route on this
              :reason     "App-db at path [:auth :token] failed schema ..."
-             :failing-id :auth/init-bad}
- :recovery :no-recovery}
+             :failing-id :auth/init-bad
+             :rollback?  true              ;; :db rolled back to pre-handler value
+             :recovery   :no-recovery}}    ;; dispatch failed; no auto-replacement
 ```
 
 **Composition with `:large?`** (per [009 §Unified wire-elision surface](009-Instrumentation.md#privacy--sensitive-data-in-traces)). A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the schema-validation emit site never produces a `:rf.size/large-elided` marker for a sensitive value (the marker itself would leak `:path` / `:bytes` / `:digest`). The validation emit-site mirrors the `rf/elide-wire-value` walker's composition rule.
