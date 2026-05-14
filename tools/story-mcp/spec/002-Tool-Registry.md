@@ -106,6 +106,38 @@ docs.
 Canonical EDN form, text-only result for byte-stable round-tripping
 (content is text, not JSON, to avoid lossy JSON encoding of EDN).
 
+### `evaluate-cljs` (rf2-vilu3, deferred)
+
+**Status: deferred to a future drop.** Pair2-MCP has `eval-cljs`
+(arbitrary form, evaluated in the connected CLJS runtime).
+Story-MCP doesn't. An agent that needs to peek at a Story-side
+slice the curated tool surface doesn't expose has no recourse but
+to file an RFE.
+
+**v2 sketch (not implemented).** Add `evaluate-cljs` /
+`evaluate-cljs-in-story` MCP tool. Bridges the JVM-side story-mcp
+through to a running CLJS Story session over the same nREPL
+transport pair2-mcp uses today. The same posture:
+
+- Bounded — `max-tokens` cap, no `:tools/list` discoverability of
+  the escape hatch in production deploys (gate on
+  `:rf.story/expert-mode? true` in `config.cljc`).
+- Opt-in — explicit `--allow-evaluate-cljs` CLI flag mirroring
+  the existing `--allow-writes` posture for write tools (per
+  IMPL-SPEC §7.3 / `003-Write-Surface-Gating.md`).
+- Tagged — every fired event / fx carries `:origin :story-mcp`
+  so the runtime distinguishes agent-driven slices from user-driven
+  ones.
+
+Open questions: which Story session does the form attach to (the
+implicit "active variant frame"? all frames? caller picks?), how
+the JVM-standalone deploy degrades when no CLJS session is reachable
+(today: `list-substrates` returns `[]`; `evaluate-cljs` would need
+the same posture), and whether the existing pair2-mcp `eval-cljs`
+satisfies the need when a session co-installs both servers (likely
+yes, which is the argument for keeping this deferred until the
+single-server need materialises in the wild).
+
 ### `get-docs-markdown` (rf2-i0kyy)
 
 GitHub-flavoured Markdown projection of a story's documentation —
