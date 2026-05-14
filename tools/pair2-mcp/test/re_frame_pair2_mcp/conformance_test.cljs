@@ -407,7 +407,12 @@
     :fixture/args  {:frames "all"}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
-     [:default                    {:rf/default {:app-db {:k :v}}}]]
+     ;; rf2-e35a5: the snapshot eval form now wraps its result as
+     ;; `{:value <snap> :elided-count N}` so the elision count rides
+     ;; back on the same nREPL round-trip; the wire-pipeline reads
+     ;; the count from opts instead of re-walking client-side.
+     [:default                    {:value {:rf/default {:app-db {:k :v}}}
+                                   :elided-count 0}]]
     :fixture/expect
     {:isError? false}}
 
@@ -428,7 +433,11 @@
     :fixture/args  {:path "[:counter]"}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
-     [:default                    {:ok? true :exists? true :path [:counter] :value 42}]]
+     ;; rf2-e35a5: eval form pre-counts elision markers; the
+     ;; envelope carries `:elided-count` so the wire-pipeline reads
+     ;; the count from opts instead of re-walking the scalar.
+     [:default                    {:ok? true :exists? true :path [:counter]
+                                   :value 42 :elided-count 0}]]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :exists? true :value 42}}}
