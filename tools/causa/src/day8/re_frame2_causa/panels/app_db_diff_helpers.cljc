@@ -49,8 +49,7 @@
   Walks the epoch-history, diffing each epoch's `:db-before` and
   `:db-after` and filtering to those that touched the focused path.
   Pure data → vector of hit maps. Per spec §'Show me when this
-  changed'."
-  (:require [clojure.set :as set]))
+  changed'.")
 
 ;; ---- reserved keys --------------------------------------------------------
 
@@ -131,11 +130,20 @@
   parent path — the slice mini-panel's `before` / `after` shows the
   whole nested value side-by-side.
 
-  Pure data → data. JVM-runnable."
+  Pure data → data. JVM-runnable.
+
+  Performance note (rf2-etwtm / audit 2c): the final sort caches
+  `(pr-str :path)` onto each triple under `::sort-key` before the
+  comparator runs, so `pr-str` runs O(N) (once per triple) instead of
+  O(N log N) (once per comparator invocation) — measurable on large
+  diffs. The `::sort-key` slot is dissoc'd after sorting so callers
+  see the original triple shape."
   ([before after]
-   (-> (diff-paths before after [])
-       (->> (sort-by (comp pr-str :path)))
-       vec))
+   (let [triples       (diff-paths before after [])
+         with-keys     (mapv (fn [t] (assoc t ::sort-key (pr-str (:path t))))
+                             triples)
+         sorted        (sort-by ::sort-key with-keys)]
+     (mapv #(dissoc % ::sort-key) sorted)))
   ([before after path]
    (cond
      ;; Pointer-equal subtrees — no recursion (structural-sharing
@@ -144,31 +152,46 @@
      (identical? before after)
      []
 
-     ;; Both maps, not identical — recurse on the union of keys.
+     ;; Both maps, not identical — walk the union of keys without
+     ;; allocating two intermediate sets per recursion (rf2-etwtm /
+     ;; audit 2b). Walk `(keys after)` first, then `(keys before)`
+     ;; skipping any key already seen.
      (and (map-like? before) (map-like? after))
-     (let [all-keys (set/union (set (keys before)) (set (keys after)))]
-       (reduce
-         (fn [acc k]
-           (let [bv (get before k ::missing)
-                 av (get after k ::missing)]
-             (cond
-               (and (= bv ::missing) (not= av ::missing))
-               (conj acc {:op :added :path (conj path k) :before nil :after av})
+     (let [walk-key (fn [acc k seen?]
+                      (let [bv (get before k ::missing)
+                            av (get after k ::missing)]
+                        (cond
+                          (and (= bv ::missing) (not= av ::missing))
+                          [(conj acc {:op :added :path (conj path k)
+                                      :before nil :after av})
+                           (conj seen? k)]
 
-               (and (not= bv ::missing) (= av ::missing))
-               (conj acc {:op :removed :path (conj path k) :before bv :after nil})
+                          (and (not= bv ::missing) (= av ::missing))
+                          [(conj acc {:op :removed :path (conj path k)
+                                      :before bv :after nil})
+                           (conj seen? k)]
 
-               (identical? bv av)
-               acc
+                          (identical? bv av)
+                          [acc (conj seen? k)]
 
-               (and (map-like? bv) (map-like? av))
-               (into acc (diff-paths bv av (conj path k)))
+                          (and (map-like? bv) (map-like? av))
+                          [(into acc (diff-paths bv av (conj path k)))
+                           (conj seen? k)]
 
-               :else
-               (conj acc {:op :modified :path (conj path k)
-                          :before bv :after av}))))
-         []
-         all-keys))
+                          :else
+                          [(conj acc {:op :modified :path (conj path k)
+                                      :before bv :after av})
+                           (conj seen? k)])))
+           [acc-1 seen-1] (reduce (fn [[acc seen] k]
+                                    (walk-key acc k seen))
+                                  [[] #{}]
+                                  (keys after))]
+       (first (reduce (fn [[acc seen] k]
+                        (if (contains? seen k)
+                          [acc seen]
+                          (walk-key acc k seen)))
+                      [acc-1 seen-1]
+                      (keys before))))
 
      ;; One side is missing (top-level non-map invocation: caller asks
      ;; for diff between nil and a map, or vice versa).
