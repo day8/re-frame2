@@ -165,6 +165,71 @@
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
 
+;; ---- 2-arg form: explicit frame-id wins over context (rf2-rcgsc) ----------
+;;
+;; The 2-arg form `(use-subscribe frame-kw query-v)` is documented to
+;; bypass the React-context tier and read from the named frame's
+;; app-db directly. Pre-rf2-rcgsc only the 1-arg context-resolved form
+;; was tested under a frame-provider; the 2-arg explicit-pin shape was
+;; exercised indirectly via the Probe component above but no test
+;; pinned that two different frame-ids in the SAME render tree (no
+;; surrounding provider) see distinct values.
+
+(def ^:private probe-2arg-a-observed (atom []))
+(def ^:private probe-2arg-b-observed (atom []))
+
+(defui Probe2ArgA []
+  (let [v (uix-adapter/use-subscribe :rf.uix-rcgsc/tenant-a
+                                     [:rf.uix-rcgsc/n])]
+    (swap! probe-2arg-a-observed conj v)
+    ($ :div (str "a=" v))))
+
+(defui Probe2ArgB []
+  (let [v (uix-adapter/use-subscribe :rf.uix-rcgsc/tenant-b
+                                     [:rf.uix-rcgsc/n])]
+    (swap! probe-2arg-b-observed conj v)
+    ($ :div (str "b=" v))))
+
+(deftest use-subscribe-2-arg-pins-explicit-frame
+  (testing "rf2-rcgsc: use-subscribe's 2-arg form
+            `(use-subscribe frame-kw query-v)` reads from the named
+            frame's app-db, bypassing the React-context tier. Two
+            probes pinning two different frames in the same render
+            tree must see each frame's distinct seed value."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (do
+            (enable-react-act-env!)
+            (reset! probe-2arg-a-observed [])
+            (reset! probe-2arg-b-observed [])
+            (rf/reg-frame :rf.uix-rcgsc/tenant-a {:doc "tenant-a"})
+            (rf/reg-frame :rf.uix-rcgsc/tenant-b {:doc "tenant-b"})
+            (rf/reg-event-db :rf.uix-rcgsc/seed (fn [_ [_ n]] {:n n}))
+            (rf/dispatch-sync [:rf.uix-rcgsc/seed 10] {:frame :rf.uix-rcgsc/tenant-a})
+            (rf/dispatch-sync [:rf.uix-rcgsc/seed 100] {:frame :rf.uix-rcgsc/tenant-b})
+            (rf/reg-sub :rf.uix-rcgsc/n (fn [db _] (:n db)))
+            (let [mount-node (make-mount-node!)
+                  root       (react-dom-client/createRoot mount-node)]
+              (try
+                (act-fn (fn []
+                          (.render root
+                            (uix/$ :div
+                              (uix/$ Probe2ArgA)
+                              (uix/$ Probe2ArgB)))))
+                (is (some #{10} @probe-2arg-a-observed)
+                    "Probe2ArgA observed tenant-a's value (10) via explicit frame-pin")
+                (is (some #{100} @probe-2arg-b-observed)
+                    "Probe2ArgB observed tenant-b's value (100) via explicit frame-pin")
+                (is (not (some #{100} @probe-2arg-a-observed))
+                    "tenant-a probe did NOT leak tenant-b's value")
+                (is (not (some #{10} @probe-2arg-b-observed))
+                    "tenant-b probe did NOT leak tenant-a's value")
+                (finally
+                  (try (.unmount root) (catch :default _ nil)))))))))))
+
 ;; ---- sub-cache refcount cleanup (rf2-7g959) -------------------------------
 ;;
 ;; Pre-rf2-7g959, `use-subscribe` only removed the add-watch on
