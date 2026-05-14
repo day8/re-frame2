@@ -42,7 +42,42 @@ function run() {
       cwd: require('node:os').tmpdir(),
       env,
     });
-    child.stderr.on('data', (d) => process.stderr.write('[server] ' + d.toString()));
+    // Buffer stderr so the readiness poll (`waitForStderr`) can match
+    // against everything the server has logged so far — and tee it to
+    // the parent process for live visibility.
+    let stderrBuf = '';
+    child.stderr.on('data', (d) => {
+      const s = d.toString();
+      stderrBuf += s;
+      process.stderr.write('[server] ' + s);
+    });
+
+    // Poll-wait for `pattern` to appear in the server's stderr stream.
+    // Resolves on first match; rejects on timeout or child exit. 25ms
+    // is fast enough that a healthy boot adds no perceptible latency,
+    // and the 5s ceiling covers a slow CI runner without masking a
+    // genuine hang. Replaces the historical bare 250ms `setTimeout`
+    // wait (rf2-llzzt) which raced on slow CI / under valgrind.
+    const waitForStderr = (pattern, { timeoutMs = 5000, intervalMs = 25 } = {}) =>
+      new Promise((res, rej) => {
+        const deadline = Date.now() + timeoutMs;
+        const tick = () => {
+          if (pattern.test(stderrBuf)) return res();
+          if (child.exitCode !== null) {
+            return rej(new Error(
+              'server exited (code=' + child.exitCode + ') before matching ' + pattern,
+            ));
+          }
+          if (Date.now() >= deadline) {
+            return rej(new Error(
+              'timed out after ' + timeoutMs + 'ms waiting for ' + pattern +
+              ' on stderr; saw:\n' + stderrBuf,
+            ));
+          }
+          setTimeout(tick, intervalMs);
+        };
+        tick();
+      });
 
     let next = 1;
     const pending = new Map();
@@ -78,7 +113,11 @@ function run() {
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: m, params: p }) + '\n');
 
     (async () => {
-      await new Promise((r) => setTimeout(r, 250));
+      // Wait for the server's readiness banner on stderr — emitted by
+      // `connect-transport!` once stdio is wired up. Matches both the
+      // success-path ("ready — awaiting MCP frames on stdin") and the
+      // degraded-mode ("ready (degraded — no nREPL port)") banners.
+      await waitForStderr(/\bready\b/);
 
       // 1. initialize
       const init = await call('initialize', {
