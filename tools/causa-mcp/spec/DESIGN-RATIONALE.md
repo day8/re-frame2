@@ -313,9 +313,9 @@ additions are deliberate (a Lock entry here, a discussion).
 - **One tool per Causa panel is the symmetry.** Causa's pitch
   is "the cascade you can see"; Causa-MCP's pitch is "the
   cascade your agent can read." Eighteen tools map cleanly to
-  eighteen Causa surfaces (9 read + 3 mutate + 3 stream + 1
-  escape hatch + 2 meta). The agent reading
-  `tools/list` sees a one-to-one map.
+  eighteen Causa surfaces (band split per
+  [`README.md` §Canonical counts](./README.md#canonical-counts)).
+  The agent reading `tools/list` sees a one-to-one map.
 - **Pair2-mcp's catalogue is editor-side; Causa's is
   debugger-side.** Mirroring pair2 wholesale would leave
   agents writing Chrome MCP `evaluate_script` blocks for
