@@ -94,12 +94,19 @@
 
 (defn sensitive-query-param?
   "Predicate: is `param-name` in the merged query-param denylist?
-  Case-insensitive."
+  Case-insensitive.
+
+  Per rf2-ydp66 — short-circuits via two `contains?` lookups on the
+  source sets rather than building a fresh `(set/union default @extras)`
+  per call. The URL redactor calls this once per query-string param;
+  the previous shape rebuilt the merged set N times per URL. Two
+  `contains?` ops on small sets are O(1) and allocate nothing."
   [param-name]
   (boolean
     (when (string? param-name)
-      (contains? (set/union default-query-param-denylist @extra-query-params)
-                 (str/lower-case param-name)))))
+      (let [k (str/lower-case param-name)]
+        (or (contains? default-query-param-denylist k)
+            (contains? @extra-query-params k))))))
 
 ;; ---- URL query-string redaction (rf2-2p8wr) -------------------------------
 
