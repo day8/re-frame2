@@ -536,22 +536,55 @@
   ;; epoch is selected, the diff is between the newest epoch's
   ;; :db-before and :db-after (the most recent settle).
   ;;
-  ;; Per spec §Changed-paths derivation the diff is computed
-  ;; lazily on panel mount and the result cached per :epoch-id.
-  ;; The composite sub recomputes only when the underlying
-  ;; (history × selection) tuple changes — re-renders of the same
-  ;; epoch return identical?-equal triples, which is the v1
-  ;; caching model.
-  (rf/reg-sub :rf.causa/selected-epoch-diff
-    :<- [:rf.causa/epoch-history]
-    :<- [:rf.causa/selected-epoch-id]
-    (fn [[history selected-id] _query]
-      (let [record (if selected-id
-                     (tt-helpers/find-epoch-in-history history selected-id)
-                     (peek (vec history)))]
-        (when record
-          (h/diff-paths (:db-before record)
-                       (:db-after  record))))))
+  ;; ## Per-:epoch-id diff cache (rf2-qvaa0)
+  ;;
+  ;; Diffing two app-dbs is O(changed-subtree-depth × key-count).
+  ;; On hosts with large app-dbs this is the most likely user-
+  ;; visible Causa slowdown — without the cache, every re-render
+  ;; that lands while the selection is unchanged re-runs the diff
+  ;; over identical inputs.
+  ;;
+  ;; Each `:rf/epoch-record` carries a stable `:epoch-id` plus
+  ;; immutable `:db-before` / `:db-after` snapshots — keying on
+  ;; `:epoch-id` is sufficient (the same id never refers to two
+  ;; different db-pairs). The cache is pruned to the current
+  ;; history's id-set on every read so it cannot grow beyond the
+  ;; retained epoch-history depth (which is itself bounded by the
+  ;; framework's epoch-record ring buffer).
+  ;;
+  ;; The cache is a private atom rather than a `with-meta`
+  ;; computation on the sub because reagent-sub identity caching
+  ;; only short-circuits when the underlying tuple is
+  ;; `identical?`-equal — with a freshly-vec'd `history` on every
+  ;; epoch settle the tuple shifts, so the sub re-runs even when
+  ;; the selected epoch hasn't changed. The atom-keyed cache
+  ;; collapses that to a map lookup.
+  (let [diff-cache (atom {})]
+    (rf/reg-sub :rf.causa/selected-epoch-diff
+      :<- [:rf.causa/epoch-history]
+      :<- [:rf.causa/selected-epoch-id]
+      (fn [[history selected-id] _query]
+        (let [record (if selected-id
+                       (tt-helpers/find-epoch-in-history history selected-id)
+                       (peek (vec history)))]
+          (when record
+            (let [epoch-id (:epoch-id record)
+                  ;; Cheap hit path — most renders.
+                  cached   (get @diff-cache epoch-id ::miss)]
+              (if (not= ::miss cached)
+                cached
+                ;; Miss — compute, store, and prune. Pruning keeps
+                ;; the cache size bounded by the live epoch-history
+                ;; depth without needing an LRU ordering.
+                (let [diff   (h/diff-paths (:db-before record)
+                                          (:db-after  record))
+                      live   (into #{} (map :epoch-id) history)]
+                  (swap! diff-cache
+                         (fn [m]
+                           (-> m
+                               (select-keys live)
+                               (assoc epoch-id diff))))
+                  diff))))))))
 
   ;; The pinned-slices store — `{frame-id [path-1 path-2 ...]}`.
   ;; Separate from Phase 3's :pin-store (which pins whole epoch
