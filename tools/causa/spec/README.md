@@ -18,6 +18,7 @@
 - **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector contract: the ring-buffer data plane every panel reads from, the consumer-side filter algebra, and the `:sensitive?` privacy gate.
 - **[014-Registry-Catalogue.md](014-Registry-Catalogue.md)** — Normative enumeration of every `:rf.causa/*` subscription, event, and effect Causa registers (~140 ids), grouped by owning panel.
 - **[015-Configuration.md](015-Configuration.md)** — `configure!` entry-point contract: every accepted key, default, and the `:rf/causa` app-db slot it drives.
+- **[016-Auxiliary-Panels.md](016-Auxiliary-Panels.md)** — Per-panel contract for the seven panels beyond the hero set (event-detail, effects, flows, issues-ribbon, performance, routes, mcp-server): inputs (subs / events consumed), main interactions, observable outputs (rf2-3lduz).
 - **[API.md](API.md)** — Consolidated user-facing reference: installation, configuration, public surface; per-area specs are normative.
 - **[Principles.md](Principles.md)** — Causa-specific load-bearing principles (read-only-by-default, etc.); cites framework `Principles.md` where they overlap.
 - **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — The 13 direction-setting decisions: question, options, pick, why, date locked.
@@ -25,4 +26,4 @@
 
 ## How to use
 
-This folder is complete enough to one-shot the tool. Read [`000-Vision.md`](000-Vision.md) first to anchor *why*; the capability docs (001–015) are normative — each owns its surface and is independent of the others bar explicit cross-references. [`Principles.md`](Principles.md) and [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) capture the locks. [`API.md`](API.md) is the consolidated reference. `findings/` preserves the audit lineage and is never normative.
+This folder is complete enough to one-shot the tool. Read [`000-Vision.md`](000-Vision.md) first to anchor *why*; the capability docs (001–016) are normative — each owns its surface and is independent of the others bar explicit cross-references. [`Principles.md`](Principles.md) and [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) capture the locks. [`API.md`](API.md) is the consolidated reference. `findings/` preserves the audit lineage and is never normative.
