@@ -2,12 +2,22 @@
 ;; A registered event handler throws. The runtime must emit a structured
 ;; error trace event with :op-type :error and :operation
 ;; :rf.error/handler-exception, AND apply the documented recovery
-;; (:no-recovery by default — cascade halts).
+;; (:no-recovery by default — the failing handler's effects are
+;; suppressed).
+;;
+;; Per Spec 010 §Per-step recovery row 3 and rf2-v0jwt: "cascade halts"
+;; means the failing handler's :db / flows / :fx do NOT apply (the
+;; interceptor chain captured the exception before :effects were
+;; populated), but the DRAIN itself continues with the next queued
+;; event. The downstream :should-not-fire dispatch (a separate
+;; cascade) drains normally. The drain reaches empty queue cleanly so
+;; the epoch record's :outcome is :ok — handler-exception does NOT
+;; commit a halted-cascade record under the current runtime.
 
 {:fixture/id           :error/handler-exception
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :core/trace}
- :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event and halts the cascade."
+ :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event; the failing handler's effects are suppressed but the drain continues. Per rf2-v0jwt the drain settles with :outcome :ok — handler-exception is NOT a drain-halt and does not commit a :halted-* epoch record under the current runtime."
 
  :fixture/registry
  {:event {:counter/initialise {:doc "Seed."}
@@ -48,4 +58,19 @@
                :reason            "Event handler threw."}
     :recovery :no-recovery}
    {:operation :event
-    :tags     {:event-id :should-not-fire}}]}}
+    :tags     {:event-id :should-not-fire}}]
+
+  ;; Per rf2-v0jwt: each dispatch is its own drain (dispatch-sync runs
+  ;; to settle). All three drains settle cleanly — :outcome :ok. The
+  ;; :will-throw drain DOES surface in epoch-history (the cascade ran,
+  ;; the error trace landed in :trace-events) but the drain itself did
+  ;; NOT halt — handler-exception is per-event recovery, not a
+  ;; drain-halt under the current runtime.
+  ;; Three :ok records — :on-create [:counter/initialise] fires a
+  ;; synchronous drain at reg-frame time (pos 0), then the fixture's
+  ;; two dispatches (:will-throw, :should-not-fire) each run as
+  ;; separate drains (positions 1 and 2). All three settle cleanly.
+  :epoch-records
+  [{:frame :rf/default :record {:outcome :ok :event-id :counter/initialise}}
+   {:frame :rf/default :record {:outcome :ok :event-id :will-throw}}
+   {:frame :rf/default :record {:outcome :ok :event-id :should-not-fire}}]}}

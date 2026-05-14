@@ -30,13 +30,21 @@
             [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
+            [re-frame.late-bind :as late-bind]
             [re-frame.conformance :as conformance]
             ;; Spec 014 — :rf.http/managed registers at ns-load time. The
             ;; fixture corpus references the fx (often via :fx-overrides
             ;; redirecting to its canned stubs); requiring here gives the
             ;; runner access to the fx without each fixture re-registering
             ;; it itself.
-            [re-frame.http-managed]))
+            [re-frame.http-managed]
+            ;; rf2-v0jwt — the epoch artefact publishes the late-bind
+            ;; hooks (`:epoch/settle!`, `:epoch/epoch-history`, …) the
+            ;; router calls to commit drain-boundary records. Without
+            ;; the require the hooks are nil, the router's halt paths
+            ;; degrade to no-op, and `:epoch-records` fixture assertions
+            ;; can't observe the halted-cascade contract.
+            [re-frame.epoch]))
 
 ;; ---- claimed capability set -----------------------------------------------
 
@@ -190,6 +198,13 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  ;; rf2-v0jwt — drop the per-frame epoch ring buffer (and the in-flight
+  ;; capture buffer) between fixtures so `:epoch-records` assertions
+  ;; observe THIS fixture's recorded epochs only.
+  (when-let [f (late-bind/get-fn :epoch/clear-history!)]
+    (f))
+  (when-let [f (late-bind/get-fn :epoch/clear-epoch-cbs!)]
+    (f))
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
@@ -613,6 +628,46 @@
     [(first entry) (second entry)]
     [:rf/default entry]))
 
+(defn- check-epoch-records
+  "Per rf2-v0jwt — `:epoch-records` lets a fixture assert against the
+  recorded `:rf/epoch-record` ring. Entries are partial submaps matched
+  positionally against the named frame's history (oldest-first).
+  Returns a vector of failure-strings; empty when every entry matches.
+
+  Each `:epoch-records` entry is one of:
+    {:frame <id> :record <partial-record-map>}
+    {:record <partial-record-map>}                 ;; implicit :rf/default
+  The partial-record-map is matched via submap-rule against the actual
+  history at the entry's positional index within that frame's ring.
+
+  Pre-rf2-v0jwt history slots (`:event-id`, `:trigger-event`) work
+  unchanged; the new rf2-v0jwt slots (`:outcome`, `:halt-reason`) match
+  the same way."
+  [expected]
+  (let [by-frame (group-by #(or (:frame %) :rf/default) expected)]
+    (vec
+     (mapcat
+       (fn [[frame-id entries]]
+         (let [actual-history (try (rf/epoch-history frame-id)
+                                   (catch Throwable _ []))]
+           (keep-indexed
+             (fn [i {:keys [record]}]
+               (let [actual-record (get actual-history i)]
+                 (cond
+                   (nil? actual-record)
+                   (str "expected epoch-record at position " i
+                        " for frame " frame-id
+                        " but none recorded")
+
+                   (not (submap? record actual-record))
+                   (str "epoch-record mismatch at position " i
+                        " for frame " frame-id
+                        " — expected (submap) " (pr-str record)
+                        " — actual " (pr-str (select-keys actual-record
+                                                          (keys record)))))))
+             entries)))
+       by-frame))))
+
 (defn- register-routes! [fixture]
   ;; EDN maps don't preserve insertion order beyond ~8 entries. Routes
   ;; with structurally-equal rank tuples emit a warning at registration
@@ -926,6 +981,13 @@
                    :expected expected-val
                    :actual   (rf/subscribe-value frame-id qv)})))
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))
+            ;; rf2-v0jwt — :epoch-records — assert against the named frame's
+            ;; recorded :rf/epoch-record ring. Each entry is a partial-shape
+            ;; submap; useful for pinning the halted-cascade :outcome /
+            ;; :halt-reason contract from fixtures like
+            ;; drain-depth-limit.edn.
+            epoch-failures (when-let [er (:epoch-records expect)]
+                             (check-epoch-records er))
             ;; :effects-routed — per `spec/conformance/README.md` §Fixture
             ;; lifecycle: every fixture MAY assert the fx pairs that the
             ;; runtime routed. The runtime emits `:rf.fx/handled` (and
@@ -965,6 +1027,7 @@
                             (every? #(= (:expected %) (:actual %)) sub-checks)
                             (empty? trace-failures)
                             (empty? effects-failures)
+                            (empty? epoch-failures)
                             (or (nil? public-error-check)
                                 (:passed? public-error-check)))
          :final-db     final-db
@@ -976,6 +1039,7 @@
          :effects-failures   effects-failures
          :actual-effects     actual-effects
          :expected-effects   expected-effects
+         :epoch-failures     epoch-failures
          :public-error-check public-error-check}))
     (catch Throwable e
       {:fixture-id (:fixture/id fixture)
@@ -1089,6 +1153,9 @@
             (println "    actual effects routed:")
             (doseq [a (:actual-effects f)]
               (println "      " (pr-str a))))
+          (when (seq (:epoch-failures f))
+            (doseq [erf (:epoch-failures f)]
+              (println "    epoch:" erf)))
           (when-let [pec (:public-error-check f)]
             (when-not (:passed? pec)
               (println "    public-error expected:" (:expected pec))
