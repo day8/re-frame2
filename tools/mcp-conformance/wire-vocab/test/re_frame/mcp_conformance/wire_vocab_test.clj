@@ -777,25 +777,40 @@
   js-substring]` — the field for error reporting, the substring as the
   grep target. A field added to `Pair2OverflowBody` MUST add a row
   here; a field removed from `Pair2OverflowBody` MUST remove a row.
-  Drift surfaces as a test failure naming the missing field."
-  [[":limit :reached"
-    "body[':limit'] !== ':reached'"]
+  Drift surfaces as a test failure naming the missing field.
+
+  Per rf2-i3ffz F-CORR-2/F-HYG-4 (`live-pair2-overflow.cjs` rewrite
+  around `edn-data` + a data-driven `REQUIRED_FIELDS` table): the JS
+  side now parses EDN keywords as bare strings (no `:` prefix) and the
+  required-field assertions live in one table rather than five typeof
+  branches. The grep targets pin each row of that table by its literal
+  appearance in the source — a `REQUIRED_FIELDS` row that's been
+  renamed or deleted trips this gate even if the data-driven loop
+  silently skips it."
+  [;; The `[<field>, <pred>, <desc>]` row signatures in REQUIRED_FIELDS.
+   ;; Each row is on its own source line so a substring search uniquely
+   ;; pins the row's presence; whitespace inside the row is normalised
+   ;; in the source for alignment but `str/includes?` is whitespace-
+   ;; sensitive so we pin the canonical spaced form.
+   [":limit :reached"
+    "['limit',       (v) => v === 'reached',          'enum :reached']"]
    [":cap-tokens : int"
-    "typeof body[':cap-tokens'] !== 'number'"]
+    "['cap-tokens',  (v) => typeof v === 'number',    'int']"]
    [":token-count : int"
-    "typeof body[':token-count'] !== 'number'"]
+    "['token-count', (v) => typeof v === 'number',    'int']"]
    [":tool : string|keyword"
-    "typeof body[':tool'] !== 'string'"]
+    "['tool',        (v) => typeof v === 'string',    'string|keyword']"]
    [":hint : string|keyword"
-    "typeof body[':hint'] !== 'string'"]
+    "['hint',        (v) => typeof v === 'string',    'string|keyword']"]
    ;; Cross-field invariant: a tripped cap MUST report token-count
    ;; STRICTLY GREATER THAN cap-tokens. The JS form pins this as a
-   ;; numeric comparison; the Malli schema doesn't model cross-field
-   ;; relationships, so this grep is the only gate on the invariant.
-   ;; A future regression that emitted a degenerate overflow with
-   ;; `:token-count == :cap-tokens` would trip here.
+   ;; numeric comparison after the per-field loop; the Malli schema
+   ;; doesn't model cross-field relationships, so this grep is the only
+   ;; gate on the invariant. A future regression that emitted a
+   ;; degenerate overflow with `:token-count == :cap-tokens` would trip
+   ;; here.
    ["token-count > cap-tokens invariant"
-    "body[':token-count'] <= body[':cap-tokens']"]])
+    "body['token-count'] <= body['cap-tokens']"]])
 
 (deftest js-assertOverflowBody-pins-every-pair2-overflow-required-field
   ;; The cross-encoding sanity gate. For every required field on the
