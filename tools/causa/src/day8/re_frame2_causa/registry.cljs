@@ -33,6 +33,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.defaults :as defaults]
+            [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
@@ -237,7 +238,15 @@
     ;; `panels/<panel>.cljs` under `(defn install! [] ...)`. Order is
     ;; alphabetised — re-frame resolves `:<-` chains lazily at
     ;; subscribe time so registration order is purely cosmetic.
+    ;;
+    ;; The open-in-editor install is cross-panel — its
+    ;; `:rf.causa/open-in-editor` event-fx + `:rf.editor/open` fx are
+    ;; dispatched from trace, issues-ribbon, mcp-server, and the
+    ;; hydration debugger (rf2-g5q8d). Installed alongside the
+    ;; per-panel installs so the registration order matches the
+    ;; per-panel pattern.
 
+    (open-in-editor/install!)
     (ai-co-pilot/install!)
     (app-db-diff/install!)
     (causality-graph/install!)
