@@ -6,7 +6,8 @@
   pass an `:html-shell` option to override. The default exists so a
   first-time user gets a working SSR endpoint without writing string
   concatenation glue."
-  (:require [re-frame.ssr.html-helpers :as html]))
+  (:require [re-frame.ssr.constants :as constants]
+            [re-frame.ssr.html-helpers :as html]))
 
 (set! *warn-on-reflection* true)
 
@@ -14,6 +15,14 @@
   "The default HTML envelope. Returns a string wrapping the rendered
   body in a minimal-but-runnable document. Override via `:html-shell`
   in `ssr-handler` opts when you need custom <head> / scripts / styles.
+
+  The hydration-payload `<script>` is stamped with the id pinned in
+  `re-frame.ssr.constants/payload-script-id` (`\"__rf_payload\"`). The
+  CLJS bootstrap reads the payload via
+  `document.getElementById(\"__rf_payload\")` — same constant, both
+  sides (Spec 011 §Hydration payload script id, rf2-cegm7 CQ-3 / rf2-j54ee).
+  Custom `:html-shell` overrides MUST emit the payload `<script>` under
+  this id (or substitute their own bootstrap that reads a custom id).
 
   `<title>` is NOT emitted by the shell — the head fragment is the
   canonical source per Spec 011 §Head/meta contract (rf2-4dra9, rf2-3z841).
@@ -68,7 +77,11 @@
          "</head>"
          "<body" (html/attr-string body-attrs) ">"
          "<div id=\"" app-element-id "\">" body-html "</div>"
-         "<script id=\"__rf_payload\" type=\"application/edn\">"
+         ;; The id is pinned in `re-frame.ssr.constants/payload-script-id`
+         ;; — the contract between this server-side emit and the client-
+         ;; side bootstrap's `document.getElementById(...)` read. Per
+         ;; Spec 011 §Hydration payload script id (rf2-cegm7 CQ-3).
+         "<script id=\"" constants/payload-script-id "\" type=\"application/edn\">"
          payload-edn
          "</script>"
          (when script-src

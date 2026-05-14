@@ -89,9 +89,14 @@
 
 (rf/reg-event-fx :rf/server-init
   {:doc       "Per-request server-side initialisation. Reads the request
-               cofx, dispatches setup events. Server only."
+               via the :rf.server/request cofx (Spec 011 §Request storage
+               substrate, rf2-afxhv), dispatches setup events. Server only."
    :platforms #{:server}}
-  (fn handler-rf-server-init [{:keys [db]} [_ request]]
+  [(rf/inject-cofx :rf.server/request)]
+  (fn handler-rf-server-init [{:keys [db rf.server/request]} _]
+    ;; `request` is the host-supplied HTTP request map (Ring shape under
+    ;; the bundled adapter); read URL/headers/cookies from here rather
+    ;; than from a positional event arg.
     {:db (assoc db :rf/route {:id :route/articles :params {}})
      :fx [[:rf.http/managed
            {:request    {:method :get :url "/api/articles"}
@@ -179,15 +184,23 @@
 ;;
 ;; The server flow:
 ;;   1. Accept request.
-;;   2. make-frame; :on-create dispatches :rf/server-init with the request.
-;;   3. Drain settles (HTTP fetches resolve via :rf.http/managed; the JVM
+;;   2. set-request! populates the per-frame slot for the :rf.server/request
+;;      cofx (Spec 011 §Request storage substrate).
+;;   3. make-frame; :on-create dispatches :rf/server-init (which reads
+;;      the request via the cofx).
+;;   4. Drain settles (HTTP fetches resolve via :rf.http/managed; the JVM
 ;;      transport uses java.net.http.HttpClient under the hood).
-;;   4. Render to string via the pure hiccup → HTML emitter.
-;;   5. Serialise app-db; ship in the HTML.
+;;   5. Render to string via the pure hiccup → HTML emitter.
+;;   6. Serialise app-db; ship in the HTML.
 
 #?(:clj
    (defn handle-request [request]
-     (let [f (rf/make-frame {:on-create [:rf/server-init request]})]
+     (let [fid (keyword "rf.frame" (str (gensym "")))
+           _   (ssr/set-request! fid request)
+           f   (rf/reg-frame fid
+                 {:doc       "ssr-example per-request frame"
+                  :platform  :server
+                  :on-create [:rf/server-init]})]
        (rf/with-frame f
          (let [final-db (rf/get-frame-db f)
                hiccup   ((rf/view :app/root))
@@ -293,9 +306,14 @@
                         :value [{:id "a" :title "Article A" :body "Body A"}
                                 {:id "b" :title "Article B" :body "Body B"}])))))
 
-     (let [f           (rf/make-frame {:on-create    [:rf/server-init {:uri "/articles"}]
-                                       :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
-           final-db    (rf/get-frame-db f)
+     (let [fid          (keyword "rf.frame" (str (gensym "")))
+           _            (ssr/set-request! fid {:uri "/articles"})
+           f            (rf/reg-frame fid
+                          {:doc          "ssr-example test frame"
+                           :platform     :server
+                           :on-create    [:rf/server-init]
+                           :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
+           final-db     (rf/get-frame-db f)
            ;; The root view's body invokes the articles-page render fn,
            ;; which calls (rf/subscribe-value [:articles]). Both run
            ;; INSIDE render-to-string's tree walk; with-frame binds

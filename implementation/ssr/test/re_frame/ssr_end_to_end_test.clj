@@ -32,7 +32,8 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.trace :as trace]))
 
 ;; The canonical reset-runtime fixture lives in `re-frame.ssr.test-fixture`
 ;; (rf2-i3qc0) — one source of truth for the registrar/side-channel/ns-
@@ -180,7 +181,7 @@
                                   (resolve-tree client-frame render-tree))
                   match-traces  (atom [])]
               (rf/register-trace-cb! ::match (fn [ev] (swap! match-traces conj ev)))
-              ((requiring-resolve 're-frame.ssr/verify-hydration!)
+              (ssr/verify-hydration!
                 client-frame client-hash-1)
               (rf/remove-trace-cb! ::match)
               (is (= server-hash client-hash-1)
@@ -202,7 +203,7 @@
                                      (resolve-tree client-frame render-tree))
                   mismatch-traces (atom [])]
               (rf/register-trace-cb! ::mismatch (fn [ev] (swap! mismatch-traces conj ev)))
-              ((requiring-resolve 're-frame.ssr/verify-hydration!)
+              (ssr/verify-hydration!
                 client-frame client-hash-2)
               (rf/remove-trace-cb! ::mismatch)
 
@@ -230,7 +231,7 @@
 (defn- get-response
   "Read the resolved :rf/response accumulator for a frame."
   [frame-id]
-  ((requiring-resolve 're-frame.ssr/get-response) frame-id))
+  (ssr/get-response frame-id))
 
 (deftest ssr-set-status-precedence
   (testing "two :rf.server/set-status fx → last write wins + :rf.warning/multiple-status-set"
@@ -412,7 +413,7 @@
 (deftest ssr-default-error-projector-no-such-handler
   (testing "routing's :rf.error/no-such-handler → default projector → 404"
     (rf/reg-route :route/home {:path "/"})
-    (let [project-error  (requiring-resolve 're-frame.ssr/project-error)
+    (let [project-error  ssr/project-error
           f              (rf/make-frame
                            {:platform :server
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
@@ -450,7 +451,7 @@
       (fn [_ _]
         {:fx [[:dispatch [:load/article]]]}))
 
-    (let [project-error  (requiring-resolve 're-frame.ssr/project-error)
+    (let [project-error  ssr/project-error
           traces         (atom [])
           _              (rf/register-trace-cb! ::he (fn [ev] (swap! traces conj ev)))
           f              (rf/make-frame
@@ -477,7 +478,7 @@
 
 (deftest ssr-error-projector-dev-mode-includes-details
   (testing ":dev-error-detail? true puts the raw trace under :details"
-    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+    (let [project-error ssr/project-error
           f             (rf/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :rf.ssr/default-error-projector
@@ -514,7 +515,7 @@
            :message "Custom 500"
            :retryable? false})))
 
-    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+    (let [project-error ssr/project-error
           f             (rf/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :myapp/public-error
@@ -541,7 +542,7 @@
       (fn [_trace-event]
         (throw (ex-info "projector bug" {}))))
 
-    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+    (let [project-error ssr/project-error
           f             (rf/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :myapp/buggy-projector
@@ -564,7 +565,7 @@
     (rf/reg-error-projector :myapp/bad-shape
       (fn [_trace-event] {:wrong :shape}))
 
-    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+    (let [project-error ssr/project-error
           f             (rf/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :myapp/bad-shape}})
@@ -635,7 +636,7 @@
 
 (deftest ssr-head-hash-mismatch
   (testing "verify-hydration! surfaces a head-mismatch via :failing-id on the unified render-hash channel"
-    (let [verify-fn @(resolve 're-frame.ssr/verify-hydration!)
+    (let [verify-fn ssr/verify-hydration!
           ;; Hydration payload carries the SERVER's render-hash. v1's
           ;; unified channel covers head + body; the head-vs-body
           ;; distinction lives entirely in :failing-id below.
@@ -760,4 +761,166 @@
             "mutating one return value yields a new map with the change")
         (is (= 200 (:status r2))
             "the other return value is untouched — no shared mutable state")))))
+
+;; ===========================================================================
+;; rf2-dl9yg TC-9 — direct error-projection-listener exercise (view-time path)
+;; ===========================================================================
+;;
+;; The handler-exception path is tested end-to-end through the Ring stack
+;; (ssr-ring `handler-render-error-projects-to-500`). The
+;; direct-ssr-layer equivalent — driving `error-projection-listener`
+;; with a synthetic view-time-style exception trace and asserting the
+;; projector stamps the response — was not pinned. Add it.
+;;
+;; The listener consumes :error trace events bound to a server frame
+;; and buffers them; `get-response` flushes the buffer through the
+;; active projector. The buffered-trace pattern is what shipped per
+;; rf2-asmj1 R*; the test reaches in via `re-frame.trace/emit!` so the
+;; full path runs without involving the Ring adapter.
+
+(deftest direct-ssr-layer-projects-view-time-exception
+  (testing "rf2-dl9yg TC9: a synthetic error trace tagged with a server frame
+            → error-projection-listener buffers → get-response flushes → response
+            :status carries the default projector's 500"
+    (let [f (rf/make-frame
+              {:platform :server
+               :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                          :dev-error-detail? false}})]
+      ;; Emit a synthetic view-time-style error trace directly. Per
+      ;; the listener contract (`error_listener.cljc:103-115`) it
+      ;; gates on :op-type :error and the frame being a server frame;
+      ;; either condition failing → silent.
+      (trace/emit! :error :rf.error/view-time-exception
+                   {:frame             f
+                    :exception-message "synthetic view-time boom"
+                    :failing-id        :pages/articles
+                    :recovery          :warned-and-projected})
+      ;; Reading the response flushes the projection.
+      (let [resp (get-response f)]
+        (is (= 500 (:status resp))
+            "synthetic error trace → projector → 500 stamped onto :rf/response")
+        (is (nil? (:redirect resp))
+            "no redirect was set; the projector overwrites the status freely")))))
+
+;; ===========================================================================
+;; rf2-ooj41 — direct adapter-contract smoke
+;; ===========================================================================
+;;
+;; The `ssr/adapter` Var is the SSR substrate adapter — eight of nine
+;; slots implement the substrate contract cleanly; the ninth (`:render`)
+;; deliberately throws because SSR uses render-to-string exclusively.
+;; The shared test fixture installs the adapter on every `:each`, so
+;; the indirection is exercised constantly — but no test asserts the
+;; slot contents themselves. Add a direct check.
+
+(deftest adapter-installs-ssr-render-to-string
+  (testing "ssr/adapter wires re-frame.ssr/render-to-string into the
+            :render-to-string slot"
+    (let [adapter ssr/adapter]
+      (is (= :ssr (:kind adapter))
+          ":kind identifies the SSR substrate")
+      (is (fn? (:render-to-string adapter))
+          ":render-to-string is a callable fn")
+      ;; The slot fn is the production renderer — calling it against a
+      ;; tiny hiccup tree round-trips to an HTML string.
+      (let [html ((:render-to-string adapter) [:div "smoke"] {})]
+        (is (string? html))
+        (is (str/includes? html "smoke")
+            ":render-to-string emits HTML carrying the hiccup body"))
+      ;; The five state-container slots are present and callable.
+      (is (fn? (:make-state-container adapter)))
+      (is (fn? (:read-container adapter)))
+      (is (fn? (:replace-container! adapter)))
+      (is (fn? (:subscribe-container adapter)))
+      (is (fn? (:make-derived-value adapter))))))
+
+(deftest adapter-render-throws-rf-error-render-on-headless-adapter
+  (testing "ssr/adapter :render slot throws :rf.error/render-on-headless-adapter
+            — SSR uses render-to-string exclusively (Spec 006 §Plain-atom adapter)"
+    (let [render-fn (:render ssr/adapter)]
+      (is (fn? render-fn))
+      (try
+        (render-fn [:div] nil nil)
+        (is false "render-fn must throw — did not")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= ":rf.error/render-on-headless-adapter" (ex-message e))
+              "ex-message names the contract violation")
+          (is (string? (-> e ex-data :reason))
+              "ex-data carries a human :reason"))))))
+
+;; ===========================================================================
+;; rf2-ooj41 — redirect alias normalisation (:url and :to → :location)
+;; ===========================================================================
+;;
+;; Spec 011 §Redirect contract: `:rf.server/redirect` accepts `:location`,
+;; `:url`, or `:to` for the destination key. The current suite only
+;; exercises `:location`; the alias forms in `redirect-fx`
+;; (`response.cljc:218-221`) had no test coverage. Pin both aliases so a
+;; refactor that drops one fails loudly.
+
+(deftest redirect-alias-url-normalises-to-location
+  (testing "{:url \"...\"} is normalised to {:location \"...\" :status 302}"
+    (rf/reg-event-fx :alias/url-redirect
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:url "/dashboard"}]]}))
+    (let [f (rf/make-frame {:platform  :server
+                            :on-create [:alias/url-redirect]})
+          redirect (-> (get-response f) :redirect)]
+      (is (= "/dashboard" (:location redirect))
+          ":url alias is normalised onto :location in the resolved redirect")
+      (is (= 302 (:status redirect))
+          "default status flows through when no explicit :status supplied"))))
+
+(deftest redirect-alias-to-normalises-to-location
+  (testing "{:to \"...\"} is normalised to {:location \"...\" :status 302}"
+    (rf/reg-event-fx :alias/to-redirect
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:to "/welcome" :status 301}]]}))
+    (let [f (rf/make-frame {:platform  :server
+                            :on-create [:alias/to-redirect]})
+          redirect (-> (get-response f) :redirect)]
+      (is (= "/welcome" (:location redirect))
+          ":to alias is normalised onto :location")
+      (is (= 301 (:status redirect))
+          "caller-supplied :status wins over the 302 default"))))
+
+;; ===========================================================================
+;; rf2-hyk9j TC-6 — redirect short-circuits projector status overwrite
+;; ===========================================================================
+;;
+;; Per `error_listener.cljc:96-101` and Spec 011 §Redirect precedence:
+;; when the response carries a `:redirect`, `apply-error-projection!`
+;; must NOT overwrite the redirect's `:status` with the projector's
+;; status. Behaviour is correct in the impl; no test pinned it.
+
+(deftest redirect-suppresses-projector-status-overwrite
+  (testing "a request that redirects AND surfaces an error trace → response :status
+            stays at the redirect's status; the projector does not overwrite it"
+    (rf/reg-event-fx :redirect-then-error
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]
+              ;; Then trigger a handler-exception trace — the default
+              ;; projector maps this to 500. The redirect was set
+              ;; first; the projector must NOT promote 302 → 500.
+              [:dispatch [:throw-from-handler]]]}))
+    (rf/reg-event-fx :throw-from-handler
+      (fn [_ _] (throw (ex-info "post-redirect failure" {}))))
+
+    (let [traces (atom [])
+          _      (rf/register-trace-cb! ::rpe (fn [ev] (swap! traces conj ev)))
+          f      (rf/make-frame
+                   {:platform  :server
+                    :on-create [:redirect-then-error]
+                    :ssr       {:public-error-id   :rf.ssr/default-error-projector
+                                :dev-error-detail? false}})
+          _      (rf/remove-trace-cb! ::rpe)
+          resp   (get-response f)]
+      ;; The handler-exception fired (drain-time trace).
+      (is (some #(= :rf.error/handler-exception (:operation %)) @traces)
+          "the handler-exception was traced during the drain")
+      ;; The redirect survived: response :status is 302, not 500.
+      (is (= 302 (:status resp))
+          "redirect wins — projector must not overwrite a redirect's :status (Spec 011 §Redirect precedence)")
+      (is (= {:status 302 :location "/login"} (:redirect resp))
+          "the redirect map itself is unchanged"))))
 

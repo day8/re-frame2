@@ -50,7 +50,11 @@
       (rf/reg-frame fid
         (cond-> {:doc       "ssr-ring per-request frame"
                  :platform  :server
-                 :on-create (lifecycle/on-create-with-request on-create request)}
+                 ;; Audit rf2-cegm7 A2 / rf2-j54ee: pass :on-create
+                 ;; verbatim. Handlers read the request via the
+                 ;; `:rf.server/request` cofx — the spec-documented
+                 ;; canonical surface.
+                 :on-create (lifecycle/validate-on-create! on-create)}
           fx-overrides (assoc :fx-overrides fx-overrides)
           ssr          (assoc :ssr           ssr)))
       {:frame-id fid}

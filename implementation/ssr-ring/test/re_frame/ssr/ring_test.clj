@@ -82,7 +82,8 @@
 
   (rf/reg-event-fx :rf/server-init
     {:platforms #{:server}}
-    (fn [{:keys [db]} [_ request]]
+    [(rf/inject-cofx :rf.server/request)]
+    (fn [{:keys [db rf.server/request]} _]
       {:db (assoc db :request request)
        :fx [[:http/get {:url        "/api/articles"
                         :on-success [:articles/loaded]}]]}))
@@ -840,3 +841,53 @@
             "X-Secret-Header value IS on the wire response (header surface)")
         (is (some? audit-hdr)
             "X-Audit append-header reached the wire (multi-valued)")))))
+
+;; ===========================================================================
+;; rf2-hyk9j TC-3 — destroy-frame-failed trace surfaces on per-request teardown
+;; ===========================================================================
+;;
+;; Per audit rf2-asmj1 R6 / cluster rf2-sljs1, `destroy-frame-quietly!`
+;; emits a `:rf.ssr/destroy-frame-failed` warning trace when destroy
+;; throws. The behaviour shipped; no test pinned it.
+
+(deftest destroy-frame-quietly-emits-trace-on-throwing-destroy
+  (testing "rf2-hyk9j: a frame whose destroy throws → :rf.ssr/destroy-frame-failed
+            warning trace fires (audit rf2-asmj1 R6 / rf2-sljs1)
+
+            Most paths inside `destroy-frame!` swallow their own
+            exceptions (the on-destroy event runs through the router's
+            dispatch-sync which traces handler-exception; the late-bind
+            cleanup hooks funnel through `safe-call-hook!` which
+            swallows). To exercise destroy-quietly's catch arm we
+            simulate a hard runtime failure — `with-redefs` makes
+            `rf/destroy-frame` itself throw. This pins the wire
+            contract: when destroy throws for any reason, the trace
+            surfaces."
+    (let [destroy-quietly! (requiring-resolve
+                            're-frame.ssr.ring.lifecycle/destroy-frame-quietly!)
+          traces           (atom [])
+          f                :rf.frame/test-destroy-throws]
+      (rf/register-trace-cb! ::dfq (fn [ev] (swap! traces conj ev)))
+      (try
+        (with-redefs [rf/destroy-frame
+                      (fn [_] (throw (ex-info "synthetic destroy failure"
+                                              {:reason :test})))]
+          (destroy-quietly! f))
+        (finally
+          (rf/remove-trace-cb! ::dfq)))
+
+      (let [hits (filterv #(= :rf.ssr/destroy-frame-failed (:operation %)) @traces)]
+        (is (= 1 (count hits))
+            (str "expected one :rf.ssr/destroy-frame-failed trace; saw: "
+                 (pr-str (mapv :operation @traces))))
+        (when (seq hits)
+          (let [ev (first hits)]
+            (is (= :warning (:op-type ev)))
+            (is (= f (-> ev :tags :frame))
+                ":frame tag identifies the frame that failed to destroy")
+            (is (string? (-> ev :tags :reason))
+                ":reason carries the throwable's message")
+            (is (string? (-> ev :tags :ex-class))
+                ":ex-class carries the throwable's class name")
+            (is (= :warned-and-skipped (:recovery ev))
+                ":recovery names the policy")))))))

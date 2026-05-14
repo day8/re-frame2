@@ -17,6 +17,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.head :as head]
@@ -385,3 +386,108 @@
                            "<meta property=\"og:image\" content=\"https://example.com/og.png\">"))
         (is (str/includes? html
                            "<link rel=\"canonical\" href=\"https://example.com/articles/123\">"))))))
+
+;; ===========================================================================
+;; rf2-hyk9j TC-2 — :html-attrs / :body-attrs head-model keys reach the model
+;; ===========================================================================
+;;
+;; Per Spec 011 §Head/meta — line 478: head models may carry `:html-attrs`
+;; and `:body-attrs`; the host shell stamps them on the opening tags
+;; (`head-model->html` deliberately drops them — the shell layer is the
+;; right place to stamp). The ssr-ring shell test pins the wire emission;
+;; this test pins the model-side contract — the keys survive
+;; `reg-head` → `render-head` → `active-head` verbatim, so any shell
+;; implementation (including non-default ones) can read them.
+
+(deftest html-attrs-and-body-attrs-survive-render-head
+  (testing "head models with :html-attrs / :body-attrs are produced verbatim
+            and reach the active-head consumer (Spec 011 §Head/meta line 478)"
+    (rf/reg-head :head/with-attrs
+                 (fn [_ _]
+                   {:title      "Article — fr-FR"
+                    :html-attrs {:lang "fr" :data-theme "dark"}
+                    :body-attrs {:class "page-article"}}))
+    (rf/reg-route :route/article-fr
+                  {:doc  "French article page"
+                   :path "/fr/articles/:id"
+                   :head :head/with-attrs})
+    (rf/reg-event-db :seed-fr
+                     (fn [db _]
+                       (assoc db :rf/route
+                              {:id :route/article-fr :params {:id "1"}})))
+    (let [f (rf/make-frame {:platform :server})]
+      (rf/dispatch-sync [:seed-fr] {:frame f})
+      (let [model (rf/active-head f)]
+        (is (= "Article — fr-FR" (:title model)))
+        (is (= {:lang "fr" :data-theme "dark"} (:html-attrs model))
+            ":html-attrs reaches the model verbatim")
+        (is (= {:class "page-article"} (:body-attrs model))
+            ":body-attrs reaches the model verbatim")))))
+
+(deftest head-model-to-html-drops-attr-bags
+  (testing "head-model->html does NOT inline :html-attrs / :body-attrs in the
+            fragment — those bags belong on <html> / <body> in the surrounding
+            shell, not in the head fragment"
+    (let [html (rf/head-model->html
+                 {:title      "X"
+                  :html-attrs {:lang "fr"}
+                  :body-attrs {:class "page-x"}})]
+      (is (str/includes? html "<title>X</title>"))
+      (is (not (str/includes? html "lang"))
+          "head-model->html does not stamp :html-attrs anywhere in its output")
+      (is (not (str/includes? html "page-x"))
+          "head-model->html does not stamp :body-attrs anywhere in its output"))))
+
+;; ===========================================================================
+;; rf2-j54ee CQ-2 — destroy-time trace symmetry on head cleanup hook
+;; ===========================================================================
+;;
+;; Per request.cljc's `on-frame-destroyed!`: a head-cleanup throw must
+;; surface on the trace bus rather than vanishing silently. Mirrors the
+;; pattern shipped at `ssr-ring/lifecycle/destroy-frame-quietly!`
+;; (audit R6 / cluster rf2-sljs1).
+
+(deftest head-cleanup-throw-emits-warning-trace
+  (testing "if the :ssr/head-on-frame-destroyed hook throws, the destroy
+            still completes AND a :rf.ssr.head/cleanup-failed warning trace
+            surfaces (audit rf2-cegm7 CQ-2 / rf2-j54ee)"
+    (let [prior-hook (late-bind/get-fn :ssr/head-on-frame-destroyed)
+          traces     (atom [])
+          ssr-request (requiring-resolve 're-frame.ssr.request/on-frame-destroyed!)]
+      ;; Install a head-cleanup hook that throws — vanity exception
+      ;; so the catch path runs.
+      (late-bind/set-fn! :ssr/head-on-frame-destroyed
+        (fn [_frame-id] (throw (ex-info "boom from head cleanup" {:reason :test}))))
+      (try
+        (rf/register-trace-cb! ::head-clean (fn [ev] (swap! traces conj ev)))
+        ;; Drive the destroy hook directly — that's the path Mark-3
+        ;; teardown takes per the late-bind chaining.
+        (try (ssr-request :test/frame-id)
+             (catch Throwable _
+               ;; The hook must NOT propagate the exception — fail the
+               ;; test if it does.
+               (is false "on-frame-destroyed! must catch head-cleanup throws")))
+        (rf/remove-trace-cb! ::head-clean)
+
+        (let [hits (filterv #(= :rf.ssr.head/cleanup-failed (:operation %)) @traces)]
+          (is (= 1 (count hits))
+              (str "expected one :rf.ssr.head/cleanup-failed trace; saw: "
+                   (pr-str (mapv :operation @traces))))
+          (when (seq hits)
+            (let [ev (first hits)]
+              (is (= :warning (:op-type ev)))
+              (is (= :test/frame-id (-> ev :tags :frame))
+                  ":frame tag identifies which frame's cleanup failed")
+              (is (= :ssr/head-on-frame-destroyed (-> ev :tags :hook))
+                  ":hook tag identifies which hook misbehaved")
+              (is (string? (-> ev :tags :reason))
+                  ":reason carries the throwable's message")
+              (is (string? (-> ev :tags :ex-class))
+                  ":ex-class carries the throwable's class name")
+              (is (= :warned-and-skipped (:recovery ev))
+                  ":recovery names the policy — observed and continued"))))
+        (finally
+          ;; Restore the prior hook so subsequent tests see normal behaviour.
+          (if prior-hook
+            (late-bind/set-fn! :ssr/head-on-frame-destroyed prior-hook)
+            (swap! late-bind/hooks dissoc :ssr/head-on-frame-destroyed)))))))
