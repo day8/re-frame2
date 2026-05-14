@@ -29,21 +29,10 @@
   (:require [re-frame.frame :as frame]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
-            [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.lifecycle-fx.traces :as traces]
+            [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
-
-(defn- emit-system-id-released!
-  "Per Spec 005 §Cancellation cascade D8 — fire the
-  `:rf.machine/system-id-released` trace when an actor's `:system-id`
-  binding was released as part of teardown. No-op when sid is nil."
-  [frame-id sid actor-id]
-  (when sid
-    (trace/emit! :machine :rf.machine/system-id-released
-                 {:frame      frame-id
-                  :system-id  sid
-                  :machine-id actor-id})))
 
 (defn- destroy-single-actor!
   "Destroy a single spawned actor against the frame's container: apply
@@ -67,7 +56,7 @@
                                           (teardown/teardown-actor db {:actor-id actor-id})]
                                       (vreset! sid released-sid)
                                       new-db)))
-        (emit-system-id-released! frame-id @sid actor-id)
+        (traces/emit-system-id-released! frame-id @sid actor-id)
         (registrar/unregister! :event actor-id)
         @sid))))
 
@@ -82,13 +71,15 @@
                            [:rf/spawned parent-id invoke-id])
         children   (when (map? join-state) (:children join-state))]
     (doseq [[child-id spawned-id] children]
-      (trace/emit! :machine :rf.machine/destroyed
-                   {:frame      frame-id
-                    :actor-id   spawned-id
-                    :parent-id  parent-id
-                    :invoke-id  invoke-id
-                    :child-id   child-id
-                    :reason     :explicit})        ;; rf2-gn80 D6 — discriminator
+      ;; rf2-gn80 D6 — `:reason :explicit` discriminates "the parent cascade
+      ;; tore the child down" from `:rf.machine/finished` (the auto-destroy
+      ;; on `:final?`). Per-child fires omit `:system-id` (the join-state's
+      ;; children aren't system-id-bound through the parent's slot).
+      (traces/emit-destroyed! {:frame     frame-id
+                               :actor-id  spawned-id
+                               :parent-id parent-id
+                               :invoke-id invoke-id
+                               :child-id  child-id})
       (destroy-single-actor! frame-id spawned-id))
     ;; Clear the join-state slot via the unified projection (slot-only).
     (frame/swap-frame-db! frame-id
@@ -113,13 +104,15 @@
                     (when old-db (get-in old-db [:rf/spawned parent-id invoke-id]))
                     args)
         released-sid (teardown/find-system-id-for-actor old-db actor-id)]
-    (trace/emit! :machine :rf.machine/destroyed
-                 {:frame      frame-id
-                  :actor-id   actor-id
-                  :system-id  released-sid
-                  :parent-id  parent-id
-                  :invoke-id  invoke-id
-                  :reason     :explicit})              ;; rf2-gn80 D6 — discriminator
+    ;; rf2-gn80 D6 — `:reason :explicit` discriminates "an action / fx
+    ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
+    ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
+    ;; the destroyed-trace-shape contract for the `destroy-single!` site.
+    (traces/emit-destroyed! {:frame     frame-id
+                             :actor-id  actor-id
+                             :system-id released-sid
+                             :parent-id parent-id
+                             :invoke-id invoke-id})
     ;; Tracked-form destroy with no resolved actor-id is a benign no-op:
     ;; the spawn slot was already cleared (e.g. by an earlier explicit
     ;; destroy) or the spawn was suppressed (SSR / platform gating).
@@ -131,7 +124,7 @@
                                        db {:actor-id  actor-id
                                            :parent-id parent-id
                                            :invoke-id invoke-id}))))
-      (emit-system-id-released! frame-id released-sid actor-id)
+      (traces/emit-system-id-released! frame-id released-sid actor-id)
       ;; Unregister the live handler. Last so any in-flight trace emit
       ;; against the actor still resolves before the slot disappears.
       (registrar/unregister! :event actor-id))
