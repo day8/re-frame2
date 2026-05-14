@@ -178,3 +178,34 @@
           "corpus-wide listener fired under prod — both paths survive elision")
       (is (= :rf.error/handler-exception (:error @listener-saw)))
       (is (= :prod/both (:event-id @listener-saw))))))
+
+;; ---- rf2-vnjfg :sensitive? redaction enforcement under prod -------------
+
+(deftest sensitive-handler-error-record-redacted-under-prod
+  (testing "Per rf2-vnjfg: under `:advanced` + `goog.DEBUG=false` the
+            always-on error-emit substrate MUST still enforce
+            `:sensitive?` redaction on the corpus-wide listener path.
+            Production builds are where this matters most — the
+            Sentry / Honeybadger forwarder is exactly the boundary
+            that would otherwise ship credentials off-box."
+    (let [listener-saw (atom nil)
+          policy-saw   (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
+      (rf/register-error-emit-listener!
+        :prod/recorder
+        (fn [record] (reset! listener-saw record)))
+      (rf/reg-event-db :prod/sensitive
+                       {:sensitive? true
+                        :no-redaction-needed? true}
+                       (fn [_db _] (throw (ex-info "boom" {}))))
+      (rf/dispatch-sync [:prod/sensitive {:password "shhh"}])
+      (is (some? @listener-saw))
+      (is (= :rf/redacted (:event @listener-saw))
+          "listener record's :event is redacted under prod-elision")
+      (is (= :prod/sensitive (:event-id @listener-saw))
+          "event-id flows through")
+      (is (some? @policy-saw))
+      (is (= :rf/redacted (get-in @policy-saw [:tags :event]))
+          "policy fn's :tags :event is redacted under prod-elision")
+      (is (= :prod/sensitive (get-in @policy-saw [:tags :event-id]))))))

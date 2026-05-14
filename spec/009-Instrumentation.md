@@ -460,16 +460,38 @@ The same pattern applies to `register-epoch-cb!`, `trace-buffer`, `clear-trace-b
 JVM has no `:advanced` and no compile-time DCE. The JVM half of the interop layer:
 
 ```clojure
-;; src/re_frame/interop.clj
-(def debug-enabled? true)
+;; src/re_frame/interop.clj — JVM-side gate read once at ns-load
+(def debug-enabled?
+  (read-debug-flag))   ;; defaults to `true`; opt-out via property / env
 ```
 
-…hardcodes `debug-enabled?` to `true`. JVM artefacts always run the dev-side branches. Two reasons:
+…reads the gate ONCE at namespace load. The default is `true` (dev parity), but the gate is **explicitly overridable** for the SSR production posture — the JVM-side counterpart to CLJS `goog.DEBUG=false` (per rf2-vnjfg / rf2-0la4f).
 
-1. The JVM is used in re-frame2 only for headless tests, SSR, and tooling-attached REPLs (per Spec 011 §JVM-runnable view rendering and Spec 008 §JVM-runnable test suites). None of those is a production-latency hot path.
-2. Trace events are how SSR errors, schema-validation failures, and hot-reload notifications surface — turning them off on the JVM would silently drop the only data channel those flows carry.
+**Opt-out vocabulary.** Two input sources, read in this order, with the JVM system property winning on conflict:
 
-Apps that ship a production JVM artefact (a Pedestal/ring service that uses re-frame2's runtime for state) and want to disable instrumentation should rebuild the framework with `interop.clj`'s `debug-enabled?` switched to `false` (or an `alter-var-root!` at boot) — but the canonical re-frame2 dev surface is CLJS. The compile-time-elision guarantee is **CLJS-only**; on JVM the contract is "code is present, runs cheaply when its inner predicate is also off."
+1. **Java system property `re-frame.debug`** — set on the JVM command line with `-Dre-frame.debug=false`.
+2. **Environment variable `RE_FRAME_DEBUG`** — set in the process environment.
+
+Both accept the conventional false-y vocabulary case-insensitively: `false`, `0`, `no`, `off`, empty string. Whitespace is trimmed. Anything else — including absent / unset — leaves the flag at its default `true`. The vocabulary is intentionally conservative: only the documented opt-out strings disable the gate, so an accidental typo (`disabled`, `nope`) leaves the dev posture alive rather than silently misconfiguring.
+
+**What disabling the gate suppresses.** With `re-frame.debug=false` set BEFORE `re-frame.interop` loads, every JVM-side dev surface drops to its no-op floor — the same shape CLJS `:advanced` + `goog.DEBUG=false` builds achieve via Closure DCE:
+
+- Trace emission (`emit!` / `emit-error!` / the queue-time `:event/dispatched` emit) is silent.
+- The retain-N trace ring buffer accumulates nothing.
+- `register-trace-cb!` listeners receive no events.
+- The epoch artefact (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) records no `:db-before`/`:db-after`/`:trace-events` payloads, fires no `register-epoch-cb!` listeners, and refuses `restore-epoch` / `reset-frame-db!`.
+
+**What remains live (always-on by construction).** Disabling the gate does NOT silence the production-survivable surfaces:
+
+- The `register-event-emit-listener!` substrate (per rf2-rirbq, [§Event-emit listener](#event-emit-the-always-on-event-listener-surface)) keeps firing.
+- The `register-error-emit-listener!` substrate and the per-frame `:on-error` policy fn (per rf2-bacs4 / rf2-hqbeh, [§Error-emit listener](#error-emit-the-always-on-error-listener-surface)) keep firing.
+- Schema validation, the registrar, and the dispatch loop itself are unaffected.
+
+Those surfaces are explicitly always-on per their owning specs — they exist precisely for the SSR / production posture and would defeat their purpose if a debug-gate flip silenced them. They run with the `:sensitive?` substrate-level enforcement described in [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces).
+
+**Set the flag before re-frame loads.** The Var reads its value at ns-load time, then JIT-inlines into the per-call `when interop/debug-enabled?` checks. Late mutation via `alter-var-root!` works for tests (and is the canonical way to flip the gate within a test) but does not retroactively elide already-allocated infrastructure.
+
+The motivating concern is the audit finding (rf2-vnjfg / rf2-0la4f): an SSR / headless JVM process running re-frame2 should not, by default, retain user input in trace ring buffers or epoch history. Apps that ship a JVM artefact for production should set `-Dre-frame.debug=false` in their deployment. The dev / test posture is unchanged.
 
 ### Production-elision verification
 
@@ -1296,6 +1318,13 @@ Semantics:
 - `:sensitive?` is **declarative**; setting it does NOT by itself redact any payload. The handler's event vector, return value, and the resulting `:event/db-changed` `:tags :app-db-before` / `:app-db-after` slots ride the trace stream unchanged. Tools downstream of the trace surface (the on-box error-monitor forwarder, the off-box pair2 server, dev panels) MUST consult `:sensitive?` and apply tool-side policy — drop, redact, summarise, or filter — before any data leaves the trust boundary.
 
 The default policies that ship with the framework's published listener integrations (the Sentry / Honeybadger forwarders documented at [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), the pair2 server per [Tool-Pair.md](Tool-Pair.md)) MUST suppress events carrying `:sensitive? true` by default. Apps that want them shipped opt in explicitly per integration; the conservative default protects apps that opt into a published integration without reading its source.
+
+> **Substrate-level enforcement on the always-on surfaces.** The dev-only trace surface treats `:sensitive?` as declarative (consumers route on the stamp). The two **always-on** substrate boundaries enforce it at the source:
+>
+> - The **event-emit substrate** (`register-event-emit-listener!` per [§Event-emit listener](#event-emit-the-always-on-event-listener-surface)): when the dispatched event's registered handler-meta carries `:sensitive? true`, the substrate **drops the record entirely** (per rf2-6hklf) — listeners are NOT invoked. Sensitive cascades produce no per-event observability record at all.
+> - The **error-emit substrate** (`register-error-emit-listener!` per [§Error-emit listener](#error-emit-the-always-on-error-listener-surface), and the per-frame `:on-error` policy fn): when the failing handler's handler-meta carries `:sensitive? true`, the substrate **redacts the event payload** to `:rf/redacted`. The corpus-wide listener's `:event` slot becomes `:rf/redacted`; the policy fn's structured error-event carries `:rf/redacted` in `:tags :event`. The exception object, the failing event-id, the frame, and `:elapsed-ms` ride through unchanged so operators retain the triage signal. Errors are a recovery surface that MUST stay observable; the payload is scrubbed at the substrate boundary, the record itself is not dropped. Per rf2-vnjfg.
+>
+> These guarantees fire WITHOUT a `with-redacted` interceptor in the handler's chain. `with-redacted` remains the conservative pattern — it scrubs the in-handler payload before any trace event copies the event vector, covering the dev-side trace surface and the `:event/db-changed` `:app-db-*` slots — but the always-on substrates do not depend on it for their boundary semantics. A handler declared `:sensitive? true` without `with-redacted` still emits a `:rf.warning/sensitive-without-redaction` advisory (the in-buffer dev traces remain raw); the always-on listener fan-out is safe by construction.
 
 #### The `with-redacted` interceptor
 
