@@ -98,3 +98,51 @@
         (finally
           (set! js/console.warn orig-warn)
           (a11y/drop-frame-state! frame-id))))))
+
+;; ---- rf2-20w5i: axe-core CDN load is opt-in only ------------------------
+;;
+;; Per the security audit, the axe-core load is gated behind a
+;; persisted opt-in. These tests cover the contract surface:
+;; `cdn-opt-in?` defaults to false (or whatever localStorage holds),
+;; `set-cdn-opt-in!` flips it, and `run-axe!` short-circuits to
+;; `:no-consent` when the dev hasn't approved. The companion JVM
+;; test (`re-frame.story-a11y-source-test`) checks the source for
+;; the SRI / crossorigin attributes and the consent-prompt text.
+
+(deftest cdn-opt-in-defaults-to-false-after-revoke
+  (testing "set-cdn-opt-in! false clears the persisted approval —
+            the fresh-browser shape. A subsequent cdn-opt-in? must
+            read false so the consent prompt re-renders."
+    (a11y/set-cdn-opt-in! false)
+    (is (false? (boolean (a11y/cdn-opt-in?)))
+        "after revocation the opt-in predicate must read false")))
+
+(deftest cdn-opt-in-roundtrips
+  (testing "set-cdn-opt-in! true persists the approval; set-cdn-opt-in!
+            false revokes it. The persistence is `localStorage`-backed
+            so a single click per browser-session is enough."
+    (a11y/set-cdn-opt-in! true)
+    (is (true? (boolean (a11y/cdn-opt-in?))))
+    (a11y/set-cdn-opt-in! false)
+    (is (false? (boolean (a11y/cdn-opt-in?))))))
+
+(deftest run-axe-surfaces-no-consent-without-opt-in
+  (testing "run-axe! short-circuits to `:no-consent` when the dev
+            hasn't approved the CDN load. The panel reads this state
+            to render the consent prompt instead of triggering the
+            load — defence against the pre-fix shape where a single
+            panel-open inadvertently fetched remote JS."
+    (a11y/set-cdn-opt-in! false)
+    (let [frame-id :story.never-consented/x
+          ;; Pass a fake context so the call doesn't short-circuit on
+          ;; the prior `:no-root` branch.
+          fake-ctx #js {:nodeType 1}]
+      (try
+        (let [p (a11y/run-axe! frame-id fake-ctx)]
+          (is (some? p) "run-axe! returns a Promise even on :no-consent")
+          (is (= :no-consent (get @a11y/run-state frame-id))
+              "without consent the panel must surface :no-consent —
+               NOT :running or :loading — so the consent prompt has
+               time to render"))
+        (finally
+          (a11y/drop-frame-state! frame-id))))))

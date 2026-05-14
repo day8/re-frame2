@@ -10,7 +10,8 @@
     "playwright": "1.59.1",
     "http-server": "14.1.1",
     "todomvc-app-css": "2.4.3",
-    "todomvc-common": "1.0.5"
+    "todomvc-common": "1.0.5",
+    "qrcode-generator": "2.0.4"
   },
   "scripts": {
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",

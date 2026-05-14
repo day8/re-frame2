@@ -17,6 +17,7 @@
   DCE the entire ns via the same reachability path the rest of the UI
   shell uses."
   (:require [reagent.core :as r]
+            [re-frame.story.qr :as qr]
             [re-frame.story.share :as share]
             [re-frame.story.ui.state :as state]))
 
@@ -125,11 +126,16 @@
            [:div {:style (:popover styles)}
             [:div {:style (:url-label styles)} "share link"]
             [:div {:style (:url styles)} url]
-            [:div {:style (:qr styles)}
-             [:img {:src    (share/qr-image-url url 180)
-                    :alt    "QR code for variant URL"
-                    :width  180
-                    :height 180}]]
+            ;; Local QR encoder per rf2-20w5i: the SVG is generated
+            ;; in-process from `qrcode-generator`; no third-party
+            ;; endpoint is contacted. `:dangerouslySetInnerHTML` is
+            ;; safe here because the SVG markup comes from the
+            ;; trusted vendored library — caller text only contributes
+            ;; the encoded URL, never markup.
+            [:div {:style                   (:qr styles)
+                   :role                    "img"
+                   :aria-label              "QR code for variant URL"
+                   :dangerouslySetInnerHTML {:__html (qr/qr-svg-string url 4)}}]
             [:button {:style    (:copy-btn styles)
                       :on-click (fn [_]
                                   (copy-to-clipboard! url)
