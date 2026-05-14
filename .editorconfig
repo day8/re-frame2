@@ -1,0 +1,28 @@
+# EditorConfig — https://editorconfig.org
+# Repo-root config for re-frame2. Spec is the artefact; consistent
+# whitespace across spec docs, CLJ(S/C) sources, and tooling matters.
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Clojure / ClojureScript / cljc — explicit for clarity even though
+# the [*] defaults already cover them.
+[*.{clj,cljs,cljc,edn}]
+indent_style = space
+indent_size = 2
+
+# Markdown trailing whitespace is sometimes meaningful (two-space line
+# break). Disable the trim for .md to avoid surprise edits.
+[*.md]
+trim_trailing_whitespace = false
+
+# Makefiles require literal tabs.
+[Makefile]
+indent_style = tab

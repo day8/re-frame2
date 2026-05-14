@@ -45,3 +45,20 @@ skills/*/node_modules/
 skills/*/.shadow-cljs/
 skills/*/out/
 skills/*/target/
+
+# clj-kondo cache (rf2-mfi1s) — config.edn at /.clj-kondo/ is checked in;
+# the cache subdir is regenerated per-machine.
+/.clj-kondo/.cache/
+/.clj-kondo/.cache-version
+
+# Orphan npm lockfile (rf2-mfi1s) — there is no repo-root package.json;
+# this guards against stray `npm` invocations from the wrong cwd.
+/package-lock.json
+
+# CDP scratch dir from examples/ test runs (rf2-mfi1s) — local Chrome
+# user-data-dir, never committed.
+/examples/.edge-cdp/
+
+# Local worktrees created by EnterWorktree tool (rf2-mfi1s) — agent
+# scratch space, local-only.
+/.claude/worktrees/
