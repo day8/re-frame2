@@ -652,4 +652,14 @@
    :output-dir "out/testbeds/multi-frame"
    :asset-path "."
    :modules    {:main {:init-fn multi-frame.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim Tier 2 — deep-machine testbed (one machine exercising
+  ;; every Spec 005 grammar surface: parallel regions, hierarchical
+  ;; compound 5+ levels deep, :always, :after, :invoke, :invoke-all).
+  :testbeds/deep-machine
+  {:target     :browser
+   :output-dir "out/testbeds/deep-machine"
+   :asset-path "."
+   :modules    {:main {:init-fn deep-machine.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
