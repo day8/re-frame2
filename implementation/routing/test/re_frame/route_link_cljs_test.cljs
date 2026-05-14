@@ -121,15 +121,18 @@
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]
                                   :query  [:map [:tab :keyword]]})
+    ;; :tab is declared :keyword in the route's :query schema; pass a
+    ;; conformant value through the link click so rf2-ug2m1's route-url
+    ;; validation doesn't reject the caller's payload.
     (let [{:keys [dispatched]}
           (click! {:to     :route/article
                    :params {:id "intro"}
-                   :query  {:tab "summary"}}
+                   :query  {:tab :summary}}
                   (mk-event {}))
           payload (second dispatched)]
       (is (= {:id "intro"} (:params payload))
           ":params lands in the dispatched payload")
-      (is (= {:tab "summary"} (:query payload))
+      (is (= {:tab :summary} (:query payload))
           ":query lands in the dispatched payload"))))
 
 ;; ---- modifier-key clicks defer to browser ------------------------------

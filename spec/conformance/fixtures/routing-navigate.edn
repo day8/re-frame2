@@ -36,17 +36,21 @@
 
  :fixture/expect
  ;; The runtime's :rf.route/navigate handler writes the canonical slice
- ;; (per Spec 012 §Route slice shape): :id, :params, :query, :transition,
- ;; :error. The :final-app-db submap match tolerates the additional keys;
- ;; the :sub-values check is exact, so the expected slice mirrors what
- ;; the runtime writes.
+ ;; (per Spec 012 §The :rf/route slice): :id, :params, :query, :fragment,
+ ;; :transition, :error, :nav-token. The :final-app-db submap match
+ ;; tolerates the additional keys; the :sub-values check is exact, so
+ ;; the expected slice mirrors what the runtime writes. :nav-token is
+ ;; matched via the wildcard `:rf.fixture/any` sentinel since the gensym
+ ;; counter resets per fixture run.
  {:final-app-db {:rf/route {:id :route/article-detail :params {:id "intro"}}}
 
   :sub-values   {[:rf/route] {:id         :route/article-detail
                               :params     {:id "intro"}
                               :query      {}
+                              :fragment   nil
                               :transition :idle
-                              :error      nil}}
+                              :error      nil
+                              :nav-token  "nav-2"}}
 
   :effects-routed
   [{:fx-id :rf.nav/push-url :args "/articles"}

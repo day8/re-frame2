@@ -781,6 +781,26 @@
     [(assoc db :rf.route/pending-nav-counter n)
      (str "pn-" n)]))
 
+;; Per Spec 012 §Per-route data loading §2: ":rf.route/transition is
+;; :loading while these dispatches drain, and back to :idle when they
+;; complete." The runtime queues a final :rf.route/settle-transition
+;; dispatch after the :on-match events; FIFO drain semantics guarantee
+;; the settle fires after every :on-match has executed (synchronous
+;; portion). Async on-match continuations (an :http :on-success
+;; landing later) settle separately via :rf.route/with-nav-token's
+;; staleness check against :nav-token, not :transition.
+;;
+;; The settle is nav-token-aware: when a newer navigation has bumped
+;; :nav-token mid-drain, the stale settle is a no-op so the new
+;; navigation's :loading isn't clobbered.
+(events/reg-event-db :rf.route/settle-transition
+  (fn [db [_ token]]
+    (let [current (get-in db [:rf/route :nav-token])]
+      (if (and (= current token)
+               (= :loading (get-in db [:rf/route :transition])))
+        (assoc-in db [:rf/route :transition] :idle)
+        db))))
+
 (events/reg-event-fx :rf.route/navigate
   (fn [{:keys [db]} [_ target params opts]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
@@ -866,6 +886,13 @@
                    :nav-token  token})
        :fx (vec (concat [push-fx]
                         (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                        ;; Per Spec 012 §Per-route data loading §2:
+                        ;; transition :loading → :idle when the
+                        ;; on-match drain completes. FIFO order means
+                        ;; the settle dispatch runs after every
+                        ;; on-match event already queued above.
+                        (when (seq on-match-vec)
+                          [[:dispatch [:rf.route/settle-transition token]]])
                         (when scroll-fx [scroll-fx])))})))
 
 (defn reset-counters!
@@ -929,8 +956,14 @@
                         guard-id (assoc :rejecting-guard guard-id)))})
 
         :else
-        ;; can leave — just dispatch :rf/url-changed for the new URL.
-        {:fx [[:dispatch [:rf/url-changed url]]]}))))
+        ;; can leave — push the URL and dispatch :rf/url-changed.
+        ;; Per Spec 012 §URL changes are events route-link clicks call
+        ;; `.preventDefault` and dispatch :rf/url-requested; the browser's
+        ;; URL has NOT updated. The handler is responsible for pushing
+        ;; the new URL (history pushState) and then synthesising the
+        ;; :rf/url-changed event the slice + on-match write keys off.
+        {:fx [[:rf.nav/push-url url]
+              [:dispatch [:rf/url-changed url]]]}))))
 
 (events/reg-event-fx :rf.route/continue
   (fn [{:keys [db]} [_ _pn-id]]
@@ -1111,6 +1144,11 @@
                        :error      nil
                        :nav-token  token})
            :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                            ;; Per Spec 012 §Per-route data loading §2:
+                            ;; settle :loading → :idle after the
+                            ;; on-match drain.
+                            (when (seq on-match-vec)
+                              [[:dispatch [:rf.route/settle-transition token]]])
                             (when scroll-fx [scroll-fx])))})))))
 
 (events/reg-event-fx :rf.route/handle-url-change
@@ -1188,6 +1226,11 @@
                      :error      nil
                      :nav-token  token})
          :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                          ;; Per Spec 012 §Per-route data loading §2:
+                          ;; settle :loading → :idle after the
+                          ;; on-match drain.
+                          (when (seq on-match-vec)
+                            [[:dispatch [:rf.route/settle-transition token]]])
                           (when scroll-fx [scroll-fx])))}))))
 
 ;; ---- standard navigation fx ----------------------------------------------

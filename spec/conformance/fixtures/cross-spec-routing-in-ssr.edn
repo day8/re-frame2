@@ -64,8 +64,10 @@
   {[:rf/route] {:id         :route/article-detail
                 :params     {:id "intro"}
                 :query      {}
+                :fragment   nil
                 :transition :idle
-                :error      nil}}
+                :error      nil
+                :nav-token  "nav-1"}}
 
   ;; The navigation fx was skipped on the server; nothing routed.
   :effects-routed []
