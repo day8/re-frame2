@@ -103,6 +103,32 @@
 ;; anti-pin all need the same documentation-vs-emission distinction.
 ;; ---------------------------------------------------------------------------
 
+;; ---------------------------------------------------------------------------
+;; Keyword-extender-aware variant regex (rf2-qnmne).
+;;
+;; Conformance tests grep server source for canonical literal keywords and
+;; near-miss variants. Raw `str/includes?` false-positives when a variant
+;; is a prefix of a longer legitimate keyword — e.g. `":dropped-sensitive"`
+;; is a substring of a future `":dropped-sensitive-warning"` extension.
+;; The regex pins the variant as a complete keyword token: matched only
+;; when not immediately followed by a keyword-extender character.
+;;
+;; Originally `defn-` in `slot_name_test.clj` (rf2-zvv65); promoted here
+;; so `indicator_field_test.clj`'s inline-emit anti-pin can use the same
+;; elegant pattern.
+;; ---------------------------------------------------------------------------
+
+(defn variant-regex
+  "Build a Java regex that matches `variant-str` only when it is NOT
+  immediately followed by a character that would extend it into a
+  longer keyword. `[\\w\\-?/!*+'<>=]` is the conservative set of
+  characters Clojure allows mid-keyword; matching one of those after
+  the variant means we're actually looking at a longer keyword that
+  happens to share a prefix with the variant — not the variant itself."
+  [variant-str]
+  (re-pattern (str (java.util.regex.Pattern/quote variant-str)
+                   "(?![\\w\\-?/!*+'<>=])")))
+
 (defn strip-comments-and-strings
   "Return `src` with Clojure line comments (`;` to EOL) and string
   literals (`\"...\"`, including docstrings) replaced by single

@@ -262,16 +262,10 @@
 ;; etc — anything that isn't a keyword-extender.
 ;; ---------------------------------------------------------------------------
 
-(defn- variant-regex
-  "Build a Java regex that matches `variant-str` only when it is NOT
-  immediately followed by a character that would extend it into a
-  longer keyword. `[\\w\\-?/!*+'<>=]` is the conservative set of
-  characters Clojure allows mid-keyword; matching one of those after
-  the variant means we're actually looking at a longer keyword that
-  happens to share a prefix with the variant — not the variant itself."
-  [variant-str]
-  (re-pattern (str (java.util.regex.Pattern/quote variant-str)
-                   "(?![\\w\\-?/!*+'<>=])")))
+;; `variant-regex` lives in `re-frame.mcp-conformance.fixtures`
+;; (rf2-qnmne) — promoted from a private defn here so
+;; `indicator_field_test.clj`'s inline-emit anti-pin can share the same
+;; keyword-extender-aware pattern.
 
 (defn- near-miss-variants
   "Generate near-miss spellings of a slot keyword. Conservative — we
@@ -378,7 +372,7 @@
             :when              (seq files)]
       (testing (str server " — " rel " — near-miss " variant " for " slot)
         (let [src    (fx/read-source rel)
-              pat    (variant-regex variant)]
+              pat    (fx/variant-regex variant)]
           (is (not (re-find pat src))
               (str "Found near-miss variant " variant " for slot " slot
                    " in " server "/" rel

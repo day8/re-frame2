@@ -363,6 +363,12 @@
   ;; (`(assoc envelope :dropped-sensitive N)`) while letting prose
   ;; through. Same posture as the wire-vocab gate's source-text pin
   ;; (rf2-vj8y3).
+  ;;
+  ;; The substring grep uses `fx/variant-regex` (rf2-qnmne) rather than
+  ;; raw `str/includes?` so a future legitimate extension like
+  ;; `:dropped-sensitive-warning` or `:elided-large-summary` wouldn't
+  ;; false-positive-trip the gate on the prefix match. Same pattern
+  ;; as `slot_name_test.clj`'s near-miss-variant grep.
   (let [slot-literals [":dropped-sensitive" ":elided-large"]
         srcs          (pair2-mcp-source-files)]
     (is (seq srcs)
@@ -372,8 +378,9 @@
             :when (not (contains? inline-emit-whitelist rel))]
       (testing (str rel " — must not inline " slot)
         (let [src      (fx/read-source rel)
-              stripped (fx/strip-comments-and-strings src)]
-          (is (not (str/includes? stripped slot))
+              stripped (fx/strip-comments-and-strings src)
+              pat      (fx/variant-regex slot)]
+          (is (not (re-find pat stripped))
               (str "Inline `" slot "` literal found in " rel
                    " (in code, AFTER stripping comments/docstrings/strings).\n"
                    "Every emit MUST go through `wire/with-indicators` "
