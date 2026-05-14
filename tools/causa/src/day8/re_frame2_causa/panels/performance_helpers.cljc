@@ -101,92 +101,60 @@
     - No re-render-counts-per-epoch projection; the row's render-count
       is the count of `:view/render` traces in the cascade, which is a
       cheap proxy until the epoch-record's `:renders` projection
-      surfaces.")
+      surfaces.
+
+  ## Tier ladder lives in `theme/perf_tier.cljc` (rf2-6ja23)
+
+  `classify-tier` / `tier-colour` / `tier-glyph` / `tier-label` /
+  `over-budget?` / `default-budget-ms` / `tier-order` are re-exported
+  here so the Performance panel's existing call-sites keep resolving
+  through `h/classify-tier` etc. The canonical definitions live in
+  `day8.re-frame2-causa.theme.perf-tier` so every other panel surface
+  that needs to colour a duration reads the same ladder. See that
+  ns's docstring for the audit ledger of who's wired and who's
+  blocked on the trace stream growing per-event `:duration-ms`."
+  (:require [day8.re-frame2-causa.theme.perf-tier :as perf-tier]))
 
 ;; ---- defaults ------------------------------------------------------------
 
 (def default-budget-ms
-  "Default budget threshold above which a cascade row carries the
-  over-budget warning marker. 16ms = one frame at 60fps — the v1
-  ergonomic default. The slot is sub-readable so a follow-on bead can
-  surface a slider in the panel header."
-  16)
+  "Re-export of `theme.perf-tier/default-budget-ms` (rf2-6ja23). The
+  canonical ladder lives in `theme/perf_tier.cljc`; this var is held
+  here so existing `performance_helpers/default-budget-ms` references
+  keep resolving."
+  perf-tier/default-budget-ms)
 
 (def tier-order
-  "Render order for the perf tiers when the panel renders a histogram
-  / chip row. Fastest first because the goal is 'mostly green'."
-  [:fast :medium :slow :blocking])
+  "Re-export of `theme.perf-tier/tier-order`."
+  perf-tier/tier-order)
 
 ;; ---- tier classification -------------------------------------------------
 
 (defn classify-tier
-  "Map a `duration-ms` (number) to one of the four perf tiers per
-  `tools/causa/spec/007-UX-IA.md` §Colour system:
-
-      <16ms     → :fast       one-frame-at-60fps
-      16-50ms   → :medium
-      50-100ms  → :slow
-      >=100ms   → :blocking   INP-blocking band
-
-  Boundaries are right-open at the lower edge (the next tier owns the
-  threshold value itself). Negative or nil durations classify as
-  `:fast` — a robust default for cascades whose `:time` deltas
-  collapse to zero (single-event cascades).
-
-  Pure data → keyword; JVM-testable."
+  "Re-export of `theme.perf-tier/classify-tier`. See that ns for the
+  ladder definition + boundary semantics."
   [duration-ms]
-  (cond
-    (not (number? duration-ms)) :fast
-    (< duration-ms 16)          :fast
-    (< duration-ms 50)          :medium
-    (< duration-ms 100)         :slow
-    :else                       :blocking))
+  (perf-tier/classify-tier duration-ms))
 
 (defn tier-colour
-  "Hex swatch per perf tier. Mirrors the spec/007-UX-IA.md §Colour
-  system §Perf scale. The strings are returned so the helper stays
-  pure (no token-map dependency)."
+  "Re-export of `theme.perf-tier/tier-colour`."
   [tier]
-  (case tier
-    :fast     "#4ADE80"  ; green
-    :medium   "#FBBF24"  ; yellow
-    :slow     "#FB923C"  ; orange
-    :blocking "#F87171"  ; red
-    "#6B7080"))           ; text-tertiary fallback
+  (perf-tier/tier-colour tier))
 
 (defn tier-glyph
-  "Single-character glyph paired with the tier colour per spec
-  §Colour is never alone. `●` for fast/medium (within-budget,
-  acceptable); `▲` for slow/blocking (over-budget, attention-needed).
-  Pure data → string; JVM-testable."
+  "Re-export of `theme.perf-tier/tier-glyph`."
   [tier]
-  (case tier
-    :fast     "●"
-    :medium   "●"
-    :slow     "▲"
-    :blocking "▲"
-    "○"))
+  (perf-tier/tier-glyph tier))
 
 (defn tier-label
-  "Human-readable label for a tier — used in the over-budget caption
-  and the chip-row tooltip."
+  "Re-export of `theme.perf-tier/tier-label`."
   [tier]
-  (case tier
-    :fast     "fast"
-    :medium   "medium"
-    :slow     "slow"
-    :blocking "blocking"
-    (str tier)))
+  (perf-tier/tier-label tier))
 
 (defn over-budget?
-  "True iff `duration-ms` is at or above `budget-ms`. nil / non-number
-  inputs are treated as within-budget so a malformed cascade record
-  doesn't false-flag. Pure data → bool; JVM-testable."
+  "Re-export of `theme.perf-tier/over-budget?`."
   [budget-ms duration-ms]
-  (boolean
-    (and (number? budget-ms)
-         (number? duration-ms)
-         (>= duration-ms budget-ms))))
+  (perf-tier/over-budget? budget-ms duration-ms))
 
 ;; ---- duration projection -------------------------------------------------
 

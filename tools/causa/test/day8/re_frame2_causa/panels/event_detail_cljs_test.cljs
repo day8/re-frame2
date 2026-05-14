@@ -102,10 +102,24 @@
 (defn- hiccup-seq
   "Walk a hiccup tree and emit every node (vectors only). Vectors
   whose first element is a function are invoked first so the walker
-  descends into the sub-tree they would render to."
+  descends into the sub-tree they would render to.
+
+  ## Recursive descent through fn-components (rf2-6ja23)
+
+  `[handler-row handler]` is a fn-component vector — the walker must
+  invoke `handler-row` to get the inner hiccup and then keep
+  descending. tree-seq alone only walks the structural children of
+  the original tree; without an `expand-fn-component` step in the
+  `children` lambda, deep testids inside fn-component vector bodies
+  (e.g. the `rf-causa-event-detail-tier-dot-*` span inside
+  `handler-row`) are unreachable."
   [tree]
-  (->> (tree-seq (some-fn vector? seq?) seq (expand-fn-component tree))
-       (map expand-fn-component)))
+  (let [children (fn [node]
+                   (let [expanded (expand-fn-component node)]
+                     (when (or (vector? expanded) (seq? expanded))
+                       (seq expanded))))]
+    (->> (tree-seq (some-fn vector? seq?) children (expand-fn-component tree))
+         (map expand-fn-component))))
 
 (defn- find-by-testid
   "Find the first node in a hiccup tree whose attrs map has the given
@@ -375,3 +389,98 @@
             "no orphaned-state when the cascade is in the buffer")
         (is (zero? count*)
             "the suppressed-count is zero — nothing was dropped")))))
+
+;; ---- (6) handler-row perf-tier dot (rf2-6ja23) --------------------------
+;;
+;; The rf2-6ja23 audit hoists the perf-tier ladder into `theme/perf_tier.cljc`
+;; and wires the first cross-panel consumer: the handler row already
+;; surfaces `:duration-ms` (as raw EDN text); the audit adds a coloured
+;; dot + label so the eye picks up the tier the same way it does on the
+;; Performance panel.
+;;
+;; The tests below assert the dot renders for each tier's representative
+;; duration. The dot's testid carries the tier suffix
+;; (`rf-causa-event-detail-tier-dot-<tier>`) so the assertion is precise.
+
+(defn- cascade-evs-with-duration
+  "Variant of `cascade-evs` where the `:run-end` handler trace carries
+  a `:duration-ms` tag. The handler-row should render a perf-tier dot
+  matching `(classify-tier duration-ms)`."
+  [dispatch-id event-vec id-base duration-ms]
+  (mapv (fn [ev]
+          (if (= :run-end (get-in ev [:tags :phase]))
+            (assoc-in ev [:tags :duration-ms] duration-ms)
+            ev))
+        (cascade-evs dispatch-id event-vec id-base)))
+
+(deftest handler-row-renders-fast-tier-dot
+  (testing "handler :duration-ms 5ms classifies as :fast — green dot"
+    (seed-buffer! (cascade-evs-with-duration 300 [:counter/inc] 300 5))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 300])
+      (let [tree (event-detail/event-detail-view)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast"))
+            "fast-tier dot present alongside the :duration-ms text")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking")))))))
+
+(deftest handler-row-renders-medium-tier-dot
+  (testing "handler :duration-ms 30ms classifies as :medium — yellow dot"
+    (seed-buffer! (cascade-evs-with-duration 301 [:counter/inc] 310 30))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 301])
+      (let [tree (event-detail/event-detail-view)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium"))
+            "medium-tier dot present")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))))))
+
+(deftest handler-row-renders-slow-tier-dot
+  (testing "handler :duration-ms 75ms classifies as :slow — orange triangle"
+    (seed-buffer! (cascade-evs-with-duration 302 [:counter/inc] 320 75))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 302])
+      (let [tree (event-detail/event-detail-view)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow"))
+            "slow-tier dot present")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))))))
+
+(deftest handler-row-renders-blocking-tier-dot
+  (testing "handler :duration-ms 250ms classifies as :blocking — red triangle"
+    (seed-buffer! (cascade-evs-with-duration 303 [:counter/inc] 330 250))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 303])
+      (let [tree (event-detail/event-detail-view)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking"))
+            "blocking-tier dot present")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))))))
+
+(deftest handler-row-omits-tier-dot-when-duration-ms-absent
+  (testing "without :duration-ms on the :run-end emit, no tier-dot
+            renders — the audit only wires the dot to nodes that
+            carry a measurable duration"
+    ;; The baseline `cascade-evs` builder leaves :duration-ms unset.
+    (seed-buffer! (cascade-evs 304 [:counter/inc] 340))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 304])
+      (let [tree (event-detail/event-detail-view)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast"))
+            "no tier-dot when :duration-ms is absent")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking")))))))
+
+(deftest handler-row-omits-tier-dot-when-duration-ms-is-non-numeric
+  (testing "a malformed :duration-ms tag (e.g. nil or a string) does
+            NOT render a tier-dot — the dot is gated on (number?
+            duration-ms) so the panel never surfaces a misleading
+            green dot for un-measurable nodes"
+    (seed-buffer! (cascade-evs-with-duration 305 [:counter/inc] 350 "not-a-number"))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 305])
+      (let [tree (event-detail/event-detail-view)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking")))))))

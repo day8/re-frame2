@@ -47,7 +47,8 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-causa.theme.perf-tier :as perf-tier]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -127,14 +128,57 @@
                      :margin-top    "4px"}}
        "source • " handler-coord])]])
 
+(defn- tier-dot
+  "Render a perf-tier coloured dot + label for `duration-ms`. Per
+  `tools/causa/spec/007-UX-IA.md` §Colour system §Perf scale —
+  same ladder the Performance panel uses, hoisted into
+  `theme.perf-tier` per the rf2-6ja23 audit so every panel that
+  surfaces a per-node duration reads the same swatch / glyph / label.
+
+  Renders inline; the colour swatch carries the tier, the
+  `aria-label` carries the tier name + duration so the colour-blind
+  path doesn't need hue."
+  [duration-ms]
+  (when (number? duration-ms)
+    (let [tier   (perf-tier/classify-tier duration-ms)
+          colour (perf-tier/tier-colour tier)
+          glyph  (perf-tier/tier-glyph tier)
+          label  (perf-tier/tier-label tier)]
+      [:span {:data-testid (str "rf-causa-event-detail-tier-dot-" (name tier))
+              :aria-label  (str label " (" duration-ms "ms)")
+              :title       (str label " — " duration-ms "ms")
+              :style       {:display      "inline-flex"
+                            :align-items  "center"
+                            :gap          "6px"
+                            :margin-left  "8px"
+                            :color        colour
+                            :font-weight  600}}
+       [:span {:style {:font-size "12px"}} glyph]
+       [:span {:style {:font-family mono-stack
+                       :font-size   "11px"
+                       :color       (:text-secondary tokens)}}
+        (str duration-ms "ms")]])))
+
 (defn- handler-row
   "Second domino: the handler-ran emit. `ev` is the `:run-end` trace
-  event."
+  event.
+
+  ## Tier dot (rf2-6ja23)
+
+  When `:duration-ms` is present on the emit's `:tags`, render the
+  perf-tier coloured dot + label alongside the raw `:phase` text.
+  Same ladder as the Performance panel (`theme.perf-tier`); the
+  raw `:duration-ms` number is kept in the EDN dump for power users."
   [ev]
-  [domino-row {:label "handler" :tone :cyan}
-   [:div
-    [:div (format-edn (select-keys (:tags ev) [:phase :duration-ms]))]
-    (coord-line ev)]])
+  (let [duration-ms (get-in ev [:tags :duration-ms])]
+    [domino-row {:label "handler" :tone :cyan}
+     [:div
+      [:div {:style {:display     "flex"
+                     :align-items "center"
+                     :flex-wrap   "wrap"}}
+       [:span (format-edn (select-keys (:tags ev) [:phase :duration-ms]))]
+       (tier-dot duration-ms)]
+      (coord-line ev)]]))
 
 (defn- fx-row
   "Third domino: the `:event/do-fx` emit (the effects map about to be
