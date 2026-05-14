@@ -74,7 +74,7 @@
   (if-let [emit @hiccup-emitter]
     (emit render-tree opts)
     (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                    {:reason "use the plain-atom adapter on the JVM for SSR, or install via set-hiccup-emitter!"
+                    {:reason "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
                      :render-tree render-tree}))))
 
 ;; ---- context provider -----------------------------------------------------
