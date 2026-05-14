@@ -75,3 +75,26 @@
     (if has-ct?
       pairs
       (conj (vec pairs) ["Content-Type" content-type]))))
+
+(defn headers->ring-map+default-content-type
+  "Single-pass equivalent of `(-> pairs (ensure-content-type ct)
+  headers->ring-map)` (rf2-uj9z8). Pre-fix the two helpers each
+  walked the pairs vector — `ensure-content-type` lower-cased every
+  name to scan for an existing `Content-Type`, then `headers->ring-map`
+  re-walked the same pairs to fold them into the Ring header map. The
+  combined form walks once: it folds each pair into the accumulator
+  AND lower-cases each name once to flag whether `Content-Type` was
+  seen, appending the default at the end iff not.
+
+  Behaviour is identical to the two-step composition; the no-default
+  path (caller didn't supply `content-type`) is a straight
+  `headers->ring-map`."
+  [pairs content-type]
+  (let [step (fn [[m saw-ct?] [k v :as pair]]
+               [(merge-pair-into-header-map m pair)
+                (or saw-ct?
+                    (= "content-type" (str/lower-case (str k))))])
+        [m saw-ct?] (reduce step [{} false] pairs)]
+    (if (or saw-ct? (nil? content-type))
+      m
+      (assoc m "Content-Type" content-type))))

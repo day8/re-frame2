@@ -35,20 +35,31 @@
   Spec 011 §HTTP response contract) into a Ring response map. The
   `:body` arg is the rendered HTML (or nil for redirect-only
   responses). `:redirect` short-circuits per Spec 011 §Redirect
-  precedence — status + Location header, no body."
-  [{:keys [status headers cookies redirect]} body]
-  (if redirect
-    (let [{:keys [location url to] redirect-status :status} redirect
-          target (or location url to)]
-      {:status  (or redirect-status status 302)
-       :headers (-> (headers/headers->ring-map headers)
-                    (headers/append-set-cookies cookies)
-                    (cond-> target (assoc "Location" target)))
-       :body    ""})
-    {:status  (or status 200)
-     :headers (-> (headers/headers->ring-map headers)
-                  (headers/append-set-cookies cookies))
-     :body    (or body "")}))
+  precedence — status + Location header, no body.
+
+  The optional 3-arg form (rf2-uj9z8) accepts a `default-content-type`
+  that's stamped onto the Ring header map if (and only if) the response
+  pairs don't already carry a Content-Type (case-insensitive). The
+  defaulting happens INSIDE the single header-fold pass — pre-fix the
+  pipeline called `ensure-content-type` over the pairs vector, then
+  `headers->ring-map` re-walked the same pairs to fold them. Single
+  pass now."
+  ([resp body] (ssr-response->ring-response resp body nil))
+  ([{:keys [status headers cookies redirect]} body default-content-type]
+   (if redirect
+     (let [{:keys [location url to] redirect-status :status} redirect
+           target (or location url to)]
+       {:status  (or redirect-status status 302)
+        :headers (-> (headers/headers->ring-map+default-content-type
+                       headers default-content-type)
+                     (headers/append-set-cookies cookies)
+                     (cond-> target (assoc "Location" target)))
+        :body    ""})
+     {:status  (or status 200)
+      :headers (-> (headers/headers->ring-map+default-content-type
+                     headers default-content-type)
+                   (headers/append-set-cookies cookies))
+      :body    (or body "")})))
 
 (defn setup-request-frame!
   "Register a per-request frame and populate the request slot. Returns
@@ -145,10 +156,13 @@
                            :head        head-html
                            :html-attrs  html-attrs
                            :body-attrs  body-attrs)
-        html        (html-shell body-html payload-edn shell-opts)
-        ;; Ensure Content-Type is set; the SSR runtime defaults
-        ;; [:rf/response :headers] to include content-type so this is
-        ;; usually a no-op, but we let opts override and trust the
-        ;; runtime's default in absence.
-        resp*       (update resp :headers headers/ensure-content-type content-type)]
-    (ssr-response->ring-response resp* html)))
+        html        (html-shell body-html payload-edn shell-opts)]
+    ;; Content-Type defaulting (rf2-uj9z8): pre-fix the pipeline called
+    ;; ensure-content-type over the pairs vector, then
+    ;; ssr-response->ring-response re-walked the same pairs to fold them
+    ;; into the Ring header map — two passes. The 3-arg form folds and
+    ;; defaults in one walk. The SSR runtime defaults [:rf/response
+    ;; :headers] to include content-type so the default is usually a
+    ;; no-op, but we still pass `content-type` through so an opts
+    ;; override and absence-of-default both work.
+    (ssr-response->ring-response resp html content-type)))
