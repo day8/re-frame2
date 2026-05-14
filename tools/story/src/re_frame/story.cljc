@@ -314,6 +314,17 @@
   [story-id]
   (registrar/variants-of story-id))
 
+(defn variants-by-story
+  "Return a `{story-id #{variant-id ...}}` index built in one pass over
+  the variant side-table — O(V), where V is the variant count. Stories
+  with zero registered variants land in the result with an empty set.
+
+  HOT PATH: agents tend to spam `list-stories` (story-mcp's most-called
+  introspection tool); the single-pass index replaces the O(S × V)
+  walk of calling `variants-of` per story (rf2-d3iso)."
+  []
+  (registrar/variants-by-story))
+
 (defn variants-with-tags
   "Per IMPL-SPEC §3.2 — return the set of variant ids whose `:tags`
   intersects `query-tags`. Stage 5 (assertions/play) leans on this; Stage

@@ -435,6 +435,32 @@
     (is (= #{:story/root} (story/variants-of :story)))
     (is (= #{:story.a/v}  (story/variants-of :story.a)))))
 
+(deftest variants-by-story-single-pass-index
+  (testing "variants-by-story builds a {story-id #{variant-ids}} index in one pass (rf2-d3iso)"
+    (story/reg-story   :story.foo {})
+    (story/reg-story   :story.bar {})
+    (story/reg-story   :story.empty {})
+    (story/reg-variant :story.foo/a {:events []})
+    (story/reg-variant :story.foo/b {:events []})
+    (story/reg-variant :story.bar/c {:events []})
+    (let [idx (story/variants-by-story)]
+      (is (= #{:story.foo/a :story.foo/b} (get idx :story.foo)))
+      (is (= #{:story.bar/c}              (get idx :story.bar)))
+      (is (= #{}                          (get idx :story.empty))
+          "stories with zero variants land with an empty set"))))
+
+(deftest variants-by-story-matches-variants-of
+  (testing "variants-by-story's per-story slot matches `variants-of`'s output (rf2-d3iso)"
+    (story/reg-story   :story.aa {})
+    (story/reg-story   :story.bb {})
+    (story/reg-variant :story.aa/one   {:events []})
+    (story/reg-variant :story.aa/two   {:events []})
+    (story/reg-variant :story.bb/three {:events []})
+    (let [idx (story/variants-by-story)]
+      (doseq [sid [:story.aa :story.bb]]
+        (is (= (story/variants-of sid) (get idx sid))
+            (str sid " — single-pass index must match the per-story scan"))))))
+
 (deftest variants-with-tags-intersection
   (testing "variants-with-tags returns variants whose :tags intersects the query"
     (story/reg-variant :story.tag/a {:events [] :tags #{:dev :test}})

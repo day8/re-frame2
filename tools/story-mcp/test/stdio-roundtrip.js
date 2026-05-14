@@ -27,9 +27,18 @@
 // success, 1 with a FAIL marker on the failing assertion.
 
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const CWD = path.join(__dirname, '..');
+
+// Canonical tool-name list (rf2-36upq TE7) — single source of truth shared
+// with the JVM test corpus (tools_test.clj `tool-names-fixture`). Both
+// consumers parse this JSON; a drift in the registry surfaces in one
+// place rather than two.
+const TOOL_NAMES = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'tool-names.json'), 'utf8'),
+).names;
 
 // The agent-host canonical launch (per tools/story-mcp/README.md). On
 // Linux CI the `clojure` binary lands via DeLaGuardo/setup-clojure; on
@@ -106,41 +115,22 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all 19 tools per spec/002-Tool-Registry.md
+      // 2. tools/list — expect the full registry per spec/002-Tool-Registry.md
       // (rf2-luhdu record-as-variant, rf2-mqp1u list-decorators,
-      //  rf2-i0kyy get-docs-markdown).
+      //  rf2-i0kyy get-docs-markdown). The canonical name list is shared
+      // with the JVM test corpus via test/fixtures/tool-names.json
+      // (rf2-36upq TE7) — a registry change updates one file, not two.
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
-      const expected = [
-        'get-docs-markdown',
-        'get-story',
-        'get-story-instructions',
-        'get-variant',
-        'list-assertions',
-        'list-decorators',
-        'list-modes',
-        'list-stories',
-        'list-substrates',
-        'list-tags',
-        'preview-variant',
-        'read-failures',
-        'record-as-variant',
-        'register-variant',
-        'run-a11y',
-        'run-variant',
-        'snapshot-identity',
-        'unregister-variant',
-        'variant->edn',
-      ];
-      if (JSON.stringify(names) !== JSON.stringify(expected)) {
+      if (JSON.stringify(names) !== JSON.stringify(TOOL_NAMES)) {
         throw new Error(
           'tools/list mismatch:\n  expected ' +
-            JSON.stringify(expected) +
+            JSON.stringify(TOOL_NAMES) +
             '\n  got      ' +
             JSON.stringify(names),
         );
       }
-      console.log('OK   tools/list -> 19 tools:', names.join(', '));
+      console.log('OK   tools/list -> ' + TOOL_NAMES.length + ' tools:', names.join(', '));
 
       // 2b. Verify the preview-variant descriptor: required `variant-id`,
       // optional `substrate`/`active-modes`/`cell-overrides`/`base-url`.

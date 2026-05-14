@@ -14,22 +14,28 @@
 
   `args`:
     :tags — vector of tag ids (strings or `:keyword` forms); narrows
-            the result to stories whose `:tags` set intersects this."
+            the result to stories whose `:tags` set intersects this.
+
+  HOT PATH (rf2-d3iso): agents spam this tool. The variant-id slot per
+  story is read from `story/variants-by-story` — a single O(V) pass
+  over the variant side-table — instead of the previous O(S × V) shape
+  of calling `variants-of` once per story."
   [args]
-  (let [stories (story/handlers :story)
-        tags    (when-let [ts (:tags args)]
-                  (set (map args/parse-keyword ts)))
+  (let [stories  (story/handlers :story)
+        tags     (when-let [ts (:tags args)]
+                   (set (map args/parse-keyword ts)))
         filtered (if (seq tags)
                    (into {}
                          (filter (fn [[_id body]]
                                    (seq (set/intersection tags (set (:tags body))))))
                          stories)
                    stories)
+        index    (story/variants-by-story)
         payload  {:stories (vec (for [[sid body] filtered]
                                   {:id   sid
                                    :doc  (:doc body)
                                    :tags (vec (:tags body))
-                                   :variants (sort (story/variants-of sid))}))}]
+                                   :variants (sort (get index sid #{}))}))}]
     (h/text-result (h/pr-edn payload) payload)))
 
 (defn tool-get-story

@@ -352,6 +352,31 @@
           (filter (fn [vid] (= (namespace vid) story-ns)))
           (ids :variant))))
 
+(defn variants-by-story
+  "Return a `{story-id #{variant-id ...}}` index built in one pass over
+  the variant side-table — O(V) where V is the variant count. The
+  per-story key is the `:story.<path>` keyword whose `name` matches each
+  variant id's `namespace` (the same membership rule `variants-of` uses).
+  Stories with zero registered variants land in the result with an empty
+  set — the caller decides whether to elide them.
+
+  Replaces the O(S × V) pattern of calling `variants-of` per story (used
+  e.g. by `tool-list-stories` in story-mcp, rf2-d3iso). Variant ids whose
+  namespace doesn't match any registered story id are skipped — they're
+  orphans (the registrar's reg-time validation forbids them under normal
+  use, but the index stays defensive)."
+  []
+  (let [story-keys-by-name (into {}
+                                 (map (fn [sid] [(name sid) sid]))
+                                 (ids :story))
+        seed               (into {} (map (fn [sid] [sid #{}])) (ids :story))]
+    (reduce (fn [acc vid]
+              (if-let [sid (get story-keys-by-name (namespace vid))]
+                (update acc sid (fnil conj #{}) vid)
+                acc))
+            seed
+            (ids :variant))))
+
 (defn variants-with-tags
   "Return the variant ids whose `:tags` set intersects `query-tags`. Per
   IMPL-SPEC §3.2 — the public `variants-with-tags` wraps this."

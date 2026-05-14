@@ -55,10 +55,22 @@
   "ResultIO reify over story-mcp's CLJ-map result shape. The
   `:structuredContent` slot mirrors the wire conventions docs (an
   agent client that prefers JSON data reads it directly without
-  re-parsing the text)."
+  re-parsing the text).
+
+  HOT PATH (rf2-mzndx): `text-result` writes the same payload into BOTH
+  `:content[*].text` AND `:structuredContent` on nearly every structured
+  tool (`preview-variant`, `run-variant`, `list-stories`, `get-story`,
+  `get-variant`, `read-failures`, `record-as-variant`, `get-docs-markdown`).
+  Cap accounting must size the structured slot too — otherwise the cap
+  underestimates wire by ~50% and overflow replacement fires later than
+  it should. We surface the structured payload as one extra `pr-str`-ed
+  string in the `content-texts` seq; `sum-text-tokens` then transduces
+  it alongside the `:content[*].text` strings under one budget."
   (reify base-cap/ResultIO
     (content-texts [_ result]
-      (map :text (:content result)))
+      (cond-> (mapv :text (:content result))
+        (some? (:structuredContent result))
+        (conj (h/pr-edn (:structuredContent result)))))
     (build-overflow-result [_ marker _original]
       {:content          [{:type "text" :text (h/pr-edn marker)}]
        :structuredContent marker})))
