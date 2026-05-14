@@ -734,24 +734,36 @@
   `:db` BEFORE emitting the error so any trace listener that reads
   app-db sees the rolled-back value, not a misleading partial cascade.
 
-  Per Tool-Pair §Time-travel: a depth-exceeded drain is a *partial*
-  drain — discard the in-flight capture buffer rather than emit a
-  misleading epoch record."
+  Per rf2-v0jwt §Outcomes: a depth-exceeded drain is a *partial*
+  drain — commit a `:halted-depth` epoch record so devtools (Causa,
+  re-frame-pair2) receive the cascade context. The record's `:db-after`
+  equals `db-before` (the rolled-back state) and `:halt-reason` carries
+  the structured descriptor of the depth-exceed. Listeners receive the
+  record like any other; `restore-epoch` refuses non-`:ok` targets."
   [frame-id router db-before depth last-event]
   (let [{:keys [queue]} @router
-        container (frame/get-frame-db frame-id)]
+        queue-size      (count queue)
+        container       (frame/get-frame-db frame-id)
+        halt-reason     {:operation  :rf.error/drain-depth-exceeded
+                         :depth      depth
+                         :queue-size queue-size
+                         :last-event last-event}]
     (when container
       (adapter/replace-container! container db-before))
     (trace/emit-error! :rf.error/drain-depth-exceeded
                        {:frame      frame-id
                         :depth      depth
-                        :queue-size (count queue)
+                        :queue-size queue-size
                         :last-event last-event
                         :rollback?  true
                         :recovery   :no-recovery})
     (swap! router assoc :queue interop/empty-queue :scheduled? false)
-    (when-let [discard! (late-bind/get-fn :epoch/discard-buffer!)]
-      (discard! frame-id))))
+    (when-let [settle! (late-bind/get-fn :epoch/settle!)]
+      ;; :db-after equals :db-before — atomic rollback semantics. The
+      ;; record carries the cascade's :trace-events / :sub-runs /
+      ;; :renders / :effects up to the halt point so devtools can
+      ;; render the partial cascade with the failure highlighted.
+      (settle! frame-id db-before db-before :halted-depth halt-reason))))
 
 (defn- handle-drain-settled!
   "Tail-path for the empty-queue branch of `drain!`. If at least one event
@@ -822,9 +834,10 @@
   "Per rf2-68kok / Spec 002 §Edge cases worth pinning §Frame disposal
   mid-drain: the drain-loop detected the frame was destroyed before
   the next dequeue. Drop the remaining queue ONCE, clear `:scheduled?`,
-  and emit a single `:rf.frame/drain-interrupted` lifecycle trace
-  carrying `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
-  and Spec-Schemas §DrainInterruptedTags).
+  emit a single `:rf.frame/drain-interrupted` lifecycle trace carrying
+  `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
+  and Spec-Schemas §DrainInterruptedTags), and commit a
+  `:halted-destroy` epoch record per rf2-v0jwt §Outcomes.
 
   In-flight events are not affected — they have already been dequeued
   and `process-event!` ran them to completion before this check fires
@@ -832,13 +845,39 @@
   in the queue at the moment of the check are dropped.
 
   The check fires AFTER `process-event!` returns and BEFORE the next
-  `take-event!` — same seam as `handle-depth-exceeded!`."
-  [frame-id router]
-  (let [dropped (count (:queue @router))]
+  `take-event!` — same seam as `handle-depth-exceeded!`.
+
+  Per rf2-v0jwt: the partial epoch record's `:db-after` is read from
+  the live container BEFORE the frame's container is torn down (the
+  destroy hook flips `:destroyed?` but doesn't drop the container atom
+  itself, so the post-cascade db value is still readable). On the
+  common path (a handler called `destroy-frame!` on its own frame
+  synchronously) the destroy hook ran inside the handler — the
+  capture-buffer was harvested by `on-frame-destroyed`'s belt-and-
+  braces clear, leaving `settle!` to commit an empty-events record
+  pinning `:outcome :halted-destroy`. Devtools still get a halted-
+  cascade record with the right outcome; the absent `:trace-events`
+  reflects the destroy-during-handler reality."
+  [frame-id router db-before]
+  (let [dropped     (count (:queue @router))
+        ;; The container may have been dissoc'd by destroy-frame!'s
+        ;; step 6 (which runs BEFORE the destroy hook's epoch-side
+        ;; cleanup but only flips :destroyed? — the atom value itself
+        ;; survives). `frame-app-db-value` returns nil for a destroyed
+        ;; frame; fall back to db-before so the record's :db-after
+        ;; slot is never nil-from-destroy-race (the record's slot
+        ;; semantics are 'whatever the runtime settled to' — for a
+        ;; destroy that consumed the container, db-before is the
+        ;; closest meaningful approximation).
+        db-after    (or (frame/frame-app-db-value frame-id) db-before)
+        halt-reason {:operation     :rf.frame/drain-interrupted
+                     :dropped-count dropped}]
     (swap! router assoc :queue interop/empty-queue :scheduled? false)
     (trace/emit! :frame :rf.frame/drain-interrupted
                  {:frame         frame-id
-                  :dropped-count dropped})))
+                  :dropped-count dropped})
+    (when-let [settle! (late-bind/get-fn :epoch/settle!)]
+      (settle! frame-id db-before db-after :halted-destroy halt-reason))))
 
 (defn- run-one-pass!
   "Process events from the queue to fixed point or until `drain-depth` is
@@ -870,13 +909,19 @@
       ;; called `destroy-frame!` on its own frame; the spec calls for
       ;; interrupting the drain at this exact seam — drop the
       ;; remaining queue, emit one `:rf.frame/drain-interrupted`
-      ;; lifecycle event, halt. The just-completed event already ran
-      ;; in full (run-to-completion). Skip the epoch settle on
-      ;; interrupt — destroy-frame's `:epoch/on-frame-destroyed` hook
-      ;; covers epoch cleanup and a half-cascade settle record would
-      ;; mislead time-travel consumers.
+      ;; lifecycle event, halt.
+      ;;
+      ;; Per rf2-v0jwt: the just-completed event already ran in full
+      ;; (run-to-completion), so the partial-cascade record commits
+      ;; with `:outcome :halted-destroy`. Devtools (Causa, re-frame-
+      ;; pair2) need the cascade context for the failing/interrupted
+      ;; drain — silently discarding the record (the pre-rf2-v0jwt
+      ;; behaviour) hid exactly the cascades developers most need to
+      ;; inspect. `restore-epoch` refuses these records, preserving
+      ;; the original "time-travel never lands in a misleading state"
+      ;; invariant.
       (frame/frame-disposed-for-drain? frame-id)
-      (do (handle-drain-interrupted! frame-id router)
+      (do (handle-drain-interrupted! frame-id router db-before)
           ::halt)
 
       :else
