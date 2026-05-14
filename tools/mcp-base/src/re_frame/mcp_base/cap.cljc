@@ -45,15 +45,14 @@
   per-tool next-step prose is domain-specific. The cap value, token
   rule, and marker shape are cross-MCP conventions and stay here.
 
-  ## Pluggable strategy
+  ## Single strategy today: truncate-with-marker
 
-  Today only `:truncate-with-marker` is wired — drop the payload, emit
-  the overflow marker. Future strategies (path-slicing rf2-tygdv, lazy
-  summary rf2-u2029, diff encoding rf2-rl7y) compose here without
-  rebuilding the per-consumer wrapper. Unknown strategies degrade
-  safely to `:truncate-with-marker` rather than throwing — the
-  wire-egress posture is to ALWAYS bound the response, never to ship
-  the over-budget payload.
+  The only strategy wired is drop-the-payload-and-emit-the-overflow-
+  marker. When future strategies land (path-slicing rf2-tygdv, lazy
+  summary rf2-u2029, diff encoding rf2-rl7y) the pluggable hook gets
+  reintroduced here. Until then `apply-cap` calls
+  `build-overflow-result` directly — no `case` dispatcher pretending
+  there's more than one branch (pre-alpha YAGNI).
 
   ## Cross-platform
 
@@ -184,24 +183,15 @@
 
   `opts` keys:
 
-    :tool     — string tool name carried in the marker for the agent's
-                pattern match.
-    :cap      — integer cap in tokens, or `nil` to disable. Usually the
-                output of `max-tokens` against the consumer's
-                `:max-tokens` arg.
-    :hint     — string next-step hint embedded in the marker. The
-                consumer's per-tool hint table resolves this from
-                `tool`; absent ⇒ `overflow/overflow-hint-fallback`.
-    :strategy — `:truncate-with-marker` (default; today the only
-                wired option). Unknown values degrade safely to the
-                default — never throw, never ship the over-budget
-                payload.
-
-  Future strategies (path-slicing, lazy summary, diff encoding) slot
-  in here without touching the per-consumer wrapper or per-tool
-  handler."
-  [io result {:keys [tool cap hint strategy]
-              :or   {strategy :truncate-with-marker}}]
+    :tool — string tool name carried in the marker for the agent's
+            pattern match.
+    :cap  — integer cap in tokens, or `nil` to disable. Usually the
+            output of `max-tokens` against the consumer's
+            `:max-tokens` arg.
+    :hint — string next-step hint embedded in the marker. The
+            consumer's per-tool hint table resolves this from `tool`;
+            absent ⇒ `overflow/overflow-hint-fallback`."
+  [io result {:keys [tool cap hint]}]
   (cond
     (nil? cap)    result
     (nil? result) result
@@ -219,7 +209,7 @@
     ;;    `:token-count` so the agent's overflow handler sees an
     ;;    actionable number (not zero, not nil).
     ;;
-    ;; Either gate trips the same `:truncate-with-marker` strategy.
+    ;; Either gate trips the same truncate-with-marker fallback.
     (let [tokens    (sum-text-tokens io result)
           chars     (sum-text-chars io result)
           byte-cap  (* cap byte-cap-multiplier)
@@ -232,9 +222,4 @@
                           :token-count reported
                           :cap         cap
                           :hint        hint})]
-          ;; Unknown strategy: degrade safely to truncate-with-marker.
-          ;; The pluggable shape is preserved so a future strategy can
-          ;; branch here without touching consumers.
-          (case strategy
-            :truncate-with-marker (build-overflow-result io marker result)
-            (build-overflow-result io marker result)))))))
+          (build-overflow-result io marker result))))))

@@ -125,18 +125,6 @@
         body (get-in out [:structuredContent vocab/overflow-key])]
     (is (= overflow/overflow-hint-fallback (:hint body)))))
 
-(deftest apply-cap-unknown-strategy-degrades-safely
-  ;; Unknown strategy must NOT throw and must NOT ship the over-budget
-  ;; payload. It falls back to truncate-with-marker.
-  (let [big (big-string 8000)
-        r   (ok-text-result {:huge big})
-        out (cap/apply-cap map-io r {:tool "snapshot"
-                                     :cap 500
-                                     :strategy :unknown-strategy})
-        marker (:structuredContent out)]
-    (is (contains? marker vocab/overflow-key))
-    (is (= :reached (get-in marker [vocab/overflow-key :limit])))))
-
 (deftest apply-cap-at-cap-exact-boundary-passes
   ;; <= cap passes; only > cap trips. Boundary check pins inclusive-low.
   (let [s    (big-string 400)
