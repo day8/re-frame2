@@ -704,3 +704,59 @@
     (is (not (contains? (cache-keys) [:a])))
     (is (not (contains? (cache-keys) [:b])))))
 
+;; ---- ref-counting and hot-reload smoke (relocated from smoke_test.clj, rf2-zqar3) ----
+
+(deftest sub-cache-ref-counting
+  (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
+    ;; Per Spec 006 §Reference counting and disposal (rf2-s9dn): default
+    ;; disposal is deferred by a grace-period to bridge React re-render
+    ;; churn. For this synchronous-assertion test we set grace=0 so the
+    ;; slot disposes immediately — see the deferred-dispose contract tests
+    ;; above for the production path.
+    (rf/configure :sub-cache {:grace-period-ms 0})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed])
+    (let [cache (:sub-cache (frame/frame :rf/default))]
+      ;; Two subscriptions to the same query share a single cache slot.
+      (let [r1 (rf/subscribe [:n])
+            r2 (rf/subscribe [:n])]
+        (is (identical? r1 r2) "cache hit returns the same reaction")
+        (is (contains? @cache [:n]))
+        (is (= 2 (get-in @cache [[:n] :ref-count]))))
+      ;; First unsubscribe drops to 1, slot still present.
+      (rf/unsubscribe [:n])
+      (is (contains? @cache [:n]))
+      (is (= 1 (get-in @cache [[:n] :ref-count])))
+      ;; Second unsubscribe drops to 0; with grace=0 the slot is evicted
+      ;; synchronously.
+      (rf/unsubscribe [:n])
+      (is (not (contains? @cache [:n]))
+          "cache slot is removed when ref-count reaches zero"))
+    ;; Restore the default for subsequent tests.
+    (rf/configure :sub-cache {:grace-period-ms 50})))
+
+(deftest sub-hot-reload-invalidates-cache
+  (testing "re-registering a :sub disposes cached reactions and emits a trace"
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed])
+    ;; v1 of :answer returns the value as-is.
+    (rf/reg-sub :answer (fn [db _] (:n db)))
+    (is (= 7 (rf/subscribe-value [:answer])))
+    ;; Force the cache to retain the entry by holding a ref via subscribe.
+    (let [_pinned (rf/subscribe [:answer])
+          traces  (atom [])]
+      (rf/register-trace-cb! ::hot-reload (fn [ev] (swap! traces conj ev)))
+      ;; Re-register with a transformed body.
+      (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
+      (rf/remove-trace-cb! ::hot-reload)
+      ;; After re-registration, the next subscribe-value sees the new fn.
+      (is (= 70 (rf/subscribe-value [:answer]))
+          "after re-registration the new sub body is used")
+      (is (some (fn [ev]
+                  (and (= :rf.registry/handler-replaced (:operation ev))
+                       (= :registry (:op-type ev))
+                       (= :sub (:kind (:tags ev)))
+                       (= :answer (:id (:tags ev)))))
+                @traces)
+          "expected :rf.registry/handler-replaced trace"))))

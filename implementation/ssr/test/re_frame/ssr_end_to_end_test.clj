@@ -1554,3 +1554,90 @@
       (is (= "session" (-> resp :cookies first :name)))
       (is (= "stale"   (-> resp :cookies second :name))))))
 
+;; ===========================================================================
+;; ssr-with-fx-override / ssr-end-to-end — relocated from core/smoke_test.clj
+;; (rf2-zqar3). The :fx-overrides redirect and the dispatch-sync →
+;; render-to-string → embedded-hash flow are concise smoke complements to
+;; ssr-full-request-lifecycle above; they pin the override + hash-emit
+;; paths without the per-request frame ceremony.
+;; ===========================================================================
+
+(deftest ssr-with-fx-override
+  (testing "SSR flow with :fx-overrides redirecting :http/get to a stub"
+    (let [stub-fired? (atom false)]
+      ;; Stub fx that synthesises an HTTP response. Threads the active
+      ;; frame through to the dispatch so :articles/loaded lands in the
+      ;; right frame's app-db (per Spec 002 §Routing the dispatch envelope:
+      ;; fx handlers receive {:frame frame-id} as their first arg).
+      (rf/reg-fx :http/get.canned-articles
+        {:platforms #{:server :client}}
+        (fn [{:keys [frame]} {:keys [on-success]}]
+          (reset! stub-fired? true)
+          (when on-success
+            (rf/dispatch (conj on-success
+                               [{:id "a" :title "Article A"}
+                                {:id "b" :title "Article B"}])
+                         {:frame frame}))))
+      ;; The real fx must be registered for the override to know what
+      ;; "http/get" is — register a no-op so it exists.
+      (rf/reg-fx :http/get
+        {:platforms #{:server :client}}
+        (fn [_ _] nil))
+
+      (rf/reg-event-fx :rf/server-init
+        (fn [{:keys [db]} [_ _request]]
+          {:db (assoc db :rf/route {:id :route/articles})
+           :fx [[:http/get {:url "/api/articles"
+                            :on-success [:articles/loaded]}]]}))
+      (rf/reg-event-db :articles/loaded
+        (fn [db [_ articles]] (assoc db :articles articles)))
+
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::ssr (fn [ev] (swap! traces conj ev)))
+        (let [f  (rf/make-frame
+                   {:on-create    [:rf/server-init {:uri "/articles"}]
+                    :fx-overrides {:http/get :http/get.canned-articles}})
+              db (rf/get-frame-db f)]
+          (rf/remove-trace-cb! ::ssr)
+          (is @stub-fired? "the override redirected the fx to the stub")
+          (is (= 2 (count (:articles db)))
+              (str "expected 2 articles in db; traces: "
+                   (pr-str (mapv :operation @traces))))
+          (is (= "Article A" (-> db :articles first :title))))))))
+
+(deftest ssr-end-to-end
+  (testing "complete SSR flow: dispatch-sync → render-to-string → embedded hash"
+    ;; Register a trivial articles app — an event seeds state, a sub
+    ;; reads it, a view renders it.
+    (rf/reg-event-db :articles/seed
+      (fn [_ _] {:articles [{:id "a" :title "Article A" :body "Body A"}
+                            {:id "b" :title "Article B" :body "Body B"}]}))
+    (rf/reg-sub :articles (fn [db _] (:articles db)))
+    ;; Test exercises the keyword-id [:pages/articles] hiccup head — not
+    ;; the macro shape — so it uses the plain-fn surface reg-view* with
+    ;; an explicit id rather than the defn-shape macro.
+    (rf/reg-view* :pages/articles
+      (fn []
+        (let [arts (rf/subscribe-value [:articles])]
+          [:div.page
+           [:h1 "Recent articles"]
+           [:ul
+            (for [{:keys [id title body]} arts]
+              ^{:key id} [:li [:h3 title] [:p body]])]])))
+
+    ;; Server flow: dispatch the seed event, render the root, capture hash.
+    (rf/dispatch-sync [:articles/seed])
+    (let [html (rf/render-to-string [:pages/articles] {:emit-hash? true})]
+      (is (str/includes? html "Article A")
+          "rendered HTML contains the title from app-db")
+      (is (str/includes? html "Article B"))
+      (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
+                   html)
+          "root <div> carries a data-rf-render-hash attribute")
+      ;; The hash is reproducible: re-render the same tree, same hash.
+      (let [h1 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html)
+            html-2 (rf/render-to-string [:pages/articles] {:emit-hash? true})
+            h2 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html-2)]
+        (is (= (second h1) (second h2))
+            "re-rendering the same view+state yields the same hash")))))
+
