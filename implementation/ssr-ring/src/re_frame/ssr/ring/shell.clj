@@ -5,7 +5,20 @@
   `<head>`, asset-hash-pinned `<script>` tags, JSON-LD blocks, ...)
   pass an `:html-shell` option to override. The default exists so a
   first-time user gets a working SSR endpoint without writing string
-  concatenation glue."
+  concatenation glue.
+
+  Script-body safety (rf2-7ksyr, security audit 2026-05-14 §P1) — the
+  hydration payload's EDN string is dropped raw inside
+  `<script id=\"__rf_payload\" type=\"application/edn\">…</script>`. A
+  payload that contains `</script>` (from any user-controlled string
+  that round-tripped through app-db) would close the envelope and
+  expose an XSS vector. The shell pre-escapes the EDN through
+  `html-helpers/escape-script-body-string` — every `<` becomes the
+  Clojure / EDN `\\u003c` Unicode escape — before injection. The EDN
+  reader on the client accepts `\\u003c` as the six-character escape
+  for `<`, so the payload round-trips through `clojure.edn/read-string`
+  unchanged. Same fix pattern as JSON-LD (rf2-m5u23) — single helper,
+  two call sites."
   (:require [re-frame.ssr.constants :as constants]
             [re-frame.ssr.html-helpers :as html]))
 
@@ -82,7 +95,13 @@
          ;; side bootstrap's `document.getElementById(...)` read. Per
          ;; Spec 011 §Hydration payload script id (rf2-cegm7 CQ-3).
          "<script id=\"" constants/payload-script-id "\" type=\"application/edn\">"
-         payload-edn
+         ;; rf2-7ksyr — escape `<` chars in the EDN string so a payload
+         ;; containing `</script>` (sourced from any user-controlled
+         ;; string round-tripped through app-db) can't close the
+         ;; envelope. The EDN reader accepts `<` as the literal
+         ;; escape for `<`, so this round-trips through
+         ;; `clojure.edn/read-string` on the client unchanged.
+         (html/escape-script-body-string payload-edn)
          "</script>"
          (when script-src
            (str "<script src=\"" script-src "\"></script>"))

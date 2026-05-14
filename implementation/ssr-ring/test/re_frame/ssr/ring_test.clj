@@ -843,6 +843,92 @@
             "X-Audit append-header reached the wire (multi-valued)")))))
 
 ;; ===========================================================================
+;; rf2-7ksyr — hydration payload </script> injection (security audit §P1)
+;;
+;; A user-controlled string round-tripping through app-db that contains
+;; `</script>` would close the `<script id="__rf_payload" ...>` envelope
+;; and let attacker HTML follow — XSS via the standard hydration boot
+;; surface. The shell pre-escapes every `<` in the EDN string as `<`
+;; via `html-helpers/escape-script-body-string`. The EDN reader accepts
+;; `<` as a string escape for `<`, so the payload round-trips
+;; through `clojure.edn/read-string` on the client.
+;; ===========================================================================
+
+(deftest hydration-payload-escapes-script-close-and-round-trips
+  (testing "rf2-7ksyr: a `</script>` substring in app-db cannot close the
+            hydration payload script tag; the EDN reader still recovers
+            the original string verbatim"
+    (let [hostile "</script><script>alert('xss')</script>"]
+      (rf/reg-event-fx :init/hostile
+        {:platforms #{:server}}
+        (fn [_ _]
+          {:db {:public/article-title hostile}}))
+
+      (rf/reg-view* :pages/hostile-page (fn [] [:div "ok"]))
+
+      (let [handler  (ssr-ring/ssr-handler
+                       {:on-create [:init/hostile]
+                        :root-view [:pages/hostile-page]})
+            response (handler {:uri "/" :request-method :get})
+            body     (:body response)]
+        (is (= 200 (:status response)))
+
+        ;; The wire HTML MUST NOT carry the raw `</script><script>` —
+        ;; that pattern would terminate the payload envelope and
+        ;; introduce a second <script> in document context.
+        (is (not (str/includes? body "</script><script>alert"))
+            "the closing-tag pattern is broken — no raw </script> escape
+             into the document context")
+
+        ;; The escape sequence is what reaches the wire. Two `<` chars
+        ;; in the hostile literal → two < escapes.
+        (is (str/includes? body "\\u003c/script>\\u003cscript>alert")
+            "`<` chars in the payload EDN are escaped as `\\u003c`")
+
+        ;; The EDN reader on the client side must still recover the
+        ;; original string from the escaped payload. Extract just the
+        ;; specific value's quoted literal and read it — the full
+        ;; payload contains a generated `:rf.frame/<numeric-gensym>`
+        ;; keyword that the strict EDN reader (correctly) rejects, and
+        ;; isn't what this test is about anyway. `<` must be
+        ;; transparent to clojure.edn/read-string.
+        (let [payload-edn (second
+                           (re-find
+                             #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                             body))
+              ;; Match the quoted EDN string literal for :article-title.
+              ;; `pr-str` may emit either the qualified key
+              ;; (`:public/article-title`) or the `#:public{...}`
+              ;; namespace-map shorthand (`:article-title`) — match
+              ;; either rendering for robustness.
+              literal     (or (second
+                                (re-find
+                                  #":(?:public/)?article-title (\"[^\"]*\")"
+                                  payload-edn)))
+              recovered   (when literal (clojure.edn/read-string literal))]
+          (is (some? literal)
+              "the article-title's EDN string literal is locatable in the payload")
+          (is (= hostile recovered)
+              "rf2-7ksyr: the EDN reader recovers the original hostile
+               string verbatim — the `\\u003c` escape is transparent to
+               clojure.edn/read-string"))))))
+
+(deftest hydration-payload-shell-helper-escapes-direct-call
+  (testing "rf2-7ksyr: default-html-shell directly — feeding it a payload
+            containing </script> must produce a body where the closing
+            tag is broken, even before any runtime path. Pin the helper
+            contract independent of the handler lifecycle."
+    (let [payload-edn "{:greeting \"</script><script>x()</script>\"}"
+          html        (ssr-ring/default-html-shell "body" payload-edn {})]
+      (is (not (str/includes? html "</script><script>x()"))
+          "shell-level: closing-tag pattern is broken")
+      (is (str/includes? html "\\u003c/script>\\u003cscript>x()")
+          "shell-level: `<` chars escape as `\\u003c`")
+      ;; Sanity — the envelope-closing </script> for the payload itself
+      ;; is still present (it's the genuine terminator).
+      (is (str/includes? html "</script>")))))
+
+;; ===========================================================================
 ;; rf2-hyk9j TC-3 — destroy-frame-failed trace surfaces on per-request teardown
 ;; ===========================================================================
 ;;
