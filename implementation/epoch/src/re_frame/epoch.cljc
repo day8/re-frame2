@@ -120,31 +120,51 @@
 (defonce ^:private histories
   (atom {}))
 
-(defn- elide-older-trace-events
-  "Strip the `:trace-events` vector from records older than the most-
-  recent `keep` entries. Records keep their structured projections
-  (`:sub-runs` / `:renders` / `:effects`) but lose the raw trace
-  stream. nil `keep` means 'keep every record's :trace-events'."
-  [history keep]
-  (if (and (some? keep) (nat-int? keep))
-    (let [n        (count history)
-          boundary (max 0 (- n keep))]
-      (if (zero? boundary)
-        history
-        (into [] (map-indexed (fn [i r]
-                                (if (< i boundary)
-                                  (dissoc r :trace-events)
-                                  r)))
-              history)))
-    history))
+(defn- elide-just-crossed-trace-events
+  "When the record at index `(- (count history) keep 1)` crosses the
+  keep-boundary, dissoc its `:trace-events`. O(1) per append: every
+  earlier record was already elided on its own crossing, so the only
+  record that needs work is the one that just slid out of the keep-
+  window. Records keep their structured projections (`:sub-runs` /
+  `:renders` / `:effects`) but lose the raw trace stream. nil `keep`
+  means 'keep every record's :trace-events'.
 
-(defn- append-record [history record d keep]
+  HOT PATH: invoked from `append-record` on every drain settle (every
+  user-facing event). Pre-rf2-1e38x this rewrote the whole history
+  vector via `map-indexed`; under steady state only one record per
+  append actually transitions, so the O(n) walk was wasted work. The
+  steady-state invariant holds because every prior append already
+  elided its own just-crossed record; runtime reductions of `keep`
+  via `(rf/configure :epoch-history ...)` will take full effect on
+  subsequent appends rather than retroactively rewriting the buffer
+  (pre-alpha posture)."
+  [history keep]
+  (let [n (count history)]
+    (if (and (some? keep) (nat-int? keep) (> n keep))
+      (let [idx (- n keep 1)
+            r   (nth history idx)]
+        (if (contains? r :trace-events)
+          (assoc history idx (dissoc r :trace-events))
+          history))
+      history)))
+
+(defn- append-record
+  "Conj `record` onto the frame's history vector, cap to `d` via
+  `subvec` (cheap structural reuse — no copy), then elide the just-
+  crossed record's `:trace-events` per `keep`.
+
+  HOT PATH: fires once per cascade settle, i.e. once per dispatched
+  user event under steady state. Cost is O(1) in both the depth cap
+  and the trace-events elision — the vector grows by one, optionally
+  drops its leftmost element via `subvec`, and at most one record's
+  `:trace-events` slot is dissoc'd."
+  [history record d keep]
   (let [history+ (conj (or history []) record)
         n        (count history+)
         capped   (if (and (pos? d) (> n d))
                    (subvec history+ (- n d))
                    history+)]
-    (elide-older-trace-events capped keep)))
+    (elide-just-crossed-trace-events capped keep)))
 
 (defn- record!
   "Append a record into the frame's history. The depth cap and the
@@ -350,7 +370,15 @@
   ;; frame-id → vector of trace events (in arrival order)
   (atom {}))
 
-(defn- buffer-event! [frame-id event]
+(defn- buffer-event!
+  "Append `event` onto the frame's in-flight cascade buffer.
+
+  HOT PATH: fires once per `trace/emit!` while a cascade is in flight,
+  which is the dominant per-event cost (sub-runs, renders, fx, error
+  emits all funnel here). O(1) swap! + (fnil conj []) — the buffer
+  vector grows by one and is harvested wholesale at cascade settle
+  via `harvest-buffer!`."
+  [frame-id event]
   (swap! capture-buffers update frame-id (fnil conj []) event))
 
 (defn- harvest-buffer! [frame-id]
