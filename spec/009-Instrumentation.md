@@ -1377,6 +1377,8 @@ Framework-published listener integrations MUST default to suppressing `:sensitiv
 
 User-side listeners (in-app recorders, dev panels, custom forwarders) have no framework-imposed policy — they receive every event and decide on a per-app basis. The recommended discipline is identical: gate any off-box egress on `(when-not (:sensitive? trace-event) …)`.
 
+The **user-controllable config knob** each consumer exposes for the default-suppress policy follows a fixed verb convention per [Conventions §Privacy config-knob naming](Conventions.md#privacy-config-knob-naming-on-box-ui-vs-off-box-wire-egress): on-box devtools UI consumers use the `show-sensitive?` verb under the `:trace/*` ns (e.g. `:trace/show-sensitive?` — UI visibility), while off-box wire-egress consumers (the MCP triplet, the pair2 preload) use the **unqualified** `include-sensitive?` verb (e.g. `{:rf.size/include-sensitive? false}` on the elision policy map — wire egress). Both default to suppress; the verb choice tells the reader which trust boundary the knob governs without re-deriving from context.
+
 #### Production-elision behaviour
 
 The `:sensitive?` mechanism is **dev-time only** — both pieces of it ride the trace surface and elide with it:
