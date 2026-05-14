@@ -45,12 +45,6 @@ Same pattern; the dispatch keys are slightly different (`cljs.test` uses a vecto
 
 Wire via shadow-cljs `:node-test` `:test-runner-ns` (or equivalent in your tool).
 
-### Other surfaces
-
-- **Stray `println` / `prn` / `pprint` in test bodies** — grep and delete, or guard under `(when-not (zero? *failure-count*) ...)` if essential for diagnostics.
-- **Runtime trace emissions during test dispatches** — re-frame2 already routes these through `interop/debug-enabled?` in production; verify they're also test-quiet.
-- **Playwright specs** — silent on success by default; just remove any `console.log` from spec bodies.
-
 ## The result
 
 A green run collapses to its summary line:
