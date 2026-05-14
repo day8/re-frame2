@@ -237,15 +237,11 @@
                    clear-plain-fn-warned-pairs!)
 
 ;; Per rf2-4edk: register a clear of the `warned-non-dom-roots` cache
-;; under the chained `:adapter/clear-warn-once-caches!` hook. The hook
-;; is chained — each adapter (helix, uix) and this views ns all
-;; contribute a clear-step; `reset-runtime-fixture` invokes the top of
-;; the chain and every contributor's reset runs. Production behaviour
-;; is unchanged: the warn-once `defonce` is still per-process for users;
-;; only test-time clearing is new.
-(let [previous (late-bind/get-fn :adapter/clear-warn-once-caches!)]
-  (late-bind/set-fn! :adapter/clear-warn-once-caches!
-    (fn views-clear-warn-once-caches! []
-      (clear-warned-non-dom-roots!)
-      (when previous (previous))
-      nil)))
+;; under the chained `:adapter/clear-warn-once-caches!` hook. Each
+;; adapter (helix, uix) and this views ns all contribute a clear-step;
+;; `reset-runtime-fixture` invokes the top of the chain and every
+;; contributor's reset runs. Production behaviour is unchanged: the
+;; warn-once `defonce` is still per-process for users; only test-time
+;; clearing is new. Chain wiring goes through `late-bind/chain-fn!`
+;; (rf2-1fh5h) — the generic chain idiom.
+(late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-warned-non-dom-roots!)

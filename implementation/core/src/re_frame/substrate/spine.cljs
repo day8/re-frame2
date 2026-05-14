@@ -427,14 +427,13 @@
   "Wire `clear-fn` into the chained `:adapter/clear-warn-once-caches!`
   late-bind hook. The hook is chained — each adapter and re-frame.views
   contribute a clear-step; `reset-runtime-fixture` invokes the top of
-  the chain and every contributor's reset runs. Per rf2-4edk."
+  the chain and every contributor's reset runs. Per rf2-4edk.
+
+  Thin wrapper around `late-bind/chain-fn!` (rf2-1fh5h) — the
+  generic chain idiom; this wrapper exists so callers do not need
+  to know the chain key."
   [clear-fn]
-  (let [previous (late-bind/get-fn :adapter/clear-warn-once-caches!)]
-    (late-bind/set-fn! :adapter/clear-warn-once-caches!
-      (fn chained-clear-warn-once-caches! []
-        (clear-fn)
-        (when previous (previous))
-        nil))))
+  (late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-fn))
 
 ;; ---- subscription hook ----------------------------------------------------
 ;;
