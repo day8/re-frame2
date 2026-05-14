@@ -308,6 +308,21 @@
 
 ;; ---- registration entry --------------------------------------------------
 
+(defonce graph-layout-cache
+  ;; Cached `{:enriched … :graph … :layout …}` keyed on the
+  ;; `[cascades buffer]` 2-tuple's identity. Per audit rf2-i0veg
+  ;; §2d / rf2-rj40a — passive scrub flips `:selected-epoch-id` but
+  ;; doesn't change the underlying topology; without this cache the
+  ;; composite re-runs `enrich-cascades` → `project-cascades-to-
+  ;; graph` → `compute-layout` from scratch on every drag tick.
+  ;;
+  ;; The cache holds at most one entry — on a topology change the
+  ;; previous entry is replaced (the cascade vector is value-equal
+  ;; only when the underlying buffer hasn't rotated, so identity-
+  ;; check on `[cascades buffer]` suffices). `defonce` survives
+  ;; shadow-cljs `:after-load` reloads.
+  (atom nil))
+
 (defn install!
   "Idempotent install for the Causality Graph panel's Causa-side
   registration (Phase 4, rf2-4rqs1). Owns the panel's composite sub
@@ -350,25 +365,55 @@
     :<- [:rf.causa/selected-epoch-id]
     :<- [:rf.causa/epoch-history]
     (fn [[cascades buffer selected-id selected-epoch-id history] _query]
-      (let [enriched         (h/enrich-cascades cascades buffer)
-            graph            (h/project-cascades-to-graph enriched)
+      ;; Cache the enriched + graph + layout keyed on `[cascades
+      ;; buffer]` identity — passive scrub (which flips :selected-
+      ;; epoch-id) doesn't change topology, so the heavy work
+      ;; (enrich-cascades → project-cascades-to-graph → compute-
+      ;; layout) only re-runs when the underlying cascade or buffer
+      ;; vector changes. The :filter-to-cascade step still runs per
+      ;; recompute because its cascade-id-filter input depends on
+      ;; the selected-epoch-id. Per rf2-rj40a / audit 2d.
+      (let [topology-key       [cascades buffer]
+            {:keys [key graph layout]} @graph-layout-cache
+            cache-hit?         (and key (identical? key topology-key))
+            graph              (if cache-hit?
+                                 graph
+                                 (-> (h/enrich-cascades cascades buffer)
+                                     (h/project-cascades-to-graph)))
             ;; When Time Travel's selected-epoch resolves to a
             ;; cascade-id, filter the graph to that cascade family.
-            epoch-record     (when selected-epoch-id
-                               (tt-helpers/find-epoch-in-history
-                                 history selected-epoch-id))
-            cascade-id-filter (some-> epoch-record
-                                      h/dispatch-id-of-epoch)
-            filterable?      (and cascade-id-filter
-                                  (some #(= cascade-id-filter (:dispatch-id %))
-                                        (:nodes graph)))
-            graph'           (if filterable?
-                               (h/filter-to-cascade
-                                 graph cascade-id-filter)
-                               graph)
-            layout           (h/compute-layout graph')]
+            epoch-record       (when selected-epoch-id
+                                 (tt-helpers/find-epoch-in-history
+                                   history selected-epoch-id))
+            cascade-id-filter  (some-> epoch-record
+                                       h/dispatch-id-of-epoch)
+            filterable?        (and cascade-id-filter
+                                    (some #(= cascade-id-filter (:dispatch-id %))
+                                          (:nodes graph)))
+            graph'             (if filterable?
+                                 (h/filter-to-cascade
+                                   graph cascade-id-filter)
+                                 graph)
+            ;; Layout is only stable when the topology is unchanged
+            ;; AND no filter is active (filter-to-cascade returns a
+            ;; new graph shape per filter). Layout the unfiltered
+            ;; graph once per topology and recompute on filter.
+            layout             (cond
+                                 (and cache-hit? (not filterable?))
+                                 layout
+
+                                 :else
+                                 (h/compute-layout graph'))]
+        ;; Refresh the cache only on topology-change (don't churn the
+        ;; atom on filterable? toggles — those bypass the cache).
+        (when-not cache-hit?
+          (reset! graph-layout-cache
+                  {:key   topology-key
+                   :graph graph
+                   :layout (when-not filterable? layout)}))
         {:graph                graph'
          :layout               layout
          :selected-dispatch-id selected-id
          :selected-epoch-id    selected-epoch-id
          :filtered?            (boolean filterable?)}))))
+

@@ -40,7 +40,10 @@
 (defn- causa-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
-  (trace-bus/clear-buffer!))
+  (trace-bus/clear-buffer!)
+  ;; Reset the topology cache (rf2-rj40a / audit 2d) so cache-hit
+  ;; assertions are deterministic across the test corpus.
+  (reset! causality-graph/graph-layout-cache nil))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
