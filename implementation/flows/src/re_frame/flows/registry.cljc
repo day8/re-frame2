@@ -185,21 +185,34 @@
      (topo/topo-sort prospective)
      ;; Cycle check passed — commit. The :flow registrar slot keys on
      ;; flow-id only; stamp :frame into the metadata so introspection
-     ;; / hot-reload hooks can read the owning frame.
-     (registrar/register! :flow flow-id
-                          (source-coords/merge-coords
-                            (assoc flow :frame frame-id)))
-     (swap! flows assoc-in [frame-id flow-id] flow)
-     ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires after
-     ;; reg-flow successfully completes (including post-cycle-detection).
-     ;; Tools observe this to track the flow population over hot reloads /
-     ;; toggles. Op-type :flow is the discriminator for the whole flow
-     ;; trace stream (per Spec 009 §:op-type vocabulary, §Flow tracing).
-     (trace/emit! :flow :rf.flow/registered
-                  {:flow-id flow-id
-                   :inputs  (:inputs flow)
-                   :path    (:path flow)
-                   :frame   frame-id})
+     ;; / hot-reload hooks can read the owning frame. `register!`
+     ;; returns `{:was previous :now metadata}` — `:was` is nil on
+     ;; first-time registration, non-nil on hot-reload re-registration.
+     (let [{:keys [was]} (registrar/register!
+                           :flow flow-id
+                           (source-coords/merge-coords
+                             (assoc flow :frame frame-id)))]
+       (swap! flows assoc-in [frame-id flow-id] flow)
+       ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires
+       ;; on FIRST-TIME registration only. On re-registration the
+       ;; cross-kind `:rf.registry/handler-replaced` trace (emitted by
+       ;; `registrar/register!` per Spec 001 §Hot-reload trace surface)
+       ;; carries the hot-reload signal. Pre-rf2-ehxez both traces
+       ;; fired on every re-registration; tools subscribed to both
+       ;; op-types (10x flow panel reads `:flow`; epoch buffer reads
+       ;; everything) double-counted re-registrations in their per-frame
+       ;; reload ledger. Gate to first-time-only so each registration
+       ;; surfaces exactly once on the trace bus — `:rf.flow/registered`
+       ;; for the first-time path, `:rf.registry/handler-replaced` for
+       ;; the hot-reload path. Op-type :flow is the discriminator for
+       ;; the whole flow trace stream (per Spec 009 §:op-type
+       ;; vocabulary, §Flow tracing).
+       (when (nil? was)
+         (trace/emit! :flow :rf.flow/registered
+                      {:flow-id flow-id
+                       :inputs  (:inputs flow)
+                       :path    (:path flow)
+                       :frame   frame-id})))
      flow-id)))
 
 (defn- dissoc-in-safe
