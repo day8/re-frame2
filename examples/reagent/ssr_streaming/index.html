@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 example: streaming SSR with :rf/suspense-boundary</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; max-width: 800px; }
+    header h1 { margin: 0 0 0.25em; }
+    header p { margin: 0; color: #555; }
+    .cards { display: flex; flex-wrap: wrap; gap: 1em; margin-top: 1.5em; }
+    .card {
+      flex: 1 1 220px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 1em;
+    }
+    .card h3 { margin: 0 0 0.5em; font-size: 0.95em; color: #444; }
+    .card p.value { margin: 0; font-size: 1.6em; font-weight: bold; }
+    .card.skeleton { color: #aaa; background: #fafafa; }
+    footer { margin-top: 2em; color: #666; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <!--
+    A real server (re-frame.ssr.ring/stream-handler from
+    day8/re-frame2-ssr-ring) would stream this page chunk by chunk:
+
+      1. Shell prefix + this <body> opening, <div id="app"> with the
+         skeleton fallback cards
+      2. <template data-rf2-suspense-id=":card.revenue"
+                   data-rf2-suspense-resolved="1">…</template>
+         + <script data-rf2-suspense-hydrate=":card.revenue">delta</script>
+      3. (same for :card.signups, :card.latency)
+      4. The "flaky" card chunk carries data-rf2-suspense-failed="1"
+      5. <script id="__rf_payload">canonical-payload</script>
+      6. </body></html>
+
+    This static index.html stands in for the streaming output — it
+    ships with the final resolved state pre-baked so the browser can
+    boot the example via shadow-cljs without a Clojure server in the
+    middle. The same code that's wired up to streaming server-side
+    (ssr-streaming/core.cljc) hydrates this static page just fine
+    because the streaming runtime's contract is purely additive — a
+    page with the final payload already inlined skips the per-chunk
+    swap path and goes straight to :rf/hydrate.
+  -->
+  <div id="app">
+    <main class="dashboard">
+      <header>
+        <h1>Dashboard</h1>
+        <p>Streamed SSR demo — shell renders first, cards stream in.</p>
+      </header>
+      <section class="cards">
+        <div class="card">
+          <h3>Revenue (last 7 days)</h3>
+          <p class="value">42375</p>
+        </div>
+        <div class="card">
+          <h3>New signups (last 7 days)</h3>
+          <p class="value">318</p>
+        </div>
+        <div class="card">
+          <h3>P50 latency (ms)</h3>
+          <p class="value">24</p>
+        </div>
+        <div class="card skeleton">
+          <h3>Loading flaky …</h3>
+          <p class="value">—</p>
+        </div>
+      </section>
+      <footer>
+        <p>Each card above is a <code>:rf/suspense-boundary</code>.</p>
+      </footer>
+    </main>
+  </div>
+  <script id="__rf_payload" type="application/edn">
+{:rf/version 1
+ :rf/app-db {:cards {:revenue {:title "Revenue (last 7 days)" :value 42375}
+                     :signups {:title "New signups (last 7 days)" :value 318}
+                     :latency {:title "P50 latency (ms)" :value 24}}}
+ :rf/render-hash "00000000"}
+  </script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -549,6 +549,21 @@
    :asset-path "."
    :modules    {:main {:init-fn ssr.core/run}}}
 
+  ;; Streaming SSR + :rf/suspense-boundary worked example
+  ;; (rf2-ojakd / rf2-olb64 (a)). The static index.html ships the
+  ;; final resolved state pre-baked, standing in for what
+  ;; core.cljc's :clj-side `handle-request` would stream chunk-by-
+  ;; chunk via `re-frame.ssr.ring/stream-handler`. The CLJS branch
+  ;; reads the inline __rf_payload and dispatches :rf/hydrate against
+  ;; the seeded app-db (the streaming-runtime client shim is a
+  ;; future host-opt-in; the worked example demonstrates the JVM-
+  ;; side primitive shape).
+  :examples/ssr-streaming
+  {:target     :browser
+   :output-dir "out/examples/ssr-streaming"
+   :asset-path "."
+   :modules    {:main {:init-fn ssr-streaming.core/run}}}
+
   ;; Pattern-LongRunningWork worked example (rf2-o9fg) —
   ;; :invoke-all spawn-and-join with progress reporting and
   ;; cooperative cancellation on parent-unmount. The parent
