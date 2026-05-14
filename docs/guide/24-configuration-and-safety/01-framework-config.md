@@ -8,7 +8,7 @@
 
 ## The `configure` keys
 
-There are four. Each is a plain-data setting that applies to the framework runtime as a whole. The full normative table — vocabulary, opts shape, defaults, status — lives at [API.md §Configure keys](../../spec/API.md#configure-keys); this page is the guide-side narrative.
+There are four. Each is a plain-data setting that applies to the framework runtime as a whole. The full normative table — vocabulary, opts shape, defaults, status — lives at [API.md §Configure keys](../../../spec/API.md#configure-keys); this page is the guide-side narrative.
 
 ### `:epoch-history` — how far back can you rewind?
 
@@ -62,7 +62,7 @@ Unlike the two above, `:sub-cache` is **not** dev-only — the sub-cache exists 
 (rf/configure :elision {:rf.size/threshold-bytes 0})       ;; disable runtime size-based detection
 ```
 
-The wire-elision walker (per [chapter 23b](../23b-large-blobs.md) and [API.md §`rf/elide-wire-value`](../../spec/API.md#elide-wire-value-the-wire-boundary-walker)) replaces large values with `:rf.size/large-elided` markers before they egress to off-box consumers. The threshold-bytes value is the **runtime auto-detection threshold** — a value larger than this gets a marker even if the schema didn't pre-declare it as `:large?`.
+The wire-elision walker (per [chapter 23b](../23b-large-blobs.md) and [API.md §`rf/elide-wire-value`](../../../spec/API.md#elide-wire-value-the-wire-boundary-walker)) replaces large values with `:rf.size/large-elided` markers before they egress to off-box consumers. The threshold-bytes value is the **runtime auto-detection threshold** — a value larger than this gets a marker even if the schema didn't pre-declare it as `:large?`.
 
 16KB is the default because it's about the size where pretty-printing the value into a Datadog event starts being a bad idea. Tune up if you've got endpoints that legitimately return larger blobs that fit your back-end; tune down if you're shipping to a back-end with a smaller event limit.
 
@@ -96,7 +96,7 @@ If you're using the default substrate ([chapter 19](../19-adapters.md)) and Mall
 
 These are **not** folded under `configure` because keyword-keyed addressing loses the type information a consumer needs to pass an actual fn/component reference. `configure` is for *data*; `set-!` is for *impls*. That asymmetry is the explicit signal: "the framework is going to hold this reference and call it back from places you don't control."
 
-For the full enumeration of the `set-!` / `install-!` surface, see [API.md §Adapter lifecycle](../../spec/API.md) and [API.md §Schemas](../../spec/API.md). Both surfaces are small (five-ish fns each) and follow the same pattern: install / swap / inspect / dispose.
+For the full enumeration of the `set-!` / `install-!` surface, see [API.md §Adapter lifecycle](../../../spec/API.md) and [API.md §Schemas](../../../spec/API.md). Both surfaces are small (five-ish fns each) and follow the same pattern: install / swap / inspect / dispose.
 
 ## The per-frame neighbour
 
@@ -114,8 +114,8 @@ The third bucket is per-frame metadata. Anything whose lifetime is "as long as t
 
 ## Cross-references
 
-- [API.md §Configure keys](../../spec/API.md#configure-keys) — the normative key table.
-- [Conventions §Configuration surfaces](../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) — the three-bucket model.
+- [API.md §Configure keys](../../../spec/API.md#configure-keys) — the normative key table.
+- [Conventions §Configuration surfaces](../../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) — the three-bucket model.
 - [Chapter 06a — Frames](../06a-frames.md) — the per-frame metadata grammar.
 - [Chapter 15 — Tooling](../15-devtools-and-pair-tools.md) — the consumers of `:epoch-history` and `:trace-buffer`.
 - [Chapter 19 — Adapters](../19-adapters.md) — `install-adapter!`, `dispose-adapter!`, and friends.

@@ -42,6 +42,12 @@ GH_BLOB_BASE = "https://github.com/day8/re-frame2/blob/main"
 # the same depth.
 _GUIDE_TO_SPEC = re.compile(r'\]\(\.\./\.\./spec/')
 
+# Case 1a-deep: chapter sub-pages live at docs/guide/<chapter-dir>/X.md (depth
+# 3 below repo root). From the source tree the correct ref to spec/ is
+# ../../../spec/; in the staged docs_dir (docs/spec/) the correct ref is
+# ../../spec/. The rewrite collapses one level, same as the depth-2 case.
+_GUIDE_DEEP_TO_SPEC = re.compile(r'\]\(\.\./\.\./\.\./spec/')
+
 # Case 1b: docs-root pages (e.g. docs/release-process.md) link to spec via
 # ../spec/ — correct for the GitHub source tree (where spec/ lives at the
 # repo root, one level up from docs/). In the staged tree spec/ is copied
@@ -118,7 +124,18 @@ def on_page_markdown(markdown, page, config, files):
     src = page.file.src_path.replace('\\', '/')
 
     if src.startswith('guide/') or src.startswith('skills/'):
-        markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
+        # Choose by source depth. A guide sub-chapter at
+        # docs/guide/<chapter-dir>/X.md is depth 3; its source spec ref is
+        # ../../../spec/ and the staged path is ../../spec/. Plain
+        # docs/guide/X.md is depth 2; ../../spec/ -> ../spec/.
+        # Applying both rules unconditionally would let the depth-2 rule
+        # re-rewrite the depth-3 rule's output ../../spec/ down to ../spec/,
+        # so we dispatch on src depth.
+        if src.count('/') >= 2:
+            # depth-3 (or deeper) — sub-chapter pages
+            markdown = _GUIDE_DEEP_TO_SPEC.sub('](../../spec/', markdown)
+        else:
+            markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
     elif src.startswith('spec/'):
         # Spec pages link to docs-root pages via ../docs/ — collapse the
         # docs/ segment so the staged-tree path is ../release-process.md

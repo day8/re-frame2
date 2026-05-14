@@ -18,7 +18,7 @@ The framework has three orthogonal places configuration can live, and each one e
 
 The first two are global. The third is local. If you ever feel like you want to configure the same thing in two places, the option is doing two things and should be split. The framework's stance is one option, one bucket; that constraint is what makes the configuration story small enough to hold in your head.
 
-For the canonical normative description of the three buckets see [Conventions §Configuration surfaces](../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata).
+For the canonical normative description of the three buckets see [Conventions §Configuration surfaces](../../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata).
 
 ## The shape of the safety story
 
@@ -30,7 +30,7 @@ Safety primitives in re-frame2 work the same way the rest of the framework does:
 
 The framework does not strip-and-warn. It does not silently normalise. It does not "do its best with what you gave it." It rejects, raises, and tells you exactly what was wrong. The bet — same bet [chapter 12](../12-the-dynamic-model.md) makes about the dynamic model — is that surfacing the bug at its source is cheaper than letting it bake itself into the system's observable behaviour.
 
-> **Where the contracts live.** This chapter is the *guide-side* tour. The normative descriptions of every safety primitive live in [`spec/Security.md`](../../spec/Security.md) (threat model + defense-in-depth catalogue). That doc is, as of pre-alpha, slated to split into *pattern* and *implementation* halves (per rf2-1g6cj) — when that lands, the cross-refs in this chapter may need rewriting. The information is what matters; the path will move.
+> **Where the contracts live.** This chapter is the *guide-side* tour. The normative descriptions of every safety primitive live in [`spec/Security.md`](../../../spec/Security.md) (threat model + defense-in-depth catalogue). That doc is, as of pre-alpha, slated to split into *pattern* and *implementation* halves (per rf2-1g6cj) — when that lands, the cross-refs in this chapter may need rewriting. The information is what matters; the path will move.
 
 ## What this chapter covers
 

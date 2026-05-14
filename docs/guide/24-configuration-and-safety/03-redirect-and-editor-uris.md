@@ -45,7 +45,7 @@ The error category is unified by design: the caller doesn't need to discriminate
 
 The framework's CRLF + URL-shape check catches the *malformed* and the *injecting* cases. Validating against an **allowlist** of legitimate return URLs is your responsibility — the framework doesn't and can't know which return URLs are yours. The pattern is: validate at the event handler, hand the fx a value that's *already* known-good, let the framework's fail-fast catch any contract violation if you've made a mistake. Defense in depth.
 
-See [Security.md §CRLF injection at HTTP-response boundaries](../../spec/Security.md#crlf-injection-at-http-response-boundaries) for the normative description.
+See [Security.md §CRLF injection at HTTP-response boundaries](../../../spec/Security.md#crlf-injection-at-http-response-boundaries) for the normative description.
 
 ## Editor URI templates — the scheme allowlist
 
@@ -100,7 +100,7 @@ The two layers are deliberately redundant. The three-scheme reject closes the sc
 
 Both predicates live in `re-frame.source-coords.editor-uri` and are exported for tooling reuse: `editor-uri` (the builder) and `allowed-uri?` (the click-time gate). If you write your own dev tool that surfaces source-coords, use both.
 
-See [Security.md §Editor URI scheme allowlist](../../spec/Security.md) for the full rationale (rf2-vwcsq + rf2-cm93v / rf2-p887o for the positive allowlist).
+See [Security.md §Editor URI scheme allowlist](../../../spec/Security.md) for the full rationale (rf2-vwcsq + rf2-cm93v / rf2-p887o for the positive allowlist).
 
 ## What you don't have to validate
 
@@ -113,5 +113,5 @@ What you *do* have to handle is the allowlist of return URLs — the framework c
 - [§02 — HTTP safety primitives](02-http-safety.md) — the broader CRLF fail-fast story; `:rf.server/redirect` inherits its CRLF check from there.
 - [Chapter 11 — The server side](../11-server-side.md) — `:rf.server/*` fx narrative.
 - [Chapter 15 — Tooling](../15-devtools-and-pair-tools.md) — where click-to-source surfaces live (Story, Causa, pair2-mcp).
-- [Security.md §Editor URI scheme allowlist](../../spec/Security.md) — the normative description (and the rf2-vwcsq + rf2-cm93v decisions).
-- [Security.md §CRLF injection at HTTP-response boundaries](../../spec/Security.md#crlf-injection-at-http-response-boundaries) — the redirect's CRLF check site.
+- [Security.md §Editor URI scheme allowlist](../../../spec/Security.md) — the normative description (and the rf2-vwcsq + rf2-cm93v decisions).
+- [Security.md §CRLF injection at HTTP-response boundaries](../../../spec/Security.md#crlf-injection-at-http-response-boundaries) — the redirect's CRLF check site.
