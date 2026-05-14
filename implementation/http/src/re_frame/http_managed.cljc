@@ -178,8 +178,14 @@
 
 (fx/reg-fx :rf.fx/clear-http-interceptor
            {:doc "Spec 014 §Middleware (rf2-6y3q) — clear a request-side
-                  interceptor by id as an fx. Args is `{:frame :id}`; `:frame`
-                  defaults to `:rf/default`."}
+                  interceptor by id as an fx. Args is the map
+                  `{:frame <id> :id <kw>}` (NOT positional, matching the
+                  fx-convention shape — sibling to `:rf.fx/reg-http-interceptor`
+                  which also takes a map). `:frame` defaults to `:rf/default`
+                  when absent or nil. The fn-form `clear-http-interceptor` is
+                  the positional surface; this fx is the data-shaped surface
+                  for EDN-driven callers (conformance fixtures, event
+                  handlers at boot — rf2-k7tlm)."}
            (fn [_ctx {:keys [frame id]}]
              (middleware/clear-http-interceptor (or frame :rf/default) id)))
 
