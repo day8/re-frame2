@@ -1,4 +1,4 @@
-# 00 — ClojureScript for non-Clojurians
+# ClojureScript for non-Clojurians
 
 Are you new to ClojureScript?  This page will teach you to ***read Clojure*** in 40 minutes.
 
@@ -1260,7 +1260,7 @@ You have, in 40 minutes, just enough ClojureScript to read every snippet in the 
 
 Three paths forward, depending on what you want next:
 
-1. **To read the rest of the guide** — you're done. Head to [02 — app-db](02-app-db.md). The guide assumes you can parse the constructs in this chapter and nothing more.
+1. **To read the rest of the guide** — you're done. Head to [02 — app-db](../guide/02-app-db.md). The guide assumes you can parse the constructs in this chapter and nothing more.
 
 2. **To run the example apps locally** — see the [`examples/`](https://github.com/day8/re-frame2/tree/main/examples) directory in the repo. Each example has its own `npm install && npm run dev` instructions. The build tool is **shadow-cljs**, which you'll meet there.
 

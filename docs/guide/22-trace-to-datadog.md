@@ -15,7 +15,7 @@ re-frame2 ships two **always-on listener substrates** for exactly that, parallel
 
 Both substrates are **production-survivable** — they survive `:advanced` compilation with `goog.DEBUG=false`. Both apply `rf/elide-wire-value` to every record before fan-out. Both have zero cost when no listener is registered.
 
-> **What about the trace bus?** The trace bus you met in [ch.15](15-devtools-and-pair-tools.md) is dev-only. It dead-code-eliminates in production. It exists so Causa, pair2-mcp, and story can show you everything that happens — every sub recompute, every fx, every interceptor — at the cost of bundle size and hot-path overhead you don't want in shipped code. Production has no trace bus. Production has these two listener APIs instead — narrow shapes, always-on, observability-only.
+> **What about the trace bus?** The trace bus you met in the [Causa welcome page](../causa/index.md) is dev-only. It dead-code-eliminates in production. It exists so Causa, pair2-mcp, and story can show you everything that happens — every sub recompute, every fx, every interceptor — at the cost of bundle size and hot-path overhead you don't want in shipped code. Production has no trace bus. Production has these two listener APIs instead — narrow shapes, always-on, observability-only.
 
 You'll know:
 
@@ -265,6 +265,6 @@ The point: the framework owns the production-observability shape and tools own t
 
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — the managed-fx that does the actual POST, with retry and abort-on-destroy.
 - [14 — Errors and how to handle them](14-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-emit-listener!`.
-- [15 — Tooling](15-devtools-and-pair-tools.md) — the dev-only trace bus and the tools (Causa, pair2, story) that consume it.
+- [Causa](../causa/index.md) — the dev-only trace bus and the devtool that paints it (sibling tools: [`re-frame-pair2`](../skills/re-frame-pair2.md) and [Story](../story/index.md) consume the same bus).
 - [23a — Privacy: keeping secrets out of traces](23a-privacy-secrets.md) — the `:sensitive?` half of the wire-elision machinery the framework applies to every record before your listener sees it.
 - [23b — Large blobs: keeping the wire small](23b-large-blobs.md) — the `:large?` half of the same machinery.

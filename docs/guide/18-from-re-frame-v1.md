@@ -87,7 +87,7 @@ Flows are frame-scoped, evaluated in topological order after each event drain, s
 
 ## A note on the tooling
 
-`re-frame-10x` — the v1 devtools panel — has been renamed and reimplemented as **Causa** (Maven coord `day8/re-frame2-causa`) for v2. It is **not** the v1 10x ported to v2; it's a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces (see [15 — Tooling](15-devtools-and-pair-tools.md)). If your v1 project depended on the 10x panel during development, the v2 equivalent is Causa, not 10x. The mental model — events, subs, app-db diff, time-travel — carries over; the wiring underneath does not.
+`re-frame-10x` — the v1 devtools panel — has been renamed and reimplemented as **Causa** (Maven coord `day8/re-frame2-causa`) for v2. It is **not** the v1 10x ported to v2; it's a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces (see the [Causa tutorial](../causa/index.md)). If your v1 project depended on the 10x panel during development, the v2 equivalent is Causa, not 10x. The mental model — events, subs, app-db diff, time-travel — carries over; the wiring underneath does not.
 
 ## Where to read next
 

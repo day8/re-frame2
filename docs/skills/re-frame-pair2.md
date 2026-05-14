@@ -72,5 +72,5 @@ After connect, work in structured ops (read, write, trace, DOM bridge, watch, ho
 - `SKILL.md`: [`skills/re-frame-pair2/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-pair2/SKILL.md)
 - Reference leaves: [`skills/re-frame-pair2/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2/references) — `ops.md` (structured ops catalogue), `recipes.md` (named procedures: *"why didn't my view update?"*, post-mortem, experiment loop), `errors.md` (structured-error → plain-English recovery), `hot-reload-protocol.md`, `migration-from-v1.md`.
 - Tool-Pair contract: [`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
-- Narrative companion: [Guide chapter 15 — Tooling](../guide/15-devtools-and-pair-tools.md).
+- Narrative companion: [Causa](../causa/index.md).
 - Retrospective companion skill: [`re-frame-pair-retro2`](re-frame-pair-retro2.md).

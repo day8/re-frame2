@@ -426,4 +426,4 @@ The split is the inverse of what most React-side test suites accumulate over tim
 ## Next
 
 - [14 — Errors and how to handle them](14-errors.md) — the trace-listener test pattern in this chapter generalises into a full surface for asserting error contracts; that chapter walks the `:rf.error/*` taxonomy end-to-end.
-- [15 — Tooling](15-devtools-and-pair-tools.md) — the trace bus, epochs, time-travel, source-coords, and the tools that attach to them.
+- [Causa](../causa/index.md) — the trace bus, epochs, time-travel, source-coords, and the devtool that paints them.

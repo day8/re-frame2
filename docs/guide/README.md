@@ -28,4 +28,4 @@ Within the Clojure community the importance of data is expressed by the aphorism
 
 This guide is opinionated. It will tell you, with confidence, that a single source of truth is a good idea, that constrained execution models are easier to reason about than Turing-complete ones, and it may contain the occasional rant.
 
-All code given is ClojureScript code. If you are not a confident reader of ClojureScript then you may want to spend 30 mins reading [this introductory reading-guide](XXX) we have prepared. You won't be able to write Clojure but you'll be able to largely read it.
+All code given is ClojureScript code. If you are not a confident reader of ClojureScript then you may want to spend 30 mins reading [the CLJS reading guide](../cljs/index.md) we have prepared. You won't be able to write Clojure but you'll be able to largely read it.

@@ -212,7 +212,7 @@ The chaining syntax —
   (fn [products _] (sort-by :name products)))
 ```
 
-— exists so that layer 3 subs can name their layer-2 inputs without reaching back into `app-db`. Two payoffs. First, **shared cache.** Every view that wants `:products/sorted` shares one cached computation; the sort runs once per change to `:products`, not once per view. Second, **the layering is enforced by shape.** A sub that uses `:<-` is, by construction, reading other subs — never `app-db`. A sub that takes `(fn [db _] ...)` is, by construction, an extractor. The framework can read the registry and tell you which layer each sub is on, which is how `sub-topology` (see [chapter 15 §sub-topology](15-devtools-and-pair-tools.md#reference-the-static-sub-graph--sub-topology)) draws the graph.
+— exists so that layer 3 subs can name their layer-2 inputs without reaching back into `app-db`. Two payoffs. First, **shared cache.** Every view that wants `:products/sorted` shares one cached computation; the sort runs once per change to `:products`, not once per view. Second, **the layering is enforced by shape.** A sub that uses `:<-` is, by construction, reading other subs — never `app-db`. A sub that takes `(fn [db _] ...)` is, by construction, an extractor. The framework can read the registry and tell you which layer each sub is on, which is how `sub-topology` (see the [Causa tutorial](../causa/index.md)) draws the graph.
 
 The discipline is small: keep extractors tiny, put derivation in layer 3, let `:<-` wire the layers together. The reward is a reactivity story where adding a new view never costs more than the work that view's actually new slice required.
 
@@ -346,7 +346,7 @@ The propagation mechanism is **React context** — wrapping a subtree with `[rf/
 
 One small detail to recognise when you see it in the inspector: every `reg-view`-rendered DOM element carries a `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute pointing back to the registration that produced it. It's how pair tools and devtools resolve a clicked DOM node back to the source line. The annotation is dev-only — production builds elide it via DCE.
 
-You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 15 §Click-to-source](15-devtools-and-pair-tools.md#click-to-source-the-source-coord-story).
+You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in the [Causa click-to-source tutorial](../causa/05-click-to-source.md).
 
 ## Routing as state
 

@@ -208,5 +208,5 @@ The Datadog dashboard sees the cascade shape, the timing, the error class — it
 
 - [23a — Privacy: keeping secrets out of traces](23a-privacy-secrets.md) — the matching privacy half. The `:sensitive?` flag, the `:rf/redacted` sentinel, the handler-meta escape hatch, the HTTP header / query-string denylists.
 - [04a — Schemas](04a-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
-- [15 — Tooling](15-devtools-and-pair-tools.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason size matters is that the bus has five+ consumers, several of which transport over a network.
+- [Causa](../causa/index.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason size matters is that the bus has five+ consumers, several of which transport over a network.
 - [22 — Production observability](22-trace-to-datadog.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.

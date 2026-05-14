@@ -465,7 +465,7 @@ For a test fixture that resets per-frame error listeners across tests, see the `
 
 ## What you'll see in Causa and re-frame-pair2
 
-The dev tools — Causa and re-frame-pair2 (both covered in [15 — Tooling](15-devtools-and-pair-tools.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
+The dev tools — [Causa](../causa/index.md) and [re-frame-pair2](../skills/re-frame-pair2.md) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
 
 Causa's epoch buffer groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
 
@@ -484,8 +484,8 @@ Errors stop being incidents to recover from and start being signals you can rout
 ## Where to read next
 
 - **[13 — Testing](13-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
-- **[15 — Tooling](15-devtools-and-pair-tools.md)** — what Causa and re-frame-pair2 do with the trace stream, including the errors panel.
+- **[Causa](../causa/index.md)** — what the devtools panel does with the trace stream, including the errors view.
 
 ## Next
 
-- [15 — Tooling](15-devtools-and-pair-tools.md) — the third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them.
+- [Causa](../causa/index.md) — the third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the devtool that paints them.
