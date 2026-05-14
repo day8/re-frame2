@@ -510,95 +510,108 @@
 
 ;; ---- record projection ----------------------------------------------------
 
-(defn- project-sub-runs
-  "Walk the captured trace events and build the `:sub-runs` vector.
-  Each :sub/run trace event surfaces as one entry with `:recomputed?
-  true`. Per Spec-Schemas §`:rf/epoch-record`: a sub queried via the
-  rf2-719e cache hit path does NOT emit `:sub/run` (the body fn does
-  not re-run), so cache-hit subs are absent from this projection."
+(defn- project-all
+  "Walk the captured trace events ONCE and emit the three `:sub-runs`,
+  `:renders`, `:effects` projections in a single reducer pass. Returns
+  `{:sub-runs <v> :renders <v> :effects <v>}` with each value a
+  persistent vector built via transient accumulators.
+
+  Per rf2-ecu37 (audit rf2-fzrav §M1): the prior shape was three
+  independent `into []` transducer walks of the same buffer — for an
+  N-event cascade that's 3·N operation reads where N suffice. The
+  fused reducer mirrors `find-trigger-event`'s style (rf2-txrq9):
+  one traversal, multiple accumulators, single allocation budget.
+
+  Per-projection contracts preserved verbatim (no schema change):
+
+    :sub-runs — Spec-Schemas §`:rf/epoch-record`. One entry per
+      `:sub/run` trace event. Cache-hit subs (rf2-719e fast-path) do
+      NOT emit `:sub/run` and are correctly absent.
+
+    :renders — Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree
+      primitives (rf2-t5tx Option C / rf2-piag). `:render-key` is the
+      `[<view-id> <instance-token>]` tuple; renders bypassing reg-view
+      (plain Reagent fns) use `[:rf.view/anonymous nil]` as the
+      documented fallback.
+
+    :effects — Spec-Schemas §`:rf/epoch-record` `:effects`. Every
+      dispatched fx emits exactly one of:
+
+        :fx :rf.fx/handled                    → :outcome :ok
+        :warning :rf.fx/skipped-on-platform   → :outcome :skipped-on-platform
+        :error :rf.error/fx-handler-exception → :outcome :error
+        :error :rf.error/no-such-fx           → :outcome :error
+
+      `:error-trace` (when present) references the corresponding error
+      trace event by `:id`."
   [events]
-  (into []
-        (comp
-          (filter (fn [ev] (= :sub/run (:operation ev))))
-          (map (fn [ev]
-                 (let [t (:tags ev)]
-                   {:sub-id      (:sub-id t)
-                    :query-v     (:query-v t)
-                    :recomputed? true}))))
-        events))
+  ;; Single reduce; the accumulator is a 3-key transient map of
+  ;; transient vectors. `conj!` may rebind the inner transient vector
+  ;; identity at chunk boundaries (every 32 elements), so we thread
+  ;; the result back through `assoc!`. The outer transient map is
+  ;; mutated in place — no per-step map allocation.
+  ;;
+  ;; Internal slot keys are `:s` / `:r` / `:e` purely to keep this
+  ;; transient namespace local; the documented `:sub-runs` /
+  ;; `:renders` / `:effects` shape is materialised once at the end.
+  (let [acc (reduce
+              (fn [acc ev]
+                (let [op (:operation ev)
+                      t  (:tags ev)]
+                  (cond
+                    (= :sub/run op)
+                    (assoc! acc :s
+                            (conj! (get acc :s)
+                                   {:sub-id      (:sub-id t)
+                                    :query-v     (:query-v t)
+                                    :recomputed? true}))
 
-(defn- project-renders
-  "Walk the captured trace events and build the `:renders` vector.
-  Renders are emitted by the view layer as `:view/render` trace events
-  with `:render-key`, `:triggered-by`, and `:elapsed-ms` tags. Per
-  Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree primitives
-  (rf2-t5tx Option C / rf2-piag): `:render-key` is the tuple
-  `[<view-id> <instance-token>]` — the view-id names the kind, the
-  instance-token disambiguates concurrently-mounted instances. For
-  renders that bypass reg-view (plain Reagent fns), the trace recorder
-  emits `[:rf.view/anonymous nil]` as the documented fallback shape."
-  [events]
-  (into []
-        (comp
-          (filter (fn [ev] (= :view/render (:operation ev))))
-          (map (fn [ev]
-                 (let [t (:tags ev)]
-                   {:render-key   (or (:render-key t)
-                                      [:rf.view/anonymous nil])
-                    :triggered-by (:triggered-by t)
-                    :elapsed-ms   (:elapsed-ms t)}))))
-        events))
+                    (= :view/render op)
+                    (assoc! acc :r
+                            (conj! (get acc :r)
+                                   {:render-key   (or (:render-key t)
+                                                      [:rf.view/anonymous nil])
+                                    :triggered-by (:triggered-by t)
+                                    :elapsed-ms   (:elapsed-ms t)}))
 
-(defn- project-effects
-  "Walk the captured trace events and build the `:effects` vector.
+                    (= :rf.fx/handled op)
+                    (assoc! acc :e
+                            (conj! (get acc :e)
+                                   {:fx-id   (:fx-id t)
+                                    :args    (:fx-args t)
+                                    :outcome :ok}))
 
-  Per Spec-Schemas §`:rf/epoch-record` `:effects`: every dispatched fx
-  surfaces one entry, regardless of outcome:
+                    (= :rf.fx/skipped-on-platform op)
+                    (assoc! acc :e
+                            (conj! (get acc :e)
+                                   {:fx-id   (:fx-id t)
+                                    :args    (:fx-args t)
+                                    :outcome :skipped-on-platform}))
 
-    :fx :rf.fx/handled                    → :outcome :ok
-    :warning :rf.fx/skipped-on-platform   → :outcome :skipped-on-platform
-    :error :rf.error/fx-handler-exception → :outcome :error
-    :error :rf.error/no-such-fx           → :outcome :error
+                    (= :rf.error/fx-handler-exception op)
+                    (assoc! acc :e
+                            (conj! (get acc :e)
+                                   {:fx-id       (:fx-id t)
+                                    :args        (:fx-args t)
+                                    :outcome     :error
+                                    :error-trace (:id ev)}))
 
-  The runtime emits exactly one of these per dispatched fx (see
-  `re-frame.fx/handle-one-fx`), so the projection is one-entry-per-fx
-  with no double-counting. `:error-trace` (when present) references
-  the corresponding error trace event by `:id`."
-  [events]
-  (into []
-        (comp
-          (filter (fn [ev]
-                    (let [op (:operation ev)]
-                      (or (= :rf.fx/handled op)
-                          (= :rf.fx/skipped-on-platform op)
-                          (= :rf.error/fx-handler-exception op)
-                          (= :rf.error/no-such-fx op)))))
-          (map (fn [ev]
-                 (let [op (:operation ev)
-                       t  (:tags ev)]
-                   (cond
-                     (= :rf.fx/handled op)
-                     {:fx-id   (:fx-id t)
-                      :args    (:fx-args t)
-                      :outcome :ok}
+                    (= :rf.error/no-such-fx op)
+                    (assoc! acc :e
+                            (conj! (get acc :e)
+                                   {:fx-id       (:fx-id t)
+                                    :args        (:fx-args t)
+                                    :outcome     :error
+                                    :error-trace (:id ev)}))
 
-                     (= :rf.fx/skipped-on-platform op)
-                     {:fx-id   (:fx-id t)
-                      :args    (:fx-args t)
-                      :outcome :skipped-on-platform}
-
-                     (= :rf.error/fx-handler-exception op)
-                     {:fx-id       (:fx-id t)
-                      :args        (:fx-args t)
-                      :outcome     :error
-                      :error-trace (:id ev)}
-
-                     (= :rf.error/no-such-fx op)
-                     {:fx-id       (:fx-id t)
-                      :args        (:fx-args t)
-                      :outcome     :error
-                      :error-trace (:id ev)})))))
-        events))
+                    :else acc)))
+              (transient {:s (transient [])
+                          :r (transient [])
+                          :e (transient [])})
+              events)]
+    {:sub-runs (persistent! (get acc :s))
+     :renders  (persistent! (get acc :r))
+     :effects  (persistent! (get acc :e))}))
 
 ;; ---- record assembly ------------------------------------------------------
 
@@ -685,7 +698,12 @@
    ;; trigger-less buffer is `on-frame-destroyed!`'s `:halted-destroy`
    ;; commit; the conditional `cond->` slots make that record valid
    ;; against the schema.
-   (let [{:keys [event-id event]} (find-trigger-event events)]
+   (let [{:keys [event-id event]}     (find-trigger-event events)
+         ;; Per rf2-ecu37: one fused walk producing all three
+         ;; projections, replacing three independent transducer
+         ;; passes over the same buffer. Mirrors `find-trigger-event`'s
+         ;; rf2-txrq9 single-walk pattern.
+         {:keys [sub-runs renders effects]} (project-all events)]
      (cond-> {:epoch-id      (next-epoch-id)
               :frame         frame-id
               :committed-at  (interop/now-ms)
@@ -699,9 +717,9 @@
               ;; produces nil; consumers tolerate the absent slot).
               :schema-digest (current-schema-digest frame-id)
               :trace-events  events
-              :sub-runs      (project-sub-runs events)
-              :renders       (project-renders events)
-              :effects       (project-effects events)}
+              :sub-runs      sub-runs
+              :renders       renders
+              :effects       effects}
        event-id    (assoc :event-id event-id)
        event       (assoc :trigger-event event)
        halt-reason (assoc :halt-reason halt-reason)))))
