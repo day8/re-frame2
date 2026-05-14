@@ -69,6 +69,15 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'perf_counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-perf'),
   },
+  // Cart-total testbed (rf2-0sg12) — Causa tutorial hero scenario as
+  // runnable code. The companion spec at
+  // tools/causa/testbeds/cart_total/spec.cjs walks the 3pm bug
+  // (wrong-slot sub) end-to-end through the rendered UI.
+  {
+    build: 'examples/cart-total',
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'cart_total', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'cart-total'),
+  },
   {
     build: 'examples/temperature',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'temperature', 'temperature.html'),
@@ -210,6 +219,14 @@ const EXAMPLES = [
     build: 'examples/counter-with-stories',
     htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'counter_with_stories', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-with-stories'),
+  },
+  // Login-form testbed (rf2-0sg12) — Story tutorial five-state
+  // scenario as runnable variants. URL-hash-routed: `#/` renders
+  // the live login card; `#/stories` mounts the Story shell.
+  {
+    build: 'examples/login-form',
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'login_form', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'login-form'),
   },
   // Pattern-LongRunningWork worked example (rf2-o9fg) —
   // :invoke-all spawn-and-join with progress reporting and a
