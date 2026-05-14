@@ -37,7 +37,7 @@
   opts in via `(causa-config/configure! {:trace/show-sensitive?
   true})`.
 
-  ## Reactivity (rf2-iw5ym → rf2-e9s81)
+  ## Reactivity
 
   The buffer is held in a plain atom (`buffer-state` below). The
   `:rf.causa/trace-buffer` sub (in `registry.cljs`) thunks
@@ -51,27 +51,12 @@
   the host's next dispatch, indistinguishable from native trace-
   rate UI cadence on every example app the foundation ships.
 
-  History — rf2-iw5ym originally added a parallel write path
-  (`:rf.causa/note-trace-event` dispatch) so the sub would
-  re-fire IMMEDIATELY on every push (no dependency on a sibling
-  sub recomputing). That parallel path picked `:rf/causa` as its
-  write target, but `:rf/causa` is never registered in production
-  (the preload runs at ns-load time, BEFORE the host's
-  `rf/init!` installs a substrate adapter — `reg-frame` fails in
-  that window) so the dispatch silently no-op'd and step 5 of
-  `examples/.../causa.spec.cjs` went red. rf2-higwg patched the
-  parallel suppressed-counter path to chain-resolve to
-  `:rf/default`; rf2-e9s81 tried the same for the trace buffer
-  but exposed two failure modes (conformance fixtures saw the
-  trace-cb's dispatches consume drain-depth headroom and
-  pollute their `:rf/default` app-db with `:trace-buffer`
-  noise). The conclusion: an architecturally clean
-  reactive-on-every-push surface requires either reg-view-
-  wrapping Causa's panels (so plain-fn subscribes route to
-  `:rf/causa` via the React-context tier) or a fixed-frame
-  sub mechanism — both wider refactors filed for follow-up.
-  Until then, the layer-1 + host-driven recompute path
-  delivers the same UX without the layering hazards."
+  An architecturally clean reactive-on-every-push surface would
+  require either reg-view-wrapping Causa's panels (so plain-fn
+  subscribes route to `:rf/causa` via the React-context tier) or a
+  fixed-frame sub mechanism — both wider refactors filed for follow-
+  up. Until then, the layer-1 + host-driven recompute path delivers
+  the same UX without the layering hazards."
   (:require [re-frame.interop :as interop]
             [day8.re-frame2-causa.config :as config]))
 
