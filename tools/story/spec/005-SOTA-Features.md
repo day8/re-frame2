@@ -559,7 +559,7 @@ phase-2 SOTA adds that are cheap.
 | MCP write surface (`register-variant`, `unregister-variant`) | Stage 7 (deferred) |
 | "Open in editor" per variant (rf2-evgf5) | shipped — Stage 6 + Stage 8 |
 | Per-variant autodocs panel polish | Stage 6 (deferred) |
-| Sidebar tag-as-badge affordance on variant rows (rf2-nwiwr) | shipped — Stage 4 polish |
+| Sidebar tag-as-badge affordance on variant rows (rf2-nwiwr) | shipped — Stage 4 polish; normative contract in [`014-Chrome-Features.md`](014-Chrome-Features.md) §Sidebar tag-as-badge affordance |
 
 ## v2 ship list (post-1.0 deferred)
 
