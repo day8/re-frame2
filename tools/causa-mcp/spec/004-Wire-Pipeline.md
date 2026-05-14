@@ -49,8 +49,7 @@ helper:
   tools) when non-zero.
 - **Opt-in**: per-call `:include-sensitive? true` MCP arg disables
   the gate. The arg name is fixed cross-server (pair2-mcp + story-mcp
-  + causa-mcp) so an agent that learns the slot on one server gets
-  the same slot on the others.
+  + causa-mcp) per the cross-server symmetry posture above.
 - **Scope**: only the trace-stream surface. Mutating ops (`dispatch`,
   `restore-epoch`, `reset-frame-db`) and read-mostly per-frame state
   ops (`get-app-db`, `get-app-db-diff`, `get-machine-state`) don't
@@ -60,9 +59,8 @@ helper:
 The wiring pattern (when implementation lands) mirrors
 [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)'s
 `strip-sensitive` helper + `:include-sensitive?` arg + descriptor
-slot on each affected tool. Cross-server symmetry is load-bearing —
-an agent that knows the slot on pair2-mcp gets the same slot on
-causa-mcp.
+slot on each affected tool — per the cross-server symmetry posture
+(file header).
 
 The trust boundary is the MCP stdio channel: data that crosses it
 reaches the agent host, and from there potentially the LLM provider.
@@ -108,8 +106,8 @@ documented.
 
 The wording below aligns deliberately with
 [`tools/pair2-mcp/spec/Principles.md`](../../pair2-mcp/spec/Principles.md)
-§Tight token budget per response so that an agent learning the
-slot on one server gets the same slot on the others.
+§Tight token budget per response — per the cross-server symmetry
+posture (file header).
 
 ### 1. Token budget cap
 
