@@ -9,6 +9,7 @@
   against a real shadow-cljs build."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
+            [clojure.string :as str]
             [applied-science.js-interop :as j]
             [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.eval-form :as ef]
@@ -410,3 +411,68 @@
   (let [s1 (sub/merge-drain zero-state (drain {:n 1 :tick-elided 2}))
         s2 (sub/merge-drain s1         (drain {:n 1 :tick-elided 3}))]
     (is (= 5 (:elided-large s2)))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-vr2hn — `--allow-raw-state` boot gate on the drain eval form.
+;;
+;; The drain envelope's `:events` slot rides the nREPL wire verbatim. For
+;; the `:epoch` topic that means full epoch records (`:db-after` /
+;; `:db-before` / `:app-db`) — a hostile per-call arg shouldn't be able
+;; to talk an operator who didn't pass `--allow-raw-state` into shipping
+;; raw state. The gate mirrors the snapshot / get-path / trace-window
+;; pattern (rf2-c2dtu): when OFF, the drain form wraps `:events` with
+;; `re-frame.core/elide-wire-value` server-side, sensitive slots redact,
+;; large slots elide. When ON, the bare drain ships raw — the
+;; pre-rf2-vr2hn posture.
+;; ---------------------------------------------------------------------------
+
+(deftest drain-form-gated-elision-wraps-events
+  ;; Gate OFF (the default published-build posture). The drain form must:
+  ;;   - call `drain-subscription!` for the sub-id.
+  ;;   - mapv each event through `re-frame.core/elide-wire-value`.
+  ;;   - assoc the elided events back onto the drain envelope.
+  ;;   - thread `:rf.size/include-sensitive? false` into the walker opts.
+  (let [form (sub/drain-form "sub-abc" true false)]
+    (is (str/includes? form "drain-subscription!")
+        "drain-subscription! is the runtime entry point")
+    (is (str/includes? form "\"sub-abc\"")
+        "sub-id rides the form as an EDN string literal")
+    (is (str/includes? form "re-frame.core/elide-wire-value")
+        "every event flows through the size-elision walker")
+    (is (str/includes? form ":rf.size/include-large? false")
+        "walker is active (not pass-through)")
+    (is (str/includes? form ":rf.size/include-sensitive? false")
+        "sensitive slots redact when the caller did NOT opt in")))
+
+(deftest drain-form-gated-elision-honours-include-sensitive
+  ;; Gate ON path — when the operator passed `--allow-raw-state` AND the
+  ;; caller passed `:include-sensitive? true`, the walker still fires
+  ;; (elision is independent of sensitive), but sensitive slots pass
+  ;; through.
+  (let [form (sub/drain-form "sub-xyz" true true)]
+    (is (str/includes? form "re-frame.core/elide-wire-value"))
+    (is (str/includes? form ":rf.size/include-sensitive? true")
+        "include-sensitive? true threads into the walker opts")))
+
+(deftest drain-form-elision-off-bare-drain
+  ;; Gate ON + caller passes `:elision false` — the form must NOT wrap
+  ;; with the walker. Bare `drain-subscription!` call ships raw events
+  ;; (the pre-rf2-vr2hn posture).
+  (let [form (sub/drain-form "sub-raw" false false)]
+    (is (str/includes? form "drain-subscription!"))
+    (is (not (str/includes? form "re-frame.core/elide-wire-value"))
+        "elision OFF ⇒ no walker; raw events ride the wire")
+    (is (= "(re-frame-pair2.runtime/drain-subscription! \"sub-raw\")"
+           form)
+        "bare drain form is the pre-rf2-vr2hn shape")))
+
+(deftest drain-form-sub-id-pr-str-literal
+  ;; The sub-id is an EDN string literal — `pr-str` escapes quotes /
+  ;; backslashes correctly so a runtime read-string round-trips it
+  ;; verbatim. Pin against a sub-id containing characters that would
+  ;; break naive concatenation.
+  (let [form (sub/drain-form "id-with-\"quote\"" true false)]
+    ;; pr-str emits the embedded quotes as `\"` — the round-trip is
+    ;; correct, no raw-`str` concatenation hazard.
+    (is (str/includes? form "\\\"quote\\\"")
+        "embedded quotes survive as escaped EDN literals")))
