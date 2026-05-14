@@ -29,6 +29,7 @@ const fs = require('fs');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 
 const DEFAULT_PORT = 8021;
 // $BROWSER_TEST_ROOT lets a caller point the orchestrator at a different
@@ -37,10 +38,19 @@ const DEFAULT_PORT = 8021;
 // rf2-84e9), whose `:advanced + goog.DEBUG=false` bundle lands in
 // `out/browser-test-schemas-boundary-prod/` rather than the default
 // `out/browser-test/`.
+//
+// Per rf2-o38lb (security audit): the override MUST land inside
+// `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1` is
+// set in the environment. The orchestrator writes `${ROOT}/index.html`
+// and `${ROOT}/.rf-harness-token`; an unconstrained env-var override
+// would otherwise become an arbitrary file-write primitive in CI or
+// downstream environments inheriting parent env state.
 const ROOT_OVERRIDE = process.env.BROWSER_TEST_ROOT;
-const ROOT = ROOT_OVERRIDE
-  ? path.resolve(ROOT_OVERRIDE)
-  : path.resolve(__dirname, '..', 'out', 'browser-test');
+const ROOT = enforcePolicy(
+  'BROWSER_TEST_ROOT',
+  ROOT_OVERRIDE || path.resolve(__dirname, '..', 'out', 'browser-test'),
+  { allowedRoots: [DEFAULT_OUT_ROOT] },
+);
 const INDEX = path.join(ROOT, 'index.html');
 const RUNNER = path.resolve(__dirname, 'run-browser-tests.cjs');
 const READY_TIMEOUT_MS = 30000;
