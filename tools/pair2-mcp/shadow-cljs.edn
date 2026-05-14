@@ -41,4 +41,12 @@
           :server-test {:target :node-test
                         :output-to "out/server-test.js"
                         :ns-regexp "-test$"
-                        :autorun true}}}
+                        :autorun true
+                        ;; rf2-try1x — silent-on-success reporter.
+                        ;; The reporter ns lives at
+                        ;; implementation/test-quiet/src/re_frame/test_quiet/shadow_node.cljs;
+                        ;; shadow-cljs picks it up via the
+                        ;; `:source-paths` declared in deps.edn `:paths`
+                        ;; (the `day8/re-frame2-test-quiet` :local/root
+                        ;; widens the classpath).
+                        :main re-frame.test-quiet.shadow-node/main}}}

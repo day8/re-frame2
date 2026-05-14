@@ -172,13 +172,12 @@
         wrapped (dedup/dedup-value epochs true)
         wrapped-size (count (pr-str wrapped))]
     (testing "wrapped payload is much smaller than the raw vector"
-      ;; Observability: print the actual ratio in the test log so the
-      ;; PR body and future findings docs have a real number to cite.
-      (println "[rf2-obpa9] 10-epoch / 256-key shared :db-before:"
-               "raw=" raw-size "chars,"
-               "deduped=" wrapped-size "chars,"
-               "reduction=" (.toFixed (- 100.0 (* 100.0 (/ wrapped-size raw-size 1.0))) 1) "%")
-      (is (< wrapped-size raw-size))
+      ;; Silent-on-success (rf2-try1x): the measurement is folded into
+      ;; the failing-assertion messages below; agents reading green-run
+      ;; output don't burn context on per-test diagnostics.
+      (is (< wrapped-size raw-size)
+          (str "wrapped >= raw — measurement: raw=" raw-size
+               "chars deduped=" wrapped-size "chars"))
       ;; Conservative: ≥50% reduction (the bead's floor). Actual
       ;; should be much higher when the same :db-before reference
       ;; rides 10 times.

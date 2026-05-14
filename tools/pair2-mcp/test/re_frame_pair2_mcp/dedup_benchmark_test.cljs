@@ -225,14 +225,26 @@
      :reduction-pct reduction-pct
      :wrapped       wrapped}))
 
+(defn- row-str [m]
+  (str "[rf2-li2cw]"
+       " " (:label m)
+       "  events=" (:events m)
+       "  raw=" (:raw-bytes m) "B"
+       "  deduped=" (:deduped-bytes m) "B"
+       "  ratio=" (.toFixed (:ratio m) 2) "×"
+       "  reduction=" (.toFixed (:reduction-pct m) 1) "%"))
+
+;; Silent-on-success (rf2-try1x): the benchmark prints its measured
+;; rows only when explicitly verbose. The row text is also folded into
+;; each failing `is` message below, so triage still sees the numbers.
+;; To surface the measurements on a green run for spec-tracking, flip
+;; the goog-define `re-frame-pair2-mcp.dedup-benchmark-test/bench-verbose?`
+;; to true at compile time.
+(goog-define bench-verbose? false)
+
 (defn- print-row [m]
-  (println (str "[rf2-li2cw]"
-                " " (:label m)
-                "  events=" (:events m)
-                "  raw=" (:raw-bytes m) "B"
-                "  deduped=" (:deduped-bytes m) "B"
-                "  ratio=" (.toFixed (:ratio m) 2) "×"
-                "  reduction=" (.toFixed (:reduction-pct m) 1) "%")))
+  (when bench-verbose?
+    (println (row-str m))))
 
 ;; ---------------------------------------------------------------------------
 ;; Benchmark fixtures — the three scales the bead names.
@@ -263,11 +275,14 @@
   ;; Pin the measured compression factor across the bead's stated scale
   ;; axis. Floor is the **observed** lower bound minus a 5% slack margin
   ;; — currently 1.30× on raw trace bursts (observed range
-  ;; 1.40-1.45×). The actual ratio prints to the test log so the spec
-  ;; quote tracks the measured number.
-  (println)
-  (println "[rf2-li2cw] day8/de-dupe trace-burst compression benchmark")
-  (println "[rf2-li2cw] ---------------------------------------------")
+  ;; 1.40-1.45×). The actual ratio prints to the test log only when
+  ;; `bench-verbose?` is true (see goog-define above); on green the
+  ;; measured numbers are silent. Failure messages carry the row text
+  ;; so triage sees the numbers on red.
+  (when bench-verbose?
+    (println)
+    (println "[rf2-li2cw] day8/de-dupe trace-burst compression benchmark")
+    (println "[rf2-li2cw] ---------------------------------------------"))
   (let [results (doall
                   (for [{:keys [label events cascade-width variety]} corpora]
                     (let [payload (mk-trace-burst events cascade-width variety)
@@ -278,10 +293,11 @@
       ;; 1.30× is the observed 1.40× lower bound minus a 5% slack
       ;; margin (≈0.07×). An algorithm regression that drops below
       ;; 1.30× breaks this assertion AND obliges a spec update.
-      (doseq [{:keys [label ratio]} results]
+      (doseq [m results
+              :let [{:keys [label ratio]} m]]
         (is (>= ratio 1.30)
             (str label " — measured ratio " (.toFixed ratio 2)
-                 "× below the 1.30× pinned floor"))))
+                 "× below the 1.30× pinned floor  row=" (row-str m)))))
     (testing "scale-stability: 100ev / 1Kev / 10Kev ratios within 10% of each other"
       ;; The ratio is **shape-driven, not size-driven** — bigger
       ;; bursts of the same shape should compress at the same ratio.
@@ -304,8 +320,9 @@
                                     (mk-trace-burst events cascade-width variety))))]]
         (is (= payload (tu/dedup-expand wrapped))
             (str label " — round-trip differed from original payload"))))
-    (println "[rf2-li2cw] ---------------------------------------------")
-    (println)))
+    (when bench-verbose?
+      (println "[rf2-li2cw] ---------------------------------------------")
+      (println))))
 
 ;; ---------------------------------------------------------------------------
 ;; High-share burst — the upper-bound regime.
@@ -319,8 +336,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest day8-de-dupe-high-share-burst-compression-factor
-  (println "[rf2-li2cw] day8/de-dupe high-share-burst compression benchmark")
-  (println "[rf2-li2cw] -----------------------------------------------------")
+  (when bench-verbose?
+    (println "[rf2-li2cw] day8/de-dupe high-share-burst compression benchmark")
+    (println "[rf2-li2cw] -----------------------------------------------------"))
   (let [;; 1K replays of the same 24-event cascade. Each cascade body
         ;; (modulo unique :id / :time / :dispatch-id) is identical.
         payload (mk-high-share-burst 100 24)
@@ -333,11 +351,13 @@
       (is (>= (:ratio m) 8.0)
           (str "high-share burst ratio " (.toFixed (:ratio m) 2)
                "× fell below the 8× pinned floor — re-measure and "
-               "update tools/causa-mcp/spec/004-Wire-Pipeline.md §5.")))
+               "update tools/causa-mcp/spec/004-Wire-Pipeline.md §5."
+               "  row=" (row-str m))))
     (testing "round-trip on the high-share corpus"
       (is (= payload (tu/dedup-expand (:wrapped m)))))
-    (println "[rf2-li2cw] -----------------------------------------------------")
-    (println)))
+    (when bench-verbose?
+      (println "[rf2-li2cw] -----------------------------------------------------")
+      (println))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pinned typical-token-hint datapoint.

@@ -97,17 +97,27 @@
                       b (nth sorted (quot n 2))]
                   (/ (+ a b) 2)))))
 
-(defn- report-line
+;; Silent-on-success (rf2-try1x): the bench report lines only emit
+;; when `bench-verbose?` is true. The raw min/median/max are also
+;; folded into each failing `is` message via `report-str` below so
+;; triage retains the numbers.
+(goog-define bench-verbose? false)
+
+(defn- report-str
   [label samples]
   (let [lo (apply min samples)
         hi (apply max samples)
         md (median samples)]
-    (println
-      (str "[rf2-w92r8] " label
-           " — min=" (.toFixed (double lo) 3) "ms"
-           " median=" (.toFixed (double md) 3) "ms"
-           " max=" (.toFixed (double hi) 3) "ms"
-           " (" (count samples) " runs)"))))
+    (str "[rf2-w92r8] " label
+         " — min=" (.toFixed (double lo) 3) "ms"
+         " median=" (.toFixed (double md) 3) "ms"
+         " max=" (.toFixed (double hi) 3) "ms"
+         " (" (count samples) " runs)")))
+
+(defn- report-line
+  [label samples]
+  (when bench-verbose?
+    (println (report-str label samples))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — representative payloads.
@@ -179,11 +189,12 @@
                  :slice-mode  :full
                  :slice-modes {}
                  :server-elided 0}
+        label   "snapshot-map (3 frames / 50 epochs / 1K-key db / dedup on)"
         samples (bench-times 30 #(wp/run-wire-pipeline snap opts))]
-    (report-line "snapshot-map (3 frames / 50 epochs / 1K-key db / dedup on)"
-                 samples)
+    (report-line label samples)
     (is (< (median samples) 1000)
-        "Snapshot-map pipeline median MUST be under 1s on representative shapes")))
+        (str "Snapshot-map pipeline median MUST be under 1s on representative shapes  "
+             (report-str label samples)))))
 
 (deftest bench-snapshot-map-pipeline-no-dedup
   ;; Same shape, dedup off — pins the dedup-pass cost as a delta
@@ -197,10 +208,11 @@
                  :slice-mode  :full
                  :slice-modes {}
                  :server-elided 0}
+        label   "snapshot-map (3 frames / 50 epochs / 1K-key db / dedup off)"
         samples (bench-times 30 #(wp/run-wire-pipeline snap opts))]
-    (report-line "snapshot-map (3 frames / 50 epochs / 1K-key db / dedup off)"
-                 samples)
-    (is (< (median samples) 1000))))
+    (report-line label samples)
+    (is (< (median samples) 1000)
+        (report-str label samples))))
 
 ;; ---------------------------------------------------------------------------
 ;; Bench 2 — count-elided-markers walk over a marker-rich payload.
@@ -216,25 +228,27 @@
   ;; app-db. Walk runs over the whole payload — markers are inside
   ;; the `:app-db` slice.
   (let [snap    (make-snapshot-with-markers)
+        label   "count-elided-markers (2 frames / 40 markers / 1K-key db)"
         samples (bench-times 100 #(base-elision/count-elided-markers snap))]
-    (report-line "count-elided-markers (2 frames / 40 markers / 1K-key db)"
-                 samples)
+    (report-line label samples)
     (let [actual (base-elision/count-elided-markers snap)]
       (is (= 40 actual)
           (str "Walker MUST find every marker; got " actual)))
     (is (< (median samples) 100)
-        "Walker median MUST stay under 100ms on representative shapes")))
+        (str "Walker median MUST stay under 100ms on representative shapes  "
+             (report-str label samples)))))
 
 (deftest bench-count-elided-markers-marker-free
   ;; The common path — a payload with no markers. The walker still
   ;; recurses through every map / vector. Pins the floor cost so a
   ;; future regression on the empty path doesn't sneak through.
   (let [snap    (make-snapshot)
+        label   "count-elided-markers (no markers / 1K-key db / 3 frames)"
         samples (bench-times 100 #(base-elision/count-elided-markers snap))]
-    (report-line "count-elided-markers (no markers / 1K-key db / 3 frames)"
-                 samples)
+    (report-line label samples)
     (is (= 0 (base-elision/count-elided-markers snap)))
-    (is (< (median samples) 100))))
+    (is (< (median samples) 100)
+        (report-str label samples))))
 
 ;; ---------------------------------------------------------------------------
 ;; Bench 3 — dedup pass over a 50-epoch payload.
@@ -249,11 +263,12 @@
                        {:event-id  (keyword (str "e" i))
                         :db-before big-map
                         :db-after  (assoc big-map :touched i)}))
+        label   "dedup-value (50 epochs / 1K-key shared :db-before)"
         samples (bench-times 20 #(dedup/dedup-value epochs true))]
-    (report-line "dedup-value (50 epochs / 1K-key shared :db-before)"
-                 samples)
+    (report-line label samples)
     (is (< (median samples) 5000)
-        "50-epoch dedup median MUST stay under 5s on representative shapes")))
+        (str "50-epoch dedup median MUST stay under 5s on representative shapes  "
+             (report-str label samples)))))
 
 (deftest bench-dedup-epochs-1-record
   ;; Single-record dedup — the floor. Useful to amortise across
@@ -261,7 +276,8 @@
   (let [epochs  [{:event-id :e1
                   :db-before big-map
                   :db-after  (assoc big-map :touched 1)}]
+        label   "dedup-value (1 epoch / 1K-key :db-before)"
         samples (bench-times 50 #(dedup/dedup-value epochs true))]
-    (report-line "dedup-value (1 epoch / 1K-key :db-before)"
-                 samples)
-    (is (< (median samples) 500))))
+    (report-line label samples)
+    (is (< (median samples) 500)
+        (report-str label samples))))

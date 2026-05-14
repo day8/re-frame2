@@ -303,11 +303,12 @@
         full-wire    (pr-str (:snapshot (pipeline/summarise-other-slices-in-snapshot
                                           with-app-db-full {} :full)))
         ratio (/ (count full-wire) (count summary-wire))]
-    (println (str "[rf2-u2029] discovery snapshot wire-size: "
-                  "summary=" (count summary-wire) " chars (~" (cap/token-estimate summary-wire) " tokens), "
-                  "full=" (count full-wire) " chars (~" (cap/token-estimate full-wire) " tokens), "
-                  "shrink=" (int ratio) "x"))
+    ;; Silent-on-success (rf2-try1x): the measured numbers ride on
+    ;; the failing-assertion message; agents on the green path don't
+    ;; burn context on the per-test diagnostic.
     (is (> ratio 50)
         (str "Lazy-summary MUST shrink the discovery snapshot by at "
              "least 50x. Got " (int ratio) "x (summary=" (count summary-wire)
-             " chars vs full=" (count full-wire) " chars)."))))
+             " chars (~" (cap/token-estimate summary-wire) " tokens) "
+             "vs full=" (count full-wire) " chars (~"
+             (cap/token-estimate full-wire) " tokens))."))))
