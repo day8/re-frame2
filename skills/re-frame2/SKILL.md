@@ -33,9 +33,11 @@ allowed-tools:
   - mcp__re-frame2-story-mcp__variant->edn
   - mcp__re-frame2-story-mcp__list-tags
   - mcp__re-frame2-story-mcp__list-modes
+  - mcp__re-frame2-story-mcp__list-decorators
   - mcp__re-frame2-story-mcp__list-assertions
   - mcp__re-frame2-story-mcp__list-substrates
   - mcp__re-frame2-story-mcp__preview-variant
+  - mcp__re-frame2-story-mcp__get-docs-markdown
   - mcp__re-frame2-story-mcp__register-variant
   - mcp__re-frame2-story-mcp__unregister-variant
 ---
