@@ -1642,3 +1642,61 @@
       (epoch/on-frame-destroyed! :test/no-such-frame)
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
+
+;; ---- rf2-eo4pr: record-observation! guards its swap -----------------------
+;;
+;; `notify-listeners!` invokes `record-observation!` once per listener per
+;; drain-settle. For the steady state — a long-lived listener observing the
+;; same frame on every cascade — the cb's observed-frames set already
+;; contains the frame-id, and an unconditional `swap!` would fire every
+;; atom watcher N times per settle for ZERO semantic change. The guard
+;; inside `record-observation!` short-circuits the already-observed case;
+;; this test pins that no-op via an atom watcher (the canonical witness:
+;; Clojure's persistent-map `assoc`/`update` can return an identical map
+;; when the value is unchanged, so identity-equality alone is too weak,
+;; but `add-watch` ALWAYS fires on every successful `swap!`).
+
+(deftest record-observation-no-op-when-already-observed
+  (testing "record-observation! does NOT swap! the observed-frames-by-cb
+            atom when the (cb-id, frame-id) pair is already present —
+            repeated drain-settles for a stable listener-observing-frame
+            pairing leave the atom untouched (no watcher fires)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [observed-atom @#'epoch/observed-frames-by-cb
+          swap-count    (atom 0)]
+      (add-watch observed-atom ::swap-counter
+                 (fn [_ _ _ _] (swap! swap-count inc)))
+      (try
+        ;; First cascade — the cb observes :test/main for the first time;
+        ;; the membership is added. One swap is expected here (the new
+        ;; observation lands on the atom).
+        (rf/register-epoch-cb! ::watcher (fn [_] nil))
+        (rf/dispatch-sync [:seed] {:frame :test/main})
+        (is (contains? (get @observed-atom ::watcher) :test/main)
+            "after the first cascade, the cb has :test/main in its set")
+
+        (let [swaps-after-first @swap-count]
+          (is (pos? swaps-after-first)
+              "the first observation triggered at least one swap")
+
+          ;; Drive more cascades — every one is a repeat observation of
+          ;; the same (cb-id, frame-id) pair. The guard must short-circuit
+          ;; so no further swap fires.
+          (rf/dispatch-sync [:inc] {:frame :test/main})
+          (rf/dispatch-sync [:inc] {:frame :test/main})
+          (rf/dispatch-sync [:inc] {:frame :test/main})
+
+          (is (= swaps-after-first @swap-count)
+              "no further swap! ran across the three repeat cascades —
+               record-observation! short-circuited on the already-observed
+               case")
+          (is (= 1 (count (get @observed-atom ::watcher)))
+              "the cb's observed-frames set still has exactly one entry")
+          (is (= 4 (count (rf/epoch-history :test/main)))
+              "the four cascades did land four epoch records — the cb was
+               notified each time, but the observation atom stayed put"))
+        (finally
+          (remove-watch observed-atom ::swap-counter))))))
