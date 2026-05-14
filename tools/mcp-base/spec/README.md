@@ -20,9 +20,11 @@ Five small namespaces under `re-frame.mcp-base.*`:
 |--------------|----------------------------------------------------------------|
 | `vocab`      | `:rf.mcp/*` / `:rf.size/*` marker keys + JSON-RPC error codes.  |
 | `sensitive`  | spec/009 §Privacy default-suppress filter (`sensitive-event?`, `strip-sensitive`, `scrub-snapshot`). |
+| `elision`    | Wire-boundary `:rf.size/large-elided` walker (`count-elided-markers`, rf2-9fz64). |
 | `args`       | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `parse-keyword`, `parse-mode`, …). |
 | `diff-encode` | Path-keyed structural diff for epoch records (rf2-1wdzp).      |
 | `overflow`   | Overflow-marker payload builder (rf2-rvyzy).                   |
+| `cap`        | Wire-boundary token-budget cap pipeline + `ResultIO` protocol (rf2-eyelu). |
 
 All `.cljc`, so consumers compile them under their own platform —
 pair2-mcp's shadow-cljs node build, story-mcp / causa-mcp's JVM
