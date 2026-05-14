@@ -28,9 +28,8 @@
     UNREDACTED payload via the regular `:event` coeffect slot; the
     redaction is for the trace surface — every downstream emit that
     copies the event vector (the handler's `:rf.trace/trigger-handler`
-    cofx view of the event, the `:event/db-changed` `:tags :app-db-before`
-    / `:app-db-after` slots when the corresponding paths exist in
-    app-db, and any `:rf.error/handler-exception` `:tags :event` slot
+    cofx view of the event, the `:event/db-changed` `:tags :event`
+    slot, and any `:rf.error/handler-exception` `:tags :event` slot
     the runtime emits for a throw from this handler) picks up the
     redacted form.
 
@@ -153,10 +152,9 @@
       ;;    - The `:rf.trace/trigger-handler` cofx-slot view of the event
       ;;      (so any emit inside the chain copying the event sees the
       ;;      redacted form).
-      ;;    - The `:event/db-changed` `:tags :app-db-before` /
-      ;;      `:app-db-after` slots (when the corresponding paths exist
-      ;;      in app-db) — handled by the runtime's db-changed emit
-      ;;      consulting the interceptor's stashed paths.
+      ;;    - The `:event/db-changed` `:tags :event` slot — handled by
+      ;;      the runtime's db-changed emit consulting `:rf/redacted-event`
+      ;;      on the interceptor context.
       ;;    - Any `:rf.error/handler-exception` `:tags :event` slot.
       ;;
       ;; The handler body itself sees the UNREDACTED payload via the
