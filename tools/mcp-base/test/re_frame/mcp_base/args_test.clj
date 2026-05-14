@@ -106,6 +106,17 @@
   (is (= :diff (args/parse-mode "diff" :diff #{:diff :full})))
   (is (= :full (args/parse-mode "full" :diff #{:diff :full}))))
 
+(deftest parse-mode-strips-leading-colon
+  ;; Regression pin (rf2-wnyy9 / round-2 F2): `parse-mode` must accept
+  ;; agent-supplied `":diff"` the same way `parse-keyword` accepts
+  ;; `":foo"`. Before the fix this silently default-fell-back — the
+  ;; agent saw `:diff` returned but the value was the function's
+  ;; default, not a recognised match.
+  (is (= :diff (args/parse-mode ":diff" :full #{:diff :full})))
+  (is (= :full (args/parse-mode ":full" :diff #{:diff :full})))
+  (is (= :rf/foo (args/parse-mode ":rf/foo" :default #{:rf/foo :rf/bar}))
+      "namespaced keywords also strip the leading colon"))
+
 (deftest parse-mode-nil-returns-default
   (is (= :diff (args/parse-mode nil :diff #{:diff :full}))))
 

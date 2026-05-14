@@ -113,12 +113,15 @@
   keywords (passthrough if recognised), or nil. Unrecognised values
   fall back to `default`.
 
+  String inputs route through `parse-keyword` so a leading `:` is
+  stripped (consistency with `parse-keyword` — `\":diff\"` and
+  `\"diff\"` both resolve to `:diff` when `:diff` is recognised).
+
   `recognised` is a set of accepted keywords (e.g. `#{:diff :full}`)."
   [raw default recognised]
   (cond
-    (nil? raw)              default
-    (contains? recognised raw)   raw
-    (and (string? raw)
-         (contains? recognised (keyword raw)))
-    (keyword raw)
-    :else                   default))
+    (nil? raw)                 default
+    (contains? recognised raw) raw
+    (string? raw)              (let [kw (parse-keyword raw)]
+                                 (if (contains? recognised kw) kw default))
+    :else                      default))
