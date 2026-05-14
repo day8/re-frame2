@@ -128,21 +128,88 @@
        promise)))
 
 #?(:cljs
+   (defn- cross-origin?
+     "Heuristic: is `url` cross-origin relative to the current page?
+     Returns `false` for same-origin URLs, relative URLs (no scheme/host),
+     `data:`/`blob:`/`file:` schemes, and any URL the host can't parse.
+     The conservative path returns `false` so we never misclassify a
+     same-origin Fetch failure as CORS.
+
+     `js/location.origin` is the comparison base in browser hosts; on
+     non-browser CLJS targets (Node / shadow-cljs node tests) the global
+     is absent and we return `false`."
+     [^String url]
+     (try
+       (let [loc-origin (some-> js/globalThis
+                                (aget "location")
+                                (aget "origin"))]
+         (cond
+           (nil? url)        false
+           (nil? loc-origin) false
+           ;; Relative URLs are always same-origin.
+           (or (str/starts-with? url "/")
+               (str/starts-with? url "?")
+               (str/starts-with? url "#"))           false
+           ;; data:/blob:/file: schemes are not http(s) origins; treat
+           ;; as not-cross-origin (transport errors there are not CORS).
+           (or (str/starts-with? url "data:")
+               (str/starts-with? url "blob:")
+               (str/starts-with? url "file:"))       false
+           :else
+           (let [parsed (js/URL. url)
+                 origin (.-origin parsed)]
+             (and (string? origin)
+                  (not= origin loc-origin)))))
+       (catch :default _ false))))
+
+#?(:cljs
    (defn- classify-cljs-error
-     "Map a Fetch rejection / promise-error to a `:rf.http/*` failure shape."
-     [^js err]
-     (let [data (when (.-data err) (ex-data err))]
+     "Map a Fetch rejection / promise-error to a `:rf.http/*` failure shape.
+
+     Per rf2-r40km (Spec 014 §Failure categories closed-set row
+     `:rf.http/cors`): the Fetch API gives no formal signal for a CORS
+     rejection — every CORS failure surfaces as a `TypeError` with a
+     vendor-specific message (`Failed to fetch`, `Load failed`,
+     `NetworkError when attempting to fetch resource`, …). We use a
+     conservative heuristic: a `TypeError`-shaped rejection against a
+     cross-origin URL classifies as `:rf.http/cors`; everything else
+     stays at `:rf.http/transport`. Same-origin transport errors and
+     non-`TypeError` rejections are never reclassified, so a real
+     network drop on a same-origin endpoint still classifies correctly
+     as `:rf.http/transport`.
+
+     CLJS-only — the JVM transport (`classify-jvm-error`) never emits
+     `:rf.http/cors` per Spec 014 (CORS is a browser-policy concern)."
+     [^js err url]
+     (let [data     (when (.-data err) (ex-data err))
+           ;; `.-name` on a JS Error is the most stable signal we get
+           ;; for the rejection class. Fetch CORS rejections are always
+           ;; `TypeError`s; AbortErrors and rf2-bma05 ex-infos take
+           ;; their own branches above.
+           err-name (some-> err .-name)]
        (cond
          (:rf.http/timeout? data)
          {:kind       :rf.http/timeout
           :elapsed-ms (:elapsed-ms data)
           :limit-ms   (:limit-ms data)}
 
-         (or (= "AbortError" (.-name err))
+         (or (= "AbortError" err-name)
              (:rf.http/aborted? data))
          {:kind       :rf.http/aborted
           :request-id (:request-id data)
           :reason     (or (:reason data) :user)}
+
+         ;; rf2-r40km — TypeError + cross-origin URL = CORS rejection.
+         ;; Both signals required: the type narrows the universe to
+         ;; Fetch-style transport rejections (network drops surface as
+         ;; TypeErrors too), the cross-origin check separates CORS-
+         ;; eligible URLs from same-origin ones (where CORS doesn't
+         ;; apply by definition).
+         (and (= "TypeError" err-name)
+              (cross-origin? url))
+         {:kind    :rf.http/cors
+          :message (or (.-message err) (str err))
+          :url     url}
 
          :else
          {:kind    :rf.http/transport
@@ -550,8 +617,11 @@
                         :abort-signal        abort-signal
                         :internal-controller internal-controller})
            (.then (fn [result] (handle-response! ctx' result)))
+           ;; rf2-r40km — pass `url` so `classify-cljs-error` can
+           ;; distinguish `:rf.http/cors` from `:rf.http/transport`
+           ;; via the cross-origin heuristic.
            (.catch (fn [err]
-                     (maybe-retry! ctx' (classify-cljs-error err)))))
+                     (maybe-retry! ctx' (classify-cljs-error err url)))))
        :clj
        (try
          (let [^CompletableFuture cf
