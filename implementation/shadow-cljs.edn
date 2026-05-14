@@ -401,6 +401,19 @@
    :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
    :modules          {:main {:init-fn perf-counter.core/run}}}
 
+  ;; Cart-total testbed (rf2-0sg12) — runnable version of the 3pm
+  ;; cart-total scenario from the Causa tutorial's index page. Lives
+  ;; under tools/causa/testbeds/cart_total/ alongside its spec.cjs.
+  ;; The Causa preload is wired so a visitor can press Ctrl+Shift+C
+  ;; mid-walkthrough and step through Subscriptions / App-DB panels
+  ;; without configuration.
+  :examples/cart-total
+  {:target     :browser
+   :output-dir "out/examples/cart-total"
+   :asset-path "."
+   :modules    {:main {:init-fn cart-total.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
   :examples/temperature
   {:target     :browser
    :output-dir "out/examples/temperature"
@@ -595,6 +608,21 @@
    :output-dir "out/examples/counter-with-stories"
    :asset-path "."
    :modules    {:main {:init-fn counter-with-stories.core/run}}}
+
+  ;; Login-form testbed (rf2-0sg12) — the Story tutorial's five-state
+  ;; login-form scenario as runnable variants. Hash-routed: `#/`
+  ;; renders the live login card; `#/stories` mounts the Story shell
+  ;; with five variants and two workspaces wired up. Sources live
+  ;; under tools/story/testbeds/login_form/ (already on shadow's
+  ;; :source-paths via the entry near the top of this file). The
+  ;; Causa preload is wired so a reader can press Ctrl+Shift+C to
+  ;; observe Story's frame-per-variant isolation in real time.
+  :examples/login-form
+  {:target     :browser
+   :output-dir "out/examples/login-form"
+   :asset-path "."
+   :modules    {:main {:init-fn login-form.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
 
   ;; Story static-export build (rf2-8wgpm) — see
   ;; tools/story/spec/013-Static-Build.md. Same source tree as

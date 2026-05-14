@@ -25,6 +25,10 @@ The Story loop:
 
 Storybook 9 has roughly the same loop; Story's differentiators are *EDN-first* (variants round-trip through MCP, visual-regression services, the agent input pipeline), *schema-derived controls* (no `argTypes` plumbing), *frame-per-variant isolation* (no state leaks), and *test-mode parity with Vitest* — every variant with a `:test` tag has a runnable assertion bundle.
 
+!!! tip "Run the scenario yourself"
+
+    The five-state login flow above is a runnable testbed at [`tools/story/testbeds/login_form/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/login_form). Clone the repo, run `npm run test:examples` from `implementation/`, then open `http://127.0.0.1:8030/login-form/#/stories`. The sidebar lists five variants — `/idle`, `/submitting`, `/error`, `/submitting-retry`, `/authenticated` — and a workspace that mounts all five side-by-side. Click each variant; the canvas swaps in 30ms. Switch to *Test* mode; the assertion dots flip green. Every contract this tutorial mentions (frame-per-variant isolation, `force-fx-stub`, three-layer args, EDN-first variant bodies, `:rf.assert/*` shapes) is exercised on the same testbed.
+
 The chapters:
 
 - [1. Your first story](01-first-story.md) — `reg-story`, `reg-variant`, schema-derived controls.

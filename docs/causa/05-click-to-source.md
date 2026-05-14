@@ -89,4 +89,43 @@ Click-to-source has been on the spec roadmap since before re-frame2 was named. T
 
 Causa's click-to-source is what closed the loop between "the framework knows where every line came from" and "the developer's first gesture in a debugging session is a *click*, not a grep."
 
+## Walking the 3pm scenario on the cart-total testbed
+
+The tutorial's [index page](index.md#a-scenario-before-the-tour) opened with a five-step debugging cascade for a wrong cart-total value. The cart-total testbed at [`tools/causa/testbeds/cart_total/`](https://github.com/day8/re-frame2/tree/main/tools/causa/testbeds/cart_total) is the runnable version — every step on that page maps to a click in the testbed.
+
+The bug, in code:
+
+```clojure
+;; The display sub — wired to the WRONG upstream subtotal.
+(rf/reg-sub :cart/total
+  :<- [:cart/subtotal-WRONG]                       ;; ← the bug
+  :<- [:cart/discount]
+  (fn [[subtotal discount] _query]
+    (- subtotal (:deduction discount 0))))
+
+;; The WRONG subtotal reads :checkout/items — the snapshot the
+;; checkout-start handler froze. After Checkout, the snapshot drifts
+;; from the live basket and the cart-total display locks to the
+;; snapshot.
+(rf/reg-sub :cart/subtotal-WRONG
+  :<- [:checkout/items]                            ;; ← wrong slot
+  ...)
+```
+
+The five clicks:
+
+1. **Reproduce.** Open `http://127.0.0.1:8030/cart-total/`. The page seeds Apple ×2 + Bread ×1 ($6.50) into `:cart/items`. The displayed total reads **$0.00**. The cart visibly contains items. The screenshot you'd send the dev. *Wrong number is showing.*
+
+2. **The coord on the wire.** Right-click the `$0.00` span, *Copy element*. The HTML carries `data-rf2-source-coord="cart-total.core:cart-total-line:286:4"`. The coord routes you to the `cart-total-line` reg-view at line 286 of `core.cljs`. The view subscribes to `:cart/total`.
+
+3. **Subscriptions panel.** `Ctrl+Shift+C`, click *Subscriptions*, type `cart/total`. Causa shows it as a node in the sub-graph. Its upstream edge points at `:cart/subtotal-WRONG`. The id is the symptom-name — production wouldn't name the wrong sub `-WRONG`, but the dependency edge itself would point at the wrong upstream regardless.
+
+4. **The dependency edge.** Click the edge. `:cart/subtotal-WRONG` reads its input off `:checkout/items` (line 197). The upstream of *that* is the snapshot the checkout handler froze, not the live `:cart/items` slot.
+
+5. **App-DB diff.** Open the App-DB panel. The `:cart/items` and `:checkout/items` slots hold *different* vectors after a *Checkout* click — the snapshot froze at $6.50, the basket has whatever the user added since. Diff confirms the projection drift.
+
+The fix is a one-token edit on line 207: change `:<- [:cart/subtotal-WRONG]` to `:<- [:cart/subtotal-CORRECT]`. Save. The hot-reload preserves app-db; the displayed total catches up to the live basket on the next paint. Issues ribbon clears.
+
+You just walked the 3pm scenario in five minutes.
+
 Next: [the AI co-pilot rail](06-ai-copilot.md).

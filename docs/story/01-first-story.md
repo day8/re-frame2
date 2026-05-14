@@ -132,4 +132,26 @@ The **record-don't-throw** shape is the design call. A play sequence with eight 
 
 `run-variant` returns a promise (CLJS) or future (JVM) of `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms :snapshot :lifecycle}`. The same result map the MCP surface returns when an agent asks for a preview. Same shape; same vocabulary.
 
+## Beyond counter: a five-state login form
+
+Counter is the simplest possible variant body — one event in `:events`, one `:rf.assert/path-equals` in `:play`. The login-form testbed at [`tools/story/testbeds/login_form/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/login_form) is the richer shape — five variants over the five FSM states the [welcome page](index.md#a-scenario-before-the-tour) opened with:
+
+```clojure
+;; The :submitting variant — a request is in flight.
+(story/reg-variant :story.login/submitting
+  {:doc        "Inputs disabled, button reads 'Signing in…'. The
+                fx-stub records the request and resolves nothing
+                so the canvas locks at :submitting."
+   :events     [[:login/flow [:login/submit {:email    "ada@example.com"
+                                              :password "correct-horse"}]]]
+   :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+   :play       [[:rf.assert/state-is      :login/flow :submitting]
+                [:rf.assert/effect-emitted :rf.http/managed]]
+   :tags       #{:dev :docs :test}})
+```
+
+The `:events` slot dispatches a real submit event into the FSM. The `force-fx-stub` decorator intercepts the `:rf.http/managed` call the machine's `:issue-request` action emits, so the request never resolves and the canvas locks at `:submitting`. The play sequence asserts the FSM state and that the fx was emitted. Same EDN shape; richer domain.
+
+Open `http://127.0.0.1:8030/login-form/#/stories` after `npm run test:examples` builds it, and the five variants — `/idle`, `/submitting`, `/error`, `/submitting-retry`, `/authenticated` — show up in the sidebar. The `:Workspace.login/all-states` workspace mounts all five side-by-side. The five FSM states from the tutorial's index page, in one panel paint.
+
 Next: [mode tabs](02-mode-tabs.md) — Canvas, Docs, Tests, viewport, a11y, locale.
