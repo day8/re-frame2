@@ -8,6 +8,10 @@ This is the human-facing guide for the ClojureScript reference implementation.
 
 Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the program. The runtime executes every event through the same six-step pipeline, every time. We call one iteration an *epoch*. State is explicit and centralised, data is immutable, effects are isolated, and views sit at the edge of the flow.
 
+<p align="center"><img src="../images/guide/the-water-cycle.png" alt="The water cycle: a closed loop of evaporation, condensation, rainfall, and runoff." width="500"></p>
+
+*Derived data, flowing.* Water moves around a loop — sea to cloud to rain to river to sea — propelled by gravity, evaporation, and convection. Two phases, two directions, one cycle. Nothing in the loop has to decide *that* it moves; the forces handle that. What changes between turns of the cycle is only *what* is moving and *where*. A re-frame2 app is shaped the same way: data flows around a loop, and the runtime supplies the conveyance. You hang pure functions on it; the framework moves the data between them.
+
 This guide walks you through what's in the box. Here's what the reference implementation gives you:
 
 - **A single immutable store, `app-db`.** Every piece of state lives at a path in one map. You can `pprint` it, `diff` it, ship it across the wire for SSR, dump it on disk, reload tomorrow and inspect it in a REPL.
