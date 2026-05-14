@@ -33,8 +33,7 @@
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as adapter]))
+            [re-frame.registrar :as registrar]))
 
 ;; ---- public-surface re-exports --------------------------------------------
 
@@ -83,8 +82,7 @@
   ([system-id]
    (machine-by-system-id system-id (frame/current-frame)))
   ([system-id frame-id]
-   (when-let [container (frame/get-frame-db frame-id)]
-     (get-in (adapter/read-container container) [:rf/system-ids system-id]))))
+   (get-in (frame/frame-app-db-value frame-id) [:rf/system-ids system-id])))
 
 ;; Framework-shipped subscriptions (`:rf/machine`, `:rf/machine-has-tag?`)
 ;; are registered in the public-façade `re-frame.machines` namespace so

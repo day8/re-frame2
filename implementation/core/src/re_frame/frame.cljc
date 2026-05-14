@@ -148,6 +148,24 @@
   (when-let [container (get-frame-db id)]
     (adapter/read-container container)))
 
+(defn swap-frame-db!
+  "Mutate the frame's app-db: read the current value, compute
+  `(apply f db args)`, and replace the container with the result. Returns
+  the new-db, or nil if the frame is not registered.
+
+  Models `swap!` over the substrate-managed reactive container. Under the
+  single-drainer invariant (Spec 002 §Single drainer per frame) the
+  read-then-replace is effectively atomic — `replace-container!` is the
+  only writer during fx drain. The helper is the canonical \"mutate the
+  frame's app-db\" surface; the read-container / replace-container dance
+  belongs here, not at every fx-handler call site."
+  [id f & args]
+  (when-let [container (get-frame-db id)]
+    (let [old-db (adapter/read-container container)
+          new-db (apply f old-db args)]
+      (adapter/replace-container! container new-db)
+      new-db)))
+
 ;; ---- frame presets (Spec 002 §Frame presets) ------------------------------
 ;;
 ;; A :preset key in metadata expands at registration time into a fixed
