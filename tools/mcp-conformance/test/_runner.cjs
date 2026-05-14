@@ -58,7 +58,11 @@ const CLIENT_VERSION = '0.1.0';
 async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) {
   // Install the watchdog FIRST so even a hang inside transport
   // construction (rare but possible: bad cwd, env corruption) gets
-  // killed. The active timer is cleared on every exit path below.
+  // killed. The `finally` below clears the timer on every exit path —
+  // including the case where `client.close()` itself throws (per
+  // rf2-i3ffz F-CORR-3: the historical shape did cleanup inside the
+  // `try`, so a throw on the success-path teardown would invert the
+  // log to a FAIL and lose the body's success state).
   const watchdog = setTimeout(() => {
     console.error('FAIL: watchdog timeout (' + watchdogMs + 'ms)');
     process.exit(2);
@@ -77,30 +81,39 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
   // transport reference cleanly.
   transport.stderr?.on('data', (d) => process.stderr.write('[server] ' + d.toString()));
 
+  // Drive `body` to completion, recording its outcome in `exitCode`.
+  // Teardown lives in `finally` so a throw from `client.close()` can't
+  // re-enter the catch and mask the body's success state. Three exit
+  // codes: 0 = body green, 1 = body or initialize threw, 2 = watchdog
+  // (process.exit happens inside the timer callback, never here).
+  let exitCode;
+  let bodyError;
   try {
     // Initialize handshake. SDK validates the result against
     // InitializeResultSchema; a malformed envelope throws here.
     await client.connect(transport);
     await body(client, transport);
-    // Success — tear down the transport explicitly. The SDK's
-    // `client.close()` kills the child process; without it CI would
-    // wait for the watchdog.
-    await client.close();
-    clearTimeout(watchdog);
-    process.exit(0);
+    exitCode = 0;
   } catch (err) {
-    // Best-effort teardown. If `client.close()` itself throws (e.g.
-    // because the transport already died), swallow that — the
-    // original error is the load-bearing signal.
+    exitCode = 1;
+    bodyError = err;
+  } finally {
+    // Best-effort teardown. A throw here is independent of the body
+    // outcome: if `client.close()` raises on a green body, we still
+    // exit 0 (the conformance assertions passed). If it raises on a
+    // failed body, the original `bodyError` is still the load-bearing
+    // signal and the close-error is purely cosmetic.
     try {
       await client.close();
-    } catch (_e) {
-      // best-effort
+    } catch (closeErr) {
+      console.error('NOTE: client.close() raised during teardown:', closeErr.message);
     }
     clearTimeout(watchdog);
-    console.error('FAIL:', err.message);
-    if (err.stack) console.error(err.stack);
-    process.exit(1);
+    if (bodyError) {
+      console.error('FAIL:', bodyError.message);
+      if (bodyError.stack) console.error(bodyError.stack);
+    }
+    process.exit(exitCode);
   }
 }
 
