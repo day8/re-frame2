@@ -152,9 +152,17 @@
    :rf.causa/trace-filters])
 
 (def ^:private all-event-names
-  [:rf.causa/clear-flow-selection
+  ;; Issues-ribbon panel-internal events (rf2-nmc1f) — nested under
+  ;; `:rf.causa.issues/*` so the namespace itself encodes
+  ;; "panel-internal, no cross-panel callers". Per the
+  ;; `:rf.causa.<panel>/*` convention codified in
+  ;; `tools/causa/spec/014-Registry-Catalogue.md` §Naming convention.
+  [:rf.causa.issues/clear-filters
+   :rf.causa.issues/set-since-seconds
+   :rf.causa.issues/toggle-prefix
+   :rf.causa.issues/toggle-severity
+   :rf.causa/clear-flow-selection
    :rf.causa/clear-fx-selection
-   :rf.causa/clear-issues-filters
    :rf.causa/clear-machine-selection
    :rf.causa/clear-mcp-filters
    :rf.causa/clear-mismatch-selection
@@ -194,7 +202,6 @@
    :rf.causa/select-sub
    :rf.causa/select-violation
    :rf.causa/set-active-route-slice-override-for-test
-   :rf.causa/set-issues-since-seconds
    :rf.causa/set-machine-snapshots-override-for-test
    :rf.causa/set-mcp-since-seconds
    :rf.causa/set-performance-budget-ms
@@ -209,8 +216,6 @@
    :rf.causa/set-trace-filter
    :rf.causa/show-invalidation-chain
    :rf.causa/sync-trace-buffer
-   :rf.causa/toggle-issues-prefix
-   :rf.causa/toggle-issues-severity
    :rf.causa/toggle-mcp-op-type
    :rf.causa/toggle-mcp-origin-filter
    :rf.causa/toggle-sub-filter
@@ -720,42 +725,42 @@
       (is (nil? @(rf/subscribe [:rf.causa/selected-epoch-id]))))))
 
 (deftest event-toggle-issues-severity-roundtrip
-  (testing ":rf.causa/toggle-issues-severity adds + removes a chip"
+  (testing ":rf.causa.issues/toggle-severity adds + removes a chip"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
       (is (= #{:error} (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :warning])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :warning])
       (is (= #{:error :warning}
              (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
       (is (= #{:warning}
              (:severities @(rf/subscribe [:rf.causa/issues-filters])))))))
 
 (deftest event-clear-issues-filters
-  (testing ":rf.causa/clear-issues-filters drops all three axes"
+  (testing ":rf.causa.issues/clear-filters drops all three axes"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-issues-severity :error])
-      (rf/dispatch-sync [:rf.causa/toggle-issues-prefix "rf.error"])
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 60])
-      (rf/dispatch-sync [:rf.causa/clear-issues-filters])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 60])
+      (rf/dispatch-sync [:rf.causa.issues/clear-filters])
       (let [f @(rf/subscribe [:rf.causa/issues-filters])]
         (is (= #{} (:severities f)))
         (is (= #{} (:prefixes f)))
         (is (nil? (:since-ms f)))))))
 
 (deftest event-set-issues-since-seconds-normalises
-  (testing ":rf.causa/set-issues-since-seconds — positive sets ms; nil clears"
+  (testing ":rf.causa.issues/set-since-seconds — positive sets ms; nil clears"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 30])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 30])
       (is (= 30000 (:since-ms @(rf/subscribe [:rf.causa/issues-filters]))))
       ;; non-positive clears
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 0])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 0])
       (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds 15])
-      (rf/dispatch-sync [:rf.causa/set-issues-since-seconds nil])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 15])
+      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds nil])
       (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))))))
 
 (deftest event-set-trace-filter-axis-and-clear
