@@ -1,63 +1,12 @@
-;; day8/re-frame2-machines — state-machine artefact (rf2-xbtj,
-;; second per-feature split per rf2-5vjj Strategy B).
+;; day8/re-frame2-machines — public façade for the state-machine
+;; artefact. Per Spec 005 §State machines.
 ;;
-;; Per Spec 005 §State machines the machine grammar
-;; (`reg-machine`, `create-machine-handler`, `machine-transition`,
-;; the `:rf/machine` framework sub, the `:rf.machine/spawn` /
-;; `:rf.machine/destroy` effect handlers) ships as a separate
-;; Maven artefact so apps that don't register any machines don't drag
-;; the namespace, the `:rf/machines` app-db slot's runtime support, or
-;; the machine-transition engine onto the classpath.
-;;
-;; Consumers add this artefact alongside the core artefact:
-;;
-;;   {:deps {day8/re-frame2          {:mvn/version "..."}
-;;           day8/re-frame2-machines {:mvn/version "..."}}}
-;;
-;; And require `re-frame.machines` in any namespace that calls
-;; `rf/reg-machine` or relies on the `:rf/machine` framework sub —
-;; loading the namespace registers its late-bind hooks and the
-;; `:rf.machine/spawn` / `:rf.machine/destroy` reserved fxs.
-;;
-;; Per Spec 006 §Adapter shipping convention (and the
-;; rf2-p7va extension to per-feature splits): this artefact depends on
-;; core; core never depends on this artefact. The cross-references
-;; from core to machines flow through `re-frame.late-bind` exactly as
-;; the schemas / router / flows hooks already do.
-;;
-;; ---- file split (rf2-5hnn) ------------------------------------------------
-;;
-;; This namespace was 3152 LoC pre-split; it's now a thin façade.
-;; The implementation is in four flat sub-namespaces (one each per
-;; cohesive responsibility, per the X.Y convention shared with
-;; `re-frame.story.runtime`, `re-frame.substrate.adapter`, and
-;; `re-frame.core.flows`):
-;;
-;;   - `re-frame.machines.transition` — pure single-machine engine
-;;     (deepest-wins resolution, LCA exit/entry cascade, `:raise` drain,
-;;     `:always` microstep loop). `apply-transition-once` extracted into
-;;     `build-after-fx` / `build-after-cancel-fx` / `build-destroy-fx` /
-;;     `handle-invoke-spawn` / `handle-invoke-all-spawn` per rf2-g1s1.
-;;   - `re-frame.machines.parallel` — parallel-region routing and the
-;;     public `machine-transition` dispatch (single vs parallel). The
-;;     bootstrap initial-entry cascade (`apply-initial-entry-cascade`)
-;;     also lives here because the parallel layer owns region
-;;     iteration.
-;;   - `re-frame.machines.timer` — wall-clock `:after` scheduling
-;;     (`:rf.machine/after-schedule` / `:rf.machine/after-cancel` fxs,
-;;     sub-driven re-resolution, the per-frame timer table).
-;;   - `re-frame.machines.lifecycle-fx` — registration boundary
-;;     (`create-machine-handler`, `reg-machine*`), live-lifecycle fxs
-;;     (`:rf.machine/spawn`, `:rf.machine/destroy`,
-;;     `:rf.machine/invoke-all-init`), and the query API (`machines`,
-;;     `machine-meta`, `machine-by-system-id`). `create-machine-handler`
-;;     decomposed into `validate-machine!` + `synthesise-initial-
-;;     snapshot` + the returned handler fn per rf2-f9tu.
-;;
-;; This façade re-exports the public surface of those sub-namespaces
-;; and performs the artefact's load-time side-effects: the
-;; `:rf.machine/*` fx registrations and the `late-bind/set-fn!` hook
-;; publications that `re-frame.core` reaches through.
+;; The implementation lives in `re-frame.machines.{transition, parallel,
+;; timer, lifecycle-fx}` (plus the `lifecycle_fx/*` sub-namespaces).
+;; This namespace re-exports their public surface and runs the
+;; artefact's load-time side-effects — registering the `:rf.machine/*`
+;; reserved fxs and publishing the `late-bind/set-fn!` hooks that
+;; `re-frame.core` reaches through.
 
 (ns re-frame.machines
   "State machines. Per Spec 005.
