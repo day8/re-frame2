@@ -54,9 +54,13 @@
 
    - `re-frame.http-encoding`       — URL/query/body encoding, decode
                                       pipeline, `:accept` normalisation,
-                                      failure-map / build-reply-event /
+                                      build-reply-event /
                                       `dispatch-reply-via-late-bind!`,
-                                      backoff. All pure fns.
+                                      backoff. All pure fns. (The earlier
+                                      `failure-map` / `realise-body` /
+                                      `default-accept-fn` helpers were
+                                      inlined into their call sites per
+                                      rf2-sz4n0.)
    - `re-frame.http-registry`       — in-flight request + actor-id
                                       indexes, supersede semantics,
                                       `abort-on-actor-destroy` (rf2-wvkn),
