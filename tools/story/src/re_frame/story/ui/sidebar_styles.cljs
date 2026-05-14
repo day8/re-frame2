@@ -32,10 +32,22 @@
                   :font-size "10px"
                   :letter-spacing "0.5px"}
    :tag-row      {:display "flex"
-                  :flex-wrap "wrap"
-                  :gap "4px"
+                  :flex-direction "column"
+                  :gap "6px"
                   :padding "8px 12px"
                   :border-bottom "1px solid #333"}
+   ;; rf2-7ncf9 — faceted tag-filter: one labelled chip row per axis.
+   :axis-row     {:display "flex"
+                  :flex-direction "column"
+                  :gap "3px"}
+   :axis-label   {:font-size "9px"
+                  :color "#9a9a9a"
+                  :letter-spacing "0.5px"
+                  :text-transform "uppercase"
+                  :font-weight "bold"}
+   :axis-chips   {:display "flex"
+                  :flex-wrap "wrap"
+                  :gap "4px"}
    :tag          {:padding "2px 6px"
                   :background "#37373d"
                   :color "#cccccc"
