@@ -153,6 +153,8 @@
              [".editorconfig"   (sub-raw    "shared/editorconfig")]
              [".clj-kondo/config.edn"
               (sub-render "shared/clj-kondo/config.edn")]
+             ;; cljfmt config — `clojure -M:cljfmt check` / `fix`.
+             [".cljfmt.edn"     (sub-render "shared/cljfmt.edn")]
              ;; -- src tree --
              ["src/{{nested-dirs}}/core.cljs"
               (sub-render (str substrate-name "/core.cljs"))]

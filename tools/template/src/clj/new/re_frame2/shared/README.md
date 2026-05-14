@@ -116,6 +116,7 @@ alongside it as your app grows.
 ├── .editorconfig            ; 2-space indent, LF, trim trailing whitespace
 ├── .clj-kondo/
 │   └── config.edn           ; linter config (empty by default)
+├── .cljfmt.edn              ; cljfmt formatter config — `clojure -M:cljfmt check` / `fix`
 ├── resources/public/
 │   ├── index.html           ; host page; loads shadow-cljs's compiled output
 │   └── css/app.css          ; minimal plain CSS — body / button / h1
