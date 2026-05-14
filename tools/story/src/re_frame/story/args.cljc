@@ -28,8 +28,9 @@
   invoke `resolve-args` only inside the `(when enabled? ...)`-gated
   runtime entry points; the call site disappears in production along
   with the rest of the runtime."
-  (:require [re-frame.story.config    :as config]
-            [re-frame.story.registrar :as registrar]))
+  (:require [re-frame.story.config     :as config]
+            [re-frame.story.predicates :as pred]
+            [re-frame.story.registrar  :as registrar]))
 
 ;; ---- deep-merge -----------------------------------------------------------
 
@@ -62,18 +63,20 @@
   (reduce deep-merge {} (remove nil? maps)))
 
 ;; ---- parent-story lookup --------------------------------------------------
+;;
+;; Re-export from `re-frame.story.predicates` so existing call sites keep
+;; their `args/parent-story-id` shape. The canonical definition lives in
+;; the leaf namespace; this is a transitional alias for the rest of the
+;; tree that hasn't yet migrated.
 
-(defn parent-story-id
+(def parent-story-id
   "Derive the parent story id from a variant id. Per spec/007
   §Canonical id grammar, a variant id `:story.foo.bar/empty` has
   namespace `\"story.foo.bar\"` and name `\"empty\"`; the parent story
   id is the keyword named `:story.foo.bar`.
 
   Returns nil if `variant-id` does not match the variant-id grammar."
-  [variant-id]
-  (when (and (keyword? variant-id)
-             (some? (namespace variant-id)))
-    (keyword (namespace variant-id))))
+  pred/parent-story-id)
 
 ;; ---- mode-set materialisation --------------------------------------------
 

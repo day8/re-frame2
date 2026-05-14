@@ -47,7 +47,8 @@
   walk. The shell's `main-pane` only reaches `docs-view` via the
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
-  (:require [re-frame.story.registrar :as registrar]
+  (:require [re-frame.story.predicates :as pred]
+            [re-frame.story.registrar  :as registrar]
             #?@(:cljs [[re-frame.story.args :as args]
                        [re-frame.story.decorators :as decorators]
                        [re-frame.story.ui.state :as state]])))
@@ -160,20 +161,16 @@
   by both the docs header chips and the bottom-of-page tag picker."
   [variant-id]
   (let [vb       (registrar/handler-meta :variant variant-id)
-        story-id (when (and (keyword? variant-id) (namespace variant-id))
-                   (keyword (namespace variant-id)))
+        story-id (pred/parent-story-id variant-id)
         sb       (when story-id (registrar/handler-meta :story story-id))
         ts       (or (:tags vb) (:tags sb) #{})]
     (vec (sort ts))))
 
-(defn parent-story-id
-  "Mirror of `args/parent-story-id` so the JVM-side namespace doesn't
-  need to require the args ns (`args.cljc` requires `config.cljc`
-  which is fine on the JVM but pulls more than we need for the pure
-  helpers here)."
-  [variant-id]
-  (when (and (keyword? variant-id) (namespace variant-id))
-    (keyword (namespace variant-id))))
+(def parent-story-id
+  "Cheap parent-story derivation. Canonical definition lives in
+  `re-frame.story.predicates`; aliased here so the docs header chips
+  keep their `docs/parent-story-id` call shape."
+  pred/parent-story-id)
 
 ;; ---- CLJS-side rendering -------------------------------------------------
 

@@ -34,8 +34,9 @@
   — production builds with the flag false see an empty state map and
   the shell entry point short-circuits before any subscription / mount
   call. Per IMPL-SPEC §6.3."
-  (:require [re-frame.story.config    :as config]
-            [re-frame.story.registrar :as registrar]
+  (:require [re-frame.story.config     :as config]
+            [re-frame.story.predicates :as pred]
+            [re-frame.story.registrar  :as registrar]
             #?(:cljs [reagent.core :as r])))
 
 ;; ---- pure data: the default shape ----------------------------------------
@@ -320,14 +321,11 @@
         (filter (fn [[_ body]] (variant-tag-match? body tag-filter)))
         id->body))
 
-(defn parent-story-id
-  "Cheap parent-story derivation — mirrors `re-frame.story.args/parent-
-  story-id` so the sidebar can group without crossing the args ns
-  boundary. The variant id `:story.foo/bar` has namespace `\"story.foo\"`;
-  its parent is `:story.foo`."
-  [variant-id]
-  (when (and (keyword? variant-id) (namespace variant-id))
-    (keyword (namespace variant-id))))
+(def parent-story-id
+  "Cheap parent-story derivation. Canonical definition lives in
+  `re-frame.story.predicates`; aliased here so existing sidebar call
+  sites keep their `state/parent-story-id` shape."
+  pred/parent-story-id)
 
 (defn group-variants-by-story
   "Build a sorted vector of `{:story-id ... :variants [...]}` entries
