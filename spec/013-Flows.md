@@ -211,7 +211,7 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 | `:rf.flow/computed` | A flow's `:output` fn ran and the result was written to `:path` (dirty-check observed input value-difference). |
 | `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (§[Dirty-check semantics](#dirty-check-semantics) above; rf2-719e value-equal recompute suppression). |
 | `:rf.flow/cleared` | `clear-flow` (or `:rf.fx/clear-flow`) removed the flow from the per-frame registry and dissoc-in'd its output path. |
-| `:rf.flow/failed` | A flow's `:output` fn threw during recompute. The exception is re-thrown after the trace fires so the router's outer catch emits the cascade-level `:rf.error/flow-eval-exception` (per [009 §Error contract](009-Instrumentation.md#error-contract)). |
+| `:rf.flow/failed` | A flow's `:output` fn threw during recompute. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the four-rule contract (prior writes preserved, failing-flow's `last-inputs` not advanced, cascade halts, router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
 
 Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Causa's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
 
