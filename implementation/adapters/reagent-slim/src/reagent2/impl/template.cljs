@@ -265,7 +265,18 @@
 ;; (matching stock Reagent: `[:div.foo {:class "bar"}]` → "foo bar").
 ;; ---------------------------------------------------------------------------
 
-(defn- class-names
+(defn class-names
+  "Coerce a class-attribute value to its space-joined string form.
+
+  Shapes accepted:
+    - 0-arity: nil.
+    - 1-arity: nil / keyword / symbol / string / coll-of-those.
+    - 2-arity: two values; joined with a space when both are non-nil.
+
+  Returns nil when the result is empty (suppresses redundant
+  `class=\"\"` emissions at call sites). Shared between the template
+  (React-element) and server (HTML-string) paths — both artefacts
+  ship in the same bundle, so a single helper avoids drift."
   ([] nil)
   ([class]
    (if (coll? class)
