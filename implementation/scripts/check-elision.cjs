@@ -49,7 +49,11 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.schemas — validate-app-db! reason string.
   { source: 're-frame.schemas/validate-app-db!',
     sentinel: 'App-db at path ' },
-  // re-frame.schemas — validate-event! reason string.
+  // re-frame.schemas — validate-event! reason string. Per rf2-dz71l
+  // the distinctive per-surface slot-tail (" payload failed schema ")
+  // is pinned at the call site to the centralised `reason-string`
+  // builder — survives Closure as a single string literal inside
+  // the (if interop/debug-enabled? ...) gated branch.
   { source: 're-frame.schemas/validate-event!',
     sentinel: ' payload failed schema ' },
   // re-frame.schemas — validate-sub-return! reason string.
@@ -58,6 +62,9 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.schemas — validate-cofx! reason string.
   { source: 're-frame.schemas/validate-cofx!',
     sentinel: ' injected value failed schema ' },
+  // re-frame.schemas — validate-fx! reason string.
+  { source: 're-frame.schemas/validate-fx!',
+    sentinel: ' args failed schema ' },
   // re-frame.registrar — handler-replaced trace op (only emitted from a
   // gated branch in registrar/register!).  Keywords survive :advanced
   // as string literals; this is a structural sentinel.
