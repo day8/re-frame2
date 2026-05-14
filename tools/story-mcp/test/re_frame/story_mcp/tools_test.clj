@@ -72,6 +72,23 @@
   (story/reg-mode :Mode.theme/dark
     {:doc  "Dark theme."
      :args {:theme :dark}})
+  ;; Decorator fixtures — one of each kind (rf2-mqp1u). The `:wrap`
+  ;; closure on the hiccup decorator is the load-bearing case for
+  ;; `list-decorators`: the projected EDN must NOT carry the fn, only
+  ;; a `:has-wrap?` boolean.
+  (story/reg-decorator :dec.test/wrap-card
+    {:kind :hiccup
+     :doc  "Wrap the variant in a card."
+     :wrap (fn [body _args] [:div.card body])})
+  (story/reg-decorator :dec.test/seed-cart
+    {:kind          :frame-setup
+     :doc           "Seed an empty cart at frame creation."
+     :app-db-patch  {:cart {:items []}}})
+  (story/reg-decorator :dec.test/stub-http
+    {:kind     :fx-override
+     :doc      "Pin http effect to a known response."
+     :fx-id    :http
+     :response {:status 200 :body "ok"}})
   (t))
 
 (use-fixtures :each reset-story-and-config)
@@ -138,6 +155,7 @@
       (is (contains? names "get-variant"))
       (is (contains? names "list-tags"))
       (is (contains? names "list-modes"))
+      (is (contains? names "list-decorators"))
       (is (contains? names "list-assertions"))
       (is (contains? names "variant->edn"))
       ;; Testing
@@ -241,6 +259,51 @@
     (is (= 1 (count ms)))
     (is (= :Mode.theme/dark (-> ms first :id)))
     (is (= {:theme :dark} (-> ms first :args)))))
+
+;; rf2-mqp1u — `list-decorators` is a read-only enumeration. The
+;; `:wrap` closure on `:hiccup` decorators must NOT cross the wire
+;; (closures don't serialise); the projection drops the slot in
+;; favour of a `:has-wrap?` boolean. The canonical vocabulary
+;; pre-registers a handful of decorators (e.g.
+;; `:rf.story/layout-debug.measure`); the fixture adds three more,
+;; one of each kind, so this test asserts presence rather than count.
+(deftest list-decorators-projects-each-kind-safely
+  (let [r  (invoke "list-decorators" {})
+        ds (-> r :structuredContent :decorators)
+        by-id (into {} (map (juxt :id identity)) ds)]
+    (is (success? r))
+    (is (some? (get by-id :dec.test/wrap-card)))
+    (is (some? (get by-id :dec.test/seed-cart)))
+    (is (some? (get by-id :dec.test/stub-http)))
+    (is (= :hiccup (:kind (get by-id :dec.test/wrap-card))))
+    (is (true? (:has-wrap? (get by-id :dec.test/wrap-card)))
+        "hiccup decorator surfaces :has-wrap? not the closure")
+    (is (not (contains? (get by-id :dec.test/wrap-card) :wrap))
+        ":wrap closure MUST NOT be transported over MCP")
+    (is (= :frame-setup (:kind (get by-id :dec.test/seed-cart))))
+    (is (= {:cart {:items []}}
+           (:app-db-patch (get by-id :dec.test/seed-cart))))
+    (is (= :fx-override (:kind (get by-id :dec.test/stub-http))))
+    (is (= :http   (:fx-id    (get by-id :dec.test/stub-http))))
+    (is (= {:status 200 :body "ok"}
+           (:response (get by-id :dec.test/stub-http))))))
+
+(deftest list-decorators-kind-filter
+  (testing "kind filter narrows to one decorator kind"
+    (let [r       (invoke "list-decorators" {:kind "hiccup"})
+          ds      (-> r :structuredContent :decorators)
+          kinds   (set (map :kind ds))]
+      (is (success? r))
+      (is (= #{:hiccup} kinds)
+          "filter MUST return only the requested kind")
+      (is (some #(= :dec.test/wrap-card (:id %)) ds)
+          "fixture's hiccup decorator is present")))
+  (testing "filter with no canonical-or-fixture matches returns empty vec, not :error"
+    (let [r  (invoke "list-decorators" {:kind "frame-setup"})
+          ds (-> r :structuredContent :decorators)]
+      (is (success? r))
+      (is (every? #(= :frame-setup (:kind %)) ds))
+      (is (some #(= :dec.test/seed-cart (:id %)) ds)))))
 
 (deftest list-assertions-returns-canonical-seven
   (let [r (invoke "list-assertions" {})
