@@ -42,7 +42,7 @@
 (defn- snapshot [db]
   (get-in db [:rf/machines :ws/connection]))
 
-(defn- has-tag?
+(defn- machine-has-tag?
   "Read the machine's :tags union against a frame's app-db."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :ws/connection tag]
@@ -103,9 +103,9 @@
         (let [s (snapshot (rf/get-frame-db f))]
           (assert (= [:active :connected] (:state s))
                   (str "expected [:active :connected] got " (:state s)))
-          (assert (true?  (has-tag? f :websocket/connected)))
-          (assert (false? (has-tag? f :websocket/reconnecting)))
-          (assert (false? (has-tag? f :websocket/failed)))
+          (assert (true?  (machine-has-tag? f :websocket/connected)))
+          (assert (false? (machine-has-tag? f :websocket/reconnecting)))
+          (assert (false? (machine-has-tag? f :websocket/failed)))
           (assert (= 0    (get-in s [:data :retries])))
           (assert (some?  (get-in s [:data :socket-id])))
           ;; URL + token were recorded in :data — they survive across
@@ -138,7 +138,7 @@
                                          :auth-token "demo"}]]
                           {:frame f})
         (let [s (snapshot (rf/get-frame-db f))]
-          (assert (true? (has-tag? f :websocket/connected)))
+          (assert (true? (machine-has-tag? f :websocket/connected)))
           (assert (= [] (get-in s [:data :queue]))
                   ":connected entry's :flush-queue :always drained the queue"))))))
 
@@ -151,7 +151,7 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (assert (true? (has-tag? f :websocket/connected)))
+        (assert (true? (machine-has-tag? f :websocket/connected)))
         (let [pre-snap   (snapshot (rf/get-frame-db f))
               pre-socket (get-in pre-snap [:data :socket-id])]
           (assert (some? pre-socket))
@@ -162,8 +162,8 @@
           (let [s (snapshot (rf/get-frame-db f))]
             (assert (= :reconnecting (:state s))
                     (str "expected :reconnecting got " (:state s)))
-            (assert (true?  (has-tag? f :websocket/reconnecting)))
-            (assert (false? (has-tag? f :websocket/connected)))
+            (assert (true?  (machine-has-tag? f :websocket/reconnecting)))
+            (assert (false? (machine-has-tag? f :websocket/connected)))
             ;; :exit on :active cleared the stale socket-id.
             (assert (nil?   (get-in s [:data :socket-id])))
             ;; :bump-retry ran.
@@ -209,7 +209,7 @@
             ;; The richer assertion is the connection-epoch one in the
             ;; staleness test.
             (when (= [:active :connected] (:state s))
-              (assert (true? (has-tag? f :websocket/connected)))
+              (assert (true? (machine-has-tag? f :websocket/connected)))
               ;; A NEW socket-id is in :data (different from pre-socket).
               (assert (not= pre-socket (get-in s [:data :socket-id]))
                       "reconnect spawned a fresh socket"))))))))
@@ -314,11 +314,11 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (assert (true? (has-tag? f :websocket/connected)))
+        (assert (true? (machine-has-tag? f :websocket/connected)))
         (rf/dispatch-sync [:ws/connection [:ws/disconnect]] {:frame f})
         (let [s (snapshot (rf/get-frame-db f))]
           (assert (= :disconnected (:state s)))
-          (assert (false? (has-tag? f :websocket/connected)))
-          (assert (false? (has-tag? f :websocket/reconnecting)))
-          (assert (false? (has-tag? f :websocket/failed)))
+          (assert (false? (machine-has-tag? f :websocket/connected)))
+          (assert (false? (machine-has-tag? f :websocket/reconnecting)))
+          (assert (false? (machine-has-tag? f :websocket/failed)))
           (assert (nil? (get-in s [:data :socket-id]))))))))

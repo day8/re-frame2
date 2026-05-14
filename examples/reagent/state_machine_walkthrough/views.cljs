@@ -27,13 +27,13 @@
                   :auth.login/flow → :auth.login/submit on submit.
 
                   View-side discriminators read the machine's runtime-projected
-                  `:tags` set (ch.09 §State tags) via `rf/has-tag?`, not boolean
+                  `:tags` set (ch.09 §State tags) via `rf/machine-has-tag?`, not boolean
                   state-predicate subs."}
           login-form []
   (let [state (atom {:email "" :password ""})]
     (fn []
-      (let [busy?   @(rf/has-tag? :auth.login/flow :auth/busy)
-            locked? @(rf/has-tag? :auth.login/flow :auth/locked)
+      (let [busy?   @(rf/machine-has-tag? :auth.login/flow :auth/busy)
+            locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)
             err     @(subscribe [:auth.login/error])]
         [:form.login-form
          {:data-testid "login-form"
@@ -83,7 +83,7 @@
    [:p "Three failed attempts. Contact support to unlock."]])
 
 (reg-view root-view []
-  (let [locked? @(rf/has-tag? :auth.login/flow :auth/locked)]
+  (let [locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)]
     [:div.app
      [:h1 "State-machines walkthrough — login lockout"]
      [status-banner]

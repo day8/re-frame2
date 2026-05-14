@@ -6,7 +6,7 @@
   `reg-machine` / `reg-machine*` keep a bespoke shape (they share the
   `:where`-symbol parameter via `reg-machine-impl` so the macro and the
   plain-fn surface raise with their own faithful `:where` symbol). Sugar
-  fns (`dispatch-to-system`, `sub-machine`, `has-tag?`) are not late-
+  fns (`dispatch-to-system`, `sub-machine`, `machine-has-tag?`) are not late-
   bind surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
@@ -125,7 +125,7 @@
   [machine-id]
   (subs/subscribe [:rf/machine machine-id]))
 
-(defn has-tag?
+(defn machine-has-tag?
   "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Sugar
   over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Returns a
   reaction whose value is `true` iff the machine's current

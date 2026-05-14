@@ -23,9 +23,9 @@
 (defn- snapshot [db]
   (get-in db [:rf/machines :realworld/tags]))
 
-(defn- has-tag?
+(defn- machine-has-tag?
   "Read the machine's :tags union against a frame's app-db (browserless
-   form of `rf/has-tag?` — uses `compute-sub` instead of a reactive
+   form of `rf/machine-has-tag?` — uses `compute-sub` instead of a reactive
    deref so the test runs in any CLJS host)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :realworld/tags tag]
@@ -40,7 +40,7 @@
   ;;     ----------                              ------------
   ;;     (:status slice) = :loaded               (:state snap)  = :loaded
   ;;     (:data slice)                           (-> snap :data :tags)
-  ;;     :loading? (a derived boolean sub)       (has-tag? :tags/loading)
+  ;;     :loading? (a derived boolean sub)       (machine-has-tag? :tags/loading)
   (th/reg-canned-success! :rf.http/managed.canned-tags
                           {:tags ["intro" "demo" "clojure"]})
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
@@ -66,9 +66,9 @@
       (assert (= 1 (get-in snap [:data :attempt])))
       ;; tag-shaped queries — these replace the slice's `:tags/loading?`
       ;; / `:tags/fetching?` derived boolean subs.
-      (assert (true?  (has-tag? f :tags/loaded)))
-      (assert (false? (has-tag? f :tags/loading)))
-      (assert (false? (has-tag? f :tags/in-flight)))
+      (assert (true?  (machine-has-tag? f :tags/loaded)))
+      (assert (false? (machine-has-tag? f :tags/loading)))
+      (assert (false? (machine-has-tag? f :tags/in-flight)))
       ;; the `:tags/data` sub returns the items, same name a slice-form
       ;; reader would use; only the source changed.
       (assert (= ["intro" "demo" "clojure"]
@@ -98,5 +98,5 @@
       (assert (= :error (:state snap)))
       (assert (some? (get-in snap [:data :error])))
       (assert (some? (rf/compute-sub [:tags/error] db)))
-      (assert (true?  (has-tag? f :tags/error)))
-      (assert (false? (has-tag? f :tags/in-flight))))))
+      (assert (true?  (machine-has-tag? f :tags/error)))
+      (assert (false? (machine-has-tag? f :tags/in-flight))))))

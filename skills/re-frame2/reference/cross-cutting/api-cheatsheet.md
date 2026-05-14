@@ -46,7 +46,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | Surface | Shape |
 |---|---|
 | `rf/sub-machine` | `(machine-id)` → reaction `{:state :data :tags}` |
-| `rf/has-tag?` | `(machine-id tag)` → reaction (boolean) |
+| `rf/machine-has-tag?` | `(machine-id tag)` → reaction (boolean) |
 | `rf/machines` / `rf/machine-meta` | id list / registered spec |
 | `rf/machine-by-system-id` | `(system-id)` / `(... frame-id)` |
 | `rf/dispatch-to-system` | `(system-id event)` / `(... frame-id)` |

@@ -513,7 +513,7 @@
 (def machine-by-system-id   rf-machines/machine-by-system-id)
 (def dispatch-to-system     rf-machines/dispatch-to-system)
 (def sub-machine            rf-machines/sub-machine)
-(def has-tag?               rf-machines/has-tag?)
+(def machine-has-tag?               rf-machines/machine-has-tag?)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 

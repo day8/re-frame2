@@ -162,7 +162,7 @@ The root view:
     [view-fallback]))
 ```
 
-Views that need a single tag-shaped predicate (typically "is the page read-only?") subscribe directly with `(rf/has-tag? :ui/nine-states :mode/read-only)` — the framework sub `:rf/machine-has-tag?` shipped with [§State tags](005-StateMachines.md#state-tags). The `case` over `:ui/render` is for choosing the **whole** view; individual disabled-attribute toggles read tags directly.
+Views that need a single tag-shaped predicate (typically "is the page read-only?") subscribe directly with `(rf/machine-has-tag? :ui/nine-states :mode/read-only)` — the framework sub `:rf/machine-has-tag?` shipped with [§State tags](005-StateMachines.md#state-tags). The `case` over `:ui/render` is for choosing the **whole** view; individual disabled-attribute toggles read tags directly.
 
 ## Canonical rules
 
@@ -214,7 +214,7 @@ The parallel-machine shape gives:
 
 - **The three axes are visible in the machine declaration.** Anyone reading `:regions {:data ... :form ... :mode ...}` sees the model immediately.
 - **No mutual-exclusion lie.** Multiple axes can be true simultaneously; the priority is explicit in *data* (the render-priority vector) rather than buried in *control flow* (a priority `cond`'s clause order). The "correct? AND one?" overlap (post-submit on an empty list, `:form/success` and `:data/one` are both true) is a first-class property of the model, not a workaround.
-- **Tags carry the query intent.** "Is the page in any loading state?" → `(rf/has-tag? :ui/nine-states :data/loading)`. The view doesn't need a separate `:ui.state/loading?` sub.
+- **Tags carry the query intent.** "Is the page in any loading state?" → `(rf/machine-has-tag? :ui/nine-states :data/loading)`. The view doesn't need a separate `:ui.state/loading?` sub.
 - **Adding an axis is one region, not a row × column expansion.** A permissions axis becomes a fourth region with two states (`:editable` / `:read-only`); the render priority gains one entry; the view's `case` gains one branch.
 
 ## How the states are usually derived
@@ -252,7 +252,7 @@ State 9 comes from a terminal transition in the `:mode` region. Use it when the 
 - expired edit window
 - closed incident
 
-The `:done` state carries the `:mode/read-only` tag; the view inspects that tag (`(rf/has-tag? :ui/nine-states :mode/read-only)`) to disable inputs, control buttons, and other affordances. Do not use `:mode/done` as a synonym for "request succeeded" — that's the `:form/success` tag in the form region.
+The `:done` state carries the `:mode/read-only` tag; the view inspects that tag (`(rf/machine-has-tag? :ui/nine-states :mode/read-only)`) to disable inputs, control buttons, and other affordances. Do not use `:mode/done` as a synonym for "request succeeded" — that's the `:form/success` tag in the form region.
 
 ## Working with managed HTTP
 
@@ -435,5 +435,5 @@ A page applies this pattern well when:
 - States declare `:tags` from a small per-axis canonical vocabulary; new states added later pick up tag-based queries for free.
 - The render decision lives in one selector sub over a render-priority **vector**, not in a priority `cond` in the view.
 - The root view branches via `case` over the resolved render-model keyword.
-- Tag-shaped predicates are read via `(rf/has-tag? machine-id tag)` (the framework sub `:rf/machine-has-tag?`) rather than via per-state boolean discriminator subs.
+- Tag-shaped predicates are read via `(rf/machine-has-tag? machine-id tag)` (the framework sub `:rf/machine-has-tag?`) rather than via per-state boolean discriminator subs.
 - The headless test fixture per state drives `app-db` to the state and asserts against the tag union and the resolved `:ui/render` keyword.

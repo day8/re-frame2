@@ -144,11 +144,11 @@ A machine's snapshot lives at `(get-in app-db [:rf/machines machine-id])` — a 
 
 ;; Same assertion through the framework sub (preferred for reaction-driven tests)
 (is (= :loading      (:state @(rf/sub-machine :loader))))
-(is (= true          @(rf/has-tag? :loader :transient)))
-(is (= false         @(rf/has-tag? :loader :terminal)))
+(is (= true          @(rf/machine-has-tag? :loader :transient)))
+(is (= false         @(rf/machine-has-tag? :loader :terminal)))
 ```
 
-For compound machines, `:state` is a path vector (`[:auth :dashboard]`) and `:tags` is the union along the path. `has-tag?` is null-tolerant: a missing or uninitialised machine returns `false` rather than throwing.
+For compound machines, `:state` is a path vector (`[:auth :dashboard]`) and `:tags` is the union along the path. `machine-has-tag?` is null-tolerant: a missing or uninitialised machine returns `false` rather than throwing.
 
 The pure transition fn — `(rf/machine-transition machine snapshot event)` — returns `[new-snapshot fx]` with no frame and no dispatch loop. Use it when the test wants to assert transition tables in isolation.
 
@@ -203,7 +203,7 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 - A `:each` `reset-runtime-fixture` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
-- Machine assertions use `sub-machine` / `has-tag?` or `(get-in db [:rf/machines id])` — not internal machine namespaces.
+- Machine assertions use `sub-machine` / `machine-has-tag?` or `(get-in db [:rf/machines id])` — not internal machine namespaces.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
 
 ---

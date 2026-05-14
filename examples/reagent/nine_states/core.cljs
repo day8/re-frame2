@@ -590,7 +590,7 @@
 ;; VIEWS — control panel + form + root
 ;; ============================================================================
 ;;
-;; The form and control panel use `(rf/has-tag? :ui/nine-states
+;; The form and control panel use `(rf/machine-has-tag? :ui/nine-states
 ;; :mode/read-only)` to disable themselves when the :mode region is
 ;; :done. The legacy variant queried `:ui.state/done?` for the same
 ;; thing; tags are cleaner because the view doesn't need to know
@@ -600,7 +600,7 @@
           new-todo-form []
   (let [draft       @(subscribe [:new-todo/draft])
         field-err   @(subscribe [:new-todo/field-error :title])
-        read-only?  @(rf/has-tag? :ui/nine-states :mode/read-only)]
+        read-only?  @(rf/machine-has-tag? :ui/nine-states :mode/read-only)]
     [:form.new-todo
      {:on-submit (fn [e]
                    (.preventDefault e)
@@ -616,7 +616,7 @@
 
 (reg-view ^{:doc "Buttons to drive the demo into each of the nine states."}
           control-panel []
-  (let [read-only? @(rf/has-tag? :ui/nine-states :mode/read-only)]
+  (let [read-only? @(rf/machine-has-tag? :ui/nine-states :mode/read-only)]
     [:div.control-panel
      [:h3 "Drive the demo"]
      [:button {:on-click #(dispatch [:nine-states.app/initialise])

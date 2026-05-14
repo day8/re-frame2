@@ -44,7 +44,7 @@ A "region" in re-frame2 has two distinct meanings depending on context:
 (rf/reg-machine :realworld/tags tags-machine)
 ```
 
-Verbatim from `examples/reagent/realworld/tags.cljs:71-142`. The slice's separate `:status` keyword disappears; the state IS the status. The view consumes `:tags/in-flight` via `(rf/has-tag? :realworld/tags :tags/in-flight)` instead of a hand-rolled `(or (= :loading status) (= :fetching status))`.
+Verbatim from `examples/reagent/realworld/tags.cljs:71-142`. The slice's separate `:status` keyword disappears; the state IS the status. The view consumes `:tags/in-flight` via `(rf/machine-has-tag? :realworld/tags :tags/in-flight)` instead of a hand-rolled `(or (= :loading status) (= :fetching status))`.
 
 ## Parallel regions — the canonical declaration
 

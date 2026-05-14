@@ -22,7 +22,7 @@
      fields live in the machine's shared `:data` map (no separate
      app-db slice).
    - The slice's `:submitting?` derived boolean sub collapses into a
-     per-state `:settings/in-flight` tag queried with `rf/has-tag?`.
+     per-state `:settings/in-flight` tag queried with `rf/machine-has-tag?`.
 
    Logout stays on the existing auth machine path (`:auth/flow`).
 
@@ -89,7 +89,7 @@
 ;; tag-shaped query against the active state:
 ;;
 ;;     :submitting?  = (= :submitting status)            ;; slice form
-;;     :submitting?  = @(rf/has-tag? :settings/form :settings/in-flight)
+;;     :submitting?  = @(rf/machine-has-tag? :settings/form :settings/in-flight)
 ;;
 ;; The view doesn't need to know which state-keyword carries the
 ;; "in-flight" intent; the tag does. That is the load-bearing
@@ -290,7 +290,7 @@
 ;; (`:settings/draft`, `:settings/submit-error`); only the source
 ;; changed. The `:settings/submitting?` boolean stays for backward
 ;; compatibility with the view and tests — internally it's now an
-;; `rf/has-tag?` query (a tag-shaped read) instead of a slice-field
+;; `rf/machine-has-tag?` query (a tag-shaped read) instead of a slice-field
 ;; comparison.
 
 (rf/reg-sub :settings/draft

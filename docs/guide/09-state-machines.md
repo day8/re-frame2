@@ -279,11 +279,11 @@ At every transition, the runtime walks the active configuration (for a flat mach
 The view asks the predicate question directly:
 
 ```clojure
-(when @(rf/has-tag? :auth.login/flow :loading)
+(when @(rf/machine-has-tag? :auth.login/flow :loading)
   [view-spinner])
 ```
 
-`(rf/has-tag? machine-id tag)` is sugar over the framework-shipped `:rf/machine-has-tag?` sub. The signal flips only when the containment bit flips — adding a new loading-ish state later is one `:tags #{:loading}` on the new state node, with no view changes anywhere. The view never had to know which states carried the tag; it just asked whether the union contains `:loading`. The framework sub composes into higher-level reg-subs the usual way.
+`(rf/machine-has-tag? machine-id tag)` is sugar over the framework-shipped `:rf/machine-has-tag?` sub. The signal flips only when the containment bit flips — adding a new loading-ish state later is one `:tags #{:loading}` on the new state node, with no view changes anywhere. The view never had to know which states carried the tag; it just asked whether the union contains `:loading`. The framework sub composes into higher-level reg-subs the usual way.
 
 A few rules:
 
@@ -413,7 +413,7 @@ A dispatch into a parallel machine **broadcasts** to every region. Each region's
 
 ### Tags compose across regions
 
-The `:tags` slot is the union across every active state in every region. Setting `:data` to `:loading` while leaving the others alone produces `#{:data/loading :form/neutral :mode/active}`; `(rf/has-tag? :todos/page :data/loading)` is true and so is `(rf/has-tag? :todos/page :mode/active)`. The view asks predicate questions without knowing which region holds which tag.
+The `:tags` slot is the union across every active state in every region. Setting `:data` to `:loading` while leaving the others alone produces `#{:data/loading :form/neutral :mode/active}`; `(rf/machine-has-tag? :todos/page :data/loading)` is true and so is `(rf/machine-has-tag? :todos/page :mode/active)`. The view asks predicate questions without knowing which region holds which tag.
 
 ### One `case`, one render-priority table
 

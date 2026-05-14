@@ -75,7 +75,7 @@
    wipes the ns-load-time registrations in `re-frame.machines`.
    Without these in place:
    - declarative `:invoke` silently no-ops (the spawn fx isn't found);
-   - `rf/has-tag?` returns false even when the tag is in the snapshot
+   - `rf/machine-has-tag?` returns false even when the tag is in the snapshot
      (the framework sub isn't registered)."
   []
   (when-let [spawn-fx (late-bind/get-fn :machines/spawn-fx)]

@@ -17,7 +17,7 @@ The prompt mentions: a form, validation, "show errors after submit", inline fiel
 - **`reg-event-fx :form.feature/submit`** — run full validation, latch `:submit-attempted? true`, dispatch the request, set `:status :submitting`.
 - **`reg-event-db :form.feature/submit-success` / `:submit-error`** — fold the server reply. **Structured server errors land in `:errors`** (same slot as client-side validation, including the reserved `:_form` key); **transport / non-field failures land in `:submit-error`**. Both set `:status :error`.
 - **Layered convenience subs** — `:field-error` (per-field; shows when touched OR submit-attempted), `:form-errors` (reads `:_form`, always visible), `:dirty?` (draft differs from `:submitted` when non-nil, otherwise from defaults), `:can-submit?` (no errors AND not currently submitting).
-- **(machine variant) `reg-machine` with `:initial :neutral` + states `:neutral :incorrect :submitting :correct` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers `(rf/has-tag? :form-id :form/in-flight)` in place of `:submitting?`.
+- **(machine variant) `reg-machine` with `:initial :neutral` + states `:neutral :incorrect :submitting :correct` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers `(rf/machine-has-tag? :form-id :form/in-flight)` in place of `:submitting?`.
 
 Two non-obvious rules:
 
@@ -160,7 +160,7 @@ Used when the form's lifecycle is *part of* a larger page's machine (composes wi
                  :on {:edit {:target :neutral :action :edit-field}}}}})
 ```
 
-The lifecycle maps onto state-keywords. The slice's `:status` field disappears. The view's `:submitting?` boolean becomes `(rf/has-tag? :settings/form :settings/in-flight)` — the view doesn't need to know which state-keyword carries the in-flight intent; the tag does. The slice's `:draft` / `:errors` / `:touched` / `:submit-error` / `:submitted` live in the machine's `:data` map.
+The lifecycle maps onto state-keywords. The slice's `:status` field disappears. The view's `:submitting?` boolean becomes `(rf/machine-has-tag? :settings/form :settings/in-flight)` — the view doesn't need to know which state-keyword carries the in-flight intent; the tag does. The slice's `:draft` / `:errors` / `:touched` / `:submit-error` / `:submitted` live in the machine's `:data` map.
 
 ## When to choose each form
 

@@ -19,9 +19,9 @@
 (defn- snapshot [db]
   (get-in db [:rf/machines :settings/form]))
 
-(defn- has-tag?
+(defn- machine-has-tag?
   "Read the machine's :tags union against a frame's app-db (browserless
-   form of `rf/has-tag?` — uses `compute-sub` instead of a reactive
+   form of `rf/machine-has-tag?` — uses `compute-sub` instead of a reactive
    deref so the test runs in any CLJS host)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :settings/form tag]
@@ -36,7 +36,7 @@
   ;;     ----------                              ------------
   ;;     (:status slice) = :submitted            (:state snap)  = :correct
   ;;     (:draft slice)                          (-> snap :data :draft)
-  ;;     :submitting? (a derived boolean sub)    (has-tag? :settings/in-flight)
+  ;;     :submitting? (a derived boolean sub)    (machine-has-tag? :settings/in-flight)
   (th/reg-canned-success! :rf.http/managed.canned-settings-save
                           {:user {:email "alice@example.com"
                                   :token "jwt-2"
@@ -52,7 +52,7 @@
     (let [snap (snapshot (rf/get-frame-db f))]
       (assert (= :neutral (:state snap)))
       (assert (= ""       (get-in snap [:data :draft :bio])))
-      (assert (false?     (has-tag? f :settings/in-flight))))
+      (assert (false?     (machine-has-tag? f :settings/in-flight))))
 
     ;; Seed the auth slice + load the settings draft from the user.
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
@@ -89,8 +89,8 @@
       ;; tag-shaped query — this replaces the slice's `:settings/submitting?`
       ;; derived boolean sub. After the synchronous reply, the region
       ;; is in :correct and the in-flight tag has dropped.
-      (assert (false? (has-tag? f :settings/in-flight)))
-      (assert (true?  (has-tag? f :form/success)))
+      (assert (false? (machine-has-tag? f :settings/in-flight)))
+      (assert (true?  (machine-has-tag? f :form/success)))
       ;; the :auth slice has the new user data (the side-effect the
       ;; original test asserted).
       (assert (= "New bio" (get-in db [:auth :user :bio])))
@@ -124,8 +124,8 @@
       (assert (= :incorrect (:state snap)))
       (assert (some? (get-in snap [:data :submit-error])))
       (assert (some? (rf/compute-sub [:settings/submit-error] db)))
-      (assert (true?  (has-tag? f :form/invalid)))
-      (assert (false? (has-tag? f :settings/in-flight)))
+      (assert (true?  (machine-has-tag? f :form/invalid)))
+      (assert (false? (machine-has-tag? f :settings/in-flight)))
       ;; the auth slice was NOT updated; the user's :bio is still nil.
       (assert (nil? (get-in db [:auth :user :bio]))))))
 
@@ -160,12 +160,12 @@
       (assert (= :incorrect (:state snap)))
       (assert (= {:email ["Email must contain @."]} (get-in snap [:data :errors])))
       (assert (contains? (get-in snap [:data :touched]) :email))
-      (assert (true? (has-tag? f :form/invalid))))
+      (assert (true? (machine-has-tag? f :form/invalid))))
 
     ;; The first :edit on the offending field clears that field's
     ;; error entry and returns the region to :neutral.
     (rf/dispatch-sync [:settings/edit-field :email "alice@example.com"] {:frame f})
     (let [snap (snapshot (rf/get-frame-db f))]
       (assert (= :neutral (:state snap)))
-      (assert (false? (has-tag? f :form/invalid)))
+      (assert (false? (machine-has-tag? f :form/invalid)))
       (assert (not (contains? (get-in snap [:data :errors]) :email))))))

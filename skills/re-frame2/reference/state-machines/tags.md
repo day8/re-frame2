@@ -1,4 +1,4 @@
-# Tags — per-state intent + the `has-tag?` query
+# Tags — per-state intent + the `machine-has-tag?` query
 
 ## When to load
 
@@ -35,14 +35,14 @@ The runtime maintains a derived `:tags` slot on the snapshot — the **union** o
 
 If the union is empty the slot is **elided** entirely (snapshot-size optimisation, `machines.cljc:327` `commit-tags`). The `:rf/machine-snapshot` schema marks `:tags` as `{:optional true}` — both presence (with non-empty set) and absence are valid.
 
-## Querying — `rf/has-tag?`
+## Querying — `rf/machine-has-tag?`
 
 ```clojure
-@(rf/has-tag? :realworld/tags :tags/in-flight)        ;; truthy iff the tag is in the union
-@(rf/has-tag? :ui/nine-states :mode/read-only)
+@(rf/machine-has-tag? :realworld/tags :tags/in-flight)        ;; truthy iff the tag is in the union
+@(rf/machine-has-tag? :ui/nine-states :mode/read-only)
 ```
 
-`has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` (`implementation/core/src/re_frame/core.cljc:1084`). The underlying sub (`machines.cljc:2122`) reads `[:rf/machines <id> :tags]` and tests `contains?`. Returns `false` for unknown or not-yet-initialised machines.
+`machine-has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` (`implementation/core/src/re_frame/core.cljc:1084`). The underlying sub (`machines.cljc:2122`) reads `[:rf/machines <id> :tags]` and tests `contains?`. Returns `false` for unknown or not-yet-initialised machines.
 
 The sub is **derived directly off the snapshot's `:tags` slot** — a view that only cares about whether a specific tag is present re-renders only when the containment-bit flips, not on every snapshot mutation. `reg-sub`'s built-in equality dedup carries it.
 
@@ -84,7 +84,7 @@ The render-priority table is plain data — adding a tenth case is one row.
 - **Tags are **sets of keywords** on state nodes — not on transitions, not on the snapshot's `:data`.** A vector or single keyword is coerced to a set (`machines.cljc:303`), but the canonical form is `#{:foo :bar}`.
 - **The state declares intent, not identity.** `:tags #{:loading}` is OK; `:tags #{:my-feature/loading-state}` is overkill. Use the **per-axis** intent (`:data/loading`, `:form/in-flight`, `:mode/read-only`) so views can ask one tag-question that spans multiple states.
 - **Tags compose, but state-keywords don't.** Two states in different regions can both carry `:in-flight` — the union picks them up correctly. Don't try to query the **state-keyword** directly across regions; the snapshot's `:state` is a region-name → state-keyword map (parallel machines) or a single keyword (flat), and view code shouldn't branch on either shape. Branch on tags.
-- **`has-tag?` is a subscription.** Inside a view it's `@(rf/has-tag? ...)`. Inside an event handler it's a `subscribe` deref or a `compute-sub` call (in tests). Don't reach for it inside a `reg-event-db` body — read the snapshot's `:tags` set directly off `db` via `(get-in db [:rf/machines machine-id :tags])` if you need to branch inside an event.
+- **`machine-has-tag?` is a subscription.** Inside a view it's `@(rf/machine-has-tag? ...)`. Inside an event handler it's a `subscribe` deref or a `compute-sub` call (in tests). Don't reach for it inside a `reg-event-db` body — read the snapshot's `:tags` set directly off `db` via `(get-in db [:rf/machines machine-id :tags])` if you need to branch inside an event.
 - **No empty `:tags` slot needed.** A state that doesn't carry tags just omits the key. The runtime elides the snapshot's `:tags` when the union is empty — a snapshot's `(contains? snap :tags)` may be `false` even after the machine has settled.
 - **`:rf/*` and `:rf.machine/*` keyword namespaces are reserved.** Application tag keywords use a feature prefix: `:auth/required`, `:cart/dirty`, `:ws/disconnected`. Don't tag with `:rf/anything`.
 
@@ -100,4 +100,4 @@ For the full state-tags contract — declaration shape, snapshot semantics, the 
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (`compute-tags`, `commit-tags`, parallel-tag-union, `:rf/machine-has-tag?` sub) and `implementation/core/src/re_frame/core.cljc` (`has-tag?` sugar) @ main `89bd9c3`. Re-verify after tag-union or `has-tag?` changes.*
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (`compute-tags`, `commit-tags`, parallel-tag-union, `:rf/machine-has-tag?` sub) and `implementation/core/src/re_frame/core.cljc` (`machine-has-tag?` sugar) @ main `89bd9c3`. Re-verify after tag-union or `machine-has-tag?` changes.*

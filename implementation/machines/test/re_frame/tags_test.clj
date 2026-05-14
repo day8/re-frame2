@@ -231,18 +231,18 @@
     (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/unknown-machine :x]))
         "no snapshot for the id → false (null-tolerant)")))
 
-;; ---- 9. has-tag? sugar on the core namespace ----------------------------
+;; ---- 9. machine-has-tag? sugar on the core namespace ----------------------------
 
 (deftest has-tag-sugar
-  (testing "rf/has-tag? returns the same reaction as the framework sub"
+  (testing "rf/machine-has-tag? returns the same reaction as the framework sub"
     (let [m {:initial :idle
              :data    {}
              :states  {:idle {:tags #{:loading}}}}]
       (rf/reg-machine :tags/sugar m)
       (rf/dispatch-sync [:tags/sugar [:no-op]])
-      (is (= true  @(rf/has-tag? :tags/sugar :loading))
+      (is (= true  @(rf/machine-has-tag? :tags/sugar :loading))
           "sugar resolves through the framework sub")
-      (is (= false @(rf/has-tag? :tags/sugar :missing))))))
+      (is (= false @(rf/machine-has-tag? :tags/sugar :missing))))))
 
 ;; ---- 10. internal transition recomputes :tags consistently --------------
 

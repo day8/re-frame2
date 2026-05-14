@@ -5,13 +5,13 @@
   Per Spec 005 §State tags: a state-node body may declare `:tags
   <set-of-keywords>`. The runtime maintains the union of every active
   state's tag set at `[:rf/machines <id> :tags]` in the snapshot and ships
-  `:rf/machine-has-tag?` + the `rf/has-tag?` sugar to query it.
+  `:rf/machine-has-tag?` + the `rf/machine-has-tag?` sugar to query it.
 
   Concerns covered:
     - Flat machine: snapshot's `:tags` is the active state's tag set.
     - Compound machine: `:tags` is the union along the active path.
     - No-declaration machine: empty union elided from snapshot.
-    - `:rf/machine-has-tag?` sub + `rf/has-tag?` sugar; false for unknown
+    - `:rf/machine-has-tag?` sub + `rf/machine-has-tag?` sugar; false for unknown
       machine.
     - `:tags` reflects the post-`:always`-microstep state.
 
@@ -89,12 +89,12 @@
       (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :loading])))
       (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :transient])))
       (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/sub :done])))
-      ;; rf/has-tag? sugar resolves through the framework sub.
-      (is (= true  @(rf/has-tag? :tags/sub :loading)))
-      (is (= false @(rf/has-tag? :tags/sub :done)))
+      ;; rf/machine-has-tag? sugar resolves through the framework sub.
+      (is (= true  @(rf/machine-has-tag? :tags/sub :loading)))
+      (is (= false @(rf/machine-has-tag? :tags/sub :done)))
       (rf/dispatch-sync [:tags/sub [:done]])
       (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/sub :loading])))
-      (is (= true  @(rf/has-tag? :tags/sub :done)))))
+      (is (= true  @(rf/machine-has-tag? :tags/sub :done)))))
 
   (testing ":rf/machine-has-tag? returns false for an unknown machine"
     (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/unknown :anything])))))

@@ -1613,7 +1613,7 @@ Pre-release framing: per [rf2-ijm7](#), `:rf.http/managed` is now ALSO registere
 
 ### M-47. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
 
-Pre-release framing: per rf2-ee0d (Nine States Stage 1), state-machine state nodes may now declare `:tags <set-of-keywords>`. The runtime maintains a derived union at `[:rf/machines <id> :tags]` recomputed on every transition; the framework sub `:rf/machine-has-tag?` plus the `(rf/has-tag? id tag)` sugar answer the predicate question.
+Pre-release framing: per rf2-ee0d (Nine States Stage 1), state-machine state nodes may now declare `:tags <set-of-keywords>`. The runtime maintains a derived union at `[:rf/machines <id> :tags]` recomputed on every transition; the framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar answer the predicate question.
 
 **Direction.** Additive — no user-side change required. The `:rf/machine-snapshot` schema's new `:tags` key is `{:optional true}`; machines that don't declare `:tags` produce snapshots without the slot, byte-identical to pre-tag snapshots. Existing views, subs, and traces don't care.
 
@@ -1649,7 +1649,7 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state`
 
 - **Existing flat / compound machines.** No change; their `:state` stays keyword / vector. The third arm is silent for them.
 - **New parallel-region machines.** Authors writing views against them subscribe through `:rf/machine` (or the `:rf/machine-has-tag?` framework sub) and read the snapshot's `:state` as the map shape they declared. Per-region projections fall out of normal `:<-`-chained subs: `(rf/reg-sub :ui.data/state :<- [:rf/machine :ui/nine-states] (fn [snap _] (get-in snap [:state :data])))`.
-- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3 / rf2-c7wl) update their existing views: anywhere `(= :loading (:state @(rf/sub-machine :ui/foo)))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/sub-machine :ui/foo) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/has-tag? :ui/foo :data/loading)`).
+- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3 / rf2-c7wl) update their existing views: anywhere `(= :loading (:state @(rf/sub-machine :ui/foo)))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/sub-machine :ui/foo) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/machine-has-tag? :ui/foo :data/loading)`).
 
 **Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
 

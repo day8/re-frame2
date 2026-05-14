@@ -20,7 +20,7 @@
    - The items, error, loaded-at, and attempt fields live in the
      machine's shared `:data` map (no separate app-db slice).
    - The slice's `:loading?` / `:fetching?` derived boolean subs
-     collapse into per-state `:tags` queried with `rf/has-tag?`.
+     collapse into per-state `:tags` queried with `rf/machine-has-tag?`.
 
    Routing pieces (`:home/load`, `:home/show-global-feed`, etc.) sit
    below — they predate the refactor and are unaffected by it,
@@ -59,8 +59,8 @@
 ;;
 ;; become tag-shaped queries against the active state:
 ;;
-;;     :loading?   = @(rf/has-tag? :realworld/tags :tags/loading)
-;;     :fetching?  = @(rf/has-tag? :realworld/tags :tags/in-flight)
+;;     :loading?   = @(rf/machine-has-tag? :realworld/tags :tags/loading)
+;;     :fetching?  = @(rf/machine-has-tag? :realworld/tags :tags/in-flight)
 ;;
 ;; The view doesn't need to know which state-keyword carries the
 ;; "in-flight" intent; the tag does. That is the load-bearing
@@ -200,8 +200,8 @@
 ;; for the items, `:tags/error` for the error map. The `:loading?` /
 ;; `:fetching?` booleans are gone — views ask the tag instead:
 ;;
-;;     @(rf/has-tag? :realworld/tags :tags/loading)     ;; truly empty + in-flight
-;;     @(rf/has-tag? :realworld/tags :tags/in-flight)   ;; any in-flight (loading OR fetching)
+;;     @(rf/machine-has-tag? :realworld/tags :tags/loading)     ;; truly empty + in-flight
+;;     @(rf/machine-has-tag? :realworld/tags :tags/in-flight)   ;; any in-flight (loading OR fetching)
 
 (rf/reg-sub :tags/data
   {:doc "The popular-tags items, projected off the machine's :data."}
