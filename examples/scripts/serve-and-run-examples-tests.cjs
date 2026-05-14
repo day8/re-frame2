@@ -264,6 +264,58 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_multi_frame', 'index.html'),
     outDir: path.join(OUT_ROOT, 'testbed-ssr-multi-frame'),
   },
+  // rf2-fe84r cross-cutting six — shared framework-behavior testbed
+  // surfaces. Unlike the SSR testbeds above (whose shadow-cljs
+  // builds emit directly into `out/examples/testbed-<id>/`), the
+  // rf2-kzcim testbeds emit into `out/testbeds/<id>/` and the
+  // orchestrator copies the bundle into `OUT_ROOT/testbeds/<id>/`
+  // so http-server serves it under the same origin as the examples.
+  // The `bundleSrc` field opts a build into the bundle-copy step.
+  // The two staging conventions coexist; rf2-ik4io and rf2-kzcim
+  // each made a defensible decision at their time and the
+  // orchestrator handles both.
+  {
+    build: 'testbeds/deliberate-throw',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'deliberate_throw', 'index.html'),
+    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'deliberate-throw'),
+    outDir: path.join(OUT_ROOT, 'testbeds', 'deliberate-throw'),
+  },
+  {
+    build: 'testbeds/http-toggle',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'http_toggle', 'index.html'),
+    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'http-toggle'),
+    outDir: path.join(OUT_ROOT, 'testbeds', 'http-toggle'),
+    extraFiles: [
+      {
+        src: path.join(REPO_ROOT, 'testbeds', 'http_toggle', 'api', 'success.json'),
+        dest: path.join('api', 'success.json'),
+      },
+    ],
+  },
+  {
+    build: 'testbeds/deep-machine',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'deep_machine', 'index.html'),
+    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'deep-machine'),
+    outDir: path.join(OUT_ROOT, 'testbeds', 'deep-machine'),
+  },
+  {
+    build: 'testbeds/non-trivial-app-db',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'non_trivial_app_db', 'index.html'),
+    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'non-trivial-app-db'),
+    outDir: path.join(OUT_ROOT, 'testbeds', 'non-trivial-app-db'),
+  },
+  {
+    build: 'testbeds/long-flow-w-failure',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'long_flow_w_failure', 'index.html'),
+    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'long-flow-w-failure'),
+    outDir: path.join(OUT_ROOT, 'testbeds', 'long-flow-w-failure'),
+  },
+  {
+    build: 'testbeds/drain-depth-trigger',
+    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'drain_depth_trigger', 'index.html'),
+    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'drain-depth-trigger'),
+    outDir: path.join(OUT_ROOT, 'testbeds', 'drain-depth-trigger'),
+  },
 ];
 
 function compileAll() {
@@ -285,10 +337,41 @@ function compileAll() {
   }
 }
 
+function copyDirRecursive(src, dest) {
+  // Minimal recursive copy. Used only for `bundleSrc` — staging a
+  // shadow-cljs build whose `:output-dir` lives outside `OUT_ROOT`
+  // (testbed surfaces, rf2-fe84r) into the served tree. Each file
+  // overwrites the destination unconditionally so repeat runs pick up
+  // re-compiled bundles.
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirRecursive(s, d);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(s, d);
+    }
+  }
+}
+
 function stageHtml() {
   // Silent-on-success (rf2-try1x): per-file staging notices are
   // suppressed.  Errors still throw with the offending path.
   for (const ex of EXAMPLES) {
+    // rf2-fe84r — testbed surfaces ship their shadow-cljs `:output-dir`
+    // outside OUT_ROOT (per the per-surface `:testbeds/<name>` build's
+    // `out/testbeds/<name>` setting). Stage the compiled bundle into
+    // OUT_ROOT first so the static server picks it up under the
+    // expected URL path. Examples that emit straight into OUT_ROOT
+    // omit `bundleSrc` and skip this step.
+    if (ex.bundleSrc) {
+      if (!fs.existsSync(ex.bundleSrc)) {
+        throw new Error(`Bundle source missing: ${ex.bundleSrc}`);
+      }
+      copyDirRecursive(ex.bundleSrc, ex.outDir);
+    }
+
     if (!fs.existsSync(ex.outDir)) {
       throw new Error(`Build output dir missing: ${ex.outDir}`);
     }
