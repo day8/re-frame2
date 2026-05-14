@@ -32,9 +32,18 @@
   (atom {}))
 
 (defonce
-  ^{:doc "Per-frame last-inputs, keyed by [frame-id flow-id] → last seen
-          input vec. Drives the dirty-check skip path in
-          `re-frame.flows/evaluate-flow!` (rf2-719e)."}
+  ^{:doc "Per-flow, per-frame last-inputs index: `flow-id → frame-id →
+          last-seen input vec`. Drives the dirty-check skip path in
+          `re-frame.flows/evaluate-flow!` (rf2-719e).
+
+          Shape note: the outer key is `flow-id` (not `[frame-id flow-id]`
+          flat) so the hot-reload invalidation hook (which fires on
+          `:flow` registrar replacement) can drop every per-frame entry
+          for the replaced flow with one `dissoc` — O(1) instead of the
+          prior O(N) walk over all entries. Per-frame slots stay
+          independent (each flow id can register against multiple
+          frames with its own dirty-check window per Spec 013
+          §Frame-scoping)."}
   last-inputs
   (atom {}))
 
@@ -186,7 +195,15 @@
                                                                   (last path)))]
              (adapter/replace-container! container new-db)))
          (swap! flows update frame-id dissoc id)
-         (swap! last-inputs dissoc [frame-id id])
+         ;; `last-inputs` is shaped {flow-id {frame-id inputs}} — clear
+         ;; this frame's slot for the cleared flow id, then drop the
+         ;; whole flow row if no other frame still holds an entry.
+         (swap! last-inputs
+                (fn [m]
+                  (let [m' (update m id dissoc frame-id)]
+                    (if (empty? (get m' id))
+                      (dissoc m' id)
+                      m'))))
          ;; Only unregister from the registrar if this was the LAST
          ;; frame holding the flow id — otherwise other frames still
          ;; need the registry slot for hot-reload tracking.
@@ -224,9 +241,11 @@
 (defn- invalidate-flow-on-replace!
   [{:keys [kind id]}]
   (when (= kind :flow)
-    (swap! last-inputs
-           (fn [m]
-             (into {} (remove (fn [[[_ flow-id] _]] (= flow-id id))) m)))))
+    ;; O(1) dissoc — `last-inputs`'s outer key is `flow-id`, so a single
+    ;; `dissoc` drops every per-frame entry for the replaced flow at
+    ;; once. The prior shape `{[frame-id flow-id] inputs}` required an
+    ;; O(N) walk filtering by inner-key match.
+    (swap! last-inputs dissoc id)))
 
 (defonce ^:private _hot-reload-hook
   (do (registrar/add-replacement-hook! invalidate-flow-on-replace!)
