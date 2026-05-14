@@ -973,6 +973,29 @@ For singleton machines the bootstrap fx flow out as part of the **first event's*
 
 **Migration note.** Pre-rf2-0z73, initial-state `:entry` actions did NOT fire on bootstrap. Generic child machines that needed to do work on spawn worked around it by declaring `:on :rf.machine/spawned :action :fire-request` on the initial state (the synthetic event the runtime dispatches per rf2-ijm7). Post-rf2-0z73 the canonical shape is `:entry :fire-request` — the `:rf.machine/spawned` workaround still works (it just resolves as a no-op transition through the standard `:on` lookup), but new code should prefer `:entry`.
 
+##### Synthetic bootstrap event vector — `[:rf.machine/bootstrap]` (rf2-pexjc)
+
+When the bootstrap cascade fires, the runtime synthesises a placeholder event vector `[:rf.machine/bootstrap]` and threads it through the action machinery as the "current event" — needed because action fns receive a 2-arity `(fn [data event] {...})` (or 3-arity `(fn [data event ctx] {...})` for the `^:rf.machine/wants-ctx` introspection slot per [§Dispatch rule — metadata opt-in](#dispatch-rule--metadata-opt-in-rfmachinewants-ctx)) and there is no user-dispatched event to thread on bootstrap.
+
+Most `:entry` actions ignore the event argument (it's the data argument they read from). Authors writing introspection-capable `:entry` actions — actions that read the event vector to decide what to do — observe `[:rf.machine/bootstrap]` on the bootstrap call, distinguishable from any user-dispatched event by the reserved `:rf.machine/*` namespace.
+
+```clojure
+;; Action reads the event head to log what triggered the entry.
+(rf/reg-machine :auth-flow
+  {:initial :requesting
+   :states {:requesting {:entry :log-entry}}
+   :actions {:log-entry ^:rf.machine/wants-ctx
+             (fn [data event _ctx]
+               (let [trigger (first event)]
+                 (println "entered :requesting via" trigger))
+               {})}})
+
+;; On bootstrap, prints: "entered :requesting via :rf.machine/bootstrap"
+;; On a later user-driven entry via `[:reset]`, prints: "entered :requesting via :reset"
+```
+
+The vector is **purely synthetic**: not user-dispatched, not registered as an event, never reaches a handler's `:on` map (the bootstrap cascade is `:entry`-only — there is no `:on :rf.machine/bootstrap` resolution; the synthetic vector exists solely so the `:entry` action's event-argument is non-`nil`). The name is reserved under the `:rf.machine/*` namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)); user code MUST NOT register a handler or dispatch this vector directly.
+
 ### Target resolution — vector vs keyword
 
 A transition's `:target` admits **two forms**:
