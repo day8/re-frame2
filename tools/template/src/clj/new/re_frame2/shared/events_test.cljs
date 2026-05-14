@@ -44,3 +44,10 @@
     (rf/dispatch-sync [:counter/increment])
     (rf/dispatch-sync [:counter/increment])
     (is (= 3 (:counter/value (rf/get-frame-db :rf/default))))))
+
+(deftest counter-value-sub-reads-current-count
+  (testing ":counter/value sub returns the slice value after event flow"
+    (rf/dispatch-sync [:counter/initialise])
+    (rf/dispatch-sync [:counter/increment])
+    (rf/dispatch-sync [:counter/increment])
+    (is (= 2 @(rf/subscribe [:counter/value])))))
