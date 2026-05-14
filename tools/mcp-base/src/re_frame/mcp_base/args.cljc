@@ -39,15 +39,13 @@
 (defn- parse-int*
   "Shared helper for `parse-positive-int` / `parse-non-negative-int`.
   `floor` is the lower clamp (1 for positive, 0 for non-negative); the
-  three input arms (int / number / string + try/catch) are identical
-  across both call sites."
+  two input arms (number / string + try/catch) cover every shape the
+  agent surface produces. `integer?` is a subset of `number?`, so the
+  single `number?` arm catches both."
   [raw default floor]
   (cond
     (nil? raw)
     default
-
-    (integer? raw)
-    (max floor (long raw))
 
     (number? raw)
     (max floor (long raw))

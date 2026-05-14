@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.args-test
   "Tests for the shared MCP argument-coercion helpers (rf2-vw4sq)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.mcp-base.args :as args]))
 
 ;; ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.overflow-test
   "Tests for the overflow-marker shape (rf2-rvyzy / rf2-vw4sq)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]))
 
