@@ -22,7 +22,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.trace]))
 
 ;; ---- per-test reset -------------------------------------------------------
 ;;
@@ -922,6 +923,57 @@
         ":left still carries :shared in its per-frame registry")
     (is (contains? (get @flows/flows :right) :shared)
         ":right carries :shared in its per-frame registry too")))
+
+;; ---------------------------------------------------------------------------
+;; 9c. :rf.registry/handler-replaced :different-fn? reflects real body
+;;     swaps for :flow re-registrations (rf2-v5ttb).
+;;
+;; Pre-fix the registrar's `:different-fn?` calculation compared
+;; `(:handler-fn previous)` against `(:handler-fn metadata)` but the
+;; flows registration site stored the body under `:output` only — so
+;; both reads were nil for every flow re-registration and
+;; `:different-fn?` was always `false`. Tools (re-frame-10x's flow
+;; panel, Causa, pair2) branching on `:different-fn? true` missed every
+;; real flow-body change. Fix: `reg-flow` now stamps `:handler-fn`
+;; alongside `:output` so the cross-kind registrar trace surface Spec
+;; 001 standardises works for flows too.
+;; ---------------------------------------------------------------------------
+
+(deftest flow-hot-reload-different-fn?-reflects-real-body-swap
+  (testing "Per rf2-v5ttb: :rf.registry/handler-replaced :different-fn? is true on a real :output swap, false on identity reload"
+    (let [captured (atom [])]
+      (re-frame.trace/register-trace-cb!
+        ::handler-replaced-recorder
+        (fn [ev]
+          (when (= :rf.registry/handler-replaced (:operation ev))
+            (swap! captured conj ev))))
+      (try
+        (let [body-v1 (fn [n] (* 2 n))]
+          (rf/reg-flow {:id     :double
+                        :inputs [[:n]]
+                        :output body-v1
+                        :path   [:doubled]})
+          ;; Idempotent re-registration — same fn identity. :different-fn? must be false.
+          (rf/reg-flow {:id     :double
+                        :inputs [[:n]]
+                        :output body-v1
+                        :path   [:doubled]})
+          (is (= 1 (count @captured))
+              "one :rf.registry/handler-replaced fired for the second registration")
+          (is (false? (-> @captured first :tags :different-fn?))
+              ":different-fn? false on identity re-registration (idempotent reload)")
+          ;; Now re-register with a NEW fn — :different-fn? must be true.
+          (reset! captured [])
+          (rf/reg-flow {:id     :double
+                        :inputs [[:n]]
+                        :output (fn [n] (* 100 n))
+                        :path   [:doubled]})
+          (is (= 1 (count @captured))
+              "one :rf.registry/handler-replaced fired for the body-swap registration")
+          (is (true? (-> @captured first :tags :different-fn?))
+              ":different-fn? true on real body change (rf2-v5ttb fix)"))
+        (finally
+          (re-frame.trace/remove-trace-cb! ::handler-replaced-recorder))))))
 
 (deftest flow-hot-reload-invalidates-last-inputs
   (testing "re-registering a flow re-evaluates even when inputs are unchanged"
