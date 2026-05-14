@@ -60,6 +60,11 @@
   order). Order is preserved across replace; first registration wins
   for position.
 
+  After `clear-http-interceptor` removes a slot, a subsequent
+  `reg-http-interceptor` of the same id is a fresh registration and
+  appends to the end of the chain — the prior position is forgotten on
+  clear (per Spec 014 §Chain order and frame scope, rf2-kg5nw).
+
   Throws `:rf.error/http-bad-interceptor` if the shape is invalid."
   [{:keys [frame id before] :as interceptor}]
   (when-not (valid-interceptor? interceptor)

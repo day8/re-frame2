@@ -514,6 +514,7 @@ The fn returns the (possibly-modified) ctx. The runtime threads its `:request` o
 ### Chain order and frame scope
 
 - **Registration order.** The chain runs in the order `reg-http-interceptor` calls were made on that frame. Re-registering an existing id replaces the slot **in place** — the position is preserved.
+- **Clear-then-re-register.** `clear-http-interceptor` removes the slot entirely; a subsequent `reg-http-interceptor` of the same id is a fresh registration and **appends to the end** of the chain. The position is *not* preserved across a clear — the slot's prior index is forgotten on clear. Tools that want to mutate-in-place (e.g. hot-reload) should call `reg-http-interceptor` directly without clearing first; tools that want a fresh end-of-chain slot use clear-then-reg explicitly.
 - **Per-frame.** An interceptor registered against frame A does NOT fire for a request dispatched from frame B. Multi-frame apps register independent chains per frame; the auth interceptor on the user-app frame doesn't leak into a hypothetical admin-app frame.
 - **`:before`-only in v1.** Response-side transforms (the moral equivalent of an `:after`) are out of scope for v1 — sticking with the request-side keeps the contract small. The `:after` slot is reserved for future extension; an interceptor map carrying `:after` registers cleanly today (the runtime ignores the key) and will compose with v2's response-side hook when it lands.
 

@@ -346,6 +346,83 @@
             "replaced :a's :before fired in :a's original position; no duplicate")
         (finally (stop-server! srv))))))
 
+;; ---- 6b. clear-then-reg lands at the end of the chain (rf2-kg5nw) --------
+;;
+;; Round-2 audit finding 5.5: re-registering an id replaces in place
+;; (test 6 above), but `clear-http-interceptor` followed by a fresh
+;; `reg-http-interceptor` of the same id has different semantics — the
+;; slot was *removed* by clear, so re-registering appends to the end.
+;; Spec 014 §Chain order covers replace-in-place but the clear+re-reg
+;; path was unpinned. Per the spec clarification landed in this bead,
+;; clear-then-reg lands at the end (the slot's prior index is forgotten
+;; on clear). Test pins that contract; a regression that started
+;; preserving position across clear would break the documented behaviour
+;; and surprise hot-reload tools that DO want a fresh end-of-chain slot.
+
+(deftest clear-then-reg-appends-to-end-of-chain
+  (testing "rf2-kg5nw — clear-http-interceptor followed by re-reg of the same
+            id appends to the end of the chain (the prior position is
+            forgotten on clear). Spec 014 §Chain order and frame scope."
+    (let [order (atom [])
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{}")))]
+      (try
+        ;; Register three interceptors in order: :a, :b, :c.
+        (rf/reg-http-interceptor
+          {:id :a :before (fn [ctx] (swap! order conj :a) ctx)})
+        (rf/reg-http-interceptor
+          {:id :b :before (fn [ctx] (swap! order conj :b) ctx)})
+        (rf/reg-http-interceptor
+          {:id :c :before (fn [ctx] (swap! order conj :c) ctx)})
+
+        ;; Clear :a — slot is removed entirely.
+        (rf/clear-http-interceptor :a)
+        ;; Re-register :a. Per the contract this is a FRESH registration,
+        ;; not a position-preserving replace — it appends to the end.
+        (rf/reg-http-interceptor
+          {:id :a :before (fn [ctx] (swap! order conj :a-fresh) ctx)})
+
+        ;; Confirm the chain order in the registry directly so the test
+        ;; pins the slot ordering before the dispatch ever runs.
+        (let [chain (get @http-managed/interceptors :rf/default)]
+          (is (= [:b :c :a] (mapv :id chain))
+              "after clear-then-reg, :a moved to the end (was first; now last)"))
+
+        (rf/reg-event-fx :kg5nw/load
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" port "/x")}
+                    :decode     :json
+                    :on-success nil}]]}))
+        (rf/dispatch-sync [:kg5nw/load])
+        (Thread/sleep 200)
+        (is (= [:b :c :a-fresh] @order)
+            "interceptors fired in the post-clear-then-reg order: :b, :c, :a (re-registered)")
+        (finally (stop-server! srv))))))
+
+(deftest clear-then-reg-distinguishes-from-replace-in-place
+  (testing "rf2-kg5nw regression guard — bare `reg-http-interceptor` of an
+            existing id replaces in place (test 6, position preserved),
+            while clear-then-reg appends to the end. These are deliberately
+            different paths; the test asserts they do NOT collapse into one."
+    ;; Register in order :a, :b.
+    (rf/reg-http-interceptor {:id :a :before identity})
+    (rf/reg-http-interceptor {:id :b :before identity})
+    (is (= [:a :b] (mapv :id (get @http-managed/interceptors :rf/default))))
+
+    ;; Bare re-reg of :a — replaces in place; order unchanged.
+    (rf/reg-http-interceptor {:id :a :before (fn [c] c)})
+    (is (= [:a :b] (mapv :id (get @http-managed/interceptors :rf/default)))
+        "bare re-reg preserves position (Spec 014 §Chain order, replace-in-place)")
+
+    ;; Clear-then-reg of :a — appends to end; order changes.
+    (rf/clear-http-interceptor :a)
+    (rf/reg-http-interceptor {:id :a :before (fn [c] c)})
+    (is (= [:b :a] (mapv :id (get @http-managed/interceptors :rf/default)))
+        "clear-then-reg lands at the end (rf2-kg5nw contract)")))
+
 ;; ---- 7. invalid interceptor shape raises ---------------------------------
 
 (deftest invalid-interceptor-shape-raises
