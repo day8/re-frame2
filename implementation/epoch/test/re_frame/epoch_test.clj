@@ -1440,10 +1440,11 @@
       (is (not-any? (fn [ev] (= :rf.epoch/db-replaced (:operation ev)))
                     (:trace-events post-reset))
           ":trace-events does NOT contain the out-of-drain :rf.epoch/db-replaced emit")
-      ;; project-effects has no fx in :bump, but project-sub-runs /
-      ;; project-renders walking a leaked event with op :rf.epoch/db-replaced
-      ;; would silently be empty anyway — the strong signal is the trigger-
-      ;; event check above plus the trace-events absence.
+      ;; project-all (rf2-ecu37, fused projection) emits no :effects
+      ;; entry for :bump; the :sub-runs / :renders slots walking a
+      ;; leaked event with op :rf.epoch/db-replaced would silently be
+      ;; empty anyway — the strong signal is the trigger-event check
+      ;; above plus the trace-events absence.
       (is (empty? (:effects post-reset))
           "no leaked effects from the out-of-drain emit"))))
 
@@ -1849,8 +1850,8 @@
 ;; for the same frame would harvest it as the first event in the
 ;; buffer — treating it as belonging to that cascade. The
 ;; `find-trigger-event` fallback would pick its `:epoch-id` as the
-;; trigger; `project-effects`/`project-sub-runs` would silently include
-;; it. The rf2-htf28 fix added the missing ops to the skip-set; pin
+;; trigger; `project-all` (rf2-ecu37) would silently include the
+;; leaked entries. The rf2-htf28 fix added the missing ops to the skip-set; pin
 ;; the contract here so a future regression that drops them surfaces
 ;; loudly.
 
