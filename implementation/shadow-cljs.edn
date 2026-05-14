@@ -641,4 +641,15 @@
    :output-dir "out/testbeds/http-toggle"
    :asset-path "."
    :modules    {:main {:init-fn http-toggle.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim Tier 2 — multi-frame testbed (three frames coexisting:
+  ;; :counter/a, :counter/b, :log; the Cross-bump button fans out a
+  ;; handler running on :counter/a to dispatches against :counter/b
+  ;; and :log via cross-frame `:dispatch` fx per Spec 002).
+  :testbeds/multi-frame
+  {:target     :browser
+   :output-dir "out/testbeds/multi-frame"
+   :asset-path "."
+   :modules    {:main {:init-fn multi-frame.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
