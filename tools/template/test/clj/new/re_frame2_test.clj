@@ -161,7 +161,19 @@
           (is (some #{"test"} (:source-paths scs))
               "shadow-cljs.edn :source-paths includes \"test\" so the emitted test file is discoverable")
           (is (= :node-test (:target tst))
-              "shadow-cljs :test build targets :node-test"))
+              "shadow-cljs :test build targets :node-test")
+          ;; Causa preload (rf2-y9zqc).
+          (is (some #{'day8.re-frame2-causa.preload}
+                    (get-in app [:devtools :preloads]))
+              "shadow-cljs :app :devtools/preloads wires Causa"))
+
+        ;; -- Causa coord in deps.edn (rf2-y9zqc) --
+        (let [deps (read-edn (io/file root "deps.edn"))]
+          (is (contains? (:deps deps) 'day8/re-frame2-causa)
+              "deps.edn references day8/re-frame2-causa")
+          (is (= "0.0.1.alpha"
+                 (get-in deps [:deps 'day8/re-frame2-causa :mvn/version]))
+              "Causa coord lockstep with core version"))
 
         ;; -- package.json sanity --
         (let [pj-text (slurp (io/file root "package.json"))]

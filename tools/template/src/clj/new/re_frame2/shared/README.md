@@ -39,10 +39,19 @@ state from the previous build. Add new `reg-event-db` / `reg-sub` /
 `reg-view` forms and they show up live; rename or remove a handler
 and the next reload drops the old registration.
 
-Stack traces in dev get click-to-source via the `:rf.trace/trigger-handler`
-preload (auto-wired when the Causa preload — `day8.re-frame2-causa.preload`
-— is on the classpath) — clicking a frame in the dev console jumps
-straight to the offending form.
+## In-app devtools (Causa)
+
+`shadow-cljs.edn` wires `day8.re-frame2-causa.preload` into
+`:devtools/preloads` on the `:app` build — the scaffold ships
+Causa **on by default** for development. Press **Ctrl+Shift+C** in
+your running app to open the in-app devtools overlay: per-epoch
+dispatch log, app-db diff, causality graph, time-travel scrubber.
+Release builds drop the preload automatically (shadow only runs
+preloads under `watch` / `compile`, never `release`).
+
+Stack traces in dev also get click-to-source via the
+`:rf.trace/trigger-handler` preload — clicking a frame in the dev
+console jumps straight to the offending form.
 
 ## Build for release
 
