@@ -37,27 +37,43 @@
   opts in via `(causa-config/configure! {:trace/show-sensitive?
   true})`.
 
-  ## Reactive container (rf2-iw5ym)
+  ## Reactivity (rf2-iw5ym → rf2-e9s81)
 
-  Per rf2-iw5ym (same recipe as rf2-0vxdn's `suppressed-counters`
-  fix): the buffer is also mirrored into Causa's app-db at
-  `[:rf/causa db :trace-buffer]` via dispatch (CLJS only) so the
-  `:rf.causa/trace-buffer` sub fires on the standard reactive
-  write path — panels reading the buffer re-render IMMEDIATELY on
-  every push, with no dependency on a sibling sub recomputing. The
-  `buffer-state` atom here remains as the JVM-runnable data
-  primitive (`push` algebra, depth-shrink algebra, `clear-buffer!`)
-  so trace_bus's pure-data shape is testable without a CLJS runtime
-  + re-frame frame; the CLJS path dual-writes via dispatch. The
-  dispatch is async — production reads see a one-tick lag,
-  invisible at trace-rate UI cadence; tests that need the reactive
-  surface to settle synchronously dispatch the new
-  `:rf.causa/note-trace-event` / `:rf.causa/clear-trace-buffer`
-  events directly via `dispatch-sync`."
+  The buffer is held in a plain atom (`buffer-state` below). The
+  `:rf.causa/trace-buffer` sub (in `registry.cljs`) thunks
+  `(trace-bus/buffer)` so subscribers get a fresh read on every
+  recompute. The sub is layer-1 so it re-fires on every app-db
+  change of the resolved frame — under Causa's normal usage
+  (panels rendered inside a host app), every host dispatch dirties
+  the host's app-db and the sub re-fires, picking up whatever the
+  trace-cb has accumulated in the atom since the last recompute.
+  Visible delay between trace push and panel update is bounded by
+  the host's next dispatch, indistinguishable from native trace-
+  rate UI cadence on every example app the foundation ships.
+
+  History — rf2-iw5ym originally added a parallel write path
+  (`:rf.causa/note-trace-event` dispatch) so the sub would
+  re-fire IMMEDIATELY on every push (no dependency on a sibling
+  sub recomputing). That parallel path picked `:rf/causa` as its
+  write target, but `:rf/causa` is never registered in production
+  (the preload runs at ns-load time, BEFORE the host's
+  `rf/init!` installs a substrate adapter — `reg-frame` fails in
+  that window) so the dispatch silently no-op'd and step 5 of
+  `examples/.../causa.spec.cjs` went red. rf2-higwg patched the
+  parallel suppressed-counter path to chain-resolve to
+  `:rf/default`; rf2-e9s81 tried the same for the trace buffer
+  but exposed two failure modes (conformance fixtures saw the
+  trace-cb's dispatches consume drain-depth headroom and
+  pollute their `:rf/default` app-db with `:trace-buffer`
+  noise). The conclusion: an architecturally clean
+  reactive-on-every-push surface requires either reg-view-
+  wrapping Causa's panels (so plain-fn subscribes route to
+  `:rf/causa` via the React-context tier) or a fixed-frame
+  sub mechanism — both wider refactors filed for follow-up.
+  Until then, the layer-1 + host-driven recompute path
+  delivers the same UX without the layering hazards."
   (:require [re-frame.interop :as interop]
-            [day8.re-frame2-causa.config :as config]
-            #?@(:cljs [[re-frame.core :as rf]
-                       [re-frame.frame :as frame]])))
+            [day8.re-frame2-causa.config :as config]))
 
 ;; ---- ring-buffer state ----------------------------------------------------
 
@@ -91,30 +107,6 @@
       buffer')))
 
 ;; ---- collector --------------------------------------------------------
-;;
-;; History (rf2-nk01x → rf2-qsjda):
-;;
-;;   `collect-trace!` dispatches Causa's own bookkeeping events
-;;   (`:rf.causa/note-sensitive-suppressed`, `:rf.causa/note-trace-event`,
-;;   …) into `:rf/causa` whenever it processes a trace event. The
-;;   framework delivers EVERY emitted trace event back through
-;;   `register-trace-cb!`, so the collector would otherwise see its own
-;;   self-emit and recurse — driving the per-frame `:suppressed-counters`
-;;   ever upwards on `:sensitive?` events and exploding the buffer on
-;;   non-sensitive events, until the framework's `drain-depth-default`
-;;   = 100 terminates the cascade with `:rf.error/drain-depth-exceeded`.
-;;
-;;   rf2-nk01x landed a Causa-side guard (a `self-emitted?` predicate
-;;   that short-circuited at the top of `collect-trace!` for trace events
-;;   whose `:tags :event-id` or dispatched id matched a Causa-bookkeeping
-;;   set). rf2-qsjda promoted the opt-out to the framework: the
-;;   bookkeeping handlers below carry `:rf.trace/no-emit? true` in their
-;;   registration metadata (see `registry.cljs`), and Spec 009
-;;   §Trace-emission opt-out gates `emit!` / `emit-error!` /
-;;   `emit-dispatched-trace!` on the flag. The runtime short-circuits
-;;   BEFORE emitting, so the collector never sees self-emits in the
-;;   first place. The per-consumer Causa-side guard becomes redundant
-;;   and `self-emitted?` is gone.
 
 (defn collect-trace!
   "Append a trace event to Causa's ring buffer. Registered with
@@ -133,27 +125,26 @@
 
   Per rf2-0vxdn the indicator is fully reactive: `config/note-
   suppressed!` itself dispatches `:rf.causa/note-sensitive-suppressed`
-  into `:rf/causa` (CLJS) so the sub reads `:suppressed-counters`
-  off Causa's app-db on the standard write path. The buffer state
-  here is unchanged; the dispatch happens one stack frame deeper.
+  (chain-resolved to `:rf/default` via rf2-higwg) so the sub reads
+  `:suppressed-counters` off the host's app-db on the standard
+  write path. The buffer state here is unchanged; the dispatch
+  happens one stack frame deeper.
 
-  Per rf2-iw5ym the buffer push is the same shape: the atom swap
-  remains (JVM-runnable data primitive) and CLJS also dispatches
-  `:rf.causa/note-trace-event` into `:rf/causa` so the
-  `:rf.causa/trace-buffer` sub fires on the standard write path.
-  Guarded on the `:rf/causa` frame's existence — production preload
-  always installs it, but tests / hot-reload windows may emit
-  trace events before the frame registers.
-
-  Per rf2-qsjda (succeeds rf2-nk01x's Causa-side `self-emitted?`
-  guard): the bookkeeping handlers `:rf.causa/note-sensitive-suppressed`,
-  `:rf.causa/note-trace-event`, `:rf.causa/clear-trace-buffer`,
-  `:rf.causa/reset-suppressed-counters`, and `:rf.causa/sync-trace-buffer`
-  are registered with `:rf.trace/no-emit? true`. The framework
-  short-circuits trace emission for those dispatches at `emit!` /
-  `emit-error!` / `emit-dispatched-trace!`, so the collector never
-  sees the self-emits in the first place. No per-consumer guard
-  required."
+  Per rf2-e9s81 (supersedes rf2-iw5ym's parallel app-db write
+  path): the trace-buffer's reactive surface is delivered by the
+  layer-1 `:rf.causa/trace-buffer` sub's re-fire on the host's
+  next app-db change — Causa is rendered inside an active host
+  app, and every host dispatch dirties the resolved frame's
+  app-db, so the sub re-fires and reads the latest buffer atom
+  contents. The iw5ym dispatch path was removed because it could
+  not target a Causa-owned frame at preload time (the host's
+  `rf/init!` has not yet installed the substrate adapter) AND
+  chain-resolving to `:rf/default` polluted the host's app-db
+  with `:trace-buffer` noise while consuming drain-depth headroom
+  on every emitted trace event — surfacing as spurious
+  `:rf.error/drain-depth-exceeded` failures in conformance
+  fixtures (the rf2-e9s81 follow-on). Per the ns docstring
+  §Reactivity for the trade-off + the planned wider refactor."
   [event]
   (when interop/debug-enabled?
     (cond
@@ -161,12 +152,7 @@
       (config/note-suppressed! (get-in event [:tags :frame]))
 
       :else
-      (do
-        (swap! buffer-state push @buffer-depth event)
-        #?(:cljs
-           (when (frame/frame :rf/causa)
-             (binding [frame/*current-frame* :rf/causa]
-               (rf/dispatch [:rf.causa/note-trace-event event]))))))))
+      (swap! buffer-state push @buffer-depth event))))
 
 ;; ---- read-side accessors -------------------------------------------
 
@@ -179,10 +165,7 @@
 
 (defn current-depth
   "Return the configured buffer depth (`default-buffer-depth` until
-  `set-buffer-depth!` rewrites it). Public so the registry's
-  `:rf.causa/note-trace-event` event-db handler can mirror the
-  same eviction-on-overflow algebra `collect-trace!` uses (per
-  rf2-iw5ym)."
+  `set-buffer-depth!` rewrites it)."
   []
   @buffer-depth)
 
@@ -290,31 +273,18 @@
 
   Per rf2-0vxdn `config/reset-suppressed-count!` itself dispatches
   `:rf.causa/reset-suppressed-counters` in CLJS so the reactive
-  app-db slot clears in lockstep with the atom.
-
-  Per rf2-iw5ym the buffer's app-db mirror also clears in lockstep
-  — the CLJS path dispatches `:rf.causa/clear-trace-buffer` so the
-  `:rf.causa/trace-buffer` sub re-fires off the standard write
-  path and panels reading the buffer drop to empty immediately."
+  app-db slot clears in lockstep with the atom (the indicator path
+  is genuinely on app-db, separate from the trace buffer)."
   []
   (when interop/debug-enabled?
     (reset! buffer-state [])
-    (config/reset-suppressed-count!)
-    #?(:cljs
-       (when (frame/frame :rf/causa)
-         (binding [frame/*current-frame* :rf/causa]
-           (rf/dispatch [:rf.causa/clear-trace-buffer])))))
+    (config/reset-suppressed-count!))
   nil)
 
 (defn set-buffer-depth!
   "Set the buffer's depth. `depth=0` keeps the collector wired (so the
   callback can be replaced or augmented) but flushes the buffer to
-  empty and prevents further accumulation. No-op in production.
-
-  Per rf2-iw5ym: when the new depth shrinks the buffer, the app-db
-  mirror is re-synced via `:rf.causa/sync-trace-buffer` so the
-  reactive `:rf.causa/trace-buffer` sub reflects the truncated
-  shape rather than the pre-shrink contents."
+  empty and prevents further accumulation. No-op in production."
   [depth]
   (when (and interop/debug-enabled? (number? depth) (not (neg? depth)))
     (reset! buffer-depth depth)
@@ -324,9 +294,5 @@
                (cond
                  (zero? depth) []
                  (> n depth)   (subvec v (- n depth))
-                 :else         v))))
-    #?(:cljs
-       (when (frame/frame :rf/causa)
-         (binding [frame/*current-frame* :rf/causa]
-           (rf/dispatch [:rf.causa/sync-trace-buffer @buffer-state])))))
+                 :else         v)))))
   nil)

@@ -186,18 +186,25 @@
 ;; ---- subscriptions -------------------------------------------------------
 
 ;; Causa's trace-buffer sub returns the Causa-side ring buffer
-;; contents (NOT the framework's `(rf/trace-buffer)`).
+;; contents (NOT the framework's `(rf/trace-buffer)`). Reading directly
+;; from `trace-bus/buffer` is the right shape here because the buffer
+;; is process-global, not per-frame — every Causa shell mounted across
+;; any frame should see the same trace stream. The sub thunks the
+;; pure-data accessor so reactive contexts get a fresh read on every
+;; recompute.
 ;;
-;; Per rf2-iw5ym the buffer lives in Causa's app-db at `:trace-buffer`
-;; (same recipe as rf2-0vxdn for `:suppressed-counters`); `trace-bus/
-;; collect-trace!` dispatches `:rf.causa/note-trace-event` in CLJS so
-;; the sub fires on the standard app-db-write reactive path. Panels
-;; reading the buffer re-render IMMEDIATELY on every push — no
-;; dependency on sibling subs recomputing. The plain `trace-bus/
-;; buffer-state` atom remains as the JVM-runnable data primitive
-;; (`push` algebra, depth-shrink algebra, sensitive_trace_cljs_test);
-;; the CLJS path dual-writes via dispatch so the reactive surface
-;; stays consistent.
+;; History (rf2-iw5ym → rf2-e9s81): rf2-iw5ym briefly mirrored the
+;; buffer into Causa's app-db at `:trace-buffer` so the sub would
+;; re-fire IMMEDIATELY on every push. That path proved untenable —
+;; `:rf/causa` is not registered at preload time (no substrate
+;; adapter installed yet) and chain-resolving to `:rf/default`
+;; consumed drain-depth headroom on every emitted trace event AND
+;; polluted the host's app-db with `:trace-buffer` noise. rf2-e9s81
+;; reverts to the pre-iw5ym shape (sub thunks the atom; layer-1 re-
+;; fires on the host's next dispatch, picking up whatever the trace-
+;; cb has accumulated). See `trace_bus.cljc` §Reactivity for the
+;; trade-off and the wider refactor that would re-introduce
+;; immediate-update reactivity without the layering hazard.
 (defonce ^:private registered?
   ;; Idempotency sentinel. Re-loading the namespace (shadow-cljs
   ;; `:after-load`) must not re-register the sub (would harmlessly
@@ -213,8 +220,8 @@
   (when (compare-and-set! registered? false true)
     ;; ---- subs ----------------------------------------------------
     (rf/reg-sub :rf.causa/trace-buffer
-      (fn [db _query]
-        (get db :trace-buffer [])))
+      (fn [_db _query]
+        (trace-bus/buffer)))
 
     ;; Total count of :sensitive? trace events the collector has
     ;; suppressed under the current `:trace/show-sensitive?` setting
@@ -665,50 +672,13 @@
           (update db :suppressed-counters dissoc (or frame-id :global))
           (dissoc db :suppressed-counters))))
 
-    ;; Append a trace event to Causa's reactive trace-buffer slot
-    ;; (rf2-iw5ym). Dispatched from `trace-bus/collect-trace!` (CLJS)
-    ;; whenever a non-sensitive event lands on the bus. The handler
-    ;; mirrors the atom-side `trace-bus/push` algebra (conj + subvec
-    ;; on overflow) so the app-db slot stays bounded by the same
-    ;; depth contract; the depth is sourced from `trace-bus`'s own
-    ;; atom (process-global, not per-frame). Drives the
-    ;; `:rf.causa/trace-buffer` sub via the standard reactive write
-    ;; path — panels reading the buffer re-render immediately.
-    ;;
-    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
-    ;; `:rf.causa/note-sensitive-suppressed` above for the rationale).
-    (rf/reg-event-db :rf.causa/note-trace-event
-      {:rf.trace/no-emit? true}
-      (fn [db [_ event]]
-        (let [depth (trace-bus/current-depth)
-              buf   (get db :trace-buffer [])
-              buf'  (trace-bus/push buf depth event)]
-          (assoc db :trace-buffer buf'))))
-
-    ;; Clear Causa's reactive trace-buffer slot (rf2-iw5ym).
-    ;; Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing
-    ;; the atom-side ring buffer must drop the app-db mirror in
-    ;; lockstep so panels reading the buffer empty alongside.
-    ;;
-    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
-    ;; `:rf.causa/note-sensitive-suppressed` above for the rationale).
-    (rf/reg-event-db :rf.causa/clear-trace-buffer
-      {:rf.trace/no-emit? true}
-      (fn [db _event]
-        (dissoc db :trace-buffer)))
-
-    ;; Re-sync Causa's reactive trace-buffer slot to an explicit
-    ;; value (rf2-iw5ym). Dispatched from `trace-bus/set-buffer-
-    ;; depth!` (CLJS) when shrinking the depth would otherwise
-    ;; leave the app-db mirror longer than the atom side. The
-    ;; payload is the post-shrink vector.
-    ;;
-    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
-    ;; `:rf.causa/note-sensitive-suppressed` above for the rationale).
-    (rf/reg-event-db :rf.causa/sync-trace-buffer
-      {:rf.trace/no-emit? true}
-      (fn [db [_ buf]]
-        (assoc db :trace-buffer (vec buf))))
+    ;; Per rf2-e9s81 (supersedes rf2-iw5ym):
+    ;; `:rf.causa/note-trace-event` / `:rf.causa/clear-trace-buffer`
+    ;; / `:rf.causa/sync-trace-buffer` were removed when the trace-
+    ;; buffer reactive surface reverted to the pre-iw5ym shape (sub
+    ;; thunks the atom; layer-1 re-fires on the host's next dispatch).
+    ;; See `trace_bus.cljc` §Reactivity for the trade-off + the
+    ;; planned wider refactor.
 
     (rf/reg-event-db :rf.causa/select-dispatch-id
       (fn [db [_ dispatch-id]]

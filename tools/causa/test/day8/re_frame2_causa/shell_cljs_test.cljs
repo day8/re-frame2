@@ -393,14 +393,10 @@
             composite's :has-mismatch? flips true and the dormant
             marker drops"
     (causa-setup!)
-    ;; Per rf2-iw5ym `:rf.causa/trace-buffer` is reactive off Causa's
-    ;; app-db; the test drives the reactive write path directly via
-    ;; `dispatch-sync` so the hydration composite re-fires before the
-    ;; shell renders (production wiring goes through
-    ;; `trace-bus/collect-trace!` which dispatches async — covered by
-    ;; `sensitive_trace_cljs_test`).
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/note-trace-event (mismatch-ev 1)]))
+    ;; Per rf2-e9s81 `:rf.causa/trace-buffer` thunks the trace-bus
+    ;; atom; pushing via `collect-trace!` (the production path) lands
+    ;; the event in the atom and the next subscribe sees it.
+    (trace-bus/collect-trace! (mismatch-ev 1))
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             row  (find-by-testid tree "rf-causa-sidebar-item-hydration")

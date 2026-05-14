@@ -57,7 +57,7 @@ the time-travel scrubber, and the per-frame target selection.
 
 | Sub | Inputs | Returns | When recomputes |
 |---|---|---|---|
-| `:rf.causa/trace-buffer` | `db` (reads `:trace-buffer`) | Vector of `:rf/trace-event` records, oldest-first (per [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Consumer contract). | On `db` write to `:trace-buffer` (rf2-iw5ym — reactive immediate update on every push, matching the rf2-0vxdn recipe for `:suppressed-counters`). |
+| `:rf.causa/trace-buffer` | thunks `trace-bus/buffer` (the process-global ring atom) | Vector of `:rf/trace-event` records, oldest-first (per [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Consumer contract). | Layer-1 sub re-fires on every app-db change of the resolved frame; under Causa's normal usage (panels rendered inside a host app) the host's next dispatch dirties the frame's db and the sub picks up whatever the trace-cb has accumulated in the atom since the previous recompute (rf2-e9s81 — supersedes rf2-iw5ym's app-db-mirror path; see [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Reactivity for the trade-off). |
 | `:rf.causa/suppressed-sensitive-count` | `db` (reads `:suppressed-counters`) | Integer — total suppressed `:sensitive? true` events under the current `:trace/show-sensitive?` setting. | On `db` write to `:suppressed-counters` (rf2-0vxdn — reactive immediate update of the `[● REDACTED N]` bottom-rail indicator). |
 | `:rf.causa/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.causa/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.causa/epoch-recorded` dispatch. |
@@ -70,9 +70,6 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.causa/epoch-recorded` | `[_ frame-id]` | `{:db ...}` | Pumped from the epoch-cb registered in `preload.cljs` on every settled epoch. Re-reads `rf/epoch-history` to keep the cached snapshot consistent. No-ops when `frame-id` ≠ the current target. |
 | `:rf.causa/note-sensitive-suppressed` | `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — bumps `[:suppressed-counters (or frame-id :global)]` in Causa's app-db. Dispatched from `trace-bus/collect-trace!` (CLJS) when the privacy gate drops a `:sensitive? true` event. Drives the `:rf.causa/suppressed-sensitive-count` sub reactively. |
 | `:rf.causa/reset-suppressed-counters` | `[_]` or `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — clears all buckets (no arg) or just the named bucket. Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing the trace ring buffer also drops the `[● REDACTED N]` indicator state. |
-| `:rf.causa/note-trace-event` | `[_ event]` | `{:db ...}` | rf2-iw5ym — appends `event` to `:trace-buffer` with eviction at `trace-bus/current-depth` (mirrors `trace-bus/push`'s algebra). Dispatched from `trace-bus/collect-trace!` (CLJS) on every non-sensitive trace event. Drives the `:rf.causa/trace-buffer` sub reactively. |
-| `:rf.causa/clear-trace-buffer` | `[_]` | `{:db ...}` | rf2-iw5ym — `dissoc`s the `:trace-buffer` slot. Dispatched from `trace-bus/clear-buffer!` (CLJS); the atom-side ring buffer + the app-db mirror drop in lockstep. |
-| `:rf.causa/sync-trace-buffer` | `[_ buf]` | `{:db ...}` | rf2-iw5ym — replaces the `:trace-buffer` slot with `buf` wholesale. Dispatched from `trace-bus/set-buffer-depth!` (CLJS) when shrinking the depth so the mirror reflects the post-shrink contents. |
 | `:rf.causa/select-panel` | `[_ panel-id]` | `{:db ...}` | Drives the canvas switch logic in `shell.cljs`. Default per [`007-UX-IA.md`](./007-UX-IA.md) §10 Lock 7 is `:event-detail`. |
 
 ## Event-detail panel

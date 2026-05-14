@@ -162,7 +162,6 @@
    :rf.causa/clear-selected-epoch
    :rf.causa/clear-selected-sub
    :rf.causa/clear-slice-focus
-   :rf.causa/clear-trace-buffer
    :rf.causa/clear-trace-filters
    :rf.causa/clear-violation-selection
    :rf.causa/copy-path-to-clipboard
@@ -172,7 +171,6 @@
    :rf.causa/focus-slice-path
    :rf.causa/hide-invalidation-chain
    :rf.causa/note-sensitive-suppressed
-   :rf.causa/note-trace-event
    :rf.causa/open-in-editor
    :rf.causa/pin-current
    :rf.causa/pin-slice
@@ -206,7 +204,6 @@
    :rf.causa/set-sub-cache-override-for-test
    :rf.causa/set-trace-filter
    :rf.causa/show-invalidation-chain
-   :rf.causa/sync-trace-buffer
    :rf.causa/toggle-issues-prefix
    :rf.causa/toggle-issues-severity
    :rf.causa/toggle-mcp-op-type
@@ -244,10 +241,10 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 64 subs + 63 events + 3 fxs (rf2-5zl7l;
-            +2 events for rf2-0vxdn; +3 events for rf2-iw5ym)"
+  (testing "registry holds exactly 64 subs + 60 events + 3 fxs (rf2-5zl7l;
+            +2 events for rf2-0vxdn; -3 events for rf2-e9s81)"
     (is (= 64 (count all-sub-names)))
-    (is (= 63 (count all-event-names)))
+    (is (= 60 (count all-event-names)))
     (is (= 3  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
@@ -263,53 +260,54 @@
 
 ;; ---- (2) high-value sub contracts: defaults on a fresh frame ------------
 
-(deftest sub-trace-buffer-reads-app-db
-  (testing ":rf.causa/trace-buffer reads from Causa's app-db at
-            `:trace-buffer` (rf2-iw5ym — same recipe as rf2-0vxdn's
-            `:suppressed-counters` fix). First deref returns the
-            default `[]`; each `:rf.causa/note-trace-event` dispatch
-            re-fires the sub on the standard write path (immediate
-            reactive update, no clear-subscription-cache! workaround
-            required). `:rf.causa/clear-trace-buffer` drops the slot
-            back to empty."
+(deftest sub-trace-buffer-thunks-trace-bus
+  (testing ":rf.causa/trace-buffer thunks `trace-bus/buffer` (the
+            process-global ring atom). Tests push BEFORE the first
+            subscribe — the first deref of a fresh Reaction reads
+            whatever the atom holds at that moment. Re-deriving after
+            an atom mutation is NOT covered by this contract (the
+            Reaction caches against the no-op input-signal); under
+            Causa's normal usage that gap is closed by the host's
+            next app-db dispatch dirtying the resolved frame's db.
+            Per rf2-e9s81 — see `trace_bus.cljc` §Reactivity."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (= [] @(rf/subscribe [:rf.causa/trace-buffer]))
-          "empty :trace-buffer slot → sub returns []")
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 1 :op-type :event :operation :rf.test/x :tags {}}])
-      (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
-        (is (= 1 (count buf))
-            "one bump via dispatch → sub returns one-element buffer")
-        (is (= 1 (:id (first buf)))
-            "the dispatched event is in the buffer"))
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 2 :op-type :event :operation :rf.test/y :tags {}}])
+      ;; Push first, then subscribe — the Reaction's first read sees
+      ;; the current atom contents.
+      (trace-bus/collect-trace!
+        {:id 1 :op-type :event :operation :rf.test/x :tags {}})
+      (trace-bus/collect-trace!
+        {:id 2 :op-type :event :operation :rf.test/y :tags {}})
       (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
         (is (= 2 (count buf))
-            "second bump appends — sub returns a two-element buffer")
+            "the two pushes are visible on the first subscribe")
         (is (= [1 2] (mapv :id buf))
-            "events are oldest-first, matching trace-bus/push algebra"))
-      (rf/dispatch-sync [:rf.causa/clear-trace-buffer])
-      (is (= [] @(rf/subscribe [:rf.causa/trace-buffer]))
-          "clear event drops the slot back to default empty"))))
+            "events are oldest-first, matching trace-bus/push algebra")))))
 
-(deftest sub-trace-buffer-evicts-on-overflow-via-event
-  (testing ":rf.causa/note-trace-event mirrors trace-bus/push's
-            eviction-on-overflow algebra against `trace-bus/current-
-            depth`. We shrink the depth to 3 then push 5 events; the
-            sub returns the 3 newest in oldest-first order
-            (rf2-iw5ym)."
+(deftest sub-trace-buffer-fresh-frame-sees-empty
+  (testing "a fresh :rf/causa frame with an empty `trace-bus/buffer-state`
+            yields an empty :rf.causa/trace-buffer sub. Clearing the
+            atom before the first subscribe is the canonical reset
+            shape per rf2-e9s81 (the previous app-db-mirror reset
+            shape via `:rf.causa/clear-trace-buffer` is removed)."
+    (setup-causa-frame!)
+    (trace-bus/clear-buffer!)
+    (rf/with-frame :rf/causa
+      (is (= [] @(rf/subscribe [:rf.causa/trace-buffer]))
+          "empty atom → sub returns []"))))
+
+(deftest sub-trace-buffer-evicts-on-overflow
+  (testing "trace-bus enforces the eviction-on-overflow algebra against
+            `current-depth`. We shrink the depth to 3 then push 5
+            events BEFORE the first subscribe; the sub returns the 3
+            newest in oldest-first order."
     (setup-causa-frame!)
     (trace-bus/set-buffer-depth! 3)
     (try
       (rf/with-frame :rf/causa
         (dotimes [i 5]
-          (rf/dispatch-sync
-            [:rf.causa/note-trace-event
-             {:id i :op-type :event :operation :rf.test/x :tags {}}]))
+          (trace-bus/collect-trace!
+            {:id i :op-type :event :operation :rf.test/x :tags {}}))
         (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
           (is (= 3 (count buf))
               "depth=3 caps the sub-visible buffer at 3 entries")
@@ -317,75 +315,6 @@
               "oldest entries evicted; newest retained in oldest-first order")))
       (finally
         (trace-bus/set-buffer-depth! 1000)))))
-
-(deftest sub-trace-buffer-survives-hot-reload
-  (testing "re-running `register-causa-handlers!` (shadow-cljs
-            `:after-load`) preserves the previously-pushed events
-            — the idempotency sentinel skips re-registration so the
-            event-db handler is the same instance and the app-db
-            `:trace-buffer` slot is untouched (rf2-iw5ym)."
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 1 :op-type :event :operation :rf.test/x :tags {}}])
-      (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
-      ;; Hot-reload simulation — `register-causa-handlers!` is
-      ;; idempotent under the `defonce ^:private registered?` gate
-      ;; (rf2-n6x4q). Calling it again must NOT replace handlers
-      ;; nor drop the buffer.
-      (registry/register-causa-handlers!)
-      (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer])))
-          "buffer survives a no-op re-registration")
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 2 :op-type :event :operation :rf.test/y :tags {}}])
-      (is (= 2 (count @(rf/subscribe [:rf.causa/trace-buffer])))
-          "subsequent pushes still land in the existing slot"))))
-
-(deftest sub-trace-buffer-restarts-from-clean-state
-  (testing "after `:rf.causa/clear-trace-buffer` + frame reset the
-            sub returns []; the next push starts from id 0
-            (rf2-iw5ym — restart-from-clean-state contract)."
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (dotimes [i 3]
-        (rf/dispatch-sync
-          [:rf.causa/note-trace-event
-           {:id i :op-type :event :operation :rf.test/x :tags {}}]))
-      (is (= 3 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
-      (rf/dispatch-sync [:rf.causa/clear-trace-buffer])
-      (is (= [] @(rf/subscribe [:rf.causa/trace-buffer]))
-          "clear drops the slot")
-      (rf/dispatch-sync
-        [:rf.causa/note-trace-event
-         {:id 0 :op-type :event :operation :rf.test/x :tags {}}])
-      (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
-        (is (= 1 (count buf))
-            "the next push starts a fresh buffer")
-        (is (= 0 (:id (first buf)))
-            "the fresh buffer begins at the re-pushed id")))))
-
-(deftest event-sync-trace-buffer-replaces-slot
-  (testing ":rf.causa/sync-trace-buffer overwrites the slot wholesale
-            (rf2-iw5ym — used by `trace-bus/set-buffer-depth!` when
-            shrinking the depth would otherwise leave the mirror
-            longer than the atom side)."
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (dotimes [i 4]
-        (rf/dispatch-sync
-          [:rf.causa/note-trace-event
-           {:id i :op-type :event :operation :rf.test/x :tags {}}]))
-      (is (= 4 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
-      (rf/dispatch-sync
-        [:rf.causa/sync-trace-buffer
-         [{:id 99 :op-type :event :operation :rf.test/z :tags {}}]])
-      (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
-        (is (= 1 (count buf))
-            "sync replaces the slot, doesn't merge")
-        (is (= 99 (:id (first buf)))
-            "the replacement vector is exactly what the sub returns")))))
 
 (deftest sub-suppressed-sensitive-count-reads-app-db
   (testing ":rf.causa/suppressed-sensitive-count reads from Causa's
