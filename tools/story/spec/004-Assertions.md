@@ -108,7 +108,7 @@ Per [`001-Authoring.md`](001-Authoring.md) §reg-decorator, the
 `:fx-override` decorator kind stubs an effect at frame creation:
 
 ```clojure
-(rf/reg-decorator :force-fx-stub
+(story/reg-decorator :force-fx-stub
   {:doc  "Stub a registered fx with a static response."
    :kind :fx-override
    :fx-id    <fx-id>

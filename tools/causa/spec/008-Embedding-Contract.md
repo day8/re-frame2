@@ -100,9 +100,10 @@ Per `tools/story/` (when it lands):
 
 ```clojure
 (ns day8.story.variants
-  (:require [day8.re-frame2-causa.panels.event-detail :as causa-event]))
+  (:require [re-frame.story :as story]
+            [day8.re-frame2-causa.panels.event-detail :as causa-event]))
 
-(rf/reg-story-panel :story.auth/login
+(story/reg-story-panel :story.auth/login
   {:panels
    [{:title  "Login form"
      :render (fn [variant-data] [login-form variant-data])}

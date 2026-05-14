@@ -95,9 +95,9 @@ Workspace layouts persist **both** ways:
   by `[workspace-id breakpoint]`. Persistence is per-user, per-browser.
 - **Save-as registered artefact.** A "Save layout as `:Workspace.x/y`"
   button serialises the current layout to transit (full
-  `reg-workspace` body), re-registers it under the chosen id, and
+  `story/reg-workspace` body), re-registers it under the chosen id, and
   exports the transit blob for cross-machine sharing. Other users
-  `(rf/reg-workspace ...)` the transit body to consume the layout
+  `(story/reg-workspace ...)` the transit body to consume the layout
   durably.
 
 Stage 4 (render shell) wires the local-storage save on every layout
