@@ -458,6 +458,30 @@
 (defn- ^boolean hiccup-tag? [x]
   (or (keyword? x) (symbol? x) (string? x)))
 
+;; ---------------------------------------------------------------------------
+;; Shared hiccup-shape detection
+;;
+;; Five sites (native-element, fragment-element, emit-dom-vector,
+;; emit-fragment, plus the make-element consumer) ask the same shape
+;; question: "is the slot at `first-pos` a props map, and where do
+;; children start?" One helper, one shape — drift-proof.
+;; ---------------------------------------------------------------------------
+
+(defn hiccup-shape
+  "Inspect `argv` starting at index `first-pos`. Returns a 3-element
+  vector `[head has-props? first-child]` where:
+
+    - `head` is `(nth argv first-pos nil)`.
+    - `has-props?` is true when `head` is nil or a map (the
+      props-map slot is the conventional Reagent shape).
+    - `first-child` is the argv index where children begin
+      (`first-pos + 1` if a props map is present, else `first-pos`)."
+  [argv first-pos]
+  (let [head      (nth argv first-pos nil)
+        has-props (or (nil? head) (map? head))
+        first-child (+ first-pos (if has-props 1 0))]
+    [head has-props first-child]))
+
 (defn- native-element
   "Emit a DOM element. `parsed` is the parsed HiccupTag; `argv` the
   full hiccup vector; `first-pos` the index of the first arg position
@@ -469,13 +493,10 @@
   prop-conversion so the attr name flows through cached-prop-name."
   [^HiccupTag parsed argv first-pos]
   (let [component (.-tag parsed)
-        ;; The position of the prop map (if any).
-        head      (nth argv first-pos nil)
-        has-props (or (nil? head) (map? head))
+        [head has-props first-child] (hiccup-shape argv first-pos)
         props     (cond-> (when has-props head)
                     *source-coord* merge-source-coord-attr)
-        js-props  (or (convert-props props parsed) #js {})
-        first-child (+ first-pos (if has-props 1 0))]
+        js-props  (or (convert-props props parsed) #js {})]
     (when-some [key (get-react-key argv)]
       (set! (.-key js-props) key))
     (make-element argv component js-props first-child)))
@@ -531,12 +552,10 @@
   `[:<> & children]` or `[:<> {:key k} & children]`. Props map (if
   present) is JS-converted; only `:key` is meaningful on Fragments."
   [argv]
-  (let [head      (nth argv 1 nil)
-        has-props (or (nil? head) (map? head))
+  (let [[head has-props first-child] (hiccup-shape argv 1)
         js-props  (or (when (and has-props (some? head))
                         (convert-prop-value head))
-                      #js {})
-        first-child (+ 1 (if has-props 1 0))]
+                      #js {})]
     (when-some [key (get-react-key argv)]
       (set! (.-key js-props) key))
     (make-element argv (.-Fragment react) js-props first-child)))
