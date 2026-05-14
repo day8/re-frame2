@@ -1938,3 +1938,236 @@
                notified each time, but the observation atom stayed put"))
         (finally
           (remove-watch observed-atom ::swap-counter))))))
+
+;; ---- rf2-douii: configure! validates at the boundary ---------------------
+;;
+;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: `configure!` previously
+;; accepted any value for `:depth` and `:trace-events-keep`. A nil or
+;; non-numeric value would survive configuration and explode later at
+;; `record!` time when `pos?` / `nat-int?` ran on the stored value. The
+;; validation now sanitises at the boundary — invalid values are silently
+;; dropped, the prior valid config survives.
+
+(deftest configure-rejects-nil-depth
+  (testing "(rf/configure :epoch-history {:depth nil}) is a no-op; the
+            previously-stored depth survives"
+    (rf/configure :epoch-history {:depth 7})
+    (is (= 7 (:depth (epoch/current-config))))
+
+    (rf/configure :epoch-history {:depth nil})
+    (is (= 7 (:depth (epoch/current-config)))
+        ":depth nil silently dropped — prior 7 survives")))
+
+(deftest configure-rejects-non-numeric-depth
+  (testing "(rf/configure :epoch-history {:depth \"five\"}) is a no-op"
+    (rf/configure :epoch-history {:depth 7})
+    (rf/configure :epoch-history {:depth "five"})
+    (is (= 7 (:depth (epoch/current-config)))
+        ":depth non-numeric silently dropped")))
+
+(deftest configure-rejects-negative-depth
+  (testing "(rf/configure :epoch-history {:depth -1}) is a no-op"
+    (rf/configure :epoch-history {:depth 7})
+    (rf/configure :epoch-history {:depth -1})
+    (is (= 7 (:depth (epoch/current-config)))
+        ":depth negative silently dropped")))
+
+(deftest configure-rejects-invalid-trace-events-keep
+  (testing "(rf/configure :epoch-history {:trace-events-keep <bad>}) is a no-op"
+    (rf/configure :epoch-history {:trace-events-keep 3})
+    (is (= 3 (:trace-events-keep (epoch/current-config))))
+
+    (rf/configure :epoch-history {:trace-events-keep nil})
+    (is (= 3 (:trace-events-keep (epoch/current-config)))
+        ":trace-events-keep nil silently dropped")
+
+    (rf/configure :epoch-history {:trace-events-keep "no"})
+    (is (= 3 (:trace-events-keep (epoch/current-config)))
+        ":trace-events-keep non-numeric silently dropped")
+
+    (rf/configure :epoch-history {:trace-events-keep -5})
+    (is (= 3 (:trace-events-keep (epoch/current-config)))
+        ":trace-events-keep negative silently dropped")))
+
+(deftest configure-accepts-zero
+  (testing "depth 0 and :trace-events-keep 0 are non-negative integers
+            and must be accepted (0 has well-defined meaning — depth 0
+            disables recording; :trace-events-keep 0 drops every
+            record's :trace-events)"
+    (rf/configure :epoch-history {:depth 0})
+    (is (= 0 (:depth (epoch/current-config))))
+
+    (rf/configure :epoch-history {:trace-events-keep 0})
+    (is (= 0 (:trace-events-keep (epoch/current-config))))))
+
+(deftest configure-partial-update-rejects-bad-key-only
+  (testing "a configure call carrying one valid and one invalid key
+            applies the valid one and drops the invalid one — failure
+            in one key never poisons another"
+    (rf/configure :epoch-history {:depth 7 :trace-events-keep 4})
+    (rf/configure :epoch-history {:depth 11 :trace-events-keep nil})
+    (let [cfg (epoch/current-config)]
+      (is (= 11 (:depth cfg))
+          "the valid :depth update was applied")
+      (is (= 4 (:trace-events-keep cfg))
+          "the invalid :trace-events-keep update was dropped"))))
+
+;; ---- rf2-douii: ring-eviction interaction with restore -------------------
+;;
+;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: ring-buffer eviction and
+;; restore preconditions were each covered in isolation but never
+;; together. A restore against an epoch-id that the ring has since evicted
+;; must deterministically fail as :rf.epoch/restore-unknown-epoch with the
+;; current (post-eviction) history-size in its tags, and must leave app-db
+;; unchanged.
+
+(deftest restore-after-eviction-fails-as-unknown-epoch
+  (testing "an epoch-id that was evicted by ring-depth-cap restores as
+            :rf.epoch/restore-unknown-epoch (app-db unchanged; failure
+            tags carry the current history-size, which equals depth)"
+    (rf/configure :epoch-history {:depth 3})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    ;; Capture the epoch-id of the FIRST cascade before later cascades
+    ;; evict it. The ring depth is 3, so dispatching 4 more :inc events
+    ;; pushes the head out.
+    (let [evicted-id (-> (rf/epoch-history :test/main) first :epoch-id)]
+      (dotimes [_ 4] (rf/dispatch-sync [:inc] {:frame :test/main}))
+
+      (let [history-after (rf/epoch-history :test/main)
+            pre-restore   (rf/get-frame-db :test/main)
+            recorded      (record-trace!)
+            ok?           (rf/restore-epoch :test/main evicted-id)]
+        (is (= 3 (count history-after))
+            "ring still capped at depth 3")
+        (is (not-any? #(= evicted-id (:epoch-id %)) history-after)
+            "the captured epoch-id is no longer in history")
+        (is (false? ok?) "restore rejected — epoch evicted")
+        (is (= pre-restore (rf/get-frame-db :test/main))
+            "app-db unchanged across the rejected restore")
+
+        (let [ev (some (fn [ev]
+                         (when (= :rf.epoch/restore-unknown-epoch
+                                  (:operation ev))
+                           ev))
+                       @recorded)]
+          (is (some? ev) ":rf.epoch/restore-unknown-epoch fired")
+          (is (= :test/main      (:frame (:tags ev))))
+          (is (= evicted-id      (:epoch-id (:tags ev))))
+          (is (= 3 (:history-size (:tags ev)))
+              "history-size tag reflects the post-eviction size, not
+               the pre-eviction count"))))))
+
+;; ---- rf2-douii: depth 0 still fires listeners ----------------------------
+;;
+;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: `configure!`'s docstring
+;; documents that depth 0 'disables recording (assembled records can
+;; still fire on listeners but nothing lands in the ring buffer)'. The
+;; pre-existing `depth-zero-disables-recording` test covers only the
+;; ring side; this test pins the listener-fanout half of the contract.
+
+(deftest depth-zero-still-fires-listeners
+  (testing "depth 0 disables the ring buffer but the assembled record
+            still fans out to registered listeners"
+    (rf/configure :epoch-history {:depth 0})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-cb! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+      (is (= [] (rf/epoch-history :test/main))
+          "ring buffer is empty at depth 0")
+      (is (= 2 (count @seen))
+          "listener still received an assembled record per drain-settle")
+      (is (= [:seed :inc] (mapv :event-id @seen))
+          "records carry the per-cascade trigger event-id")
+      (is (every? #(contains? % :db-after) @seen)
+          "records carry the post-settle db-after")
+      (is (every? #(contains? % :sub-runs) @seen))
+      (is (every? #(contains? % :renders)  @seen))
+      (is (every? #(contains? % :effects)  @seen)))))
+
+;; ---- rf2-douii: rejected restore/reset paths do not mutate history /
+;; ---- do not notify listeners --------------------------------------------
+;;
+;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: the rejection tests
+;; (`restore-failure-*` / `reset-frame-db!-failure-*`) verify the trace
+;; emission and app-db stability but do NOT explicitly pin the related
+;; bookkeeping contracts:
+;;
+;;   1. A rejected restore does not append a new record to history.
+;;   2. A rejected restore does not fire registered epoch listeners.
+;;   3. A rejected reset-frame-db! does not append a new record.
+;;   4. A rejected reset-frame-db! does not fire registered listeners.
+;;
+;; A regression that swapped emission-on-failure for fanout-on-failure
+;; (or appended a synthetic failure record) would slip through the
+;; existing suite. Pin both halves explicitly.
+
+(deftest rejected-restore-does-not-touch-history-or-listeners
+  (testing "a rejected restore-epoch (unknown-epoch, the simplest
+            rejection path) leaves the history vector untouched and
+            does not fire registered listeners"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [history-before (rf/epoch-history :test/main)
+          seen           (atom [])]
+      (rf/register-epoch-cb! ::watcher (fn [r] (swap! seen conj r)))
+      (is (false? (rf/restore-epoch :test/main :no-such-epoch))
+          "restore rejected")
+
+      (is (= history-before (rf/epoch-history :test/main))
+          "history vector unchanged across the rejected restore")
+      (is (= [] @seen)
+          "no listener fanout for the rejected restore"))))
+
+(deftest rejected-reset-frame-db-does-not-touch-history-or-listeners
+  (testing "a rejected reset-frame-db! (during-drain rejection — the
+            simplest rejection path that exercises the reset surface)
+            leaves history untouched and does not fire listeners"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [history-before (rf/epoch-history :test/main)
+          seen           (atom [])
+          attempt        (atom nil)]
+      (rf/register-epoch-cb! ::watcher (fn [r] (swap! seen conj r)))
+      ;; A handler that calls reset-frame-db! synchronously during a
+      ;; drain — the during-drain precondition fails. The reset itself
+      ;; must not fan out, but the surrounding drain still settles
+      ;; normally (which appends ONE record — the one for :try-reset).
+      (rf/reg-event-db :try-reset
+        (fn [db _]
+          (reset! attempt (rf/reset-frame-db! :test/main {:n 999}))
+          db))
+      (rf/dispatch-sync [:try-reset] {:frame :test/main})
+
+      (is (false? @attempt) "reset rejected")
+      (let [history-after (rf/epoch-history :test/main)
+            new-records   (drop (count history-before) history-after)]
+        (is (= 1 (count new-records))
+            "exactly one new record — the drain settle for :try-reset
+             itself; no synthetic record from the rejected reset")
+        (is (= :try-reset (:event-id (first new-records)))
+            "the new record's event-id is :try-reset (not
+             :rf.epoch/db-replaced — the synthetic event-id the
+             reset surface would have used on success)"))
+
+      (is (= 1 (count @seen))
+          "listener fired exactly once — for the :try-reset cascade
+           settle, NOT for the rejected reset")
+      (is (= :try-reset (:event-id (first @seen)))
+          "the lone listener invocation is for the outer cascade, not
+           a synthetic reset-rejection record"))))
