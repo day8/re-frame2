@@ -108,9 +108,22 @@
 
 ;; ---- the platform predicate -----------------------------------------------
 
-(defn- fx-runs-on-platform? [meta active-platform]
+(defn runs-on-platform?
+  "Does the `:platforms` metadata permit `active-platform`?
+
+  Per Spec 011 §634-642 the `:platforms` slot applies symmetrically to
+  `reg-fx` AND `reg-cofx`. Default is `#{:client :server}` (both
+  permitted). The same predicate body answered both questions —
+  re-frame.cofx aliases this fn so the contract has one definition
+  (rf2-4ymm0 SP6)."
+  [meta active-platform]
   (let [platforms (:platforms meta #{:client :server})]
     (contains? platforms active-platform)))
+
+;; Local alias kept for internal call sites' readability — `(fx-runs-on-
+;; platform? meta plat)` reads better at `do-fx` than `(runs-on-platform?
+;; meta plat)` where the fx-vs-cofx context is implicit.
+(def ^:private fx-runs-on-platform? runs-on-platform?)
 
 ;; ---- do-fx ----------------------------------------------------------------
 

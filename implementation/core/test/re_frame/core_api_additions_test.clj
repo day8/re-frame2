@@ -122,6 +122,28 @@
       (is (= {:counter 42} @captured-db)
           "the body observed the on-create-seeded app-db"))))
 
+(deftest with-frame-rejects-vector-bindings-with-wrong-arity
+  (testing "(with-frame [...] body) with vector-but-not-2-count raises at compile time (rf2-4ymm0 CQ4)"
+    ;; `macroexpand` wraps macro-side ex-infos in a Compiler$CompilerException;
+    ;; call the expansion helper directly so we observe the structured throw
+    ;; that fires at compile time when the user types `with-frame []`.
+    (require 're-frame.core-reg-view-macro)
+    (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-frame)]
+      ;; Empty vector — easy typo of Shape 2 to omit both sides.
+      (let [e (try (expand [] '((do nil))) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e) "[] must throw")
+        (is (re-find #"with-frame: vector binding must be \[sym expr\]"
+                     (.getMessage ^Throwable e))
+            "the message carries the structured reason"))
+      ;; 3-element vector — typo of `[sym expr]` with extra tail.
+      (let [e (try (expand '[f g h] '((do nil))) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e) "[f g h] must throw")
+        (is (re-find #"with-frame: vector binding must be \[sym expr\]"
+                     (.getMessage ^Throwable e))
+            "the message carries the structured reason")))))
+
 ;; ===========================================================================
 ;; rf2-ewku — (rf/handlers kind pred-fn) filter arity
 ;; ===========================================================================
