@@ -721,6 +721,83 @@
                "form is " (marker-key->literal key))))))
 
 ;; ---------------------------------------------------------------------------
+;; JS-vs-Malli `OverflowBody` cross-encoding sanity (rf2-0zqox).
+;;
+;; `test/live-pair2-overflow.js` hand-rolls `assertOverflowBody` as a JS
+;; re-encoding of `Pair2OverflowBody`. The two encodings must agree on
+;; the same contract — that's the whole point of pinning a vocabulary
+;; conformance gate; a drift between the encodings is a vocabulary bug
+;; (a marker shape the Malli side considers valid that the JS side
+;; rejects, or vice versa). Before this gate landed, divergence could
+;; ship silently: a tightening to `Pair2OverflowBody` (e.g. promoting
+;; `:cap-tokens` from optional to required, which rf2-kn8cj just did)
+;; could pass the Malli side while the JS side hadn't been updated.
+;;
+;; The gate works by slurping the JS file and grepping for every Malli
+;; required-field substring. A field added to the Malli schema MUST
+;; appear in the JS form's hand-rolled assertions; missing a field
+;; trips this gate. Drift in the OTHER direction (JS has a check the
+;; Malli schema doesn't) is handled by the Malli schema's reject set
+;; in `overflow-empty-body-is-rejected` — together the two gates pin
+;; the cross-encoding contract from both sides.
+;;
+;; Why grep, not parse-and-execute: pulling a JS parser onto the JVM
+;; classpath to evaluate `assertOverflowBody` against a fixture would
+;; be ~50× the dependency surface for a pin that's a five-field union
+;; today. The grep set is a curated whitelist — adding a Malli field
+;; means adding one entry here; the friction is correct.
+;; ---------------------------------------------------------------------------
+
+(def ^:private live-pair2-overflow-js-rel
+  "Relative path to the hand-rolled JS assertion. Single source of truth
+  — drift here surfaces against the slurp below."
+  "tools/mcp-conformance/test/live-pair2-overflow.js")
+
+(def ^:private pair2-overflow-js-required-grep-markers
+  "Substrings the JS `assertOverflowBody` MUST contain to pin every
+  required field on `Pair2OverflowBody`. Each entry is `[malli-field
+  js-substring]` — the field for error reporting, the substring as the
+  grep target. A field added to `Pair2OverflowBody` MUST add a row
+  here; a field removed from `Pair2OverflowBody` MUST remove a row.
+  Drift surfaces as a test failure naming the missing field."
+  [[":limit :reached"
+    "body[':limit'] !== ':reached'"]
+   [":cap-tokens : int"
+    "typeof body[':cap-tokens'] !== 'number'"]
+   [":token-count : int"
+    "typeof body[':token-count'] !== 'number'"]
+   [":tool : string|keyword"
+    "typeof body[':tool'] !== 'string'"]
+   [":hint : string|keyword"
+    "typeof body[':hint'] !== 'string'"]
+   ;; Cross-field invariant: a tripped cap MUST report token-count
+   ;; STRICTLY GREATER THAN cap-tokens. The JS form pins this as a
+   ;; numeric comparison; the Malli schema doesn't model cross-field
+   ;; relationships, so this grep is the only gate on the invariant.
+   ;; A future regression that emitted a degenerate overflow with
+   ;; `:token-count == :cap-tokens` would trip here.
+   ["token-count > cap-tokens invariant"
+    "body[':token-count'] <= body[':cap-tokens']"]])
+
+(deftest js-assertOverflowBody-pins-every-pair2-overflow-required-field
+  ;; The cross-encoding sanity gate. For every required field on the
+  ;; Malli `Pair2OverflowBody` schema, the JS `assertOverflowBody`
+  ;; function MUST carry a substring that asserts the same shape.
+  ;; Missing fields trip this gate with the field name in the error.
+  (let [js-src (fx/read-source live-pair2-overflow-js-rel)]
+    (doseq [[field grep-pattern] pair2-overflow-js-required-grep-markers]
+      (testing (str "JS assertOverflowBody pins field " field)
+        (is (str/includes? js-src grep-pattern)
+            (str "Field `" field
+                 "` (Malli `Pair2OverflowBody`) is not pinned by the "
+                 "JS `assertOverflowBody` in " live-pair2-overflow-js-rel
+                 ". Looked for substring: " (pr-str grep-pattern)
+                 ".\nIf you tightened `Pair2OverflowBody`, mirror the "
+                 "change in the JS assertion; if you loosened it, "
+                 "remove the entry from "
+                 "`pair2-overflow-js-required-grep-markers`."))))))
+
+;; ---------------------------------------------------------------------------
 ;; Server-coverage pin. The set of servers each marker is contracted
 ;; against is the *current* state; this test prints it on `--verbose`
 ;; so a reviewer sees the shape. It also asserts the only servers we
