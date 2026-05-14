@@ -56,13 +56,15 @@
          ;; Mirrors the pattern in core/deps.edn, routing/deps.edn,
          ;; flows/deps.edn, and http/deps.edn. None of these is required
          ;; for production ssr builds.
-         :extra-deps  {day8/re-frame2-schemas  {:local/root "../schemas"}
-                       day8/re-frame2-flows    {:local/root "../flows"}
-                       day8/re-frame2-routing  {:local/root "../routing"}
-                       day8/re-frame2-machines {:local/root "../machines"}
+         :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
+                       day8/re-frame2-flows      {:local/root "../flows"}
+                       day8/re-frame2-routing    {:local/root "../routing"}
+                       day8/re-frame2-machines   {:local/root "../machines"}
+                       ;; rf2-try1x — silent-on-success reporter.
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this

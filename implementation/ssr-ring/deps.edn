@@ -59,13 +59,15 @@
          ;; Mirrors implementation/ssr/deps.edn :test alias — schemas /
          ;; flows / routing / machines load at ns-load time and the
          ;; reset-runtime fixture reloads them after registrar/clear-all!.
-         :extra-deps  {day8/re-frame2-schemas  {:local/root "../schemas"}
-                       day8/re-frame2-flows    {:local/root "../flows"}
-                       day8/re-frame2-routing  {:local/root "../routing"}
-                       day8/re-frame2-machines {:local/root "../machines"}
+         :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
+                       day8/re-frame2-flows      {:local/root "../flows"}
+                       day8/re-frame2-routing    {:local/root "../routing"}
+                       day8/re-frame2-machines   {:local/root "../machines"}
+                       ;; rf2-try1x — silent-on-success reporter.
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner" "--dir" "test"]}
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"]}
 
   ;; Clojars deploy (rf2-r382). Modeled on the per-feature artefacts.
   ;; The release workflow swaps :local/root → :mvn/version before

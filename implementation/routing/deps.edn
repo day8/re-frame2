@@ -46,12 +46,14 @@
          ;; during development). Pull schemas / flows / ssr in as
          ;; test-only deps so the fixture loads cleanly. Mirrors the
          ;; pattern in core/deps.edn.
-         :extra-deps  {day8/re-frame2-schemas {:local/root "../schemas"}
-                       day8/re-frame2-flows   {:local/root "../flows"}
-                       day8/re-frame2-ssr     {:local/root "../ssr"}
+         :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
+                       day8/re-frame2-flows      {:local/root "../flows"}
+                       day8/re-frame2-ssr        {:local/root "../ssr"}
+                       ;; rf2-try1x — silent-on-success reporter.
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this

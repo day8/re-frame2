@@ -234,13 +234,18 @@
   (testing "2000 SSR requests — frame registry returns to baseline, side-
             channel atoms return to baseline, heap delta is bounded"
     (let [result (load-test 2000)]
-      (println "load-test result:" result)
+      ;; Silent-on-success (rf2-try1x): the load-test result map is
+      ;; only printed when an assertion below fails. On green the
+      ;; metrics are uninteresting; on red the test name and the
+      ;; specific `(is ...)` that failed already names the dimension,
+      ;; so this stash of the full map is the triage hook.
 
       ;; (a) Frame registry — every per-request frame destroyed.
       (is (= 0 (:end-frames result))
           (str "per-request frames leaked across destroy-frame! — "
                "end-count " (:end-frames result) " > 0; the frame "
-               "record stayed in `re-frame.frame/frames` after destroy-frame!"))
+               "record stayed in `re-frame.frame/frames` after destroy-frame!"
+               "  result=" (pr-str result)))
       (is (= (:baseline-frames result) (:end-frames result))
           "frame registry returned to baseline")
 
