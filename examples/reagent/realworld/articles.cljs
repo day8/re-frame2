@@ -387,7 +387,7 @@
                   set (a same-feed reload in flight)."}
           articles-some []
   (let [articles    @(subscribe [:articles.home/active-articles])
-        refreshing? @(rf/has-tag? :realworld/articles-home :data/refreshing)]
+        refreshing? @(rf/machine-has-tag? :realworld/articles-home :data/refreshing)]
     [:<>
      (when refreshing? [:div.refresh-indicator "Refreshing…"])
      (for [article articles]
@@ -398,9 +398,9 @@
           home-page []
   (let [authed?      @(subscribe [:auth/authenticated?])
         selected-tag @(subscribe [:home/selected-tag])
-        on-user-feed? @(rf/has-tag? :realworld/articles-home :feed/user-feed)
-        on-global?    @(rf/has-tag? :realworld/articles-home :feed/global)
-        tag-filtered? @(rf/has-tag? :realworld/articles-home :filter/tagged)
+        on-user-feed? @(rf/machine-has-tag? :realworld/articles-home :feed/user-feed)
+        on-global?    @(rf/machine-has-tag? :realworld/articles-home :feed/global)
+        tag-filtered? @(rf/machine-has-tag? :realworld/articles-home :filter/tagged)
         tags          @(subscribe [:tags/data])
         render-mode   @(subscribe [:articles.home/render])]
     [:div.home-page

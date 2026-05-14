@@ -70,7 +70,7 @@
         "The output calls (rf/reg-machine ...) with a machine-id keyword and a machine-map.",
         "The machine declares :initial, :data, and :states (or :type :parallel + :regions — but for this prompt :initial + :states is the canonical shape).",
         "The machine has at least the five canonical states: :idle, :loading, :fetching, :loaded, :error.",
-        "Each in-flight state carries a :tags set that includes a shared 'in-flight'-style tag (e.g. :tags/in-flight) so a single has-tag? query answers 'anything in flight?'.",
+        "Each in-flight state carries a :tags set that includes a shared 'in-flight'-style tag (e.g. :tags/in-flight) so a single machine-has-tag? query answers 'anything in flight?'.",
         "Actions are registered as keyword entries in the top-level :actions map and referenced by keyword from transitions (not exclusively inlined as anonymous fns) — the inspectability bias.",
         "Action functions return an effect-shaped map {:data ...} (and/or {:fx ...}) — not a bare data map.",
         "The output requires re-frame.machines at the namespace top (the artefact load-hook) OR notes that requirement.",

@@ -24,7 +24,7 @@
 
    `:fsm/tags` carry the queryable connection-state predicates — the view
    asks `:websocket/connected?` and `:websocket/reconnecting?` via
-   `rf/has-tag?` without needing to know which leaf carries the
+   `rf/machine-has-tag?` without needing to know which leaf carries the
    `:connected` intent.
 
    Pattern-StaleDetection composes in twice:

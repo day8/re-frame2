@@ -10,8 +10,8 @@
      state vocabulary. `:editor/dirty?` is a draft-vs-baseline sub, not
      a state-machine concern.
    - The view's input-busy and Delete-button visibility are tag queries
-     (`(rf/has-tag? :ui/article-editor :editor/busy)` and
-     `(rf/has-tag? :ui/article-editor :editor/can-delete)`) rather than
+     (`(rf/machine-has-tag? :ui/article-editor :editor/busy)` and
+     `(rf/machine-has-tag? :ui/article-editor :editor/can-delete)`) rather than
      boolean discriminator subs.
    - The view's root is a `case` over `:article-editor/render`, a
      selector sub that consults a render-priority table against the
@@ -378,8 +378,8 @@
         body-err     @(subscribe [:editor/field-error :body])
         form-err     @(subscribe [:editor/form-error])
         submit-error @(subscribe [:editor/submit-error])
-        busy?        @(rf/has-tag? :ui/article-editor :editor/busy)
-        can-delete?  @(rf/has-tag? :ui/article-editor :editor/can-delete)]
+        busy?        @(rf/machine-has-tag? :ui/article-editor :editor/busy)
+        can-delete?  @(rf/machine-has-tag? :ui/article-editor :editor/can-delete)]
     [:div.editor-page
      [:div.container.page
       [:div.row

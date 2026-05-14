@@ -16,7 +16,7 @@ The pattern composes four primitives. Knowing which feature does what is the loa
 - **`:regions {...}`** — each region is a full state-tree (`:initial`, `:states`, optional `:always` / `:after` / `:invoke`). Transitions are **broadcast** to every region; the run-to-completion drain settles every region before commit.
 - **Shared `:data`** — one `:data` map on the machine, read and written by every region. Region keys never collide; the regions slice into the same blob.
 - **`:tags #{...}` on states** — every state may declare a set of tag keywords. The runtime maintains `(:tags snapshot)` as the union across every active region's active state's tags.
-- **`:rf/machine-has-tag?` framework sub** — answers `(rf/has-tag? :machine-id :some/tag)` as a plain boolean reaction, so views can ask tag-shaped questions without naming any state-keyword.
+- **`:rf/machine-has-tag?` framework sub** — answers `(rf/machine-has-tag? :machine-id :some/tag)` as a plain boolean reaction, so views can ask tag-shaped questions without naming any state-keyword.
 - **The render-priority vector + one selector sub** — *application code*, not framework. A vector of `{:tag :render}` pairs consulted in order; the selector sub returns the first `:render` whose `:tag` is in the snapshot's tag union. The priority lives in **data**, not in a `cond` in the root view.
 
 The single rule: declare the axes as regions; tag each state with its axis-level intent; resolve the render selection in **one** selector sub over a data-shaped priority table.
@@ -92,7 +92,7 @@ The render-priority table and selector sub:
             render-priority))))
 ```
 
-The root view branches once, in a `case`, on the resolved keyword. Disabled-attribute toggles read tags directly via `(rf/has-tag? :ui/nine-states :mode/read-only)` rather than going through `:ui/render`.
+The root view branches once, in a `case`, on the resolved keyword. Disabled-attribute toggles read tags directly via `(rf/machine-has-tag? :ui/nine-states :mode/read-only)` rather than going through `:ui/render`.
 
 ## Canonical rules — short form
 

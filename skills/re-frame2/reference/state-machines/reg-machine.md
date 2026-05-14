@@ -119,10 +119,10 @@ The framework ships two subs:
 
 ```clojure
 @(rf/sub-machine :my/feature)                  ;; the whole snapshot
-@(rf/has-tag? :my/feature :loading)            ;; tag containment-bit
+@(rf/machine-has-tag? :my/feature :loading)            ;; tag containment-bit
 ```
 
-`sub-machine` is sugar over `(subscribe [:rf/machine machine-id])` and returns the snapshot map `{:state ... :data ... :tags ...}`. `has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` — see `tags.md`. Both live in `implementation/core/src/re_frame/core.cljc:1076-1098`.
+`sub-machine` is sugar over `(subscribe [:rf/machine machine-id])` and returns the snapshot map `{:state ... :data ... :tags ...}`. `machine-has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` — see `tags.md`. Both live in `implementation/core/src/re_frame/core.cljc:1076-1098`.
 
 Project off the snapshot with ordinary `reg-sub`:
 
@@ -153,4 +153,4 @@ For the full transition-table grammar, guard/action effect-map shape, hierarchic
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (registration + transition table) and `implementation/core/src/re_frame/core.cljc` (the `reg-machine` macro + `sub-machine` / `has-tag?` sugar) @ main `89bd9c3`. Re-verify line numbers after machine-registration refactors (e.g. rf2-oz9t nested-validation).*
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (registration + transition table) and `implementation/core/src/re_frame/core.cljc` (the `reg-machine` macro + `sub-machine` / `machine-has-tag?` sugar) @ main `89bd9c3`. Re-verify line numbers after machine-registration refactors (e.g. rf2-oz9t nested-validation).*

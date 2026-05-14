@@ -16,7 +16,7 @@
    - State tags (Spec 005 §State tags)     — :auth/busy on :submitting,
                                               :auth/authenticated on :authed.
                                               Views query them via
-                                              `(rf/has-tag? :auth.login/flow ...)`
+                                              `(rf/machine-has-tag? :auth.login/flow ...)`
                                               instead of boolean-discriminator
                                               subs.
    - Open-map idiom                        — every shape on the wire is an open map
@@ -231,7 +231,7 @@
                                 :action :clear-error}}}
 
       :submitting
-      ;; :auth/busy tag — views query (rf/has-tag? :auth.login/flow
+      ;; :auth/busy tag — views query (rf/machine-has-tag? :auth.login/flow
       ;; :auth/busy) to disable inputs and re-label the submit button
       ;; while the request is in flight.
       {:tags  #{:auth/busy}
@@ -276,7 +276,7 @@
 ;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
 ;; "in :submitting?" and "in :authed?" predicates moved to the
-;; `rf/has-tag?` queries in views below (per Spec 005 §State tags).
+;; `rf/machine-has-tag?` queries in views below (per Spec 005 §State tags).
 
 (rf/reg-sub :auth.login/state
   {:doc "Current state of the login flow."}
@@ -304,7 +304,7 @@
           login-form []
   (let [state (atom {:email "" :password ""})]
     (fn []
-      (let [busy? @(rf/has-tag? :auth.login/flow :auth/busy)
+      (let [busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)
             err   @(subscribe [:auth.login/error])]
         [:form.login-form
          {:data-testid "login-form"
@@ -328,7 +328,7 @@
 
 (reg-view ^{:doc "Shows the user's logged-in state and a sign-out button."}
           login-banner []
-  (let [authed? @(rf/has-tag? :auth.login/flow :auth/authenticated)]
+  (let [authed? @(rf/machine-has-tag? :auth.login/flow :auth/authenticated)]
     [:div.banner {:data-testid "login-banner"}
      (if authed?
        [:span "Welcome!"]

@@ -15,7 +15,7 @@
             [nine-states.core])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
-(defn- has-tag?
+(defn- machine-has-tag?
   "Read the machine's tag union against a frame's app-db."
   [frame tag]
   (contains? (get-in (rf/get-frame-db frame)
@@ -37,8 +37,8 @@
 
 (defn test-state-1-nothing []
   (with-frame [f (new-frame)]
-    (is       (has-tag?    f :data/nothing))
-    (is (not  (has-tag?    f :data/loading)))
+    (is       (machine-has-tag?    f :data/nothing))
+    (is (not  (machine-has-tag?    f :data/loading)))
     (is (=    :nothing     (render-model f)))))
 
 (defn test-state-2-loading []
@@ -46,40 +46,40 @@
   ;; dispatching :fetch-started directly (without a follow-up reply).
   (with-frame [f (new-frame)]
     (rf/dispatch-sync [:ui/nine-states [:fetch-started]] {:frame f})
-    (is       (has-tag?    f :data/loading))
-    (is       (has-tag?    f :data/transient))
+    (is       (machine-has-tag?    f :data/loading))
+    (is       (machine-has-tag?    f :data/transient))
     (is (=    :loading     (render-model f)))))
 
 (defn test-state-3-empty []
   (with-frame [f (new-frame)]
     (rf/dispatch-sync [:nine-states.demo/load {:n 0}] {:frame f})
-    (is       (has-tag?    f :data/empty))
-    (is (not  (has-tag?    f :data/one)))
+    (is       (machine-has-tag?    f :data/empty))
+    (is (not  (machine-has-tag?    f :data/one)))
     (is (=    :empty       (render-model f)))))
 
 (defn test-state-4-one []
   (with-frame [f (new-frame)]
     (rf/dispatch-sync [:nine-states.demo/load {:n 1}] {:frame f})
-    (is       (has-tag?    f :data/one))
+    (is       (machine-has-tag?    f :data/one))
     (is (=    :one         (render-model f)))))
 
 (defn test-state-5-some []
   (with-frame [f (new-frame)]
     (rf/dispatch-sync [:nine-states.demo/load {:n 4}] {:frame f})
-    (is       (has-tag?    f :data/some))
+    (is       (machine-has-tag?    f :data/some))
     (is (=    :some        (render-model f)))))
 
 (defn test-state-6-too-many []
   (with-frame [f (new-frame)]
     (rf/dispatch-sync [:nine-states.demo/load {:n 25}] {:frame f})
-    (is       (has-tag?    f :data/too-many))
+    (is       (machine-has-tag?    f :data/too-many))
     (is (=    :too-many    (render-model f)))))
 
 (defn test-state-7-incorrect []
   (with-frame [f (new-frame)]
     (rf/dispatch-sync [:new-todo/edit-field :title "ab"] {:frame f})
     (rf/dispatch-sync [:new-todo/submit] {:frame f})
-    (is       (has-tag?    f :form/invalid))
+    (is       (machine-has-tag?    f :form/invalid))
     (is (=    :incorrect   (render-model f)))))
 
 (defn test-state-8-correct []
@@ -90,8 +90,8 @@
     ;; Tags reflect the overlap honestly: :form/success AND :data/one
     ;; are both true simultaneously. The render-priority table
     ;; resolves it: :correct wins.
-    (is       (has-tag?    f :form/success))
-    (is       (has-tag?    f :data/one))
+    (is       (machine-has-tag?    f :form/success))
+    (is       (machine-has-tag?    f :data/one))
     (is (=    :correct     (render-model f)))))
 
 (defn test-state-9-done []
@@ -101,6 +101,6 @@
     (let [snap (get-in (rf/get-frame-db f) [:rf/machines :ui/nine-states])]
       (is (= :done (get-in snap [:state :mode])))
       (is (= 1    (get-in snap [:data :archived-at]))))
-    (is       (has-tag?    f :mode/done))
-    (is       (has-tag?    f :mode/read-only))
+    (is       (machine-has-tag?    f :mode/done))
+    (is       (machine-has-tag?    f :mode/read-only))
     (is (=    :done        (render-model f)))))

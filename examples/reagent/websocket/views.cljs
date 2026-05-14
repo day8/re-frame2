@@ -10,7 +10,7 @@
    Two things to notice as you read the views:
 
    1. The status indicator reads `:websocket/connected`,
-      `:websocket/reconnecting`, `:websocket/failed` via `rf/has-tag?` —
+      `:websocket/reconnecting`, `:websocket/failed` via `rf/machine-has-tag?` —
       the view doesn't need to know *which* leaf carries the
       `:connected` intent, only that the tag is present. This is what
       `:fsm/tags` buys.

@@ -21,7 +21,7 @@ A re-frame2 state machine declares the states once; tags label the per-state int
 
 ## The canonical fix
 
-[`skills/re-frame2/reference/state-machines/tags.md`](../../re-frame2/reference/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then use `@(rf/has-tag? machine-id tag)` (or a single render-priority selector sub) instead of the boolean cluster.
+[`skills/re-frame2/reference/state-machines/tags.md`](../../re-frame2/reference/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then use `@(rf/machine-has-tag? machine-id tag)` (or a single render-priority selector sub) instead of the boolean cluster.
 
 For full page-level rendering with cardinality buckets, [`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md) is the canonical pattern.
 
@@ -59,10 +59,10 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
 
 (defn article-page []
   (cond
-    @(rf/has-tag? :article :article/loading) [spinner]
-    @(rf/has-tag? :article :article/error)   [error-banner]
-    @(rf/has-tag? :article :article/empty)   [empty-state]
-    @(rf/has-tag? :article :article/loaded)  [article-body]))
+    @(rf/machine-has-tag? :article :article/loading) [spinner]
+    @(rf/machine-has-tag? :article :article/error)   [error-banner]
+    @(rf/machine-has-tag? :article :article/empty)   [empty-state]
+    @(rf/machine-has-tag? :article :article/loaded)  [article-body]))
 ```
 
 ## Edge cases — when boolean subs are fine

@@ -39,7 +39,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   ├── state-machines/
 > │   │   ├── reg-machine.md       (states, initial, guards, actions)
 > │   │   ├── regions.md           (single-region + :type :parallel)
-> │   │   ├── tags.md              (state tags, has-tag?)
+> │   │   ├── tags.md              (state tags, machine-has-tag?)
 > │   │   ├── invoke.md            (:invoke, :invoke-all, child-machine result)
 > │   │   └── cancellation.md      (destroy cascade, cleanup contract)
 > │   ├── tooling/

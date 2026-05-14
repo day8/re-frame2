@@ -2,7 +2,7 @@
   "Login-form testbed subs (rf2-0sg12).
 
   Two named subs project out the convenient pieces of the machine's
-  `:data` slot; the view also uses two `rf/has-tag?` framework subs
+  `:data` slot; the view also uses two `rf/machine-has-tag?` framework subs
   for `:auth/busy` and `:auth/authenticated`. Per Spec 005 §State
   tags the tag queries replace the boolean-discriminator subs the
   pre-machines style would have used (`:submitting?` /

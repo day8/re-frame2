@@ -91,7 +91,7 @@
                               :action :clear-error}}}
 
     :submitting
-    ;; :auth/busy tag — views query (rf/has-tag? :auth.login/flow
+    ;; :auth/busy tag — views query (rf/machine-has-tag? :auth.login/flow
     ;; :auth/busy) to disable inputs and re-label the submit button
     ;; while the request is in flight (ch.09 §State tags).
     {:tags  #{:auth/busy}
@@ -110,14 +110,14 @@
 
     :authed
     ;; :auth/authenticated tag — views query
-    ;; (rf/has-tag? :auth.login/flow :auth/authenticated) once the
+    ;; (rf/machine-has-tag? :auth.login/flow :auth/authenticated) once the
     ;; flow reaches this terminal state.
     {:tags #{:auth/authenticated}
      :meta {:terminal? true}}
 
     :locked-out
     ;; :auth/locked tag — root-view swaps the form for the locked-out
-    ;; panel when (rf/has-tag? :auth.login/flow :auth/locked) is true.
+    ;; panel when (rf/machine-has-tag? :auth.login/flow :auth/locked) is true.
     {:tags #{:auth/locked}
      :meta {:terminal? true}}}})
 
@@ -153,7 +153,7 @@
 ;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
 ;; "in :submitting?" / "in :authed?" / "in :locked-out?" predicates
-;; moved to the `rf/has-tag?` queries in views.cljs (ch.09 §State
+;; moved to the `rf/machine-has-tag?` queries in views.cljs (ch.09 §State
 ;; tags) — discriminating on the machine's runtime-projected `:tags`
 ;; set decouples view code from individual state-keyword identity.
 

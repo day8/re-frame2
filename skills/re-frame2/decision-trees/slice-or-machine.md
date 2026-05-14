@@ -124,7 +124,7 @@ If the example contradicts the leaf you'd pick from this tree, **the example win
 - [`pick-a-pattern.md`](./pick-a-pattern.md) — pattern choice (orthogonal to state-shape choice).
 - [`../reference/state-machines/reg-machine.md`](../reference/state-machines/reg-machine.md) — how to author `reg-machine` (states / initial / guards / actions).
 - [`../reference/state-machines/regions.md`](../reference/state-machines/regions.md) — single-region and `:type :parallel` regions.
-- [`../reference/state-machines/tags.md`](../reference/state-machines/tags.md) — `:tags` on states + `has-tag?` query.
+- [`../reference/state-machines/tags.md`](../reference/state-machines/tags.md) — `:tags` on states + `machine-has-tag?` query.
 - [`../reference/state-machines/invoke.md`](../reference/state-machines/invoke.md) — `:invoke` and `:invoke-all` for child machines.
 - [`../reference/state-machines/cancellation.md`](../reference/state-machines/cancellation.md) — the actor-destroy cascade.
 - [`../reference/fundamentals/events.md`](../reference/fundamentals/events.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.

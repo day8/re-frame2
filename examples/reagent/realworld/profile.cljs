@@ -394,7 +394,7 @@
           profile-loaded []
   (let [profile     @(subscribe [:profile/data])
         own?        @(subscribe [:profile/own-profile?])
-        on-favs?    @(rf/has-tag? :ui/profile :tab/favorites)
+        on-favs?    @(rf/machine-has-tag? :ui/profile :tab/favorites)
         articles*   @(subscribe [:profile/current-articles])]
     [:<>
      [:div.user-info
