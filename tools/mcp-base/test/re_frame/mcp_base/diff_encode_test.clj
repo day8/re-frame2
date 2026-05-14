@@ -60,6 +60,28 @@
 (deftest apply-patches-dissoc-at-root-via-direct-path
   (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
 
+(deftest apply-patches-applies-in-order-for-same-path
+  ;; Regression pin (rf2-cwqc8 / round-2 F18): when two patches target
+  ;; the same path, the later one wins — `reduce` over the patch
+  ;; sequence applies them in order so a later `:assoc` overrides an
+  ;; earlier one, and a `:dissoc` after an `:assoc` clears the value.
+  ;; pair2-mcp's diff_encode_epochs_test pinned this; the base's own
+  ;; test set didn't. Mirror the contract here so any future encoder
+  ;; refactor that flips the iteration order trips this gate before
+  ;; reaching the consumers.
+  (testing "later :assoc overrides earlier :assoc at same path"
+    (is (= {:a 99}
+           (de/apply-patches {} [[[:a] :assoc 1]
+                                 [[:a] :assoc 99]]))))
+  (testing ":dissoc after :assoc clears the value"
+    (is (= {}
+           (de/apply-patches {} [[[:a] :assoc 1]
+                                 [[:a] :dissoc]]))))
+  (testing ":assoc after :dissoc reinstates the value"
+    (is (= {:a 7}
+           (de/apply-patches {:a 1} [[[:a] :dissoc]
+                                     [[:a] :assoc 7]])))))
+
 ;; ---------------------------------------------------------------------------
 ;; diff-encode-db-after / decode-db-after — round-trip.
 ;; ---------------------------------------------------------------------------

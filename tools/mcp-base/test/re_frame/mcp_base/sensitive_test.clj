@@ -143,3 +143,39 @@
   (let [[out dropped] (sensitive/scrub-snapshot nil false)]
     (is (nil? out))
     (is (zero? dropped))))
+
+(deftest scrub-snapshot-handles-lazy-seq-slice-values
+  ;; Regression pin (rf2-cwqc8 / round-2 F17): `:traces` and `:epochs`
+  ;; arrive as vectors in the typical runtime emission, but the
+  ;; instrumentation API doesn't guarantee that — a slice composed via
+  ;; `concat` / `map` / `filter` produces a lazy seq. The `(vec items)`
+  ;; wrap inside `scrub-slice` normalises before `strip-sensitive`
+  ;; runs; this test pins the contract so a future refactor that
+  ;; removes the wrap doesn't silently break the lazy-input case.
+  (let [snap   {:rf/default
+                {:traces (map identity [{:id 1 :sensitive? false}
+                                        {:id 2 :sensitive? true}
+                                        {:id 3}])
+                 :epochs (filter (constantly true)
+                                 [{:event-id :foo}
+                                  {:event-id :auth/sign-in :sensitive? true}])}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (= 2 dropped))
+    (is (= [{:id 1 :sensitive? false} {:id 3}]
+           (get-in out [:rf/default :traces])))
+    (is (= [{:event-id :foo}]
+           (get-in out [:rf/default :epochs])))))
+
+(deftest scrub-snapshot-strip-fn-arity-delegates-to-custom-predicate
+  ;; rf2-zpmmr: the three-arity form admits a caller-supplied strip-fn
+  ;; matching the `[items include?] => [kept dropped]` contract. Pin
+  ;; the contract so a future refactor of the helper can't silently
+  ;; drop the delegation.
+  (let [strip-by-id-2 (fn [items _include?]
+                        (let [kept (filterv #(not= 2 (:id %)) items)
+                              n    (- (count items) (count kept))]
+                          [kept n]))
+        snap          {:rf/default {:traces [{:id 1} {:id 2} {:id 3} {:id 2}]}}
+        [out dropped] (sensitive/scrub-snapshot snap false strip-by-id-2)]
+    (is (= 2 dropped))
+    (is (= [{:id 1} {:id 3}] (get-in out [:rf/default :traces])))))
