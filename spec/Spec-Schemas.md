@@ -226,6 +226,8 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
 
 `:rf/args` / `:rf/form` are stamped by the `reg-view` macro at expansion time; `reg-view*` (the plain-fn surface) carries neither — programmatic registrations have no args-vector to capture (per [004 §`reg-view*` — the plain-fn escape hatch](004-Views.md#reg-view--the-plain-fn-escape-hatch)). `:rf/props` is an optional user-supplied props schema; in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
+**Note — Story's `:schema` legacy alias.** The Story tool (`tools/story/`) currently reads `:spec` and falls back to `:schema` (legacy alias) on view registrations — see [`tools/story/src/re_frame/story/ui/schema_validation.cljc`](../tools/story/src/re_frame/story/ui/schema_validation.cljc). The canonical key per `:rf/view-meta` is `:spec`; the `:schema` alias is a Story-internal accommodation acknowledged here only for discoverability. The framework itself recognises only `:spec`; tools authoring per Story conformance should use `:spec`. Pre-alpha: no back-compat shim — a follow-on bead will either remove the Story-side alias or formalise it as a per-tool extension key.
+
 #### `:rf/machine-meta`
 
 > **Layer:** Public
