@@ -303,6 +303,22 @@
 (defn chip-states
   "Map `chip-state` over a vector of pins. Returns a vector of chip
   presentation maps. Order preserved (insertion order matches the
-  pin-store vector)."
+  pin-store vector).
+
+  Builds the `{epoch-id → index}` map once (O(N) walk over history)
+  and looks up per pin in O(1); previously `chip-state` re-walked
+  history per pin (32 pins × N history = N×M). At the spec's caps
+  (200 epochs × 32 pins) that's 6400 ops collapsed to 232."
   [history pins]
-  (mapv #(chip-state history %) pins))
+  (let [index-by-id (into {}
+                          (keep-indexed
+                            (fn [i r]
+                              (when-let [eid (:epoch-id r)]
+                                [eid i])))
+                          history)]
+    (mapv (fn [pin]
+            (let [idx (get index-by-id (:epoch-id pin))]
+              {:pin      pin
+               :attached (some? idx)
+               :index    idx}))
+          pins)))

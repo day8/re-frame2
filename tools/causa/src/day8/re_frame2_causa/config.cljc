@@ -215,14 +215,14 @@
    (reset! suppressed-counters {})
    #?(:cljs
       (when (frame/frame :rf/causa)
-        (binding [frame/*current-frame* :rf/causa]
+        (rf/with-frame :rf/causa
           (rf/dispatch [:rf.causa/reset-suppressed-counters]))))
    nil)
   ([frame-id]
    (swap! suppressed-counters dissoc (or frame-id :global))
    #?(:cljs
       (when (frame/frame :rf/causa)
-        (binding [frame/*current-frame* :rf/causa]
+        (rf/with-frame :rf/causa
           (rf/dispatch [:rf.causa/reset-suppressed-counters frame-id]))))
    nil))
 

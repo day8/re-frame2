@@ -5,7 +5,7 @@
   this namespace is the *one* import users reach for. It re-exports the
   small handful of programmatic entry points enumerated by the spec —
   `init!` / `open!` / `close!` / `toggle!` / `popout!` /
-  `active-frame` + `set-active-frame!` / `active-panel` +
+  `target-frame` + `set-target-frame!` / `active-panel` +
   `set-active-panel!` / `load-theme` — plus the boot-time config knob
   surface exposed by `config.cljc` (`configure!` / `set-editor!` /
   `set-show-sensitive!`).
@@ -119,25 +119,29 @@
 
 ;; ---- frame picker -------------------------------------------------------
 
-(defn active-frame
-  "Return the frame currently selected in the Causa frame picker — the
-  host frame the scrubber / app-db / machine-inspector panels are
-  observing. Defaults to `:rf/default` (per
-  `day8.re-frame2-causa.defaults/default-target-frame`) until
-  `set-active-frame!` flips it.
+(defn target-frame
+  "Return the host frame Causa is currently targeting — the frame the
+  scrubber / app-db / machine-inspector panels are observing. Defaults
+  to `:rf/default` (per `day8.re-frame2-causa.defaults/default-target-
+  frame`) until `set-target-frame!` flips it.
 
   One-shot read; does NOT register the caller for reactive re-render.
-  Reactive consumers subscribe to `:rf.causa/target-frame` directly."
+  Reactive consumers subscribe to `:rf.causa/target-frame` directly.
+
+  Named parallel to the underlying `:rf.causa/target-frame` sub +
+  `:rf.causa/set-target-frame` event (and the `set-target-frame!`
+  setter below) so the facade name matches runtime reality. Prior to
+  rf2-kmhvg the fn was `active-frame` — the rename eliminates the
+  `active` / `target` split."
   []
   (rf/with-frame :rf/causa
     (rf/subscribe-once [:rf.causa/target-frame])))
 
-(defn set-active-frame!
-  "Set the active target frame for the Causa picker. Dispatches
-  `:rf.causa/set-target-frame` into the `:rf/causa` frame so the
-  `:rf.causa/target-frame` sub and every dependent panel re-fire on
-  the standard reactive path. `nil` resets to the default
-  (`:rf/default`).
+(defn set-target-frame!
+  "Set the host frame Causa targets. Dispatches `:rf.causa/set-target-
+  frame` into the `:rf/causa` frame so the `:rf.causa/target-frame`
+  sub and every dependent panel re-fire on the standard reactive
+  path. `nil` resets to the default (`:rf/default`).
 
   Returns nothing."
   [frame-id]

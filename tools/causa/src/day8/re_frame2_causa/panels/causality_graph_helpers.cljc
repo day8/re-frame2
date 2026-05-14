@@ -307,17 +307,20 @@
         ;; happen given enrich-cascades' invariants, but keeps the
         ;; helper total over arbitrary input).
         missed     (remove (set walk-order) all-ids)
-        full-order (into walk-order missed)
-        ;; Per-level column counter. Each new id at level `lvl` gets
-        ;; the next unused column within its level.
-        per-level  (atom {})]
-    (into {}
-          (for [id full-order
-                :let [lvl (get level-of id 0)
-                      col (get @per-level lvl 0)]]
-            (do
-              (swap! per-level update lvl (fnil inc 0))
-              [id col])))))
+        full-order (into walk-order missed)]
+    ;; Per-level column counter via a reduce — each new id at level
+    ;; `lvl` gets the next unused column within its level. The earlier
+    ;; (atom {}) + lazy `for` shape risked re-realisation reordering
+    ;; the column counter; reduce + state map makes the helper purely
+    ;; data → data with no hidden mutable cell.
+    (:cols (reduce (fn [{:keys [counts cols] :as state} id]
+                     (let [lvl (get level-of id 0)
+                           col (get counts lvl 0)]
+                       (-> state
+                           (assoc-in [:counts lvl] (inc col))
+                           (assoc-in [:cols id] col))))
+                   {:counts {} :cols {}}
+                   full-order))))
 
 (defn compute-layout
   "Compute pixel positions for every node in the graph.

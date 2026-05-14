@@ -535,7 +535,7 @@
     :<- [:rf.causa/sub-chain-open?]
     (fn [[sub-cache history error-cache selected-q-v filters chain-open?]
          _query]
-      (let [latest-epoch    (peek (vec history))
+      (let [latest-epoch    (peek history)
             sub-runs        (:sub-runs latest-epoch)
             ;; v1 has no first-class :changed-paths slot on the
             ;; epoch-record yet (a follow-on will surface it); fall

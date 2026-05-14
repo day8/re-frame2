@@ -162,6 +162,35 @@ const ARTEFACTS = [
     expectedAllowListHits: 2,
   },
 
+  // Epoch artefact (rf2-69ad2 split — re-frame.epoch lives at
+  // implementation/epoch/). Causa's preload.cljs `:requires`
+  // re-frame.epoch to anchor it onto the dev classpath so every
+  // Causa-enabled build has working time-travel; the preload is
+  // dev-only (gated by shadow-cljs `:devtools/preloads`) so the
+  // anchor must NOT pull epoch into a production bundle. This entry
+  // pins that contract — if a host or a refactor accidentally
+  // `:requires` re-frame.epoch from production-classpath code, the
+  // sentinel below will appear in the counter bundle and this check
+  // fails (per audit rf2-i0veg §5c).
+  {
+    name: 'epoch',
+    internalSentinels: [
+      // epoch.cljc — restore-schema-mismatch trace op-name (a string
+      // literal inside `enabled-ops` and emitted from the restore
+      // path). Unique to epoch.cljc; survives :advanced (string
+      // literals are not renamed).
+      { source: 're-frame.epoch (rf.epoch/restore-schema-mismatch)',
+        sentinel: 'rf.epoch/restore-schema-mismatch' },
+      // epoch.cljc — restore-during-drain trace op-name. Same
+      // contract; second sentinel guards against a future rename
+      // of one but not the other.
+      { source: 're-frame.epoch (rf.epoch/restore-during-drain)',
+        sentinel: 'rf.epoch/restore-during-drain' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   {
     name: 'ssr',
     internalSentinels: [

@@ -18,7 +18,7 @@
      contract: calling `attach!` twice attaches one listener; calling
      `detach!` flips the sentinel back so a subsequent `attach!`
      installs again. We assert the sentinel through the public
-     `attached?*` read-accessor and count listener attachments on a
+     `attached?` read-accessor and count listener attachments on a
      stubbed `js/document`.
 
   ## Why these tests run on node-test (not browser-test)
@@ -68,7 +68,7 @@
 ;; duration of `with-stub-document`; counters expose the listener-
 ;; attach state so we can assert the idempotency contract directly
 ;; against `addEventListener` invocation counts (belt-and-braces beside
-;; the `attached?*` accessor).
+;; the `attached?` accessor).
 
 (defn- mk-stub-document []
   (let [listeners (atom [])]
@@ -285,15 +285,15 @@
             double-firing the toggle"
     (with-stub-document
       (fn [{:keys [listeners]}]
-        (is (false? (keybinding/attached?*))
+        (is (false? (keybinding/attached?))
             "baseline — sentinel starts at false (defonce reset by the fixture)")
         (keybinding/attach!)
-        (is (true? (keybinding/attached?*))
+        (is (true? (keybinding/attached?))
             "first attach! flips the sentinel")
         (is (= 1 (count @listeners))
             "first attach! installs exactly one listener")
         (keybinding/attach!)
-        (is (true? (keybinding/attached?*))
+        (is (true? (keybinding/attached?))
             "sentinel stays true on the second call")
         (is (= 1 (count @listeners))
             "second attach! is a no-op — listener count unchanged")
@@ -313,12 +313,12 @@
         (keybinding/attach!)
         (is (= 1 (count @listeners)))
         (keybinding/detach!)
-        (is (false? (keybinding/attached?*))
+        (is (false? (keybinding/attached?))
             "detach! flips the sentinel back to false")
         (is (zero? (count @listeners))
             "detach! removes the listener")
         (keybinding/attach!)
-        (is (true? (keybinding/attached?*))
+        (is (true? (keybinding/attached?))
             "re-attach succeeds after detach")
         (is (= 1 (count @listeners))
             "exactly one listener installed after re-attach")))))
@@ -328,9 +328,9 @@
             not throw, does not flip the sentinel below false)"
     (with-stub-document
       (fn [{:keys [listeners]}]
-        (is (false? (keybinding/attached?*)))
+        (is (false? (keybinding/attached?)))
         (keybinding/detach!)
-        (is (false? (keybinding/attached?*))
+        (is (false? (keybinding/attached?))
             "sentinel remains false")
         (is (zero? (count @listeners))
             "no listener was added or removed")))))
@@ -341,9 +341,9 @@
     ;; This is the bare-node-test runtime; no stub installed. The
     ;; (exists? js/document) guard in attach! must short-circuit.
     (when-not (exists? js/document)
-      (is (false? (keybinding/attached?*)))
+      (is (false? (keybinding/attached?)))
       (keybinding/attach!)
-      (is (false? (keybinding/attached?*))
+      (is (false? (keybinding/attached?))
           "without js/document the sentinel must NOT flip — otherwise
           a subsequent stub-driven attach! would falsely think it had
           already wired up"))))
