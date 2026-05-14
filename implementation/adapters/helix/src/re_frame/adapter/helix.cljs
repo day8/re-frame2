@@ -1,24 +1,16 @@
 (ns re-frame.adapter.helix
-  "The Helix adapter — the third canonical browser substrate (rf2-2qit).
-  Per Spec 006 §CLJS reference: Helix as alternative substrate.
+  "The Helix adapter — the third canonical browser substrate. Per Spec
+  006 §CLJS reference: Helix as alternative substrate.
 
-  Ships in its own Maven artefact (day8/re-frame2-helix) per
-  Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use Helix
-  depend on both day8/re-frame2 (core) and this artefact; apps
-  targeting Reagent depend on day8/re-frame2-reagent instead; apps
-  targeting UIx depend on day8/re-frame2-uix instead. Core does
-  *not* :require this ns — the dependency direction is adapter → core.
+  Ships in its own artefact (day8/re-frame2-helix). Dependency
+  direction is adapter → core; core does NOT `:require` this ns.
 
-  Per rf2-2qit Decision 2 the React frame-context lives in
-  `re-frame.adapter.context` (CLJS-only file in core); this adapter
-  consumes the *same* createContext object the Reagent and UIx
-  adapters consume, so a future mixed-substrate app's frame-provider
-  chain composes across substrates.
+  The React frame-context lives in `re-frame.adapter.context` (CLJS-
+  only file in core); this adapter consumes the SAME createContext
+  object the Reagent and UIx adapters consume.
 
-  Per rf2-2qit Decision 8 we target the Helix 0.2.x line. The eight
-  decisions transferred from rf2-3yij (the UIx adapter) carry over
-  unchanged — Helix is structurally similar to UIx (React + hooks; no
-  reactive-atom primitive)."
+  Targets the Helix 0.2.x line. Helix is structurally similar to UIx
+  (React + hooks; no reactive-atom primitive)."
   (:require ["react"             :as React]
             ["react-dom/client"  :as react-dom-client]
             [reagent.core        :as r]
@@ -36,8 +28,8 @@
 ;;
 ;; Per Spec 006 §revertibility-constraints the container holds the
 ;; frame's app-db value and *only* the frame's app-db value. Helix
-;; itself doesn't ship a reactive atom primitive (it is the
-;; minimal-React-wrapper niche per the rf2-2qit bead) so we lean on a
+;; itself doesn't ship a reactive atom primitive (minimal-React-wrapper
+;; niche) so we lean on a
 ;; plain `clojure.core/atom` and broadcast changes via `add-watch` —
 ;; observably equivalent to the Reagent adapter's r/atom for the
 ;; substrate contract surface (read, replace, subscribe). Reactive
@@ -167,21 +159,17 @@
                      :render-tree render-tree}))))
 
 ;; ---- context provider -----------------------------------------------------
-;;
-;; Per rf2-2qit Decision 2 we share the same React.createContext object
-;; with the Reagent and UIx adapters (it lives in
-;; re-frame.adapter.context). Helix components consume it via
-;; `helix-hooks/use-context`; the Provider is the same React Provider
-;; component the other adapters target.
+;; Shares the same `React.createContext` object with the Reagent and
+;; UIx adapters (`re-frame.adapter.context`).
 
 (defn use-current-frame
   "Helix hook returning the current frame keyword from the surrounding
   React context, or `:rf/default` when no frame-provider sits above.
 
   This is the Helix counterpart of `re-frame.views/current-frame`'s
-  React-context tier — Decision 2 mandates every React-shaped adapter
-  resolves the *same* context, so a Helix subtree under a Reagent or
-  UIx frame-provider sees the right frame and vice versa."
+  React-context tier; sharing the same React Context across adapters
+  means a Helix subtree under a Reagent or UIx frame-provider sees the
+  right frame and vice versa."
   []
   (helix-hooks/use-context adapter-context/frame-context))
 
@@ -193,9 +181,8 @@
   `frame-provider` is.
 
   Reads `:frame` from props. When missing or `nil`, falls through to
-  `:rf/default` (per rf2-sixo — defensive default that matches the
-  no-provider behaviour and avoids breaking tooling-generated trees
-  that elide the prop).
+  `:rf/default` — matches the no-provider behaviour and avoids breaking
+  tooling-generated trees that elide the prop.
 
   Helix call shape:
 
@@ -203,43 +190,25 @@
                          :children [($ header) ($ main)]})
 
   Same surface as the Reagent and UIx variants, different rendering
-  substrate. The three adapters share one React Context (per rf2-3yij
-  Decision 2) so a subtree under any frame-provider sees the right
-  frame regardless of which substrate rendered the provider."
+  substrate. The three adapters share one React Context so a subtree
+  under any frame-provider sees the right frame regardless of which
+  substrate rendered the provider."
   [{:keys [frame children]}]
   (let [frame-kw (or frame :rf/default)]
     (apply adapter-context/provider-element frame-kw
            (if (sequential? children) children [children]))))
 
 (defn- register-context-provider [_frame-keyword]
-  ;; Same shape as the Reagent and UIx adapters: returns a built
-  ;; component (here, a React-element-producing fn). The arg is ignored
-  ;; because the frame keyword lives in the Provider's :value at render
-  ;; time (rf2-4y60), not in a build-time closure.
+  ;; Returns the built component. The arg is ignored — the frame
+  ;; keyword lives in the Provider's `:value` at render time.
   frame-provider)
 
 ;; ---- subscription hook ----------------------------------------------------
-;;
-;; Per Spec 006 §subscription-cache and rf2-2qit Decision 1 (transferred
-;; from rf2-3yij), `use-subscribe` is the Helix-idiomatic hook surface
-;; for reading a sub. It wraps React.useSyncExternalStore so updates
-;; are scheduled by React's concurrent renderer rather than Reagent's
-;; per-component scheduler. Helix doesn't ship a use-syncExternalStore
-;; wrapper of its own (it is the minimal-React-wrapper niche), so we
-;; use React's hook directly — same path the UIx adapter takes.
-;;
-;; The hook:
-;;   1. Resolves the active frame via use-context (Decision 2).
-;;   2. Calls re-frame.subs/subscribe to build/cache the reaction.
-;;   3. Wires useSyncExternalStore — the snapshot is the deref of the
-;;      reaction; subscribe is add-watch on the underlying container.
-;;   4. On unmount the watch is removed and the sub's ref-count
-;;      decrements through the cache's deferred-dispose grace-period
-;;      (per Spec 006 §reference-counting-and-disposal).
-;;
-;; Per rf2-2qit Decision 3 there is no auto-injection: components
-;; written for Helix call `(use-subscribe [:foo])` directly, the way
-;; they would call any other React hook.
+;; `use-subscribe` is the Helix-idiomatic hook surface for reading a
+;; sub. Wraps `React.useSyncExternalStore` directly (Helix ships no
+;; wrapper of its own). No auto-injection — components call
+;; `(use-subscribe [:foo])` like any other React hook. Per Spec 006
+;; §subscription-cache.
 
 (defn- subscribe-snapshot [reaction]
   (when reaction @reaction))
@@ -249,13 +218,12 @@
   value; re-renders the calling component when the value changes.
 
   Frame resolution: reads the surrounding frame-provider's keyword via
-  `use-context` (rf2-2qit Decision 2). Override via the 2-arg form to
-  pin to an explicit frame-id.
+  `use-context`. Override via the 2-arg form to pin to an explicit
+  frame-id.
 
-  Per rf2-2qit Decision 1 the hook is named `use-subscribe` to match
-  the React/Helix idiom — symmetric ergonomics to Reagent's
-  `(rf/subscribe ...)` deref shape, asymmetric naming (hooks live in
-  hook-named space)."
+  The name follows React/Helix hook idiom — symmetric ergonomics to
+  Reagent's `(rf/subscribe ...)` deref shape, asymmetric naming (hooks
+  live in hook-named space)."
   ([query-v]
    (let [frame-kw (use-current-frame)]
      (use-subscribe frame-kw query-v)))
@@ -291,9 +259,9 @@
   intended for test code only. Calls (act f) where f is the body
   thunk; with no arg, calls (act (fn [] nil)) to flush pending effects.
 
-  Per rf2-2qit Decision 6: the canonical test-flush hook for
-  Helix-based apps. Reagent has no analogous public surface — Reagent
-  tests rely on r/flush; Helix tests rely on this."
+  The canonical test-flush hook for Helix-based apps. Reagent has no
+  analogous public surface — Reagent tests rely on `r/flush`; Helix
+  tests rely on this."
   ([] (flush-views! (fn [] nil)))
   ([f]
    (when-let [act (or (.-act React)
@@ -303,24 +271,15 @@
      (act f))
    nil))
 
-;; ---- source-coord wrapper (rf2-2qit Decision 5; Spec 006 §Source-coord) --
+;; ---- source-coord wrapper (Spec 006 §Source-coord) ----------------------
+;; Walks Helix's `$` output (a React element) and clones the root with
+;; `data-rf2-source-coord` added — same approach as the UIx adapter.
 ;;
-;; Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) every
-;; React-shaped substrate adapter MUST inject
-;; `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on each registered
-;; view's root DOM element when `interop/debug-enabled?` is true.
-;;
-;; The Reagent adapter walks hiccup output and merges the attr; the
-;; Helix adapter (like the UIx adapter) walks Helix's `$` output (a
-;; React element) and clones the root with the attr added —
-;; React.cloneElement preserves the original component, props, and
-;; children while letting us layer one extra prop on top.
-;;
-;; Production-elision contract (rf2-z7f7 / Spec 009): the entire branch
-;; sits inside `(when interop/debug-enabled? ...)` so the closure
-;; compiler constant-folds the wrapper away under :advanced +
-;; goog.DEBUG=false. The bundle-grep test confirms the
-;; `data-rf2-source-coord` literal is absent from production builds.
+;; Production-elision contract: the entire branch sits inside `(when
+;; interop/debug-enabled? ...)` so the closure compiler constant-folds
+;; the wrapper away under :advanced + goog.DEBUG=false. The bundle-grep
+;; test confirms the `data-rf2-source-coord` literal is absent from
+;; production builds.
 
 (defn- format-source-coord
   "Render captured registry coords as the attribute value shape
@@ -340,12 +299,9 @@
 
 (defn clear-warned-non-dom-roots!
   "Reset the warn-once cache for non-DOM-root warnings. Tests use this
-  between cases (via `reset-runtime-fixture` and the chained
-  `:adapter/clear-warn-once-caches!` hook) so a sibling test's first-
-  encounter warning cannot silently swallow a later test's same-id
-  warning. Per rf2-4edk — the cache is a process-wide `defonce` so
-  the user-facing warn-once UX is unchanged in production; test-time
-  clearing is the only effect."
+  between cases so a sibling test's first-encounter warning cannot
+  silently swallow a later test's same-id warning. The cache is a
+  process-wide `defonce` — production warn-once UX is unchanged."
   []
   (reset! warned-non-dom-roots #{})
   nil)
@@ -406,11 +362,9 @@
   call signature as `user-fn` and is suitable for use as a Helix
   component head.
 
-  Per rf2-2qit Decision 5 + Spec 006 §Source-coord annotation: this is
-  the Helix-side equivalent of the Reagent adapter's
-  `inject-source-coord-attr` walk and the UIx adapter's `wrap-view`.
-  Production builds elide via `interop/debug-enabled?` per Spec 009
-  §Production builds."
+  Helix-side equivalent of the Reagent adapter's `inject-source-coord-
+  attr` walk and the UIx adapter's `wrap-view`. Production builds elide
+  via `interop/debug-enabled?` per Spec 009 §Production builds."
   [id metadata user-fn]
   (let [coord-attr (when interop/debug-enabled?
                      (format-source-coord id metadata))]
@@ -449,32 +403,20 @@
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
 
-;; Each late-bind hook below is routed through `(substrate-adapter/
-;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
-;; (see that fn's docstring for the routing contract). The wrapper runs
-;; this adapter's impl ONLY when the Helix adapter is the (rf/init!)-
-;; installed one; otherwise it chains to the previously-registered
-;; handler.
+;; Each hook below is routed through `substrate-adapter/route-hook!`
+;; (see its docstring). Helix-specific notes:
 ;;
-;; Hook-specific rationale (Helix-adapter notes):
-;;   :adapter/current-frame  — rf2-d4sf. Helix renders function
-;;     components — they have no class-component (.-context cmp) slot,
-;;     so the shared impl in `re-frame.adapter.context` reads
-;;     `_currentValue` directly. Helix's own `use-current-frame` hook
-;;     is sugar over the same read, so subscribe / dispatch and
-;;     `use-context` agree on the active frame. Chain-bottom fallback
-;;     is `frame/current-frame`.
-;;   :adapter/ratom etc. — rf2-s36l. Helix's derived values reify
-;;     stock reagent.ratom/IDisposable directly, so these hooks
-;;     delegate to stock Reagent's r/atom, ratom/make-reaction, etc.
-;;     Helix itself ships no reactive-atom primitive (it is the
-;;     minimal-React-wrapper niche per rf2-2qit).
-;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord
-;;     injection via React.cloneElement (the inline hiccup-walk in
-;;     views.cljs would mis-classify React-element output as a non-DOM
-;;     root). Production-elision: `wrap-view`'s body sits inside
-;;     `(when interop/debug-enabled? ...)` so closure-folds under
-;;     :advanced + goog.DEBUG=false (per Spec 009 §Production builds).
+;;   :adapter/current-frame  — Helix renders function components (no
+;;     class-component `(.-context cmp)` slot), so the shared impl in
+;;     `re-frame.adapter.context` reads `_currentValue` directly.
+;;   :adapter/ratom etc. — Helix's derived values reify stock
+;;     `reagent.ratom/IDisposable` directly, so these hooks delegate to
+;;     stock Reagent. Helix itself ships no reactive-atom primitive.
+;;   :adapter/wrap-view — substrate-side source-coord injection via
+;;     `React.cloneElement` (the inline hiccup walk in views.cljs would
+;;     mis-classify React-element output as a non-DOM root). The body
+;;     sits inside `(when interop/debug-enabled? ...)` so closure-folds
+;;     under :advanced + goog.DEBUG=false.
 (substrate-adapter/route-hook! adapter :adapter/current-frame
   adapter-context/function-component-current-frame
   #(frame/current-frame))
@@ -497,16 +439,9 @@
 (substrate-adapter/route-hook! adapter :adapter/wrap-view
   wrap-view)
 
-;; Per rf2-4edk: contribute a clear of THIS adapter's `warned-non-dom-roots`
-;; cache to the chained `:adapter/clear-warn-once-caches!` hook. The hook
-;; is chained — each adapter (helix, uix) and re-frame.views all contribute
-;; a clear-step; `reset-runtime-fixture` invokes the top of the chain and
-;; every contributor's reset runs (unlike `:adapter/current-frame` etc.
-;; this hook is NOT routed through the installed adapter — every loaded
-;; adapter's cache must clear because test bundles can mount different
-;; adapters across tests and each adapter's defonce persists). Production
-;; behaviour is unchanged: the warn-once `defonce` is still per-process
-;; for users; only test-time clearing is new.
+;; Contributes a clear of THIS adapter's `warned-non-dom-roots` cache
+;; to the chained `:adapter/clear-warn-once-caches!` hook — unlike the
+;; routed hooks above, this one fires across every loaded adapter.
 (let [previous (late-bind/get-fn :adapter/clear-warn-once-caches!)]
   (late-bind/set-fn! :adapter/clear-warn-once-caches!
     (fn helix-adapter-clear-warn-once-caches! []

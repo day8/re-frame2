@@ -1,20 +1,11 @@
 (ns re-frame.adapter.reagent
-  "The Reagent adapter — browser default. Per Spec 006 §CLJS reference:
-  Reagent as default adapter.
+  "The Reagent adapter — browser default. Per Spec 006 §CLJS reference.
 
-  Ships in its own Maven artefact (day8/re-frame2-reagent) per
-  Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use
-  Reagent depend on both day8/re-frame2 (core) and this artefact;
-  apps targeting a different substrate (UIx, Helix) depend on the
-  matching adapter artefact instead. Core does *not* :require this ns —
-  the dependency direction is adapter → core.
+  Ships in its own artefact (day8/re-frame2-reagent). Dependency
+  direction is adapter → core; core does NOT `:require` this ns.
 
-  Per rf2-uo7v the SSR surface ships in `day8/re-frame2-ssr` —
-  this adapter MUST NOT statically `:require [re-frame.ssr]` either,
-  because that would drag the SSR namespace, the FNV-1a render-tree-hash
-  machinery, the per-request `[:rf/response]` accumulator, and every
-  `:rf.ssr/*` / `:rf.server/*` keyword string into every Reagent app's
-  bundle even when no server-side rendering is performed. Instead the
+  The SSR surface (`day8/re-frame2-ssr`) is also optional, so this
+  adapter MUST NOT statically `:require [re-frame.ssr]`. Instead the
   adapter publishes its `set-hiccup-emitter!` callback through the
   late-bind hook table; if the SSR artefact is on the classpath, its
   ns-load resolves the hook and wires the emitter."
@@ -65,8 +56,7 @@
   ;;   - `(rdc/unmount <root>)`          → tear the Root down
   ;;
   ;; The unmount thunk closes over the Root so the runtime can release
-  ;; it without consulting the DOM element again. Hydrate path mirrors
-  ;; the slim adapter (rf2-6hyy) — `hydrate-root` returns its own Root.
+  ;; it without consulting the DOM element again.
   (let [hydrate? (boolean (:hydrate? opts))]
     (if hydrate?
       (let [root (rdc/hydrate-root mount-point render-tree)]
@@ -95,11 +85,9 @@
 ;; ---- context provider -----------------------------------------------------
 
 (defn- register-context-provider [_frame-keyword]
-  ;; Implementation lives in re-frame.views (CLJS-only). The frame-
-  ;; keyword arg is ignored — `build-frame-provider` is 0-arity
-  ;; (rf2-4y60); the returned component takes the frame keyword at
-  ;; render time. The arg stays in the substrate signature per
-  ;; Spec 006 §Frame-provider via React context.
+  ;; `build-frame-provider` is 0-arity; the returned component takes the
+  ;; frame keyword at render time. The arg stays in the substrate
+  ;; signature per Spec 006 §Frame-provider via React context.
   (views/build-frame-provider))
 
 ;; ---- disposal -------------------------------------------------------------
@@ -116,8 +104,8 @@
       (rf/init! reagent/adapter)
 
   See Spec 006 §CLJS reference: Reagent as default adapter for the
-  bridging pseudocode. Per rf2-agql there is no default-adapter
-  registry — adapter wiring is explicit at the call site."
+  bridging pseudocode. There is no default-adapter registry — adapter
+  wiring is explicit at the call site."
   {:kind                      :reagent
    :make-state-container      make-state-container
    :read-container            read-container
@@ -129,41 +117,31 @@
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
 
-;; Wire ssr's render-to-string into this adapter's :render-to-string
-;; slot. Per rf2-uo7v ssr ships in day8/re-frame2-ssr; this adapter
-;; cannot statically `:require [re-frame.ssr]` without dragging the SSR
-;; namespace into every Reagent bundle. Publish set-hiccup-emitter!
-;; through the late-bind hook table — when the ssr artefact is loaded,
-;; its ns-load resolves the hook and wires the emitter through it. When
-;; ssr is absent the hook is never consumed and render-to-string raises
-;; the "no-hiccup-emitter-bound" error on first call. Per Spec 006
-;; §Adapter shipping convention (rf2-0hxm).
+;; Published through the late-bind table because re-frame.ssr is
+;; optional; ssr's ns-load resolves the hook when present, and
+;; render-to-string raises "no-hiccup-emitter-bound" when absent.
 (late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
 
-;; Each late-bind hook below is routed through `(substrate-adapter/
-;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
-;; (see that fn's docstring for the routing contract). The wrapper runs
-;; this adapter's impl ONLY when this adapter is the (rf/init!)-installed
-;; one; otherwise it chains to the previously-registered handler.
+;; Each hook below is routed through `substrate-adapter/route-hook!`
+;; (see its docstring): the wrapper runs this adapter's impl only
+;; when this adapter is the (rf/init!)-installed one, otherwise it
+;; chains to the previously-registered handler.
 ;;
-;; Hook-specific rationale:
-;;   :adapter/current-frame  — rf2-d4sf. React-context tier of the
-;;     3-tier resolution chain. Reagent path uses (.-context cmp) on
-;;     the in-flight Reagent component (class-component machinery), so
-;;     `reg-view*`-wrapped components route to the surrounding
-;;     provider's frame while plain Reagent fns fall through to
-;;     :rf/default — that narrowness makes the
-;;     plain-fn-under-non-default-frame-once warning meaningful.
-;;     Chain-bottom fallback is `frame/current-frame` so headless /
-;;     pre-init shape is preserved.
-;;   :adapter/current-component — rf2-wbnl. Reads stock Reagent's
-;;     in-flight component without hard-binding re-frame.views to
-;;     reagent.core; the slim adapter wires this hook to
-;;     reagent2.core/current-component.
-;;   :adapter/ratom etc. — rf2-s36l. The reactive-substrate surfaces
-;;     consumed by `re-frame.interop`. UIx and Helix adapters reify
-;;     stock reagent.ratom/IDisposable on their derived values, so
-;;     they wire these hooks to the same stock-Reagent impls.
+;;   :adapter/current-frame  — React-context tier of the three-tier
+;;     resolution chain. Reagent's class-component machinery means
+;;     `reg-view*`-wrapped components route to the surrounding provider,
+;;     while plain Reagent fns fall through to `:rf/default` — that
+;;     narrowness makes the plain-fn-under-non-default-frame-once
+;;     warning meaningful. Chain-bottom fallback is `frame/current-frame`
+;;     so the headless / pre-init shape is preserved.
+;;   :adapter/current-component — reads stock Reagent's in-flight
+;;     component without hard-binding re-frame.views to reagent.core.
+;;     The slim adapter wires this hook to `reagent2.core/current-
+;;     component`.
+;;   :adapter/ratom etc. — reactive-substrate surfaces consumed by
+;;     `re-frame.interop`. UIx and Helix reify stock
+;;     `reagent.ratom/IDisposable` on their derived values, so they
+;;     wire these hooks to the same stock-Reagent impls.
 (substrate-adapter/route-hook! adapter :adapter/current-frame
   views/current-frame
   #(frame/current-frame))
