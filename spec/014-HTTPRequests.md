@@ -85,7 +85,7 @@ When the request resolves, the runtime dispatches `[:article/load (assoc msg :rf
 | `:decode` | no | spec / fn / `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto` | How to parse the response body (see [§Decoding](#decoding)). Default: `:auto` (content-type sniffing). |
 | `:accept` | no | fn `(decoded → {:ok v} | {:failure m})` | Post-decode normalisation; lets a handler treat a structurally-valid 200 as a domain failure. Default: `(fn [v] {:ok v})` for 2xx, structural failure otherwise. |
 | `:retry` | no | map | Retry policy (see [§Retry and backoff](#retry-and-backoff)). Default: no retry. |
-| `:timeout-ms` | no | int | Wall-clock timeout per attempt. Default: 30000. |
+| `:timeout-ms` | no | int / `nil` / `0` | Wall-clock timeout per attempt. **Default: 30000** when the key is absent. Per [§`:timeout-ms` security defaults](#timeout-ms-security-defaults) (rf2-it1cd) — `:timeout-ms nil` and `:timeout-ms 0` are explicit opt-outs (no per-attempt timeout). Apps facing untrusted upstreams SHOULD leave the default in place. |
 | `:on-success` | no | event vector | Where to dispatch on success. Default: back to originating event id with `:rf/reply` merged. |
 | `:on-failure` | no | event vector or `nil` | Where to dispatch on failure. Default: back to originating event id with `:rf/reply` merged. `nil` means swallow silently. |
 | `:request-id` | no | any `=`-comparable value | Stable id for abort + correlation (see [§Aborts](#aborts)). Keywords (`:search`), strings (`"req-42"`), vectors (`[:articles :load 7]`), uuids — anything the runtime can `=`-compare. The fx stores in-flight requests in a `{request-id → request-handle}` map; identity is structural. |
@@ -227,6 +227,23 @@ The cap applies to both the Cheshire path and the pure-Clojure fallback reader. 
 ```
 
 The cap is the SECOND line of defence; the FIRST line is `:request-content-type` / `:decode :text` for endpoints that don't need keywordization (`(get response "key")` works fine over string-keyed maps). For untrusted-origin JSON, prefer `:decode :text` + explicit parsing into a string-keyed map.
+
+### `:timeout-ms` security defaults (rf2-it1cd)
+
+The fx applies a 30000 ms per-attempt wall-clock timeout when `:timeout-ms` is absent from the args map. This is a security default: a slow-loris upstream (compromised partner, hostile webhook recipient, stalled CDN edge) that never completes the response body would otherwise pin a `CompletableFuture` (JVM) / Fetch promise (CLJS) indefinitely; in a long-running JVM the in-flight registry fills with hung requests until the connection pool is exhausted. With the default in place, every attempt has a finite deadline.
+
+Two explicit opt-outs are honoured for callers who genuinely need unbounded reads:
+
+| Value | Semantic |
+|---|---|
+| key absent | apply default (30000 ms) |
+| `:timeout-ms 30000` (or any int) | apply the supplied value |
+| `:timeout-ms nil` | **opt out** — no per-attempt timeout |
+| `:timeout-ms 0` | **opt out** — no per-attempt timeout |
+
+Both opt-outs are deliberate (passing `nil` or `0` is not idiomatic; the call-site author has signalled intent). Apps facing **any** untrusted upstream — partner JSON APIs, webhook receivers, agent-controlled fetches, third-party SaaS integrations — SHOULD leave the default in place. Apps that need a stricter bound can lower it per-request (`:timeout-ms 5000`).
+
+The 10-second **connect** timeout is configured separately at the shared JDK HttpClient build site and is not user-overridable per request (connect timeout governs the TCP handshake, not body read).
 
 ## `:accept` — domain-failure normalisation
 

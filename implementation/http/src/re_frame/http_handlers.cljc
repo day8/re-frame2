@@ -35,7 +35,19 @@
   vector) — `managed-handler` runs `encoding/resolve-origin-event`
   once before calling here and stashes the result back into
   `frame-ctx` as `:event`, so the resolution shape lives in exactly
-  one place per rf2-622e3."
+  one place per rf2-622e3.
+
+  Per Spec 014 §`:timeout-ms` security defaults (rf2-it1cd):
+
+  - key absent      → 30000 ms (the security default)
+  - any int         → that value
+  - `nil` or `0`    → opt out (no per-attempt timeout)
+
+  The `:or {timeout-ms 30000}` clause below substitutes only when the
+  key is ABSENT (Clojure destructuring semantics — `:or` does not
+  fire on an explicit `nil` value). The downstream JVM/CLJS transport
+  treats nil/0 as opt-out, so the three-way contract is preserved
+  end-to-end without any reshaping here."
   [{:keys [request decode accept retry timeout-ms
            on-success on-failure request-id abort-signal]
     :or   {timeout-ms 30000}

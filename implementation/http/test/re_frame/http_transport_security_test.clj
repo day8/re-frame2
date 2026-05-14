@@ -8,6 +8,7 @@
                  (defaulted to 30000 at the handler) so the JDK
                  HttpClient applies a wall-clock read timeout."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.http-handlers]
             [re-frame.http-transport]
             [re-frame.trace :as trace])
   (:import [java.net.http HttpRequest]
@@ -120,3 +121,45 @@
                  :timeout-ms nil})]
       (is (nil? (request-timeout-ms req))
           "nil timeout-ms produces an HttpRequest with no per-request timeout"))))
+
+;; ---- rf2-it1cd — normalise-args applies the 30000 default ---------------
+
+(def ^:private normalise-args @#'re-frame.http-handlers/normalise-args)
+
+(deftest normalise-args-defaults-timeout-ms-to-30000
+  (testing "rf2-it1cd — when the args map omits `:timeout-ms`, the
+  normalised ctx carries the 30000 security default. Defending the
+  contract end-to-end: a partner-API caller who forgets to set a
+  read timeout still has the JDK HttpClient enforce a 30s wall-clock
+  bound."
+    (let [ctx (normalise-args {:request {:url "/x"}}
+                              {:event [:some/event]})]
+      (is (= 30000 (:timeout-ms ctx))
+          "absent :timeout-ms must default to 30000"))))
+
+(deftest normalise-args-honours-explicit-timeout-ms
+  (testing "rf2-it1cd — an explicit `:timeout-ms 5000` overrides the default"
+    (let [ctx (normalise-args {:request    {:url "/x"}
+                               :timeout-ms 5000}
+                              {:event [:some/event]})]
+      (is (= 5000 (:timeout-ms ctx))))))
+
+(deftest normalise-args-passes-explicit-nil-timeout-ms-through
+  (testing "rf2-it1cd — `:timeout-ms nil` is an explicit opt-out and
+  threads through normalisation unchanged (the JVM transport then
+  omits the JDK timeout). The opt-out is deliberate and intentional —
+  documented in Spec 014 §`:timeout-ms` security defaults."
+    (let [ctx (normalise-args {:request    {:url "/x"}
+                               :timeout-ms nil}
+                              {:event [:some/event]})]
+      (is (nil? (:timeout-ms ctx))
+          "nil opt-out threads through unchanged"))))
+
+(deftest normalise-args-passes-explicit-zero-timeout-ms-through
+  (testing "rf2-it1cd — `:timeout-ms 0` is also an explicit opt-out
+  (the JVM transport's `(when timeout-ms ...)` skips on falsy)"
+    (let [ctx (normalise-args {:request    {:url "/x"}
+                               :timeout-ms 0}
+                              {:event [:some/event]})]
+      (is (zero? (:timeout-ms ctx))
+          "zero opt-out threads through unchanged"))))
