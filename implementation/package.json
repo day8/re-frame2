@@ -19,6 +19,7 @@
     "test:browser-prod-elision": "shadow-cljs release browser-test-prod-elision && node scripts/serve-and-run-prod-elision-tests.cjs",
     "test:elision": "shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs",
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
+    "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
     "test:bundle-isolation": "shadow-cljs release examples/counter && node scripts/check-bundle-isolation.cjs",
     "test:bundle-comparison": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-counter-slim-and-fast.cjs",
     "test:examples": "node ../examples/scripts/serve-and-run-examples-tests.cjs",
