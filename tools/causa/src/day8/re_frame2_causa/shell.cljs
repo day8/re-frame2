@@ -55,26 +55,8 @@
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.registry :as registry]
-            [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
-
-;; ---- design tokens (dark theme per spec/007-UX-IA.md) --------------------
-
-(def ^:private tokens
-  "Colour + size tokens lifted from spec/007-UX-IA.md §Dark theme
-  tokens. Phase 1 uses inline styles so the foundation ships without
-  a CSS asset pipeline; the v1.0 styling pass replaces these with
-  CSS variables when the per-panel beads land."
-  {:bg-0          "#0E0F12"
-   :bg-1          "#15171B"
-   :bg-2          "#1B1E24"
-   :bg-active     "#2A2F3D"
-   :border-subtle "#232730"
-   :border-default "#2F3441"
-   :text-primary  "#E8EAF0"
-   :text-secondary "#A8AEC0"
-   :text-tertiary "#6B7080"
-   :accent-violet "#7C5CFF"
-   :magenta       "#E879F9"})
+            [day8.re-frame2-causa.open-in-editor :as open-in-editor]
+            [day8.re-frame2-causa.theme.tokens :refer [tokens]]))
 
 ;; ---- sidebar items -------------------------------------------------------
 
