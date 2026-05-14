@@ -8,10 +8,11 @@ The migration summary format. The shape from [`MIGRATION.md`](../../../spec/MIGR
 ## Migration summary
 
 - re-frame version: <old> → <new>
+- Pinned MIGRATION.md corpus: `day8/re-frame2@<sha-or-tag>` (path: `<path-to-re-frame2>`)
 - Files modified: <count>
 - Required rules applied: <list of M-N rule IDs, or "none">
 - Opt-in changes applied: <list of O-N rule IDs, or "none, not requested">
-- Verification: <compile/test/run results>
+- Verification: <compile/test/run results the AUTHOR ran (the skill does not invoke compile/test/smoke)>
 
 ## Items flagged for human review
 

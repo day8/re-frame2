@@ -101,15 +101,17 @@ If the codebase has **both** Reagent and UIx requires (a phased substrate migrat
 
 ## Discovering the current VERSION
 
-Three sources, in order of authority:
+**The author picks the target VERSION; the skill never auto-selects "latest".** The kickoff prompt names a specific `<v2-version>` string — that's the contract. If `<v2-version>` is unset (the author left a placeholder), **stop and ask** before editing any dep file.
 
-1. **`VERSION` file** in the re-frame2 repo (`https://github.com/day8/re-frame2/blob/main/VERSION`) — the string used for the next release.
-2. **`CHANGELOG.md`** (`https://github.com/day8/re-frame2/blob/main/CHANGELOG.md`) — released versions with summaries; pick the most recent non-Unreleased entry.
-3. **GitHub releases page** (`https://github.com/day8/re-frame2/releases`) — the latest tag is `v<VERSION>`.
+For the author's reference (so they can pick), three sources of authoritative version info:
 
-If the author wants the bleeding edge, use a `:git/url` + `:git/sha` coord instead of `:mvn/version`. Niche; default to released `:mvn/version`.
+1. **`VERSION` file** in the local pinned `day8/re-frame2` checkout (`<path-to-re-frame2>/VERSION`) — the string used for the next release.
+2. **`CHANGELOG.md`** in the pinned checkout — released versions with summaries; the most recent non-Unreleased entry is the latest released version.
+3. **GitHub releases page** (`https://github.com/day8/re-frame2/releases`) — for cross-referencing tags, but the local pinned checkout is the authoritative source for *this* migration.
 
-**Never invent a version.** If the network is unreachable, ask the author to paste the current VERSION rather than guess.
+If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` coord instead of `:mvn/version` — but they still type the SHA into the kickoff prompt; the skill does not pick. Niche; default to released `:mvn/version`.
+
+**Never invent a version. Never silently pick `latest`.** Both are accidents the gate exists to prevent — newly published packages may be broken or malicious, and unpinned coords make the migration non-reproducible. Record the chosen `<v2-version>` in the migration report.
 
 **If no released v2 version exists yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the report — the author must update the coord manually once a release lands, then re-run the migration.
 
