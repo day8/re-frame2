@@ -31,7 +31,7 @@ If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the
 
 ## Role
 
-`:rf.http/managed`, when an implementation ships it, is **framework-provided** — the implementation registers the fx; applications use it the way they'd use `:dispatch` or `:db`. This is what makes it a Spec rather than a convention: the public contract is locked, `:fx-overrides` target the same id across applications, pair tools introspect the same envelope, and Spec 010 schemas plug into the same decode pipeline universally.
+`:rf.http/managed`, when an implementation ships it, is **framework-provided** — the implementation registers the fx; applications use it the way they'd use `:dispatch` or `:db`. This is what makes it a Spec rather than a convention: the public contract is locked, `:fx-overrides` target the same id across applications, pair tools introspect the same envelope, and the same schema language Spec 010 standardises ([Malli on the CLJS reference](010-Schemas.md#default-validator-and-the-validator-fn-extension-point)) is consumed by the `:decode` pipeline universally.
 
 ## The shape
 
@@ -1129,7 +1129,7 @@ Per [Pattern-StaleDetection](Pattern-StaleDetection.md) and [§Reply addressing]
 - [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:invoke`.
 - [Spec 005 §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
 - [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`, and the `:rf.http/*` failure-category traces follow it.
-- [Spec 010 §Schemas](010-Schemas.md) — Malli decode integration; `:decode <schema>` runs through `010`'s decode pipeline.
+- [Spec 010 §Schemas](010-Schemas.md) — the schema language `:decode <schema>` consumes. Spec 010 standardises the schema-attachment surface (`:spec` metadata, `reg-app-schema`, `app-schemas-digest`) and the pluggable validator seam (Malli is the CLJS reference's default); the `:rf.http/managed` decode step parses the response body and applies the registered schema language's decode-or-validate primitive (on CLJS reference: `malli.core/decode` + `malli.transform/json-transformer`). There is no separate "Spec 010 decode pipeline" — the decode contract belongs to this Spec; Spec 010 provides the schema language.
 - [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) — the canonical end-to-end illustration of [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.http/*` namespace is reserved for this Spec.
 - [`re-frame-fetch-fx`](https://github.com/superstructor/re-frame-fetch-fx) — the inspiration; Spec 014 adds retry, accept-step, default-reply-addressing, schema-driven decode, JVM coverage, and stale-suppression on top.
