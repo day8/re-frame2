@@ -1,58 +1,28 @@
 (ns re-frame.late-bind
   "Late-binding hook registry for cross-namespace forward references.
 
-  Some leaf namespaces (re-frame.frame, re-frame.fx, re-frame.cofx,
-  re-frame.subs, re-frame.routing, re-frame.router) need to call into
-  higher-level namespaces (re-frame.router, re-frame.flows,
-  re-frame.schemas, re-frame.subs) but cannot `:require` them without
-  introducing a cyclic load order.
+  Producing namespaces register a callable via `set-fn!` at load time;
+  consumers look it up via `get-fn` at call time. The mechanism carries
+  two kinds of forward reference:
 
-  Per rf2-p7va the same mechanism carries cross-artefact references:
-  `re-frame.schemas` ships in a separate Maven artefact
-  (day8/re-frame2-schemas), so re-frame.core / re-frame.test-support
-  MUST NOT statically `:require` it — they look the schemas API up
-  through the hook table at call time. When the schemas artefact is
-  not on the classpath, the lookup returns nil and the consumer
-  no-ops (or, in the case of `rf/reg-app-schema`, throws a clear
-  `:rf.error/schemas-artefact-missing` so the misconfiguration is
-  surfaced rather than silently absorbed).
+  - Leaf-to-higher-level (avoids cyclic `:require`s) — e.g. `re-frame.frame`
+    calling into `re-frame.router`.
+  - Cross-artefact (avoids hard deps on optional Maven artefacts) — e.g.
+    `re-frame.core` calling into `re-frame.schemas` only when the
+    `day8/re-frame2-schemas` artefact is on the classpath; absent that,
+    `get-fn` returns nil and consumers either no-op or throw a structured
+    `:rf.error/<artefact>-artefact-missing` (see `require-fn!`).
 
-  On the JVM we historically used `(resolve 'ns/sym)` to defer the
-  lookup to runtime. That works on the JVM because `clojure.core/resolve`
-  is a runtime fn — but ClojureScript has no runtime `resolve` (the
-  symbol exists only as a compile-time analyzer affordance), so every
-  CLJS call site silently no-op'd. That manifested as e.g.
-  `(rf/make-frame {:on-create [:foo]})` returning a frame whose app-db
-  was never seeded by `:on-create`, and `:fx [[:dispatch [...]]]`
-  becoming a no-op.
-
-  This namespace replaces those `resolve` calls with an explicit hook
-  registry. The producing namespace registers its callable at load
-  time via `set-fn!`; the consuming namespace fetches it via `get-fn`
-  at call time. Identical behaviour on JVM and CLJS.
-
-  Per Spec 002 §reg-frame is atomic: `:on-create` runs synchronously
-  inside `reg-frame`; `make-frame` is a thin wrapper, so by the time
-  `make-frame` returns the frame's app-db reflects the init handler's
-  commits. Callers MUST register the `:on-create` event's handler
-  BEFORE calling `make-frame` / `reg-frame`. (When the JVM/CLJS host
-  loads `re-frame.core`, the canonical re-frame.router namespace is
-  loaded — and registers its hooks — before any user code runs.)
-
-  The authoritative inventory of every published key lives in
-  `re-frame.late-bind.directory` — plain CLJC data, one entry per
-  hook key, with the producer ns, design bead, and one-line
-  description. The drift test
-  `implementation/core/test/re_frame/late_bind_drift_test.clj`
-  asserts the directory and the `set-fn!` call sites stay in sync.")
+  The authoritative inventory of published keys lives in
+  `re-frame.late-bind.directory`; the drift test
+  `late_bind_drift_test.clj` asserts the directory and the `set-fn!`
+  call sites stay in sync.")
 
 #?(:clj (set! *warn-on-reflection* true))
 
 (defonce
-  ^{:doc "Map of hook-key → fn. Populated by the producing namespace at
-   load time. The authoritative key inventory is
-   `re-frame.late-bind.directory/hooks`; the drift test enforces it
-   matches the in-tree `set-fn!` call sites."}
+  ^{:doc "Map of hook-key → fn. Populated by producing namespaces at
+   load time. Authoritative key inventory: `re-frame.late-bind.directory/hooks`."}
   hooks
   (atom {}))
 
@@ -75,10 +45,8 @@
   `:rf.error/<artefact>-artefact-missing` ex-info when the hook is
   unregistered.
 
-  The throw shape matches the documented missing-artefact contract used
-  by every `re-frame.core-<artefact>` wrapper (see rf2-5b6x — the
-  late-bind-missing test suite locks this shape across all six per-
-  feature splits):
+  The throw shape is locked by the missing-artefact contract used by
+  every `re-frame.core-<artefact>` wrapper:
 
     Message:  `<error-keyword>` printed as a string (e.g.
               \":rf.error/flows-artefact-missing\").
@@ -91,19 +59,9 @@
   Args:
     hook-key      — the late-bind hook key (e.g. `:flows/reg-flow`).
     where-sym     — the user-facing fn symbol stamped on the error
-                    (e.g. `'rf/reg-flow`) so greping for the symbol
-                    finds the call site in user code.
-    artefact-info — a map carrying the artefact's Maven coordinates and
-                    the producing ns name:
-                      {:error-keyword :rf.error/flows-artefact-missing
-                       :maven         \"day8/re-frame2-flows\"
-                       :require-ns    \"re-frame.flows\"}
-    extra-data    — (optional) per-call ex-data slots like `:flow-id` /
-                    `:path` / `:route-id` / `:machine-id` / `:frame`.
-
-  Pairs with the `re-frame.core-artefact/defwrapper` factory (rf2-h824v)
-  which drives 26+ call sites across seven `core_<artefact>.cljc`
-  wrappers from a declarative table."
+                    so greping for the symbol finds the call site.
+    artefact-info — `{:error-keyword … :maven … :require-ns …}`.
+    extra-data    — (optional) per-call ex-data slots."
   ([hook-key where-sym artefact-info]
    (require-fn! hook-key where-sym artefact-info nil))
   ([hook-key where-sym {:keys [error-keyword maven require-ns]} extra-data]
