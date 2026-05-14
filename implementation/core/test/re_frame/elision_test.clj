@@ -395,6 +395,87 @@
         (finally
           (late-bind/set-fn! :schemas/frame-schema-entries restore-fn))))))
 
+(deftest schema-population-noop-when-extract-walker-absent
+  (testing "with the deep-walker hook absent, population is a no-op (rf2-1vneh)"
+    ;; Both required hooks (`:schemas/frame-schema-entries` and
+    ;; `:schemas/extract-large-paths-from-schema`) must be present;
+    ;; absence of either degrades to a no-op so ports / test fixtures
+    ;; that wire one but not the other don't NPE.
+    (rf/reg-app-schema [:big] [:any {:large? true}])
+    (let [restore-fn (late-bind/get-fn :schemas/extract-large-paths-from-schema)]
+      (late-bind/set-fn! :schemas/extract-large-paths-from-schema nil)
+      (try
+        (is (= [] (rf/populate-elision-from-schemas!)))
+        (is (= {} (rf/elision-declarations)))
+        (finally
+          (late-bind/set-fn! :schemas/extract-large-paths-from-schema restore-fn))))))
+
+;; ---- 14b. Nested `:large?` declarations — rf2-1vneh ----------------------
+
+(deftest schema-population-walks-nested-large
+  (testing "a `:large?` slot two levels deep lands at the absolute app-db path (rf2-1vneh)"
+    ;; Pre-rf2-1vneh: `populate-elision-from-schemas!` only read top-
+    ;; level Malli properties (with a `:maybe` descent), so a `:large?`
+    ;; nested inside a `:map` child schema was silently dropped. The
+    ;; fix routes through the schemas artefact's deep walker via the
+    ;; `:schemas/extract-large-paths-from-schema` late-bind hook.
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:a [:map [:b {:large? true :hint "two-level"} :string]]]])
+    (let [populated (rf/populate-elision-from-schemas!)
+          decls     (rf/elision-declarations)]
+      (is (= [[:root :a :b]] populated))
+      (is (= :schema (get-in decls [[:root :a :b] :source])))
+      (is (= "two-level" (get-in decls [[:root :a :b] :hint]))))))
+
+(deftest schema-population-walks-three-level-nested-large
+  (testing "the 3-level case from Spec 010 lines 254-262 (rf2-1vneh)"
+    ;; Verbatim transcription of the worked example in Spec 010 — the
+    ;; deeply-nested `:large?` slot resolves to the full app-db path.
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:a [:map
+                             [:b [:map
+                                  [:c {:large? true :hint "deep"} :string]]]]]])
+    (let [populated (rf/populate-elision-from-schemas!)
+          decls     (rf/elision-declarations)]
+      (is (= [[:root :a :b :c]] populated))
+      (is (= :schema (get-in decls [[:root :a :b :c] :source])))
+      (is (= "deep"  (get-in decls [[:root :a :b :c] :hint]))))))
+
+(deftest schema-population-nested-declared-precedence
+  (testing "declared > schema even when the schema path is nested (rf2-1vneh)"
+    ;; A path that's BOTH declared and schema-derived must remain
+    ;; `:source :declared` after population — declared beats schema.
+    (rf/declare-large-path! [:root :a :b] "app declared this")
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:a [:map [:b {:large? true :hint "schema declared"} :string]]]])
+    (rf/populate-elision-from-schemas!)
+    (let [d (get (rf/elision-declarations) [:root :a :b])]
+      (is (= :declared            (:source d)))
+      (is (= "app declared this"  (:hint d))))))
+
+(deftest schema-population-multiple-nested-large
+  (testing "every nested `:large?` slot in a single schema is registered (rf2-1vneh)"
+    ;; Cover the multi-slot case so we know we don't short-circuit on
+    ;; the first hit.
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:photo  {:large? true :hint "avatar"} :string]
+                        [:nested [:map
+                                  [:pdf {:large? true :hint "blob"} :string]
+                                  [:zip {:large? true} :string]]]])
+    (let [populated (rf/populate-elision-from-schemas!)
+          decls     (rf/elision-declarations)]
+      (is (= #{[:root :photo]
+               [:root :nested :pdf]
+               [:root :nested :zip]}
+             (set populated)))
+      (is (= "avatar" (get-in decls [[:root :photo] :hint])))
+      (is (= "blob"   (get-in decls [[:root :nested :pdf] :hint])))
+      (is (= :schema  (get-in decls [[:root :nested :zip] :source]))))))
+
 ;; ---- 15. Snapshot-restore correctness ------------------------------------
 
 (deftest declarations-survive-app-db-snapshot-restore

@@ -24,10 +24,12 @@
                                     `:rf.size/threshold-bytes`.
    - `populate-elision-from-schemas!`
                                   — schema-driven boot population: walks
-                                    every registered app-schema and
-                                    pre-populates `[:rf/elision :declarations]`
-                                    for every path whose registration carries
-                                    `:large? true` in its metadata."
+                                    every registered app-schema (deeply,
+                                    via the schemas artefact's late-bind
+                                    walker) and pre-populates
+                                    `[:rf/elision :declarations]` for every
+                                    path whose schema carries `:large? true`
+                                    in its per-slot properties at any depth."
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
@@ -250,107 +252,77 @@
 ;; Per [009 §Size elision in traces] nomination 1 (Schema-driven): the
 ;; runtime walks every registered app-schema at boot and writes
 ;; `{:large? true :source :schema}` entries into the registry for every
-;; `:large? true` slot. The Malli-side walker (rf2-nwv63) ships
-;; separately; this helper provides the integration point that the
-;; schemas artefact (or a user app) calls when it wants the registry
-;; populated.
+;; `:large? true` slot. The Malli-side deep walker
+;; (`re-frame.schemas.walker/extract-large-paths-from-schema`,
+;; rf2-nwv63) ships in the schemas artefact and is consumed here
+;; through the `:schemas/extract-large-paths-from-schema` late-bind
+;; hook — re-frame.core never statically requires the schemas artefact
+;; (per rf2-p7va — schemas is optional).
 ;;
-;; This boot-time fn is idempotent: re-populating doesn't duplicate
-;; entries; declared entries (`:source :declared`) take precedence and
-;; are not overwritten.
-
-(def ^:private descend-wrapper-ops
-  "Single-child Malli wrapper ops whose own properties don't introduce a
-   new app-db path segment, so an inner `:large?` / `:hint` claim on
-   the wrapped schema applies to the wrapper's path. Conservative v1:
-   only `:maybe`. `:and` / `:or` / `:enum` may carry MULTIPLE children
-   with different props (merge / priority semantics TBD); a future
-   iteration may extend this set."
-  #{:maybe})
-
-(defn- schema-properties
-  "Return the top-level Malli properties map of a schema form, or nil.
-   Recognises the literal vector form `[:op {props} & children]` and
-   the metadata-map fallback (some Malli setups carry props as
-   Clojure metadata on the schema value).
-
-   When the top-level op is a single-child wrapper (`:maybe`) and
-   carries NO props of its own, descend into the wrapped schema so the
-   idiomatic Malli shape `[:maybe [:string {:large? true :hint ...}]]`
-   exposes the inner `:large?` to callers. The descent preserves an
-   explicit outer props map — if the wrapper itself carries props
-   (`[:maybe {:large? true} :string]`), those win and no descent
-   happens."
-  [schema]
-  (cond
-    (and (vector? schema)
-         (> (count schema) 1)
-         (map? (nth schema 1)))
-    (nth schema 1)
-
-    ;; Wrapper descent: `[:maybe inner]` (no props) — peek at the inner
-    ;; schema's top-level props so an inner `:large?` propagates. Only
-    ;; for single-child wrappers per `descend-wrapper-ops`.
-    (and (vector? schema)
-         (> (count schema) 1)
-         (contains? descend-wrapper-ops (nth schema 0))
-         (not (map? (nth schema 1))))
-    (recur (nth schema 1))
-
-    ;; Fallback: metadata-form attachment. Try (meta schema) — returns
-    ;; nil for values that don't carry metadata; safe on both runtimes.
-    :else
-    (try
-      (meta schema)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
-
-(defn- schema-large?
-  "Return true when a registered schema slot carries `:large? true`.
-   Per [Spec-Schemas §`:rf/app-schema-meta`] — the `:large?` key lives
-   in the Malli-properties map of the schema. We deliberately accept
-   both the vector-form (`[:map {props} ...]`) and a metadata-form
-   fallback so test fixtures can attach `:large?` either way."
-  [schema]
-  (true? (:large? (schema-properties schema))))
+;; The walker returns `{path declaration}` for every per-slot `:large?`
+;; declaration nested anywhere inside the registered schema (Spec 010
+;; §`:large?` — schema-driven size-elision nomination, lines 219-262);
+;; this fn folds every returned path into `[:rf/elision :declarations]`
+;; with the Spec 009 conflict-resolution rule applied: existing
+;; `:source :declared` entries are preserved (declared beats schema).
+;;
+;; Idempotent — re-populating against the same `(schemas, declared)`
+;; pair produces the same result.
 
 (defn populate-elision-from-schemas!
-  "Walk the registered app-schema set for a frame and write
+  "Walk every registered app-schema for a frame and write
    `{:large? true :source :schema}` entries into the elision
    `[:rf/elision :declarations]` registry for every path whose
-   registered schema carries `:large? true` in its top-level Malli
+   schema (at any depth) carries `:large? true` in its Malli per-slot
    properties.
 
-   Per [009 §Size elision in traces] nomination 1 (Schema-driven).
+   Per [009 §Size elision in traces] nomination 1 (Schema-driven) and
+   [Spec 010 §`:large?` — schema-driven size-elision nomination]
+   (lines 219-262). Nested declarations are honoured — a `:large?`
+   slot at `[:map [:a [:map [:b {:large? true} :string]]]]` registered
+   at `[:root]` lands at `[:root :a :b]`.
+
    Idempotent — re-populating updates existing `:source :schema`
    entries in place. **Declared entries are preserved** (`:source
    :declared` wins over `:source :schema`, per the conflict-resolution
    rule).
 
    No-op when the schemas artefact (day8/re-frame2-schemas) is not on
-   the classpath. Returns the vector of paths that were populated
-   (possibly empty)."
+   the classpath — both required late-bind hooks
+   (`:schemas/frame-schema-entries` and
+   `:schemas/extract-large-paths-from-schema`) must be present.
+   Returns the vector of paths that were populated (possibly empty)."
   ([] (populate-elision-from-schemas! (frame/current-frame)))
   ([frame-id]
-   (if-let [entries-fn (late-bind/get-fn :schemas/frame-schema-entries)]
-     (let [entries (entries-fn frame-id)]
-       (reduce
-        (fn [acc [path entry]]
-          (let [schema (:schema entry)]
-            (if (schema-large? schema)
-              (let [existing (get-in (registry-of frame-id) [:declarations path])]
-                ;; Preserve declared entries: don't clobber them with schema source.
-                (if (= :declared (:source existing))
-                  acc
-                  (do
-                    (write-declaration! frame-id path
-                                        {:large? true
-                                         :hint   (:hint (schema-properties schema))
-                                         :source :schema})
-                    (conj acc path))))
-              acc)))
-        []
-        entries))
-     [])))
+   (let [entries-fn (late-bind/get-fn :schemas/frame-schema-entries)
+         extract-fn (late-bind/get-fn :schemas/extract-large-paths-from-schema)]
+     (if (and entries-fn extract-fn)
+       (let [entries (entries-fn frame-id)
+             ;; Walk every registered schema deeply and merge the
+             ;; per-path declarations across the whole frame's schema
+             ;; set. Each schema is walked at its own `reg-app-schema`
+             ;; path so nested `:large?` slots land at the absolute
+             ;; app-db path.
+             schema-decls (reduce-kv
+                            (fn [acc base-path entry]
+                              (merge acc (extract-fn (:schema entry) base-path)))
+                            {}
+                            entries)]
+         (reduce-kv
+           (fn [acc path decl]
+             (let [existing (get-in (registry-of frame-id) [:declarations path])]
+               ;; Preserve declared entries — declared beats schema.
+               (if (= :declared (:source existing))
+                 acc
+                 (do
+                   (write-declaration! frame-id path
+                                       {:large? true
+                                        :hint   (:hint decl)
+                                        :source :schema})
+                   (conj acc path)))))
+           []
+           schema-decls))
+       []))))
 
 ;; ---- walker primitives ----------------------------------------------------
 
