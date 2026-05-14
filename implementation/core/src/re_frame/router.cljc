@@ -340,36 +340,89 @@
     (trace/emit-error! :rf.error/handler-exception tags)))
 
 (defn- run-post-commit-validation!
-  "Per Spec 010: validate app-db against registered schemas after each
-  commit. Failures emit :rf.error/schema-validation-failure but don't
-  roll back (recovery is :no-recovery by default).
+  "Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): validate
+  app-db against registered schemas after each commit. Returns the
+  validator's boolean conjunction — true when every registered schema
+  for the frame conformed (or the schemas artefact isn't loaded / no
+  validator is installed); false when at least one schema failed.
+
+  Failures emit :rf.error/schema-validation-failure (one per failing
+  entry) with `:rollback? true` and `:recovery :no-recovery` stamped
+  in the tag — the caller restores the pre-handler app-db on a false
+  return.
 
   Per Spec 010 §Per-frame schemas the validation walks the schemas
   registered against THIS dispatch's frame only — sibling frames'
-  schemas don't fire here."
+  schemas don't fire here.
+
+  Defensive truth-coercion: a host-thrown validator (e.g. a buggy
+  user-supplied :schemas/set-schema-validator! fn) is caught and
+  treated as `true` (no rollback) — the validator is failing on
+  itself, not on a user schema, and a hard abort here would mask the
+  actual app-db state from the rest of the cascade. Real schema
+  failures route through the in-band false return."
   [db-after event-id frame]
-  (when-let [validate (late-bind/get-fn :schemas/validate-app-db!)]
+  (if-let [validate (late-bind/get-fn :schemas/validate-app-db!)]
     (try
-      (validate db-after event-id frame)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
+      ;; nil-coerce: pre-rf2-6m0se the fn returned nil on success.
+      ;; Treat nil as true (don't roll back) so a hosted port that
+      ;; still ships the older contract keeps working.
+      (let [r (validate db-after event-id frame)]
+        (if (nil? r) true r))
+      (catch #?(:clj Throwable :cljs :default) _ true))
+    true))
 
 (defn- commit-db-effect!
   "Apply :db atomically: replace the app-db container, emit the
   :event/db-changed trace, then run post-commit schema validation.
+  Returns true when the commit is durable (no :db effect, or all
+  schemas conformed); false when post-commit validation rejected the
+  new state and the container has been **rolled back** to the
+  pre-handler value (per Spec 010 §Per-step recovery row 4 /
+  rf2-wkxng / rf2-6m0se).
+
+  On rollback, a second :event/db-changed trace is emitted for the
+  restored state with `:phase :rollback` so listeners (subs, 10x,
+  pair-tools) observe the post-rollback app-db without ambiguity —
+  the trace stream's load-bearing ordering is `:db-changed (post-
+  handler) → :rf.error/schema-validation-failure → :db-changed
+  (post-rollback)`, mirroring the depth-exceeded pattern (the error
+  trace fires AFTER the container is back at its pre-handler value,
+  so a trace listener that reads app-db sees the rolled-back state).
+  Subscriptions whose inputs changed re-fire on the second commit so
+  the UI never settles on a non-conforming snapshot.
 
   Per Spec 009 §The `with-redacted` interceptor (line 1225): the
   `:event/db-changed` trace event MUST surface the scrubbed event
   vector under `:tags :event` when `with-redacted` ran on the
   handler's chain. The interceptor stashes `:rf/redacted-event`
   on the context; we read it through and emit the scrubbed form."
-  [effects event-id event frame ctx]
-  (when (contains? effects :db)
+  [effects event-id event frame ctx db-before]
+  (if (contains? effects :db)
     (let [container  (frame/get-frame-db frame)
+          new-db     (:db effects)
           emit-event (or (:rf/redacted-event ctx) event)]
-      (adapter/replace-container! container (:db effects))
+      (adapter/replace-container! container new-db)
       (trace/emit! :event :event/db-changed
                    {:event-id event-id :event emit-event :frame frame})
-      (run-post-commit-validation! (:db effects) event-id frame))))
+      (if (run-post-commit-validation! new-db event-id frame)
+        true
+        (do
+          ;; Roll back: restore the pre-handler container value, then
+          ;; emit a second :event/db-changed with :phase :rollback so
+          ;; subs / listeners see the restored state on the trace
+          ;; stream. The error trace from validate-app-db! has
+          ;; already fired between the two commits — consumers see
+          ;; (in order): forward commit, schema-failure error,
+          ;; rollback commit.
+          (adapter/replace-container! container db-before)
+          (trace/emit! :event :event/db-changed
+                       {:event-id event-id
+                        :event    emit-event
+                        :frame    frame
+                        :phase    :rollback})
+          false)))
+    true))
 
 (defn- run-flows!
   "Per Spec 013 §Drain integration: run flows after :db commits and
@@ -480,15 +533,24 @@
   "Settle the cascade: surface any chain exception, commit :db, run
   flows, then walk :fx in source order. Per Spec 002 §Drain-loop
   pseudocode. Trace ordering is load-bearing — :event/db-changed
-  precedes flow evaluation, which precedes :fx walking."
+  precedes flow evaluation, which precedes :fx walking.
+
+  Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): a
+  post-commit `:db` schema-validation failure rolls the container
+  back to the pre-handler value AND treats the dispatch as failed —
+  flows do NOT evaluate and `:fx` does NOT walk. The pre-handler db
+  is read from `(get-in final-ctx [:coeffects :db])` (assemble-
+  initial-ctx stamps it there). Downstream queued events still drain
+  per run-to-completion (handled by `drain-loop!`'s outer pass)."
   [final-ctx event-id event frame frame-record fx-overrides start-ms]
-  (let [effects (:effects final-ctx)
-        error   (:rf/interceptor-error final-ctx)]
+  (let [effects   (:effects final-ctx)
+        error     (:rf/interceptor-error final-ctx)
+        db-before (get-in final-ctx [:coeffects :db])]
     (when error
       (emit-handler-exception! error event-id event frame final-ctx start-ms))
-    (commit-db-effect! effects event-id event frame final-ctx)
-    (run-flows! frame event)
-    (run-fx-effects! effects frame frame-record fx-overrides event)
+    (when (commit-db-effect! effects event-id event frame final-ctx db-before)
+      (run-flows! frame event)
+      (run-fx-effects! effects frame frame-record fx-overrides event))
     error))
 
 (defn- emit-cascade-trailers!

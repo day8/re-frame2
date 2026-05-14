@@ -110,16 +110,15 @@
 ;; top-level props and writes a `{:large? true :source :schema}`
 ;; entry into `[:rf/elision :declarations]`.
 ;;
-;; We deliberately do NOT wrap the schema in `:maybe` — a `:maybe`
-;; wrapper would push `:large?` past the walker's top-level-props
-;; check. The slot is allowed to be `nil` at runtime because the
-;; default schema validator soft-passes (Spec 010 §Recommended
-;; soft-pass); the optional-value semantic lives in the schema's
-;; ABSENCE from app-db before the user clicks the upload button,
-;; not in a `:maybe` wrapper.
+;; Per rf2-wkxng / rf2-6m0se the runtime now ROLLS BACK on a post-
+;; commit app-db schema failure — the slot may be `nil` (when the
+;; user hasn't uploaded yet), so the schema MUST permit nil. We
+;; wrap with `:maybe`; the `:large? true` flag lives on the inner
+;; `:string` slot so the walker still surfaces it under the
+;; `[:user/avatar-pdf]` registered path.
 (rf/reg-app-schema [:user/avatar-pdf]
-                   [:string {:large? true
-                             :hint   "Avatar PDF blob"}])
+                   [:maybe [:string {:large? true
+                                     :hint   "Avatar PDF blob"}]])
 
 ;; ============================================================================
 ;; EVENTS  (Spec 009 §`:sensitive?` + §`with-redacted`)

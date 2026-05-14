@@ -112,7 +112,99 @@
         (is (= 1 (count violations))
             "the malformed :n/break commit fires exactly one schema trace")
         (is (= :n/break (-> violations first :tags :failing-id))
-            ":failing-id names the handler whose commit prompted the failure")))))
+            ":failing-id names the handler whose commit prompted the failure")
+        (is (true? (-> violations first :tags :rollback?))
+            "Per rf2-wkxng / rf2-6m0se the trace carries :rollback? true")))))
+
+;; ---- rf2-wkxng / rf2-6m0se — app-db rollback on schema-validation failure --
+
+(deftest app-db-rollback-restores-pre-handler-value-on-failure
+  (testing "Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se):
+            a post-handler app-db schema-validation failure rolls back
+            :db to the pre-handler value. The dispatch is treated as
+            failed; the bad commit does NOT stand."
+    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-event-db :n/init  (fn [_ _]  {:n 0}))
+    (rf/reg-event-db :n/ok    (fn [db _] (assoc db :n 42)))
+    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
+    (rf/dispatch-sync [:n/init])
+    (is (= {:n 0} (rf/get-frame-db (rf/current-frame)))
+        "baseline post-init state")
+    (rf/dispatch-sync [:n/ok])
+    (is (= {:n 42} (rf/get-frame-db (rf/current-frame)))
+        "well-typed commit is durable")
+    (rf/dispatch-sync [:n/break])
+    (is (= {:n 42} (rf/get-frame-db (rf/current-frame)))
+        "malformed commit was ROLLED BACK to the pre-handler value
+         (was {:n 42} before :n/break; would be {:n \"boom\"} without
+         rollback)")))
+
+(deftest app-db-rollback-skips-fx-on-failure
+  (testing "Per rf2-wkxng / rf2-6m0se: on rollback the dispatch is
+            'treated as failed' — :fx does NOT walk. Sibling fx that
+            would have fired do not run."
+    (let [fx-calls (atom [])]
+      (rf/reg-fx :test/note (fn [v] (swap! fx-calls conj v)))
+      (rf/reg-app-schema [:n] [:int])
+      (rf/reg-event-fx :n/init
+        (fn [_ _] {:db {:n 0}}))
+      (rf/reg-event-fx :n/break-with-fx
+        (fn [_ _] {:db {:n "boom"}    ;; bad commit
+                   :fx [[:test/note :should-not-fire]]}))
+      (rf/dispatch-sync [:n/init])
+      (rf/dispatch-sync [:n/break-with-fx])
+      (is (= {:n 0} (rf/get-frame-db (rf/current-frame)))
+          "db rolled back")
+      (is (empty? @fx-calls)
+          "sibling fx did not walk — dispatch treated as failed"))))
+
+(deftest app-db-rollback-emits-second-db-changed-with-phase-rollback
+  (testing "Per rf2-wkxng / rf2-6m0se: rollback emits a second
+            :event/db-changed trace stamped :phase :rollback so
+            listeners observe the restored state without ambiguity.
+            Trace ordering: forward db-changed → schema-failure error
+            → rollback db-changed."
+    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-event-db :n/init  (fn [_ _]  {:n 0}))
+    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
+    (let [events (atom [])]
+      (rf/register-trace-cb! ::ord
+        (fn [ev] (when (#{:event/db-changed
+                          :rf.error/schema-validation-failure}
+                        (:operation ev))
+                   (swap! events conj
+                          [(:operation ev)
+                           (-> ev :tags :phase)]))))
+      (rf/dispatch-sync [:n/init])
+      (reset! events [])
+      (rf/dispatch-sync [:n/break])
+      (rf/remove-trace-cb! ::ord)
+      ;; Three emissions in this exact order: forward commit (no phase),
+      ;; schema-failure error (no phase slot), rollback commit (phase
+      ;; :rollback).
+      (is (= [[:event/db-changed                     nil]
+              [:rf.error/schema-validation-failure   nil]
+              [:event/db-changed                     :rollback]]
+             @events)
+          "trace ordering: forward commit → schema-failure → rollback commit"))))
+
+(deftest validate-app-db-returns-boolean
+  (testing "Per rf2-wkxng / rf2-6m0se: validate-app-db! returns true on
+            conform (or no schemas / no validator), false on any
+            failure. The router consumes this to decide rollback."
+    (rf/reg-app-schema [:n] [:int])
+    (with-redefs [interop/debug-enabled? true]
+      (is (true?  (schemas/validate-app-db! {:n 42}))
+          "conforming value returns true")
+      (is (false? (schemas/validate-app-db! {:n "boom"}))
+          "non-conforming value returns false")
+      (is (true?  (schemas/validate-app-db! {:n 42} :some/handler))
+          "conforming + event-id arity returns true")
+      (is (false? (schemas/validate-app-db! {:n "boom"} :some/handler))
+          "non-conforming + event-id arity returns false"))
+    (with-redefs [interop/debug-enabled? false]
+      (is (true? (schemas/validate-app-db! {:n "boom"} :some/handler))
+          "production mode (debug-enabled? false) returns true unconditionally"))))
 
 ;; ---- rf2-jwm4 — event-payload validation ---------------------------------
 

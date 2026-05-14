@@ -24,6 +24,7 @@
             [re-frame.core         :as rf]
             [re-frame.event-emit   :as event-emit]
             [re-frame.frame        :as frame]
+            [re-frame.late-bind    :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             ;; Loading the demo ns fires its registrations against the
@@ -45,9 +46,25 @@
   ;; tactical fix) is obsolete — Causa's cb runs as production
   ;; preload wires it.
   (reset! frame/frames {})
+  ;; Per rf2-wkxng / rf2-6m0se: clear cross-namespace schemas from
+  ;; the per-frame registry before re-registering this demo's
+  ;; declarations. Sibling test namespaces (auth-flow story tests,
+  ;; nine-states.core, Conduit) register schemas against :rf/default
+  ;; at ns-load; the post-commit validation rollback would otherwise
+  ;; fire on every dispatch in this file against those unrelated
+  ;; schemas.
+  (when-let [clear! (late-bind/get-fn :schemas/clear-by-frame!)]
+    (clear!))
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
   (frame/ensure-default-frame!)
   (event-emit/clear-event-emit-listeners!)
+  ;; Re-register this demo's app-db schema. The demo namespace's
+  ;; ns-load `reg-app-schema` call ran once at module load; the
+  ;; preceding `(clear!)` step wiped it. Re-stamping it here keeps
+  ;; the schema-driven elision branch (test 3) working.
+  (rf/reg-app-schema [:user/avatar-pdf]
+                     [:maybe [:string {:large? true
+                                       :hint   "Avatar PDF blob"}]])
   ;; Re-run the schema-driven elision-registry boot population
   ;; against the post-init frame. The demo ns's `reg-app-schema`
   ;; call lives in registry-meta land; the per-frame `[:rf/elision

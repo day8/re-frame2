@@ -112,14 +112,19 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 
-(rf/reg-app-schema [:rf/machines :app/boot] BootSnapshot)
+;; Per rf2-wkxng / rf2-6m0se the runtime rolls back post-commit on a
+;; failing app-db schema. The slots below are absent (nil) before the
+;; boot machine writes them; every registration is wrapped in :maybe
+;; so the validator passes during the staging/loading phases.
+
+(rf/reg-app-schema [:rf/machines :app/boot] [:maybe BootSnapshot])
 
 ;; The :invoke-all children stage their payloads into [:boot/staging]
 ;; before signalling completion to the parent. The :enter-hydrating
 ;; action reads the staging slot and promotes each payload into the
 ;; canonical top-level slot below. Registered here so the staging
 ;; writes are schema-validated like every other slice.
-(rf/reg-app-schema [:boot/staging] BootStagingSlice)
+(rf/reg-app-schema [:boot/staging] [:maybe BootStagingSlice])
 
 ;; The boot machine writes its final payloads into top-level app-db
 ;; slices on entering `:hydrating`. These are the slices the main app

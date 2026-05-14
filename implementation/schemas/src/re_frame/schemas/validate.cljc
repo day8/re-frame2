@@ -251,18 +251,32 @@
   event-id (optional) names the handler whose commit prompted the
   failure — surfaced as :failing-id in the error tags.
 
+  Returns:
+    true   — every registered schema conformed (or no validator /
+             no schemas registered for the frame / debug elided).
+    false  — at least one schema failed; a trace event was emitted
+             for every failing entry. The router consumes this signal
+             to roll back the :db effect to the pre-handler value
+             (per Spec 010 §Per-step recovery row 4 / rf2-wkxng /
+             rf2-6m0se).
+
   Structurally distinct from the four meta-bearing validate-*! fns
-  (event / cofx / fx / sub-return): walks N schemas via doseq, has
-  no single `:spec`-on-meta lookup, and emits per failure without
-  returning a true/false pass flag. Does not share the
-  `run-validation` shape."
+  (event / cofx / fx / sub-return): walks N schemas via doseq, has no
+  single `:spec`-on-meta lookup, and emits a trace per failure (rather
+  than at-most-one). Returns a single boolean conjoining every entry's
+  result so the caller can decide rollback deterministically — but
+  every failing schema is still surfaced as its own trace so consumers
+  see the full set."
   ([db] (validate-app-db! db nil (frame/current-frame)))
   ([db event-id] (validate-app-db! db event-id (frame/current-frame)))
   ([db event-id frame-id]
    ;; Per Spec 009 §Production builds the entire body lives inside a
-   ;; `(when interop/debug-enabled? ...)` gate as the OUTERMOST form so
-   ;; :advanced + goog.DEBUG=false DCE-elides every reason string,
-   ;; keyword, validator deref, and trace call. The `@validator-fn`
+   ;; `(if interop/debug-enabled? ... true)` gate as the OUTERMOST form
+   ;; so :advanced + goog.DEBUG=false DCE-elides every reason string,
+   ;; keyword, validator deref, and trace call. Production builds
+   ;; return `true` unconditionally — the rollback path is dev-only
+   ;; (post-commit validation is gated by debug-enabled?, so no
+   ;; failure is observable to roll back against). The `@validator-fn`
    ;; check is a runtime atom deref and must NOT be combined into the
    ;; gate predicate (the deref defeats Closure's reachability proof).
    ;;
@@ -270,74 +284,91 @@
    ;; and invoked directly per entry; `validator/run-validator` would
    ;; re-deref the atom on every iteration (2N derefs for N entries),
    ;; which is wasted work on the post-handler-commit hot path.
-   (when interop/debug-enabled?
-     (when-let [vf @validator/validator-fn]
-       (doseq [[reg-path m] (storage/frame-schema-entries frame-id)]
-         (let [val-at (get-in db reg-path)
-               schema (:schema m)]
-           (when-not (vf schema val-at)
-             ;; Per rf2-oh4se — make the failure path precise and the
-             ;; sensitivity decision path-targeted.
-             ;;
-             ;; The registered explainer is invoked exactly once on
-             ;; the failure branch; its output feeds BOTH the trace's
-             ;; `:explain` slot (verbatim) and the failing-leaf path
-             ;; extraction. `failing-in-path` returns the navigation
-             ;; path through the value Malli reports under `:in` (the
-             ;; value-relative path, not the schema-walk path under
-             ;; `:path` which carries `:multi` / `:orn` dispatch
-             ;; values). The trace's `:path` is the registered root
-             ;; conj'd with the leaf — the slot a consumer can
-             ;; `get-in` against on a NON-failed copy of app-db.
-             ;;
-             ;; Conservative fallback: when no leaf path is
-             ;; extractable (non-Malli explainer, missing
-             ;; explanation), keep the old behaviour — emit the
-             ;; registered root as `:path` and consult
-             ;; `schema-has-sensitive?` for the redaction decision.
-             ;; The `:registered-path` tag always carries the
-             ;; registration root so tooling can reach it regardless
-             ;; of whether path narrowing succeeded.
-             ;;
-             ;; Per Spec 010 §`:sensitive?` — privacy in schema-
-             ;; validation error traces (rf2-kj51z). The path-targeted
-             ;; check (`schema-sensitive-at?`) replaces the coarse
-             ;; whole-schema check: a failure at a non-sensitive slot
-             ;; in a schema that also declares a sibling slot
-             ;; sensitive no longer suffers redaction. Conservative
-             ;; semantics preserved — ancestor-sensitive OR
-             ;; descendant-sensitive at the failing path counts.
-             (let [explanation (validator/run-explainer schema val-at)
-                   in-path     (failing-in-path explanation)
-                   leaf-path   (if in-path
-                                 (vec (concat reg-path in-path))
-                                 reg-path)
-                   ;; Per rf2-oh4se the trace's `:value` is the failing
-                   ;; leaf's value (what the schema slot at `leaf-path`
-                   ;; rejected) — narrowed via the explainer's `:in`
-                   ;; navigation path. Falls back to the whole
-                   ;; registered slot when no leaf can be extracted.
-                   leaf-value  (if in-path
-                                 (get-in val-at in-path)
-                                 val-at)
-                   sensitive?  (if in-path
-                                 (walker/schema-sensitive-at? schema in-path)
-                                 (walker/schema-has-sensitive? schema))
-                   base-tags   (cond-> {:where           :app-db
-                                        :path            leaf-path
-                                        :registered-path reg-path
-                                        :value           leaf-value
-                                        :frame           frame-id
-                                        :explain         explanation
-                                        :reason          (reason-string
-                                                           "App-db at path "
-                                                           leaf-path
-                                                           " failed schema "
-                                                           schema leaf-value)
-                                        :recovery        :no-recovery}
-                                 event-id (assoc :failing-id event-id))
-                   tags        (if sensitive? (redact-tags base-tags) base-tags)]
-               (trace/emit-error! :rf.error/schema-validation-failure tags)))))))))
+   (if interop/debug-enabled?
+     (if-let [vf @validator/validator-fn]
+       ;; reduce + atomic short-circuit replaced doseq so we can emit
+       ;; a trace per failure (full surface for consumers) AND return
+       ;; a single conjoined boolean (single signal for the rollback
+       ;; gate). Pass-state stays `true` only when every entry passed.
+       (loop [entries (seq (storage/frame-schema-entries frame-id))
+              ok?     true]
+         (if-let [[reg-path m] (first entries)]
+           (let [val-at (get-in db reg-path)
+                 schema (:schema m)]
+             (if (vf schema val-at)
+               (recur (next entries) ok?)
+               (do
+                 ;; Per rf2-oh4se — make the failure path precise and
+                 ;; the sensitivity decision path-targeted.
+                 ;;
+                 ;; The registered explainer is invoked exactly once
+                 ;; on the failure branch; its output feeds BOTH the
+                 ;; trace's `:explain` slot (verbatim) and the
+                 ;; failing-leaf path extraction. `failing-in-path`
+                 ;; returns the navigation path through the value
+                 ;; Malli reports under `:in` (the value-relative
+                 ;; path, not the schema-walk path under `:path` which
+                 ;; carries `:multi` / `:orn` dispatch values). The
+                 ;; trace's `:path` is the registered root conj'd with
+                 ;; the leaf — the slot a consumer can `get-in`
+                 ;; against on a NON-failed copy of app-db.
+                 ;;
+                 ;; Conservative fallback: when no leaf path is
+                 ;; extractable (non-Malli explainer, missing
+                 ;; explanation), keep the old behaviour — emit the
+                 ;; registered root as `:path` and consult
+                 ;; `schema-has-sensitive?` for the redaction decision.
+                 ;; The `:registered-path` tag always carries the
+                 ;; registration root so tooling can reach it
+                 ;; regardless of whether path narrowing succeeded.
+                 ;;
+                 ;; Per Spec 010 §`:sensitive?` — privacy in schema-
+                 ;; validation error traces (rf2-kj51z). The path-
+                 ;; targeted check (`schema-sensitive-at?`) replaces
+                 ;; the coarse whole-schema check: a failure at a
+                 ;; non-sensitive slot in a schema that also declares
+                 ;; a sibling slot sensitive no longer suffers
+                 ;; redaction. Conservative semantics preserved —
+                 ;; ancestor-sensitive OR descendant-sensitive at the
+                 ;; failing path counts.
+                 ;;
+                 ;; Per rf2-wkxng / rf2-6m0se the trace's tag carries
+                 ;; `:rollback? true` (consistent with depth-exceeded;
+                 ;; reuses the existing `:recovery :no-recovery`
+                 ;; vocabulary rather than minting a new enum value).
+                 ;; The router consumes the loop's final boolean to
+                 ;; perform the actual container restoration.
+                 (let [explanation (validator/run-explainer schema val-at)
+                       in-path     (failing-in-path explanation)
+                       leaf-path   (if in-path
+                                     (vec (concat reg-path in-path))
+                                     reg-path)
+                       leaf-value  (if in-path
+                                     (get-in val-at in-path)
+                                     val-at)
+                       sensitive?  (if in-path
+                                     (walker/schema-sensitive-at? schema in-path)
+                                     (walker/schema-has-sensitive? schema))
+                       base-tags   (cond-> {:where           :app-db
+                                            :path            leaf-path
+                                            :registered-path reg-path
+                                            :value           leaf-value
+                                            :frame           frame-id
+                                            :explain         explanation
+                                            :reason          (reason-string
+                                                               "App-db at path "
+                                                               leaf-path
+                                                               " failed schema "
+                                                               schema leaf-value)
+                                            :rollback?       true
+                                            :recovery        :no-recovery}
+                                     event-id (assoc :failing-id event-id))
+                       tags        (if sensitive? (redact-tags base-tags) base-tags)]
+                   (trace/emit-error! :rf.error/schema-validation-failure tags)
+                   (recur (next entries) false)))))
+           ok?))
+       true)
+     true)))
 
 (defn validate-event!
   "Per Spec 010 §Validation order step 1 — before an event handler runs,

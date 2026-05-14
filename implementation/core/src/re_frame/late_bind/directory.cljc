@@ -116,6 +116,10 @@
    {:key         :schemas/clear-by-frame!
     :producer-ns 're-frame.schemas
     :description "Clear the schema registry entries for a frame (test isolation)."}
+   {:key         :schemas/on-frame-destroyed!
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-6m0se"
+    :description "Drop the destroyed frame's app-db schema entries (consumed by frame/destroy-frame!)."}
    {:key         :schemas/set-schema-validator!
     :producer-ns 're-frame.schemas
     :design-bead "rf2-froe"

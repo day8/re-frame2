@@ -515,6 +515,15 @@
     ;; teardown. No-op when re-frame.machines is absent (the artefact
     ;; is optional).
     (safe-call-hook! :machines/on-frame-destroyed! id)
+    ;; Per rf2-wkxng / rf2-6m0se: drop every schema registered against
+    ;; the destroyed frame so a re-registered frame starts with a
+    ;; clean schema slate. Without this hook, orphan app-db schemas
+    ;; from a prior `reg-frame` cycle persist and re-fire under the
+    ;; rollback contract — manifesting as spurious rollbacks against
+    ;; paths the new frame's :on-create never wrote. No-op when
+    ;; re-frame.schemas is absent (the artefact is optional per
+    ;; rf2-p7va).
+    (safe-call-hook! :schemas/on-frame-destroyed! id)
     (emit-frame-destroyed-trace! id)
     (dissoc-frame! id)
     (unregister-frame! id)
