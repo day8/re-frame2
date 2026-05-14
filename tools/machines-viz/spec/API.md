@@ -61,7 +61,7 @@ unrecognised keys at registration time).
 | `:width` | no | `nil` (flex) | Fixed width in pixels. |
 | `:initial-zoom` | no | `1.0` | Starting zoom factor. The user can zoom/pan after mount; the prop only sets the initial value. |
 | `:auto-pan?` | no | `false` | Whether the chart auto-pans on every transition to keep the active state visible. Causa's panel sets this from its localStorage toggle; the viewer page leaves it off. |
-| `:current-state-override` | no | `nil` | A `{:state ... :data ...}` map that overrides the live snapshot. Used by the read-only viewer page to render the shared snapshot. Out-of-scope for live charts. |
+| `:current-state-override` | no | `nil` | A `{:state ... :data ...}` map that overrides the live snapshot. Used by the read-only viewer page to render the shared snapshot — when sourced from a share URL, `:data` is always absent (the share schema carries `:state` only; per [§Share-URL payload schema](#share-url-payload-schema)). Out-of-scope for live charts. |
 
 The four `:on-*` callback shapes are mirrored from
 [Causa 003 §Source-coord integration](../../causa/spec/003-Machine-Inspector.md#source-coord-integration);
@@ -174,6 +174,15 @@ https://acme.example.com/path/to/viewer.html#machine=<base64-edn>
   read client-side via `location.hash`; nothing sends it.
 - It never loads transit events, app-db slices, or any data
   outside the validated payload schema.
+- It never receives runtime `:data` — the share payload's
+  `:snapshot` carries `:state` only (per
+  [§Share-URL payload schema](#share-url-payload-schema)). The
+  viewer cannot display data values because there are none to
+  display.
+- It never receives local-filesystem `:source-coords` — they are
+  not part of the share schema. The viewer has no editor handler
+  wired, so source coords would be inert anyway; excluding them
+  prevents accidental disclosure of workstation paths.
 - It never enables `:on-*` callbacks. Hosts requesting a "click in
   the viewer goes to my docs site" would have to fork the page;
   the canonical viewer is read-only end-to-end.
@@ -200,13 +209,17 @@ Source: lifted from
 encoder:
 
 1. Validates `chart-state` against the schema. Anything outside the
-   allowlist is silently dropped (per [Principles §No session data
-   in shares](./Principles.md)).
-2. Canonicalises map / set ordering (per
+   allowlist is silently dropped — including runtime `:data` on
+   `:snapshot` and any `:source-coords` the caller passes (per
+   [Principles §No session data in shares](./Principles.md)).
+2. Strips metadata off `:definition` (registered definitions carry
+   source-coord meta per Spec 001; that meta must not propagate
+   into the share payload).
+3. Canonicalises map / set ordering (per
    [Principles §Reproducible from the registry alone](./Principles.md)).
-3. Wraps in the versioned envelope.
-4. EDN-prints → transit-writes → base64url-encodes.
-5. Wraps the fragment into the `:host` URL.
+4. Wraps in the versioned envelope.
+5. EDN-prints → transit-writes → base64url-encodes.
+6. Wraps the fragment into the `:host` URL.
 
 ### Decoder
 
@@ -239,6 +252,26 @@ Per [DESIGN-RATIONALE Lock #3](./DESIGN-RATIONALE.md).
 
 ### Share-URL payload schema
 
+Share URLs are **viewer-side artefacts** — they exist solely to let
+a remote recipient render the chart. The schema is deliberately
+narrow: it carries the machine topology and the active-state
+**name** for visual continuity, and nothing else. Two classes of
+data are structurally excluded:
+
+- **Runtime `:data`** — the machine's per-snapshot data value is
+  not part of the share payload. A well-intentioned operator
+  clicking "Copy as Share URL" must not be able to exfiltrate
+  tokens, form contents, request payloads, or any other sensitive
+  value the running machine has accumulated. Per
+  [Principles §No session data in shares](./Principles.md).
+- **Local-filesystem `:source-coords`** — source coordinates carry
+  absolute file paths (per [`spec/Spec-Schemas.md` §`:rf/source-coord-meta`](../../../spec/Spec-Schemas.md#rfsource-coord-meta))
+  which reveal usernames, workstation layout, and internal repo
+  structure. Source-coord chips are an editor-side affordance for
+  the operator running Causa; the viewer page has **no editor
+  handler wired** and cannot use them. They are dropped at encode
+  time.
+
 ```clojure
 (def ShareEnvelope
   [:map
@@ -251,27 +284,42 @@ Per [DESIGN-RATIONALE Lock #3](./DESIGN-RATIONALE.md).
    [:machine-id  keyword?]              ;; the registered machine's id
    [:frame-id    keyword?]              ;; the registered machine's frame
    [:definition  MachineDefinition]     ;; the topology (states, transitions, guards, actions, :invoke, :invoke-all, :after)
-   [:snapshot   {:optional true}        ;; the current-state snapshot at share time
-    [:map
-     [:state    keyword?]
-     [:data     :any]
-     [:meta?   {:optional true} :any]]]
-   [:source-coords {:optional true}     ;; topology source-coords (per Spec 001) — only included if present in definition meta
-    [:map-of :any :any]]])
+   [:snapshot   {:optional true}        ;; the current-state name at share time — name ONLY, no :data
+    [:map {:closed true}
+     [:state    keyword?]]]])           ;; the registered state-id; nothing else permitted in :snapshot
 ```
+
+The `:snapshot` map is `{:closed true}` and carries `:state` only.
+Runtime `:data` is structurally absent from the share payload; the
+encoder neither reads nor serialises it. The decoder rejects any
+`:snapshot` carrying additional keys with `:invalid-chart-state`.
+The viewer page mounts `MachineChart` with `:current-state-override`
+set to `{:state <state-name>}` (and `:data` therefore `nil`); the
+chart pulses the state node without any data-driven affordance.
+
+`:source-coords` is **not a top-level key** of `ChartState`. Source
+coords live only in the operator-side `(rf/machine-meta machine-id)`
+return value and never traverse the share pipeline. The viewer page
+renders with `:on-state-click` / `:on-transition-click` etc.
+no-op'd (per [§Read-only viewer](#read-only-viewer)), so the
+absence of source coords is observationally invisible.
 
 The `MachineDefinition` shape matches the `reg-machine` registered
 definition (per Spec 005 §Snapshot shape + §Transition table grammar)
 with **only** the topology slots included — `:guards` and `:actions`
 maps are encoded as **names only** (their fn bodies are not
 serialised; consumers re-resolve against their own registry if they
-want to run the machine). The viewer page never resolves them; it
-only renders.
+want to run the machine). The encoder **strips metadata** off the
+definition before serialisation (registered definitions carry
+source-coord meta per Spec 001; that meta does not propagate). The
+viewer page never resolves guards or actions; it only renders.
 
 Anything not in the schema is silently dropped by the encoder. New
-top-level keys require an explicit `:rf.machines-viz.share/allow?`
-opt-in (per [Principles §No session data in shares](./Principles.md));
-CI enforces.
+top-level keys (and any future expansion of `:snapshot`) require
+an explicit `:rf.machines-viz.share/allow?` opt-in plus an
+operator-controlled redaction hook (per
+[Principles §No session data in shares](./Principles.md)); CI
+enforces.
 
 ### URL length
 

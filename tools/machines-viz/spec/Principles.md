@@ -102,11 +102,31 @@ upgrading."
 
 ## No session data in shares
 
-The share-URL serialises **only** machine topology + a single
-current-state snapshot.
+A share URL is a **viewer-side artefact**: its only job is to let
+a remote recipient render the chart. Anything that exists for the
+operator's local convenience (runtime data values, editor jumps,
+filesystem paths) must not propagate. The share-URL serialises
+**only** machine topology + the current state's **name** for
+visual continuity.
 
 Forbidden in a share payload:
 
+- **Runtime `:data` from the machine snapshot.** A machine's `:data`
+  value may carry tokens, form contents, request payloads, or any
+  other runtime accumulation. The share schema's `:snapshot` map
+  is `{:closed true}` and carries `:state` only; `:data` is
+  structurally absent. This is the highest-priority class of
+  exclusion — the accident the schema protects against is a well-
+  intentioned operator clicking "Copy as Share URL" without
+  realising the snapshot is included.
+- **Local-filesystem `:source-coords`.** Source coords carry
+  absolute file paths (per
+  [`spec/Spec-Schemas.md` §`:rf/source-coord-meta`](../../../spec/Spec-Schemas.md#rfsource-coord-meta))
+  revealing usernames, workstation layout, and internal repo
+  structure. They have no use to the remote viewer (the viewer
+  page has no editor handler wired) and are dropped at encode
+  time. Definition metadata is stripped before serialisation so
+  that macro-captured coords on the topology cannot leak either.
 - Trace events (no event vectors; no dispatch ids; no causal walk).
 - Epoch history (no app-db slices outside `[:rf/machines <id>]`).
 - User-input data (no form values, no inputs the user typed).
@@ -118,14 +138,19 @@ Forbidden in a share payload:
 The principle exists because the framework's runtime carries
 sensitive data by default (per
 [Spec 009 §Privacy](../../../spec/009-Instrumentation.md)). A share-
-URL that exfiltrates trace events is a privacy hole; we close it
-structurally. Per Causa Lock #4 — Session export, lifted here.
+URL that exfiltrates trace events is a privacy hole; one that
+exfiltrates `:data` is the same hole through a different door; one
+that leaks `:file` paths is a smaller hole but the same accident-
+class. We close all three structurally. Per Causa Lock #4 — Session
+export, lifted here.
 
 The encoder is the gatekeeper: it accepts a `chart-state` value and
-silently drops anything outside the allowlist before serialising.
-The allowlist lives in [`API.md`](./API.md) §Share-URL payload
-schema; CI tests enforce that any new top-level key requires an
-explicit `:rf.machines-viz.share/allow?` opt-in.
+silently drops anything outside the allowlist before serialising —
+including runtime `:data` on `:snapshot` and any `:source-coords`
+the caller passes. The allowlist lives in [`API.md`](./API.md)
+§Share-URL payload schema; CI tests enforce that any new top-level
+key requires an explicit `:rf.machines-viz.share/allow?` opt-in
+plus an operator-controlled redaction hook.
 
 ## Reproducible from the registry alone
 

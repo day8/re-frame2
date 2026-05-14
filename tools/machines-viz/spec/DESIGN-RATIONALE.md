@@ -261,12 +261,13 @@ covered by complementary surfaces.
 
 ---
 
-## Lock #5 — Current-state in share-URL: snapshot, not history
+## Lock #5 — Current-state in share-URL: state name only, no `:data`
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003).** **The
-share-URL payload carries the topology + a single current-state
-snapshot. No transition history; no event vector; no app-db
-slices.**
+**Locked 2026-05-13 (Mike, lifted from Causa 003; tightened
+2026-05-14 per rf2-li3o4).** **The share-URL payload carries the
+topology + the current state's name (`:state` keyword only). No
+runtime `:data`; no transition history; no event vector; no
+app-db slices; no source-coords.**
 
 ### Question
 
@@ -282,35 +283,53 @@ What state-information does the share-URL carry?
   last N transitions on load. Rejected — encodes session data,
   violates the no-session-export principle (Causa Lock #4 lifted),
   inflates the URL beyond practical limits.
-- **Topology + a single current-state snapshot.** The chart
-  renders with the snapshot's state highlighted. The recipient
-  has a "show idle" toggle to clear it.
+- **Topology + full snapshot (state + `:data`).** The original
+  lift from Causa 003. Rejected (rf2-li3o4) — `:data` is operator-
+  side runtime accumulation; a well-intentioned "Copy as Share
+  URL" click would exfiltrate tokens, form contents, and request
+  payloads. The accident-class beats the visual-continuity
+  marginal benefit.
+- **Topology + the state name only.** The chart highlights the
+  active state node; `:data` is unavailable to the viewer (which
+  has no per-data affordance anyway — the chart's data display
+  is operator-side, in Causa's inspector chrome). The recipient
+  has a "show idle" toggle to clear the highlight.
 
 ### Pick
 
-**Topology + a single current-state snapshot.**
+**Topology + the state name only (`:snapshot` is `{:closed true}`
+with `:state` only).**
 
 ### Why
 
-- **Visual continuity** — the recipient sees what the sharer was
-  looking at, the canonical case for sharing a chart.
+- **Visual continuity holds** — the recipient sees which state the
+  sharer was in; the pulse / highlight needs the state name only.
+  The chart's data display is operator-side chrome (Causa's
+  inspector panel), not a `MachineChart` affordance.
+- **Privacy is structural, not prose** — the encoder cannot emit
+  `:data` because the schema is `{:closed true}` on `:snapshot`.
+  Operators cannot accidentally share runtime values; an
+  operator who wants to share a data value pastes it explicitly
+  via a different channel.
 - **Reproducible-from-registry-alone** holds for the topology;
-  the snapshot is the only non-reproducible bit and is purely a
-  visual hint.
-- **Privacy holds** — no event vectors, no app-db slices, no user
-  inputs. A snapshot is the machine's `:state` keyword plus its
-  `:data` value (which the machine author controls); if the
-  machine author put sensitive data in `:data`, they should treat
-  the registered machine as code, which is the same rule that
-  applies to source. The share-URL does not leak run-time data.
+  the state name is the only non-reproducible bit and is purely
+  a visual hint.
 - **"Show idle" toggle** — the viewer page offers a one-click
   "clear active state" if the recipient wants to discuss the
   machine in the abstract. Causa 003 §Share-URL §Read-only viewer
   specifies this affordance.
+- **No source-coords either** — source coords carry absolute file
+  paths; the viewer has no editor handler wired; they are
+  structurally absent from the share schema. Definition metadata
+  is stripped before serialisation so macro-captured coords cannot
+  leak through `:definition` either.
 
 Source: lifted from Causa
 [`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
-§Share-URL §NOT a session export + §Privacy posture.
+§Share-URL §NOT a session export + §Privacy posture, then
+tightened per the rf2-li3o4 security audit (the lift carried a
+broader `:data :any` than this jar's Principles permitted; the
+schema now matches the Principles).
 
 ---
 
