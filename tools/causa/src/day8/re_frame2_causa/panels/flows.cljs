@@ -114,7 +114,7 @@
     :as _row}
    selected?]
   [:li {:data-testid (str "rf-causa-flow-row-" (h/format-flow-id flow-id))
-        :on-click   #(rf/dispatch [:rf.causa/select-flow-id flow-id])
+        :on-click   #(rf/dispatch [:rf.causa/select-flow-id flow-id] {:frame :rf/causa})
         :style      {:display       "flex"
                      :align-items   "center"
                      :padding       "6px 12px"
@@ -244,7 +244,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn flows-view
+(rf/reg-view flows-view
   "The Flows panel's root view. Subscribes to
   `:rf.causa/flows-data` and renders the summary header + flow
   list (or the empty state when no flows are registered)."

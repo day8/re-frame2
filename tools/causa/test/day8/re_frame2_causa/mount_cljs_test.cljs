@@ -47,6 +47,8 @@
   shadow-cljs preload + real Reagent render + real Ctrl+Shift+C —
   lives in the Playwright lane (rf2-s2bhn)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -213,6 +215,12 @@
 (defn- causa-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
+  ;; Per rf2-in6l2 the registry installs the trace-buffer mirror
+  ;; events (note-trace-event / clear-trace-buffer / sync-trace-buffer).
+  ;; `ensure-causa-frame!` (called inside `open!`) dispatches
+  ;; `:rf.causa/sync-trace-buffer` to seed the slot — that needs the
+  ;; event handlers installed.
+  (registry/register-causa-handlers!)
   (trace-bus/clear-buffer!)
   (reset-mount-state!))
 
@@ -658,3 +666,79 @@
             (mount/teardown!)
             (is (false? (mount/mounted?))
                 "mounted? flips back to false after teardown!")))))))
+
+;; -------------------------------------------------------------------------
+;; (8) Lazy `:rf/causa` frame registration (rf2-in6l2)
+;; -------------------------------------------------------------------------
+;;
+;; Per rf2-in6l2 the `:rf/causa` frame is lazy-registered by `open!` —
+;; the preload runs before `rf/init!` has installed a substrate adapter
+;; so `reg-frame` cannot run there (per rf2-e9s81). The first Ctrl+
+;; Shift+C keypress fires `open!` AFTER `rf/init!`, so that's the
+;; canonical registration point. Subsequent toggles surgical-update
+;; (reg-frame's re-register semantics) — the frame's app-db and sub-
+;; cache are preserved across keypresses.
+
+(deftest first-open!-registers-causa-frame
+  (testing "first open! registers the :rf/causa frame so reg-view-wrapped
+            panels' React-context resolution lands in a real frame
+            (not chain-resolves to :rf/default)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (is (nil? (frame/frame :rf/causa))
+                ":rf/causa is absent on the clean baseline")
+            (mount/open!)
+            (is (some? (frame/frame :rf/causa))
+                ":rf/causa registered after open!")))))))
+
+(deftest first-open!-seeds-trace-buffer-mirror
+  (testing "first open! seeds Causa's app-db `:trace-buffer` slot with
+            the trace-bus atom's current contents — closes the pre-
+            mount-trace-events window: events that arrived before the
+            user opened Causa (atom accumulated, no frame to dispatch
+            into yet) lift into the reactive slot on first mount"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            ;; Push two events into the trace-bus atom BEFORE the
+            ;; first open!. The frame doesn't exist yet, so the
+            ;; `mirror-into-causa!` guard skips the dispatch — atom
+            ;; still accumulates.
+            (trace-bus/collect-trace!
+              {:id 1 :op-type :event :operation :rf.test/pre-mount :tags {}})
+            (trace-bus/collect-trace!
+              {:id 2 :op-type :event :operation :rf.test/pre-mount :tags {}})
+            (mount/open!)
+            ;; After open! the slot reflects the pre-mount atom contents.
+            (rf/with-frame :rf/causa
+              (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
+                (is (= 2 (count buf))
+                    "pre-mount atom contents seeded into the reactive slot")
+                (is (= [1 2] (mapv :id buf))
+                    "seed preserves oldest-first ordering")))))))))
+
+(deftest open!-is-idempotent-on-causa-frame-registration
+  (testing "subsequent open!s after the frame is registered surgical-
+            update the frame's config (reg-frame contract per Spec 002
+            §Re-registration) without re-allocating the app-db.
+            Production toggle path: every Ctrl+Shift+C calls open!;
+            the close path doesn't unmount, so re-registration is
+            the on-show no-op the bead's design relies on"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (let [first-frame (frame/frame :rf/causa)
+                  first-db    (frame/get-frame-db :rf/causa)]
+              (mount/close!)
+              (mount/open!)
+              (let [second-frame (frame/frame :rf/causa)
+                    second-db   (frame/get-frame-db :rf/causa)]
+                (is (some? first-frame))
+                (is (some? second-frame))
+                (is (identical? first-db second-db)
+                    "app-db container preserved across re-register")))))))))

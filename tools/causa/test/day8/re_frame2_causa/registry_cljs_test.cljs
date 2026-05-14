@@ -163,6 +163,7 @@
    :rf.causa/clear-selected-epoch
    :rf.causa/clear-selected-sub
    :rf.causa/clear-slice-focus
+   :rf.causa/clear-trace-buffer
    :rf.causa/clear-trace-filters
    :rf.causa/clear-violation-selection
    :rf.causa/copy-path-to-clipboard
@@ -172,6 +173,7 @@
    :rf.causa/focus-slice-path
    :rf.causa/hide-invalidation-chain
    :rf.causa/note-sensitive-suppressed
+   :rf.causa/note-trace-event
    :rf.causa/open-in-editor
    :rf.causa/pin-current
    :rf.causa/pin-slice
@@ -205,6 +207,7 @@
    :rf.causa/set-sub-cache-override-for-test
    :rf.causa/set-trace-filter
    :rf.causa/show-invalidation-chain
+   :rf.causa/sync-trace-buffer
    :rf.causa/toggle-issues-prefix
    :rf.causa/toggle-issues-severity
    :rf.causa/toggle-mcp-op-type
@@ -242,9 +245,11 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 65 subs + 60 events + 3 fxs"
+  (testing "registry holds exactly 65 subs + 63 events + 3 fxs (rf2-in6l2
+            added 3 events: :rf.causa/note-trace-event,
+            :rf.causa/clear-trace-buffer, :rf.causa/sync-trace-buffer)"
     (is (= 65 (count all-sub-names)))
-    (is (= 60 (count all-event-names)))
+    (is (= 63 (count all-event-names)))
     (is (= 3  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
@@ -280,15 +285,16 @@
 ;; ---- (2) high-value sub contracts: defaults on a fresh frame ------------
 
 (deftest sub-trace-buffer-thunks-trace-bus
-  (testing ":rf.causa/trace-buffer thunks `trace-bus/buffer` (the
-            process-global ring atom). Tests push BEFORE the first
-            subscribe — the first deref of a fresh Reaction reads
-            whatever the atom holds at that moment. Re-deriving after
-            an atom mutation is NOT covered by this contract (the
-            Reaction caches against the no-op input-signal); under
-            Causa's normal usage that gap is closed by the host's
-            next app-db dispatch dirtying the resolved frame's db.
-            Per rf2-e9s81 — see `trace_bus.cljc` §Reactivity."
+  (testing ":rf.causa/trace-buffer falls through to `trace-bus/buffer`
+            (the process-global ring atom) when Causa's app-db slot is
+            empty — the pre-mount fallback path that lets headless tests
+            drive the collector without first dispatching the seed.
+            Tests push BEFORE the first subscribe; the first deref of a
+            fresh Reaction reads through to the atom and sees the
+            current contents. Per rf2-in6l2 — see `trace_bus.cljc`
+            §Reactivity for the dual atom + app-db slot, and
+            `registry.cljs` for the sub's `(or (get db :trace-buffer)
+            (trace-bus/buffer))` fall-through."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Push first, then subscribe — the Reaction's first read sees
@@ -314,6 +320,74 @@
     (rf/with-frame :rf/causa
       (is (= [] @(rf/subscribe [:rf.causa/trace-buffer]))
           "empty atom → sub returns []"))))
+
+(deftest sub-trace-buffer-immediate-reactive-update-via-mirror
+  (testing "Per rf2-in6l2 — once the `:rf/causa` frame is registered,
+            `collect-trace!` mirrors each push into Causa's app-db slot
+            `:trace-buffer` via `:rf.causa/note-trace-event` so the
+            layer-1 sub fires on the standard app-db-write reactive
+            path. Drive the mirror event synchronously via dispatch-
+            sync (the production path uses dispatch — async drain —
+            but the same handler runs); assert that the sub reads
+            from app-db rather than the atom fall-through once the
+            slot is populated."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Seed the app-db slot via the production event handler. With
+      ;; the slot populated the sub MUST read from app-db (not the atom
+      ;; fall-through) — that's the reactive surface panels depend on.
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:id 1 :op-type :event :operation :rf.test/a :tags {}}])
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:id 2 :op-type :event :operation :rf.test/b :tags {}}])
+      (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
+        (is (= 2 (count buf))
+            "two mirrored pushes are visible immediately on subscribe")
+        (is (= [1 2] (mapv :id buf))
+            "events are oldest-first, matching trace-bus/push algebra"))
+      ;; Bump once more — the reaction re-fires on the same dispatch
+      ;; path the production trace-collector takes. No
+      ;; clear-subscription-cache! workaround needed.
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:id 3 :op-type :event :operation :rf.test/c :tags {}}])
+      (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
+        (is (= 3 (count buf))
+            "subsequent mirror dispatch re-fires the sub — immediate update")
+        (is (= [1 2 3] (mapv :id buf)))))))
+
+(deftest sub-trace-buffer-clear-event-drops-mirror-slot
+  (testing "Per rf2-in6l2 — `:rf.causa/clear-trace-buffer` (dispatched
+            from `trace-bus/clear-buffer!` in CLJS) drops the mirrored
+            slot in lockstep with the atom reset. After clear the
+            sub falls back through the atom path again."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:id 1 :op-type :event :operation :rf.test/x :tags {}}])
+      (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
+      (rf/dispatch-sync [:rf.causa/clear-trace-buffer])
+      ;; After clear the slot is dissoc'd; the sub falls back to the
+      ;; atom (also empty since the trace-bus atom was cleared at the
+      ;; start of the test via the fixture's causa-init!).
+      (is (= [] @(rf/subscribe [:rf.causa/trace-buffer]))
+          "clear-trace-buffer drops the slot and the atom is empty too"))))
+
+(deftest sub-trace-buffer-sync-event-overwrites-slot
+  (testing "Per rf2-in6l2 — `:rf.causa/sync-trace-buffer` overwrites the
+            slot wholesale, used by `mount.cljs/open!` to seed the slot
+            with the atom's pre-mount contents and by `set-buffer-depth!`
+            to reflect post-shrink atom state."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (let [seed [{:id 100 :op-type :event :operation :rf.test/seeded :tags {}}
+                  {:id 101 :op-type :event :operation :rf.test/seeded :tags {}}]]
+        (rf/dispatch-sync [:rf.causa/sync-trace-buffer seed])
+        (is (= seed @(rf/subscribe [:rf.causa/trace-buffer]))
+            "seed lands wholesale in the slot")
+        ;; Overwrite with a smaller seed — wholesale replace, not merge.
+        (rf/dispatch-sync [:rf.causa/sync-trace-buffer [{:id 200 :tags {}}]])
+        (is (= [{:id 200 :tags {}}] @(rf/subscribe [:rf.causa/trace-buffer]))
+            "second sync wholly replaces the slot (no merge)")))))
 
 (deftest sub-trace-buffer-evicts-on-overflow
   (testing "trace-bus enforces the eviction-on-overflow algebra against

@@ -135,7 +135,7 @@
   [{:keys [id path summary view-id] :as _entry} selected?]
   [:li {:key       id
         :data-testid (str "rf-causa-hydration-mismatch-row-" (str id))
-        :on-click  #(rf/dispatch [:rf.causa/select-mismatch id])
+        :on-click  #(rf/dispatch [:rf.causa/select-mismatch id] {:frame :rf/causa})
         :style     {:padding      "6px 12px"
                     :border-bottom (str "1px solid " (:border-subtle tokens))
                     :background   (if selected? (:bg-active tokens) "transparent")
@@ -187,7 +187,7 @@
   [{:keys [path hash]} divergent?]
   [:span {:data-testid (str "rf-causa-hydration-hash-chip-"
                             (str/join "-" path))
-          :on-click    #(rf/dispatch [:rf.causa/reroot-tree-view path])
+          :on-click    #(rf/dispatch [:rf.causa/reroot-tree-view path] {:frame :rf/causa})
           :style       {:display       "inline-block"
                         :padding       "1px 6px"
                         :margin-left   "6px"
@@ -302,7 +302,7 @@
          [:span {:style {:margin-left "12px"}}
           "Registered at: "
           [:code {:on-click   (fn [_]
-                                (rf/dispatch [:rf.causa/open-in-editor coord]))
+                                (rf/dispatch [:rf.causa/open-in-editor coord] {:frame :rf/causa}))
                   :style      {:color       (:cyan tokens)
                                :font-family mono-stack
                                :cursor      "pointer"
@@ -357,7 +357,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn hydration-debugger-view
+(rf/reg-view hydration-debugger-view
   "The Hydration Debugger panel's root view. Subscribes to
   `:rf.causa/hydration-debugger-data` and renders either:
 

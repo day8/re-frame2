@@ -164,8 +164,8 @@
           :data-tier   (name tier)
           :data-over-budget (str (boolean over-budget?))
           :on-click    (fn []
-                         (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
-                         (rf/dispatch [:rf.causa/select-panel :event-detail]))
+                         (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
+                         (rf/dispatch [:rf.causa/select-panel :event-detail] {:frame :rf/causa}))
           :style       {:display       "grid"
                         :grid-template-columns "18px 60px minmax(140px, 1fr) 70px 110px 1.2fr 70px"
                         :gap           "10px"
@@ -251,7 +251,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn performance-view
+(rf/reg-view performance-view
   "The Performance panel's root view. Subscribes to
   `:rf.causa/performance-data` and renders the empty-state or the
   feed."

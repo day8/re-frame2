@@ -25,9 +25,27 @@
   The preload's `interop/debug-enabled?` gate (see preload.cljs) means
   mount never reaches production builds. This namespace therefore
   contains no production-elision logic of its own — the call-site
-  gate is sufficient."
-  (:require [re-frame.substrate.adapter :as substrate-adapter]
-            [day8.re-frame2-causa.shell :as shell]))
+  gate is sufficient.
+
+  ## Lazy `:rf/causa` frame registration (rf2-in6l2)
+
+  The Causa shell wraps every panel in `[rf/frame-provider {:frame
+  :rf/causa} …]` and every panel is `reg-view`-wrapped so subscribes
+  resolve through the React-context tier to the named frame. For that
+  routing to land in the *registered* `:rf/causa` frame (not chain-
+  resolve to `:rf/default`), the frame must exist — and the preload
+  can't register it because the preload runs before the host's
+  `rf/init!` has installed a substrate adapter, and `reg-frame` writes
+  trace events that need a running adapter to be reactive (per rf2-e9s81
+  the preload-time `reg-frame :rf/causa` path is the one that produced
+  the iw5ym regression). The first Ctrl+Shift+C keypress fires AFTER
+  `rf/init!`, so `open!` is the canonical place to call `reg-frame` —
+  the call is idempotent (surgical update on re-register) so subsequent
+  toggles are no-ops on this axis."
+  (:require [re-frame.core :as rf]
+            [re-frame.substrate.adapter :as substrate-adapter]
+            [day8.re-frame2-causa.shell :as shell]
+            [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- mount state ---------------------------------------------------------
 
@@ -71,11 +89,47 @@
 
 ;; ---- public API ----------------------------------------------------------
 
+(defn- ensure-causa-frame!
+  "Register the `:rf/causa` frame if not already registered. Idempotent
+  via `reg-frame`'s surgical-update-on-re-register semantics (per Spec
+  002 §reg-frame). Called from `open!` on every keypress — first call
+  creates the frame, subsequent calls are surgical no-ops.
+
+  ## Why here, not at preload time
+
+  Per rf2-in6l2 the registration was attempted at preload time but
+  reverted (rf2-e9s81): the preload runs before the host's `rf/init!`
+  has installed a substrate adapter, and the `:on-create` listener
+  dispatch needs a running adapter to be reactive. The first
+  Ctrl+Shift+C keypress fires from the user well after `rf/init!`, so
+  `open!` is the canonical lazy-registration point.
+
+  ## App-db seeding
+
+  Seeds the freshly-created frame's app-db with the trace buffer's
+  current contents at `:trace-buffer` so the layer-1
+  `:rf.causa/trace-buffer` sub re-fires off the standard app-db-write
+  reactive path from this point on (rf2-in6l2). Subsequent
+  `trace-bus/collect-trace!` calls dispatch `:rf.causa/note-trace-event`
+  into `:rf/causa` so the sub fires IMMEDIATELY on every push — no
+  dependency on a host-side dispatch for the panel to refresh."
+  []
+  (rf/reg-frame :rf/causa {})
+  ;; Seed the frame's app-db with whatever the trace-bus atom has
+  ;; accumulated so far (the host may have driven dispatches before
+  ;; the user opened Causa).
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])))
+
 (defn open!
-  "Mount + show the Causa shell. On first call: create the root <div>,
-  render the shell into it via the installed substrate adapter, mark
-  visible. On subsequent calls (when already mounted): make the
-  container visible.
+  "Mount + show the Causa shell. On first call: register the `:rf/causa`
+  frame, create the root <div>, render the shell into it via the
+  installed substrate adapter, mark visible. On subsequent calls (when
+  already mounted): make the container visible.
+
+  Per rf2-in6l2 the `:rf/causa` registration is lazy here (post-
+  `rf/init!`) rather than at preload time; see `ensure-causa-frame!`
+  for the rationale.
 
   Returns the mount-state map for tests / introspection."
   []
@@ -84,6 +138,7 @@
         (swap! mount-state assoc :visible? true)
         @mount-state)
     (when (substrate-adapter/current-adapter)
+      (ensure-causa-frame!)
       (let [node    (create-mount-node!)
             unmount (substrate-adapter/render [shell/shell-view] node nil)]
         (reset! mount-state

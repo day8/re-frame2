@@ -104,7 +104,7 @@
                             (let [v   (-> e .-target .-value)
                                   row (some #(when (= v (str (:machine-id %))) %) rows)]
                               (when-let [id (:machine-id row)]
-                                (rf/dispatch [:rf.causa/select-machine-id id]))))
+                                (rf/dispatch [:rf.causa/select-machine-id id] {:frame :rf/causa}))))
              :style       {:flex 1
                            :background (:bg-3 tokens)
                            :border (str "1px solid " (:border-default tokens))
@@ -235,7 +235,7 @@
   [{:keys [id from to event dispatch-id microstep?]}]
   [:li {:data-testid (str "rf-causa-machine-inspector-transition-" id)
         :on-click    (when dispatch-id
-                       #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id]))
+                       #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa}))
         :title       (h/format-event event)
         :style       {:display "inline-flex"
                       :align-items "center"
@@ -341,7 +341,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn machine-inspector-view
+(rf/reg-view machine-inspector-view
   "The Machine Inspector panel's root view. Subscribes to
   `:rf.causa/machine-inspector-data` and renders either the empty
   state (no machines registered) or the picker + chart placeholder +
