@@ -170,7 +170,7 @@
   highlight + the `active` marker."
   [{:keys [route-id path doc] :as _row} selected? active?]
   [:li {:data-testid (str "rf-causa-route-row-" (h/format-route-id route-id))
-        :on-click   #(rf/dispatch [:rf.causa/select-route route-id])
+        :on-click   #(rf/dispatch [:rf.causa/select-route route-id] {:frame :rf/causa})
         :style      {:display       "flex"
                      :align-items   "center"
                      :padding       "6px 16px"
@@ -250,8 +250,8 @@
     [:li {:data-testid row-test-id
           :on-click    (fn []
                          (when dispatch-id
-                           (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
-                           (rf/dispatch [:rf.causa/select-panel :event-detail])))
+                           (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
+                           (rf/dispatch [:rf.causa/select-panel :event-detail] {:frame :rf/causa})))
           :style       {:display       "grid"
                         :grid-template-columns "84px minmax(160px, 1fr) minmax(120px, 1fr) auto"
                         :gap           "10px"
@@ -367,7 +367,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn routes-view
+(rf/reg-view routes-view
   "The Routes panel's root view. Subscribes to `:rf.causa/routes-data`
   and renders the active-route breadcrumb + registered-routes list +
   navigation-history feed (or the empty state when no routes are

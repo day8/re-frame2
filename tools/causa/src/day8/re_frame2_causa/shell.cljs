@@ -20,13 +20,25 @@
       │ Bottom rail (40px)                                      │
       └─────────────────────────────────────────────────────────┘
 
-  ## Frame isolation (rf2-tijr Option C)
+  ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
   The whole shell is wrapped in `[rf/frame-provider {:frame :rf/causa}
   ...]`. Every `subscribe` / `dispatch` inside the shell resolves to
   the `:rf/causa` frame; the host's `:rf/default` is untouched. Causa
   registrations under `:rf.causa/*` (see registry.cljs) operate
   against `:rf/causa`'s db when called from inside the shell.
+
+  Per rf2-in6l2 every subscribing region of the shell is `reg-view`-
+  registered so its rendered React component carries `:contextType
+  frame-context` — the closest enclosing Provider's `:rf/causa`
+  flows through React-context and `(rf/subscribe …)` inside the body
+  resolves to the registered frame. With plain `defn`s the
+  React-context tier would be skipped (Spec 004 §Plain Reagent fns
+  do not pick up the surrounding frame) and subscribe would fall
+  through to `:rf/default` — silently routing every Causa panel
+  query into the host's app-db. The frame is lazy-registered by
+  `mount.cljs/open!` (`rf/init!` must run before `reg-frame` can
+  succeed; the preload runs too early).
 
   ## Pure hiccup
 
@@ -89,14 +101,20 @@
 
 ;; ---- regions -------------------------------------------------------------
 
-(defn- top-strip
+(rf/reg-view top-strip
   "Top strip (56px). Per spec/007-UX-IA.md §The five regions item 1:
   causality strip + frame picker + global actions (Issues badge,
   epoch counter, command palette, help, close).
 
   v1 stub: brand mark + version label + close-affordance text.
   Live causality strip / frame picker / Issues badge land as
-  follow-on work."
+  follow-on work.
+
+  Per rf2-in6l2 the body subscribes (`:rf.causa/copilot-open?`) so
+  the component is `reg-view`-registered — the wrapper attaches
+  `:contextType frame-context` so the surrounding `[rf/frame-provider
+  {:frame :rf/causa}]` (in `shell-view` below) reaches the subscribe
+  via React context."
   [_props]
   [:div {:style {:display          "flex"
                  :align-items      "center"
@@ -142,7 +160,7 @@
   parent decides per-row what 'awake' means."
   [{:keys [id label dormant?]} active?]
   [:li {:data-testid (str "rf-causa-sidebar-item-" (name id))
-        :on-click    #(rf/dispatch [:rf.causa/select-panel id])
+        :on-click    #(rf/dispatch [:rf.causa/select-panel id] {:frame :rf/causa})
         :style       {:padding         "6px 16px"
                       :cursor          "pointer"
                       :background      (if active? (:bg-active tokens) "transparent")
@@ -161,7 +179,7 @@
       :else    "○")]
    label])
 
-(defn- sidebar
+(rf/reg-view sidebar
   "Sidebar (192px) — panel navigation + density toggle. Per spec/007-
   UX-IA.md §Sidebar groups three groups (events/app-db/causality/...,
   conditional-with-activity, dormant) divider-separated.
@@ -178,7 +196,10 @@
   — boolean-only, so the sidebar's reactive path doesn't pull the
   full mismatch-detail composite (which resolves selection, computes
   the side-by-side detail, and walks the source-coord) on every
-  shell re-render."
+  shell re-render.
+
+  Per rf2-in6l2 `reg-view`-registered so the subscribes route through
+  React context to `:rf/causa`."
   []
   (let [active (or @(rf/subscribe [:rf.causa/selected-panel])
                    registry/default-panel-id)
@@ -219,11 +240,14 @@
    [:p {:style {:font-size "14px" :color (:text-secondary tokens)}}
     "Unknown panel: " [:code (pr-str selected)]]])
 
-(defn- canvas
+(rf/reg-view canvas
   "Canvas — renders the active panel's content. The match is on
   `:rf.causa/selected-panel`. When a row dispatches
   `:rf.causa/select-panel <id>` the registry sets `:selected-panel`
-  on the `:rf/causa` frame's app-db and this canvas recomputes."
+  on the `:rf/causa` frame's app-db and this canvas recomputes.
+
+  Per rf2-in6l2 `reg-view`-registered so the subscribe routes
+  through React context to `:rf/causa`."
   []
   (let [selected (or @(rf/subscribe [:rf.causa/selected-panel])
                      registry/default-panel-id)]
@@ -253,7 +277,7 @@
       :copilot      [ai-co-pilot/ai-co-pilot-view]
       [unknown-panel selected])))
 
-(defn- bottom-rail
+(rf/reg-view bottom-rail
   "Bottom rail (40px) — time-travel scrubber + frame info + issues
   badge. Per spec/007-UX-IA.md §The five regions item 5.
 
@@ -268,7 +292,10 @@
   disappears on `trace-bus/clear-buffer!` (counter resets together
   with the buffer) and when the host calls
   `(causa-config/configure! {:trace/show-sensitive? true})` BEFORE
-  the events flow (the counter never bumps in that case)."
+  the events flow (the counter never bumps in that case).
+
+  Per rf2-in6l2 `reg-view`-registered so the subscribe routes
+  through React context to `:rf/causa`."
   []
   (let [redacted-count @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
     [:footer {:style {:height           "40px"
@@ -298,12 +325,35 @@
 
 ;; ---- shell view ----------------------------------------------------------
 
-(defn shell-view
+;; Right-edge rail gate (rf2-in6l2). Extracted as its own `reg-view`
+;; so the `:rf.causa/copilot-open?` subscribe routes through React
+;; context to `:rf/causa` — the parent `shell-view` itself is mounted
+;; at the React-context default (no enclosing Provider above it), so
+;; a subscribe in its own body would route to `:rf/default`. Child
+;; components rendered INSIDE the frame-provider see `:rf/causa` via
+;; the React-context tier.
+(rf/reg-view rail-gate
+  "Conditional right-edge rail per spec/007-UX-IA.md §The five regions
+  item 4. Collapsed by default (Lock 8); renders only when
+  `:rf.causa/copilot-open?` is true. The cue glyph in the top strip is
+  the affordance for opening it when collapsed."
+  []
+  (when @(rf/subscribe [:rf.causa/copilot-open?])
+    [ai-co-pilot/ai-co-pilot-rail]))
+
+(rf/reg-view shell-view
   "The full Causa shell. Wraps every panel region in a `:rf/causa`
   frame-provider so descendant `subscribe` / `dispatch` resolve to
   the isolated frame. The shell's outer container is a fixed-position
   overlay along the right edge of the viewport (40% width per
-  spec/007-UX-IA.md §Layout)."
+  spec/007-UX-IA.md §Layout).
+
+  Per rf2-in6l2 `reg-view`-registered for parity with every other
+  shell region. The shell-view itself sits OUTSIDE its own frame-
+  provider (it's the mount root) so React-context inside `shell-view`'s
+  body still resolves to the default — every subscribing child is its
+  own reg-view component so the surrounding `:rf/causa` Provider
+  reaches them via React context."
   []
   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
@@ -329,10 +379,5 @@
                    :overflow      "hidden"}}
      [sidebar]
      [canvas]
-     ;; Right-edge rail per spec/007-UX-IA.md §The five regions item 4.
-     ;; Collapsed by default (Lock 8); renders only when
-     ;; `:rf.causa/copilot-open?` is true. The cue glyph in the top
-     ;; strip is the affordance for opening it when collapsed.
-     (when @(rf/subscribe [:rf.causa/copilot-open?])
-       [ai-co-pilot/ai-co-pilot-rail])]
+     [rail-gate]]
     [bottom-rail]]])

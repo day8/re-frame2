@@ -143,7 +143,7 @@
     :as _row}
    selected?]
   [:li {:data-testid (str "rf-causa-fx-row-" (h/format-fx-id fx-id))
-        :on-click   #(rf/dispatch [:rf.causa/select-fx-id fx-id])
+        :on-click   #(rf/dispatch [:rf.causa/select-fx-id fx-id] {:frame :rf/causa})
         :style      {:display       "flex"
                      :align-items   "center"
                      :padding       "6px 12px"
@@ -264,7 +264,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn effects-view
+(rf/reg-view effects-view
   "The Effects panel's root view. Subscribes to
   `:rf.causa/effects-data` and renders the summary header + fx list
   (or the empty state when no fxs are registered)."

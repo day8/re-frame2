@@ -94,7 +94,7 @@
         glyph   (get h/status->glyph status)
         tooltip (get h/status->tooltip status)]
     [:button {:data-testid (str "rf-causa-sub-filter-" (name status))
-              :on-click    #(rf/dispatch [:rf.causa/toggle-sub-filter status])
+              :on-click    #(rf/dispatch [:rf.causa/toggle-sub-filter status] {:frame :rf/causa})
               :title       tooltip
               :style       {:display        "inline-flex"
                             :align-items    "center"
@@ -176,7 +176,7 @@
    selected?]
   [:li {:data-testid (str "rf-causa-sub-row-"
                           (h/format-sub-id sub-id))
-        :on-click   #(rf/dispatch [:rf.causa/select-sub query-v])
+        :on-click   #(rf/dispatch [:rf.causa/select-sub query-v] {:frame :rf/causa})
         :style      {:display       "flex"
                      :align-items   "center"
                      :padding       "6px 12px"
@@ -212,8 +212,8 @@
                                (h/format-sub-id sub-id))
              :on-click (fn [e]
                          (.stopPropagation e)
-                         (rf/dispatch [:rf.causa/select-sub query-v])
-                         (rf/dispatch [:rf.causa/show-invalidation-chain query-v]))
+                         (rf/dispatch [:rf.causa/select-sub query-v] {:frame :rf/causa})
+                         (rf/dispatch [:rf.causa/show-invalidation-chain query-v] {:frame :rf/causa}))
              :title    "Show invalidation chain"
              :style    {:margin-left "8px"
                         :background "transparent"
@@ -306,7 +306,7 @@
                     :color       (:text-primary tokens)}}
      "Invalidation chain"]
     [:button {:data-testid "rf-causa-subscriptions-chain-close"
-              :on-click    #(rf/dispatch [:rf.causa/hide-invalidation-chain])
+              :on-click    #(rf/dispatch [:rf.causa/hide-invalidation-chain] {:frame :rf/causa})
               :style       {:background "transparent"
                             :border (str "1px solid " (:border-default tokens))
                             :color (:text-secondary tokens)
@@ -404,7 +404,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn subscriptions-view
+(rf/reg-view subscriptions-view
   "The Subscriptions panel's root view. Subscribes to
   `:rf.causa/subscriptions-data` and renders the filter chips +
   sub list + (when a sub is selected and the chain is open) the

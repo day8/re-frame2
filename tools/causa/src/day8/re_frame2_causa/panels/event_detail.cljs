@@ -261,7 +261,7 @@
   [{:keys [dispatch-id event] :as _cascade}]
   [:li {:key       dispatch-id
         :data-testid (str "rf-causa-cascade-row-" dispatch-id)
-        :on-click   #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
+        :on-click   #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
         :style      {:padding      "8px 12px"
                      :border-bottom (str "1px solid " (:border-subtle tokens))
                      :cursor       "pointer"
@@ -320,7 +320,7 @@
                   :color       (:text-tertiary tokens)}}
     [:span "Cascade"]
     [:button {:data-testid "rf-causa-event-detail-clear"
-              :on-click    #(rf/dispatch [:rf.causa/clear-selected-dispatch-id])
+              :on-click    #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
               :style       {:background  "transparent"
                             :border      (str "1px solid " (:border-default tokens))
                             :color       (:text-secondary tokens)
@@ -341,7 +341,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn event-detail-view
+(rf/reg-view event-detail-view
   "The hero panel's root view. Subscribes to
   `:rf.causa/event-detail` and renders either the cascade-detail
   layout (when a dispatch-id is selected) or the cascade-list empty
@@ -384,7 +384,7 @@
          [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
           (str selected-dispatch-id)]
          " is no longer in the trace buffer. "
-         [:button {:on-click #(rf/dispatch [:rf.causa/clear-selected-dispatch-id])
+         [:button {:on-click #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
                    :style    {:margin-left "8px"
                               :background  "transparent"
                               :border      (str "1px solid " (:border-default tokens))

@@ -160,7 +160,7 @@
                    :on-click #(rf/dispatch
                                 [:rf.causa/set-trace-filter
                                  axis
-                                 (when-not active? value)])})))))
+                                 (when-not active? value)] {:frame :rf/causa})})))))
 
 ;; ---- header strip -------------------------------------------------------
 
@@ -184,7 +184,7 @@
      (str rendered " / " total " in view")]
     (when any-filter?
       [:button {:data-testid "rf-causa-trace-clear-filters"
-                :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters])
+                :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters] {:frame :rf/causa})
                 :style       {:margin-left "auto"
                               :background  "transparent"
                               :color       (:cyan tokens)
@@ -216,7 +216,7 @@
               :on-click    (fn [e]
                              (.stopPropagation e)
                              (rf/dispatch [:rf.causa/set-trace-filter
-                                           axis value]))
+                                           axis value] {:frame :rf/causa}))
               :title       (str "filter " (name axis) " = "
                                 (format-axis-value value))
               :style       {:background    "transparent"
@@ -243,9 +243,9 @@
           :on-click    (fn []
                          (when dispatch-id
                            (rf/dispatch [:rf.causa/select-dispatch-id
-                                         dispatch-id])
+                                         dispatch-id] {:frame :rf/causa})
                            (rf/dispatch [:rf.causa/select-panel
-                                         :event-detail])))
+                                         :event-detail] {:frame :rf/causa})))
           :style       {:display       "grid"
                         :grid-template-columns
                         "84px 14px minmax(140px, 1fr) 2fr auto auto"
@@ -308,7 +308,7 @@
                  :on-click    (fn [e]
                                 (.stopPropagation e)
                                 (rf/dispatch [:rf.causa/open-in-editor
-                                              {:source-coord source-coord}]))
+                                              {:source-coord source-coord}] {:frame :rf/causa}))
                  :style       {:background  "transparent"
                                :color       (:cyan tokens)
                                :border      (str "1px solid " (:border-subtle tokens))
@@ -357,7 +357,7 @@
                 :color (:text-tertiary tokens)}}
     "Adjust the chip rows above — clearing any one axis widens the ribbon."]
    [:button {:data-testid "rf-causa-trace-empty-clear-filters"
-             :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters])
+             :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters] {:frame :rf/causa})
              :style       {:background "transparent"
                            :color      (:cyan tokens)
                            :border     (str "1px solid " (:border-default tokens))
@@ -370,7 +370,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn trace-view
+(rf/reg-view trace-view
   "The Trace panel's root view. Subscribes to `:rf.causa/trace-feed`
   and renders either the chip-filterable ribbon or the empty-state."
   []

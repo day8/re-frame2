@@ -105,7 +105,7 @@
                  :test-id  (str "rf-causa-issues-severity-chip-"
                                 (name severity))
                  :on-click #(rf/dispatch [:rf.causa/toggle-issues-severity
-                                          severity])}))))
+                                          severity] {:frame :rf/causa})}))))
 
 (defn- prefix-chips
   "Filter chip row for the distinct category prefixes present in the
@@ -123,7 +123,7 @@
                    :colour   (:accent-violet tokens)
                    :test-id  (str "rf-causa-issues-prefix-chip-" prefix)
                    :on-click #(rf/dispatch [:rf.causa/toggle-issues-prefix
-                                            prefix])})))))
+                                            prefix] {:frame :rf/causa})})))))
 
 (defn- since-input
   "The `since-ms` filter — a numeric input rendered as a chip-row
@@ -149,7 +149,7 @@
                                    (let [parsed (js/parseInt v 10)]
                                      (when-not (js/isNaN parsed) parsed))
                                    (catch :default _ nil))]
-                           (rf/dispatch [:rf.causa/set-issues-since-seconds n])))
+                           (rf/dispatch [:rf.causa/set-issues-since-seconds n] {:frame :rf/causa})))
             :style     {:width "60px"
                         :background (:bg-3 tokens)
                         :color (:text-primary tokens)
@@ -183,7 +183,7 @@
      (str rendered " / " total " in view")]
     (when any-filter?
       [:button {:data-testid "rf-causa-issues-clear-filters"
-                :on-click    #(rf/dispatch [:rf.causa/clear-issues-filters])
+                :on-click    #(rf/dispatch [:rf.causa/clear-issues-filters] {:frame :rf/causa})
                 :style       {:margin-left "auto"
                               :background  "transparent"
                               :color       (:cyan tokens)
@@ -214,8 +214,8 @@
           :data-testid row-test-id
           :on-click    (fn []
                          (when dispatch-id
-                           (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
-                           (rf/dispatch [:rf.causa/select-panel :event-detail])))
+                           (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
+                           (rf/dispatch [:rf.causa/select-panel :event-detail] {:frame :rf/causa})))
           :style       {:display       "grid"
                         :grid-template-columns "84px 18px minmax(120px, 1fr) 2fr auto"
                         :gap           "10px"
@@ -266,7 +266,7 @@
                                 ;; affordance per the bead's contract.
                                 (.stopPropagation e)
                                 (rf/dispatch [:rf.causa/open-in-editor
-                                              {:source-coord source-coord}]))
+                                              {:source-coord source-coord}] {:frame :rf/causa}))
                  :style       {:background  "transparent"
                                :color       (:cyan tokens)
                                :border      (str "1px solid " (:border-subtle tokens))
@@ -325,7 +325,7 @@
                 :color (:text-tertiary tokens)}}
     "Adjust the severity / prefix / since-ms chips above to widen the feed."]
    [:button {:data-testid "rf-causa-issues-empty-clear-filters"
-             :on-click    #(rf/dispatch [:rf.causa/clear-issues-filters])
+             :on-click    #(rf/dispatch [:rf.causa/clear-issues-filters] {:frame :rf/causa})
              :style       {:background "transparent"
                            :color      (:cyan tokens)
                            :border     (str "1px solid " (:border-default tokens))
@@ -338,7 +338,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn issues-ribbon-view
+(rf/reg-view issues-ribbon-view
   "The Issues ribbon panel's root view. Subscribes to
   `:rf.causa/issues-ribbon` and renders the empty-state or the feed."
   []
