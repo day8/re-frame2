@@ -340,7 +340,13 @@
           (is (= :init       (:event-id tags)))
           (is (= [:init]     (:event tags)))
           (is (= :rf/default (:frame tags)))
-          (is (some? (:exception tags))))))))
+          (is (some? (:exception tags)))
+          ;; Per rf2-je5p8: :flow-id is stamped into :tags from the
+          ;; ex-info wrapping in evaluate-flow!'s catch. This is the
+          ;; ONLY per-flow attribution that survives CLJS prod
+          ;; elision — `:rf.flow/failed` trace is DCE'd.
+          (is (= :boom (:flow-id tags))
+              ":flow-id is propagated from evaluate-flow!'s ex-info wrap (rf2-je5p8)"))))))
 
 (deftest flow-eval-exception-trace-and-substrate-fire-together
   (testing "Per rf2-hrt5c: the trace path is NOT replaced by the
