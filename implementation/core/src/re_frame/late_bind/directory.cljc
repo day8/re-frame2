@@ -180,6 +180,10 @@
    {:key         :machines/reset-timers!
     :producer-ns 're-frame.machines
     :description "Cancel in-flight `:after` wall-clock timers (test isolation)."}
+   {:key         :machines/reset-spawn-order!
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-vsigt"
+    :description "Drop every recorded per-frame spawn-order vector (test isolation)."}
    {:key         :machines/on-frame-destroyed!
     :producer-ns 're-frame.machines
     :description "Per-frame `:after` timer-table cleanup hook called from frame/destroy-frame! (rf2-ysa94)."}
