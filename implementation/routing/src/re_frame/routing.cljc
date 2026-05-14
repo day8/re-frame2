@@ -311,7 +311,10 @@
         m (re-matches regex url)]
     (when m
       (let [groups  (if (sequential? m) (rest m) [])
-            decoded (map (fn [g] (when g (safe-url-decode g))) groups)]
+            ;; Realise into a vector once — `decoded` is consumed twice
+            ;; below (validity scan + zipmap), and a lazy-seq would be
+            ;; walked (and `safe-url-decode` re-invoked) on each pass.
+            decoded (mapv (fn [g] (when g (safe-url-decode g))) groups)]
         ;; A nil entry for a non-nil group means malformed %-encoding —
         ;; treat as no-match (route-miss, never throw).
         (when (every? (fn [[g d]] (or (nil? g) (some? d)))
