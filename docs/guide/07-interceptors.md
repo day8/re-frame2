@@ -284,7 +284,8 @@ If you need a fourth rule, you're probably overthinking it. Interceptors are del
 
 ## Next
 
-- [08 — State machines](08-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
+- [08 — Forms](08-forms.md) — the standard slice + events + subs convention for input gathering.
+- [09 — State machines](09-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
 - [16 — Performance](16-performance.md) — the framework's answers to the four common shapes of slowness; the `rf:event` measure bracket lives outside the interceptor chain, around it.
 - [Chapter 13 §Stubbing fxs, recording events, replacing interceptors](13-testing.md#stubbing-fxs-recording-events-replacing-interceptors) — what overrides interceptors look like in test code.
 - [Chapter 17a §Worked example — the realworld scaffold](17a-routing-reference.md#worked-example--the-realworld-scaffold) — an auth interceptor wired on `:rf.route/navigate`.

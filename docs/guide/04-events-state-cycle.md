@@ -348,6 +348,6 @@ You don't have to follow this. But every re-frame2 codebase that does looks the 
 
 ## Next
 
-- [04a — Schemas](04a-schemas.md) — the Malli warmup: `reg-app-schema`, event `:spec`, dev-vs-production timing. Short core-path chapter before [09 — Forms](09-forms.md) and [10 — Doing HTTP requests](10-doing-http-requests.md), where schemas show up in volume.
+- [04a — Schemas](04a-schemas.md) — the Malli warmup: `reg-app-schema`, event `:spec`, dev-vs-production timing. Short core-path chapter before [08 — Forms](08-forms.md) and [10 — Doing HTTP requests](10-doing-http-requests.md), where schemas show up in volume.
 - [06 — Views and frames](06-views-and-frames.md) — what's on the screen and how to keep different parts isolated.
 - The same pattern that handles `:rf.http/managed` handles every external-world interaction. Once you've internalised "side-effects are data the runtime interprets," you're ready for everything else.

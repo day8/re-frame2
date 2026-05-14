@@ -1,7 +1,7 @@
 (ns state-machine-walkthrough.core
-  "Runnable companion to docs/guide/08-state-machines.md.
+  "Runnable companion to docs/guide/09-state-machines.md.
 
-  This is the login-flow chapter as code. Every prose snippet in ch.08
+  This is the login-flow chapter as code. Every prose snippet in ch.09
   appears here in the order the chapter introduces it; each section
   ends with a smoke-test fn that drives the machine through the
   scenario the chapter describes.
@@ -12,7 +12,7 @@
   shipped `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
   stubs (Spec 014 §Testing) so no real network traffic happens.
 
-  Read alongside docs/guide/08-state-machines.md."
+  Read alongside docs/guide/09-state-machines.md."
   (:require [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
@@ -93,7 +93,7 @@
     :submitting
     ;; :auth/busy tag — views query (rf/has-tag? :auth.login/flow
     ;; :auth/busy) to disable inputs and re-label the submit button
-    ;; while the request is in flight (ch.08 §State tags).
+    ;; while the request is in flight (ch.09 §State tags).
     {:tags  #{:auth/busy}
      :entry :issue-request
      :on    {:auth.login/success {:target :authed
@@ -153,7 +153,7 @@
 ;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
 ;; "in :submitting?" / "in :authed?" / "in :locked-out?" predicates
-;; moved to the `rf/has-tag?` queries in views.cljs (ch.08 §State
+;; moved to the `rf/has-tag?` queries in views.cljs (ch.09 §State
 ;; tags) — discriminating on the machine's runtime-projected `:tags`
 ;; set decouples view code from individual state-keyword identity.
 

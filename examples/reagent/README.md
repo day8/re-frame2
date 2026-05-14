@@ -17,7 +17,7 @@ reagent/
   routing/                     <-- CP-7 worked example (Spec 012)
   ssr/                         <-- CP-9 worked example (Spec 011)
   managed_http_counter/        <-- compact Spec 014 demo
-  state_machine_walkthrough/   <-- runnable companion to docs/guide/08
+  state_machine_walkthrough/   <-- runnable companion to docs/guide/09
   nine_states/                 <-- the nine canonical UI states
   boot/                        <-- Pattern-Boot worked example (rf2-dsm2)
   long_running_work/           <-- Pattern-LongRunningWork worked example (rf2-o9fg)

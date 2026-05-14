@@ -107,7 +107,7 @@ Programmers, by habit, focus on **parts** — the dominoes, the handlers, the vi
 
 **App-db as the result of a perpetual reduce.** Event handlers have the signature `(state, event) → state`. That is exactly the signature of `reduce`'s combining function. So `app-db` is the running accumulator of `(reduce step initial-db events-so-far)` — where `step` is dispatch over the registered handler set. `app-db` isn't *primary*; it's *temporary storage for the fold*. Events are primary. Elm called this `foldp` — fold-from-the-past — and it is one of the most useful mental models in the framework.
 
-**The whole app as one finite state machine.** Chapter 08 talks about *registered* FSMs — small, explicit, named state machines for pieces of your app. There is a higher-level reading: the whole application is itself an FSM. Events are the triggers, handlers are the transition rules, `app-db`'s value is the current state. The dynamic story collapses to: in state `S`, event `E` arrives, the rules take you to state `S'`. The simplest computational model we have, applied to the whole app.
+**The whole app as one finite state machine.** Chapter 09 talks about *registered* FSMs — small, explicit, named state machines for pieces of your app. There is a higher-level reading: the whole application is itself an FSM. Events are the triggers, handlers are the transition rules, `app-db`'s value is the current state. The dynamic story collapses to: in state `S`, event `E` arrives, the rules take you to state `S'`. The simplest computational model we have, applied to the whole app.
 
 ## IV. The shape of the bet
 

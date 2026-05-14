@@ -98,9 +98,9 @@ The honest answer is: re-frame2 doesn't prescribe. app-db is your app's state, s
 
 - **HTTP request lifecycle data** — A standard five-key slice (`:status`, `:data`, `:error`, `:in-flight?`, `:last-fetched-at`) lives under `[:remote-data <feature> <id>]`. Chapter [10 — Doing HTTP requests](10-doing-http-requests.md) walks the full story.
 
-- **Form state** — `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [09 — Forms](09-forms.md) walks the lifecycle.
+- **Form state** — `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [08 — Forms](08-forms.md) walks the lifecycle.
 
-- **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [08 — State machines](08-state-machines.md) covers this.
+- **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [09 — State machines](09-state-machines.md) covers this.
 
 - **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [17 — Routing](17-routing.md) walks routing.
 

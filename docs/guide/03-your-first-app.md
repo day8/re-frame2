@@ -238,7 +238,7 @@ We touched every load-bearing primitive at least once:
 What we didn't cover yet:
 
 - **Effects** that aren't state changes — HTTP, navigation, localStorage. Coming in [04 — Events, state, and the cycle](04-events-state-cycle.md).
-- **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [08 — State machines](08-state-machines.md).
+- **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [09 — State machines](09-state-machines.md).
 - **HTTP requests, the canonical way** — the `:rf.http/managed` fx with retry, abort, decode, and reply addressing. Coming in [10 — Doing HTTP requests](10-doing-http-requests.md).
 
 ## A small extension

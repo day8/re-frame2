@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-[Chapter 08](../08-state-machines.md) names four state-node keys in passing: `:always`, `:after`, `:invoke`, `:invoke-all`. Plus `:final?` / `:on-done` / `:output-key` for terminal states. Plus parallel regions. This page is the worked-example tour. Each section answers one question: "what does this key let me write, and what does the framework do for me?"
+[Chapter 09](../09-state-machines.md) names four state-node keys in passing: `:always`, `:after`, `:invoke`, `:invoke-all`. Plus `:final?` / `:on-done` / `:output-key` for terminal states. Plus parallel regions. This page is the worked-example tour. Each section answers one question: "what does this key let me write, and what does the framework do for me?"
 
 Read this when you've outgrown a flat-FSM machine and your dynamic model wants to express something xstate-shaped. The substrate has the capability; the guide should have the worked example. None of these keys is exotic — they're all sugar for things you could express by hand. The sugar earns its keep because the desugared shape is verbose, the patterns are mechanical, and stamping them by name lets tooling reason about your machine the way a flat FSM is reasoned about.
 
@@ -344,7 +344,7 @@ These slots are documented at [Conventions.md §Reserved snapshot-internal keys]
 
 ## Cross-references
 
-- [Chapter 08 — State machines](../08-state-machines.md) — the basic state-machine narrative; this page is its substrate-feature deep-dive.
+- [Chapter 09 — State machines](../09-state-machines.md) — the basic state-machine narrative; this page is its substrate-feature deep-dive.
 - [Spec 005 — State Machines](../../../spec/005-StateMachines.md) — the normative description for every key on this page.
 - [Pattern-NineStates.md](../../../spec/Pattern-NineStates.md) — the page-level pattern that motivated parallel regions.
 - [Pattern-StaleDetection.md](../../../spec/Pattern-StaleDetection.md) — the cross-cutting epoch-counter pattern that `:after` shares with routing's nav tokens.
