@@ -107,6 +107,10 @@ This is the *single-trace*, single-page view of the cycle. Read it once; refer b
 
 ### Domino 1 — Event dispatched
 
+<p align="center"><img src="../images/guide/event-dispatch.png" alt="Event dispatch: a button click becomes a vector that's pushed onto the frame's event queue." width="600"></p>
+
+*Diagram from re-frame v1; the central store labelled `app-db` is **the frame's** `app-db` under re-frame2.*
+
 The button's `on-click` fires:
 
 ```clojure
@@ -170,6 +174,10 @@ The `counter-buttons` view derefs `:count`:
 Reagent re-runs the function body. `@(subscribe [:count])` now returns `6`. The new hiccup tree is `[:div [:button "-"] [:span 6] [:button "+"]]`. Reagent diffs against the previous tree, sees that only the `<span>`'s text content changed, and patches the DOM.
 
 And the view re-renders. One event, six dominoes, the app stays consistent.
+
+<p align="center"><img src="../images/guide/handling-one-event.png" alt="Handling one event end-to-end: coeffects in, handler runs pure, effect map out, runtime walks the effects and recomputes the view." width="700"></p>
+
+*The same six dominoes in one frame: coeffects feed the handler, the handler returns an effect map, the runtime interprets the effects (including the `:db` write), subscriptions recompute, the view re-renders. Under re-frame2 the central `app-db` is **the frame's** `app-db` — each frame owns one.*
 
 ## The standard effect map
 
