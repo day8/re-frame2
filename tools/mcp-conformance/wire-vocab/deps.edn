@@ -34,7 +34,13 @@
          metosin/malli       {:mvn/version "0.16.4"}}
 
  :aliases
- {:test {:extra-paths ["test" "fixtures"]
+ ;; All fixtures are inlined in `wire_vocab_test.clj` (as the `:fixtures`
+ ;; slot on `canonical-markers`) and in the sibling test files —
+ ;; no `fixtures/` directory exists. A standalone fixture-tree would
+ ;; be more work than the inline form is currently worth: the fixtures
+ ;; live next to their schemas and the test files are small enough
+ ;; (rf2-ikjrr).
+ {:test {:extra-paths ["test"]
          :extra-deps  {io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}}}
