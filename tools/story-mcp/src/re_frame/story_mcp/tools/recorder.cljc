@@ -23,6 +23,17 @@
             [re-frame.story-mcp.tools.schemas :as s]
             [re-frame.story-mcp.tools.write :as write]))
 
+(def ^:const max-duration-ms
+  "Ceiling on `:duration-ms` for `record-as-variant` (rf2-4yuhi). The
+  MCP server's request loop is single-threaded (`server/run-loop!`), so
+  a `record-as-variant` call sleeps the whole loop for the full window.
+  At 30s an abusive caller effectively DoS's the server; we reject any
+  value above this ceiling with a tool-execution error rather than
+  letting the loop stall. 30s is a generous dev-session window — the
+  recorder is meant to bridge an agent driving a canvas, not to be a
+  long-running scheduler."
+  30000)
+
 (defn- sleep-ms
   "Block the caller for `ms` milliseconds. CLJS host has no blocking
   primitive, so this is a no-op there — CLJS callers wanting a recording
@@ -79,6 +90,11 @@
                               is expected to drive dispatches in
                               parallel and stop the recording out-of-
                               band). JVM only — CLJS sleeps are a no-op.
+                              Hard ceiling `max-duration-ms` (30000 ms)
+                              — the MCP server's request loop is single-
+                              threaded; durations above the ceiling are
+                              rejected with a structured error
+                              (rf2-4yuhi).
     :new-variant-id optional — when `:write-back?` is true, register the
                               captured `:play` body as a NEW variant
                               with this id. Defaults to the source
@@ -118,10 +134,26 @@
   [arguments]
   (h/with-variant arguments
     (fn [vk body]
-      (let [write-back? (args/parse-boolean (:write-back? arguments) false)]
+      (let [write-back? (args/parse-boolean (:write-back? arguments) false)
+            duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)]
         (or (when write-back? (write/assert-writes-allowed "record-as-variant"))
-            (let [duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)
-                  target-vid  (or (some-> (:new-variant-id arguments) args/parse-keyword) vk)
+            (when (> duration-ms max-duration-ms)
+              ;; rf2-4yuhi — the MCP server's request loop is single-
+              ;; threaded; a `record-as-variant` call sleeps the loop
+              ;; for the full window. Reject abusive durations rather
+              ;; than stalling unrelated tool calls.
+              (h/error-result
+                (str ":duration-ms " duration-ms " exceeds ceiling "
+                     max-duration-ms "ms. The MCP server's request "
+                     "loop is single-threaded; a `record-as-variant` "
+                     "call blocks unrelated tool calls for its full "
+                     ":duration-ms window. Drive dispatches from your "
+                     "own scheduler and shorten the window.")
+                {:rf.error      :rf.story-mcp/duration-ms-too-large
+                 :tool          "record-as-variant"
+                 :duration-ms   duration-ms
+                 :max-allowed   max-duration-ms}))
+            (let [target-vid  (or (some-> (:new-variant-id arguments) args/parse-keyword) vk)
                   extends     (or (some-> (:extends arguments) args/parse-keyword) vk)
                   doc         (:doc arguments)
                   alias-arg   (:alias arguments)
@@ -158,8 +190,10 @@
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
                                 {:variant-id     s/kw-or-string
-                                 :duration-ms    {:type "integer" :minimum 0
-                                                  :description "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op)."}
+                                 :duration-ms    {:type "integer" :minimum 0 :maximum max-duration-ms
+                                                  :description (str "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op). "
+                                                                    "Hard ceiling " max-duration-ms "ms — the MCP server's request loop is single-threaded so "
+                                                                    "this call blocks unrelated tools for the full window; abusive durations are rejected (rf2-4yuhi).")}
                                  :new-variant-id (assoc s/kw-or-string
                                                    :description "When `:write-back?` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
                                  :doc            {:type "string"

@@ -1,0 +1,24 @@
+{
+  "_doc": "Canonical tool-name list per spec/002-Tool-Registry.md. Shared fixture (rf2-36upq TE7) so the JVM test corpus (tools_test.clj) and the Node stdio roundtrip (stdio-roundtrip.js) agree on the expected `tools/list` response without two hand-maintained lists drifting. Sorted alphabetically — both consumers compare against the sorted form.",
+  "names": [
+    "get-docs-markdown",
+    "get-story",
+    "get-story-instructions",
+    "get-variant",
+    "list-assertions",
+    "list-decorators",
+    "list-modes",
+    "list-stories",
+    "list-substrates",
+    "list-tags",
+    "preview-variant",
+    "read-failures",
+    "record-as-variant",
+    "register-variant",
+    "run-a11y",
+    "run-variant",
+    "snapshot-identity",
+    "unregister-variant",
+    "variant->edn"
+  ]
+}

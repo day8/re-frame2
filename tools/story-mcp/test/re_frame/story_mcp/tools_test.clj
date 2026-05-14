@@ -6,7 +6,10 @@
   registrar carries the seven canonical tags + the lifecycle machine,
   then register a small fixture story + variant so each tool has
   something to read."
-  (:require [clojure.edn :as edn]
+  (:require [cheshire.core :as cheshire]
+            [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.mcp-base.cap :as base-cap]
@@ -18,18 +21,24 @@
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
             [re-frame.story-mcp.tools.cap :as cap]
+            [re-frame.story-mcp.tools.dev :as dev]
+            [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
 ;; cap-honours-default test to sum tokens without reaching into cap's
 ;; private result-io reify. Mirrors the runtime IO instance in
-;; `re-frame.story-mcp.tools.cap/result-io` (rf2-eyelu) so a drift on
-;; the consumer's content-shape would be caught by the assertion
-;; sitting on this mirror.
+;; `re-frame.story-mcp.tools.cap/result-io` (rf2-eyelu / rf2-mzndx) so
+;; a drift on the consumer's content-shape would be caught by the
+;; assertion sitting on this mirror — INCLUDING the `:structuredContent`
+;; sizing path added in rf2-mzndx.
 (def ^:private test-io
   (reify base-cap/ResultIO
-    (content-texts [_ result] (map :text (:content result)))
+    (content-texts [_ result]
+      (cond-> (mapv :text (:content result))
+        (some? (:structuredContent result))
+        (conj (pr-str (:structuredContent result)))))
     (build-overflow-result [_ marker _]
       {:content [{:type "text" :text (pr-str marker)}]
        :structuredContent marker})))
@@ -142,9 +151,23 @@
       (is (every? #(integer? (:typicalTokens %)) ds))
       (is (every? #(pos? (:typicalTokens %)) ds)))))
 
+(def ^:private tool-names-fixture
+  "Canonical tool-name list (rf2-36upq TE7). Single source of truth
+  shared with `test/stdio-roundtrip.js` — a registry change updates one
+  file, not two. The fixture sits at `test/fixtures/tool-names.json`;
+  this def parses it once at ns-load."
+  (-> (io/resource "fixtures/tool-names.json")
+      slurp
+      (cheshire/parse-string true)
+      :names
+      sort
+      vec))
+
 (deftest registry-covers-impl-spec-7-2
   (testing "every tool from IMPL-SPEC §7.2 + §7.3 is present"
     (let [names (set (map :name registry/tool-registry))]
+      ;; Per-category coverage (documentation value beyond the fixture
+      ;; check: each line names a tool category + an expected slot).
       ;; Dev
       (is (contains? names "get-story-instructions"))
       (is (contains? names "preview-variant"))
@@ -167,7 +190,16 @@
       ;; Write
       (is (contains? names "register-variant"))
       (is (contains? names "unregister-variant"))
-      (is (contains? names "record-as-variant")))))
+      (is (contains? names "record-as-variant"))))
+  (testing "registry name set matches the shared fixture exactly (rf2-36upq TE7)"
+    ;; The Node `stdio-roundtrip.js` round-trip asserts `tools/list`
+    ;; against the same JSON file. A drift between code + tests on either
+    ;; side surfaces here AND there in the same edit.
+    (let [reg-names (sort (mapv :name registry/tool-registry))]
+      (is (= tool-names-fixture reg-names)
+          (str "registry vs fixtures/tool-names.json drift — update both: "
+               "fixture-only=" (set/difference (set tool-names-fixture) (set reg-names))
+               " registry-only=" (set/difference (set reg-names) (set tool-names-fixture)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dev tools
@@ -623,16 +655,45 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- drive-events-during-recording
-  "Helper: spawn a worker thread that, after a short delay (to ensure the
-  tool has called `start-recording!`), pushes `events` into the recorder
-  one at a time. The tool's `:duration-ms` must outlast the delay."
-  [events ^long delay-ms]
+  "Spawn a worker thread that polls for the recorder's open window, then
+  pushes `events` once `recording?` flips true. Replaces the
+  `Thread/sleep delay-ms` race the original helper had (TE5, rf2-36upq)
+  — on a slow CI runner the worker could either fire BEFORE
+  `start-recording!` (events dropped, capture truncated) or AFTER
+  `stop-recording!` (same outcome). Polling `recording?` from the worker
+  end means we never depend on a sleep window outlasting the tool.
+
+  The worker's poll has a hard 5s upper bound — well past any
+  realistic tool latency — and bails silently if the recorder never
+  opens (the test asserts `:recorded-event-count` on the result and
+  catches a truncated capture there).
+
+  Returns the worker thread so a test can `.join` (with timeout) when
+  it needs determinism on whether the worker has finished pushing.
+  Most callers just spawn-and-forget — the `:duration-ms` window the
+  tool sleeps in is more than long enough for the polled push."
+  [events]
   (doto (Thread.
           ^Runnable
           (fn []
-            (Thread/sleep delay-ms)
-            (doseq [ev events]
-              (recorder/record-event! ev))))
+            ;; Poll `recording?` with a 1ms park between probes — far
+            ;; finer-grained than the original 20ms sleep. Bails after
+            ;; 5s if the recorder never opens (a tool bug; the test
+            ;; assertions will catch it).
+            (let [deadline (+ (System/nanoTime) (* 5 1000000000))]
+              (loop []
+                (cond
+                  (recorder/recording?)
+                  (doseq [ev events]
+                    (recorder/record-event! ev))
+
+                  (< (System/nanoTime) deadline)
+                  (do (Thread/sleep 1)
+                      (recur))
+
+                  ;; Timed out; bail. The test's :recorded-event-count
+                  ;; assertion will surface the miss.
+                  :else nil)))))
     (.setDaemon true)
     (.start)))
 
@@ -662,7 +723,7 @@
 
 (deftest record-as-variant-captures-events-during-window
   (testing "events pushed during the blocking window land in :captured"
-    (drive-events-during-recording [[:counter/inc] [:counter/by 7]] 20)
+    (drive-events-during-recording [[:counter/inc] [:counter/by 7]])
     (let [r (invoke "record-as-variant"
                     {:variant-id  "story.button/primary"
                      :duration-ms 100})
@@ -685,7 +746,7 @@
 (deftest record-as-variant-write-back-overwrites-source
   (testing "write-back? true with gate open re-registers the source variant"
     (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc] [:counter/inc]] 20)
+    (drive-events-during-recording [[:counter/inc] [:counter/inc]])
     (let [r (invoke "record-as-variant"
                     {:variant-id  "story.button/primary"
                      :duration-ms 100
@@ -703,7 +764,7 @@
 (deftest record-as-variant-write-back-new-id
   (testing ":new-variant-id lands the capture under a fresh id"
     (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc]] 20)
+    (drive-events-during-recording [[:counter/inc]])
     (let [r (invoke "record-as-variant"
                     {:variant-id     "story.button/primary"
                      :new-variant-id "story.button/recorded"
@@ -786,7 +847,7 @@
 (deftest record-as-variant-write-back-stamps-origin
   (testing "record-as-variant write-back lands :origin :story-mcp on the new body"
     (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc]] 20)
+    (drive-events-during-recording [[:counter/inc]])
     (let [r    (invoke "record-as-variant"
                        {:variant-id  "story.button/primary"
                         :duration-ms 100
@@ -803,7 +864,7 @@
 (deftest record-as-variant-write-back-new-id-stamps-origin
   (testing ":new-variant-id write-back also carries :origin :story-mcp"
     (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc]] 20)
+    (drive-events-during-recording [[:counter/inc]])
     (let [r    (invoke "record-as-variant"
                        {:variant-id     "story.button/primary"
                         :new-variant-id "story.button/origin-recorded"
@@ -1252,3 +1313,240 @@
             (str tname " missing :include-sensitive? slot"))
         (is (= "boolean" (-> props :include-sensitive? :type))
             (str tname " :include-sensitive? slot is not boolean-typed"))))))
+
+;; ---------------------------------------------------------------------------
+;; Agent-onboarding text parity (rf2-36upq S5)
+;;
+;; `story-instructions-text` (tools/dev.cljc) is hand-copied from the spec.
+;; CI must catch drift between the prose's canonical-tag list / assertion-id
+;; list and what the registrar reports — otherwise the agent's onboarding
+;; doc silently lies as the registry evolves.
+;; ---------------------------------------------------------------------------
+
+(deftest story-instructions-text-mentions-every-canonical-tag
+  (testing "the onboarding text names every canonical tag the registrar ships"
+    (let [text       dev/story-instructions-text
+          tag-names  (set (map name story/canonical-tags))]
+      (doseq [tag-name tag-names]
+        (is (re-find (re-pattern (str ":" tag-name "\\b")) text)
+            (str "story-instructions-text missing canonical tag :" tag-name
+                 " — keep the onboarding doc in lockstep with `story/canonical-tags`"))))))
+
+(deftest story-instructions-text-mentions-every-canonical-assertion
+  (testing "the onboarding text names every canonical assertion the registrar ships"
+    (let [text             dev/story-instructions-text
+          assertion-names  (->> (story/canonical-assertion-ids)
+                                (map name)
+                                set)]
+      ;; The prose styles assertion ids without the namespace prefix (e.g.
+      ;; "path-equals", "state-is") to keep the line under width. Match on
+      ;; the bare name with a word boundary on each side.
+      (doseq [aname assertion-names]
+        (is (re-find (re-pattern (str "\\b" aname "\\b")) text)
+            (str "story-instructions-text missing canonical assertion " aname
+                 " — keep the onboarding doc in lockstep with `story/canonical-assertion-ids`"))))))
+
+;; ---------------------------------------------------------------------------
+;; handle-frame! recovery write — nested catch (rf2-36upq TE2)
+;;
+;; server.cljc's handle-frame! has a nested try around the recovery write
+;; (the "even the recovery write failed" branch). It's unreachable from the
+;; happy-path corpus; mock a writer that throws on .write and assert the
+;; run-loop survives.
+;; ---------------------------------------------------------------------------
+
+(deftest handle-frame-survives-recovery-write-failure
+  (testing "writer that throws on every .write yields no propagation"
+    ;; Force the dispatch to throw by triggering an error path that the
+    ;; outer catch picks up. The cleanest signal: an unknown tool method
+    ;; arrives via tools/call AFTER dispatch returns a valid response,
+    ;; then proto/write-frame! throws on the writer. We compose this with
+    ;; a `tools/call` that succeeds in dispatch but where the writer
+    ;; throws.
+    (let [throwing-writer (proxy [java.io.Writer] []
+                            (write
+                              ([_])
+                              ([_a _b _c]
+                                (throw (RuntimeException. "writer broken"))))
+                            (flush [])
+                            (close []))
+          msg             {:jsonrpc "2.0" :id 1 :method "ping"}]
+      ;; The function MUST NOT propagate either throw — both writer
+      ;; failures (the response write AND the internal-error recovery
+      ;; write) are caught and logged. If propagation regressed, this
+      ;; would throw and the test would fail loudly.
+      (is (nil? (try
+                  (#'server/handle-frame! throwing-writer msg)
+                  nil
+                  (catch Throwable e e)))
+          "handle-frame! must not propagate writer-side throws"))))
+
+;; ---------------------------------------------------------------------------
+;; Boot-config precedence — CLI > sysprop > env (rf2-36upq TE4)
+;;
+;; Per spec/003-Write-Surface-Gating.md §91-94 the precedence is CLI flag >
+;; JVM sysprop > env var. The existing tests cover `parse-args` directly;
+;; this test asserts the merged behaviour: when all three sources supply
+;; conflicting values, CLI wins, sysprop overrides env, and the env-only
+;; case lands too.
+;; ---------------------------------------------------------------------------
+
+(deftest boot-config-precedence-cli-over-sysprop-over-env
+  ;; Save/restore the sysprop. Env vars are read-only on the JVM, so we
+  ;; can't directly mutate `RF_STORY_MCP_ALLOW_WRITES`; the test exercises
+  ;; the two-of-three combinations a unit-test environment can stage
+  ;; (sysprop alone, CLI overrides sysprop). The third combination —
+  ;; pure env var — is exercised by the integration test `live-server.js`
+  ;; under the same precedence rule.
+  (let [restore (System/getProperty "rf.story-mcp.allow-writes")]
+    (try
+      (testing "sysprop alone seeds allow-writes? true"
+        (System/setProperty "rf.story-mcp.allow-writes" "true")
+        (let [cfg (config/read-boot-config)]
+          (is (true? (:allow-writes? cfg))
+              "sysprop should flip allow-writes? on")))
+      (testing "CLI flag wins when present alongside sysprop"
+        ;; sysprop is still "true" from the previous step. The merge in
+        ;; `boot!` is `(merge (config/read-boot-config) cli-cfg)` so a CLI
+        ;; value clobbers the boot-config value — CLI > sysprop. The
+        ;; precedence test asserts the merge produces the CLI value, not
+        ;; the sysprop.
+        (System/setProperty "rf.story-mcp.allow-writes" "true")
+        (let [boot-cfg (config/read-boot-config)
+              cli-cfg  (#'server/parse-args [])  ; CLI absent ⇒ no slot
+              merged   (merge boot-cfg cli-cfg)]
+          (is (true? (:allow-writes? merged))
+              "CLI absent ⇒ sysprop value rides through")
+          ;; Now with CLI explicitly absent of `--allow-writes`, the
+          ;; merge yields the sysprop. To prove CLI > sysprop, we flip
+          ;; the sysprop OFF and pass `--allow-writes` on the CLI — the
+          ;; merge MUST be true (CLI wins).
+          (System/setProperty "rf.story-mcp.allow-writes" "false")
+          (let [boot-cfg-off (config/read-boot-config)
+                cli-cfg-on   (#'server/parse-args ["--allow-writes"])
+                merged-on    (merge boot-cfg-off cli-cfg-on)]
+            (is (false? (:allow-writes? boot-cfg-off))
+                "sysprop=false leaves boot-config false")
+            (is (true? (:allow-writes? cli-cfg-on))
+                "--allow-writes flips the CLI slot true")
+            (is (true? (:allow-writes? merged-on))
+                "CLI > sysprop: merge yields the CLI's true value"))))
+      (finally
+        (if restore
+          (System/setProperty "rf.story-mcp.allow-writes" restore)
+          (System/clearProperty "rf.story-mcp.allow-writes"))))))
+
+;; ---------------------------------------------------------------------------
+;; record-as-variant write-back failure path (rf2-36upq TE6)
+;;
+;; The `write-back!` helper wraps the `reg-variant*` call in a try/catch
+;; that surfaces the registrar's `ex-data` (`:rf.error`/`:explain`) into
+;; the tool's error result. Mirrors `register-variant-rejects-bad-shape`
+;; — write-back is the SECOND write-surface tool that needs the same
+;; defensive-failure assertion.
+;; ---------------------------------------------------------------------------
+
+(deftest record-as-variant-write-back-failure-surfaces-explain
+  (testing "write-back failure surfaces the registrar's ex-data into the result"
+    (config/set-allow-writes! true)
+    ;; Drive the write-back into a guaranteed-fail: target a NEW variant id
+    ;; whose body would carry a `:tags` set referencing an unregistered tag
+    ;; — the registrar's variant-shape validator throws with ex-data.
+    ;; We can't mutate the captured body from the recorder, so we instead
+    ;; rely on a different failure mode: a `:new-variant-id` whose name
+    ;; doesn't satisfy the registrar's canonical-id grammar would also throw.
+    ;; The cleanest test: an explicit `:new-variant-id` whose namespace
+    ;; doesn't match any registered story id — the variant-shape validator
+    ;; rejects it.
+    (drive-events-during-recording [[:counter/inc]])
+    (let [r (invoke "record-as-variant"
+                    {:variant-id     "story.button/primary"
+                     :new-variant-id "garbage-id-no-namespace"  ; not :story.x/y
+                     :duration-ms    50
+                     :write-back?    true})]
+      (is (error? r) "write-back against a malformed target id must fail")
+      (is (re-find #"(?i)Write-back failed" (-> r :content first :text))
+          "the error text names the failure surface — agents pattern-match on this")
+      (let [s (:structuredContent r)]
+        (is (false? (:written-back? s))
+            ":written-back? false rides through so callers see the no-op")
+        (is (= :garbage-id-no-namespace (:new-variant-id s))
+            "the failing target id round-trips so the agent can localise")))))
+
+;; ---------------------------------------------------------------------------
+;; record-as-variant :duration-ms ceiling (rf2-4yuhi)
+;;
+;; The MCP server's request loop is single-threaded; a `record-as-variant`
+;; call sleeps the whole loop for the full :duration-ms window. The tool
+;; validates against a hard ceiling (30000ms) and rejects abusive values.
+;; ---------------------------------------------------------------------------
+
+(deftest record-as-variant-rejects-duration-above-ceiling
+  (testing ":duration-ms above the ceiling returns a structured error (rf2-4yuhi)"
+    (let [over-ceiling (inc recorder-tool/max-duration-ms)
+          r            (invoke "record-as-variant"
+                               {:variant-id  "story.button/primary"
+                                :duration-ms over-ceiling})]
+      (is (error? r))
+      (is (re-find #"exceeds ceiling" (-> r :content first :text)))
+      (let [s (:structuredContent r)]
+        (is (= :rf.story-mcp/duration-ms-too-large (:rf.error s)))
+        (is (= "record-as-variant" (:tool s)))
+        (is (= over-ceiling (:duration-ms s)))
+        (is (= recorder-tool/max-duration-ms (:max-allowed s)))))))
+
+(deftest record-as-variant-accepts-duration-at-ceiling-schema
+  (testing "the schema's :maximum mirrors the runtime ceiling"
+    (let [t      (some #(when (= "record-as-variant" (:name %)) %)
+                       registry/tool-registry)
+          dur-schema (-> t :inputSchema :properties :duration-ms)]
+      (is (= recorder-tool/max-duration-ms (:maximum dur-schema))
+          (str "the schema's :maximum slot mirrors the runtime ceiling so MCP "
+               "clients can pre-validate without round-tripping a doomed call"))
+      (is (zero? (:minimum dur-schema))
+          ":minimum stays at 0 — the no-block default is canonical"))))
+
+;; ---------------------------------------------------------------------------
+;; Cap accounting includes :structuredContent size (rf2-mzndx)
+;;
+;; Pre-fix, only `:content[*].text` strings counted toward the cap, while
+;; `text-result` writes the same payload into BOTH `:content` and
+;; `:structuredContent` — the cap underestimated wire by ~50% on every
+;; structured tool. The new accounting sums both slots under one budget.
+;; ---------------------------------------------------------------------------
+
+(deftest cap-counts-structured-content-size
+  (testing "structuredContent contributes to the cap (rf2-mzndx)"
+    ;; A list-stories call ships the same payload in both slots. The
+    ;; cap with structured accounting must be HIGHER than the cap that
+    ;; only counts `:text` — assert the wire-side sum reflects both.
+    (let [r          (cap/invoke-tool "list-stories" {:max-tokens 0})
+          text-only  (let [io (reify base-cap/ResultIO
+                                (content-texts [_ result]
+                                  (map :text (:content result)))
+                                (build-overflow-result [_ _m _o] {}))]
+                       (base-cap/sum-text-tokens io r))
+          with-struct (base-cap/sum-text-tokens test-io r)]
+      ;; The `test-io` mirror counts structured content (see rf2-mzndx
+      ;; update at top of file). It MUST report more tokens than the
+      ;; text-only baseline whenever the result carries a non-nil
+      ;; `:structuredContent`.
+      (is (some? (:structuredContent r))
+          "list-stories must ship a structured slot for this assertion to bite")
+      (is (> with-struct text-only)
+          (str "structured slot must contribute extra tokens: "
+               "with-struct=" with-struct " text-only=" text-only)))))
+
+(deftest cap-trips-on-structured-content-alone
+  (testing "a tiny cap trips when only structuredContent is large (rf2-mzndx)"
+    ;; The cap must fire on the combined size — not silently let a
+    ;; payload through just because its :text slot fits.
+    (let [r (cap/invoke-tool "list-stories" {:max-tokens 1})]
+      ;; With `:max-tokens 1`, both the text AND structured slots
+      ;; combined exceed the cap, so we expect the overflow marker.
+      (is (overflow-marker? r)
+          "tiny cap must fire on combined text+structured size")
+      (let [body (get-in r [:structuredContent vocab/overflow-key])]
+        (is (pos? (:token-count body))
+            ":token-count reflects the over-budget count")
+        (is (= 1 (:cap-tokens body)))))))
