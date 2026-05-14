@@ -83,8 +83,9 @@
           "the timer table partitions entries under the left frame")
       (is (contains? tt :iso/right)
           "the timer table partitions entries under the right frame")
-      ;; Inner keys: [<parent-id> <invoke-id-vec> <delay-key>]. Because the
-      ;; machine spec is identical the inner keys collide across frames —
+      ;; Inner keys (per rf2-gwznv): {:parent <parent-id> :invoke
+      ;; <invoke-id-vec> :delay <delay-key>}. Because the machine spec
+      ;; is identical the inner keys collide across frames —
       ;; pre-rf2-ysa94 the keying included the frame-id; post-rf2-ysa94
       ;; the frame-id is the OUTER key and the inner keys legitimately
       ;; coincide.
@@ -95,11 +96,11 @@
                  "the partitioning axis, not a discriminator inside the "
                  "inner key"))
         (is (every? (fn [k]
-                      (and (= :iso/m (nth k 0))
-                           (vector? (nth k 1))
-                           (= 3600000 (nth k 2))))
+                      (and (= :iso/m (:parent k))
+                           (vector? (:invoke k))
+                           (= 3600000 (:delay k))))
                     left-inner-keys)
-            "inner-key shape is [parent-id invoke-id-vec delay-key]")))
+            "inner-key shape is {:parent ... :invoke ... :delay ...}")))
 
     ;; 1-arity reset clears only the targeted frame.
     (machines/reset-timers! :iso/left)
