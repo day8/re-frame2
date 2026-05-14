@@ -6,7 +6,11 @@
 > `register-epoch-cb!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The twelve MCP tools.
+The fourteen MCP tools. (The registrar-introspection pair `handler-meta`
++ `registry-list` (rf2-cibp8 / rf2-pctf8) ships in the live registry —
+[`src/re_frame_pair2_mcp/tools/registry.cljs`](../src/re_frame_pair2_mcp/tools/registry.cljs) —
+but their full per-tool catalogue entries have not yet been migrated
+into this file; spec/impl drift tracked by rf2-m9yoi.)
 
 ## Universal: wire-boundary token cap
 

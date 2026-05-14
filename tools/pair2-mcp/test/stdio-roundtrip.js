@@ -3,8 +3,10 @@
 //
 // This test does NOT need a live shadow-cljs nREPL — it exercises:
 //   - initialize handshake
-//   - tools/list (expects all twelve tools: original ten + get-pair2-instructions
-//     under rf2-tygdv + subscription-info under rf2-zjz9q)
+//   - tools/list (expects all fourteen tools: original six bash-shim mirrors
+//     + snapshot + get-path + subscribe/unsubscribe/subscription-info streaming
+//     trio + handler-meta + registry-list registrar-introspection pair (rf2-cibp8 /
+//     rf2-pctf8) + get-pair2-instructions agent-onboarding (rf2-fnpqg))
 //   - tools/call eval-cljs against an absent nREPL — with `--allow-eval`
 //     passed below, expects graceful :nrepl-port-not-found degraded mode.
 //     The default-off gate (rf2-cxx5s) is exercised by the conformance

@@ -137,7 +137,7 @@ node out/server.js
 
 ## Tool surface
 
-The twelve tools, in the order a typical session uses them. Argument
+The fourteen tools, in the order a typical session uses them. Argument
 schemas and result shapes are specified in
 [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
 
@@ -154,6 +154,8 @@ schemas and result shapes are specified in
 | `subscribe` | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe` | Close a streaming subscription out-of-band. Idempotent. |
 | `subscription-info` | Diagnostic peer for `subscribe` / `unsubscribe` (rf2-zjz9q) — "what streams are open?" snapshot of the active subscription set. |
+| `handler-meta` | Return the registration-metadata map for a registered handler — `:source-coord`, `:doc`, `:tags`, and any custom slots from the reg-`*` macro. Supported kinds: event, sub, fx, cofx, view, frame, machine. Answer "where is `:user/login` defined?" without an `eval-cljs` round-trip (rf2-cibp8). |
+| `registry-list` | Discovery peer of `handler-meta` — return every registered id under a kind. Sorted, stable shape. Same seven supported kinds (rf2-pctf8). |
 | `get-pair2-instructions` | Returns the agent-onboarding text — how pair2 connects, how `:origin :pair` works, the canonical workflow per dispatch / eval / snapshot. Read once at session start (rf2-fnpqg). |
 
 (Pre-rf2-7dvg drops also exposed `inject-runtime`. That tool is gone:
@@ -284,7 +286,7 @@ vocabulary changes.
 ## What this doesn't expose
 
 - **No new framework primitives.** No new registries, no new
-  dispatch types, no new effect substrates. The twelve ops route
+  dispatch types, no new effect substrates. The fourteen ops route
   through existing `re-frame-pair2.runtime` surfaces. See
   [`Principles.md`](./Principles.md) § Tool consumes the framework.
 - **No remote-attach protocol.** pair2-mcp is stdio-only; the agent

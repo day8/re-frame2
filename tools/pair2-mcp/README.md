@@ -198,7 +198,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The twelve tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `subscription-info` triad + `get-path` direct-read + `get-pair2-instructions` agent-onboarding), their argument schemas, EDN result shape. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The fourteen tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `subscription-info` triad + `get-path` direct-read + the `handler-meta` / `registry-list` registrar-introspection pair + `get-pair2-instructions` agent-onboarding), their argument schemas, EDN result shape. |
 
 ## Development
 
