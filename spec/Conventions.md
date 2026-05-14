@@ -303,7 +303,7 @@ The bang (`!`) suffix on a public surface marks **process-level state mutation t
 `reg-*` and `clear-*` mutate the registrar, but the registrar IS the side-effect abstraction. Calling `reg-event-db` to install a handler is no more "imperative" than calling `defn` — the verb's whole purpose is to extend a registry. Adding a bang would tag every registration in the framework, which is the opposite of useful signal.
 
 - `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`, `reg-view*`, `reg-head`, `reg-error-projector`, `reg-http-interceptor`
-- `clear-event`, `clear-sub`, `clear-fx`, `clear-flow`, `clear-http-interceptor`, `reset-frame`, `destroy-frame`
+- `clear-event`, `clear-sub`, `clear-fx`, `clear-flow`, `clear-http-interceptor`, `reset-frame!`, `destroy-frame!`
 
 ```clojure
 (rf/reg-event-db :cart.item/add  (fn [db [_ item]] ...))   ;; no bang

@@ -54,7 +54,7 @@ that order against their respective `app-db`s.
   contract from cross-frame dispatch; this surface exists to
   exercise dispatch isolation. A future testbed can layer cross-
   frame subs.
-- No `destroy-frame` lifecycle. The three frames are created on app
+- No `destroy-frame!` lifecycle. The three frames are created on app
   init and live forever; the destroy contract is exercised by tests
   that own the lifecycle (per [spec/002 §Per-instance frames]).
 - No `:fx-overrides` per frame. Per-frame fx replacement is a

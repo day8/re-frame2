@@ -8,7 +8,7 @@
 
 Testing is a [first-class principle](000-Vision.md#goals) (Goal 11) in re-frame2. This Spec details the **testing surface** — the concrete API, patterns, and adapter shape that re-frame2 ships so users can write small, fast, isolated tests without ceremony or global-state pollution.
 
-The testing surface is built entirely from foundation primitives in [002-Frames.md](002-Frames.md): `make-frame` / `destroy-frame`, `with-frame`, `dispatch-sync` with the opts map, per-frame and per-call overrides, the public registrar query API, drain semantics, and pure machine transition functions. This Spec doesn't introduce new framework primitives — it documents how to compose the existing ones into a test-friendly experience.
+The testing surface is built entirely from foundation primitives in [002-Frames.md](002-Frames.md): `make-frame` / `destroy-frame!`, `with-frame`, `dispatch-sync` with the opts map, per-frame and per-call overrides, the public registrar query API, drain semantics, and pure machine transition functions. This Spec doesn't introduce new framework primitives — it documents how to compose the existing ones into a test-friendly experience.
 
 ## Normative surface
 
@@ -16,7 +16,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 
 | Need | API |
 |---|---|
-| Per-test frame fixture | `(rf/make-frame opts)` / `(rf/destroy-frame f)` |
+| Per-test frame fixture | `(rf/make-frame opts)` / `(rf/destroy-frame! f)` |
 | Scoped REPL/test block | `(rf/with-frame :frame-id body...)` *or* `(rf/with-frame [sym expr] body...)` — see [§`with-frame` call shapes](#with-frame-call-shapes) |
 | Synchronous test trigger | `(rf/dispatch-sync event)` or `(rf/dispatch-sync event opts)` |
 | Stub fx (per-call) | `(rf/dispatch-sync ev {:fx-overrides {:my-app/http stub-fn}})` |
@@ -26,7 +26,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 | Assertion: read app-db | `(rf/get-frame-db :test-frame)` |
 | Assertion: read snapshot | `@(rf/sub-machine :auth/state-machine)` (or `(rf/snapshot-of [:rf/machines :auth/state-machine])` for storage-layer assertions) |
 | Pure machine simulation | `(machine-transition definition snapshot event)` — no frame needed |
-| Machine cleanup on destroy | `(rf/destroy-frame f)` — disposes sub-cache, stops router, clears overrides |
+| Machine cleanup on destroy | `(rf/destroy-frame! f)` — disposes sub-cache, stops router, clears overrides |
 | Static sub-graph inspection | `(rf/sub-topology)` |
 | Sub computation against an `app-db` | `(rf/compute-sub query-v db)` — query-v is `[:sub-id arg1 arg2]`, JVM-runnable |
 | Test-flavoured helpers | `(ts/dispatch-sequence events)` — chained `dispatch-sync`; `(ts/assert-state path expected)` — clojure.test-aware assertion. Both ship with `re-frame.test-support`. |
@@ -51,7 +51,7 @@ Pins `*current-frame*` to the supplied frame id for the body's dynamic extent. T
 (rf/with-frame [binding-sym expr] body...)
 ```
 
-Evaluates `expr` (typically `(rf/make-frame opts)`), binds the result to `binding-sym` (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), sets that frame as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) calls `destroy-frame` on whatever was bound. Modelled on `with-open`. Used when the frame's lifetime is exactly the body — per-test fixtures, devcard widgets, REPL sessions wanting guaranteed teardown.
+Evaluates `expr` (typically `(rf/make-frame opts)`), binds the result to `binding-sym` (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), sets that frame as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) calls `destroy-frame!` on whatever was bound. Modelled on `with-open`. Used when the frame's lifetime is exactly the body — per-test fixtures, devcard widgets, REPL sessions wanting guaranteed teardown.
 
 #### Discriminator
 
@@ -66,7 +66,7 @@ Both shapes are part of the normative test surface; tests, fixtures, and helper 
 
 Every entry in the table above is JVM-runnable, with the exceptions listed below — this is the single authoritative statement of the test-surface's JVM/CLJS split, per [C2](000-Vision.md#c2-cross-platform-jvm-interop-preserved):
 
-- ✓ `make-frame` / `destroy-frame` / `reset-frame` / `with-frame`
+- ✓ `make-frame` / `destroy-frame!` / `reset-frame!` / `with-frame`
 - ✓ `dispatch-sync` and the entire dispatch pipeline (router, drain, interceptors)
 - ✓ All `reg-event-*` handler invocation
 - ✓ Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`)
@@ -96,7 +96,7 @@ The most common shape. Each test creates a frame, runs assertions, tears down.
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
       (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))
       (finally
-        (rf/destroy-frame f)))))
+        (rf/destroy-frame! f)))))
 ```
 
 ### Pattern 2 — `with-frame` for tighter blocks
@@ -123,14 +123,14 @@ For test groups that share setup, register a named test frame once and reset bet
     (try
       (test-fn)
       (finally
-        (rf/reset-frame :test-fixture)))))                          ;; reset between tests
+        (rf/reset-frame! :test-fixture)))))                          ;; reset between tests
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
   (is (= :validating (get-in (rf/get-frame-db :test-fixture) [:auth :state]))))
 ```
 
-`reset-frame` (per [002 §reset-frame](002-Frames.md#reset-frame--full-replace-opt-in)) clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
+`reset-frame!` (per [002 §reset-frame!](002-Frames.md#reset-frame--full-replace-opt-in)) clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
 
 ### Pattern 4 — pure machine simulation (no frame)
 
@@ -298,7 +298,7 @@ When you want to verify what *would* dispatch without actually running the casca
     (rf/dispatch-sync [:auth/login-pressed] {:frame f})
     (is (= [[:auth/check-credentials]] @dispatched))
     (finally
-      (rf/destroy-frame f))))
+      (rf/destroy-frame! f))))
 ```
 
 ### Time travel — assertion after rewind
@@ -330,7 +330,7 @@ The testing surface is framework-agnostic — `make-frame` and friends work from
 (use-fixtures :each
   (fn [t]
     (rf/reg-frame :test-fixture {:on-create [:test/init]})
-    (try (t) (finally (rf/destroy-frame :test-fixture)))))
+    (try (t) (finally (rf/destroy-frame! :test-fixture)))))
 
 (deftest example-test
   (rf/dispatch-sync [:some-event] {:frame :test-fixture})
@@ -365,7 +365,7 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
 - `(get-frame-db f)` — current `app-db` value (a plain map) for the named frame.
 - `(snapshot-of path {:frame f})` — exact opts arg.
-- `(destroy-frame f)` — exact teardown contract.
+- `(destroy-frame! f)` — exact teardown contract.
 - Inclusion-tag schema is open (additive `set` on `reg-frame` metadata).
 
 ## Notes
@@ -422,7 +422,7 @@ re-frame2 ships a `re-frame.test-support` convenience namespace (renamed from v1
 
 | Helper | Origin | Purpose |
 |---|---|---|
-| `with-frame`, `make-frame`, `destroy-frame`, `reset-frame`, `dispatch-sync`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | re-export from `re-frame.core` | Same primitives the rest of the framework uses; gathered here for one require. |
+| `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | re-export from `re-frame.core` | Same primitives the rest of the framework uses; gathered here for one require. |
 | `dispatch-sequence` | test-flavoured fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
 | `assert-state` | test-flavoured fn | `(assert-state expected-db)` for a full-db check, or `(assert-state path expected-val)` for a path check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). |
 | `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `reset-runtime-fixture` | fixture machinery | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. |

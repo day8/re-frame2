@@ -519,7 +519,7 @@
           ;; surgical update that does NOT re-fire :on-create (Spec 002).
           ;; Destroy first so the fixture's :on-create cascade fires
           ;; under its declared :platform / :ssr config.
-          _            (rf/destroy-frame :rf/default)
+          _            (rf/destroy-frame! :rf/default)
           _            (rf/reg-frame :rf/default frame-config)
           dispatches   (or (:fixture/dispatches fixture) [])]
       (doseq [ev dispatches]

@@ -81,7 +81,7 @@
 ;; cache: destroying and re-creating a frame resets the warning history
 ;; for that frame — implemented by `clear-plain-fn-warned-pairs-for-frame!`
 ;; which the frame-destroy path can call (today the cache is process-wide
-;; and the helper is exported for tests / future destroy-frame integration).
+;; and the helper is exported for tests / future destroy-frame! integration).
 ;;
 ;; Production-elision: every code path is gated on `interop/debug-enabled?`.
 ;; Under :advanced + `goog.DEBUG=false` the closure compiler constant-folds

@@ -89,7 +89,7 @@
 
 (deftest frame-destroy-with-active-machines
   "#1 Frame disposal with active machine instances —
-   destroy-frame emits one :rf.machine.lifecycle/destroyed per active
+   destroy-frame! emits one :rf.machine.lifecycle/destroyed per active
    machine, carrying :reason :parent-frame-destroyed."
   (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
   (rf/reg-event-db :seed
@@ -98,7 +98,7 @@
                               :flow/checkout {:state :pending  :data {}}})))
   (rf/dispatch-sync [:seed] {:frame :tenant-x})
   (let [traces (collect-traces ::xspec-1)]
-    (rf/destroy-frame :tenant-x)
+    (rf/destroy-frame! :tenant-x)
     (stop-traces ::xspec-1)
     (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                       (:operation %))
@@ -339,7 +339,7 @@
                              ;; running cannot be interrupted, so this
                              ;; returns and the render completes against
                              ;; the snapshot the render fn read above.
-                             (rf/destroy-frame target-frame))
+                             (rf/destroy-frame! target-frame))
                            [:div.x {:data-render-count n
                                     :data-db          (pr-str db)}
                             "ok"]))]

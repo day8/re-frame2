@@ -437,7 +437,7 @@
               handler (conformance/realise-fx-handler id body adapter-helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
     ;; Flow registration is intentionally NOT done here — flows are
-    ;; FRAME-SCOPED (per Spec 013), so the destroy-frame call later in
+    ;; FRAME-SCOPED (per Spec 013), so the destroy-frame! call later in
     ;; `run-fixture` would wipe them via the rf2-wbtjn teardown hook.
     ;; `realise-flows!` (called after `reg-frame`) handles them.
     ;; route registrations
@@ -479,7 +479,7 @@
   "Per Spec 013 flows are FRAME-SCOPED: their lifecycle, evaluation, and
   undo / time-travel semantics all belong to one frame. So flow
   registration must happen AFTER `reg-frame` — otherwise the
-  destroy-frame teardown hook (rf2-wbtjn) clears the flows we just
+  destroy-frame! teardown hook (rf2-wbtjn) clears the flows we just
   registered when the runner destroys :rf/default to fire the
   fixture's `:on-create` cascade under its declared config.
 
@@ -897,10 +897,10 @@
           ;; reg-frame against an existing id is a surgical update that doesn't
           ;; re-fire :on-create per Spec 002. We destroy first so :on-create
           ;; fires when re-registered with the fixture's config.
-          _            (rf/destroy-frame :rf/default)
+          _            (rf/destroy-frame! :rf/default)
           ;; app-schema registrations — fixture's :fixture/registry :app-schema
           ;; is a {path schema} map. Per Spec 010 validation runs after each
-          ;; :db commit. Must be registered AFTER destroy-frame (which wipes
+          ;; :db commit. Must be registered AFTER destroy-frame! (which wipes
           ;; the per-frame schema side-table via the rf2-wkxng /
           ;; rf2-6m0se on-frame-destroyed! hook) and BEFORE reg-frame so
           ;; the fixture's :on-create event runs with schemas in place.
@@ -914,7 +914,7 @@
                          :else
                          (rf/reg-frame :rf/default frame-config))
           ;; Flow registration runs AFTER reg-frame: per Spec 013 flows
-          ;; are frame-scoped, and the rf2-wbtjn destroy-frame teardown
+          ;; are frame-scoped, and the rf2-wbtjn destroy-frame! teardown
           ;; hook would wipe any flows registered before the destroy.
           _            (realise-flows! fixture)
           dispatches   (or (:fixture/dispatches fixture) [])]

@@ -275,7 +275,7 @@
         (is (false? (loaders/evaluate-complete-when frame-id variant-body)))
         (rf/dispatch-sync [::set-done] {:frame frame-id})
         (finally
-          (rf/destroy-frame frame-id))))))
+          (rf/destroy-frame! frame-id))))))
 
 ;; Helper for the fn-form test above. Registered at top-level so the
 ;; dispatch in the test body can find it.

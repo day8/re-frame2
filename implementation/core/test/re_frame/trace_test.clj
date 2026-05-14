@@ -253,7 +253,7 @@
         (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main}))
 
       ;; ---- Frame destruction: :frame/destroyed ----------------------------
-      (rf/destroy-frame :test/main)
+      (rf/destroy-frame! :test/main)
 
       (rf/remove-trace-cb! ::recorder)
 

@@ -267,7 +267,7 @@ A server handling concurrent requests can't have one global frame — each reque
        :headers {"Content-Type" "text/html"}
        :body    (page-template html (pr-str (build-payload f hiccup)))})))
 
-;; Test fixtures destroy the frame between runs via (rf/destroy-frame f);
+;; Test fixtures destroy the frame between runs via (rf/destroy-frame! f);
 ;; long-lived servers typically destroy after the response is shipped to free
 ;; the per-frame caches.
 ```

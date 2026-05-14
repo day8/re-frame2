@@ -20,8 +20,8 @@ Frames are mutable runtime objects, not values. User code holds keywords and let
 (rf/make-frame metadata)
 
 ;; Destroy / reset.
-(rf/destroy-frame :frame-id)
-(rf/reset-frame   :frame-id)        ;; destroy + re-register with same config
+(rf/destroy-frame! :frame-id)
+(rf/reset-frame!   :frame-id)        ;; destroy + re-register with same config
 
 ;; Inspect.
 (rf/current-frame)                  ;; returns the active frame id
@@ -105,7 +105,7 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame` to 
 
 ## Common gotchas
 
-- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`frame.cljc:152-183`). Use `reset-frame` for a full destroy+recreate.
+- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`frame.cljc:152-183`). Use `reset-frame!` for a full destroy+recreate.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. Subsequent dispatch / subscribe raises `:rf.error/frame-destroyed`. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` is a CLJS macro AND a JVM-friendly fn.** The macro form (`re-frame.core/with-frame`) wraps an expression; the fn form (`core.cljc:932`) takes a thunk — use the fn from JVM tests / SSR / REPL.
 - **Wrapping plain Reagent fns in a non-default `frame-provider` doesn't bind the frame.** Use `reg-view` so the `:contextType` wiring picks up the provider. Watch for the once-per-handler warning.

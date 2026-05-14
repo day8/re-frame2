@@ -50,8 +50,8 @@
 | `clear-sub` | Fn | `(clear-sub)` / `(clear-sub id)` | v1 (preserved) |
 | `clear-fx` | Fn | `(clear-fx)` / `(clear-fx id)` | v1 (preserved) |
 | `clear-flow` | Fn | `(clear-flow id)` / `(clear-flow id opts)` | v1 |
-| `destroy-frame` | Fn | `(destroy-frame frame-id)` | v1 |
-| `reset-frame` | Fn | `(reset-frame frame-id)` | v1 |
+| `destroy-frame!` | Fn | `(destroy-frame! frame-id)` | v1 |
+| `reset-frame!` | Fn | `(reset-frame! frame-id)` | v1 |
 | `clear-sub-cache!` | Fn | `(clear-sub-cache! frame-id?)` | v1 (preserved) |
 
 ---
@@ -533,7 +533,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Testing
 
-`re-frame.test-support` ships the test-flavoured helpers below alongside re-exports of `make-frame`/`destroy-frame`/`with-frame`/`dispatch-sync` for one-stop import. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
+`re-frame.test-support` ships the test-flavoured helpers below alongside re-exports of `make-frame`/`destroy-frame!`/`with-frame`/`dispatch-sync` for one-stop import. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
 | API | M/Fn | Signature | Status | Spec | Notes |
 |---|---|---|---|---|---|

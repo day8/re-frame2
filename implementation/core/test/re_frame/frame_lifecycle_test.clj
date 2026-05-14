@@ -113,7 +113,7 @@
       ;; or get discarded; either way they MUST NOT corrupt state on a
       ;; gone frame, and any later attempt to dispatch traces
       ;; :rf.error/frame-destroyed.
-      (rf/destroy-frame :worker)
+      (rf/destroy-frame! :worker)
       (rf/remove-trace-cb! ::pending)
 
       ;; The frame is gone.
@@ -149,7 +149,7 @@
     (rf/dispatch-sync [:seed-machines] {:frame :ten})
     (let [traces (atom [])]
       (rf/register-trace-cb! ::cascade (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame :ten)
+      (rf/destroy-frame! :ten)
       (rf/remove-trace-cb! ::cascade)
       (let [cascade (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
                             @traces)]
@@ -180,7 +180,7 @@
 ;; ...]` so the wired-up runtime path is verified at the core boundary.
 
 (deftest destroy-frame-runs-exit-cascades-in-reverse-creation-order
-  (testing "destroy-frame runs spawned actors' :exit actions newest-spawn-first"
+  (testing "destroy-frame! runs spawned actors' :exit actions newest-spawn-first"
     (rf/reg-frame :rf2-vsigt/auth {:doc "rf2-vsigt cross-slice test frame"})
     (let [exit-log (atom [])
           child    {:initial :running
@@ -214,7 +214,7 @@
                                          :rf/machines)))))
           "three spawned actor snapshots live at [:rf/machines <id>]")
       ;; Destroy the frame.
-      (rf/destroy-frame :rf2-vsigt/auth)
+      (rf/destroy-frame! :rf2-vsigt/auth)
       ;; :exit fired three times in REVERSE-spawn order.
       (is (= [:rf2-vsigt/child#3 :rf2-vsigt/child#2 :rf2-vsigt/child#1]
              @exit-log)
@@ -256,7 +256,7 @@
       ;; Capture traces and destroy.
       (let [traces (atom [])]
         (rf/register-trace-cb! ::sub-destroy (fn [ev] (swap! traces conj ev)))
-        (rf/destroy-frame :live)
+        (rf/destroy-frame! :live)
         (rf/remove-trace-cb! ::sub-destroy)
         (is (= 1 @dispose-fired)
             "on-dispose hook fired exactly once when destroy walked the sub-cache")
@@ -401,7 +401,7 @@
           (is (< run-end-idx created-idx)
               ":on-create's :run-end precedes :frame/created — frame is fully booted before listeners observe it"))))))
 
-;; ---- rf2-68kok — destroy-frame interrupts active drain on next dequeue --
+;; ---- rf2-68kok — destroy-frame! interrupts active drain on next dequeue --
 ;;
 ;; Per Spec 002 §Edge cases worth pinning §Frame disposal mid-drain: the
 ;; drain loop checks `(:destroyed? (:lifecycle frame))` before each
@@ -433,7 +433,7 @@
           ;; Call destroy-frame! directly — bypasses the
           ;; `dispatch-sync-in-handler` policy that would otherwise
           ;; bite us if we tried to dispatch destruction through the
-          ;; router. Spec 002 says destroy-frame interrupts the
+          ;; router. Spec 002 says destroy-frame! interrupts the
           ;; ACTIVE drain; the trigger can be anything.
           (frame/destroy-frame! :drain-int/worker)
           {}))
@@ -844,7 +844,7 @@
               "two events queued, deterministically un-drained")))
 
       ;; Destroy the frame BEFORE the captured ticks run.
-      (rf/destroy-frame :rf2-dpny/worker)
+      (rf/destroy-frame! :rf2-dpny/worker)
       (is (nil? (frame/frame :rf2-dpny/worker))
           "the frame is gone from the registry")
 
@@ -998,13 +998,13 @@
     ;; A destroyed frame is also indistinguishable from never-registered
     ;; per the documented surface — `frame` returns nil for destroyed.
     (rf/reg-frame :short-lived {:doc "will be destroyed"})
-    (rf/destroy-frame :short-lived)
+    (rf/destroy-frame! :short-lived)
     (is (nil? (rf/frame-meta :short-lived))
         "frame-meta on a destroyed frame returns nil (no resurrection)")))
 
 ;; ---- rf2-mwrh: reset-frame! partial-state preservation contract -----------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-27: `rf/reset-frame` is re-exported
+;; Per test-coverage-review-2026-05-12 P3-27: `rf/reset-frame!` is re-exported
 ;; (core.cljc:438 → frame/reset-frame!) but no test pins what it does. The
 ;; impl is `destroy-frame! followed by reg-frame with the same config` —
 ;; this test pins the contract that flows from that definition:
@@ -1015,7 +1015,7 @@
 ;;   - The frame is still queryable (not in the destroyed state).
 
 (deftest reset-frame-preserves-config-resets-app-db
-  (testing "rf/reset-frame: app-db is reset, config metadata is preserved,
+  (testing "rf/reset-frame!: app-db is reset, config metadata is preserved,
             :on-create re-runs, frame remains queryable"
     (let [boot-count (atom 0)]
       (rf/reg-event-db :seed
@@ -1036,7 +1036,7 @@
       (rf/reg-event-db :extend (fn [db _] (assoc db :runtime-write? true)))
       (rf/dispatch-sync [:extend] {:frame :app/main})
       (is (true? (:runtime-write? (rf/get-frame-db :app/main)))
-          "mutation is visible before reset-frame")
+          "mutation is visible before reset-frame!")
 
       ;; Capture the original frame record so we can compare.
       (let [orig-record    (frame/frame :app/main)
@@ -1045,7 +1045,7 @@
             orig-router    (:router orig-record)]
 
         ;; Reset.
-        (rf/reset-frame :app/main)
+        (rf/reset-frame! :app/main)
 
         ;; After reset: the frame is queryable.
         (let [new-record (frame/frame :app/main)]
@@ -1081,10 +1081,10 @@
             "the :extend handler's write is absent — reset wiped runtime state")))))
 
 (deftest reset-frame-on-missing-id-is-noop
-  (testing "rf/reset-frame against an unregistered frame is a silent no-op"
+  (testing "rf/reset-frame! against an unregistered frame is a silent no-op"
     ;; frame/reset-frame! only fires when (frame id) returns non-nil.
     ;; Calling against an unknown id must not throw.
-    (is (nil? (rf/reset-frame :no/such-frame))
-        "reset-frame on a missing id returns nil without throwing")
+    (is (nil? (rf/reset-frame! :no/such-frame))
+        "reset-frame! on a missing id returns nil without throwing")
     (is (nil? (frame/frame :no/such-frame))
         "the missing frame is still absent")))

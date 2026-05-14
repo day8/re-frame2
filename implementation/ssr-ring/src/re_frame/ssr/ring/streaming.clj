@@ -35,7 +35,7 @@
       flush resolved + delta script
     streaming/build-final-payload
     flush final __rf_payload + close
-    destroy-frame in finally
+    destroy-frame! in finally
 
   Per the bundle-isolation contract, this ns is JVM-only (`.clj`) —
   shadow-cljs only picks up `.cljc` / `.cljs`. Streaming bootstrap on

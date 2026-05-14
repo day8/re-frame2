@@ -113,7 +113,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
  :config    {...}}                   ;; the metadata reg-frame was given (incl. :preset expansion)
 ```
 
-**Inputs.** `reg-frame` (atomic create-and-register), `make-frame` (anonymous instance), `reset-frame` (full replace, opt-in per [002 §reset-frame](002-Frames.md#reset-frame--full-replace-opt-in)), `destroy-frame` (lifecycle teardown).
+**Inputs.** `reg-frame` (atomic create-and-register), `make-frame` (anonymous instance), `reset-frame!` (full replace, opt-in per [002 §reset-frame!](002-Frames.md#reset-frame--full-replace-opt-in)), `destroy-frame!` (lifecycle teardown).
 
 **Outputs.** Frame-keyword handles. Tools query via `frame-meta`, `frame-ids`.
 
@@ -251,7 +251,7 @@ Async replies arrive later as fresh `dispatch` calls and re-enter at step 1.
 
 Two sub-cases: per-frame teardown and per-process teardown.
 
-**Per-frame** (`destroy-frame`, [002 §Destroy](002-Frames.md#destroy)):
+**Per-frame** (`destroy-frame!`, [002 §Destroy](002-Frames.md#destroy)):
 
 1. The frame is marked `:destroyed?`. New dispatches to it are rejected.
 2. Active machine instances run their `:exit` cascades up to root ([005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)). Pending `:after` timers cancel.

@@ -5,7 +5,7 @@
   Each rendered variant is its own re-frame frame (spec/002), allocated
   fresh on `run-variant` and torn down by the caller via
   `destroy-variant!`. Story does NOT introduce a new frame substrate —
-  it consumes `re-frame.core/reg-frame` / `destroy-frame` / `reset-frame!`.
+  it consumes `re-frame.core/reg-frame` / `destroy-frame!` / `reset-frame!`.
 
   ## Frame config
 
@@ -226,14 +226,14 @@
 (defn destroy!
   "Tear down a variant frame. Clears the lifecycle watcher table for
   the frame, drops per-frame assertion + stub accumulators, then
-  calls `rf/destroy-frame`. Returns nil."
+  calls `rf/destroy-frame!`. Returns nil."
   [variant-id]
   (when config/enabled?
     (loaders/clear-watchers! variant-id)
     (clear-stub-call-log! variant-id)
     (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
       (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-    (rf/destroy-frame variant-id)
+    (rf/destroy-frame! variant-id)
     nil))
 
 ;; ---- destroy + re-allocate -----------------------------------------------

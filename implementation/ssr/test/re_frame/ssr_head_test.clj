@@ -399,7 +399,7 @@
       (is (= {:title "snapshot-A"}
              (get (head/head-snapshot f) :head/leaktest))
           "snapshot present pre-destroy")
-      (rf/destroy-frame f)
+      (rf/destroy-frame! f)
       (is (= {} (head/head-snapshot f))
           "snapshot cleared post-destroy"))))
 
@@ -413,7 +413,7 @@
       (rf/render-head :head/iso {:frame f2})
       (is (seq (head/head-snapshot f1)))
       (is (seq (head/head-snapshot f2)))
-      (rf/destroy-frame f1)
+      (rf/destroy-frame! f1)
       (is (= {} (head/head-snapshot f1)))
       (is (seq (head/head-snapshot f2))
           "destroying f1 did not clear f2's bookkeeping"))))

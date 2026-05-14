@@ -234,7 +234,7 @@
 ;; frame is destroyed, every cb whose observed-frames set contains
 ;; that frame receives a one-shot :rf.epoch.cb/silenced-on-frame-destroy
 ;; trace. The frame is then dropped from the cb's entry so a
-;; re-registration of a same-keyed frame (e.g. `reset-frame :app/main`)
+;; re-registration of a same-keyed frame (e.g. `reset-frame! :app/main`)
 ;; can re-arm the silencing trace for a future destroy.
 (defonce ^:private observed-frames-by-cb
   ;; cb-id → #{frame-id ...}
@@ -400,9 +400,9 @@
                       :cb-id  cb-id})))
     (swap! observed-frames-by-cb drop-frame-from-cb-observations frame-id)
     ;; Drop the per-frame ring buffer; epoch-history returns [] from
-    ;; here on. (`reset-frame :app/main` calls destroy-frame! followed
+    ;; here on. (`reset-frame! :app/main` calls destroy-frame! followed
     ;; by reg-frame, so the ring buffer for the new same-keyed frame
-    ;; starts empty per Spec 002 §reset-frame.)
+    ;; starts empty per Spec 002 §reset-frame!.)
     (swap! histories dissoc frame-id)
     ;; Per rf2-zzper: also drop any in-flight capture buffer. A
     ;; mid-drain destroy that surfaces a halted record above leaves

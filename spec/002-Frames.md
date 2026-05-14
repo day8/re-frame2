@@ -27,8 +27,8 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
 ;; Registration (lifecycle)
 (rf/reg-frame   :todo {:on-create [:todo/initialise]})   ;; create + register, atomic; app-db starts {}
 (rf/reg-frame   :todo {:on-create [:todo/initialise]})   ;; against existing — surgical update (config replaced; runtime state preserved)
-(rf/reset-frame :todo)                                    ;; explicit full replace — app-db cleared, :on-create re-fires
-(rf/destroy-frame :todo)                                  ;; tear down — remove from registry
+(rf/reset-frame! :todo)                                    ;; explicit full replace — app-db cleared, :on-create re-fires
+(rf/destroy-frame! :todo)                                  ;; tear down — remove from registry
 
 ;; View ergonomics
 [rf/frame-provider {:frame :todo}       ;; React context: keyword in, not value
@@ -133,7 +133,7 @@ The framework stamps the dispatch envelope with the frame's id automatically —
 ### Destroy
 
 ```clojure
-(rf/destroy-frame :todo)
+(rf/destroy-frame! :todo)
 ```
 
 - Drops the frame from the registry.
@@ -154,41 +154,41 @@ The framework stamps the dispatch envelope with the frame's id automatically —
 - `:interceptors` vector — applied to events handled after re-registration.
 - `:doc`, `:ns`/`:line`/`:file` metadata.
 - `:drain-depth` — applied to subsequent drains.
-- `:on-create` / `:on-destroy` — recorded for future `reset-frame` / `destroy-frame` calls; not re-fired on surgical update.
+- `:on-create` / `:on-destroy` — recorded for future `reset-frame!` / `destroy-frame!` calls; not re-fired on surgical update.
 
 **What does NOT change on surgical update:**
 
 - The live `app-db` keeps its current value.
 - `:on-create` events do not re-fire (they fired on the original creation and don't re-run on re-registration).
-- `:on-destroy` events do not fire (they only fire on `destroy-frame`).
+- `:on-destroy` events do not fire (they only fire on `destroy-frame!`).
 - Sub-cache, router queue, in-flight events all remain.
 
 **Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original `reg-frame` set `:fx-overrides {:my-app/http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event-fx` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:on-create`, `:on-destroy`. Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
 
-**Trade-off:** there's some "config drift" between what `reg-frame` literally says and what's running. A developer who edits `:on-create` and re-saves will not see the new init event re-fire — they need to call `reset-frame` to apply it. This matches today's re-frame: `app-db` doesn't reset when you save a file, and developers expect that.
+**Trade-off:** there's some "config drift" between what `reg-frame` literally says and what's running. A developer who edits `:on-create` and re-saves will not see the new init event re-fire — they need to call `reset-frame!` to apply it. This matches today's re-frame: `app-db` doesn't reset when you save a file, and developers expect that.
 
 **Trace emission on surgical update.** Each surgical re-registration emits a `:frame/re-registered` trace event (per [009-Instrumentation §Frame lifecycle traces](009-Instrumentation.md#core-fields-required-on-every-event)). The trace fires *after* the metadata swap is visible to subsequent dispatches — a test fixture that asserts "the new `:fx-overrides` are in effect by the time the trace fires" can rely on this ordering. Tools (10x, re-frame-pair) listen for this op to refresh their per-frame state.
 
-**Worked-example gotcha — `:on-destroy` clears on omit.** The absent-key rule above applies to `:on-destroy` too. If the original `reg-frame` set `:on-destroy [:todo/cleanup]` and the developer subsequently edits the source to *remove* the `:on-destroy` key (rather than replace its event vector), the next hot-reload re-registration clears the recorded teardown event. A subsequent `(destroy-frame :todo)` then runs without firing `:todo/cleanup`. This is mostly invisible in production (frames are rarely destroyed) but bites in tests and REPL workflows that destroy frames between cases — a teardown that "used to work" silently stops running after a source edit. The fix is the same as for `:on-create`: re-register with the desired keys present, or call `reset-frame` to re-establish from the current source.
+**Worked-example gotcha — `:on-destroy` clears on omit.** The absent-key rule above applies to `:on-destroy` too. If the original `reg-frame` set `:on-destroy [:todo/cleanup]` and the developer subsequently edits the source to *remove* the `:on-destroy` key (rather than replace its event vector), the next hot-reload re-registration clears the recorded teardown event. A subsequent `(destroy-frame! :todo)` then runs without firing `:todo/cleanup`. This is mostly invisible in production (frames are rarely destroyed) but bites in tests and REPL workflows that destroy frames between cases — a teardown that "used to work" silently stops running after a source edit. The fix is the same as for `:on-create`: re-register with the desired keys present, or call `reset-frame!` to re-establish from the current source.
 
-### `reset-frame` — full replace, opt-in
+### `reset-frame!` — full replace, opt-in
 
 For developers who want a fresh start (a test fixture, an explicit "reset to initial state" action, or a story that re-runs setup on demand):
 
 ```clojure
-(rf/reset-frame :todo)
+(rf/reset-frame! :todo)
 ```
 
-Equivalent to `(destroy-frame :todo)` followed by `(reg-frame :todo <current-config>)`:
+Equivalent to `(destroy-frame! :todo)` followed by `(reg-frame :todo <current-config>)`:
 
 - Existing `app-db` is reset to `{}`.
 - Sub-cache is disposed; live subscriptions re-materialise on next deref.
 - Router queue is cleared; any unprocessed events are dropped.
 - The configured `:on-create` event re-fires as if it were a fresh creation, draining its cascade synchronously.
 
-`reset-frame` is the right tool for "I want this back to its initial state." Tests use it between test cases. Story tools use it for "reset" buttons.
+`reset-frame!` is the right tool for "I want this back to its initial state." Tests use it between test cases. Story tools use it for "reset" buttons.
 
-`destroy-frame` (covered above) goes one step further — the frame keyword is removed from the registry; subsequent dispatch/subscribe with that frame throws `:reason :frame-destroyed`.
+`destroy-frame!` (covered above) goes one step further — the frame keyword is removed from the registry; subsequent dispatch/subscribe with that frame throws `:reason :frame-destroyed`.
 
 ### `:rf/default`
 
@@ -296,7 +296,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 
 ```clojure
 (rf/make-frame opts) → :rf.frame/123     ;; gensyms a unique keyword, registers, returns it
-(rf/destroy-frame :rf.frame/123)         ;; same destroy as named frames
+(rf/destroy-frame! :rf.frame/123)         ;; same destroy as named frames
 
 (rf/reg-event-db :counter/init (fn [_ _] {:count 0}))    ;; init event registered once
 
@@ -305,10 +305,10 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
     [rf/frame-provider {:frame f}
      [counter-view label]]
     (finally
-      (rf/destroy-frame f))))
+      (rf/destroy-frame! f))))
 ```
 
-`make-frame` shares the `reg-frame` code path; the only difference is the generated keyword (with a `:rf.frame/` namespace to avoid colliding with user-chosen names). The naming pun parallels `gensym` vs. explicit symbols. Lifecycle is the user's responsibility — pair `make-frame` with a `destroy-frame` in `:finally` of `r/with-let` (or equivalent unmount hook).
+`make-frame` shares the `reg-frame` code path; the only difference is the generated keyword (with a `:rf.frame/` namespace to avoid colliding with user-chosen names). The naming pun parallels `gensym` vs. explicit symbols. Lifecycle is the user's responsibility — pair `make-frame` with a `destroy-frame!` in `:finally` of `r/with-let` (or equivalent unmount hook).
 
 Tests use this pattern as their fixture lifecycle:
 
@@ -321,7 +321,7 @@ Tests use this pattern as their fixture lifecycle:
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
       (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))
       (finally
-        (rf/destroy-frame f)))))
+        (rf/destroy-frame! f)))))
 ```
 
 ## Routing: the dispatch envelope
@@ -671,7 +671,7 @@ Other React-on-CLJS adapters (UIx, Helix) use the same shape with their host's R
 
 ### Testing — see Spec 008
 
-The foundation primitives this Spec defines (`make-frame`, `destroy-frame`, `with-frame`, `dispatch-sync` with opts, per-frame and per-call overrides, registrar query API) are what [008-Testing.md](008-Testing.md) composes into the test API: fixture lifecycle, per-test stubbing, headless evaluation, framework adapters. `machine-transition` (defined in [005](005-StateMachines.md)) and `compute-sub` (defined in [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm)) round out the JVM-runnable surface for headless testing; both are referenced here only as pointers.
+The foundation primitives this Spec defines (`make-frame`, `destroy-frame!`, `with-frame`, `dispatch-sync` with opts, per-frame and per-call overrides, registrar query API) are what [008-Testing.md](008-Testing.md) composes into the test API: fixture lifecycle, per-test stubbing, headless evaluation, framework adapters. `machine-transition` (defined in [005](005-StateMachines.md)) and `compute-sub` (defined in [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm)) round out the JVM-runnable surface for headless testing; both are referenced here only as pointers.
 
 ### Frame-targeted dispatch and subscribe (no provider needed)
 
@@ -723,7 +723,7 @@ The macro inspects its first argument:
 
 #### Async work outliving `with-frame`
 
-For async closures that fire after the body returns, capture the frame keyword explicitly via `bound-fn` (above) — the `with-frame` body's dynamic binding has unwound by then. Shape 2's `destroy-frame` runs immediately on body exit; an outstanding async callback that fires after that will hit a destroyed frame.
+For async closures that fire after the body returns, capture the frame keyword explicitly via `bound-fn` (above) — the `with-frame` body's dynamic binding has unwound by then. Shape 2's `destroy-frame!` runs immediately on body exit; an outstanding async callback that fires after that will hit a destroyed frame.
 
 ### `dispatch-sync`
 
@@ -1251,7 +1251,7 @@ React 18's concurrent rendering can render the same component multiple times bef
 
 ### Sub-cache disposal on frame destroy
 
-When `destroy-frame` runs, every cached reactive needs its `dispose!`-equivalent called. With Reagent reactions today, this is direct. With a future substrate-agnostic substrate, the disposal contract becomes part of the adapter API. Flagged so the adapter-layer design includes it.
+When `destroy-frame!` runs, every cached reactive needs its `dispose!`-equivalent called. With Reagent reactions today, this is direct. With a future substrate-agnostic substrate, the disposal contract becomes part of the adapter API. Flagged so the adapter-layer design includes it.
 
 ### Transducer-shaped event processing (substrate-agnostic router)
 
@@ -1271,7 +1271,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 
 | Decision | Pointer |
 |---|---|
-| `reg-frame` re-registration is a surgical update by default; `reset-frame` is the opt-in full replace; `destroy-frame` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame — full replace, opt-in](#reset-frame--full-replace-opt-in) |
+| `reg-frame` re-registration is a surgical update by default; `reset-frame!` is the opt-in full replace; `destroy-frame!` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame! — full replace, opt-in](#reset-frame--full-replace-opt-in) |
 | `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:on-create` | [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) |
 | Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |
 | The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context | [§View ergonomics](#view-ergonomics-the-hard-part), [011-SSR.md](011-SSR.md) |

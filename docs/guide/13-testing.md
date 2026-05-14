@@ -23,7 +23,7 @@ Testing helpers ship in `re-frame.test-support`, alongside re-exports of the fou
             [re-frame.test-support :as ts]))
 ```
 
-The artefact is dev-only and cleanly separated from the runtime — the testing surface is built entirely from foundation primitives. Nothing in `re-frame.test-support` is a special-case mechanism; it's all sugar over `make-frame`/`destroy-frame`/`reset-frame`/`dispatch-sync`/`compute-sub`.
+The artefact is dev-only and cleanly separated from the runtime — the testing surface is built entirely from foundation primitives. Nothing in `re-frame.test-support` is a special-case mechanism; it's all sugar over `make-frame`/`destroy-frame!`/`reset-frame!`/`dispatch-sync`/`compute-sub`.
 
 ## Fixtures: getting a fresh frame for each test
 
@@ -53,7 +53,7 @@ The shape `with-frame` desugars into, useful when you want explicit teardown log
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
       (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))
       (finally
-        (rf/destroy-frame f)))))
+        (rf/destroy-frame! f)))))
 ```
 
 Functionally equivalent to Pattern 1; reach for it when the body is doing something the macro can't see — running a generator over many frames, threading the frame into a helper that takes its own teardown, etc.
@@ -69,14 +69,14 @@ For a test group sharing setup, register a named test frame once and reset betwe
     (try
       (test-fn)
       (finally
-        (rf/reset-frame :test-fixture)))))
+        (rf/reset-frame! :test-fixture)))))
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
   (is (= :validating (get-in (rf/get-frame-db :test-fixture) [:auth :state]))))
 ```
 
-`reset-frame` clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
+`reset-frame!` clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
 
 ### Registrar isolation: `with-fresh-registrar`
 
@@ -251,7 +251,7 @@ A defining property of re-frame2's testing surface: **almost everything runs on 
 
 What's JVM-runnable:
 
-- ✓ `make-frame` / `destroy-frame` / `reset-frame` / `with-frame`
+- ✓ `make-frame` / `destroy-frame!` / `reset-frame!` / `with-frame`
 - ✓ `dispatch-sync` and the entire dispatch pipeline (router, drain, interceptors)
 - ✓ All `reg-event-*` handler invocation
 - ✓ Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`)

@@ -282,7 +282,7 @@ Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, o
              :play   [[:counter/inc]
                       [:rf.assert/path-equals [:count] 8]]}}
    ```
-   `reg-variant*` calls `reset-frame` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then events.
+   `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then events.
 4. Run it:
    ```
    mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
@@ -296,4 +296,4 @@ Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, o
 
 **Expected output shape.** Stream of epoch records on the pair2 channel (one per play event), plus a `:passing?` boolean + `:assertions` list from `read-failures`. Successful loop ends with `:passing? true`.
 
-**Gotcha.** `:reset-frame` on re-registration wipes any REPL-only state you injected (e.g. an `app-db/reset` you'd done in a prior iteration to set up a corner case). Bake the corner-case setup into `:events` or `:loaders` instead — the play-runner re-runs them each iteration, so the setup is durable across refinements.
+**Gotcha.** `:reset-frame!` on re-registration wipes any REPL-only state you injected (e.g. an `app-db/reset` you'd done in a prior iteration to set up a corner case). Bake the corner-case setup into `:events` or `:loaders` instead — the play-runner re-runs them each iteration, so the setup is durable across refinements.

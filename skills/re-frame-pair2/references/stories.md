@@ -64,7 +64,7 @@ mcp__re-frame-pair2__dispatch
   {event: "[:counter/inc]" frame: ":story.counter/loaded"}
 ```
 
-The dispatch lands in the variant's app-db; the next `run-variant` calls `reset-frame` and wipes it. Useful for "would adding this event between phases pass the assertion?" probes without round-tripping through `register-variant`.
+The dispatch lands in the variant's app-db; the next `run-variant` calls `reset-frame!` and wipes it. Useful for "would adding this event between phases pass the assertion?" probes without round-tripping through `register-variant`.
 
 ## The agent self-healing loop in pair2 context
 
@@ -92,7 +92,7 @@ When the loop terminates, optionally call `record-as-variant` to capture the now
 
 ## Common gotchas — live-session specific
 
-- **`run-variant` calls `reset-frame`.** Each invocation wipes the variant's `app-db` back to `{}` then re-runs loaders + events + play. REPL-only state you'd injected via pair2 `dispatch` between iterations is gone. Bake setup into `:loaders` / `:events` if you need it to survive (`variant-as-frame.md §Common gotchas`).
+- **`run-variant` calls `reset-frame!`.** Each invocation wipes the variant's `app-db` back to `{}` then re-runs loaders + events + play. REPL-only state you'd injected via pair2 `dispatch` between iterations is gone. Bake setup into `:loaders` / `:events` if you need it to survive (`variant-as-frame.md §Common gotchas`).
 - **`read-failures` does not re-run.** It reads the *last* `run-variant`'s `:rf.story/assertions` accumulator. After a manual pair2 dispatch, the accumulator is stale — re-run before reading.
 - **`run-a11y` needs the in-browser panel.** JVM-standalone story hosts return an empty list + a documented hint that axe-core requires the browser. If your session is browser-attached this works; if it's JVM-only, expect the no-op.
 - **`record-as-variant`'s filter layers are not free-form.** Filtering is inherited verbatim from `re-frame.story.recorder/recordable-event?` — op-type `:event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`). You can't widen the filter via tool input.

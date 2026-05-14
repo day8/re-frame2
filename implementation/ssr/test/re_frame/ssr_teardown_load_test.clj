@@ -131,7 +131,7 @@
     5. render-to-string against a registered view emits HTML.
     6. ssr/clear-request! is INTENTIONALLY omitted here so the
        `:ssr/on-frame-destroyed` hook is the only path that clears the
-       slot — the contract is that destroy-frame is sufficient even
+       slot — the contract is that destroy-frame! is sufficient even
        when the host adapter forgets to clear inline.
     7. destroy-frame!
 
@@ -154,7 +154,7 @@
       ;; pending-error-trace drain).
       (ssr/get-response server-frame)
       ;; Step 7 — destroy. Intentionally NO clear-request! call.
-      (rf/destroy-frame server-frame)
+      (rf/destroy-frame! server-frame)
       html)))
 
 (defn- install-registry!
@@ -310,7 +310,7 @@
         (swap! (pending-error-traces-atom)
                update fid (fnil conj [])
                {:op-type :error :operation :rf.error/handler-exception})
-        (rf/destroy-frame fid)))
+        (rf/destroy-frame! fid)))
     ;; Every planted slot should be gone.
     (is (= 0 (count (pending-error-traces-snapshot)))
         "destroy-frame! cleared the pending-error-traces entries even
