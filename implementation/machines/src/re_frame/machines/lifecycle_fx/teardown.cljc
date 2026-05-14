@@ -33,6 +33,8 @@
   in-flight trace consumers see the destroy signal while the handler
   still resolves; unregister the handler LAST).")
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn find-system-id-for-actor
   "Walk the `:rf/system-ids` reverse index of `db` looking for the entry
   whose value is `actor-id`. Returns the bound `:system-id` keyword or

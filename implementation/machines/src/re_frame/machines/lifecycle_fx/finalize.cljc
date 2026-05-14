@@ -39,6 +39,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- in-flight HTTP abort cascade (rf2-wvkn) ------------------------------
 ;;
 ;; Per Spec 005 §Cancellation cascade — in-flight `:rf.http/managed`

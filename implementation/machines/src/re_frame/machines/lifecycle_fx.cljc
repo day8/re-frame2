@@ -35,6 +35,8 @@
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
             [re-frame.registrar :as registrar]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- public-surface re-exports --------------------------------------------
 
 (def create-machine-handler registration/create-machine-handler)

@@ -30,6 +30,8 @@
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
+#?(:clj (set! *warn-on-reflection* true))
+
 (defn- find-active-invoke-all-in-tree
   "Helper for `find-active-invoke-all`. Given a machine-like map with
   `:states` (for a non-parallel machine, the machine itself; for a
