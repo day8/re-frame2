@@ -177,6 +177,10 @@ A UI is just derived data. The screen is a function of `app-db`; the question wo
 
 That question is what the Signal Graph answers. A view that derefs `@(subscribe [:products/sorted])` is the leaf of a small dataflow. Walk back from the view: `:products/sorted` derefs `:products`; `:products` derefs the frame's `app-db`. That walk is a graph — the **Signal Graph** — and every re-frame2 app has one per frame. The graph is a DAG rooted at the frame's `app-db`, with view functions at the leaves, and chained `reg-sub`s as the interior nodes. Data flows root-to-leaves; the graph itself is built leaves-first (a view that derefs a sub causes that sub's sub-graph to be instantiated, all the way back to `app-db`).
 
+<p align="center"><img src="../images/guide/subscriptions.png" alt="The four-layer Signal Graph: ground-truth app-db at the bottom, layer-2 extractors above it, layer-3 materialised views composing those, and layer-4 view functions at the top emitting hiccup." width="650"></p>
+
+*The canonical four-layer Signal Graph (ported from re-frame v1). The bottom `app-db` is **the frame's** `app-db` under re-frame2 — each frame has its own graph rooted in its own store. The diagram's structure is otherwise unchanged.*
+
 So: when `app-db` changes, every layer-2 extractor *in this frame* re-runs, and the news propagates outward through layer 3 to the views — pruning at each step where the value didn't actually move. To see that propagation cleanly, it's instructive to name four conceptual layers.
 
 | Layer | Role | What it does |
