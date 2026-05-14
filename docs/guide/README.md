@@ -2,9 +2,34 @@
 
 This is the human-facing guide for the ClojureScript reference implementation.
 
-## Chapters
+## Overview
 
-The guide is in two parts. The **core path** (chapters 01-11) builds the mental model in sequence — read these in order, end to end, and you have re-frame2. The **optional deep dives** (chapters 12-21) are *à la carte*: read them when the topic comes up, not as the next-link in the linear sequence.
+**re-frame applications are a virtual machine.**
+
+Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the program. The runtime executes every event through the same six-step pipeline, every time. We call one iteration an *epoch*. State is explicit and centralised, data is immutable, effects are isolated, and views sit at the edge of the flow.
+
+This guide walks you through what's in the box. Here's what the reference implementation gives you:
+
+- **A single immutable store, `app-db`.** Every piece of state lives at a path in one map. You can `pprint` it, `diff` it, ship it across the wire for SSR, dump it on disk, reload tomorrow and inspect it in a REPL.
+- **Pure event handlers.** `(state, event) → effects`. Tested as a function — no mocking, no JSDOM, no headless browser. Same shape for a counter and for a real-world feature with five fetches and two state machines.
+- **Effects as data.** Handlers don't `fetch`, don't write `localStorage`, don't navigate — they return a value that *says* "this should happen." The runtime owns the doing. The same shape covers HTTP, WebSockets, state-machine invokes, SSR per-request fxs, and any new managed surface that inherits the pattern.
+- **Time-travel debugging.** Because state is immutable and changes atomically, the framework records every `app-db` value the app ever had. **Causa** — the in-app devtools panel, the structural successor to v1's `re-frame-10x` — scrubs forwards and backwards through epochs, diffs `app-db` slices, and walks the causality graph.
+- **Derived data through subscriptions.** Subs are pure derivations on top of `app-db`. They recompute when their inputs change and only then. Views deref subs; views re-render when the deref'd value changes. No `useEffect`, no dependency arrays.
+- **Frames — isolated state and dispatch.** A frame is a unit of `app-db` + dispatch queue + registry view. One frame per request for SSR, one per variant in story playgrounds, one per pane for split views — without any of the substrate-leakage problems that come with multi-tenancy bolted on after the fact.
+- **State machines, first-class.** Hierarchical states, parallel regions, `:after`, `:always`, declarative `:invoke`, spawn-and-join, actor model, `:tags` query layer. Transitions ride the same six-step pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus.
+- **Schemas at every boundary.** Malli-backed validation — event vectors, sub returns, cofx, `app-db` slices. Opt-in. Production-elidable via Closure dead-code elimination; you pay for exactly what you turn on.
+- **Routing — URL ↔ state.** Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes work because frames are a thing. The same handler runs server- and client-side.
+- **SSR and hydration that don't require a different mental model.** Pure hiccup → HTML emitter, JVM-runnable (no React-on-the-server). Per-request frame lifecycle. Hydration-mismatch detection with structured error projection. `:rf/hydrate` is an event like any other.
+- **Story — a Storybook-class playground.** Storybook-9 parity on the chrome shape, plus EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls, per-variant frame isolation, machine-state visualisation, a time-travel scrubber, and Test Codegen — record canvas interactions as a `:play` body.
+- **One trace bus, every tool consumes it.** Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview — lands you on the line in your editor where the handler was registered. Tests, stories, Causa, and the AI pair tool all read the same surface.
+- **AI-pair-programmable at runtime.** The **`re-frame-pair2`** Claude skill pair-programs against your *running* application via nREPL + MCP. It dispatches events, scrubs epochs, hot-swaps handlers, reads your DOM tree. If something breaks, the AI does a full retrospective on the cascade leading up to the failure, patches in place, scrubs back, and retries the revision.
+- **Three substrate adapters.** Reagent (canonical), UIx (modern hooks-based React layer), Helix (minimal React wrapper). The substrate-agnostic shape is the load-bearing piece; pick the one that matches your codebase.
+- **Privacy + size elision.** `:sensitive?` (drop) and `:large?` (elide-with-fetch-handle) flags travel the same boundary walker. Sensitive things stay out of trace, story, MCP transports, and remote logs by default. Composition rule: sensitive wins.
+- **Migration tooling.** re-frame v1.x → re-frame2 ships via the `re-frame-migration` Claude skill — 40+ mechanical rules, flagged-for-human-review for the rare cases where the rewrite depends on intent.
+
+## Reading order
+
+The guide has a **core path** (the chapters that build the mental model in sequence) and **optional deep dives** (à la carte — read them when the topic comes up).
 
 Chapter **09 — Forms** sits between 08 and 10 as a side-track: not load-bearing for the mental model the way 08 is, but standard enough that most readers will want it before they reach 10. Skip it on a first read if you like; pick it up the first time you hit a non-trivial form.
 
