@@ -67,7 +67,9 @@
   ;; The bridge mounted into a raw DOM container directly; under the
   ;; rewrite we explicitly create a React-19 root once and reuse it.
   ;; The unmount thunk closes over the root to call its .unmount.
-  (let [hydrate? (boolean (:hydrate? opts))]
+  ;; Per rf2-gwkvr: Spec 006 §`render` types `:hydrate?` as a boolean;
+  ;; no defensive coercion.
+  (let [hydrate? (:hydrate? opts)]
     (if hydrate?
       (let [root (rdc/hydrate-root mount-point render-tree)]
         (fn unmount [] (rdc/unmount root)))
