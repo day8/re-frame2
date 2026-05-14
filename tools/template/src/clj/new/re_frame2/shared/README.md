@@ -62,6 +62,52 @@ npx shadow-cljs release app
 Production output lands in `resources/public/js/`. Serve `resources/public/`
 from any static host.
 
+## Production hardening
+
+The generated `resources/public/index.html` ships a `<meta http-equiv="Content-Security-Policy" ...>`
+tag so an unconfigured static host still gets a strict default-safe
+baseline. **Prefer setting the same policy as a real response header**
+on your server — meta-tag CSPs are evaluated late (some directives are
+ignored entirely, e.g. `frame-ancestors`) and can be removed by an
+upstream proxy that rewrites HTML.
+
+The scaffold loads only same-origin JS/CSS and has no inline
+script/style, so the strict default policy holds without weakening:
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+```
+
+If you add a CDN, embed in an iframe, inline a `<style>` block, or
+load an analytics snippet, **explicitly widen the policy** for that
+origin / hash — don't drop it to `'unsafe-inline'` wholesale.
+
+Example **nginx** server block:
+
+```nginx
+location / {
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+}
+```
+
+Example **Caddy** Caddyfile snippet:
+
+```caddyfile
+header {
+  Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  X-Content-Type-Options "nosniff"
+  Referrer-Policy "strict-origin-when-cross-origin"
+}
+```
+
+Always deploy the `release` build (not `watch`) to production — the
+release build sets `:closure-defines {goog.DEBUG false}` (next
+section), strips the Causa preload, and ships the minified bundle.
+
 ## Production builds
 
 `shadow-cljs release` already sets `:closure-defines {goog.DEBUG false}` —

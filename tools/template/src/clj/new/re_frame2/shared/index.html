@@ -3,6 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Default-safe Content Security Policy. The scaffold only loads
+         same-origin JS/CSS and has no inline script/style, so this
+         strict baseline holds without weakening. For production,
+         prefer serving the same policy via a Content-Security-Policy
+         response header (see README "Production hardening"); the meta
+         tag here is the fall-back when no server-side header is set. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
     <title>{{name}} — re-frame2</title>
     <link rel="stylesheet" href="/css/app.css">
   </head>

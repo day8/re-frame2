@@ -231,6 +231,33 @@
           (is (.contains readme-text "License-MIT")
               "README ships a License badge"))
 
+        ;; -- Security baseline (rf2-sh3l8) --
+        ;;
+        ;; The generated index.html must carry a strict default-safe
+        ;; Content-Security-Policy meta tag, and the README must
+        ;; document a "Production hardening" section covering
+        ;; server-side headers, nosniff, and Referrer-Policy. Together
+        ;; these guarantee that an app deployed unchanged from the
+        ;; scaffold has a browser-enforced mitigation layer, and that
+        ;; the operator knows how to graduate the meta-tag fall-back to
+        ;; real response headers in production.
+        (let [index-text  (slurp (io/file root "resources/public/index.html"))
+              readme-text (slurp (io/file root "README.md"))]
+          (is (.contains index-text "Content-Security-Policy")
+              "index.html ships a CSP meta tag")
+          (is (.contains index-text "default-src 'self'")
+              "index.html CSP uses default-src 'self'")
+          (is (.contains index-text "frame-ancestors 'none'")
+              "index.html CSP forbids framing (anti-clickjacking)")
+          (is (.contains index-text "object-src 'none'")
+              "index.html CSP forbids plugin objects")
+          (is (.contains readme-text "Production hardening")
+              "README documents Production hardening")
+          (is (.contains readme-text "X-Content-Type-Options")
+              "README covers nosniff header")
+          (is (.contains readme-text "Referrer-Policy")
+              "README covers Referrer-Policy header"))
+
         ;; -- best-effort deps-parse with `clojure -P` --
         ;;
         ;; The generated app pins re-frame2 to v0.0.1.alpha (per VERSION
