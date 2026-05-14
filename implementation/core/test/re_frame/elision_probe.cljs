@@ -152,6 +152,7 @@
   ;;   :rf.epoch/restore-schema-mismatch           (failure mode 4)
   ;;   :rf.epoch/restore-missing-handler           (failure mode 5)
   ;;   :rf.epoch/restore-version-mismatch          (failure mode 6)
+  ;;   :rf.epoch/restore-non-ok-record             (rf2-v0jwt — failure mode 7)
   ;;   :rf.epoch/db-replaced                       (rf2-zq55 — reset-frame-db! happy path)
   ;;   :rf.epoch/reset-frame-db-during-drain       (rf2-zq55 — failure mode A)
   ;;   :rf.epoch/reset-frame-db-schema-mismatch    (rf2-zq55 — failure mode B)
