@@ -113,7 +113,12 @@
       ;; identity from the raw source — e.g. `(odd? x)`, counts, `:k`
       ;; lookups, projections — even when the derived value itself is `=`.
       ;; (per rf2-66hb)
-      (let [prev-state (atom (recompute))]
+      ;;
+      ;; `prev-state` is written and read only inside the watch callback
+      ;; (single-threaded JS / Reagent reactivity) and never escapes this
+      ;; closure, so a `volatile!` is the right primitive — no CAS cost.
+      ;; (per rf2-eiux0)
+      (let [prev-state (volatile! (recompute))]
         (doseq [s source-containers]
           (let [k (gensym gensym-prefix)]
             (swap! own-keys assoc s k)
@@ -121,7 +126,7 @@
               (fn [_ _ _ _]
                 (let [new-derived  (recompute)
                       prev-derived @prev-state]
-                  (reset! prev-state new-derived)
+                  (vreset! prev-state new-derived)
                   (notify prev-derived new-derived)))))))
       (reify
         IDeref
