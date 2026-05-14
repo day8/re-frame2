@@ -37,18 +37,37 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---- adapter installation -------------------------------------------------
+;;
+;; Two cells, not one (rf2-6wxys). `installed-adapter` holds the live spec
+;; map when an adapter is installed and `nil` otherwise. `disposed?` is a
+;; boolean breadcrumb left behind by the most recent
+;; `(dispose-adapter!)` so subsequent runtime calls can distinguish
+;;
+;;   (a) `no adapter installed yet` — fresh process, init! never ran;
+;;       the right diagnosis is `:rf.error/no-adapter-installed`;
+;;   (b) `adapter was installed and then torn down` — usually a test
+;;       fixture or a hot-reload swap that hasn't reinstalled yet;
+;;       the right diagnosis is `:rf.error/adapter-disposed`.
+;;
+;; Both states leave the install slot empty so a fresh adapter can
+;; install via `install-adapter!`; the breadcrumb clears on the next
+;; successful install.
 
 (defonce ^:private installed-adapter (atom nil))
+(defonce ^:private disposed?         (atom false))
 
 (defn install-adapter!
   "Install the adapter for this process. Once. A second call without an
   intervening dispose-adapter! raises :rf.error/adapter-already-installed
-  (per Spec 006 §Single adapter per process)."
+  (per Spec 006 §Single adapter per process). Clears the disposed
+  breadcrumb so subsequent delegation calls see a fresh adapter rather
+  than `:rf.error/adapter-disposed`."
   [adapter]
   (when @installed-adapter
     (throw (ex-info ":rf.error/adapter-already-installed"
                     {:installed @installed-adapter :attempted adapter})))
   (reset! installed-adapter adapter)
+  (reset! disposed? false)
   adapter)
 
 (defn current-adapter
@@ -79,12 +98,39 @@
 
 (defn dispose-adapter!
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
-  fn (if present), then clears the slot so a new adapter can install."
+  fn (if present), clears the install slot so a new adapter can install,
+  and sets the disposed breadcrumb so subsequent delegation calls raise
+  `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`
+  (rf2-6wxys). Calling dispose with no adapter installed leaves the
+  breadcrumb untouched — it doesn't pretend a never-installed adapter
+  was disposed."
   []
   (when-let [adapter @installed-adapter]
     (when-let [f (:dispose-adapter! adapter)]
       (f))
-    (reset! installed-adapter nil))
+    (reset! installed-adapter nil)
+    (reset! disposed? true))
+  nil)
+
+(defn adapter-disposed?
+  "Return true iff the most recent lifecycle event was a successful
+  `dispose-adapter!` and no `install-adapter!` has fired since. False
+  for `never installed` (fresh process) and after a fresh install.
+  Read-only — the breadcrumb is owned by the install / dispose pair.
+  Per rf2-6wxys §differentiate disposed-adapter from never-installed."
+  []
+  @disposed?)
+
+(defn ^:no-doc reset-lifecycle-state-for-tests!
+  "Test-only seam — resets the installed-adapter slot and the disposed
+  breadcrumb to a never-installed cold state. NOT part of the runtime
+  contract; cold-start test fixtures (e.g. `boot_test/cold-start`) use
+  this to wipe the lifecycle state between cases so the
+  no-adapter-installed throw can be asserted independently of the
+  adapter-disposed throw. Per rf2-6wxys."
+  []
+  (reset! installed-adapter nil)
+  (reset! disposed? false)
   nil)
 
 ;; ---- delegation helpers ---------------------------------------------------
@@ -103,18 +149,27 @@
 
 (defn- require-adapter!
   "Return the installed adapter spec map or throw a uniform
-  `:rf.error/no-adapter-installed` ex-info naming the offending
-  delegation surface via `where-sym` (rf2-zdfi1).
+  ex-info naming the offending delegation surface via `where-sym`
+  (rf2-zdfi1).
+
+  Two throw shapes (rf2-6wxys):
+
+    1. `:rf.error/no-adapter-installed` — no adapter has ever been
+       installed (the disposed breadcrumb is false).
+    2. `:rf.error/adapter-disposed` — an adapter was previously
+       installed and has since been torn down by `dispose-adapter!`
+       without a subsequent install. Distinguishes the
+       fixture-tore-down-the-runtime case from the never-bootstrapped
+       case so test diagnostics, post-mortem traces, and pair-tool
+       overlays can point at the right remedy.
 
   Shape matches the broader missing-fn throw contract (the
   `re-frame.late-bind/require-fn!` helper, rf2-h824v, rf2-uchhp):
 
-    Message: \":rf.error/no-adapter-installed\"
+    Message: \":rf.error/<tag>\"
     ex-data: {:where    <where-sym>
               :recovery :no-recovery
-              :reason   \"<where-sym> was called before (rf/init! ...);
-                         require an adapter ns and pass its `adapter`
-                         Var, e.g. (rf/init! reagent/adapter).\"}
+              :reason   <human-readable string>}
 
   `where-sym` is stamped on the throw so grep-for-symbol finds the
   delegation site in user code. Private — callers in this ns thread
@@ -122,12 +177,21 @@
   `'rf/make-state-container`)."
   [where-sym]
   (or @installed-adapter
-      (throw (ex-info ":rf.error/no-adapter-installed"
-                      {:where    where-sym
-                       :recovery :no-recovery
-                       :reason   (str where-sym " was called before (rf/init! ...);"
-                                      " require an adapter ns and pass its `adapter` Var,"
-                                      " e.g. (rf/init! reagent/adapter).")}))))
+      (if @disposed?
+        (throw (ex-info ":rf.error/adapter-disposed"
+                        {:where    where-sym
+                         :recovery :no-recovery
+                         :reason   (str where-sym " was called after"
+                                        " (rf/dispose-adapter!); the previously"
+                                        " installed adapter was torn down."
+                                        " Install a fresh adapter via"
+                                        " (rf/init! <adapter>) before calling.")}))
+        (throw (ex-info ":rf.error/no-adapter-installed"
+                        {:where    where-sym
+                         :recovery :no-recovery
+                         :reason   (str where-sym " was called before (rf/init! ...);"
+                                        " require an adapter ns and pass its `adapter` Var,"
+                                        " e.g. (rf/init! reagent/adapter).")})))))
 
 (defn make-state-container [initial-value]
   (let [a (require-adapter! 'rf/make-state-container)]
