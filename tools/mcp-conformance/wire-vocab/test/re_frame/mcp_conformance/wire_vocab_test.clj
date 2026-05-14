@@ -533,24 +533,69 @@
 ;; pluralised, mis-pluralised) MUST NOT appear. A rename in the
 ;; framework or in either server surfaces here — the schema is one
 ;; gate, the literal-occurrence pin is the second.
+;;
+;; The pin is split in two (rf2-vj8y3, refactor-audit r2 of rf2-azk9c
+;; §F-VOCAB-1 + F-VOCAB-3):
+;;
+;; - **emit-sources** — source files where the literal MUST appear as
+;;   actual data (not in a comment or docstring). Stripped via
+;;   `strip-comments-and-strings` before the grep. A rename in any of
+;;   these files MUST trip the test even if a docstring elsewhere still
+;;   carries the old form.
+;; - **doc-sources** — spec docs and prose-y descriptors where the
+;;   literal SHOULD appear for human readers. Looser — a `str/includes?`
+;;   against raw text suffices; documentation reorganisation may move
+;;   the mention around without tripping the gate.
+;;
+;; The pre-rf2-vj8y3 pin grepped `tools.cljs` + `Principles.md` +
+;; `003-Tool-Catalogue.md` with `some`, which passed because the spec
+;; docs prose-referenced every marker — even though four of five
+;; literals did not appear in any pair2-mcp source code AT ALL (they
+;; were imported via `re-frame.mcp-base.vocab/<key>`). A rename inside
+;; `mcp-base/vocab.cljc` (the canonical home of every literal) didn't
+;; trip the gate. The new emit-side pin closes that hole.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private server-source-files
-  "Files we grep for marker literals, per server. The lists are
-  hand-curated — adding a new emission surface to a server requires
-  extending this map (which is the right friction: the conformance
-  contract knows where each server's wire boundary lives)."
-  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs"
-               "tools/pair2-mcp/spec/Principles.md"
+(def ^:private emit-source-files
+  "Per-server source files where the marker literal MUST appear as
+  DATA (not in a docstring/comment). The literal is `pr-str`'d on a
+  per-marker basis and grepped against the file's text AFTER
+  `strip-comments-and-strings` has neutered docstring/comment mentions.
+
+  For pair2-mcp the canonical literal home is `mcp-base/vocab.cljc` —
+  every wire marker keyword is declared once there (`overflow-key`,
+  `summary-key`, `dedup-table-key`, `diff-from-key`,
+  `large-elided-key`) and pair2-mcp consumes the symbol, not the
+  literal. A rename to ANY of those `def` values trips this pin
+  regardless of which pair2-mcp tool source emits the marker — which
+  is the right invariant; emit-sites that import from vocab.cljc
+  cannot drift independently of the canonical declaration.
+
+  causa-mcp has no `src/` today — the marker literals only appear in
+  its spec text. That's the doc-source gate's job; the emit-source set
+  is empty until impl lands."
+  {:pair2-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]
+   :causa-mcp []
+   :story-mcp []})
+
+(def ^:private doc-source-files
+  "Per-server prose-y sources where the marker literal SHOULD appear
+  for human readers (specs, descriptors, catalogues). Looser
+  match — a raw `str/includes?` suffices; docs may rearrange prose
+  without tripping the gate. Drift here means the docs lag, not that
+  the emit broke."
+  {:pair2-mcp ["tools/pair2-mcp/spec/Principles.md"
                "tools/pair2-mcp/spec/003-Tool-Catalogue.md"]
    :causa-mcp ["tools/causa-mcp/spec/Principles.md"
                "tools/causa-mcp/spec/004-Wire-Pipeline.md"
                "tools/causa-mcp/spec/DESIGN-RATIONALE.md"]
-   ;; story-mcp does not currently emit any cross-MCP wire markers
-   ;; (it uses its own :rf.story/* + :rf.assert/* + :rf.error/*
-   ;; vocabularies). When story-mcp adopts a marker, add a fixture
-   ;; AND extend this list — the test enforces both.
    :story-mcp []})
+
+(def ^:private all-source-files
+  "Union of emit-sources and doc-sources, by server. Used by the
+  near-miss anti-pin: we want to forbid near-miss spellings anywhere
+  in any conformance-tracked file, not just emit-sites."
+  (merge-with into emit-source-files doc-source-files))
 
 (defn- marker-key->literal
   "Render a marker key as the literal string that MUST appear in the
@@ -584,28 +629,88 @@
       (into [(str s "s")                                   ;; pluralised
              (str s "?")]))))                              ;; predicate form
 
-(deftest marker-literal-appears-in-every-contracted-server-source
+(deftest marker-literal-appears-in-every-contracted-server-emit-source
+  ;; The load-bearing pin: every marker literal each server is
+  ;; contracted to emit MUST appear as DATA (not docstring/comment) in
+  ;; at least one of the registered emit-source files. The
+  ;; `strip-comments-and-strings` walker is applied before the grep so
+  ;; a rename inside the canonical declaration site (pair2-mcp's
+  ;; `mcp-base/vocab.cljc`) trips the gate even if old docstrings still
+  ;; mention the prior name.
+  ;;
+  ;; story-mcp emits zero markers today — its servers entry is empty in
+  ;; `canonical-markers/:servers`, so this loop never iterates over it.
+  ;; causa-mcp's emit-source set is empty until `tools/causa-mcp/src/`
+  ;; lands; the `is (seq emit-files)` assertion fires loud when it
+  ;; does, forcing the reviewer to extend `emit-source-files`.
   (doseq [{:keys [key servers]} canonical-markers
           server                servers]
-    (testing (str "marker " key " literal in " server " sources")
-      (let [literal (marker-key->literal key)
-            files   (get server-source-files server)]
-        (is (seq files)
-            (str "No source files registered for " server
-                 " — extend `server-source-files`."))
+    (testing (str "marker " key " literal in " server " emit-sources")
+      (let [literal    (marker-key->literal key)
+            emit-files (get emit-source-files server)
+            doc-files  (get doc-source-files server)]
+        ;; A server with zero emit-sources AND zero doc-sources is a
+        ;; gap — either impl-not-landed (causa-mcp before src/ lands;
+        ;; the `causa-mcp-impl-still-absent` deftest in the sibling
+        ;; namespaces covers that posture explicitly) or a missing
+        ;; catalogue entry the reviewer must add.
+        (is (or (seq emit-files) (seq doc-files))
+            (str "No emit-sources or doc-sources registered for "
+                 server " — extend `emit-source-files` or "
+                 "`doc-source-files`."))
+        (cond
+          ;; pair2-mcp / impl-landed path: emit-sources MUST carry the
+          ;; literal as data after comment/string stripping.
+          (seq emit-files)
+          (is (some (fn [rel]
+                      (let [stripped (strip-comments-and-strings
+                                       (fx/read-source rel))]
+                        (str/includes? stripped literal)))
+                    emit-files)
+              (str "Literal " literal
+                   " missing from " server " EMIT-sources " emit-files
+                   " (checked AFTER stripping docstrings/comments). "
+                   "If the canonical declaration moved, update "
+                   "`emit-source-files`."))
+
+          ;; causa-mcp / impl-not-landed path: spec-text coverage only.
+          ;; Doc-sources are the looser pin — raw `str/includes?`.
+          :else
+          (is (some (fn [rel]
+                      (str/includes? (fx/read-source rel) literal))
+                    doc-files)
+              (str "Literal " literal " missing from " server
+                   " DOC-sources " doc-files
+                   ". (No emit-sources registered; spec-text coverage "
+                   "is the impl-not-landed stand-in.)")))))))
+
+(deftest marker-literal-appears-in-pair2-mcp-doc-sources
+  ;; Defence-in-depth: pair2-mcp's spec/descriptor docs SHOULD also
+  ;; carry each emitted-marker literal for human readers. Looser pin —
+  ;; raw `str/includes?` allows docstring mentions; the load-bearing
+  ;; check is the emit-source pin above. Drift here means the docs
+  ;; lag, not that the emit shape broke.
+  (doseq [{:keys [key servers]} canonical-markers
+          :when                 (contains? servers :pair2-mcp)]
+    (testing (str "marker " key " literal in pair2-mcp doc-sources")
+      (let [literal   (marker-key->literal key)
+            doc-files (get doc-source-files :pair2-mcp)]
         (is (some (fn [rel]
                     (str/includes? (fx/read-source rel) literal))
-                  files)
-            (str "Literal " literal " missing from " server
-                 " sources: " files))))))
+                  doc-files)
+            (str "Literal " literal
+                 " missing from pair2-mcp doc-sources " doc-files
+                 ". The docs may have re-organised the prose; either "
+                 "restore the mention or update `doc-source-files`."))))))
 
 (deftest no-near-miss-variants-appear-in-any-server-source
   ;; Defence-in-depth: a rename to a near-miss form (e.g. snake_case)
   ;; would slip past the literal-presence test if the canonical form
   ;; ALSO still appears somewhere. This test makes sure no near-miss
-  ;; co-exists alongside the canonical.
+  ;; co-exists alongside the canonical — across BOTH emit-sources AND
+  ;; doc-sources (drift in either is a vocabulary-drift bug).
   (doseq [{:keys [key]} canonical-markers
-          [server files] server-source-files
+          [server files] all-source-files
           variant       (near-miss-variants key)
           rel           files]
     (testing (str server " — " rel " — near-miss " variant)
