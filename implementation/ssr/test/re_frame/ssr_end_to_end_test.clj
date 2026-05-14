@@ -356,6 +356,156 @@
             "append-header preserves source order")))))
 
 ;; ===========================================================================
+;; rf2-hbty2 — CRLF injection in set-header / append-header / redirect
+;; (security audit 2026-05-14 §P1.3)
+;;
+;; Header values flow from event-handler input through the
+;; :rf.server/set-header / :rf.server/append-header / :rf.server/redirect
+;; fx straight to the Ring response map. A value with embedded CR/LF
+;; would split the header on the wire — attacker forges Set-Cookie /
+;; auth-related second headers. The fx boundary fails fast with
+;; :rf.error/header-invalid-value / :rf.error/redirect-invalid-location.
+;;
+;; Decision (flagged in PR): fail-fast rather than strip-and-warn — a
+;; header value containing CR/LF has no safe interpretation.
+;; ===========================================================================
+
+(defn- capture-fx-traces!
+  "Install a trace callback that records every fx-handler-exception trace
+  for the duration of `body-fn`. Returns the recorded traces. Strips
+  the callback in `finally` so a failing body doesn't leak listeners."
+  [body-fn]
+  (let [traces (atom [])
+        tag    (keyword (str "::trace-cap-" (gensym)))]
+    (rf/register-trace-cb! tag
+      (fn [ev]
+        (when (= :rf.error/fx-handler-exception (:operation ev))
+          (swap! traces conj ev))))
+    (try
+      (body-fn)
+      @traces
+      (finally
+        (rf/remove-trace-cb! tag)))))
+
+(defn- expect-fx-error-keyword!
+  "Assert that the `traces` collection (output of `capture-fx-traces!`)
+  carries an :rf.error/fx-handler-exception whose nested exception's
+  message contains `error-kw`'s name string. Both fx-side validators
+  (rf2-hbty2 / rf2-rpedl / rf2-vl8ir) throw with the error keyword as
+  the ex-info message, so the substring check is reliable."
+  [traces error-kw context-str]
+  (let [hits (filter
+               (fn [ev]
+                 (let [e (-> ev :tags :exception)]
+                   (and e (str/includes? (str (.getMessage e))
+                                         (str error-kw)))))
+               traces)]
+    (is (seq hits)
+        (str context-str " — expected an :rf.error/fx-handler-exception"
+             " trace carrying " error-kw
+             "; saw: " (pr-str (mapv (comp :operation) traces))))))
+
+(deftest ssr-set-header-rejects-crlf-injection
+  (testing "rf2-hbty2 §P1.3 — :rf.server/set-header with CR/LF/NUL in
+            value surfaces :rf.error/header-invalid-value as the inner
+            cause of :rf.error/fx-handler-exception (fx exceptions are
+            captured by the dispatch loop and re-emitted as traces;
+            rf2-hbty2 throws at the fx boundary)"
+    (rf/reg-event-fx :hdr/inject-crlf
+      (fn [_ _]
+        {:fx [[:rf.server/set-header
+               {:name  "X-Forwarded-For"
+                :value "1.2.3.4\r\nSet-Cookie: admin=1"}]]}))
+
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:hdr/inject-crlf] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/header-invalid-value
+        "set-header with CRLF in value")))
+
+  (testing "rf2-hbty2 §P1.3 — bare LF / bare CR / NUL all rejected"
+    (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
+      (rf/reg-event-fx :hdr/probe-injection
+        (fn [_ _]
+          {:fx [[:rf.server/set-header {:name "X-Probe" :value hostile}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:hdr/probe-injection] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/header-invalid-value
+          (str "hostile value " (pr-str hostile)))))))
+
+(deftest ssr-append-header-rejects-crlf-injection
+  (testing "rf2-hbty2 §P1.3 — :rf.server/append-header with CR/LF in
+            value surfaces :rf.error/header-invalid-value"
+    (rf/reg-event-fx :hdr/append-crlf
+      (fn [_ _]
+        {:fx [[:rf.server/append-header
+               {:name  "X-Audit"
+                :value "ok\r\nSet-Cookie: forged=1"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:hdr/append-crlf] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/header-invalid-value
+        "append-header with CRLF in value"))))
+
+(deftest ssr-redirect-rejects-crlf-injection
+  (testing "rf2-hbty2 §P1.3 — :rf.server/redirect with CR/LF in :location
+            surfaces :rf.error/redirect-invalid-location. The standard
+            exploit shape: a `?next=…` query param that URL-decodes into
+            literal CRLF would split the Location header on the wire."
+    (rf/reg-event-fx :redirect/crlf-in-location
+      (fn [_ _]
+        {:fx [[:rf.server/redirect
+               {:location "https://example.com\r\nSet-Cookie: stolen=1"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:redirect/crlf-in-location] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/redirect-invalid-location
+        "redirect with CRLF in :location")))
+
+  (testing "rf2-hbty2 — same gate covers :url and :to alternate slot names"
+    (rf/reg-event-fx :redirect/url-crlf
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:url "/ok\r\nbad"}]]}))
+    (rf/reg-event-fx :redirect/to-crlf
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:to "/ok\nbad"}]]}))
+    (doseq [ev [:redirect/url-crlf :redirect/to-crlf]]
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [ev] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/redirect-invalid-location
+          (str ev " redirect via " ev " alias"))))))
+
+(deftest ssr-header-clean-values-still-accepted
+  (testing "rf2-hbty2 — regression guard: legitimate header values still flow
+            through. Whitespace, semicolons, quoted-strings, full URLs are
+            all valid (only CR/LF/NUL is banned)."
+    (rf/reg-event-fx :hdr/clean
+      (fn [_ _]
+        {:fx [[:rf.server/set-header {:name "Cache-Control"
+                                      :value "no-cache, must-revalidate, max-age=0"}]
+              [:rf.server/set-header {:name "X-Whitespace"
+                                      :value "tab\there space"}]
+              [:rf.server/redirect    {:location "https://example.com/path?q=1&r=2"}]]}))
+    (let [f (rf/make-frame {:platform :server :on-create [:hdr/clean]})
+          resp (get-response f)
+          hdrs (:headers resp)]
+      (is (some (fn [[k v]]
+                  (and (= "Cache-Control" k)
+                       (= "no-cache, must-revalidate, max-age=0" v)))
+                hdrs)
+          "clean header with commas / semicolons / spaces survives")
+      (is (= "https://example.com/path?q=1&r=2"
+             (-> resp :redirect :location))
+          "clean redirect URL survives"))))
+
+;; ===========================================================================
 ;; ssr-redirect-short-circuits — :rf.server/redirect halts further rendering
 ;; ===========================================================================
 

@@ -72,6 +72,58 @@
   response-slots
   (atom {}))
 
+;; rf2-hbty2 / security audit 2026-05-14 §P1.3 — header-value injection
+;; gate. set-header / append-header / redirect flow user-controlled
+;; strings straight into the Ring response map; an attacker who controls
+;; a header value with embedded CR/LF can split the header and forge
+;; second-and-later headers on the wire (RFC 7230 §3.2.4 explicitly
+;; bans CTLs in header values). We reject at the fx boundary rather
+;; than the Ring materialiser so misuse surfaces with the dispatching
+;; event in scope rather than as a deep Ring exception. Same pattern as
+;; the cookie-attribute validator (rf2-rpedl).
+;;
+;; Decision: fail-fast (throw) rather than strip-and-warn. A header
+;; value with CR/LF has no safe interpretation — strip-and-warn would
+;; silently mutate the wire shape and leave a CRLF-shaped string-equal
+;; comparison failing later in tests.
+(def ^:private header-injection-chars-re
+  #"[\r\n\x00]")
+
+(defn- validate-header-value!
+  "Throw `:rf.error/header-invalid-value` if the header value `v`
+  contains CR / LF / NUL. Per RFC 7230 §3.2.4 — `field-value` is
+  `*( field-content / obs-fold )` and obs-fold (CRLF + WSP) is
+  deprecated; no CTLs allowed in `field-content`."
+  [header-name v]
+  (let [s (str v)]
+    (when (re-find header-injection-chars-re s)
+      (throw (ex-info ":rf.error/header-invalid-value"
+                      {:reason   (str "header " (pr-str header-name)
+                                      " value contains CR/LF/NUL — forbidden"
+                                      " by RFC 7230 §3.2.4 (header-splitting"
+                                      " injection)")
+                       :header   header-name
+                       :value    v
+                       :recovery :no-recovery})))
+    s))
+
+(defn- validate-redirect-location!
+  "Throw `:rf.error/redirect-invalid-location` if the redirect location
+  `loc` contains CR / LF / NUL. Same CRLF-injection vector as a
+  user-controlled `Location` header value: a query param like
+  `?next=https://example.com%0d%0aSet-Cookie:%20stolen=1` URL-decodes
+  into literal CRLF and would split the header on the wire."
+  [loc]
+  (let [s (str loc)]
+    (when (re-find header-injection-chars-re s)
+      (throw (ex-info ":rf.error/redirect-invalid-location"
+                      {:reason   (str "redirect :location contains CR/LF/NUL"
+                                      " — forbidden by RFC 7230 §3.2.4"
+                                      " (header-splitting injection)")
+                       :location loc
+                       :recovery :no-recovery})))
+    s))
+
 (def status-writes-key   :rf.server/_status-writes)
 (def redirect-writes-key :rf.server/_redirect-writes)
 
@@ -173,8 +225,11 @@
 
 (defn set-header-fx
   "Handler fn for `:rf.server/set-header`. Replaces any existing header
-  with the same name (case-insensitive)."
+  with the same name (case-insensitive). Throws
+  `:rf.error/header-invalid-value` on a value carrying CR/LF/NUL
+  (rf2-hbty2)."
   [{:keys [frame]} {:keys [name value]}]
+  (validate-header-value! name value)
   (swap-response!
     frame
     (fn [r] (update r :headers replace-header name value))))
@@ -182,8 +237,10 @@
 (defn append-header-fx
   "Handler fn for `:rf.server/append-header`. Preserves any existing
   header with the same name — required for Set-Cookie-style multi-valued
-  headers."
+  headers. Throws `:rf.error/header-invalid-value` on a value carrying
+  CR/LF/NUL (rf2-hbty2)."
   [{:keys [frame]} {:keys [name value]}]
+  (validate-header-value! name value)
   (swap-response!
     frame
     (fn [r] (update r :headers append-header-pair name value))))
@@ -213,12 +270,16 @@
 (defn redirect-fx
   "Handler fn for `:rf.server/redirect`. Defaults :status to 302 if
   absent. Multiple writes emit `:rf.warning/multiple-redirects`
-  (last-write-wins)."
+  (last-write-wins). Throws `:rf.error/redirect-invalid-location` on a
+  location carrying CR/LF/NUL (rf2-hbty2) — a `?next=…` query-param
+  redirect would otherwise let an attacker forge headers."
   [{:keys [frame]} redirect-map]
   (let [;; Spec 011 accepts :location, :url, or :to.
         location  (or (:location redirect-map)
                       (:url      redirect-map)
                       (:to       redirect-map))
+        _         (when (some? location)
+                    (validate-redirect-location! location))
         status    (or (:status redirect-map) 302)
         normalised (cond-> (assoc redirect-map :status status)
                      location (assoc :location location))
