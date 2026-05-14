@@ -72,6 +72,47 @@
                                {:id mid :doc (:doc body) :args (:args body)}))}]
     (h/text-result (h/pr-edn payload) payload)))
 
+(defn- decorator-summary
+  "Project one decorator body to the EDN-safe shape — id, kind, doc,
+  and the kind-specific data slots. The `:wrap` slot of a `:hiccup`
+  decorator carries a closure (Stage 2's one legal closure-bearing
+  slot per `:hiccup` decorator's registration site); it is dropped
+  here because closures don't transport over MCP. The `:app-db-patch`
+  / `:init` (frame-setup) and `:fx-id` / `:response` (fx-override)
+  slots are pure data and survive verbatim."
+  [id body]
+  (let [kind (:kind body)]
+    (cond-> {:id   id
+             :kind kind
+             :doc  (:doc body)}
+      (= kind :hiccup)       (assoc :has-wrap? (some? (:wrap body)))
+      (= kind :frame-setup)  (assoc :init          (:init body)
+                                    :app-db-patch  (:app-db-patch body))
+      (= kind :fx-override)  (assoc :fx-id    (:fx-id body)
+                                    :response (:response body)))))
+
+(defn tool-list-decorators
+  "Docs: read-only enumeration of registered decorators (rf2-mqp1u).
+  Returns each decorator's id, kind, and doc plus the kind-specific
+  pure-data slots. The `:wrap` closure on `:hiccup` decorators is
+  not transported — only a `:has-wrap?` boolean — because closures
+  don't survive EDN serialisation; agents inspecting the rendered
+  result use `preview-variant` instead. This is the read-only peer
+  of the deferred `register-decorator` write surface.
+
+  Optional `args`:
+
+  - `:kind` (string, optional) — narrow to one decorator kind. One
+    of `\"hiccup\"`, `\"frame-setup\"`, `\"fx-override\"`."
+  [args]
+  (let [kind-filter (some-> (:kind args) args/parse-keyword)
+        decorators  (story/handlers :decorator)
+        entries     (cond->> (for [[did body] decorators]
+                               (decorator-summary did body))
+                      kind-filter (filter #(= kind-filter (:kind %))))
+        payload     {:decorators (vec entries)}]
+    (h/text-result (h/pr-edn payload) payload)))
+
 (def canonical-assertion-docs
   "Per spec/007 line 304 + IMPL-SPEC §3.5 the canonical seven
   assertions' arities."
@@ -164,6 +205,25 @@
     :typicalTokens  200
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :handler        tool-list-modes}
+
+   {:name           "list-decorators"
+    :category       :docs
+    :description    (str "Read-only enumeration of registered decorators (rf2-mqp1u). Each entry carries "
+                         "`:id`, `:kind`, `:doc` plus the kind-specific pure-data slots: `:has-wrap?` "
+                         "for `:hiccup` decorators (the `:wrap` closure itself doesn't transport over "
+                         "MCP); `:init` + `:app-db-patch` for `:frame-setup`; `:fx-id` + `:response` "
+                         "for `:fx-override`. The read-only peer of the deferred `register-decorator` "
+                         "write surface — closures don't transport, so the write side stays out of "
+                         "scope, but the read side is cheap. Optional `:kind` arg narrows to one "
+                         "decorator kind.")
+    :typicalTokens  500
+    :inputSchema {:type "object"
+                  :properties (s/with-max-tokens
+                                {:kind {:type "string"
+                                        :description "Optional filter — only return decorators of this kind."
+                                        :enum ["hiccup" "frame-setup" "fx-override"]}})
+                  :additionalProperties false}
+    :handler     tool-list-decorators}
 
    {:name           "list-assertions"
     :category       :docs

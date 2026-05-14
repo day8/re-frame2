@@ -93,6 +93,15 @@ agent-onboarding text.
 
 **Output.** `{:modes [{:id keyword :args map ...}]}`.
 
+### `list-decorators` (rf2-mqp1u)
+
+**Input.** `{:kind "hiccup" | "frame-setup" | "fx-override" (optional)}`.
+
+**Output.** `{:decorators [{:id keyword :kind keyword :doc string ...}]}`.
+Per-kind slots: `:has-wrap?` (hiccup, never the closure itself);
+`:init` + `:app-db-patch` (frame-setup); `:fx-id` + `:response`
+(fx-override).
+
 ### `list-assertions`
 
 **Input.** `{}`.

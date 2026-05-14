@@ -83,6 +83,19 @@ Canonical + project-custom tags split.
 
 `(rf/handlers :mode)` enumeration.
 
+### `list-decorators` (rf2-mqp1u)
+
+Read-only `(rf/handlers :decorator)` enumeration. Each entry carries
+`:id`, `:kind`, `:doc` plus the kind-specific pure-data slots —
+`:has-wrap?` for `:hiccup` decorators (the closure itself doesn't
+transport over MCP); `:init` + `:app-db-patch` for `:frame-setup`;
+`:fx-id` + `:response` for `:fx-override`. The read-only peer of the
+deferred `register-decorator` write surface — closures don't
+transport, so the write side stays out of scope at v1, but the read
+side is cheap and lets an agent enumerate the decoration vocabulary
+the same way it enumerates tags / modes / assertions. Optional
+`:kind` arg narrows to one kind.
+
 ### `list-assertions`
 
 The canonical seven `:rf.assert/*` events with arity + semantics
