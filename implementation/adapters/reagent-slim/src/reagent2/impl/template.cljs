@@ -419,12 +419,16 @@
                            (as-element (nth argv first-child nil)))
 
       :else
-      (let [args (reduce-kv (fn [^js a k v]
-                              (when (>= k first-child)
-                                (.push a (as-element v)))
-                              a)
-                            #js [component js-props]
-                            argv)]
+      ;; Loop from first-child rather than reduce-kv over the whole
+      ;; argv (which would test the predicate at every k=0..first-child-1
+      ;; before the children start). Hot-path at large children counts
+      ;; (1000-row tables, dynamic lists).
+      (let [args #js [component js-props]
+            n    (count argv)]
+        (loop [i first-child]
+          (when (< i n)
+            (.push args (as-element (nth argv i nil)))
+            (recur (inc i))))
         (.apply (.-createElement react) nil args)))))
 
 (defn expand-seq
