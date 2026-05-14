@@ -348,6 +348,62 @@
           (is (= :boom (:flow-id tags))
               ":flow-id is propagated from evaluate-flow!'s ex-info wrap (rf2-je5p8)"))))))
 
+;; ---------------------------------------------------------------------------
+;; 5c. :rf.fx/reg-flow cycle detection routes through error-emit (rf2-eb4lp)
+;;
+;; Pre-fix, a cycle introduced through `:rf.fx/reg-flow` from a handler's
+;; `:fx` raised `:rf.error/flow-cycle` synchronously inside the reserved-
+;; fx body, the throw bubbled uncaught up the drain stack, and the drain
+;; emergency-release re-threw. The typed `:rf.error/flow-cycle` ex-data
+;; (carrying the `:cycle` closing-repeat vector tools render) never
+;; reached the error-emit substrate. In CLJS production the runtime
+;; cycle was silently lost.
+;;
+;; Post-fix: `handle-one-fx`'s reserved-fx branch catches
+;; `:rf.error/flow-cycle` and routes through `error-emit/dispatch-on-
+;; error!` with the `:cycle` ex-data preserved, plus the dev-side trace
+;; emit. Mirrors the rf2-hrt5c handler-exception and rf2-fslx0 flow-eval
+;; routings.
+;; ---------------------------------------------------------------------------
+
+(deftest fx-reg-flow-cycle-routes-through-error-emit-substrate
+  (testing "Per rf2-eb4lp: a :rf.fx/reg-flow that closes a cycle fires
+            a corpus-wide error-emit listener record with `:error
+            :rf.error/flow-cycle` — fan-out runs through
+            `error-emit/dispatch-on-error!`, mirroring the
+            handler-exception / flow-eval-exception paths."
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :test/fx-reg-flow-cycle-recorder
+        (fn [record] (swap! seen conj record)))
+      ;; Register flow :a that depends on :b's path.
+      (rf/reg-flow {:id     :a
+                    :inputs [[:b-out]]
+                    :output identity
+                    :path   [:a-out]})
+      ;; Now dispatch an event whose :fx registers :b such that
+      ;; :b's :inputs overlap :a's :path → cycle.
+      (rf/reg-event-fx :introduce-cycle
+                       (fn [_ _]
+                         {:fx [[:rf.fx/reg-flow
+                                {:id     :b
+                                 :inputs [[:a-out]]
+                                 :output identity
+                                 :path   [:b-out]}]]}))
+      (rf/dispatch-sync [:introduce-cycle])
+      (is (= 1 (count @seen))
+          "exactly one substrate record fired for one :rf.fx/reg-flow cycle")
+      (let [r (first @seen)]
+        (is (= :rf.error/flow-cycle (:error r))
+            ":error names the typed flow-cycle path (NOT a generic fx-handler-exception)")
+        (is (some? (:exception r))
+            ":exception is the thrown ex-info carrying the cycle data")
+        (let [d (ex-data (:exception r))]
+          (is (= :rf.error/flow-cycle (:error d))
+              "exception ex-data carries :error :rf.error/flow-cycle")
+          (is (vector? (:cycle d))
+              "exception ex-data carries :cycle — the closing-repeat chain tools render"))))))
+
 (deftest flow-eval-exception-trace-and-substrate-fire-together
   (testing "Per rf2-hrt5c: the trace path is NOT replaced by the
             substrate routing — both fire from one normative
