@@ -662,4 +662,15 @@
    :output-dir "out/testbeds/deep-machine"
    :asset-path "."
    :modules    {:main {:init-fn deep-machine.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; rf2-kzcim Tier 2 — long-flow-w-failure testbed (a multi-second
+  ;; cascade of app-db writes driving three flows in topo order; the
+  ;; middle flow throws on a configurable input threshold to
+  ;; exercise the four-rule failure semantics per Spec 013 rf2-hrqvg).
+  :testbeds/long-flow-w-failure
+  {:target     :browser
+   :output-dir "out/testbeds/long-flow-w-failure"
+   :asset-path "."
+   :modules    {:main {:init-fn long-flow-w-failure.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
