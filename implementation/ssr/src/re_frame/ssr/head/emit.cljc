@@ -56,9 +56,20 @@
   to their fully-qualified name — `:my.app/foo` → `\"my.app/foo\"` — so
   namespaces survive serialisation. The key and value handling are
   symmetric; rf2-a50nz fixed an earlier asymmetry that quietly stripped
-  the namespace prefix off keys."
+  the namespace prefix off keys.
+
+  Script-body safety (rf2-m5u23, security audit 2026-05-14 §P1.1) —
+  every `<` inside string contents is escaped as the JSON `\\u003c`
+  Unicode escape via `html/escape-script-body-string`, so a string
+  value containing `</script>` cannot close the surrounding
+  `<script type=\"application/ld+json\">` envelope. The escape is
+  applied at the string-literal boundary so structural `:` / `,` / `{`
+  / `[` / quote chars are unaffected (they're not user-controlled
+  data). JSON.parse on the client accepts `\\u003c` as a string-
+  literal escape for `<`, so the payload round-trips unchanged."
   [x]
-  #?(:cljs (js/JSON.stringify (clj->js x))
+  #?(:cljs (-> (js/JSON.stringify (clj->js x))
+               html/escape-script-body-string)
      :clj  (letfn [(emit [v]
                      (cond
                        (nil? v)     "null"
@@ -67,7 +78,12 @@
                        (string? v)  (str "\""
                                          (-> v
                                              (str/replace "\\" "\\\\")
-                                             (str/replace "\"" "\\\""))
+                                             (str/replace "\"" "\\\"")
+                                             ;; rf2-m5u23 — escape `<` so
+                                             ;; user-controlled string
+                                             ;; contents can't close the
+                                             ;; surrounding <script>.
+                                             html/escape-script-body-string)
                                          "\"")
                        (keyword? v) (emit (if-let [ns (namespace v)]
                                             (str ns "/" (name v))

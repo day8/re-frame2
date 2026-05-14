@@ -279,6 +279,48 @@
         (is (str/includes? html "\"@type\":\"schema/Article\""))
         (is (str/includes? html "\"my.app/headline\":\"my.app/hello\""))))))
 
+(deftest head-model->html-json-ld-escapes-script-close-in-string-values
+  (testing "rf2-m5u23 / security audit 2026-05-14 §P1.1 — a string value
+            containing `</script>` MUST NOT close the surrounding
+            `<script type=\"application/ld+json\">` envelope. Every `<`
+            inside string contents is escaped as `\\u003c`; JSON.parse
+            on the client accepts `\\u003c` as a six-character escape
+            for `<`, so the payload round-trips unchanged."
+    (let [hostile "</script><script>alert(document.cookie)</script>"
+          html    (rf/head-model->html
+                    {:json-ld [{"@context" "https://schema.org"
+                                "@type"    "Article"
+                                "headline" hostile}]})]
+      ;; The hostile literal MUST NOT survive — it would close our
+      ;; <script type="application/ld+json"> envelope.
+      (is (not (str/includes? html "</script><script>alert"))
+          "the closing-tag pattern is broken — no raw </script> escape")
+      ;; The escape sequence appears in place of each `<` char (the
+      ;; original string carried two `<` — the closing-tag escape and
+      ;; the nested-script opener).
+      (is (str/includes? html "\\u003c/script>\\u003cscript>")
+          "every `<` in the string value is escaped as the JSON `\\u003c` escape")
+      ;; Sanity: the envelope's own closing </script> is still present
+      ;; (it's the genuine end of the JSON-LD block).
+      (is (str/ends-with? html "</script>")
+          "the genuine envelope-closing </script> is unaffected"))))
+
+(deftest head-model->html-json-ld-escapes-script-close-in-keys
+  (testing "rf2-m5u23 — a `<` inside a JSON-LD KEY (a string-keyed map
+            entry that somehow carries `<`) is also escaped. Defensive:
+            map keys aren't a typical attack surface, but the helper
+            walks the whole string, so this is free coverage."
+    (let [hostile-key "</script>"
+          html        (rf/head-model->html
+                        {:json-ld [{hostile-key "value"}]})]
+      (is (not (str/includes? html "</script>\":"))
+          "</script> as a key cannot close the envelope (the `:value`
+           separator immediately follows the key — assert no
+           `</script>\":` substring survives)")
+      (is (str/includes? html "\\u003c/script>")
+          "`<` in keys comes through escaped (only `<` is escaped — `>`
+           is harmless inside a <script> body and remains literal)"))))
+
 (deftest head-model->html-empty-model
   (testing "an empty / minimal model emits nothing (no orphan tags)"
     (is (= "" (rf/head-model->html {})))
