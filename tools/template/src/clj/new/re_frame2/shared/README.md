@@ -1,5 +1,9 @@
 # {{name}}
 
+[![Built with re-frame2](https://img.shields.io/badge/built%20with-re--frame2-blue.svg)](https://github.com/day8/re-frame2)
+[![Substrate]({{substrate-badge-url}})](https://github.com/day8/re-frame2/tree/main/implementation/adapters/{{substrate}})
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A new [re-frame2](https://github.com/day8/re-frame2) application,
 scaffolded from `day8/clj-template.re-frame2`.
 
