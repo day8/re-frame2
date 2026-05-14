@@ -583,6 +583,115 @@
            (no shell fallback)"))))
 
 ;; ===========================================================================
+;; default-html-shell — :html-attrs / :body-attrs honoured (rf2-h2ujj).
+;;
+;; Per Spec 011 §Head/meta (line 478, line 516): the head model carries
+;; `:html-attrs` / `:body-attrs` bags; the host shell stamps them on the
+;; opening `<html>` / `<body>` tags. Serialisation goes through the
+;; shared `re-frame.ssr.html-helpers/attr-string` helper — boolean `true`
+;; → bare attribute name, `false` / `nil` → omitted, all other values
+;; `escape-attr`-escaped (`&` and `"` only, since the bag is emitted
+;; inside double-quoted attribute values).
+;; ===========================================================================
+
+(defn- register-attrs-app! [head-model]
+  (rf/reg-head :head/with-attrs (fn [_db _route] head-model))
+  (rf/reg-route :route/with-attrs
+                {:doc  "Route exercising :html-attrs / :body-attrs"
+                 :path "/"
+                 :head :head/with-attrs})
+  (rf/reg-event-db :init/seed-attrs-route
+    (fn [db _] (assoc db :rf/route {:id :route/with-attrs})))
+  (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
+
+(deftest default-shell-stamps-html-attrs-and-body-attrs
+  (testing "head model with :html-attrs + :body-attrs → both bags reach
+            the wire on the opening tags; :html-attrs :lang wins over the
+            :lang opt (Spec 011 §Head/meta line 478, line 516)."
+    (register-attrs-app! {:html-attrs {:lang "fr" :data-theme "dark"}
+                          :body-attrs {:class "page-article"}})
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/seed-attrs-route]
+                      :root-view [:pages/blank-attrs]})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)]
+      (is (= 200 (:status response)))
+      (is (str/includes? body "<html lang=\"fr\" data-theme=\"dark\">")
+          ":html-attrs stamped on <html> verbatim; :lang in the bag
+           takes precedence over the :lang opt default")
+      (is (str/includes? body "<body class=\"page-article\">")
+          ":body-attrs stamped on <body>"))))
+
+(deftest default-shell-html-and-body-bare-when-attrs-absent
+  (testing "head model with no :html-attrs / :body-attrs → <html> falls
+            back to the :lang opt (default \"en\"); <body> is bare. This
+            is the pre-rf2-h2ujj shape and the default for routes that
+            don't opt in."
+    (register-attrs-app! {:title "T"}) ; no attr bags
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/seed-attrs-route]
+                      :root-view [:pages/blank-attrs]})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)]
+      (is (= 200 (:status response)))
+      (is (str/includes? body "<html lang=\"en\">")
+          ":html-attrs absent → :lang opt fallback (default \"en\")")
+      (is (str/includes? body "<body>")
+          ":body-attrs absent → <body> emitted bare"))))
+
+(deftest default-shell-html-attrs-fills-missing-lang-from-opt
+  (testing ":html-attrs present but :lang absent → :lang opt fills it in.
+            The bag still wins for every other attribute it declares."
+    (register-attrs-app! {:html-attrs {:data-theme "dark"}})
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/seed-attrs-route]
+                      :root-view [:pages/blank-attrs]
+                      :lang      "ja"})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)]
+      (is (= 200 (:status response)))
+      (is (str/includes? body "lang=\"ja\"")
+          ":lang opt (\"ja\") fills in for :html-attrs missing :lang")
+      (is (str/includes? body "data-theme=\"dark\"")
+          ":html-attrs :data-theme reaches <html>"))))
+
+(deftest default-shell-attr-string-handles-booleans-and-nil
+  (testing "attr-string serialisation contract — boolean true → bare
+            attribute name, boolean false / nil → omitted, other values
+            → escape-attr-escaped (`&` and `\"`). Mixed valid + invalid
+            values in one bag exercise every branch."
+    (register-attrs-app! {:html-attrs {:lang        "en"
+                                       :data-flag   true     ; bare
+                                       :data-off    false    ; omitted
+                                       :data-nil    nil      ; omitted
+                                       :data-quote  "a \"b\" c"  ; escaped
+                                       :data-amp    "x & y"}      ; escaped
+                          :body-attrs {:class       "ok"
+                                       :data-hidden false}})
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/seed-attrs-route]
+                      :root-view [:pages/blank-attrs]})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)]
+      (is (= 200 (:status response)))
+      (is (str/includes? body "data-flag")
+          "boolean true → bare attribute name on <html>")
+      (is (not (str/includes? body "data-off"))
+          "boolean false → attribute omitted entirely from <html>")
+      (is (not (str/includes? body "data-nil"))
+          "nil → attribute omitted entirely from <html>")
+      (is (str/includes? body "data-quote=\"a &quot;b&quot; c\"")
+          "\" escaped to &quot; in attribute values")
+      (is (str/includes? body "data-amp=\"x &amp; y\"")
+          "& escaped to &amp; in attribute values")
+      (is (str/includes? body "<body class=\"ok\">")
+          "<body> opens with :class only — :data-hidden false omitted"))))
+
+;; ===========================================================================
 ;; ssr-middleware — match? predicate
 ;; ===========================================================================
 

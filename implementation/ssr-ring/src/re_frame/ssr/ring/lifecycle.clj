@@ -5,7 +5,9 @@
 
     - `destroy-frame-quietly!` — best-effort frame teardown
     - `resolve-root-view`      — hiccup-vec OR 0-arity fn → hiccup
-    - `resolve-head-html`      — active route's `:head` → HTML fragment
+    - `resolve-head`           — active route's `:head` → map carrying the
+                                 rendered fragment plus `:html-attrs` /
+                                 `:body-attrs` bags for the host shell
     - `on-create-with-request` — append request to caller's :on-create vec
 
   Per Spec 011 §Request storage substrate + §Head/meta contract."
@@ -54,19 +56,32 @@
                     {:reason   "root-view must be a hiccup vector or a 0-arity fn"
                      :received root-view}))))
 
-(defn resolve-head-html
+(defn resolve-head
   "Resolve the active route's `:head` against `frame-id` (or the default
-  head when the route doesn't declare one). Returns the inner-head HTML
-  fragment as a string. Exceptions during resolution degrade gracefully
-  to an empty string so a buggy head fn can't take down the request —
-  the trace surface still carries the throw for monitoring.
+  head when the route doesn't declare one). Returns a map:
 
-  Per Spec 011 §Head/meta contract (rf2-4dra9)."
+    {:head-html  \"<title>…</title><meta …>…\"   ;; inner-head fragment
+     :html-attrs {…} or nil                       ;; stamped on <html>
+     :body-attrs {…} or nil}                      ;; stamped on <body>
+
+  The two attribute bags ride alongside the rendered fragment because
+  `head-model->html` deliberately drops them (Spec 011 §Default flow
+  step 4: `:html-attrs` populate `<html>`; `:body-attrs` populate
+  `<body>` — the host shell stamps them, not the head emitter).
+
+  Exceptions during resolution degrade gracefully — empty fragment,
+  no attrs — so a buggy head fn can't take down the request. The trace
+  surface still carries the throw for monitoring.
+
+  Per Spec 011 §Head/meta contract (rf2-4dra9, rf2-h2ujj)."
   [frame-id]
   (try
     (let [model (rf/active-head frame-id)]
-      (rf/head-model->html model))
-    (catch Throwable _ "")))
+      {:head-html  (rf/head-model->html model)
+       :html-attrs (:html-attrs model)
+       :body-attrs (:body-attrs model)})
+    (catch Throwable _
+      {:head-html "" :html-attrs nil :body-attrs nil})))
 
 (defn on-create-with-request
   "Conj the Ring request map onto the caller's :on-create event vector
