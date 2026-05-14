@@ -22,9 +22,10 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.machines :as machines]))
+            [re-frame.trace]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -276,3 +277,40 @@
             "parent transitioned via :after firing")
         (is (nil? (get-in (frame-db) [:rf/machines child-id]))
             "child machine destroyed via standard exit cascade")))))
+
+;; ---- fn-form :after exception observability (rf2-c1tnr) -------------------
+
+(deftest after-fn-form-throw-surfaces-trace
+  (testing "fn-form :after that throws emits :rf.error/machine-after-fn-threw"
+    ;; Pre-rf2-c1tnr the throw was silently caught and the resolution
+    ;; returned [nil nil], surfacing only as :rf.warning/no-clock-
+    ;; configured downstream with no signal that the fn itself blew up.
+    (let [captured (atom [])
+          listener (fn [ev] (swap! captured conj ev))
+          delay-fn (fn [_snapshot]
+                     (throw (ex-info "fn-form delay blew up" {:where :test})))]
+      (re-frame.trace/register-trace-cb! ::after-fn-trace listener)
+      (try
+        (rf/reg-machine :a/throws
+                        {:initial :idle
+                         :data    {:rf/after-epoch 0}
+                         :states  {:idle    {:on    {:go :running}}
+                                   :running {:after {delay-fn :timeout}}
+                                   :timeout {}}})
+        (rf/dispatch-sync [:a/throws [:go]])
+        (let [errors (filter #(= :rf.error/machine-after-fn-threw
+                                 (:operation %))
+                             @captured)]
+          (is (seq errors)
+              "fn-form throw surfaces as :rf.error/machine-after-fn-threw")
+          (is (every? #(= :error (:op-type %)) errors)
+              "the trace event has :op-type :error")
+          (when-let [first-err (first errors)]
+            (is (some? (-> first-err :tags :exception))
+                ":exception slot is populated under :tags")
+            ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
+            ;; off `:tags` to the envelope top-level.
+            (is (= :no-clock-configured (:recovery first-err))
+                ":recovery hoisted to the envelope top-level")))
+        (finally
+          (re-frame.trace/remove-trace-cb! ::after-fn-trace))))))

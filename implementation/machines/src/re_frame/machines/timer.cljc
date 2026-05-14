@@ -113,8 +113,18 @@
     [delay-key nil]
 
     (fn? delay-key)
+    ;; Per rf2-c1tnr the fn-form `:after` resolution used to silently
+    ;; swallow throws — a fn that NPE'd surfaced as
+    ;; `:rf.warning/no-clock-configured` downstream with no signal that
+    ;; the fn itself blew up. Now we emit `:rf.error/machine-after-fn-
+    ;; threw` on the exception path; the fn still falls through to no-
+    ;; clock-configured for recovery, but the exception is observable.
     (let [v (try (delay-key snapshot)
-                 (catch #?(:clj Throwable :cljs :default) _ nil))]
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (trace/emit-error! :rf.error/machine-after-fn-threw
+                                      {:exception e
+                                       :recovery  :no-clock-configured})
+                   nil))]
       [v nil])
 
     (vector? delay-key)
@@ -123,7 +133,12 @@
     (let [reaction (subs/subscribe frame-id delay-key)
           v        (when reaction
                      (try @reaction
-                          (catch #?(:clj Throwable :cljs :default) _ nil)))]
+                          (catch #?(:clj Throwable :cljs :default) e
+                            (trace/emit-error! :rf.error/machine-after-sub-threw
+                                               {:exception e
+                                                :sub-id    (first delay-key)
+                                                :recovery  :no-clock-configured})
+                            nil)))]
       [v reaction])
 
     :else
@@ -265,12 +280,22 @@
                 watch-key (when (= :sub delay-source)
                             [::after-watch frame-id parent-id invoke-id delay-key])]
             (when (and reaction watch-key)
+              ;; Per rf2-c1tnr — surface `add-watch` exceptions rather
+              ;; than silently dropping them; the sub-changed re-resolution
+              ;; watcher won't fire if `add-watch` failed, so the author
+              ;; needs a signal that the dynamic-delay subscription is
+              ;; not actually wired up.
               (try
                 (add-watch reaction watch-key
                            (fn [_ _ old-v new-v]
                              (on-sub-changed! frame-id parent-id invoke-id
                                               delay-key state old-v new-v)))
-                (catch #?(:clj Throwable :cljs :default) _ nil)))
+                (catch #?(:clj Throwable :cljs :default) e
+                  (trace/emit-error! :rf.error/machine-after-watch-failed
+                                     {:exception  e
+                                      :machine-id parent-id
+                                      :sub-id     (first delay-key)
+                                      :recovery   :static-delay}))))
             (swap! after-timers assoc-in [frame-id k]
                    {:handle          handle
                     :reaction        reaction
