@@ -20,18 +20,46 @@
   ;; Per spec/009: "Consumers treat absent as `false`."
   (is (not (sensitive/sensitive-event? {:operation :event/dispatched}))))
 
-(deftest sensitive-event?-non-true-truthy-passes
-  ;; Conservative: only the literal `true` triggers the drop. A string
-  ;; or non-boolean value passes through (the `:rf/trace-event` schema
-  ;; types `:sensitive?` as a boolean — any other value is a contract
-  ;; violation we surface rather than silently treat as sensitive).
-  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? "true"})))
-  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? :yes}))))
+(deftest sensitive-event?-non-true-truthy-drops-fail-closed
+  ;; Fail-closed (rf2-ih7g4): the literal `true` drops AND any
+  ;; non-boolean truthy value drops too. The `:rf/trace-event` schema
+  ;; types `:sensitive?` as a boolean; a string `"true"` or keyword
+  ;; `:yes` is a contract violation that means an upstream
+  ;; serialisation bug has coerced the boolean into the wrong shape.
+  ;; The previous fail-OPEN posture silently leaked sensitive events
+  ;; on such drift. The fix is fail-CLOSED: drop AND log.
+  (binding [*err* (java.io.StringWriter.)] ; absorb the contract-drift warning
+    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? "true"}))
+    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? :yes}))
+    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? 1}))
+    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? ["any" "truthy"]}))))
 
 (deftest sensitive-event?-non-map-input-passes
   (is (not (sensitive/sensitive-event? nil)))
   (is (not (sensitive/sensitive-event? [:sensitive? true])))
   (is (not (sensitive/sensitive-event? "anything"))))
+
+(deftest sensitive-event?-explicit-false-passes
+  ;; Fail-closed posture (rf2-ih7g4) does NOT change the explicit-false
+  ;; / nil path — those remain non-sensitive. Only truthy non-boolean
+  ;; values get the new fail-closed drop.
+  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? false})))
+  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? nil}))))
+
+(deftest strip-sensitive-fail-closed-drops-malformed-truthy
+  ;; rf2-ih7g4: a transport bug that coerces `:sensitive? true` into
+  ;; `:sensitive? "true"` (string) or `:sensitive? :yes` (keyword) MUST
+  ;; NOT silently leak the event. The fail-closed posture drops the
+  ;; malformed-truthy event (with a stderr warning) so the contract
+  ;; drift is visible to operators.
+  (binding [*err* (java.io.StringWriter.)] ; absorb the warning
+    (let [evts [{:id 1 :sensitive? false}
+                {:id 2 :sensitive? "true"} ; malformed-truthy → drop
+                {:id 3}
+                {:id 4 :sensitive? :yes}]  ; malformed-truthy → drop
+          [kept dropped] (sensitive/strip-sensitive evts false)]
+      (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
+      (is (= 2 dropped)))))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive — the default-suppress filter applied per batch.

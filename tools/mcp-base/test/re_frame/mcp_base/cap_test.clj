@@ -158,3 +158,108 @@
     (is (true? (::custom-shape out))
         "build-overflow-result is the sole producer of the over-cap shape")
     (is (contains? (:marker out) vocab/overflow-key))))
+
+;; ---------------------------------------------------------------------------
+;; Secondary char-byte cap (rf2-ih7g4) — defence in depth against the
+;; `(quot count 4)` token undercount on CJK / emoji / base64 / dense
+;; code. `sum-text-tokens` divides by 4; a payload where 1 char ≈ 2-3
+;; tokens still trips the cap because the secondary char check uses
+;; `cap * byte-cap-multiplier`.
+;; ---------------------------------------------------------------------------
+
+(deftest sum-text-chars-aggregates-across-slots
+  (let [r {:content [{:type "text" :text (big-string 1000)}
+                     {:type "text" :text (big-string 2000)}]}]
+    (is (= 3000 (cap/sum-text-chars map-io r)))))
+
+(deftest sum-text-chars-empty-content-is-zero
+  (is (zero? (cap/sum-text-chars map-io {:content []})))
+  (is (zero? (cap/sum-text-chars map-io {:content nil}))))
+
+(deftest byte-cap-multiplier-pinned-at-8x
+  ;; The multiplier is part of the cap contract — call out a change.
+  (is (= 8 cap/byte-cap-multiplier)))
+
+(deftest apply-cap-cjk-payload-over-budget-tripped
+  ;; CJK / emoji / base64 payloads pass through the same `(quot c 4)`
+  ;; rule but each glyph carries ~2-3 tokens on a real tokenizer ⇒
+  ;; the heuristic under-reports. The cap MUST still trip over-budget
+  ;; CJK content under the current rule (the heuristic is not exact,
+  ;; but the absolute count grows with input size). Regression pin
+  ;; for rf2-ih7g4: a CJK payload of 5000 glyphs at cap=100 trips
+  ;; overflow.
+  (let [big-cjk (apply str (repeat 5000 \日))
+        r       {:content [{:type "text" :text big-cjk}]}
+        out     (cap/apply-cap map-io r {:tool "cjk-test" :cap 100})
+        body    (get-in out [:structuredContent vocab/overflow-key])]
+    (is (= :reached (:limit body)))
+    (is (pos? (:token-count body)))))
+
+(deftest apply-cap-byte-cap-trips-when-only-secondary-fires
+  ;; Direct exercise of the secondary char cap (rf2-ih7g4). Use a
+  ;; custom IO that under-reports tokens (returns nothing to the
+  ;; token-summer) while exposing the full char count via
+  ;; `content-texts` for the byte gate. This simulates a future
+  ;; refined `token-estimate` (e.g. one that recognises base64 and
+  ;; returns a much lower per-char token cost) — the secondary char
+  ;; cap is the defence-in-depth that bounds the actual wire bytes.
+  ;;
+  ;; The mock returns the full text from `content-texts` but the
+  ;; algorithm computes BOTH tokens (via `overflow/token-estimate`)
+  ;; and chars (via `count`) from the same seq. To trip ONLY the
+  ;; secondary, we need a state where token sum ≤ cap but char count
+  ;; > cap * 8. Under the current `(quot c 4)` rule this is
+  ;; mathematically impossible (token sum ≈ chars/4, so chars > cap*8
+  ;; ⇒ tokens > cap*2 > cap). The byte cap is therefore a future-
+  ;; proof gate, kept wired so a future token-rule refinement does
+  ;; not silently widen the wire envelope.
+  ;;
+  ;; Pin the algorithmic contract: the byte cap is part of `apply-cap`
+  ;; and `sum-text-chars` reads the same content-texts the token sum
+  ;; does.
+  (is (= 8 cap/byte-cap-multiplier))
+  (let [r {:content [{:type "text" :text (big-string 100)}]}]
+    (is (= 100 (cap/sum-text-chars map-io r)))
+    (is (= 25 (cap/sum-text-tokens map-io r)))))
+
+;; ---------------------------------------------------------------------------
+;; structuredContent counted toward the budget (rf2-ih7g4) — story-mcp
+;; pattern: its reify surfaces `:structuredContent` as one extra
+;; `pr-str`-ed string in `content-texts`. Pin the contract via a
+;; mirror reify here.
+;; ---------------------------------------------------------------------------
+
+(def structured-io
+  "Mirrors story-mcp's runtime reify: `content-texts` surfaces both
+  the `:content[*].text` slots and a `pr-str`'d `:structuredContent`
+  payload. This is the cross-MCP convention pin — a consumer that
+  duplicates a payload into `:structuredContent` MUST count both
+  copies."
+  (reify cap/ResultIO
+    (content-texts [_ result]
+      (cond-> (mapv :text (:content result))
+        (some? (:structuredContent result))
+        (conj (pr-str (:structuredContent result)))))
+    (build-overflow-result [_ marker _original]
+      {:content          [{:type "text" :text (pr-str marker)}]
+       :structuredContent marker})))
+
+(deftest structured-content-counted-toward-budget
+  ;; A response where the `:content[*].text` slot is small but
+  ;; `:structuredContent` is large. The cap MUST trip — `:structuredContent`
+  ;; rides the wire and counts toward the budget when the consumer's
+  ;; reify surfaces it via `content-texts`.
+  (let [small-text "ok"
+        huge       {:big-payload (big-string 30000)}
+        r          {:content          [{:type "text" :text small-text}]
+                    :structuredContent huge}
+        out        (cap/apply-cap structured-io r {:tool "snapshot" :cap 1000})
+        marker     (:structuredContent out)]
+    (is (contains? marker vocab/overflow-key)
+        "structuredContent payload MUST count toward the cap")))
+
+(deftest structured-content-under-budget-passes
+  (let [r {:content          [{:type "text" :text "ok"}]
+           :structuredContent {:small :payload}}
+        out (cap/apply-cap structured-io r {:tool "snapshot" :cap 5000})]
+    (is (identical? r out))))

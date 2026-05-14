@@ -24,24 +24,104 @@
 
   Pair2-mcp is a CLJS Node bundle (no `re-frame.trace` on its
   classpath); story-mcp / causa-mcp are JVM-side and DO have the
-  framework primitive available. The predicate itself
-  (`(and (map? ev) (true? (:sensitive? ev)))`) is conservative and
-  identical to `re-frame.privacy/sensitive?`; per the spec the runtime
-  always stamps the literal boolean. Consumers that want to bind to
-  the framework primitive (story-mcp does, for code-review locality)
-  alias the surface in their own ns and delegate through here.")
+  framework primitive available. The predicate body
+  (`(and (map? ev) (sensitive-stamp? (:sensitive? ev)))`) is
+  conservative and matches the spirit of `re-frame.privacy/sensitive?`.
+  Per the spec the runtime always stamps the literal boolean; if a
+  transport bug delivers any other truthy value (rf2-ih7g4 fail-closed
+  posture) we drop the event AND log so the contract drift is
+  visible.")
+
+;; ---------------------------------------------------------------------------
+;; Fail-closed predicate (rf2-ih7g4)
+;; ---------------------------------------------------------------------------
+;;
+;; Spec/009 declares `:sensitive?` as a boolean. The previous
+;; implementation matched only the literal `true` — any other truthy
+;; value (string `\"true\"`, keyword `:yes`, non-empty collection,
+;; number) passed through as if the event were non-sensitive. That is
+;; fail-OPEN on contract drift: an upstream serialisation bug that
+;; coerces the boolean into a string silently leaks every sensitive
+;; event past the wire-egress filter.
+;;
+;; The fix is fail-CLOSED: any truthy non-boolean stamp is treated as
+;; "claim to be sensitive, but malformed" — we drop AND log so the
+;; drift surfaces in operator output. Only an explicit `false` /
+;; absent / nil stamp passes.
+
+#?(:clj  (defonce ^:private ^java.util.concurrent.atomic.AtomicLong
+           malformed-counter
+           (java.util.concurrent.atomic.AtomicLong. 0))
+   :cljs (defonce ^:private malformed-counter (atom 0)))
+
+(defn- malformed-count
+  "Read the count of malformed `:sensitive?` stamps observed since
+  process start. Exposed for tests and operator surfaces; not part of
+  the wire vocabulary."
+  []
+  #?(:clj  (.get ^java.util.concurrent.atomic.AtomicLong malformed-counter)
+     :cljs @malformed-counter))
+
+(defn- bump-malformed!
+  "Increment the malformed-stamp counter. Internal."
+  []
+  #?(:clj  (.incrementAndGet ^java.util.concurrent.atomic.AtomicLong malformed-counter)
+     :cljs (swap! malformed-counter inc)))
+
+(defn- log-malformed!
+  "Surface a contract-drift warning when a non-boolean truthy
+  `:sensitive?` stamp arrives. The runtime contract types this slot
+  as a boolean; anything else is a serialisation bug worth fixing at
+  the source. Stderr keeps the warning out of the MCP wire response."
+  [stamp]
+  #?(:clj  (binding [*out* *err*]
+             (println (str "[re-frame.mcp-base.sensitive] WARN: non-boolean truthy "
+                           ":sensitive? stamp dropped (fail-closed) — "
+                           "type=" (some-> stamp class .getName)
+                           " value=" (pr-str stamp))))
+     :cljs (when (and (exists? js/console) js/console.warn)
+             (js/console.warn
+               (str "[re-frame.mcp-base.sensitive] non-boolean truthy "
+                    ":sensitive? stamp dropped (fail-closed) — "
+                    "value=" (pr-str stamp))))))
+
+(defn- sensitive-stamp?
+  "Classify a `:sensitive?` slot value. Fail-closed posture (rf2-ih7g4):
+
+    - boolean `true`           ⇒ drop (the documented spec/009 path).
+    - boolean `false` / nil    ⇒ pass (non-sensitive event).
+    - any other truthy value   ⇒ drop AND log (malformed; contract
+                                  drift surfaced rather than silently
+                                  leaked).
+
+  The classification is internal — callers reach `sensitive-event?`."
+  [stamp]
+  (cond
+    (true? stamp)  true
+    (false? stamp) false
+    (nil? stamp)   false
+    ;; Anything else that's truthy is a contract violation. Drop and
+    ;; log so the drift is visible. Falsy non-nil sentinels (none in
+    ;; the runtime today) would pass — but `false` and `nil` are the
+    ;; only two falsy values in Clojure, so this is exhaustive.
+    :else          (do (bump-malformed!)
+                       (log-malformed! stamp)
+                       true)))
 
 (defn sensitive-event?
-  "Does this event carry the top-level `:sensitive? true` stamp?
+  "Does this event carry the top-level `:sensitive? true` stamp (or a
+  fail-closed malformed-truthy variant)?
 
-  Conservative: only the literal `true` value drops; any other value
-  (including a possible string-coercion via an ill-behaved transport)
-  passes through. The `:rf/trace-event` schema types `:sensitive?` as
-  a boolean (Spec 009 + Spec-Schemas); any other shape is a contract
-  violation we surface rather than silently treat as sensitive."
+  Fail-closed (rf2-ih7g4): the literal `true` value drops (the
+  spec/009 path), AND any other truthy non-boolean value drops too
+  (with a stderr warning). The `:rf/trace-event` schema types
+  `:sensitive?` as a boolean (Spec 009 + Spec-Schemas); a non-boolean
+  stamp is a contract violation that we surface (warning + drop)
+  rather than silently treat as non-sensitive. Only explicit `false`
+  / absent / nil passes."
   [ev]
   (and (map? ev)
-       (true? (:sensitive? ev))))
+       (sensitive-stamp? (:sensitive? ev))))
 
 (defn strip-sensitive
   "Remove `:sensitive? true` events from `events` unless the caller has

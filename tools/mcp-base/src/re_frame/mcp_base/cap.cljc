@@ -142,6 +142,36 @@
              0
              (content-texts io result)))
 
+(defn sum-text-chars
+  "Sum the character count across every `:text` slot in `result`'s
+  content vector, accessed via `io`. Used by the secondary byte cap
+  (rf2-ih7g4) — the primary `sum-text-tokens` divides by 4 (Anthropic's
+  English-rule-of-thumb), which materially undercounts CJK, emoji,
+  base64, and dense code. A char-count secondary gate catches payloads
+  that escape the quotient heuristic.
+
+  Returns the cumulative `(count s)` across string `:text` slots. The
+  caller decides the multiplier (`cap * 8` in `apply-cap` — generous
+  enough for English / EDN to pass through unchanged, tight enough
+  that a payload doubled by undercount still trips the cap)."
+  [io result]
+  (transduce (comp (filter string?)
+                   (map count))
+             +
+             0
+             (content-texts io result)))
+
+(def ^:const byte-cap-multiplier
+  "Secondary byte-cap multiplier (rf2-ih7g4). `cap * multiplier` is the
+  hard char-count ceiling — a defence-in-depth gate against payloads
+  that escape the primary `(quot count 4)` token heuristic (CJK,
+  emoji, base64, dense code). Set high enough that an English / EDN
+  payload at the token cap passes (1 char ≈ 4 tokens ⇒ 4×); set low
+  enough that a payload doubled by undercount trips (≥2×). 8× is the
+  compromise — generous to the common path, conservative on the
+  pathological one."
+  8)
+
 ;; ---------------------------------------------------------------------------
 ;; apply-cap — the wire-boundary enforcement entry point.
 ;; ---------------------------------------------------------------------------
@@ -176,14 +206,32 @@
     (nil? cap)    result
     (nil? result) result
     :else
-    (let [tokens (sum-text-tokens io result)]
-      (if (<= tokens cap)
+    ;; Two-stage check (rf2-ih7g4):
+    ;;
+    ;; 1. Primary token cap — `(quot count 4)` per Anthropic's English
+    ;;    rule-of-thumb. The published contract pinned by every
+    ;;    consumer and documented in spec.
+    ;;
+    ;; 2. Secondary char-byte cap — `cap * byte-cap-multiplier`.
+    ;;    Defence-in-depth against payloads where the (count s)/4
+    ;;    heuristic undercounts: CJK, emoji, base64, dense code. Trips
+    ;;    independently of the token sum; reports the char count as the
+    ;;    `:token-count` so the agent's overflow handler sees an
+    ;;    actionable number (not zero, not nil).
+    ;;
+    ;; Either gate trips the same `:truncate-with-marker` strategy.
+    (let [tokens    (sum-text-tokens io result)
+          chars     (sum-text-chars io result)
+          byte-cap  (* cap byte-cap-multiplier)
+          over?     (or (> tokens cap) (> chars byte-cap))]
+      (if-not over?
         result
-        (let [marker (overflow/overflow-payload
-                       {:tool        tool
-                        :token-count tokens
-                        :cap         cap
-                        :hint        hint})]
+        (let [reported (if (> chars byte-cap) chars tokens)
+              marker   (overflow/overflow-payload
+                         {:tool        tool
+                          :token-count reported
+                          :cap         cap
+                          :hint        hint})]
           ;; Unknown strategy: degrade safely to truncate-with-marker.
           ;; The pluggable shape is preserved so a future strategy can
           ;; branch here without touching consumers.
