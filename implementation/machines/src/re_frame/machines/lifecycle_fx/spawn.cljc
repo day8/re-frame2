@@ -25,7 +25,6 @@
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
 ;; ---- id allocation --------------------------------------------------------
@@ -117,15 +116,17 @@
   "Atomically install the spawned actor's initial snapshot, system-id
   binding, and runtime-owned spawn registry slot into the frame's
   app-db. Returns nil — the side-effect IS the value. Emits the
-  collision and system-id-bound traces when applicable."
-  [container frame-id db-after-alloc spec spawned-id
+  collision and system-id-bound traces when applicable.
+
+  `db-after-alloc` is the post-id-allocation db computed by the caller
+  (see `spawn-fx`); `swap-frame-db!`'s fn arg is discarded — the merge
+  is applied on top of `db-after-alloc` so the caller's counter bump
+  survives. Under Spec 002's single-drainer invariant the discarded
+  re-read is value-equal to the snapshot the caller already had."
+  [frame-id db-after-alloc spec spawned-id
    {:keys [system-id parent-id invoke-id track?]}]
   (let [initial-snap (when spec (compute-initial-snapshot spec))
-        existing     (when system-id (get-in db-after-alloc [:rf/system-ids system-id]))
-        new-db       (cond-> db-after-alloc
-                       spec      (assoc-in [:rf/machines spawned-id] initial-snap)
-                       system-id (assoc-in [:rf/system-ids system-id] spawned-id)
-                       track?    (assoc-in [:rf/spawned parent-id invoke-id] spawned-id))]
+        existing     (when system-id (get-in db-after-alloc [:rf/system-ids system-id]))]
     (when (and system-id existing (not= existing spawned-id))
       (trace/emit-error! :rf.error/system-id-collision
                          {:frame             frame-id
@@ -138,7 +139,12 @@
                                                   "; rebinding to " spawned-id
                                                   " (last-write-wins).")
                           :recovery          :warned-and-replaced}))
-    (adapter/replace-container! container new-db)
+    (frame/swap-frame-db! frame-id
+                          (fn [_db]
+                            (cond-> db-after-alloc
+                              spec      (assoc-in [:rf/machines spawned-id] initial-snap)
+                              system-id (assoc-in [:rf/system-ids system-id] spawned-id)
+                              track?    (assoc-in [:rf/spawned parent-id invoke-id] spawned-id))))
     (when system-id
       (trace/emit! :machine :rf.machine/system-id-bound
                    {:frame      frame-id
@@ -202,10 +208,9 @@
         ;; same id the snapshot install / registry bind will use. The
         ;; db-swap re-applies the increment to the (potentially-newer)
         ;; db at write time — for the JVM atom container the read is
-        ;; consistent because adapter/replace-container! is the only
-        ;; writer during fx drain.
-        container  (frame/get-frame-db frame-id)
-        old-db     (when container (adapter/read-container container))
+        ;; consistent because `frame/swap-frame-db!` is the only writer
+        ;; during fx drain (Spec 002 §Single drainer per frame).
+        old-db     (frame/frame-app-db-value frame-id)
         machine-id-for-alloc (or (:id-prefix args) (:machine-id args))
         [db-after-alloc spawned-id]
         (cond
@@ -232,8 +237,8 @@
     ;; from the frame's app-db (the hand-emitted-spawn fallback path),
     ;; `db-after-alloc` already carries the bumped counter — install the
     ;; snapshot on top of that.
-    (when container
-      (install-spawn! container frame-id db-after-alloc spec'' spawned-id
+    (when old-db
+      (install-spawn! frame-id db-after-alloc spec'' spawned-id
                       {:system-id system-id
                        :parent-id parent-id
                        :invoke-id invoke-id
@@ -273,10 +278,8 @@
         invoke-id  (:rf/invoke-id args)
         join-state (:join-state args)
         children   (:children join-state)]
-    (when-let [container (frame/get-frame-db frame-id)]
-      (let [old-db (adapter/read-container container)
-            new-db (assoc-in old-db [:rf/spawned parent-id invoke-id] join-state)]
-        (adapter/replace-container! container new-db)))
+    (frame/swap-frame-db! frame-id assoc-in
+                          [:rf/spawned parent-id invoke-id] join-state)
     (trace/emit! :machine :rf.machine.invoke-all/started
                  {:machine-id parent-id
                   :invoke-id  invoke-id

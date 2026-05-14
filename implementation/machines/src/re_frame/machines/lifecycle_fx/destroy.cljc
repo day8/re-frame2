@@ -30,7 +30,6 @@
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
 (defn- emit-system-id-released!
@@ -56,14 +55,19 @@
   [frame-id actor-id]
   (when actor-id
     (finalize/abort-actor-in-flight-http! actor-id)
-    (when-let [container (frame/get-frame-db frame-id)]
-      (let [old-db (adapter/read-container container)
-            [new-db released-sid] (teardown/teardown-actor
-                                    old-db {:actor-id actor-id})]
-        (adapter/replace-container! container new-db)
-        (emit-system-id-released! frame-id released-sid actor-id)
+    ;; `teardown-actor` returns [new-db released-sid]; `swap-frame-db!`
+    ;; expects a fn returning the new-db only. Capture sid via a side
+    ;; channel so we keep a single read + single write.
+    (let [sid (volatile! nil)]
+      (when (frame/swap-frame-db! frame-id
+                                  (fn [db]
+                                    (let [[new-db released-sid]
+                                          (teardown/teardown-actor db {:actor-id actor-id})]
+                                      (vreset! sid released-sid)
+                                      new-db)))
+        (emit-system-id-released! frame-id @sid actor-id)
         (registrar/unregister! :event actor-id)
-        released-sid))))
+        @sid))))
 
 (defn- destroy-invoke-all-children!
   "Per rf2-6vmw — the declarative-`:invoke-all` exit-cascade form.
@@ -72,9 +76,8 @@
   join-state slot via the unified teardown projection (slot-prune only:
   nil actor-id)."
   [frame-id parent-id invoke-id]
-  (let [join-state (when-let [container (frame/get-frame-db frame-id)]
-                     (get-in (adapter/read-container container)
-                             [:rf/spawned parent-id invoke-id]))
+  (let [join-state (get-in (frame/frame-app-db-value frame-id)
+                           [:rf/spawned parent-id invoke-id])
         children   (when (map? join-state) (:children join-state))]
     (doseq [[child-id spawned-id] children]
       (trace/emit! :machine :rf.machine/destroyed
@@ -86,12 +89,11 @@
                     :reason     :explicit})        ;; rf2-gn80 D6 — discriminator
       (destroy-single-actor! frame-id spawned-id))
     ;; Clear the join-state slot via the unified projection (slot-only).
-    (when-let [container (frame/get-frame-db frame-id)]
-      (let [old-db (adapter/read-container container)
-            [new-db _] (teardown/teardown-actor
-                         old-db {:parent-id parent-id
-                                 :invoke-id invoke-id})]
-        (adapter/replace-container! container new-db)))
+    (frame/swap-frame-db! frame-id
+                          (fn [db]
+                            (first (teardown/teardown-actor
+                                     db {:parent-id parent-id
+                                         :invoke-id invoke-id}))))
     nil))
 
 (defn- destroy-single!
@@ -104,8 +106,7 @@
   (let [tracked?  (map? args)
         parent-id (when tracked? (:rf/parent-id args))
         invoke-id (when tracked? (:rf/invoke-id args))
-        container (frame/get-frame-db frame-id)
-        old-db    (when container (adapter/read-container container))
+        old-db    (frame/frame-app-db-value frame-id)
         actor-id  (if tracked?
                     (when old-db (get-in old-db [:rf/spawned parent-id invoke-id]))
                     args)
@@ -122,12 +123,12 @@
     ;; destroy) or the spawn was suppressed (SSR / platform gating).
     (when actor-id
       (finalize/abort-actor-in-flight-http! actor-id)
-      (when container
-        (let [[new-db _] (teardown/teardown-actor
-                           old-db {:actor-id  actor-id
-                                   :parent-id parent-id
-                                   :invoke-id invoke-id})]
-          (adapter/replace-container! container new-db)))
+      (frame/swap-frame-db! frame-id
+                            (fn [db]
+                              (first (teardown/teardown-actor
+                                       db {:actor-id  actor-id
+                                           :parent-id parent-id
+                                           :invoke-id invoke-id}))))
       (emit-system-id-released! frame-id released-sid actor-id)
       ;; Unregister the live handler. Last so any in-flight trace emit
       ;; against the actor still resolves before the slot disappears.

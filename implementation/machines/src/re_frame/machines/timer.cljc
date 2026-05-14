@@ -35,7 +35,6 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.transition :as transition]
             [re-frame.subs :as subs]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
 (defonce after-timers
@@ -174,9 +173,8 @@
                     :reason     :sub-changed
                     :sub-id     (first delay-key)})
       (cancel-after-timer-entry! frame-id k)
-      (when-let [container (frame/get-frame-db frame-id)]
-        (let [db   (adapter/read-container container)
-              snap (get-in db [:rf/machines parent-id])
+      (when-let [db (frame/frame-app-db-value frame-id)]
+        (let [snap (get-in db [:rf/machines parent-id])
               ;; Per Spec 005 §Per-region :after scoping (rf2-l67o): for
               ;; parallel-region machines the snapshot's :state is a map
               ;; of region-name → that region's state, and the invoke-id
@@ -297,9 +295,8 @@
         delay-key  (:delay-key args)
         epoch      (:epoch args)
         server?    (boolean (:server? args))
-        snapshot   (when-let [container (frame/get-frame-db frame-id)]
-                     (get-in (adapter/read-container container)
-                             [:rf/machines parent-id]))]
+        snapshot   (get-in (frame/frame-app-db-value frame-id)
+                           [:rf/machines parent-id])]
     ;; Initial state-entry scheduling — the :scheduled trace was already
     ;; emitted synchronously by apply-transition-once (the pure side). For
     ;; sub-vec delays, the fx layer's resolution may yield a different
