@@ -461,6 +461,23 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Reference-impl picks.** CLJS reference ships the trace surface, epoch history, and registrar query API in-tree (per [rf2-icil audit](Tool-Pair.md#how-ai-tools-attach)). re-frame-pair is a separate library that consumes these.
 - **Trade-offs.** **No 10x dependency required** — re-frame2 is infrastructure-complete for AI-tool consumption. 10x and pair share the substrate.
 
+### Security obligations for implementation tooling
+
+The following obligations apply to any port that ships **tooling** (test fixtures, scaffolding, conformance-corpus emit, pair-tool source-mapping). They are spec-pinned defaults the implementor MUST honour — pre-alpha; no back-compat hedges. Full rationale + audit trail in [Security.md](Security.md); the section headings here are the implementor's todo-list.
+
+#### File-path boundaries for writing tools (rf2-21rfv)
+
+- **Why it matters.** Implementation tooling that writes to the filesystem (test-fixture emit, conformance-corpus generation, scaffolding scripts, story-recorder dumps, pair-tool log writers) typically accepts env-var path overrides for output roots. A misconfigured env var pointing at `$HOME`, `/`, or the user's source tree would let a tool's "rm temporary scratch" / "regenerate fixtures" step delete or overwrite the wrong tree. The defense is a path-policy check that constrains every writing tool to a closed allowlist of repo-rooted prefixes.
+- **What to ship.** Every writing tool that accepts an env-var path override MUST resolve the path (collapsing `..` segments and following symlinks) and check it against an **allowed-prefix list** before any write. The CLJS reference allows `implementation/` and `examples/` as the two prefixes; other ports MUST pick the equivalent repo-rooted prefixes for their tree.
+- **Failing-escape behaviour.** An escape attempt — a `..` that exits the allowed roots, an absolute path outside the allowed prefixes, a symlink that resolves out — surfaces a clear error with the resolved path and the configured allowed list. The error is fail-fast (no fall-through to a default location, no strip-and-pass, no silent home-directory write). Per rf2-21rfv and [Security.md §File-path boundaries](Security.md#file-path-boundaries).
+- **CI-internal knob, not stable public interface.** The env-var override is documented for CI-internal use (regenerate fixtures into a per-build scratch directory); it is not a stable public API for production deployment. The check is a **safety net against accidents**, not a security boundary against a hostile attacker — see [Security.md §Pragmatic stance](Security.md#pragmatic-stance) proposition 2.
+
+#### Editor URI scheme allowlist for source-map clickthrough (rf2-vwcsq)
+
+- **Why it matters.** Pair-tool source-map surfaces produce clickable links in dev tooling — IDE protocol URIs that open a file at a line. If the port ships source-map clickthrough (or accepts custom editor templates), an attacker-controllable scheme — `javascript:`, `data:`, `vbscript:` — that landed in the editor template would be clicked, opening an attack surface in the dev's browser.
+- **What to ship.** The editor-template surface MUST reject URIs whose scheme is `javascript:`, `data:`, or `vbscript:` (case-insensitive). Everything else passes — `vim:`, `idea:`, `subl:`, `org:`, `vscode:`, `cursor:`, and future editor schemes — with no dev burden.
+- **Where the check fires.** At editor-template registration time **and** at click-resolution time, so a template that interpolates user input into the scheme position is also caught at the click. Per rf2-vwcsq and [Tool-Pair §Editor URI scheme allowlist](Tool-Pair.md#editor-uri-scheme-allowlist-rf2-vwcsq) (the canonical contract) + [Security.md §Editor URI scheme allowlist](Security.md#editor-uri-scheme-allowlist).
+
 ---
 
 ## Part 3 — Conformance
