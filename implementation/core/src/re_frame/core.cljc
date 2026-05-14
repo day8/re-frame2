@@ -69,6 +69,7 @@
                                     reg-sub reg-fx reg-cofx reg-frame
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-error-projector reg-head
+                                    reg-http-interceptor
                                     reg-view reg-machine
                                     dispatch dispatch-sync subscribe inject-cofx
                                     with-frame bound-fn with-fx-overrides
@@ -196,7 +197,16 @@
        model)`. `id` is a namespaced keyword (e.g. `:my.app/article`);
        routes name a head via `:head` route metadata. Captures source-
        coords (Spec 001) at this call site. Per Spec 011 §Head/meta
-       contract.")))
+       contract.")
+
+     (rm/defreg-macro reg-http-interceptor rf-http/reg-http-interceptor
+       "Register a request-side HTTP interceptor on a frame's
+       `:rf.http/managed` middleware chain. Captures source-coords
+       (Spec 001) at this call site. Implementation ships in
+       `day8/re-frame2-http` (Spec 014 §Middleware). See
+       `re-frame.core-http/reg-http-interceptor` for the full
+       signature."
+       {:arglists '([interceptor])})))
 
 ;; ---- reg-machine (bespoke — per-element coord stamping) -----------------
 
@@ -605,8 +615,12 @@
 (def install-managed-request-stubs!   rf-http/install-managed-request-stubs!)
 (def uninstall-managed-request-stubs! rf-http/uninstall-managed-request-stubs!)
 (def with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
-(def reg-http-interceptor             rf-http/reg-http-interceptor)
 (def clear-http-interceptor           rf-http/clear-http-interceptor)
+
+;; reg-http-interceptor is a macro (per the defreg-macro form above) so
+;; source-coords are captured at the call site like every other reg-*.
+;; CLJS apps reach the fn-form via `re-frame.core-http/reg-http-interceptor`
+;; for programmatic registration that bypasses the macro path.
 
 ;; ---- configure / substrate adapter / boot --------------------------------
 
