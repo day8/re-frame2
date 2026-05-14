@@ -52,16 +52,25 @@
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
-;; ---- view atoms ---------------------------------------------------------
+;; ---- input state --------------------------------------------------------
 ;;
-;; The input box is local UI state — kept in a defonce atom so a
-;; hot-reload doesn't drop the user's in-progress question. The
-;; dispatch only fires on submit.
-
-(defonce ^:private input-atom (atom ""))
-
-(defn- read-input [] @input-atom)
-(defn- set-input! [v] (reset! input-atom (or v "")))
+;; The question-input box's text is per-session UI state. Pre-rf2-qvz85
+;; this was a `defonce` plain atom deref'd inside the view; since plain
+;; atoms are NOT a reactive primitive in any substrate (Reagent /
+;; UIx / Helix), every keystroke updated the atom but the rail did not
+;; re-render, so the slash popover never appeared while the user was
+;; typing. Per spec/007-UX-IA.md §The reactive surface — every view
+;; surface re-renders off the substrate's reactive primitive (a sub
+;; off Causa's app-db). The input now lives at `:copilot-input-text`
+;; in `:rf/causa`'s db; the rail subscribes via
+;; `:rf.causa/copilot-input-text` so a keystroke → event → db-write →
+;; sub re-fire → rail re-render → popover renders against the live
+;; partial command.
+;;
+;; The event carries `:rf.trace/no-emit? true` (per rf2-qsjda) so
+;; each keystroke is invisible to the trace ribbon — the trace
+;; surface stays focused on framework activity, not Causa-side
+;; bookkeeping.
 
 ;; ---- sub-views ----------------------------------------------------------
 
@@ -254,7 +263,9 @@
              (for [{:keys [command usage doc]} matches]
                ^{:key command}
                [:li {:data-testid (str "rf-causa-copilot-slash-" (name command))
-                     :on-click    #(set-input! usage)
+                     :on-click    #(rf/dispatch [:rf.causa/copilot-set-input-text
+                                                usage]
+                                               {:frame :rf/causa})
                      :style       {:padding "6px 10px"
                                    :cursor "pointer"
                                    :color (:text-primary tokens)
@@ -266,27 +277,31 @@
                                :margin-top "2px"}}
                  doc]]))])))
 
-(defn- input-row
+(rf/reg-view input-row
   "The question-input row. Per spec §Pull-only model the model never
   sends a token unless the user submits. Submission fires
   `:rf.causa/copilot-submit-question` with the resolved text. The
   `/clear` command is intercepted client-side and dispatched as
-  `:rf.causa/copilot-clear-conversation` — never sent to the model."
+  `:rf.causa/copilot-clear-conversation` — never sent to the model.
+
+  Per rf2-qvz85 `reg-view`-registered so the `:rf.causa/copilot-input-
+  text` subscribe is reactive over Causa's app-db — every keystroke
+  re-renders the row and the slash-popover picks up the partial
+  command immediately."
   []
-  (let [input (read-input)
+  (let [input  (or @(rf/subscribe [:rf.causa/copilot-input-text]) "")
         parsed (h/parse-slash-command input)
         submit (fn []
-                 (let [text (read-input)]
-                   (when (seq (str/trim text))
-                     (set-input! "")
-                     (cond
-                       (= :clear (:command parsed))
-                       (rf/dispatch [:rf.causa/copilot-clear-conversation] {:frame :rf/causa})
+                 (when (seq (str/trim input))
+                   (rf/dispatch [:rf.causa/copilot-set-input-text ""] {:frame :rf/causa})
+                   (cond
+                     (= :clear (:command parsed))
+                     (rf/dispatch [:rf.causa/copilot-clear-conversation] {:frame :rf/causa})
 
-                       :else
-                       (rf/dispatch
-                         [:rf.causa/copilot-submit-question
-                          {:text text :parsed parsed}] {:frame :rf/causa})))))]
+                     :else
+                     (rf/dispatch
+                       [:rf.causa/copilot-submit-question
+                        {:text input :parsed parsed}] {:frame :rf/causa}))))]
     [:div {:style {:position "relative"
                    :padding "8px 12px"
                    :border-top (str "1px solid " (:border-subtle tokens))
@@ -297,7 +312,9 @@
                :type        "text"
                :value       input
                :placeholder "Ask anything…"
-               :on-change   #(set-input! (.. % -target -value))
+               :on-change   #(rf/dispatch [:rf.causa/copilot-set-input-text
+                                          (.. % -target -value)]
+                                         {:frame :rf/causa})
                :on-key-down (fn [e]
                               (when (= "Enter" (.-key e))
                                 (.preventDefault e)
@@ -489,6 +506,18 @@
     (register-sub! :rf.causa/copilot-streaming-token-count
       (fn [db _q] (get db :copilot-streaming-token-count 0)))
 
+    ;; The question-input row's current text (rf2-qvz85). Per spec
+    ;; §Slash commands — the slash-popover renders against the live
+    ;; partial command, so the rail must re-render on every keystroke.
+    ;; Pre-rf2-qvz85 this was a `defonce` plain atom; plain atoms are
+    ;; not a substrate-reactive primitive, so keystrokes updated state
+    ;; without re-rendering the rail and the popover never appeared.
+    ;; Routing through the app-db slot makes the rail's React-context-
+    ;; tier subscribe re-fire on every set-input dispatch — popover
+    ;; renders against the live input.
+    (register-sub! :rf.causa/copilot-input-text
+      (fn [db _q] (get db :copilot-input-text "")))
+
     ;; ---- events --------------------------------------------------------
 
     ;; Toggle the rail open / closed. Per spec §Default state the toggle
@@ -506,6 +535,17 @@
     ;; collapsed cue.
     (register-evdb! :rf.causa/copilot-mark-first-use
       (fn [db _ev] (assoc db :copilot-first-used? true)))
+
+    ;; Replace the question-input text (rf2-qvz85). Fires from every
+    ;; `<input on-change>` keystroke and from the slash-popover row
+    ;; click that substitutes a command usage into the input. Carries
+    ;; `:rf.trace/no-emit?` (per rf2-qsjda) so keystroke-rate updates
+    ;; don't flood the trace ribbon — the trace surface stays focused
+    ;; on framework activity, not Causa-side bookkeeping.
+    (register-evdb! :rf.causa/copilot-set-input-text
+      {:rf.trace/no-emit? true}
+      (fn [db [_ text]]
+        (assoc db :copilot-input-text (or text ""))))
 
     ;; Cycle providers for the picker. The full provider picker (with
     ;; settings UI) lands as follow-on work; this event lets the title

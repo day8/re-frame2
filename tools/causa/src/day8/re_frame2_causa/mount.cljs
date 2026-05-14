@@ -44,6 +44,7 @@
   toggles are no-ops on this axis."
   (:require [re-frame.core :as rf]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -106,20 +107,35 @@
 
   ## App-db seeding
 
-  Seeds the freshly-created frame's app-db with the trace buffer's
-  current contents at `:trace-buffer` so the layer-1
-  `:rf.causa/trace-buffer` sub re-fires off the standard app-db-write
-  reactive path from this point on (rf2-in6l2). Subsequent
-  `trace-bus/collect-trace!` calls dispatch `:rf.causa/note-trace-event`
-  into `:rf/causa` so the sub fires IMMEDIATELY on every push — no
-  dependency on a host-side dispatch for the panel to refresh."
+  Two slots seed on first open so the panels render against history
+  the user has already produced before opening Causa:
+
+  - `:trace-buffer` — seeded from the trace-bus atom (rf2-in6l2). The
+    atom collects pre-mount traces; the seed lifts them into the
+    reactive slot at first Ctrl+Shift+C. Subsequent
+    `trace-bus/collect-trace!` calls dispatch
+    `:rf.causa/note-trace-event` into `:rf/causa` so the sub fires
+    IMMEDIATELY on every push.
+
+  - `:epoch-history` — seeded from `(rf/epoch-history target)`
+    (rf2-1barg). Pre-mount epoch settles fire the
+    `:rf.causa/epoch-collector` cb but it short-circuits when
+    `:rf/causa` is not yet registered (host-side records would
+    otherwise route into a non-existent frame). The seed lifts the
+    accumulated history into Causa's reactive slot at first
+    Ctrl+Shift+C; later settles flow through the cb's dispatch path
+    on the standard reactive surface. Target frame defaults to
+    `:rf/default` per `defaults/default-target-frame` until a frame
+    picker lands."
   []
   (rf/reg-frame :rf/causa {})
-  ;; Seed the frame's app-db with whatever the trace-bus atom has
-  ;; accumulated so far (the host may have driven dispatches before
-  ;; the user opened Causa).
+  ;; Seed the frame's app-db with whatever the trace-bus atom + the
+  ;; framework's epoch ring buffer have accumulated so far. The host
+  ;; may have driven dispatches before the user opened Causa.
   (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])))
+    (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])
+    (rf/dispatch-sync [:rf.causa/sync-epoch-history
+                       (vec (rf/epoch-history defaults/default-target-frame))])))
 
 (defn open!
   "Mount + show the Causa shell. On first call: register the `:rf/causa`
