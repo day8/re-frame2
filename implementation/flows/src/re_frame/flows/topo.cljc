@@ -168,7 +168,19 @@
                              rem0)]
               (recur ready' remaining' (conj order n)))
             (if (seq remaining)
+              ;; Per rf2-6mxr2: cycle ex-info carries the standard shape
+              ;; every other flow ex-info uses (`:error` / `:where` /
+              ;; `:recovery` / `:reason`) so tools (Causa, re-frame-10x,
+              ;; late-bind-missing wrappers) can read these slots
+              ;; uniformly across error surfaces. `topo.cljc` is the
+              ;; pure-data module — no `:require`s — so the shape is
+              ;; inlined rather than reaching for `registry.cljc`'s
+              ;; `flow-error` helper.
               (throw (ex-info ":rf.error/flow-cycle"
-                              {:cycle (extract-cycle-path graph
-                                                          (set (keys remaining)))}))
+                              {:error    :rf.error/flow-cycle
+                               :where    'rf/reg-flow
+                               :recovery :no-recovery
+                               :reason   "Cyclic flow dependency — at least one pair of flows' :path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."
+                               :cycle    (extract-cycle-path graph
+                                                             (set (keys remaining)))}))
               order)))))))

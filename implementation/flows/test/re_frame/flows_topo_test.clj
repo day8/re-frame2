@@ -78,15 +78,28 @@
            (topo/topo-sort {:a {:id :a :inputs [[:n]] :output identity :path [:a]}})))))
 
 (deftest topo-sort-detects-cycle
-  (testing "two flows forming a cycle raise :rf.error/flow-cycle with :cycle in ex-data"
+  (testing "two flows forming a cycle raise :rf.error/flow-cycle with the standard error shape (rf2-6mxr2)"
     (let [flow-map {:a {:id :a :inputs [[:b]] :output identity :path [:a]}
                     :b {:id :b :inputs [[:a]] :output identity :path [:b]}}
           thrown   (try (topo/topo-sort flow-map)
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "cycle raises")
+      (is (= ":rf.error/flow-cycle" (.getMessage ^Throwable thrown))
+          "ex-info message is the documented category")
       (let [data (ex-data thrown)]
+        (is (= :rf.error/flow-cycle (:error data))
+            "ex-data carries :error :rf.error/flow-cycle (standard shape — rf2-6mxr2)")
+        (is (= 'rf/reg-flow (:where data))
+            "ex-data carries :where 'rf/reg-flow — points at the user-facing call site")
+        (is (= :no-recovery (:recovery data))
+            "ex-data carries :recovery :no-recovery")
+        (is (string? (:reason data))
+            "ex-data carries :reason as a string diagnostic")
         (is (vector? (:cycle data))
             "ex-data carries :cycle as a vector")
         (is (>= (count (:cycle data)) 2)
-            "the cycle vector closes (at least two entries including the closing repeat)")))))
+            "the cycle vector closes (at least two entries including the closing repeat)")
+        (is (= #{:error :where :recovery :reason :cycle}
+               (set (keys data)))
+            "ex-data carries exactly the standard slots + :cycle (no extras, no missing)")))))
