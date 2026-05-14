@@ -28,8 +28,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { runWithWatchdog } = require('./_runner.js');
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
 
@@ -53,41 +52,28 @@ const EXPECTED_TOOLS = [
   'watch-epochs',
 ];
 
-async function main() {
-  // Force degraded mode: empty out $SHADOW_CLJS_NREPL_PORT and boot
-  // from a tmpdir so the port-file probe misses. Same setup as the
-  // pair2-mcp upstream stdio-roundtrip.
-  const env = { ...process.env };
-  delete env.SHADOW_CLJS_NREPL_PORT;
+// Force degraded mode: empty out $SHADOW_CLJS_NREPL_PORT and boot from
+// a tmpdir so the port-file probe misses. Same setup as the pair2-mcp
+// upstream stdio-roundtrip.
+const env = { ...process.env };
+delete env.SHADOW_CLJS_NREPL_PORT;
 
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [SERVER],
-    cwd: os.tmpdir(),
-    env,
-    stderr: 'pipe',
-  });
+runWithWatchdog(
+  {
+    watchdogMs: 60000,
+    clientName: 'mcp-conformance-pair2',
+    transportSpec: {
+      command: process.execPath,
+      args: [SERVER],
+      cwd: os.tmpdir(),
+      env,
+    },
+  },
+  async (client) => {
+    const serverInfo = client.getServerVersion();
+    if (!serverInfo) throw new Error('connect succeeded but getServerVersion() is empty');
+    console.log('OK   connect ->', serverInfo);
 
-  const client = new Client(
-    { name: 'mcp-conformance-pair2', version: '0.1.0' },
-    { capabilities: {} },
-  );
-
-  // Pipe server stderr to ours so CI logs surface server-side debug
-  // output if a step fails.
-  transport.stderr?.on('data', (d) => process.stderr.write('[server] ' + d.toString()));
-
-  // 1. Connect — the SDK Client.connect() does the full initialize
-  // handshake (initialize request, response, notifications/initialized)
-  // and validates the result envelope against InitializeResultSchema.
-  // If the server's initialize response drifts from the spec, this
-  // throws.
-  await client.connect(transport);
-  const serverInfo = client.getServerVersion();
-  if (!serverInfo) throw new Error('connect succeeded but getServerVersion() is empty');
-  console.log('OK   connect ->', serverInfo);
-
-  try {
     // 2. tools/list via SDK. The SDK validates the response against
     // ListToolsResultSchema, so any descriptor-shape drift surfaces
     // here.
@@ -228,36 +214,10 @@ async function main() {
       'OK   tools/call subscription-info (degraded) -> isError + nrepl-port-not-found',
     );
 
-    // 4. Clean disconnect. The SDK closes the transport which kills
-    // the child process. If the server hangs on shutdown the harness
-    // will be killed by the watchdog timeout.
-    await client.close();
-    console.log('OK   client.close() -> transport torn down cleanly');
+    // 4. The runner tears down the transport via client.close() on
+    // exit; the SDK closes the transport which kills the child
+    // process. If the server hangs on shutdown the runner's watchdog
+    // catches it.
     console.log('\nPAIR2-MCP MCP-CLIENT CONFORMANCE GREEN');
-  } catch (err) {
-    try {
-      await client.close();
-    } catch (_e) {
-      // best-effort
-    }
-    throw err;
-  }
-}
-
-// Hard cap so a hung server doesn't wedge CI.
-const watchdog = setTimeout(() => {
-  console.error('FAIL: watchdog timeout (60s)');
-  process.exit(2);
-}, 60000);
-
-main()
-  .then(() => {
-    clearTimeout(watchdog);
-    process.exit(0);
-  })
-  .catch((e) => {
-    clearTimeout(watchdog);
-    console.error('FAIL:', e.message);
-    if (e.stack) console.error(e.stack);
-    process.exit(1);
-  });
+  },
+);

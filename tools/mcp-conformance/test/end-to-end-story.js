@@ -27,8 +27,7 @@
 // 0 on success. Source: rf2-cum40.
 
 const path = require('node:path');
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { runWithWatchdog } = require('./_runner.js');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
 const CLOJURE = process.env.STORY_MCP_CMD || 'clojure';
@@ -63,31 +62,26 @@ const EXPECTED_TOOLS = [
 // test scripts could in principle run against the same JVM.
 const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 
-async function main() {
-  const env = { ...process.env };
+// JVM boot is slow on a cold CI worker (~10-30s); the whole register →
+// run → read → unregister loop adds a few more seconds. 90s is
+// comfortably above that without leaving a hung process if something
+// stalls.
+runWithWatchdog(
+  {
+    watchdogMs: 90000,
+    clientName: 'mcp-conformance-story',
+    transportSpec: {
+      command: CLOJURE,
+      args: ['-M', '-m', 're-frame.story-mcp.server', '--allow-writes'],
+      cwd: STORY_MCP_CWD,
+      env: { ...process.env },
+    },
+  },
+  async (client) => {
+    const serverInfo = client.getServerVersion();
+    if (!serverInfo) throw new Error('connect succeeded but getServerVersion() is empty');
+    console.log('OK   connect ->', serverInfo);
 
-  const transport = new StdioClientTransport({
-    command: CLOJURE,
-    args: ['-M', '-m', 're-frame.story-mcp.server', '--allow-writes'],
-    cwd: STORY_MCP_CWD,
-    env,
-    stderr: 'pipe',
-  });
-
-  const client = new Client(
-    { name: 'mcp-conformance-story', version: '0.1.0' },
-    { capabilities: {} },
-  );
-
-  transport.stderr?.on('data', (d) => process.stderr.write('[server] ' + d.toString()));
-
-  // 1. Connect. Initialize handshake runs through SDK.
-  await client.connect(transport);
-  const serverInfo = client.getServerVersion();
-  if (!serverInfo) throw new Error('connect succeeded but getServerVersion() is empty');
-  console.log('OK   connect ->', serverInfo);
-
-  try {
     // 2. tools/list — confirm catalogue.
     const listed = await client.listTools();
     const names = listed.tools.map((t) => t.name).sort();
@@ -200,37 +194,7 @@ async function main() {
     }
     console.log('OK   unregister-variant -> teardown verified by subsequent get-variant -> not-found');
 
-    // 7. Clean disconnect.
-    await client.close();
-    console.log('OK   client.close() -> transport torn down cleanly');
+    // 7. Clean disconnect — runner handles client.close() on success.
     console.log('\nSTORY-MCP MCP-CLIENT CONFORMANCE GREEN');
-  } catch (err) {
-    try {
-      await client.close();
-    } catch (_e) {
-      // best-effort
-    }
-    throw err;
-  }
-}
-
-// JVM boot is slow on a cold CI worker (~10-30s); the whole register →
-// run → read → unregister loop adds a few more seconds. 90s is
-// comfortably above that without leaving a hung process if something
-// stalls.
-const watchdog = setTimeout(() => {
-  console.error('FAIL: watchdog timeout (90s)');
-  process.exit(2);
-}, 90000);
-
-main()
-  .then(() => {
-    clearTimeout(watchdog);
-    process.exit(0);
-  })
-  .catch((e) => {
-    clearTimeout(watchdog);
-    console.error('FAIL:', e.message);
-    if (e.stack) console.error(e.stack);
-    process.exit(1);
-  });
+  },
+);
