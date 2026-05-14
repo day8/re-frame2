@@ -694,7 +694,10 @@
     (binding [frame/*current-frame* (:frame envelope)]
       (process-event* envelope))))
 
-(def ^:private drain-depth-default 100)
+(def ^:private drain-depth-default
+  ;; Deep enough for typical cascade depths; cheap atomic rollback per
+  ;; Spec 002 §Run-to-completion rule 3 when exceeded.
+  100)
 
 (defn- handle-depth-exceeded!
   "Tail-path for the depth-limit branch of `drain!`. Atomic rollback per
