@@ -144,10 +144,10 @@ Optional. Registers a callback that fires *after* `replace-container!` runs. The
 ;; unsubscribe-fn signature: (fn [] nil) — idempotent
 ```
 
-If the adapter supports it, the core uses `subscribe-container` to wire reactive sub-cache invalidation. If the adapter does NOT support it (returns `nil` from `subscribe-container`), the core falls back to running invalidation inline within `replace-container!` itself (the adapter must, in that case, ensure `replace-container!` runs the core's invalidation hook before returning).
+If the adapter supports it, the core uses `subscribe-container` to wire reactive sub-cache invalidation. The CLJS reference adapters (Reagent, UIx, Helix, plain-atom) all supply it — the `add-watch`/`remove-watch` realisation is the lowest-common-denominator listener surface that every Clojure-host atom or atom-shape exposes for free. An adapter that genuinely cannot supply listeners (a host whose container primitive offers no observer hook) signals "unsupported" by either omitting the entry from its adapter spec map or returning `nil` from `subscribe-container`; in that case the core falls back to running invalidation inline within `replace-container!` itself (the adapter must, in that case, ensure `replace-container!` runs the core's invalidation hook before returning).
 
-CLJS-Reagent: Reagent's reaction machinery handles this implicitly; `subscribe-container` returns a function that cancels the registration.
-CLJS-headless: not supported; returns `nil` (tests poll via `read-container`).
+CLJS-Reagent: Reagent's reaction machinery handles this implicitly; `subscribe-container` returns a function that cancels the registration. The reference Reagent adapter additionally exposes the listener surface via `add-watch` on the underlying `r/atom` so the substrate contract is honoured uniformly across adapters — see [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter).
+CLJS-headless (plain-atom adapter, JVM and Node): supported via `add-watch` on the `clojure.core/atom` container; the returned unsubscribe-fn calls `remove-watch`. This lets headless tests and SSR builders register change-listeners without resorting to polling — see [§Plain-atom adapter (JVM, SSR, headless)](#plain-atom-adapter-jvm-ssr-headless).
 TS-React / Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint: returns a function that detaches the listener from the atom-shape's subscriber list (the same store `useSyncExternalStore` consumes).
 
 ### `(make-derived-value source-containers compute-fn) → container`
@@ -162,9 +162,9 @@ Returns a derived container whose value is computed from one or more source cont
 
 The returned container supports `read-container`; `replace-container!` is **not** supported on derived containers (errors with `:rf.error/derived-container-replaced`). `subscribe-container` works as on a base container.
 
-The implementation is responsible for caching the derived value and recomputing only when an input changes by `=`.
+The derived container's caching responsibility is **adapter discretion**: an adapter MAY memoise the derived value (and is encouraged to where the host primitive makes it cheap — Reagent's `Reaction` does this for free), or MAY recompute on every `read-container` and rely on the **per-frame sub-cache** ([§Subscription cache — contract and operational semantics](#subscription-cache--contract-and-operational-semantics)) to enforce the `=`-equality invariant across recomputes. Either shape is conformant. What is NOT conformant: a derived container whose recompute fires for an input that did not change by `=` and whose downstream propagation does not collapse on `=`-equal new values — that would break the cascade rule in [§Invalidation algorithm](#invalidation-algorithm).
 
-CLJS-Reagent: a Reagent `reaction`. CLJS-headless: not used (the core's `compute-sub` runs derivations on demand without caching). TS-React / other JS-cross-compile ports: an `IDeref`+`IWatchable`-shaped wrapper that recomputes on read and broadcasts via the source containers' watch machinery (same shape used by the UIx / Helix adapters; see [§CLJS reference: UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate-rf2-3yij)).
+CLJS-Reagent: a Reagent `reaction` — memoising; re-runs only when an input deref changes by `=`. CLJS-headless (plain-atom adapter): an `IDeref` wrapper that recomputes on every read; no memoisation at the substrate layer because SSR runs each sub at most a handful of times per request and the sub-cache (when present) handles `=`-equality cascading. TS-React / UIx / Helix / other JS-cross-compile ports: an `IDeref`+`IWatchable`-shaped wrapper that recomputes on read and broadcasts change via the source containers' watch machinery (see [§CLJS reference: UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate-rf2-3yij) and [§CLJS reference: Helix as alternative substrate](#cljs-reference-helix-as-alternative-substrate-rf2-2qit)).
 
 ### `(render render-tree mount-point opts) → unmount-fn`
 
@@ -249,7 +249,7 @@ The rule:
 ### Reference-adapter compliance
 
 - **CLJS-Reagent.** Reagent's `Reaction` machinery caches derived values (memoisation: derivable). The track-cache that Reagent maintains for reaction graphs is regenerable from the underlying ratoms (which hold the frame value) — drop the cache, the next deref rebuilds it. Reagent's listener registry is transient. No observer state outside the frame value. ✓
-- **CLJS plain-atom (headless).** The container is a `clojure.core/atom`; the only operation is `reset!`. No reactivity layer, no caches, no listeners. Trivially compliant. ✓
+- **CLJS plain-atom (headless).** The container is a `clojure.core/atom`. The adapter exposes `subscribe-container` via `add-watch` / `remove-watch` and `make-derived-value` as an `IDeref` wrapper that recomputes on every read (no memoisation at the substrate layer — see [§make-derived-value](#make-derived-value-source-containers-compute-fn--container)). The watch-key registry is transient — drop it, re-register, and observable behaviour is unchanged (modulo a tick); the derived-value wrapper holds no state beyond its source-container references. No reactivity graph and no value cache live outside the frame container. ✓
 - **TS-React / Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint adapters.** Same constraint applies: each port's atom-shape subscriber registry, the `useSyncExternalStore` snapshot store React caches, and any derived-value memoisation must all be derivable from the frame's value. Ports verify the host React binding doesn't squirrel away non-derivable state outside the frame container.
 
 ### What an adapter MUST NOT do
@@ -824,7 +824,7 @@ How it differs from the Reagent adapter:
   (:require [re-frame.render.hiccup-to-html :as hiccup]))
 
 (defn make-state-container [initial-value]
-  (atom initial-value))                               ;; clojure.core/atom; no reactivity
+  (atom initial-value))                               ;; clojure.core/atom; reactivity via add-watch (see subscribe-container)
 
 (defn read-container [container]    @container)
 (defn replace-container! [container nu] (reset! container nu) nil)
