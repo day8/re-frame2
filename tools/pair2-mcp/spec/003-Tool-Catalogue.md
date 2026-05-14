@@ -475,12 +475,17 @@ the per-slice resolution so the agent can pattern-match on which
 slices are markers vs raw payloads without re-deriving the choice
 from the request shape.
 
-The summary marker's `:bytes` hint is computed AFTER diff-encoding
-and dedup — it reflects the post-shrink wire cost the agent would
-pay to expand the slice, not the raw in-memory size. A map with more
-than 64 top-level keys truncates the `:keys` list and flags
-`:keys-truncated? true` so the marker itself can never blow the
-wire cap.
+The summary marker's `:bytes` hint is a cheap APPROXIMATION
+(rf2-qta8j) — `entry-count × per-entry-constant`, not a precise
+serialised byte count. The marker's whole point is to avoid
+serialising the deep value (a 54MB app-db slice would otherwise burn
+a 54MB string allocation per summary just to compute one integer);
+agents needing a precise byte count walk the drill-down result
+directly. The marker is computed AFTER diff-encoding and dedup so
+the entry count reflects the post-shrink top-level shape. A map
+with more than 64 top-level keys truncates the `:keys` list and
+flags `:keys-truncated? true` so the marker itself can never blow
+the wire cap.
 
 ### `:app-db` slice modes (rf2-tygdv)
 

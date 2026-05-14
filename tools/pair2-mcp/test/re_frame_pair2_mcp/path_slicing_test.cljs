@@ -77,20 +77,67 @@
 ;; tree-summary — the {:rf.mcp/summary ...} marker shape.
 ;; ---------------------------------------------------------------------------
 
-(deftest tree-summary-map-records-top-level-keys-and-bytes
+(deftest tree-summary-map-records-top-level-keys-and-bytes-approx
+  ;; rf2-qta8j: `:bytes` is a cheap approximation, not a precise count.
+  ;; Earlier shape paid `(count (pr-str v))` per branch — a deep walk
+  ;; that contradicted the marker's "no-deep-walk" contract (54MB
+  ;; app-db slice burned a 54MB string allocation per summary). The
+  ;; field is now `count × per-entry constant`. Pin the contract: the
+  ;; estimate scales linearly with entry count, is non-negative, and
+  ;; is order-of-magnitude reasonable for tiny maps.
   (let [v {:a 1 :b 2 :nested {:deep {:value 42}}}
         s (summary/tree-summary v)
         marker (:rf.mcp/summary s)]
     (is (= :map (:type marker)))
     (is (= #{:a :b :nested} (set (:keys marker))))
     (is (= 3 (:count marker)))
-    (is (= (count (pr-str v)) (:bytes marker)))))
+    (is (integer? (:bytes marker)))
+    (is (pos? (:bytes marker)))
+    ;; The estimate is `:count × per-entry-constant` — for a 3-entry
+    ;; map under the current 16-byte heuristic that's 48. Pin a
+    ;; range, not the literal, so a future re-tune of the heuristic
+    ;; (e.g. measuring against a representative corpus) doesn't churn
+    ;; the test fixture by one byte.
+    (is (<= 8 (:bytes marker) 512)
+        "Per-entry estimate should be order-of-magnitude reasonable")))
+
+(deftest tree-summary-bytes-scales-with-entry-count
+  ;; The estimator is linear: a 10-entry map should report ~10x the
+  ;; `:bytes` of a 1-entry map.
+  (let [tiny  {:a 1}
+        big   (zipmap (map #(keyword (str "k" %)) (range 10)) (range 10))
+        tiny-bytes (-> tiny summary/tree-summary :rf.mcp/summary :bytes)
+        big-bytes  (-> big  summary/tree-summary :rf.mcp/summary :bytes)]
+    (is (= 10 (/ big-bytes tiny-bytes))
+        "10-entry map's bytes estimate should be 10x a 1-entry map's")))
+
+(deftest tree-summary-bytes-is-cheap-on-large-values
+  ;; rf2-qta8j: the load-bearing property. Computing `:bytes` on a
+  ;; 50K-entry map MUST be effectively instant — the marker exists
+  ;; precisely to avoid serialising the deep value. Earlier shape
+  ;; paid `(count (pr-str v))` which would have burned ~megabytes
+  ;; of string allocation here.
+  ;;
+  ;; We don't time the call (test environments vary too much) but we
+  ;; pin the structural property: the result is the entry count
+  ;; times a fixed constant, so the computation is independent of
+  ;; value depth. A regression to deep `pr-str` would surface as a
+  ;; non-multiple-of-the-constant byte count.
+  (let [huge   (zipmap (map #(keyword (str "k" %)) (range 50000))
+                       (repeat (zipmap (range 100) (range 100))))
+        marker (:rf.mcp/summary (summary/tree-summary huge))
+        bytes  (:bytes marker)]
+    (is (= 50000 (:count marker)))
+    (is (zero? (mod bytes 50000))
+        "Bytes must be entry-count × constant, not pr-str byte count")))
 
 (deftest tree-summary-vector-records-count
   (let [v [1 2 3 4 5]
         marker (:rf.mcp/summary (summary/tree-summary v))]
     (is (= :vector (:type marker)))
-    (is (= 5 (:count marker)))))
+    (is (= 5 (:count marker)))
+    (is (integer? (:bytes marker)))
+    (is (pos? (:bytes marker)))))
 
 (deftest tree-summary-set-and-seq
   (is (= :set (-> (summary/tree-summary #{1 2 3}) :rf.mcp/summary :type)))
