@@ -103,9 +103,12 @@
   is `false` so downstream flows still walk."
   [frame-id db flow]
   (let [flow-id    (:id flow)
-        k          [frame-id flow-id]
         new-inputs (read-inputs db flow)
-        old-inputs (get @last-inputs k)]
+        ;; `last-inputs` is shaped {flow-id {frame-id inputs}} so the
+        ;; hot-reload invalidation hook can drop a flow's whole row
+        ;; with one O(1) dissoc (rf2-2xq8w / PERF Q10). Per-frame
+        ;; dirty-check windows stay independent.
+        old-inputs (get-in @last-inputs [flow-id frame-id])]
     (if (= new-inputs old-inputs)
       (do
         ;; Per Spec 009 §:op-type vocabulary: :rf.flow/skip records the
@@ -121,7 +124,7 @@
       (try
         (let [new-output (apply (:output flow) new-inputs)
               new-db     (assoc-in db (:path flow) new-output)]
-          (swap! last-inputs assoc k new-inputs)
+          (swap! last-inputs assoc-in [flow-id frame-id] new-inputs)
           ;; Per Spec 009 §:op-type vocabulary: :rf.flow/computed records
           ;; a successful recompute. :input-values are raw values (not
           ;; hashed) — the trace surface is dev-only and elided in
