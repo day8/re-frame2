@@ -111,8 +111,11 @@
                     coeffect map / slice).
     - `:explain` — the validator's explanation (Malli explain map on
                    the CLJS reference; other shapes on other ports).
-    - `:path` (when present, for app-db failures) — the registered
-                schema path.
+    - `:path` (when present, for app-db failures) — the failing leaf
+                path (registered root + Malli explainer's value-
+                navigation suffix per rf2-oh4se). The registration
+                anchor itself rides on `:registered-path` when tooling
+                needs it.
     - `:frame` — the frame id the failure fired in.
     - `:recovery` — the spec-defined recovery posture.
 
