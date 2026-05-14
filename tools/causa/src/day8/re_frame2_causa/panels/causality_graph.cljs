@@ -109,7 +109,7 @@
         label (node-label node)
         glyph (h/node-glyph node selected?)]
     [:g {:data-testid (str "rf-causa-graph-node-" dispatch-id)
-         :on-click    #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
+         :on-click    #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
          :style       {:cursor cursor}}
      [:rect {:x            x
              :y            y
@@ -253,7 +253,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn causality-graph-view
+(rf/reg-view causality-graph-view
   "The Causality Graph panel's root view. Subscribes to
   `:rf.causa/causality-graph-data` and renders either the empty
   state (no cascades) or the SVG canvas (one or more cascades)."
@@ -288,7 +288,7 @@
           [:code {:style {:color (:magenta tokens) :font-family mono-stack}}
            (str selected-epoch-id)]
           [:button {:data-testid "rf-causa-causality-graph-clear-filter"
-                    :on-click    #(rf/dispatch [:rf.causa/clear-selected-epoch])
+                    :on-click    #(rf/dispatch [:rf.causa/clear-selected-epoch] {:frame :rf/causa})
                     :style       {:margin-left "6px"
                                   :background "transparent"
                                   :border (str "1px solid " (:border-default tokens))

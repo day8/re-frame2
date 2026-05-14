@@ -132,7 +132,7 @@
                    :colour   (:causa-mcp-cyan tokens)
                    :test-id  (str "rf-causa-mcp-op-type-chip-" (name op-type))
                    :on-click #(rf/dispatch [:rf.causa/toggle-mcp-op-type
-                                            op-type])})))))
+                                            op-type] {:frame :rf/causa})})))))
 
 (defn- since-input
   "The `since-ms` filter — a numeric input rendered as a chip-row
@@ -159,7 +159,7 @@
                                    (let [parsed (js/parseInt v 10)]
                                      (when-not (js/isNaN parsed) parsed))
                                    (catch :default _ nil))]
-                           (rf/dispatch [:rf.causa/set-mcp-since-seconds n])))
+                           (rf/dispatch [:rf.causa/set-mcp-since-seconds n] {:frame :rf/causa})))
             :style     {:width "60px"
                         :background (:bg-3 tokens)
                         :color (:text-primary tokens)
@@ -213,7 +213,7 @@
                     :color (:text-secondary tokens)}}
     [:input {:type      "checkbox"
              :checked   (boolean origin-filter-enabled?)
-             :on-change #(rf/dispatch [:rf.causa/toggle-mcp-origin-filter])
+             :on-change #(rf/dispatch [:rf.causa/toggle-mcp-origin-filter] {:frame :rf/causa})
              :style     {:cursor "pointer"}}]
     [:span "Highlight :causa-mcp events across panels"]]])
 
@@ -256,7 +256,7 @@
      (str rendered " / " total " in view")]
     (when any-filter?
       [:button {:data-testid "rf-causa-mcp-clear-filters"
-                :on-click    #(rf/dispatch [:rf.causa/clear-mcp-filters])
+                :on-click    #(rf/dispatch [:rf.causa/clear-mcp-filters] {:frame :rf/causa})
                 :style       {:margin-left "auto"
                               :background  "transparent"
                               :color       (:cyan tokens)
@@ -285,8 +285,8 @@
           :data-testid row-test-id
           :on-click    (fn []
                          (when dispatch-id
-                           (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
-                           (rf/dispatch [:rf.causa/select-panel :event-detail])))
+                           (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
+                           (rf/dispatch [:rf.causa/select-panel :event-detail] {:frame :rf/causa})))
           :style       {:display       "grid"
                         :grid-template-columns "84px 90px minmax(120px, 1fr) auto 2fr auto"
                         :gap           "10px"
@@ -348,7 +348,7 @@
                                 ;; handler doesn't also fire.
                                 (.stopPropagation e)
                                 (rf/dispatch [:rf.causa/open-in-editor
-                                              {:source-coord source-coord}]))
+                                              {:source-coord source-coord}] {:frame :rf/causa}))
                  :style       {:background  "transparent"
                                :color       (:cyan tokens)
                                :border      (str "1px solid " (:border-subtle tokens))
@@ -415,7 +415,7 @@
    [:p {:style {:margin "0 0 12px 0" :color (:text-tertiary tokens)}}
     "Adjust the op-type / since-ms chips above to widen the feed."]
    [:button {:data-testid "rf-causa-mcp-empty-clear-filters"
-             :on-click    #(rf/dispatch [:rf.causa/clear-mcp-filters])
+             :on-click    #(rf/dispatch [:rf.causa/clear-mcp-filters] {:frame :rf/causa})
              :style       {:background "transparent"
                            :color      (:cyan tokens)
                            :border     (str "1px solid " (:border-default tokens))
@@ -428,7 +428,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn mcp-server-view
+(rf/reg-view mcp-server-view
   "The MCP Server panel's root view. Subscribes to
   `:rf.causa/mcp-server` (composite) + `:rf.causa/mcp-origin-filter-
   enabled?` (settings sub-pane state)."

@@ -187,7 +187,7 @@
                     :gap "6px"
                     :margin-bottom "6px"}}
       [:button {:data-testid (str "rf-causa-app-db-diff-pin-" (pr-str path))
-                :on-click    #(rf/dispatch [:rf.causa/pin-slice path])
+                :on-click    #(rf/dispatch [:rf.causa/pin-slice path] {:frame :rf/causa})
                 :style       {:background  "transparent"
                               :color       (:cyan tokens)
                               :border      (str "1px solid " (:border-default tokens))
@@ -198,7 +198,7 @@
                               :font-size   "10px"}}
        "Pin"]
       [:button {:data-testid (str "rf-causa-app-db-diff-show-when-" (pr-str path))
-                :on-click    #(rf/dispatch [:rf.causa/focus-slice-path path])
+                :on-click    #(rf/dispatch [:rf.causa/focus-slice-path path] {:frame :rf/causa})
                 :style       {:background  "transparent"
                               :color       (:magenta tokens)
                               :border      (str "1px solid " (:border-default tokens))
@@ -209,7 +209,7 @@
                               :font-size   "10px"}}
        "Show me when this changed"]
       [:button {:data-testid (str "rf-causa-app-db-diff-copy-path-" (pr-str path))
-                :on-click    #(rf/dispatch [:rf.causa/copy-path-to-clipboard path])
+                :on-click    #(rf/dispatch [:rf.causa/copy-path-to-clipboard path] {:frame :rf/causa})
                 :style       {:background  "transparent"
                               :color       (:text-secondary tokens)
                               :border      (str "1px solid " (:border-default tokens))
@@ -223,7 +223,7 @@
                 :on-click    #(rf/dispatch [:rf.causa/copy-value-to-clipboard
                                             (case op
                                               :removed before
-                                              after)])
+                                              after)] {:frame :rf/causa})
                 :style       {:background  "transparent"
                               :color       (:text-secondary tokens)
                               :border      (str "1px solid " (:border-default tokens))
@@ -305,7 +305,7 @@
     [:span {:style {:color (:text-tertiary tokens)}}
      (truncate (format-edn value) 36)]
     [:button {:data-testid (str "rf-causa-app-db-diff-unpin-" (pr-str path))
-              :on-click    #(rf/dispatch [:rf.causa/unpin-slice path])
+              :on-click    #(rf/dispatch [:rf.causa/unpin-slice path] {:frame :rf/causa})
               :style       {:background "transparent"
                             :border     "none"
                             :color      (:text-tertiary tokens)
@@ -347,7 +347,7 @@
   turn re-filters the causality graph + repaints this panel)."
   [{:keys [epoch-id event op before after] :as _hit}]
   [:li {:data-testid (str "rf-causa-app-db-diff-focus-hit-" (pr-str epoch-id))
-        :on-click    #(rf/dispatch [:rf.causa/select-epoch epoch-id])
+        :on-click    #(rf/dispatch [:rf.causa/select-epoch epoch-id] {:frame :rf/causa})
         :style       {:display "flex"
                       :align-items "center"
                       :gap "12px"
@@ -392,7 +392,7 @@
      [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
       (format-edn focused-path)]]
     [:button {:data-testid "rf-causa-app-db-diff-clear-focus"
-              :on-click    #(rf/dispatch [:rf.causa/clear-slice-focus])
+              :on-click    #(rf/dispatch [:rf.causa/clear-slice-focus] {:frame :rf/causa})
               :style       {:background "transparent"
                             :border (str "1px solid " (:border-default tokens))
                             :color (:text-secondary tokens)
@@ -440,7 +440,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn app-db-diff-view
+(rf/reg-view app-db-diff-view
   "The App-DB Diff panel's root view. Subscribes to
   `:rf.causa/app-db-diff` and renders the slice-centric stack +
   pinned slices + reserved-keys group, or the empty state when no
