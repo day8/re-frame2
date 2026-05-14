@@ -64,7 +64,8 @@
                          `(- now-ms since-ms)` drop from the feed
 
   Each axis is independent; empty filters disable the axis."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-causa.panels.common-helpers :as common]))
 
 ;; ---- defaults ------------------------------------------------------------
 
@@ -240,15 +241,10 @@
         (keep project-issue)
         events))
 
-;; ---- now-ms (abstracted for test fixtures) ------------------------------
-
-(defn now-ms
-  "Return host-clock time in ms. Pure-ish — abstracted so test
-  fixtures can stub via `with-redefs`. Cross-platform via
-  `#?(:clj ... :cljs ...)`."
-  []
-  #?(:clj  (System/currentTimeMillis)
-     :cljs (.getTime (js/Date.))))
+;; Re-export `now-ms` so existing callers (registry.cljs thunks the
+;; `:rf.causa/issues-ribbon-feed` sub via `(issues-helpers/now-ms)`)
+;; keep working without churn. Body lives in `common-helpers`.
+(def now-ms common/now-ms)
 
 ;; ---- filter application -------------------------------------------------
 
