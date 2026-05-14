@@ -71,6 +71,9 @@
     false))
 
 ;; ---- timers ---------------------------------------------------------------
+;; Timers are a platform primitive, not substrate-reactive — call
+;; `js/setTimeout` / `js/clearTimeout` directly rather than routing
+;; through the late-bind hook table like the reactive surfaces above.
 
 (defn set-timeout!
   "Schedule f to run after ms milliseconds. Returns an opaque handle."
