@@ -31,7 +31,8 @@
   resolved single (or region) machine context, so the parallel layer
   is bypassed for the recursive macrostep call."
   (:require [clojure.set :as set]
-            [re-frame.machines.result :as result]
+            [re-frame.machines.result :as result
+             #?@(:cljs [:include-macros true])]
             [re-frame.machines.transition :as transition]))
 
 (defn parallel?
@@ -181,13 +182,13 @@
                 step-result (apply-initial-entry-cascade-single region-spec region-snap)]
             (if (result/fail? step-result)
               step-result
-              (let [{reg-snap ::result/snap reg-fx ::result/fx} step-result
-                    prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
-                (recur (rest pending)
-                       (:data reg-snap)
-                       (:rf/spawn-counter reg-snap)
-                       (assoc new-states rn (:state reg-snap))
-                       (vec (concat acc-fx prefixed-fx)))))))))
+              (result/with-ok [reg-snap reg-fx] step-result
+                (let [prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
+                  (recur (rest pending)
+                         (:data reg-snap)
+                         (:rf/spawn-counter reg-snap)
+                         (assoc new-states rn (:state reg-snap))
+                         (vec (concat acc-fx prefixed-fx))))))))))
     (apply-initial-entry-cascade-single machine initial-snapshot)))
 
 (declare machine-transition)
@@ -246,13 +247,13 @@
               step-result (machine-transition region-spec region-snap event)]
           (if (result/fail? step-result)
             step-result
-            (let [{reg-snap ::result/snap reg-fx ::result/fx} step-result
-                  prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
-              (recur (rest pending)
-                     (:data reg-snap)
-                     (:rf/spawn-counter reg-snap)
-                     (assoc new-states rn (:state reg-snap))
-                     (vec (concat acc-fx prefixed-fx))))))))))
+            (result/with-ok [reg-snap reg-fx] step-result
+              (let [prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
+                (recur (rest pending)
+                       (:data reg-snap)
+                       (:rf/spawn-counter reg-snap)
+                       (assoc new-states rn (:state reg-snap))
+                       (vec (concat acc-fx prefixed-fx)))))))))))
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
@@ -260,7 +261,10 @@
   carrying the new snapshot and effects vector, or a `result/fail`
   carrying diagnostic info if any action / `:data`-fn threw. Use
   `result/ok?` / `result/fail?` to discriminate and the `::result/snap`
-  / `::result/fx` / `::result/info` keys to destructure.
+  / `::result/fx` / `::result/info` keys to destructure (or the
+  `result/with-ok` macro for the pair-destructure-after-fail-check
+  pattern, and the plain `result/snap` / `result/fx` / `result/info`
+  fns for single-slot reads).
 
   Per Spec 005 §Drain semantics §Level 3, this is the macrostep:
    1. Pick the matching transition for the event using deepest-wins
