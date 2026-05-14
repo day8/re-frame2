@@ -39,15 +39,17 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 
 ## Discovering the current VERSION
 
-re-frame2 versions look like `0.0.1.alpha`, `0.0.2.alpha`, `1.0.0`, etc. Three places to look, in order of authority:
+**The author picks the re-frame2 VERSION at kickoff; the skill never auto-selects.** Pinning the framework version makes the project reproducible and avoids silently chasing whatever has just shipped.
+
+For the author's reference (so they can pick), three sources, in order of authority:
 
 1. **The repo's `VERSION` file** — `https://github.com/day8/re-frame2/blob/main/VERSION` is the single source of truth that release tags are cut from. The string in this file is the canonical VERSION for the next release.
-2. **`CHANGELOG.md`** — `https://github.com/day8/re-frame2/blob/main/CHANGELOG.md` lists the released VERSIONs with summaries. Use the latest non-unreleased entry.
+2. **`CHANGELOG.md`** — `https://github.com/day8/re-frame2/blob/main/CHANGELOG.md` lists the released VERSIONs with summaries. The latest non-unreleased entry is the latest released VERSION.
 3. **The GitHub releases page** — `https://github.com/day8/re-frame2/releases` shows the tags. The latest tag is `v<VERSION>`.
 
-If the author wants the latest released version, read `CHANGELOG.md` and pick the most recent versioned heading that isn't `Unreleased`. If they want the bleeding edge (e.g. they're chasing a fix that hasn't released yet), they may need to use a Git coordinate via `:git/url` + `:git/sha` instead of `:mvn/version`. That's a niche case; default to released `:mvn/version`.
+For the bleeding edge (e.g. chasing a fix that hasn't released yet), the author can use a `:git/url` + `:git/sha` coord instead of `:mvn/version`. Niche; the skill takes the SHA from the author and writes it in — it does not pick.
 
-**Never invent a version.** If you can't reach the network to look it up, ask the author to paste the current VERSION rather than guess.
+**Never invent a version. Never silently pick `latest`.** Both are accidents the policy exists to prevent. If the author hasn't supplied a VERSION, stop and ask before editing any dep file.
 
 ## `deps.edn` shape
 
@@ -69,7 +71,7 @@ Notes on the Clojure / ClojureScript versions:
 
 ## `package.json` shape
 
-re-frame2 itself ships no npm code — but Reagent depends on React, and shadow-cljs is the build tool. Minimum `package.json`:
+re-frame2 itself ships no npm code — but Reagent depends on React, and shadow-cljs is the build tool. **Default to the versions the re-frame2 repo's own `implementation/package.json` pins at the author's pinned `day8/re-frame2` commit/tag** — those are known-good against the chosen re-frame2 VERSION:
 
 ```json
 {
@@ -77,18 +79,18 @@ re-frame2 itself ships no npm code — but Reagent depends on React, and shadow-
   "version": "0.0.0",
   "private": true,
   "devDependencies": {
-    "shadow-cljs": "<latest-2.x>",
-    "react": "<latest-18.x>",
-    "react-dom": "<latest-18.x>"
+    "shadow-cljs": "<from pinned implementation/package.json>",
+    "react":       "<from pinned implementation/package.json>",
+    "react-dom":   "<from pinned implementation/package.json>"
   }
 }
 ```
 
-Discover the latest `shadow-cljs` / `react` / `react-dom` from npm: `npm view shadow-cljs version`, `npm view react version`, `npm view react-dom version`. As a sanity check, the re-frame2 repo's own `implementation/package.json` pins specific versions of each — those are known-good and a reasonable floor if `npm view` returns something newer that gives you trouble.
+Read `<path-to-re-frame2>/implementation/package.json` (verified pinned checkout — see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the `shadow-cljs` / `react` / `react-dom` versions verbatim. This is the **default path** and the safer baseline; pinning what the framework itself builds against avoids surprise breakage and silent exposure to newly published packages.
 
-Reagent 2.x requires React 18+. Don't go below `react@18`.
+**Latest-from-npm is opt-in only.** If the author explicitly asks for the newest versions, run `npm view shadow-cljs version` / `npm view react version` / `npm view react-dom version` and **show the result for confirmation before writing it into `package.json`**. Do not auto-substitute. Reagent 2.x requires React 18+; flag any pick below 18 as a conflict and stop.
 
-Then `npm install`.
+Then `npm install` (after the author has approved the resolved `package.json`).
 
 ## When to add the optional per-feature artefacts
 
