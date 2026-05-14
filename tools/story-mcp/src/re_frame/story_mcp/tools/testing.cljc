@@ -70,6 +70,13 @@
             payload (story/snapshot-identity vk opts)]
         (h/text-result (h/pr-edn payload) payload)))))
 
+;; `re-frame.story.ui.a11y/violations-by-frame` is the CLJS-side panel
+;; atom — resolved once at ns-load via `helpers/resolve-cljs-var`. JVM-
+;; standalone deploys read nil and return an empty violations vec; the
+;; shared-process (nREPL-attached CLJS) deploy reads the live atom.
+(defonce ^:private violations-by-frame-var
+  (h/resolve-cljs-var 're-frame.story.ui.a11y/violations-by-frame))
+
 (defn tool-run-a11y
   "Testing: run axe-core against a variant, return violations.
 
@@ -91,8 +98,8 @@
   (h/with-variant-id args
     (fn [vk]
       (let [atomv (try
-                    (let [v (resolve 're-frame.story.ui.a11y/violations-by-frame)]
-                      (when v (deref @v)))
+                    (when violations-by-frame-var
+                      (deref @violations-by-frame-var))
                     (catch Throwable _ nil))
             violations (when atomv (get atomv vk))
             payload {:variant-id vk

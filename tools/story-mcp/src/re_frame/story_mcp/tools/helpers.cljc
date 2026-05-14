@@ -49,6 +49,22 @@
   (binding [*print-readably* true]
     (pr-str v)))
 
+;; ---------------------------------------------------------------------------
+;; Cross-platform var resolution
+;; ---------------------------------------------------------------------------
+
+(defn resolve-cljs-var
+  "Resolve a fully-qualified symbol (`ns/sym`) to the underlying var
+  on the JVM, returning `nil` on miss. Wraps `clojure.core/resolve` in
+  a try/catch so a CLJS-only `def` (whose ns hasn't been required on
+  JVM) yields nil rather than blowing up.
+
+  Used by handlers that need a CLJS-side surface (the in-browser a11y
+  panel atom, the CLJS substrate registry) — the JVM-standalone deploy
+  reads an empty surface, and that's the documented correct answer."
+  [sym]
+  (try (resolve sym) (catch Throwable _ nil)))
+
 (defn text-result
   "Build a success result with a single text content item. `structured`
   (optional) lands on the `structuredContent` slot per the spec/2025-06-18

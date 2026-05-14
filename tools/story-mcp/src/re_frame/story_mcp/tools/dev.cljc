@@ -109,6 +109,13 @@
                         :effective-args (:effective-args result)}]
         (h/text-result (h/pr-edn payload) payload)))))
 
+;; `story/registered-substrates` is CLJS-only — resolved once at ns-load
+;; via `helpers/resolve-cljs-var`. The JVM-standalone deploy reads nil
+;; and returns an empty set; the shared-process (nREPL-attached CLJS)
+;; deploy reads the var.
+(defonce ^:private registered-substrates-var
+  (h/resolve-cljs-var 'story/registered-substrates))
+
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
   via the Story-public surface.
@@ -122,11 +129,9 @@
   (no CLJS substrates are runnable from a JVM-only host)."
   [_args]
   (let [subs (try
-               ;; `story/registered-substrates` is CLJS-only (`#?(:cljs ...)`).
-               ;; On JVM there's no `def`, so we use `resolve` to detect that
-               ;; cleanly and return an empty set rather than blowing up.
-               (let [f (resolve 'story/registered-substrates)]
-                 (if f (sort (vec (f))) []))
+               (if registered-substrates-var
+                 (sort (vec (registered-substrates-var)))
+                 [])
                (catch Throwable _ []))
         payload {:substrates (vec subs)}]
     (h/text-result (h/pr-edn payload) payload)))
