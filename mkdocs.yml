@@ -69,8 +69,8 @@ nav:
     - "06 — Views and frames": guide/06-views-and-frames.md
     - "06a — Frames": guide/06a-frames.md
     - "07 — Interceptors": guide/07-interceptors.md
-    - "08 — State machines": guide/08-state-machines.md
-    - "09 — Forms": guide/09-forms.md
+    - "08 — Forms": guide/08-forms.md
+    - "09 — State machines": guide/09-state-machines.md
     - "10 — Doing HTTP requests": guide/10-doing-http-requests.md
     - "11 — The server side": guide/11-server-side.md
     - "12 — The dynamic model": guide/12-the-dynamic-model.md

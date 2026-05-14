@@ -41,6 +41,6 @@ Six pages. Each page answers one concrete question:
 - [03 — Redirect and editor URIs](03-redirect-and-editor-uris.md). What schemes the framework rejects on click-to-source IDE templates, and the related sanity gates on `:rf.server/redirect`.
 - [04 — Drain depth and error recovery](04-drain-depth-and-error-recovery.md). What the run-to-completion drain's depth ceiling protects you from, why the rollback is atomic, and how to tune it per frame.
 - [05 — Reserved namespaces](05-reserved-namespaces.md). The single catalogue of every `:rf.*/*` prefix the framework owns. Tools check; the linter checks; this is the human-readable copy.
-- [06 — Machine substrate features](06-state-machine-substrate-features.md). The four advanced state-node keys ([chapter 08](../08-state-machines.md) names them in passing) — `:always`, `:after`, `:invoke`, `:invoke-all` — with worked examples and the rules they enforce. Plus `:final?` / `:on-done` / `:output-key` and how parallel regions compose.
+- [06 — Machine substrate features](06-state-machine-substrate-features.md). The four advanced state-node keys ([chapter 09](../09-state-machines.md) names them in passing) — `:always`, `:after`, `:invoke`, `:invoke-all` — with worked examples and the rules they enforce. Plus `:final?` / `:on-done` / `:output-key` and how parallel regions compose.
 
 Read in order if you're new. Skim individual pages when something specific bites.

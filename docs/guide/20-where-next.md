@@ -49,7 +49,7 @@ Two are introduced inline in [chapter 04](04-events-state-cycle.md#patterns-the-
 
 The rest — look these up when you hit the matching shape:
 
-- **Pattern-Forms** — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [09 — Forms](09-forms.md).)
+- **Pattern-Forms** — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [08 — Forms](08-forms.md).)
 - **Pattern-Boot** — chained app initialisation with progress UI and fail-fatal points.
 - **Pattern-WebSocket** — long-lived connection lifecycle modelled as a state machine.
 - **Pattern-LongRunningWork** — chunked yielding or worker offload for CPU-heavy work.

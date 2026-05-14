@@ -8,7 +8,7 @@ A re-frame2 app's runtime story is "events change `app-db`, views read it." It w
 
 **Schemas** are the answer. A schema is a piece of data that says *what shape another piece of data must have*. Bind a schema to an `app-db` path and the runtime checks the slice after every handler. Bind a schema to an event via `:spec` and the runtime checks the event vector before the handler runs. In dev, you find out the moment a write goes wrong, with the explanation pointing at the exact key and value. In production, every validation call disappears at compile time.
 
-This chapter is the **Malli warmup**. The forms chapter ([09](09-forms.md)) and the HTTP chapter ([10](10-doing-http-requests.md)) lean on schemas heavily; rather than introduce the vocabulary mid-paragraph there, we cover it once here, before forms need it.
+This chapter is the **Malli warmup**. The forms chapter ([08](08-forms.md)) and the HTTP chapter ([10](10-doing-http-requests.md)) lean on schemas heavily; rather than introduce the vocabulary mid-paragraph there, we cover it once here, before forms need it.
 
 ## Why schemas
 
@@ -217,7 +217,7 @@ A schema-aware feature matches the convention when:
 
 ## Cross-references
 
-- [chapter 09 — Forms](09-forms.md) — the first heavy schema user: `FormSlice` for the slice shape, `LoginForm` for the value shape, both bound with `reg-app-schema`.
+- [chapter 08 — Forms](08-forms.md) — the first heavy schema user: `FormSlice` for the slice shape, `LoginForm` for the value shape, both bound with `reg-app-schema`.
 - [chapter 10 — Doing HTTP requests](10-doing-http-requests.md) — schemas as the canonical `:decode` for response bodies.
 - [chapter 14 — Errors](14-errors.md) — what `:rf.error/schema-validation-failure` looks like as it flows through the trace stream.
 - [Malli's README](https://github.com/metosin/malli) — the full schema vocabulary, registries, custom schemas, generators.

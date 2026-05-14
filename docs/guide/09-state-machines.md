@@ -1,4 +1,4 @@
-# 08 — State machines
+# 09 — State machines
 
 You've been writing these all along. You just haven't been calling them that.
 
@@ -526,6 +526,6 @@ The choice isn't a matter of style. It's a matter of which dynamic model you can
 
 ## Next
 
-- [09 — Forms](09-forms.md) — the standard form-slice convention; the login flow's machine sits on top of a form slice underneath.
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end.
 - [11 — The server side](11-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.
+- See also: [08 — Forms](08-forms.md) — the standard form-slice convention; the login flow's machine sits on top of a form slice underneath.
