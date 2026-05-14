@@ -15,17 +15,31 @@
  *      with `re-frame-pair2.runtime` already wired as a `:devtools
  *      :preloads` entry. The shadow-cljs build also serves an
  *      http-server on :8030.
- *   2. Waiting for the nREPL port file to land at
- *      `target/shadow-cljs/nrepl.port` and reading the port.
- *   3. Launching headless Chromium (Playwright) at
+ *   2. Waiting for the nREPL port file to land (shadow-cljs 3.x writes
+ *      to `.shadow-cljs/nrepl.port`; we also probe the legacy
+ *      `target/shadow-cljs/nrepl.port` and `.nrepl-port` fallbacks).
+ *   3. Waiting for the `:app` bundle to actually compile (not just the
+ *      nREPL port to bind — dev-http serves a SPA-style fallback HTML
+ *      for `/out/main.js` 200 BEFORE the first compile completes; we
+ *      gate on the Content-Type being JS).
+ *   4. Launching headless Chromium (Playwright) at
  *      http://localhost:8030 so the bundle loads and the runtime
  *      preload sets `window.__re_frame_pair2_runtime`.
- *   4. Waiting for the runtime sentinel to be present (so
- *      `ensure-runtime!` will pass on the first call).
- *   5. Setting SHADOW_CLJS_NREPL_PORT=<port> and spawning
+ *   5. Waiting for the runtime sentinel to be present in the browser
+ *      AND for shadow-cljs's `:app` runtime to be addressable via
+ *      `cljs-eval` over nREPL (so pair2-mcp's `ensure-runtime!` probe
+ *      sees the runtime — that probe `.catch`es shadow's
+ *      "no-runtime-connected" error to `false`, surfacing as a false
+ *      `:runtime-not-preloaded`).
+ *   6. Setting SHADOW_CLJS_NREPL_PORT=<port> and spawning
  *      `node test/live-pair2-overflow.js`.
- *   6. Tearing down browser + shadow-cljs cleanly on success, failure,
+ *   7. Tearing down browser + shadow-cljs cleanly on success, failure,
  *      or signal.
+ *
+ * Per rf2-kp1d8: pre-fix the script only waited on the nREPL port file
+ * (at the wrong path) and the browser sentinel; the missing bundle-
+ * compile and shadow-runtime gates surfaced as a 6-minute timeout on
+ * CI even after rf2-papcw landed the deterministic catalogue fix.
  *
  * Exit codes:
  *   0  hermetic conformance passed
@@ -58,12 +72,21 @@ const FIXTURE_DIR = path.join(
   'fixture',
 );
 const PAIR2_MCP_DIR = path.join(REPO_ROOT, 'tools', 'pair2-mcp');
-const NREPL_PORT_FILE = path.join(
-  FIXTURE_DIR,
-  'target',
-  'shadow-cljs',
-  'nrepl.port',
-);
+
+// Shadow-cljs writes its nREPL port file under whichever cache-root
+// the build is configured for. Default in 3.x is `.shadow-cljs/`; older
+// configs used `target/shadow-cljs/`; nrepl itself drops `.nrepl-port`.
+// pair2-mcp's runtime probe (`re_frame_pair2_mcp/nrepl.cljs`
+// `port-file-candidates`) walks the same list — keep them in lockstep.
+// Per rf2-kp1d8: the orchestrator previously only watched the legacy
+// `target/shadow-cljs/nrepl.port` path; shadow-cljs 3.4.10 wrote to
+// `.shadow-cljs/nrepl.port` and the harness timed out at 360s waiting
+// for a file that was never going to arrive.
+const NREPL_PORT_FILE_CANDIDATES = [
+  path.join(FIXTURE_DIR, '.shadow-cljs', 'nrepl.port'),
+  path.join(FIXTURE_DIR, 'target', 'shadow-cljs', 'nrepl.port'),
+  path.join(FIXTURE_DIR, '.nrepl-port'),
+];
 
 const FIXTURE_HTTP_PORT = 8030; // hard-coded in fixture's shadow-cljs.edn
 const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_HTTP_PORT}/`;
@@ -109,13 +132,21 @@ function sleep(ms) {
 }
 
 function readPortFile() {
-  try {
-    const txt = fs.readFileSync(NREPL_PORT_FILE, 'utf8').trim();
-    const n = parseInt(txt, 10);
-    return Number.isFinite(n) ? n : null;
-  } catch {
-    return null;
+  // Walk every candidate path; return `{port, source}` for the first
+  // file that parses to a finite integer. The `source` string is used
+  // for diagnostics so a successful read tells you *which* path
+  // satisfied the wait — useful when shadow-cljs's default cache-root
+  // moves between versions.
+  for (const p of NREPL_PORT_FILE_CANDIDATES) {
+    try {
+      const txt = fs.readFileSync(p, 'utf8').trim();
+      const n = parseInt(txt, 10);
+      if (Number.isFinite(n)) return { port: n, source: p };
+    } catch {
+      // try next
+    }
   }
+  return null;
 }
 
 function probeHttp(port, hostname = '127.0.0.1') {
@@ -132,6 +163,125 @@ function probeHttp(port, hostname = '127.0.0.1') {
       req.destroy();
       resolve(false);
     });
+  });
+}
+
+// Probe `/out/main.js` and confirm it is the actual compiled bundle —
+// not shadow-cljs's SPA-style fallback HTML that dev-http returns 200
+// for unknown paths. Used to wait for the bundle to compile before
+// Chromium navigates; without this gate the page loads while shadow is
+// still on its first compile, the runtime preload never runs, and the
+// sentinel-wait times out (rf2-kp1d8).
+//
+// We accept the response iff the Content-Type starts with
+// `application/javascript` (shadow's dev-http sets this for .js files
+// it actually serves) AND the body begins with a known shadow-cljs
+// preamble byte. The preamble guard is belt-and-braces — a partial
+// write during compile would also fail the content-type check.
+function probeBundleReady(port, hostname = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: hostname, port, path: '/out/main.js', timeout: 2000 },
+      (res) => {
+        const ct = (res.headers['content-type'] || '').toLowerCase();
+        if (res.statusCode !== 200 || !ct.startsWith('application/javascript')) {
+          res.resume();
+          resolve(false);
+          return;
+        }
+        // Read up to ~256 bytes to confirm the body is actually JS.
+        // shadow-cljs's first-line preamble starts with `var $CLJS` or
+        // a `SHADOW_ENV.setLoaded`/`var shadow=...` — anything beginning
+        // with `<` is the SPA fallback HTML.
+        let prefix = '';
+        res.on('data', (chunk) => {
+          prefix += chunk.toString('utf8');
+          if (prefix.length >= 64) {
+            req.destroy();
+            const head = prefix.slice(0, 64).trimStart();
+            resolve(!head.startsWith('<'));
+          }
+        });
+        res.on('end', () => {
+          const head = prefix.slice(0, 64).trimStart();
+          resolve(prefix.length > 0 && !head.startsWith('<'));
+        });
+        res.on('error', () => resolve(false));
+      },
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+// Probe shadow-cljs's `:app` CLJS runtime by attempting a trivial
+// `cljs-eval` over nREPL. Returns true iff the eval round-trips
+// successfully — which only happens once the browser-side runtime has
+// registered with shadow via the devtools WebSocket.
+//
+// Why this is necessary: pair2-mcp's `runtime-preloaded?` (in
+// `tools/probe.cljs`) wraps `cljs-eval` in a `.catch` that swallows
+// every error to `false`, including the transient "No application has
+// connected to the REPL server" error that shadow throws between
+// page-load and runtime-registration. Without this gate the live-test
+// fires while the runtime isn't yet addressable and pair2-mcp's first
+// `eval-cljs` call surfaces as `:runtime-not-preloaded` — a false
+// negative on the actual hermetic conformance.
+//
+// One bencode round-trip on a fresh socket; we don't try to share the
+// connection with the live test because the live test fork-execs the
+// pair2-mcp server (which opens its own nREPL connection).
+function probeShadowRuntimeReady(nreplPort, hostname = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host: hostname, port: nreplPort, timeout: 2000 });
+    let buf = Buffer.alloc(0);
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try { sock.end(); } catch {}
+      resolve(ok);
+    };
+    sock.on('connect', () => {
+      // Bencode-encoded nREPL eval op: route through
+      // `shadow.cljs.devtools.api/cljs-eval` on build `:app`. A trivial
+      // `1` form keeps the probe fast and avoids any reliance on the
+      // runtime sentinel — we only care whether shadow can route the
+      // eval to a connected runtime.
+      const code =
+        '(shadow.cljs.devtools.api/cljs-eval :app "1" {})';
+      // Minimal bencode hand-encode (avoid adding a dep). Op fields:
+      // {"op": "eval", "code": <code>, "id": "rt-probe"}
+      const dict =
+        'd' +
+        '2:id' + '8:rt-probe' +
+        '2:op' + '4:eval' +
+        '4:code' + code.length + ':' + code +
+        'e';
+      sock.write(dict, 'utf8');
+    });
+    sock.on('data', (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      const txt = buf.toString('utf8');
+      // Look for a `:results` frame (signals successful eval round-trip
+      // with a CLJS value coming back). The shape shadow emits is
+      // bencoded but `:results` survives as literal bytes inside the
+      // dict's `value` field. If shadow has no runtime it sends back
+      // `:ex` with "No application has connected to the REPL server" —
+      // we treat that as not-ready.
+      if (txt.includes(':results') && !txt.includes('No application')) {
+        finish(true);
+      } else if (txt.includes('"status"') && txt.includes('done')) {
+        // Op completed but no `:results` — either an error or empty.
+        finish(false);
+      }
+    });
+    sock.on('error', () => finish(false));
+    sock.on('timeout', () => finish(false));
+    sock.on('close', () => finish(false));
   });
 }
 
@@ -207,18 +357,22 @@ async function main() {
     );
   }
 
-  // ---- Wipe any stale port file ----------------------------------------
+  // ---- Wipe any stale port files ---------------------------------------
   // A leftover port file from a previous run could otherwise satisfy
   // the poll-loop before shadow-cljs has actually re-bound to the port,
   // and the subsequent nREPL connect would race. The shadow-cljs watch
-  // child will rewrite this file as part of its boot.
-  try {
-    if (exists(NREPL_PORT_FILE)) {
-      fs.unlinkSync(NREPL_PORT_FILE);
-      log(`removed stale port file ${NREPL_PORT_FILE}`);
+  // child will rewrite the appropriate file as part of its boot. Wipe
+  // ALL candidate paths so a stale entry at one location can't shadow
+  // the fresh file at another.
+  for (const p of NREPL_PORT_FILE_CANDIDATES) {
+    try {
+      if (exists(p)) {
+        fs.unlinkSync(p);
+        log(`removed stale port file ${p}`);
+      }
+    } catch (e) {
+      log(`could not remove stale port file ${p} (${e.message}); continuing`);
     }
-  } catch (e) {
-    log(`could not remove stale port file (${e.message}); continuing`);
   }
 
   // ---- Install fixture deps --------------------------------------------
@@ -276,7 +430,11 @@ async function main() {
 
   try {
     // ---- Wait for nREPL port file ---------------------------------------
-    log('waiting for shadow-cljs nREPL port file');
+    log(
+      `waiting for shadow-cljs nREPL port file; candidates: ${
+        NREPL_PORT_FILE_CANDIDATES.join(', ')
+      }`,
+    );
     let port = null;
     await waitUntil(
       'nREPL port file',
@@ -284,9 +442,10 @@ async function main() {
         if (shadowExited) {
           throw new Error('shadow-cljs exited before binding nREPL port');
         }
-        const p = readPortFile();
-        if (p) {
-          port = p;
+        const hit = readPortFile();
+        if (hit) {
+          port = hit.port;
+          log(`nREPL port file appeared at ${hit.source}`);
           return true;
         }
         return false;
@@ -310,6 +469,23 @@ async function main() {
       SHADOW_BOOT_TIMEOUT_MS,
     );
     log(`fixture http reachable at ${FIXTURE_URL}`);
+
+    // ---- Wait for the :app bundle to actually compile -------------------
+    // shadow-cljs `watch` writes the nREPL port file and starts the
+    // dev-http server BEFORE the first compile completes. The fixture's
+    // public/index.html references `/out/main.js`; if Chromium navigates
+    // before that file exists the bundle 404s, no CLJS runs, and the
+    // preload sentinel never lands. We poll the asset URL until it
+    // returns 200, then navigate. The first cold compile on CI runs
+    // 10–20s after the watch is up; rebuilds on a warm cache are <1s.
+    // Per rf2-kp1d8 — the earlier shape navigated immediately and then
+    // waited 60s for the sentinel, which never arrived.
+    await waitUntil(
+      `fixture bundle at ${FIXTURE_URL}out/main.js`,
+      () => probeBundleReady(FIXTURE_HTTP_PORT),
+      SHADOW_BOOT_TIMEOUT_MS,
+    );
+    log('fixture bundle compiled and served');
 
     // ---- Launch headless Chromium + load page ---------------------------
     const playwright = resolvePlaywright();
@@ -338,6 +514,28 @@ async function main() {
     );
     const sentinel = await page.evaluate(() => window.__re_frame_pair2_runtime);
     log(`runtime preload sentinel = ${JSON.stringify(sentinel)}`);
+
+    // ---- Wait for shadow to register the browser runtime ----------------
+    // pair2-mcp routes its preload-probe through `shadow.cljs.devtools.api/
+    // cljs-eval :app ...` over the nREPL. Shadow dispatches that to
+    // whichever CLJS runtime is currently connected for the build. The
+    // browser's runtime registers via the shadow devtools WebSocket on
+    // page load, but there's a brief window between page-load and the
+    // websocket handshake during which `cljs-eval` returns
+    // "No application has connected to the REPL server. Make sure your
+    // JS environment has loaded your compiled ClojureScript code." —
+    // which `runtime-preloaded?` catches and surfaces as
+    // `:runtime-not-preloaded` (the .catch in `tools/probe.cljs`
+    // swallows the underlying nREPL error). Poll the same probe pair2-mcp
+    // uses until it returns true, so we hand off to the live test only
+    // after the runtime is actually addressable. Per rf2-kp1d8.
+    log('waiting for shadow :app runtime to register');
+    await waitUntil(
+      'shadow :app runtime addressable via cljs-eval',
+      () => probeShadowRuntimeReady(port),
+      RUNTIME_PRELOAD_TIMEOUT_MS,
+    );
+    log('shadow :app runtime addressable');
 
     // ---- Run the live-overflow test -------------------------------------
     log(`running ${path.basename(LIVE_TEST)} with SHADOW_CLJS_NREPL_PORT=${port}`);
