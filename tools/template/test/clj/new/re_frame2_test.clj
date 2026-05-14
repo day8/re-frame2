@@ -101,6 +101,8 @@
    ;; Dev ergonomics bundle (rf2-r2jqo).
    ".editorconfig"
    ".clj-kondo/config.edn"
+   ;; Formatter config (rf2-5ecqj).
+   ".cljfmt.edn"
    "dev/user.clj"
    "dev/scratch.cljs"
    "resources/public/index.html"

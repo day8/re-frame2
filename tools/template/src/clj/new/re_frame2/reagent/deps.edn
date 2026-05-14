@@ -32,4 +32,10 @@
   {:extra-paths ["test" "dev"]
    :extra-deps  {thheller/shadow-cljs        {:mvn/version "{{shadow-version}}"}
                  org.clojure/tools.namespace {:mvn/version "1.5.0"}}
-   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}
+   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}
+
+  ;; cljfmt — `clojure -M:cljfmt check` / `fix`. Config in
+  ;; .cljfmt.edn. Pinned to the current cljfmt CLI line.
+  :cljfmt
+  {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.13.1"}}
+   :main-opts  ["-m" "cljfmt.main"]}}}
