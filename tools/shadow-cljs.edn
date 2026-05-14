@@ -1,0 +1,71 @@
+;; Top-level tools shadow-cljs build (rf2-nuuk3).
+;;
+;; Mirrors the role of tools/deps.edn for CLJS builds. Today the only
+;; tool with a shadow-cljs surface is tools/pair2-mcp/ (compiled to a
+;; Node script published on npm as `@day8/re-frame-pair2-mcp`); the
+;; other tools are either JVM-only (mcp-base, story, story-mcp,
+;; template) or CLJS-but-built-from-implementation/shadow-cljs.edn
+;; (causa — its tests run under the implementation's :node-test build).
+;;
+;; This coordinator aggregates pair2-mcp's `:server` and `:server-test`
+;; builds at the tools/ root so the npm-side `shadow-cljs compile
+;; <build>` invocation works from `tools/` as well as from
+;; `tools/pair2-mcp/`. Builds are namespaced under
+;; `pair2-mcp/<name>` so future tool builds (e.g. `causa/<name>` when
+;; Causa gains its own CLJS surface separate from the implementation
+;; build) can land alongside without name collisions.
+;;
+;; `:deps true` routes classpath resolution through tools/deps.edn —
+;; same mechanism pair2-mcp's per-tool shadow-cljs.edn uses (rf2-obpa9).
+;; Per-tool `:source-paths` live in each tool's deps.edn `:paths`; under
+;; `:deps true` shadow-cljs warns and ignores any `:source-paths` here,
+;; so the slot is intentionally absent. pair2-mcp/test is on the
+;; classpath via pair2-mcp/deps.edn `:paths ["src" "test"]` already.
+;;
+;; Per-tool builds remain runnable from each tool's own directory —
+;; this coordinator does not replace them; it composes them.
+;;
+;; ## Output paths
+;;
+;; `:output-to` points at `pair2-mcp/out/server.js` (relative to
+;; tools/), the same on-disk artefact the per-tool build produces. Both
+;; invocation paths (from tools/ vs from tools/pair2-mcp/) drop into
+;; the same `tools/pair2-mcp/out/` directory, and the npm `bin` entry
+;; in tools/pair2-mcp/package.json points at `./out/server.js` either
+;; way.
+;;
+;; ## Why template is invisible here
+;;
+;; `tools/template/` is JVM-only (clj-new template) — its `src/` tree
+;; contains placeholder-bearing `.cljs` template files that are NOT
+;; valid ClojureScript. The template dep is excluded from
+;; tools/deps.edn's base `:deps` map for that reason (see the comment
+;; block in tools/deps.edn). With `:deps true` active, shadow-cljs only
+;; sees what the base `:deps` map exposes, so the template's
+;; placeholder-bearing files never reach the shadow-cljs reader.
+{:deps true
+
+ :builds
+ {;; Production build (the Node MCP server). Mirrors the per-tool
+  ;; tools/pair2-mcp/shadow-cljs.edn `:server` build verbatim; see
+  ;; that file for the :closure-defines rationale.
+  :pair2-mcp/server
+  {:target    :node-script
+   :output-to "pair2-mcp/out/server.js"
+   :main      re-frame-pair2-mcp.server/main
+   :compiler-options
+   {:optimizations  :simple
+    :closure-defines
+    {re-frame.mcp-base.diff-encode/validate-patches? false}}}
+
+  ;; Node-test build (unit tests for the MCP server). Mirrors the
+  ;; per-tool `:server-test` build. The reporter ns
+  ;; (`re-frame.test-quiet.shadow-node`) is on the classpath via the
+  ;; `day8/re-frame2-test-quiet` :local/root pulled in transitively
+  ;; from pair2-mcp/deps.edn.
+  :pair2-mcp/server-test
+  {:target    :node-test
+   :output-to "pair2-mcp/out/server-test.js"
+   :ns-regexp "-test$"
+   :autorun   true
+   :main      re-frame.test-quiet.shadow-node/main}}}
