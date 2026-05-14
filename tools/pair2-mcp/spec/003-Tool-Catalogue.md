@@ -113,8 +113,29 @@ with a tiny marker:
  {:hash            <integer>
   :unchanged-since <ms-since-epoch>
   :tool            "<tool-name>"
+  :via             :result-hash | :precheck
   :hint            "<agent-host instruction string>"}}
 ```
+
+The `:via` slot tells the agent host which cache path produced
+the hit:
+
+- **`:result-hash`** (rf2-3rt1f) — the original post-eval path.
+  The tool ran server-side; the result's text was hashed; the
+  hash matched the stored entry for `(tool, args)`. The MCP
+  server saved the **wire bytes** but paid the full nREPL
+  round-trip and the local transform pipeline.
+- **`:precheck`** (rf2-36xod) — the pre-eval short-circuit. One
+  cheap bencode round-trip asked the runtime for
+  `(hash (re-frame-pair2.runtime/snapshot frame))`; the hash
+  matched the stored `:precheck-hash`. The MCP server saved
+  **both** the wire bytes AND the full tool eval + transform
+  pipeline. The tool body was never invoked.
+
+Same wire vocabulary, different cost saved. Agent hosts that
+diagnose latency / token usage can branch on `:via` — a
+`:precheck` hit is the cheapest possible response in the
+catalogue.
 
 The agent host already has the byte-identical bytes from the
 prior `tools/call`; re-shipping doubles the conversation cost
