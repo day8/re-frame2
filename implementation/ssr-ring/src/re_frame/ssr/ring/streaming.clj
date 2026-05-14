@@ -236,6 +236,10 @@
                 ;; Redirect short-circuits the stream — no chunked body.
                 (pipeline/ssr-response->ring-response resp nil content-type)
                 ;; Streaming path: build a pipe + spawn the writer thread.
+                ;; 16 KiB pipe buffer — large enough to absorb the shell
+                ;; chunk in one write so the writer thread rarely blocks
+                ;; on a slow consumer, small enough that one stuck client
+                ;; doesn't pin a non-trivial chunk of heap per request.
                 (let [pipe-in  (PipedInputStream. (* 16 1024))
                       pipe-out (PipedOutputStream. pipe-in)]
                   (.start
