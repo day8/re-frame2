@@ -215,6 +215,12 @@
     accepted-and-recorded `false` which then propagated through
     `apply-config!` only when the absent default was already
     `false`).
+  - `--allow-sensitive-reads` — presence opens the sensitive-read gate
+    (rf2-g9fje). Symmetric with `--allow-writes` and with pair2-mcp's
+    `--allow-eval`: operator-only opt-in, no `=value` variant. Default
+    off; when off, the wire-egress scrubbers silently ignore any
+    `:include-sensitive? true` per-call arg and `tools/list` omits the
+    slot from advertised input schemas.
 
   Unknown flags are logged and ignored — the MCP spec doesn't define
   CLI conventions, so being permissive here is correct.
@@ -225,7 +231,8 @@
          cfg  {}]
     (if-let [a (first args)]
       (case a
-        "--allow-writes" (recur (rest args) (assoc cfg :allow-writes? true))
+        "--allow-writes"          (recur (rest args) (assoc cfg :allow-writes? true))
+        "--allow-sensitive-reads" (recur (rest args) (assoc cfg :allow-sensitive-reads? true))
         (do (log! "unknown CLI flag:" a)
             (recur (rest args) cfg)))
       cfg)))
@@ -242,6 +249,13 @@
      (log! "booted; allow-writes?=" (config/writes-allowed?)
            " protocol=" config/protocol-version
            " server=" config/server-name)
+     ;; rf2-g9fje — one-line boot signal mirroring pair2-mcp's
+     ;; `eval-cljs:` line. Operators inspecting the launch stderr can
+     ;; confirm the posture at a glance.
+     (log! "Sensitive reads:"
+           (if (config/sensitive-reads-allowed?)
+             "allowed (--allow-sensitive-reads)"
+             "gated (default; pass --allow-sensitive-reads to opt in)"))
      cfg)))
 
 (defn run-stdio!

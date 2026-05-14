@@ -35,7 +35,8 @@
             [re-frame.core :as rf]
             [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.sensitive :as sensitive]
-            [re-frame.story :as story]))
+            [re-frame.story :as story]
+            [re-frame.story-mcp.config :as config]))
 
 ;; ---------------------------------------------------------------------------
 ;; Result builders
@@ -94,12 +95,25 @@
 
 (defn include-sensitive?
   "True iff the caller opted in to forwarding `:sensitive? true` records
-  / app-db slots for this call. Default off. Reads the
-  `:include-sensitive?` arg via the cross-MCP `args/parse-boolean`
-  parser (so string-form booleans `\"true\"` / `\"yes\"` / `\"1\"` are
-  accepted alongside the JSON `true`)."
+  / app-db slots AND the operator has opened the server-side gate.
+  Default off. Reads the `:include-sensitive?` arg via the cross-MCP
+  `args/parse-boolean` parser (so string-form booleans `\"true\"` /
+  `\"yes\"` / `\"1\"` are accepted alongside the JSON `true`).
+
+  ## Boot-time gate (rf2-g9fje)
+
+  The operator-only gate `config/sensitive-reads-allowed?` (set by
+  `--allow-sensitive-reads`, mirroring pair2-mcp's `--allow-eval`) is
+  the outer check: when it is `false`, this fn always returns `false`,
+  the per-call `:include-sensitive?` arg is silently ignored, and
+  declared-sensitive `:app-db` slots / assertion records remain
+  redacted regardless of what the caller asked for. The MCP caller
+  surface (`tools/list`) likewise omits `:include-sensitive?` from
+  the descriptor schemas when the gate is closed (see `schemas/
+  with-include-sensitive`)."
   [arguments]
-  (args/parse-boolean (get arguments :include-sensitive?) false))
+  (and (config/sensitive-reads-allowed?)
+       (args/parse-boolean (get arguments :include-sensitive?) false)))
 
 (defn required-arg
   "Read a required argument. Returns `[value nil]` on success, or

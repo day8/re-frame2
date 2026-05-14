@@ -61,6 +61,10 @@
   (story/clear-all!)
   (story/install-canonical-vocabulary!)
   (config/set-allow-writes! false)
+  ;; rf2-g9fje — sensitive-read gate. Default off everywhere (mirrors
+  ;; the `--allow-sensitive-reads` boot-time posture). Tests that
+  ;; exercise the opt-in branch flip it explicitly.
+  (config/set-allow-sensitive-reads! false)
   ;; Recorder atom is per-process — clear between tests so a previous
   ;; test's captured events don't bleed in.
   (recorder/clear!)
@@ -1184,6 +1188,7 @@
 
 (deftest preview-variant-app-db-includes-sensitive-when-opted-in
   (testing ":include-sensitive? true forwards the raw value through the walker"
+    (config/set-allow-sensitive-reads! true)
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
       (declare-sensitive! vid [:secret])
@@ -1210,6 +1215,7 @@
 
 (deftest run-variant-app-db-includes-sensitive-when-opted-in
   (testing "run-variant's :include-sensitive? true forwards the raw value"
+    (config/set-allow-sensitive-reads! true)
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
       (declare-sensitive! vid [:secret])
@@ -1293,6 +1299,7 @@
 
 (deftest read-failures-includes-sensitive-when-opted-in
   (testing ":include-sensitive? true preserves sensitive records"
+    (config/set-allow-sensitive-reads! true)
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid
                     {:rf.story/assertions
@@ -1319,6 +1326,111 @@
             (str tname " missing :include-sensitive? slot"))
         (is (= "boolean" (-> props :include-sensitive? :type))
             (str tname " :include-sensitive? slot is not boolean-typed"))))))
+
+;; ---------------------------------------------------------------------------
+;; Sensitive-read boot gate (rf2-g9fje)
+;;
+;; Per the rf2-uaymx (b) decision: the per-call `:include-sensitive?` arg
+;; is honoured ONLY when the operator opened the server-side gate at boot
+;; (`--allow-sensitive-reads`). When the gate is closed:
+;;
+;;   1. `tools/list` omits `:include-sensitive?` from the input schemas of
+;;      preview-variant / run-variant / read-failures (caller UX — no
+;;      ghost knob).
+;;   2. `:include-sensitive? true` on a tool call is silently ignored at
+;;      the egress helpers (defence-in-depth — even a caller who learned
+;;      about the slot some other way can't exfiltrate raw values).
+;; ---------------------------------------------------------------------------
+
+(deftest sensitive-reads-gate-defaults-closed
+  (testing "fixture leaves the gate closed by default"
+    (is (false? (config/sensitive-reads-allowed?))
+        "fixture must reset the gate between tests")))
+
+(deftest sensitive-reads-gate-flag-flips-config
+  (testing "--allow-sensitive-reads flag flips the boot config"
+    (let [cfg (#'server/parse-args ["--allow-sensitive-reads"])]
+      (is (true? (:allow-sensitive-reads? cfg))))
+    (let [cfg (#'server/parse-args [])]
+      (is (nil? (:allow-sensitive-reads? cfg))
+          "absent flag leaves the slot unset so merge respects sysprop/env defaults"))))
+
+(deftest tools-list-strips-include-sensitive-when-gate-closed
+  (testing "tools/list omits :include-sensitive? from the schema when the gate is closed"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (let [descriptors (registry/tool-descriptors)]
+      (doseq [tname ["preview-variant" "run-variant" "read-failures"]]
+        (let [t     (some #(when (= tname (:name %)) %) descriptors)
+              props (-> t :inputSchema :properties)]
+          (is (not (contains? props :include-sensitive?))
+              (str "gate closed: " tname " must not advertise :include-sensitive?")))))))
+
+(deftest tools-list-surfaces-include-sensitive-when-gate-open
+  (testing "tools/list advertises :include-sensitive? when the gate is open"
+    (config/set-allow-sensitive-reads! true)
+    (let [descriptors (registry/tool-descriptors)]
+      (doseq [tname ["preview-variant" "run-variant" "read-failures"]]
+        (let [t     (some #(when (= tname (:name %)) %) descriptors)
+              props (-> t :inputSchema :properties)]
+          (is (contains? props :include-sensitive?)
+              (str "gate open: " tname " must advertise :include-sensitive?"))
+          (is (= "boolean" (-> props :include-sensitive? :type))))))))
+
+(deftest preview-variant-gate-closed-ignores-per-call-flag
+  (testing "with gate closed, :include-sensitive? true is silently ignored at egress"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
+      (declare-sensitive! vid [:secret])
+      (let [r (invoke "preview-variant" {:variant-id "story.button/primary"
+                                         :include-sensitive? true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= :rf/redacted (get-in s [:app-db :secret]))
+            "gate closed: per-call opt-in is dropped; redaction stands")))))
+
+(deftest run-variant-gate-closed-ignores-per-call-flag
+  (testing "with gate closed, :include-sensitive? true is silently ignored at egress"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
+      (declare-sensitive! vid [:secret])
+      (let [r (invoke "run-variant" {:variant-id "story.button/primary"
+                                     :include-sensitive? true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= :rf/redacted (get-in s [:app-db :secret]))
+            "gate closed: per-call opt-in is dropped; redaction stands")))))
+
+(deftest read-failures-gate-closed-ignores-per-call-flag
+  (testing "with gate closed, :include-sensitive? true does not surface sensitive records"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid
+                    {:rf.story/assertions
+                     [{:assertion :rf.assert/path-equals :passed? true}
+                      {:assertion  :rf.assert/path-equals
+                       :passed?    false
+                       :sensitive? true
+                       :reason     "leak"}]})
+      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
+                                       :include-sensitive? true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= 1 (:total s))
+            "gate closed: sensitive records remain dropped despite the opt-in")))))
+
+(deftest read-boot-config-sensitive-reads-sysprop
+  (testing "JVM sysprop seeds :allow-sensitive-reads? true"
+    (let [restore (System/getProperty "rf.story-mcp.allow-sensitive-reads")]
+      (try
+        (System/setProperty "rf.story-mcp.allow-sensitive-reads" "true")
+        (let [cfg (config/read-boot-config)]
+          (is (true? (:allow-sensitive-reads? cfg))))
+        (finally
+          (if restore
+            (System/setProperty "rf.story-mcp.allow-sensitive-reads" restore)
+            (System/clearProperty "rf.story-mcp.allow-sensitive-reads")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Agent-onboarding text parity (rf2-36upq S5)

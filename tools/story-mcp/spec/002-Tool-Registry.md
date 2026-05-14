@@ -41,7 +41,17 @@ resource read at boot) so the jar is self-contained.
 
 Given `:variant-id` (plus optional `:substrate`, `:active-modes`,
 `:cell-overrides`, `:base-url`), runs the canvas pipeline and
-returns the post-pipeline state plus a sharable URL:
+returns the post-pipeline state plus a sharable URL.
+
+Wire-egress posture: `:app-db` is routed through
+`re-frame.core/elide-wire-value` against the variant frame's
+`[:rf/elision]` registry; declared-sensitive paths land
+`:rf/redacted` by default. Pass `:include-sensitive? true` to opt
+out — BUT the opt-in is honoured only when the server was started
+with `--allow-sensitive-reads` (rf2-g9fje); when that gate is
+closed (the default), the `:include-sensitive?` slot is omitted
+from the `tools/list` schema entirely and any caller-supplied
+value is silently ignored at egress.
 
 ```clojure
 {:lifecycle      :ok | :failed-loaders | :failed-events | ...
@@ -242,6 +252,43 @@ hint that axe-core requires the in-browser panel.
 Diagnostic for the variant's accumulated `:rf.story/assertions`
 accumulator (no re-run). Useful for agents that want to inspect the
 last-run state without paying the cost of a fresh `run-variant`.
+
+Assertion records carrying `:sensitive? true` are dropped at egress
+by default; `:include-sensitive? true` opts back in subject to the
+same `--allow-sensitive-reads` boot gate as `preview-variant` /
+`run-variant`.
+
+## Sensitive-read boot gate (`--allow-sensitive-reads`, rf2-g9fje)
+
+The three tools that surface live frame state (`preview-variant`,
+`run-variant`, `read-failures`) all accept a per-call
+`:include-sensitive?` boolean to opt out of the default redaction
+posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
+§Direct-read privacy posture). Per the rf2-uaymx (b) decision that
+opt-in is itself gated by a server-side boot flag, mirroring the
+`--allow-eval` posture pair2-mcp uses for `eval-cljs` (rf2-zyoj2):
+
+| Path | Mechanism |
+|---|---|
+| CLI flag | `--allow-sensitive-reads` |
+| JVM sysprop | `-Drf.story-mcp.allow-sensitive-reads=true` |
+| Env var | `RF_STORY_MCP_ALLOW_SENSITIVE_READS=true` |
+
+Closed by default. When closed:
+
+- `tools/list` omits the `:include-sensitive?` slot from the input
+  schemas of the three affected tools — agents never see an opt-in
+  they couldn't exercise.
+- The wire-egress scrubbers silently ignore any caller-supplied
+  `:include-sensitive? true` — declared-sensitive `:app-db` paths
+  remain `:rf/redacted`; assertion records stamped `:sensitive?
+  true` remain dropped.
+- The server logs one line at boot:
+  `Sensitive reads: gated (default; pass --allow-sensitive-reads to opt in)`.
+
+When open, the per-call `:include-sensitive? true` is honoured as
+documented — raw values cross the wire, the operator has signed
+off on the egress posture by passing the flag.
 
 ## Write — v1.1, dev-only, gated
 
