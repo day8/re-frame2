@@ -11,11 +11,11 @@ It is designed for retrospectives like:
 - "What was frustrating about this re-frame-pair2 session?"
 - "What took longer than it should have?"
 - "Which parts of this workflow should re-frame-pair2 absorb?"
-- "Can you draft or file a bead for the best improvement idea?"
+- "Can you draft or file a GitHub issue for the best improvement idea?"
 
-It focuses on evidence from the session itself: retries, confusion, workarounds, stale or empty results, missing observability, brittle platform behavior, hidden prerequisites, and trust gaps. It then proposes improvements at the right layer: `SKILL.md`, scripts/runtime ops, warnings/results, tests/fixtures, or — when the friction is caused by the framework rather than the pair tool — an upstream bead against `re-frame2`.
+It focuses on evidence from the session itself: retries, confusion, workarounds, stale or empty results, missing observability, brittle platform behavior, hidden prerequisites, and trust gaps. It then proposes improvements at the right layer: `SKILL.md`, scripts/runtime ops, warnings/results, tests/fixtures, or — when the friction is caused by the framework rather than the pair tool — an upstream GitHub issue against `day8/re-frame2`.
 
-It can draft a `bd` bead (or a GitHub issue, if the target repo prefers that), but only if the user wants that.
+It can draft a GitHub issue (against `day8/re-frame-pair2` for tool-side friction or `day8/re-frame2` for upstream framework friction), but only if the user wants that.
 
 It is intentionally diagnosis-first: the default outcome is a better understanding of what went wrong and which improvements would matter most, not pressure to contribute code or file beads.
 

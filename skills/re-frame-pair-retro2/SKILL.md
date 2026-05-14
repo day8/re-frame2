@@ -56,7 +56,7 @@ Deliver:
 
 - **Always start with session analysis.** Do not jump to fixes.
 - **Friction points before root causes.** Let the user pick which ones to dig into.
-- **Default to diagnosis, not contribution.** Do not assume the user wants to file a bead or propose a patch.
+- **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue or propose a patch.
 - **Never file a GitHub issue or edit another repo without explicit user approval.**
 - **Stay focused on improving `re-frame-pair2`.** If the right fix is upstream in `re-frame2` (Tool-Pair surfaces, trace stream, epoch-history, schema reflection, source-coord annotation), say so and route the proposal to a GitHub issue against the `re-frame2` repo, not `re-frame-pair2`.
 - **Tracker boundary — file GitHub issues, never `bd` beads.** `bd` is the re-frame2 monorepo's internal tracker; skills consumed downstream file against the target repo's GitHub issues via `gh issue create`. See the shell-safety pattern below.

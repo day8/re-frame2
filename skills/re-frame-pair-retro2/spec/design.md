@@ -25,9 +25,11 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 Per the parent `re-frame-pair2` skill's L2: re-frame2's pair tooling does not depend on re-frame-10x. The improver MUST NOT propose fixes that route through 10x — time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation). This is a cardinal "What to avoid" rule.
 
-### L2 — Never file a bead without explicit user approval
+### L2 — Never file a GitHub issue without explicit user approval
 
-The skill drafts bead text on request; it does not file beads autonomously. After presenting the retrospective, the skill offers to file *only if asked*. Filing is opt-in, not opt-out. This is a cardinal guard-rail.
+The skill drafts issue text on request; it does not file issues autonomously. After presenting the retrospective, the skill offers to file *only if asked*. Filing is opt-in, not opt-out. This is a cardinal guard-rail.
+
+**Tracker boundary (rf2-80grk / rf2-hpkkx).** Filings target the **target repo's GitHub issues** (`day8/re-frame-pair2` for tool-side friction; `day8/re-frame2` for upstream framework friction). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. Bodies pass via stdin / here-doc — `gh issue create --body "$(cat /tmp/issue-body.md)"` — never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
 
 ### L3 — Route the fix to the right repo
 

@@ -40,7 +40,7 @@ The ten root-cause lenses the skill walks during classification:
 | Default or fallback | Was the default path wrong, silent, or unsafe? | Change defaults or automate the safer fallback |
 | Platform bug | Did the workflow break on a specific shell/OS/browser? | Add platform-aware handling or explicit detection |
 | Validation gap | Did this ship because the right fixture/test is missing? | Add test coverage or fixture support |
-| Upstream limitation | Is `re-frame-pair2` working around the wrong abstraction in `re-frame2`? | File a `bd` bead against `re-frame2` |
+| Upstream limitation | Is `re-frame-pair2` working around the wrong abstraction in `re-frame2`? | File a GitHub issue against `day8/re-frame2` |
 | Context-window issue | Did long context or low-salience guidance cause forgetfulness? | Make the guard rail shorter, earlier, stronger |
 
 This is the canonical taxonomy; the improver doesn't invent ad-hoc categories.

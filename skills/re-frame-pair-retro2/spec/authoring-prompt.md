@@ -53,8 +53,8 @@ A self-contained prompt that re-authors the `re-frame-pair-retro2` skill from th
 >
 > *1. **Always start with session analysis.** Do not jump straight to fixes.*
 > *2. **Present friction points before root causes.** Let the user choose which to dig into.*
-> *3. **Default to diagnosis, not contribution.** Do not assume the user wants to file a bead.*
-> *4. **Never file a bead or edit another repo without explicit user approval.***
+> *3. **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue.*
+> *4. **Never file a GitHub issue or edit another repo without explicit user approval.***
 > *5. **No re-frame-10x routing.** Time-travel + trace consumption ride on re-frame2's native Tool-Pair surfaces.*
 > *6. **If the best fix is upstream in `re-frame2`, say so.** File against the right repo.*
 >
@@ -65,17 +65,17 @@ A self-contained prompt that re-authors the `re-frame-pair-retro2` skill from th
 > *- `Likely root causes`*
 > *- `Improvement ideas` (2-5, each carrying friction / why-not-enough / proposed change / layer / impact)*
 > *- `Bolder ideas` (when warranted; clearly labelled)*
-> *- `Bead candidates` (only if user asks)*
+> *- `Issue candidates` (only if user asks)*
 > *- `Other possibilities` (low-priority leftovers)*
 >
 > *Locks to preserve verbatim:*
 >
 > *- **L1 — No re-frame-10x routing.** Cardinal anti-pattern.*
-> *- **L2 — Never file a bead without explicit user approval.** Cardinal guard-rail.*
-> *- **L3 — Route the fix to the right repo.** `re-frame-pair2` for tool changes; `re-frame2` for upstream contract changes.*
+> *- **L2 — Never file a GitHub issue without explicit user approval.** Cardinal guard-rail.*
+> *- **L3 — Route the fix to the right repo.** `re-frame-pair2` for tool changes; `re-frame2` for upstream contract changes. Skills file GitHub issues against the target repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill (rf2-hpkkx baseline; rf2-80grk decision).*
 > *- **L10 — No bead-ids in user-facing skill content.***
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/`.*
-> *- **L12 — Redact secrets before filing.** Bead drafts strip secrets, tokens, internal URLs, unnecessary local paths.*
+> *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. Bodies pass via stdin/here-doc (`gh issue create --body "$(cat /tmp/file)"`), never inline interpolation of transcript-derived text.*
 >
 > *Frontmatter — the `description` is "pushy" but conversational. Trigger phrases: "how could re-frame-pair2 better support my workflow", "retrospective on a debugging session", "concrete improvement ideas for re-frame-pair2", "draft a bead for re-frame-pair2". The description discriminates against the live-app `re-frame-pair2` skill and the authoring `re-frame2` skill.*
 >
