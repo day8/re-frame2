@@ -361,6 +361,16 @@
     (fn [db _query]
       (get db :target-frame defaults/default-target-frame)))
 
+  ;; Set the active target frame. The `core.cljs` facade's
+  ;; `set-active-frame!` dispatches this; once a UI frame picker
+  ;; lands it will dispatch the same event. `nil` resets to the
+  ;; default target frame (`:rf/default`).
+  (rf/reg-event-db :rf.causa/set-target-frame
+    (fn [db [_ frame-id]]
+      (if (nil? frame-id)
+        (dissoc db :target-frame)
+        (assoc db :target-frame frame-id))))
+
   ;; Cached snapshot of the target frame's epoch history, pumped
   ;; by `:rf.causa/epoch-recorded` (dispatched from the epoch-cb in
   ;; preload). The cache is necessary because rf/epoch-history is a

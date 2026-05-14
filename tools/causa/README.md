@@ -143,7 +143,7 @@ tools/causa/
 ├── spec/                                      ; normative contract (see above)
 ├── src/day8/re_frame2_causa/
 │   ├── preload.cljs                           ; registers listeners, mounts DOM
-│   ├── core.cljs                              ; init!, panel mount, settings
+│   ├── core.cljs                              ; user-facing facade (init!, open!, active-frame, ...)
 │   ├── panels/                                ; one ns per panel
 │   ├── causality/                             ; graph layout + rendering
 │   ├── ai/                                    ; co-pilot panel, provider abstraction
