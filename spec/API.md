@@ -431,6 +431,7 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/restore-missing-handler` | `:frame`, `:epoch-id`, `:missing` |
 | `:rf.epoch/restore-version-mismatch` | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
+| `:rf.epoch/restore-non-ok-record` | `:frame`, `:epoch-id`, `:outcome`, `:halt-reason` |
 | `:rf.epoch/reset-frame-db-during-drain` | `:frame` |
 | `:rf.epoch/reset-frame-db-schema-mismatch` | `:frame`, `:failing-paths` |
 | `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
