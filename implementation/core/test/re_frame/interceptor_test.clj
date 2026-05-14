@@ -116,6 +116,72 @@
       (is (= :keep (get-in db [:a :sib]))
           "siblings under the outer focus are preserved"))))
 
+;; Per rf2-rwlj2 / Round-2 audit finding CQ-R2.5: the `:after` arm of
+;; `path` only writes `:effects :db` when the handler actually produced
+;; one. When the handler emits no `:db` effect (an `:fx`-only handler
+;; under `reg-event-fx`, or any handler that returns `{}`), the path
+;; interceptor passes through cleanly — no spurious `:db` effect, no
+;; allocation. Pins the "no `:db` effect = no DB write" contract.
+;;
+;; Source: std_interceptors.cljc — :after arm gates the splice-back on
+;; `(contains? (:effects ctx) :db)`.
+
+(deftest path-interceptor-passes-through-when-handler-emits-no-db
+  (testing "(path ...) does NOT synthesise a :db effect when the handler
+            emits none — `:fx`-only handlers stay `:fx`-only through
+            the path interceptor"
+    (let [final-ctx (atom nil)]
+      (rf/reg-event-db :path-noop/init
+                       (fn [_ _] {:foo {:bar 10} :other :preserved}))
+      ;; A `reg-event-fx` handler that emits ONLY `:fx`, no `:db`.
+      ;; Pre-fix the path interceptor would have spliced the unchanged
+      ;; slice back into `:effects :db` regardless — producing a
+      ;; spurious DB write the handler never asked for.
+      (rf/reg-event-fx :path-noop/fx-only
+                       [(rf/path :foo :bar)
+                        ;; Sandwich-spy that captures the effects map
+                        ;; produced by the handler-side chain — i.e.
+                        ;; AFTER the handler ran and BEFORE the path
+                        ;; interceptor's :after re-runs.
+                        (interceptor/->interceptor
+                          :id    :path-noop/spy
+                          :after (fn [ctx]
+                                   (reset! final-ctx ctx)
+                                   ctx))]
+                       (fn [_cofx _ev]
+                         ;; No `:db` in the returned effect map.
+                         {:fx []}))
+      (rf/dispatch-sync [:path-noop/init])
+      (rf/dispatch-sync [:path-noop/fx-only])
+
+      ;; The spy's view sits between the handler and `path`'s :after —
+      ;; if the handler emitted no `:db`, neither does the chain at
+      ;; this point.
+      (is (not (contains? (:effects @final-ctx) :db))
+          "handler that returned no :db produced no :db effect mid-chain")
+
+      ;; Final app-db value is unchanged — the handler asked for
+      ;; nothing and got nothing.
+      (let [db (rf/get-frame-db :rf/default)]
+        (is (= 10 (get-in db [:foo :bar]))
+            "slice value is preserved when handler emits no :db effect")
+        (is (= :preserved (:other db))
+            "the path didn't touch the rest of app-db either")))))
+
+(deftest path-interceptor-still-splices-back-when-handler-emits-db
+  (testing "(path ...) still splices when the handler DOES emit :db —
+            rf2-rwlj2 fix preserves the happy path"
+    (rf/reg-event-db :path-emit/init (fn [_ _] {:foo {:bar 10}}))
+    (rf/reg-event-fx :path-emit/inc
+                     [(rf/path :foo :bar)]
+                     (fn [{:keys [db]} _]
+                       ;; Explicitly emit `:db` (the slice + 1).
+                       {:db (inc db)}))
+    (rf/dispatch-sync [:path-emit/init])
+    (rf/dispatch-sync [:path-emit/inc])
+    (is (= 11 (get-in (rf/get-frame-db :rf/default) [:foo :bar]))
+        "handler that emits :db still gets its slice spliced back")))
+
 ;; ---- unwrap ---------------------------------------------------------------
 
 (deftest unwrap-interceptor

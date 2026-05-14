@@ -42,17 +42,25 @@
                       (get-in (:db (:coeffects ctx)) path-vec))))
       :after
       (fn [ctx]
+        ;; Per rf2-rwlj2: the splice-back only fires when the handler
+        ;; actually emitted a `:db` effect. If the handler returned no
+        ;; `:db`, the slice didn't change and we MUST NOT synthesise a
+        ;; `:db` effect — downstream tools rely on "no `:db` effect = no
+        ;; DB write" (the docstring contract). The original code
+        ;; unconditionally wrote `:db`, which was idempotent at the
+        ;; value level (same `original-db` re-spliced with the same
+        ;; pre-handler slice) but allocated a fresh map per path-walk-
+        ;; step and produced a spurious `:db` effect from a no-`:db`
+        ;; handler.
         (let [stack       (:rf/path-stack ctx [])
               original-db (peek stack)
               new-stack   (pop stack)
-              ;; The handler may or may not have produced a new :db;
-              ;; if it didn't, the slice didn't change.
-              new-slice   (or (get-in ctx [:effects :db])
-                              (get-in ctx [:coeffects :db]))]
-          (-> ctx
-              (assoc :rf/path-stack new-stack)
-              (assoc-in [:effects :db]
-                        (assoc-in original-db path-vec new-slice))))))))
+              handler-emitted-db? (contains? (:effects ctx) :db)]
+          (cond-> (assoc ctx :rf/path-stack new-stack)
+            handler-emitted-db?
+            (assoc-in [:effects :db]
+                      (assoc-in original-db path-vec
+                                (get-in ctx [:effects :db])))))))))
 
 ;; ---- unwrap ---------------------------------------------------------------
 ;;
