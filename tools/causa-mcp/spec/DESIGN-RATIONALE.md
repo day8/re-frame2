@@ -286,9 +286,12 @@ How many MCP tools does Causa-MCP expose, and which ones?
 
 ### Options considered
 
-- **Mirror pair2-mcp** (9 tools — `discover-app`, `eval-cljs`,
-  `dispatch`, `trace-window`, `watch-epochs`, `tail-build`,
-  `snapshot`, `subscribe`, `unsubscribe`). Smallest surface;
+- **Mirror pair2-mcp** (then-9 tools at the time of locking —
+  `discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
+  `watch-epochs`, `tail-build`, `snapshot`, `subscribe`,
+  `unsubscribe`; pair2-mcp's catalogue has since grown additively
+  to fourteen via `get-path`, `subscription-info`, `handler-meta`,
+  `registry-list`, `get-pair2-instructions`). Smallest surface;
   agent has to compose for Causa-shaped questions.
 - **Hand-rolled minimal set** (~6 tools — `get-trace`,
   `get-app-db`, `dispatch`, `restore-epoch`, `eval-cljs`,
@@ -1165,11 +1168,12 @@ this lock picks 18 with the conformant-verb name
   — the precedent workflow and return shape.
 - pair2-mcp's tool registration:
   [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)
-  — confirms the impl ships in pair2-mcp's eleven-tool
+  — confirms the impl ships in pair2-mcp's fourteen-tool
   registry even though its spec catalogue
-  (`003-Tool-Catalogue.md`) still enumerates nine. The
-  spec/impl drift on pair2-mcp's side is separately tracked
-  by rf2-m9yoi.
+  (`003-Tool-Catalogue.md`) still enumerates twelve (handler-meta
+  and registry-list ship in the registry but their per-tool
+  catalogue prose hasn't migrated). The spec/impl drift on
+  pair2-mcp's side is separately tracked by rf2-m9yoi.
 - [`tools/mcp-conformance/NAMING.md` §The verb table](../../mcp-conformance/NAMING.md#the-verb-table)
   — the `list-<things>` row catalogues the shape Causa-MCP
   picks; the same file's "Causa-mcp (planned, ~17 tools)"

@@ -285,7 +285,7 @@ automatic re-inject → op proceeds.
 | Axis | `tools/pair2-mcp/` | `tools/causa-mcp/` |
 |---|---|---|
 | **Audience** | Editor-side AI workflows (pair-programming). | Debugger-side AI workflows (inspection, time-travel). |
-| **Surface** | 9 tools focused on dispatch / eval / hot-swap / trace, plus streaming. | 18 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming (incl. `list-subscriptions` diagnostic) + escape hatch + session lifecycle. |
+| **Surface** | 14 tools focused on dispatch / eval / hot-swap / trace, plus streaming, plus registrar-introspection pair, plus agent-onboarding. | 18 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch + streaming (incl. `list-subscriptions` diagnostic) + escape hatch + session lifecycle. |
 | **`:origin` tag** | `:pair` | `:causa-mcp` |
 | **Runtime injection** | `re-frame-pair2.runtime` | `re-frame2-causa-mcp.runtime` |
 | **Implementation** | shadow-cljs `:node-script`, npm-published. | Same. |
