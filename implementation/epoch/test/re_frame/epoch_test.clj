@@ -231,6 +231,70 @@
       (is (= 1 @a) "the original listener no longer fires after re-register under the same key")
       (is (= 1 @b) "the replacement listener fires"))))
 
+;; ---- rf2-s60jx: multi-listener observed-frames + re-register dissoc ------
+;;
+;; `notify-listeners!` invokes `record-observation!` once per listener per
+;; drain-settle, populating `observed-frames-by-cb[cb-id]` with each
+;; frame the cb has seen. Two contracts that weren't pinned:
+;;
+;;   1. Two listeners both observing the same frame on the same drain
+;;      land independent entries in `observed-frames-by-cb` — each cb's
+;;      set contains the frame-id.
+;;   2. Re-registering a listener under the same id (via
+;;      `register-epoch-cb!`) resets BOTH the listener entry AND the
+;;      observed-frames entry — so the new callback's silencing trace
+;;      fires fresh against frames it observes. The `dissoc` at
+;;      epoch.cljc:158 is the non-obvious half of the contract; a
+;;      future regression that drops it would leave stale observed-
+;;      frames bookkeeping under the new fn's id.
+
+(deftest multi-listener-observed-frames-and-re-register-dissoc
+  (testing "two listeners both observing the same frame populate
+            independent observed-frames-by-cb entries; re-registering
+            under the same id resets BOTH the listener entry and the
+            observed-frames entry"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+
+    (let [observed (deref #'epoch/observed-frames-by-cb)
+          a        (atom 0)
+          b        (atom 0)
+          c        (atom 0)]
+      ;; Two listeners under independent ids, both observe :test/main.
+      (rf/register-epoch-cb! ::w1 (fn [_] (swap! a inc)))
+      (rf/register-epoch-cb! ::w2 (fn [_] (swap! b inc)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+
+      (is (= 1 @a) "::w1 fired on the cascade")
+      (is (= 1 @b) "::w2 fired on the cascade")
+
+      (let [snap @observed]
+        (is (contains? (get snap ::w1) :test/main)
+            "::w1 has :test/main in its observed-frames")
+        (is (contains? (get snap ::w2) :test/main)
+            "::w2 has :test/main in its observed-frames")
+        (is (= #{:test/main} (get snap ::w1)))
+        (is (= #{:test/main} (get snap ::w2))))
+
+      ;; Re-register ::w1 under a different fn — the listener swap is
+      ;; well-tested by listener-same-key-replaces. Pin the OTHER half:
+      ;; the observed-frames dissoc.
+      (rf/register-epoch-cb! ::w1 (fn [_] (swap! c inc)))
+      (is (nil? (get @observed ::w1))
+          "re-register dissocs the prior observed-frames entry — new
+           cb starts with an empty observed-frames set")
+      (is (contains? (get @observed ::w2) :test/main)
+          "::w2's entry is untouched — re-registration is scoped to ::w1")
+
+      ;; Drive a new cascade — both cbs fire; ::w1's observed-frames
+      ;; re-arms with :test/main.
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (is (= 1 @a) "the original ::w1 fn does not fire — it was replaced")
+      (is (= 1 @c) "the replacement ::w1 fn fires once")
+      (is (= 2 @b) "::w2 keeps firing across both cascades")
+      (is (contains? (get @observed ::w1) :test/main)
+          "::w1's observed-frames re-armed with :test/main"))))
+
 (deftest listener-remove
   (testing "remove-epoch-cb! stops the listener"
     (rf/reg-frame :test/main {})
