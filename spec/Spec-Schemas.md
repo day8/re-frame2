@@ -292,7 +292,7 @@ The metadata stamped on the schemas artefact's per-frame side-table entry by `re
    [:map
     [:path         [:vector :any]]                                           ;; runtime-stamped from positional arg; the app-db path the schema validates
     [:schema       :any]                                                     ;; runtime-stamped; the Malli (or equivalent) schema value
-    [:frame        {:optional true} :keyword]                                ;; the frame the schema registers against (default: (current-frame))
+    [:frame        :keyword]                                                 ;; runtime-stamped; the frame the schema registers against (`(:frame opts)` ?? `(current-frame)`)
     ]])
 ```
 
