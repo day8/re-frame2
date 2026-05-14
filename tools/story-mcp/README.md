@@ -57,19 +57,21 @@ this jar is decomposed into [`spec/`](./spec/):
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this jar is, why it's separate from Story. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; `initialize`; `tools/list`; `tools/call`; protocol-version pin. |
-| [`spec/002-Tool-Registry.md`](./spec/002-Tool-Registry.md) | The 16 tools across Dev / Docs / Testing / Write categories. |
+| [`spec/002-Tool-Registry.md`](./spec/002-Tool-Registry.md) | The 19 tools across Dev / Docs / Testing / Write categories. |
 | [`spec/003-Write-Surface-Gating.md`](./spec/003-Write-Surface-Gating.md) | The `allow-writes?` config; what's gated; how the gate fails. |
 | [`spec/API.md`](./spec/API.md) | Consolidated tool surface (each tool's input/output schemas). |
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | Why Cheshire over data.json; why stage-marker is independent; why protocol-version pinned. |
 
 The four categories, at a glance:
 
-- **Dev** — `get-story-instructions`, `preview-variant`, `list-substrates`.
-- **Docs** — `list-stories`, `get-story`, `get-variant`, `list-tags`,
-  `list-modes`, `list-assertions`, `variant->edn`.
-- **Testing** — `run-variant`, `snapshot-identity`, `run-a11y`,
+- **Dev** (3) — `get-story-instructions`, `preview-variant`, `list-substrates`.
+- **Docs** (9) — `list-stories`, `get-story`, `get-variant`, `list-tags`,
+  `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
+  `get-docs-markdown`.
+- **Testing** (4) — `run-variant`, `snapshot-identity`, `run-a11y`,
   `read-failures`.
-- **Write** (gated) — `register-variant`, `unregister-variant`.
+- **Write** (3, gated) — `register-variant`, `unregister-variant`,
+  `record-as-variant`.
 
 ## File layout
 

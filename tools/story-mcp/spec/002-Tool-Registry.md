@@ -1,9 +1,18 @@
 # Story-MCP — Tool Registry
 
-> The 17 tools the server exposes, across four categories — Dev,
-> Docs, Testing, Write. One section per category, one paragraph per
-> tool. The wire-shape for each tool (input schema, output shape)
-> lives in [`API.md`](API.md); this document is the orientation read.
+> The 19 tools the server exposes, across four categories — Dev (3),
+> Docs (9), Testing (4), Write (3). One section per category, one
+> paragraph per tool. The wire-shape for each tool (input schema,
+> output shape) lives in [`API.md`](API.md); this document is the
+> orientation read. The canonical 19-tool name list ships as the
+> shared fixture `test/fixtures/tool-names.json` (rf2-36upq TE7); JVM
+> and Node test corpora compare against it so the spec text and the
+> running registry can't drift independently.
+
+Two deferred tool sections (`subscribe` / `unsubscribe` and
+`evaluate-cljs`) appear at the end of the Docs category for forward-
+visibility only; they are NOT in the shipped 19 and are explicitly
+flagged "Status: deferred to a future drop."
 
 The toolset split borrows the Storybook MCP shape (Dev / Docs /
 Testing) and adds the gated Write surface for the self-healing loop.
@@ -57,7 +66,11 @@ opt-in per host). JVM-standalone hosts return `[]`.
 
 ## Docs — for agents reading the story library
 
-Seven introspection tools.
+Nine introspection tools — the seven core read primitives
+(`list-stories`, `get-story`, `get-variant`, `list-tags`,
+`list-modes`, `list-assertions`, `variant->edn`) plus
+`list-decorators` (rf2-mqp1u) and `get-docs-markdown` (rf2-i0kyy)
+filled in during Stage 7 polish.
 
 ### `list-stories`
 
@@ -105,6 +118,12 @@ docs.
 
 Canonical EDN form, text-only result for byte-stable round-tripping
 (content is text, not JSON, to avoid lossy JSON encoding of EDN).
+
+### Deferred Docs tools (not part of the shipped 19)
+
+The two sections below sketch additions that are NOT in the
+shipped registry — they appear here for forward-visibility while the
+implementation is pending.
 
 ### `subscribe` / `unsubscribe` (rf2-p8u13, deferred)
 

@@ -121,8 +121,8 @@ whole point of agent-substrate posture in 2026.
 
 - [`001-Wire-Protocol.md`](001-Wire-Protocol.md) — JSON-RPC framing,
   stdio transport, `initialize` handshake.
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 16 tools
-  across Dev / Docs / Testing / Write.
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 19 tools
+  across Dev (3) / Docs (9) / Testing (4) / Write (3).
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   `allow-writes?` config and gate behaviour.
 - [`API.md`](API.md) — consolidated tool surface.

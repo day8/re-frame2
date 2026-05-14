@@ -150,7 +150,7 @@ in this jar (`allow-writes?`), not in Story.
 
 - [`000-Vision.md`](000-Vision.md) — the orientation read.
 - [`001-Wire-Protocol.md`](001-Wire-Protocol.md) — protocol details.
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 16 tools.
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 19 tools.
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   gate behaviour.
 - [`API.md`](API.md) — per-tool schemas.

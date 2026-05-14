@@ -37,7 +37,7 @@ the contract is "tools only."
 | JSON-RPC method | Behaviour |
 |---|---|
 | `initialize` | Performs handshake; returns advertised capabilities + protocol version + server info. |
-| `tools/list` | Returns the full 17-tool registry (Dev / Docs / Testing / Write). |
+| `tools/list` | Returns the full 19-tool registry (Dev / Docs / Testing / Write). |
 | `tools/call` | Dispatches the named tool with `arguments`; returns content + structuredContent + optional `isError`. |
 | `ping` | Returns `{}`. Health check. |
 | `shutdown` | Cleanly stops the run-loop. |
@@ -99,7 +99,7 @@ Returns the tool registry verbatim — name, description, JSON-Schema
 input schema, optional output schema. Order is stable but not
 contractually relevant; agents iterate by name.
 
-The 17 tools are enumerated in
+The 19 tools are enumerated in
 [`002-Tool-Registry.md`](002-Tool-Registry.md).
 
 ## `tools/call`
@@ -146,7 +146,7 @@ Stage 7's tests cover each of these paths.
 
 ## Cross-references
 
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 17 tools.
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 19 tools.
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   how the gate fails (clean error, not no-op).
 - [`API.md`](API.md) — per-tool input/output shapes.
