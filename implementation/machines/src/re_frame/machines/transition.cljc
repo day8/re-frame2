@@ -1108,6 +1108,38 @@
                  snap
                  depth))))))
 
+(defn- emit-pick-traces!
+  "Fire the three pre-transition timer traces for a `pick-transition`
+  match — `:rf.machine.timer/stale-after`, `:rf.machine.timer/fired`
+  (guard-suppressed), and `:rf.machine.timer/fired` (success). Each
+  branch is mutually exclusive given the `match` shape, but we spell
+  them sequentially so listeners observe document order if a future
+  match shape lights up more than one. No-op when `match` is nil or
+  carries no relevant marker."
+  [match]
+  (when match
+    (when (:stale? match)
+      (trace/emit! :machine :rf.machine.timer/stale-after
+                   {:state           (:state match)
+                    :delay           (:delay match)
+                    :scheduled-epoch (:scheduled-epoch match)
+                    :current-epoch   (:current-epoch match)
+                    :recovery        :replaced-with-default}))
+    (when (:guard-suppressed? match)
+      (trace/emit! :machine :rf.machine.timer/fired
+                   {:state  (:state match)
+                    :delay  (:delay match)
+                    :epoch  (:epoch match)
+                    :fired? false}))
+    (when (and (not (:stale? match))
+               (not (:guard-suppressed? match))
+               (:delay match))
+      (trace/emit! :machine :rf.machine.timer/fired
+                   {:state  (last (:decl-path match))
+                    :delay  (:delay match)
+                    :epoch  (:epoch match)
+                    :fired? true}))))
+
 (defn machine-transition-single
   "Pure function. Single-machine (flat or compound) implementation of the
   macrostep. Per Spec 005 §Drain semantics §Level 3:
@@ -1134,28 +1166,7 @@
         ;; Trace timer firing / staleness / guard-suppression BEFORE
         ;; running the transition, so listeners see events in the order
         ;; they occurred.
-        _ (when (and match (:stale? match))
-            (trace/emit! :machine :rf.machine.timer/stale-after
-                         {:state           (:state match)
-                          :delay           (:delay match)
-                          :scheduled-epoch (:scheduled-epoch match)
-                          :current-epoch   (:current-epoch match)
-                          :recovery        :replaced-with-default}))
-        _ (when (and match (:guard-suppressed? match))
-            (trace/emit! :machine :rf.machine.timer/fired
-                         {:state  (:state match)
-                          :delay  (:delay match)
-                          :epoch  (:epoch match)
-                          :fired? false}))
-        _ (when (and match
-                     (not (:stale? match))
-                     (not (:guard-suppressed? match))
-                     (:delay match))
-            (trace/emit! :machine :rf.machine.timer/fired
-                         {:state  (last (:decl-path match))
-                          :delay  (:delay match)
-                          :epoch  (:epoch match)
-                          :fired? true}))
+        _ (emit-pick-traces! match)
         result-after-event
         (cond
           (and match (:stale? match))
