@@ -38,23 +38,10 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.flows :as flows]
             [re-frame.schemas :as schemas]
-            [re-frame.spec :as spec]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.schemas.test-fixture :as tf]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! schemas/schemas-by-frame {})
-  (schemas/reset-schema-validator!)
-  (spec/clear-boundary-warned-handler-ids!)
-  (rf/init! plain-atom/adapter)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each tf/reset-runtime)
 
 ;; ---- walker per-entry shape ----------------------------------------------
 
