@@ -72,10 +72,9 @@
                          :children [($ header) ($ main)]})
 
   Per rf2-sixo: missing or `nil` `:frame` falls through to `:rf/default`.
-  The three React-shaped adapters share one React Context (per rf2-3yij
-  Decision 2 / rf2-2qit Decision 2) so a subtree under any
-  frame-provider sees the right frame regardless of which substrate
-  rendered the provider."
+  The three React-shaped adapters share one React Context (per rf2-2qit
+  Decision 2) so a subtree under any frame-provider sees the right frame
+  regardless of which substrate rendered the provider."
   (:frame-provider spine-fns))
 
 (def use-subscribe
