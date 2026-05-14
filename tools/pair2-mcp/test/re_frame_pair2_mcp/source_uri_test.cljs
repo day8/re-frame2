@@ -161,6 +161,47 @@
     (let [v {:event-id :x :payload {:y 1}}]
       (is (= v (source-uri/decorate v :vscode))))))
 
+;; ---------------------------------------------------------------------------
+;; decorate — flat-key carrier (handler-meta / frame-meta shape; rf2-87wee).
+;;
+;; `(rf/handler-meta kind id)` and `(rf/frame-meta id)` return registration-
+;; metadata maps with flat `:ns` / `:line` / `:column` / `:file` keys (per
+;; Spec-Schemas `:rf/source-coord-meta` and rf2-4h8ny). The decorator must
+;; recognise this carrier shape and splice :rf.source/uri onto the map
+;; itself — distinct from the trace-event :source-coord sub-map carrier.
+;; ---------------------------------------------------------------------------
+
+(deftest decorate-splices-uri-on-flat-coord-carrier-map
+  (testing "a map with flat :ns/:line/:file keys (handler-meta shape) gets a :rf.source/uri"
+    (let [v   {:ok? true :kind :event :id :user/login
+               :doc "Sign the user in."
+               :ns 'app.events :file "src/app/events.cljs" :line 42 :column 7}
+          out (source-uri/decorate v :vscode)]
+      (is (= "vscode://file/src/app/events.cljs:42:7" (:rf.source/uri out)))
+      (is (= "Sign the user in." (:doc out)) ":doc passes through unchanged"))))
+
+(deftest decorate-flat-coord-carrier-requires-multi-key-guard
+  (testing "a map with only :file (no :ns/:line/:column) is NOT decorated"
+    ;; Guards against accidental decoration of unrelated maps that carry
+    ;; a :file key for some other reason (e.g. a tool arg map).
+    (let [v {:file "src/app/events.cljs"}]
+      (is (not (contains? (source-uri/decorate v :vscode) :rf.source/uri))))))
+
+(deftest decorate-flat-coord-carrier-skips-blank-file
+  (testing "a flat carrier with blank :file produces no :rf.source/uri"
+    (let [v {:ns 'app.events :file "" :line 42 :column 7}]
+      (is (not (contains? (source-uri/decorate v :vscode) :rf.source/uri))))))
+
+(deftest decorate-nested-handler-meta-shape
+  (testing "an :epochs walk through nested vectors decorates each handler-meta map"
+    (let [v   {:epochs [{:event-id :a
+                         :handler-meta {:ok? true :kind :event :id :a
+                                        :ns 'app.events :file "src/app/events.cljs"
+                                        :line 42 :column 7}}]}
+          out (source-uri/decorate v :vscode)
+          hm  (-> out :epochs first :handler-meta)]
+      (is (= "vscode://file/src/app/events.cljs:42:7" (:rf.source/uri hm))))))
+
 (deftest decorate-idempotent
   (testing "running the decorator twice yields the same result"
     (let [v       {:source-coord sample-coord}
