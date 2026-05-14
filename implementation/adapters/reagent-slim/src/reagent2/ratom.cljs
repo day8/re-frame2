@@ -55,10 +55,6 @@
 
 (declare ^:dynamic *ratom-context*)
 
-(defonce ^boolean debug false)
-(defonce ^:private generation 0)
-(defonce ^:private -running (clojure.core/atom 0))
-
 (defn ^boolean reactive?
   "True if invoked inside a reactive context — i.e. inside the body of a
   Reaction or another deref-capturing scope. Reads the dynamic
@@ -66,12 +62,6 @@
   deref will subscribe (reactive) vs just snapshot (non-reactive)."
   []
   (some? *ratom-context*))
-
-(defn running
-  "Diagnostic: count of currently-running reactions when `debug` is true.
-  Returns 0 unless `debug` was set before any Reactions were created."
-  []
-  (+ @-running))
 
 ;; ---------------------------------------------------------------------------
 ;; Internal helpers
@@ -104,8 +94,6 @@
   no-longer-watched ratoms. Clears the dirty? flag on r."
   [f ^clj r]
   (set! (.-captured r) nil)
-  (when ^boolean js/goog.DEBUG
-    (set! (.-ratomGeneration r) (set! generation (inc generation))))
   (let [res (in-context r f)
         c   (.-captured r)]
     (set! (.-dirty? r) false)
@@ -124,20 +112,13 @@
         (set! (.-captured r) (array derefed))
         (.push c derefed)))))
 
-(defn- check-watches [old new]
-  (when debug
-    (swap! -running + (- (count new) (count old))))
-  new)
-
 (defn- add-w [^clj this key f]
-  (let [w (.-watches this)]
-    (set! (.-watches this) (check-watches w (assoc w key f)))
-    (set! (.-watchesArr this) nil)))
+  (set! (.-watches this) (assoc (.-watches this) key f))
+  (set! (.-watchesArr this) nil))
 
 (defn- remove-w [^clj this key]
-  (let [w (.-watches this)]
-    (set! (.-watches this) (check-watches w (dissoc w key)))
-    (set! (.-watchesArr this) nil)))
+  (set! (.-watches this) (dissoc (.-watches this) key))
+  (set! (.-watchesArr this) nil))
 
 (defn- notify-w [^clj this old new]
   (let [w   (.-watchesArr this)
