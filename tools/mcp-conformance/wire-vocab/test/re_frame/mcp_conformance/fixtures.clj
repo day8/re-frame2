@@ -87,3 +87,74 @@
   server means extending this set AND adding per-server source/spec
   coverage to every relevant test catalogue."
   #{:pair2-mcp :story-mcp :causa-mcp})
+
+;; ---------------------------------------------------------------------------
+;; Source-text helper. Conformance tests grep .cljs/.cljc/.md files for
+;; canonical literals; some absence-pins want to distinguish *emissions*
+;; from *documentation* (docstring mentions, comment references). This
+;; state-machine over raw Clojure/CLJS source strips string literals
+;; and line comments to single spaces — preserving line numbering for
+;; accurate error reporting up the stack.
+;;
+;; Originally `defn-` in `wire_vocab_test.clj` (rf2-7dnct → rf2-xx42k),
+;; promoted to a public helper here so all three conformance test
+;; namespaces can share it (rf2-rto1l): the wire-vocab gate, the
+;; story-mcp absence tripwire, AND the indicator-field inline-emit
+;; anti-pin all need the same documentation-vs-emission distinction.
+;; ---------------------------------------------------------------------------
+
+(defn strip-comments-and-strings
+  "Return `src` with Clojure line comments (`;` to EOL) and string
+  literals (`\"...\"`, including docstrings) replaced by single
+  spaces. Preserves line structure for accurate error reporting up
+  the stack.
+
+  Implementation: simple state machine over the raw text. Tracks two
+  states (in-string vs in-comment) with `\\` escape handling inside
+  strings. Not a full Clojure reader — character literals (`\\;`),
+  regex literals (`#\"...\"`), and `#_` reader-discards are not
+  modelled. Those edge cases don't matter for the conformance pins:
+  we strip conservatively (false-positive whitelisting would be the
+  bug; a missed string is OK because the marker still wouldn't appear
+  in a bare character literal or a regex pattern targeting it)."
+  [src]
+  (let [n  (count src)
+        sb (StringBuilder. n)]
+    (loop [i 0, in-string? false, in-comment? false]
+      (if (>= i n)
+        (.toString sb)
+        (let [c (.charAt ^String src i)]
+          (cond
+            in-comment?
+            (do (.append sb (if (= c \newline) c \space))
+                (recur (inc i) false (not= c \newline)))
+
+            in-string?
+            (cond
+              ;; escape: skip the next char (consume both as space, preserving newlines)
+              (= c \\)
+              (do (.append sb \space)
+                  (when (< (inc i) n)
+                    (let [nx (.charAt ^String src (inc i))]
+                      (.append sb (if (= nx \newline) nx \space))))
+                  (recur (+ i 2) true false))
+
+              (= c \")
+              (do (.append sb \space)
+                  (recur (inc i) false false))
+
+              :else
+              (do (.append sb (if (= c \newline) c \space))
+                  (recur (inc i) true false)))
+
+            (= c \;)
+            (do (.append sb \space)
+                (recur (inc i) false true))
+
+            (= c \")
+            (do (.append sb \space)
+                (recur (inc i) true false))
+
+            :else
+            (do (.append sb c)
+                (recur (inc i) false false))))))))

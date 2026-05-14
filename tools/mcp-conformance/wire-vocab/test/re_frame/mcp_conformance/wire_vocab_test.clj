@@ -91,71 +91,10 @@
 ;; this artefact.
 ;; ---------------------------------------------------------------------------
 
-(defn- strip-comments-and-strings
-  "Return `src` with Clojure line comments (`;` to EOL) and string
-  literals (`\"...\"`, including docstrings) replaced by single
-  spaces. Preserves line structure for accurate error reporting up
-  the stack.
-
-  Used by the `story-mcp-still-emits-zero-cross-mcp-markers` tripwire
-  (and any other absence-pin that wants to distinguish *emissions*
-  from *documentation*). story-mcp re-uses mcp-base's overflow
-  machinery — the marker IS emitted on its wire, but not via an
-  inline literal in story-mcp's own source. Docstring/comment
-  references to `:rf.mcp/overflow` and `:rf.size/large-elided`
-  (rf2-7dnct introduced them, rf2-xx42k filed the drift) are
-  documentation, not emissions; this helper lets the absence-pin
-  ignore them.
-
-  Implementation: simple state machine over the raw text. Tracks two
-  states (in-string vs in-comment) with `\\` escape handling inside
-  strings. Not a full Clojure reader — character literals (`\\;`),
-  regex literals (`#\"...\"`), and `#_` reader-discards are not
-  modelled. Those edge cases don't matter for our pin: we strip
-  conservatively (false-positive whitelisting would be the bug; a
-  missed string is OK because the marker still wouldn't appear in a
-  bare character literal or a regex pattern targeting it)."
-  [src]
-  (let [n  (count src)
-        sb (StringBuilder. n)]
-    (loop [i 0, in-string? false, in-comment? false]
-      (if (>= i n)
-        (.toString sb)
-        (let [c (.charAt ^String src i)]
-          (cond
-            in-comment?
-            (do (.append sb (if (= c \newline) c \space))
-                (recur (inc i) false (not= c \newline)))
-
-            in-string?
-            (cond
-              ;; escape: skip the next char (consume both as space, preserving newlines)
-              (= c \\)
-              (do (.append sb \space)
-                  (when (< (inc i) n)
-                    (let [nx (.charAt ^String src (inc i))]
-                      (.append sb (if (= nx \newline) nx \space))))
-                  (recur (+ i 2) true false))
-
-              (= c \")
-              (do (.append sb \space)
-                  (recur (inc i) false false))
-
-              :else
-              (do (.append sb (if (= c \newline) c \space))
-                  (recur (inc i) true false)))
-
-            (= c \;)
-            (do (.append sb \space)
-                (recur (inc i) false true))
-
-            (= c \")
-            (do (.append sb \space)
-                (recur (inc i) true false))
-
-            :else
-            (do (.append sb c)
-                (recur (inc i) false false))))))))
+;; `strip-comments-and-strings` lives in
+;; `re-frame.mcp-conformance.fixtures` (rf2-rto1l) — promoted from a
+;; private defn here so all three conformance test namespaces can share
+;; the same documentation-vs-emission discrimination logic.
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical schemas. Single source of truth.
@@ -663,7 +602,7 @@
           ;; literal as data after comment/string stripping.
           (seq emit-files)
           (is (some (fn [rel]
-                      (let [stripped (strip-comments-and-strings
+                      (let [stripped (fx/strip-comments-and-strings
                                        (fx/read-source rel))]
                         (str/includes? stripped literal)))
                     emit-files)
@@ -840,7 +779,7 @@
     (doseq [{:keys [key]} canonical-markers
             rel           story-files]
       (testing (str "story-mcp source " rel " — " key " absence")
-        (let [stripped (strip-comments-and-strings (fx/read-source rel))]
+        (let [stripped (fx/strip-comments-and-strings (fx/read-source rel))]
           (is (not (str/includes? stripped (marker-key->literal key)))
               (str key " literal found in " rel
                    " (in code, after stripping comments/docstrings).\n"
