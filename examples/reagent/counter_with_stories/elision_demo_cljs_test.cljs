@@ -1,6 +1,6 @@
 (ns counter-with-stories.elision-demo-cljs-test
-  "Integration tests for the rf2-vw0to elision demo. Asserts each
-  branch of the privacy + size elision arc actually fires:
+  "Integration tests for the privacy + size elision demo. Asserts each
+  branch of the elision arc actually fires:
 
   1. `:auth/sign-in` carries `:sensitive? true` in its registration
      metadata — `rf/handler-meta` returns the flag for trace-surface
@@ -38,16 +38,15 @@
 
 (defn- before! []
   (reset! registrar-snapshot (test-support/snapshot-registrar))
-  ;; Per rf2-qsjda: Causa's preload-time trace-cb registers its
-  ;; bookkeeping handlers with `:rf.trace/no-emit? true`, so the
-  ;; framework short-circuits emission for them and the collector
-  ;; never re-enters itself. The previous workaround that wiped
-  ;; the trace-cb registry per fixture (rf2-vw0to → rf2-nk01x
-  ;; tactical fix) is obsolete — Causa's cb runs as production
-  ;; preload wires it.
+  ;; Causa's preload-time trace-cb registers its bookkeeping
+  ;; handlers with `:rf.trace/no-emit? true`, so the framework
+  ;; short-circuits emission for them and the collector never
+  ;; re-enters itself. The previous workaround that wiped the
+  ;; trace-cb registry per fixture is obsolete — Causa's cb runs
+  ;; as production preload wires it.
   (reset! frame/frames {})
-  ;; Per rf2-wkxng / rf2-6m0se: clear cross-namespace schemas from
-  ;; the per-frame registry before re-registering this demo's
+  ;; Clear cross-namespace schemas from the per-frame registry
+  ;; before re-registering this demo's
   ;; declarations. Sibling test namespaces (auth-flow story tests,
   ;; nine-states.core, Conduit) register schemas against :rf/default
   ;; at ns-load; the post-commit validation rollback would otherwise
@@ -149,7 +148,7 @@
             branch of the walker — orthogonal to the schema-driven
             branch — keeps inline blobs off the wire even when no
             schema declared the path. Per Spec 009 §Auto-detect
-            threshold + rf2-rirbq."
+            threshold."
     (let [seen (atom [])]
       (rf/register-event-emit-listener!
         ::test-recorder
@@ -182,8 +181,8 @@
   (testing "The always-on event-emit substrate fires one record per
             processed event — EXCEPT for events whose handler-meta
             carries `:sensitive? true`, which are dropped at the
-            boundary per rf2-6hklf. `:auth/sign-in` is `:sensitive?
-            true` so it is dropped; the two `:user.avatar-pdf/*`
+            boundary. `:auth/sign-in` is `:sensitive? true` so it
+            is dropped; the two `:user.avatar-pdf/*`
             handlers are not sensitive so they deliver records.
             Asserted alongside the elision tests so the demo's
             listener install path is exercised end-to-end without
@@ -199,7 +198,7 @@
       (rf/dispatch-sync [:user.avatar-pdf/clear])
       (is (= 2 (count @seen))
           "three dispatches → two records (:auth/sign-in dropped at the
-           boundary per handler-meta :sensitive? true; rf2-6hklf)")
+           boundary per handler-meta :sensitive? true)")
       (is (= [:user.avatar-pdf/set :user.avatar-pdf/clear]
              (mapv :event-id @seen))
           "records arrive in dispatch order, sans the :sensitive? dispatch")

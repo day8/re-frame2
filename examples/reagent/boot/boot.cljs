@@ -91,8 +91,8 @@
 ;; `:invoke` / `:invoke-all`-child `:data` slot (fn-form per
 ;; Spec 005 §Spec-spec keys). The child machine spawns in `:idle`
 ;; and the runtime-synthesised `:rf.machine/spawned` event
-;; (per rf2-ijm7) transitions it to `:loading`, which fires the
-;; entry-cascade's `:begin-fetch` action.
+;; transitions it to `:loading`, which fires the entry-cascade's
+;; `:begin-fetch` action.
 
 (rf/reg-machine :boot/loader
   {:initial :idle
@@ -139,11 +139,10 @@
                         [:boot/asset-failed (:child-id data) (:error data)]]]]})}
 
    :states
-   {;; :idle is the FSM's :initial. Per rf2-ijm7, the spawn-fx
-    ;; synthesises a [:rf.machine/spawned] event into the new actor
-    ;; if no :start is supplied — :idle's transition picks it up
-    ;; and moves to :loading, which fires the entry-cascade's
-    ;; :begin-fetch action.
+   {;; :idle is the FSM's :initial. The spawn-fx synthesises a
+    ;; [:rf.machine/spawned] event into the new actor if no :start is
+    ;; supplied — :idle's transition picks it up and moves to :loading,
+    ;; which fires the entry-cascade's :begin-fetch action.
     :idle
     {:on {:rf.machine/spawned :loading}}
 

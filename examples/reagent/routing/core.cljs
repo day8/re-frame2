@@ -72,7 +72,7 @@
 ;; and defers modifier-key / auxiliary-button (middle-click) clicks to the
 ;; browser so the native open-in-new-tab affordance is preserved. Any
 ;; passthrough HTML attrs on the props map (e.g. `:data-testid` used by
-;; the Playwright spec, rf2-0gdsb) land on the underlying `<a>`.
+;; the Playwright spec) land on the underlying `<a>`.
 
 (reg-view home-page []
   [:div

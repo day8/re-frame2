@@ -148,9 +148,9 @@
 
    :states
    {:idle
-    ;; The runtime synthesises [:rf.machine/spawned] (rf2-ijm7) when
-    ;; no explicit :start is supplied; declaring it as an :on entry
-    ;; lets the child auto-kick into :processing on spawn.
+    ;; The runtime synthesises [:rf.machine/spawned] when no explicit
+    ;; :start is supplied; declaring it as an :on entry lets the child
+    ;; auto-kick into :processing on spawn.
     {:tags #{:work/idle}
      :on   {:rf.machine/spawned :processing}}
 

@@ -34,9 +34,9 @@
             ;; it, dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
-            ;; rf2-pf4k — call-site helpers (rf.http/get / post / put /
-            ;; delete / patch / head / options) that synthesise the
-            ;; canonical [:rf.http/managed args-map] envelope.
+            ;; Call-site helpers (rf.http/get / post / put / delete /
+            ;; patch / head / options) that synthesise the canonical
+            ;; [:rf.http/managed args-map] envelope.
             [re-frame.http :as rf.http]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -74,10 +74,10 @@
                (assoc :status :error
                       :error  (:failure (:rf/reply msg))))}
 
-      ;; Initial branch — issue the request. rf2-pf4k: the
-      ;; `rf.http/get` helper synthesises the same `[:rf.http/managed
-      ;; args-map]` envelope a hand-written `:method :get` entry
-      ;; would; the call-site reads as one line of intent.
+      ;; Initial branch — issue the request. The `rf.http/get`
+      ;; helper synthesises the same `[:rf.http/managed args-map]`
+      ;; envelope a hand-written `:method :get` entry would; the
+      ;; call-site reads as one line of intent.
       :else
       {:db (assoc db :status :loading :error nil)
        :fx [(rf.http/get "api/inc.json" {:decode :json})]})))
@@ -94,7 +94,7 @@
       ;; Should not happen — the URL is intentionally 404.
       {:db (assoc db :status :idle :error nil)}
 
-      ;; rf2-pf4k — same `rf.http/get` helper as above. Per Spec 014
+      ;; Same `rf.http/get` helper as above. Per Spec 014
       ;; §Classification order, status-check fires before decode — so
       ;; even with `:decode :json`, a 404 with an HTML or plain-text
       ;; body classifies as :rf.http/http-4xx (the raw body lands at
@@ -136,7 +136,7 @@
 ;;
 ;; A "long" request is routed through a per-app stub that defers its
 ;; reply via js/setTimeout, so the :loading state is observable in a
-;; browser long enough for the cancel UI to interact with it (rf2-fv8at).
+;; browser long enough for the cancel UI to interact with it.
 ;; The Spec 014 contract is that the in-flight request dispatches
 ;; :rf.http/aborted on cancellation; the deferred-stub approach mimics
 ;; that contract end-to-end without requiring a real long-running

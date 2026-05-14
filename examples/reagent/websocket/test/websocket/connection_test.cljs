@@ -1,6 +1,6 @@
 (ns websocket.connection-test
   "Headless tests for `websocket.connection` — the Pattern-WebSocket
-   worked example's connection state machine (rf2-yf97).
+   worked example's connection state machine.
 
    Coverage:
    - Initial state — the machine starts at `:disconnected` with empty

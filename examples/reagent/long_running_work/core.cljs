@@ -84,8 +84,8 @@
 ;;
 ;; React root is `react-root` (avoid colliding with `root-view`).
 ;; Held in an atom and populated lazily inside `run` rather than at
-;; ns-load (rf2-gkf9). Multiple example namespaces are co-required by
-;; the browser-test bundle's wrapper test namespaces; an ns-load
+;; ns-load. Multiple example namespaces are co-required by the
+;; browser-test bundle's wrapper test namespaces; an ns-load
 ;; `create-root` would race multiple roots onto the shared `#app`
 ;; element. Keeping `create-root` inside `run` makes ns-load DOM-
 ;; side-effect-free; the headless fixtures can `:require` this ns under

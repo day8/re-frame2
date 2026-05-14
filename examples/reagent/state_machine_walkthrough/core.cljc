@@ -265,7 +265,7 @@
   "Three failures cycle :submitting → :error-shown → :idle ×3, then a
   fourth :submit fails the guard and lands at :locked-out.
 
-  Uses `rf/with-fx-overrides` (rf2-5uwl) — the lexical-scope counterpart to
+  Uses `rf/with-fx-overrides` — the lexical-scope counterpart to
   the per-frame `:fx-overrides` opt on `make-frame`: every dispatch
   inside the macro body inherits the override map, so the seven
   identical `:rf.http/managed` swaps don't need to thread the override

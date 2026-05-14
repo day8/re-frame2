@@ -3,8 +3,8 @@
 
    These describe the shape of every wire payload the RealWorld API returns,
    plus the shape of each app-db slice that holds them. The schemas are
-   registered with re-frame2 via `reg-app-schemas` (the bulk plural form,
-   per rf2-jzs9) for path-based validation per Spec 010.
+   registered with re-frame2 via `reg-app-schemas` (the bulk plural form)
+   for path-based validation per Spec 010.
 
    The RealWorld API spec is documented at:
      https://github.com/gothinkster/realworld/tree/main/api
@@ -208,7 +208,7 @@
 ;; Path-based schema attachment per Spec 010. The framework validates writes
 ;; to these paths in development.
 ;;
-;; This example uses the bulk plural form `rf/reg-app-schemas` (rf2-jzs9):
+;; This example uses the bulk plural form `rf/reg-app-schemas`:
 ;; a feature-modular app declares 5–20 schemas in one place, so a single
 ;; `{path -> schema}` map reads more cleanly than a tower of singular
 ;; `reg-app-schema` calls. Source-coords for the bulk call stamp every

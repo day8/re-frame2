@@ -110,9 +110,9 @@
 
 ;; React root named `react-root` (not `root`) so it does NOT collide
 ;; with any `root-view` registered above. Held in an atom and populated
-;; lazily inside `run` rather than at ns-load (rf2-gkf9) so multiple
-;; example namespaces co-required by the browser-test bundle don't
-;; race `create-root` calls onto the same shared `#app` element.
+;; lazily inside `run` rather than at ns-load so multiple example
+;; namespaces co-required by the browser-test bundle don't race
+;; `create-root` calls onto the same shared `#app` element.
 (defonce react-root (atom nil))
 
 (defn ^:export run []

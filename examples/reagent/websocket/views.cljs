@@ -1,5 +1,5 @@
 (ns websocket.views
-  "Views for the Pattern-WebSocket example (rf2-yf97).
+  "Views for the Pattern-WebSocket example.
 
    The UI is intentionally minimal so the connection-machine drama is
    the visible thing: a status indicator driven by the machine's tag
@@ -39,7 +39,7 @@
                   the Playwright smoke assert the reconnect counter
                   advanced after a Drop click without relying on
                   catching the transient RECONNECTING window in the
-                  pill text (rf2-4dfjv)."}
+                  pill text."}
           status-pill []
   (let [connected?     @(subscribe [:ws/connected?])
         reconnecting?  @(subscribe [:ws/reconnecting?])

@@ -1,6 +1,6 @@
 (ns websocket.messages
   "The `:websocket/socket` actor + outbound/inbound message handling
-   for the Pattern-WebSocket example (rf2-yf97).
+   for the Pattern-WebSocket example.
 
    This file plays two roles:
 
@@ -213,9 +213,9 @@
 ;; `:invoke` destroys this actor on any exit from `:active`, which
 ;; takes care of cleanup.
 ;;
-;; The actor uses the runtime-stamped `:rf/self-id` (per rf2-ijm7) to
-;; address dispatches back to the parent's `:rf/parent-id`. The
-;; framework reserves both keys under `:data :rf/*` for spawned actors.
+;; The actor uses the runtime-stamped `:rf/self-id` to address
+;; dispatches back to the parent's `:rf/parent-id`. The framework
+;; reserves both keys under `:data :rf/*` for spawned actors.
 
 (def socket-actor-machine
   "Spec for the `:websocket/socket` actor machine — held in a `def` so
@@ -284,11 +284,11 @@
 
      :states
      {:opening
-      ;; Per Spec 005 §Initial-state `:entry` fires on machine bootstrap
-      ;; (rf2-0z73): the initial-state's `:entry` action runs once as
-      ;; part of bringing the actor to life. We open the host-side
-      ;; socket on bootstrap and transition immediately to `:open` via
-      ;; the `:always` slot once the socket is stored.
+      ;; Per Spec 005 §Initial-state `:entry` fires on machine bootstrap:
+      ;; the initial-state's `:entry` action runs once as part of
+      ;; bringing the actor to life. We open the host-side socket on
+      ;; bootstrap and transition immediately to `:open` via the
+      ;; `:always` slot once the socket is stored.
       ;;
       ;; The actor may also receive `:send` from the parent's
       ;; `:send-auth` entry-action before its own bootstrap entry has

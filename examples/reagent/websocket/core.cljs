@@ -1,5 +1,5 @@
 (ns websocket.core
-  "Entry point for the Pattern-WebSocket worked example (rf2-yf97).
+  "Entry point for the Pattern-WebSocket worked example.
 
    This is the canonical re-frame2 example for spec/Pattern-WebSocket.md.
    Every key piece of the pattern is exercised:
@@ -123,8 +123,8 @@
 ;; ============================================================================
 ;;
 ;; React root held in an atom and populated lazily inside `run` rather
-;; than at ns-load (rf2-gkf9). Multiple example namespaces co-required
-;; by the browser-test bundle's wrapper test namespaces share a single
+;; than at ns-load. Multiple example namespaces co-required by the
+;; browser-test bundle's wrapper test namespaces share a single
 ;; `#app` element; running `create-root` at ns-load would race multiple
 ;; roots onto the same container and leak example-A's mount into
 ;; example-B's tests. Mounting in `run` keeps ns-load DOM-side-effect-free.

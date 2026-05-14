@@ -12,8 +12,8 @@
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schema resolves at the call sites below.
             [re-frame.schemas]
-            ;; Per rf2-t0hq the CLJS default validator routes through
-            ;; the late-bind hook `:schemas/malli-validate`, which the
+            ;; The CLJS default validator routes through the
+            ;; late-bind hook `:schemas/malli-validate`, which the
             ;; `re-frame.schemas.malli` adapter ns publishes at load
             ;; time. The require is the canonical CLJS opt-in for
             ;; Malli validation — without it, the default validator
@@ -112,10 +112,10 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 
-;; Per rf2-wkxng / rf2-6m0se the runtime rolls back post-commit on a
-;; failing app-db schema. The slots below are absent (nil) before the
-;; boot machine writes them; every registration is wrapped in :maybe
-;; so the validator passes during the staging/loading phases.
+;; The runtime rolls back post-commit on a failing app-db schema. The
+;; slots below are absent (nil) before the boot machine writes them;
+;; every registration is wrapped in :maybe so the validator passes
+;; during the staging/loading phases.
 
 (rf/reg-app-schema [:rf/machines :app/boot] [:maybe BootSnapshot])
 

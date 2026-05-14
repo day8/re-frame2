@@ -46,7 +46,7 @@
   (let [hint? (r/atom false)]
     (fn []
       [:div
-       ;; aria-label gives the "-" glyph an accessible name (rf2-4763); axe-core's
+       ;; aria-label gives the "-" glyph an accessible name; axe-core's
        ;; `button-name` rule passes on visible text, but the glyph alone reads
        ;; literally as "minus" to a screen reader — `aria-label` provides intent.
        [:button {:on-mouse-enter #(reset! hint? true)
@@ -63,9 +63,9 @@
                  :data-test  "inc"}
         "+"]
        ;; Hint span always renders; toggling visibility (not unmount) reserves
-       ;; layout space so the card width stays stable on hover (rf2-bnn7).
+       ;; layout space so the card width stays stable on hover.
        ;; Colour darkened from #888 (3.54:1) to #595959 (7.0:1) to clear WCAG AA
-       ;; contrast for normal text — rf2-4763.
+       ;; contrast for normal text.
        [:span {:style {:margin-left "1em" :font-size "11px" :color "#595959"
                        :visibility (if @hint? "visible" "hidden")}}
         "(demo: hint state is component-local, not in app-db)"]])))

@@ -1,6 +1,5 @@
 (ns counter-with-stories.story-static
-  "Static-export entry point — per tools/story/spec/013-Static-Build.md
-  (rf2-8wgpm).
+  "Static-export entry point — per tools/story/spec/013-Static-Build.md.
 
   The canonical counter-with-stories example ships with two entry
   points:
@@ -19,10 +18,10 @@
     auto-open) and the bundle is suitable for publishing to GitHub
     Pages / Netlify / S3.
 
-  Per the rf2-8wgpm bead this entry-point is the sanity-test rig for the
-  `story:build` invocation; the published bundle for the canonical
-  counter-with-stories example is the artefact a downstream consumer
-  can clone, point at their own stories ns, and re-run."
+  This entry-point is the sanity-test rig for the `story:build`
+  invocation; the published bundle for the canonical counter-with-
+  stories example is the artefact a downstream consumer can clone,
+  point at their own stories ns, and re-run."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.story :as story]

@@ -1,6 +1,6 @@
 (ns websocket.schema
   "Malli schemas for the WebSocket example (Pattern-WebSocket worked
-   example, rf2-yf97).
+   example).
 
    Three slices are described:
 

@@ -1,5 +1,5 @@
 (ns counter-with-stories.elision-demo
-  "Privacy + Size elision demo (rf2-vw0to).
+  "Privacy + Size elision demo.
 
   The README markets `:sensitive?` + `:large?` elision as one of
   re-frame2's headline novel-things; this namespace is the canonical
@@ -82,7 +82,7 @@
     is the SCHEMA-driven branch — the same substitution Causa
     applies when it renders `app-db` in its inspector panel.
 
-  Per rf2-vw0to. Pre-alpha."
+  Pre-alpha."
   (:require [reagent.core :as r]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -110,12 +110,11 @@
 ;; top-level props and writes a `{:large? true :source :schema}`
 ;; entry into `[:rf/elision :declarations]`.
 ;;
-;; Per rf2-wkxng / rf2-6m0se the runtime now ROLLS BACK on a post-
-;; commit app-db schema failure — the slot may be `nil` (when the
-;; user hasn't uploaded yet), so the schema MUST permit nil. We
-;; wrap with `:maybe`; the `:large? true` flag lives on the inner
-;; `:string` slot so the walker still surfaces it under the
-;; `[:user/avatar-pdf]` registered path.
+;; The runtime ROLLS BACK on a post-commit app-db schema failure —
+;; the slot may be `nil` (when the user hasn't uploaded yet), so the
+;; schema MUST permit nil. We wrap with `:maybe`; the `:large? true`
+;; flag lives on the inner `:string` slot so the walker still surfaces
+;; it under the `[:user/avatar-pdf]` registered path.
 (rf/reg-app-schema [:user/avatar-pdf]
                    [:maybe [:string {:large? true
                                      :hint   "Avatar PDF blob"}]])
