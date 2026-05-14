@@ -2,6 +2,7 @@
   "Tests for the path-keyed structural diff used at the MCP wire
   boundary (rf2-1wdzp, shared across the triplet via rf2-vw4sq)."
   (:require [clojure.test :refer [deftest is testing]]
+            [malli.core :as m]
             [re-frame.mcp-base.diff-encode :as de]))
 
 ;; ---------------------------------------------------------------------------
@@ -124,3 +125,132 @@
         (is (= (dissoc enc :db-after :patches)
                (dissoc dec :db-after))
             "non-:db-after fields unchanged on decode")))))
+
+;; ---------------------------------------------------------------------------
+;; Patch grammar — Malli schema pin (rf2-rgg7d).
+;;
+;; The schema is published as `de/patch-schema` (single tuple) and
+;; `de/patches-schema` (sequential of tuples). The encoder boundary
+;; (`diff-encode-db-after`) validates emissions against it and throws
+;; `:rf.error/bad-diff-patches` ex-info on mismatch.
+;;
+;; These tests pin the grammar with positive and negative cases so a
+;; future encoder refactor that drifts the tuple shape — and a future
+;; consumer (causa-mcp's Malli-based decoder per spec/004-Wire-Pipeline.md,
+;; the cross-MCP wire-vocab conformance test) that re-states the
+;; grammar — both trip this gate before reaching the wire.
+;; ---------------------------------------------------------------------------
+
+(deftest patch-schema-accepts-well-formed-tuples
+  (testing "the two canonical 2- and 3-element tuple shapes"
+    (is (true? (m/validate de/patch-schema [[:a] :assoc 1]))
+        "assoc with scalar value")
+    (is (true? (m/validate de/patch-schema [[:a :b] :assoc {:x 1}]))
+        "assoc with map value")
+    (is (true? (m/validate de/patch-schema [[] :assoc {:whole :db}]))
+        "assoc at root (empty path)")
+    (is (true? (m/validate de/patch-schema [[:a] :dissoc]))
+        "dissoc at depth 1")
+    (is (true? (m/validate de/patch-schema [[:a :b :c] :dissoc]))
+        "dissoc at depth 3"))
+  (testing "values can be of any type"
+    (is (true? (m/validate de/patch-schema [[:a] :assoc nil]))
+        "assoc nil leaf")
+    (is (true? (m/validate de/patch-schema [[:a] :assoc [1 2 3]]))
+        "assoc vector leaf")
+    (is (true? (m/validate de/patch-schema [[:a] :assoc #{:tag}]))
+        "assoc set leaf")))
+
+(deftest patch-schema-rejects-malformed-tuples
+  (testing "wrong op keyword — only :assoc / :dissoc allowed"
+    (is (false? (m/validate de/patch-schema [[:a] :replace 1]))
+        ":replace is not in the grammar")
+    (is (false? (m/validate de/patch-schema [[:a] "assoc" 1]))
+        "string ops are rejected"))
+  (testing "wrong arity"
+    (is (false? (m/validate de/patch-schema [[:a] :assoc]))
+        ":assoc without value is invalid")
+    (is (false? (m/validate de/patch-schema [[:a] :dissoc :extra]))
+        ":dissoc with a trailing value is invalid")
+    (is (false? (m/validate de/patch-schema [[:a]]))
+        "missing op"))
+  (testing "path must be a vector"
+    (is (false? (m/validate de/patch-schema ['(:a) :assoc 1]))
+        "list path is rejected")
+    (is (false? (m/validate de/patch-schema [:a :assoc 1]))
+        "keyword path is rejected")
+    (is (false? (m/validate de/patch-schema [nil :dissoc]))
+        "nil path is rejected"))
+  (testing "non-tuple shapes"
+    (is (false? (m/validate de/patch-schema {:path [:a] :op :assoc :v 1}))
+        "map-shaped patch is rejected")
+    (is (false? (m/validate de/patch-schema nil))
+        "nil patch is rejected")))
+
+(deftest collect-patches-output-conforms-to-schema
+  ;; The factory's emission MUST validate against patches-schema for
+  ;; every shape combination the encoder is expected to produce. If a
+  ;; future refactor of collect-map-patches starts emitting a new
+  ;; tuple shape (e.g. an :update op), this test fails BEFORE the
+  ;; emission reaches a consumer.
+  (testing "added key, removed key, changed leaf, nested recursion, shape mismatch"
+    (let [cases [;; trivial equality — empty patches
+                 [{:a 1}                {:a 1}]
+                 ;; added
+                 [{:a 1}                {:a 1 :b 2}]
+                 ;; removed
+                 [{:a 1 :b 2}           {:a 1}]
+                 ;; changed leaf
+                 [{:a 1}                {:a 3}]
+                 ;; nested
+                 [{:u {:name "ada" :age 30}}
+                  {:u {:name "ada" :age 31 :role :admin}}]
+                 ;; root-level shape change
+                 [{:a 1}                [1 2 3]]
+                 ;; map → map containing vector leaf
+                 [{:a {:b 1}}           {:a [1 2 3]}]
+                 ;; many keys with mixed actions
+                 [{:keep 1 :change 2 :remove 3}
+                  {:keep 1 :change 99 :add 4}]]]
+      (doseq [[a b] cases]
+        (let [patches (de/collect-patches a b [])]
+          (is (true? (m/validate de/patches-schema patches))
+              (str "patches conform for case " (pr-str [a b])
+                   " — produced " (pr-str patches))))))))
+
+(deftest diff-encode-db-after-emits-schema-conformant-patches
+  ;; The encoder-boundary entry point. Whatever collect-patches
+  ;; produced flows out through diff-encode-db-after; its validation
+  ;; gate (`validate-patches!`) must accept the emission silently.
+  (let [epoch   {:db-before {:user {:name "ada" :age 30}
+                             :session :idle}
+                 :db-after  {:user {:name "ada" :age 31 :role :admin}
+                             :flags #{:beta}}}
+        encoded (de/diff-encode-db-after epoch)
+        patches (get-in encoded [:db-after :patches])]
+    (is (true? (m/validate de/patches-schema patches))
+        "encoded patches conform to patches-schema")
+    (is (pos? (count patches))
+        "non-trivial encode produced at least one patch")))
+
+(deftest diff-encode-db-after-throws-when-validation-disabled-elsewhere-noop
+  ;; The validation gate is `validate-patches!`. Calling it directly
+  ;; with malformed input throws; well-formed input is a silent no-op.
+  ;; This pins the boundary contract independently of the public
+  ;; encoder entry point.
+  (testing "well-formed patches return nil"
+    (is (nil? (#'de/validate-patches! [[[:a] :assoc 1]
+                                       [[:b] :dissoc]]))))
+  (testing "malformed patches throw :rf.error/bad-diff-patches"
+    (let [bad [[[:a] :replace 1]]]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #"diff-encode patch grammar violated"
+            (#'de/validate-patches! bad)))
+      (try
+        (#'de/validate-patches! bad)
+        (is false "expected throw")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/bad-diff-patches
+                 (:rf.error/code (ex-data e)))
+              "ex-info carries the reserved :rf.error/* code"))))))
