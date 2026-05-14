@@ -482,6 +482,98 @@
         (.countDown latch)
         (finally (stop-server! srv))))))
 
+;; ---- 9a. rf2-on7sj — abort + slow server must dispatch EXACTLY ONE reply ----
+;;
+;; Pre-fix: the JVM abort-fn closure called finalise-failure! with the
+;; synthesised :rf.http/aborted reply, but DID NOT `.cancel cf true` on
+;; the underlying CompletableFuture. When the server eventually
+;; responded (or the cf naturally completed), `.whenComplete` fired
+;; handle-response! → finalise-success! (or maybe-retry!), dispatching
+;; a SECOND reply for the same request — observable on the consuming
+;; event handler as a double-reply on slow-server aborts.
+;;
+;; The existing `jvm-abort-by-request-id` test (above) doesn't notice:
+;; it asserts the abort reply lands, then ends without waiting for the
+;; latch release that would fire the second reply.
+;;
+;; This regression test:
+;;   1. Spins up a latched server that blocks until released.
+;;   2. Dispatches the managed request.
+;;   3. Aborts (synthesised reply fires immediately).
+;;   4. RELEASES the latch (lets the underlying transport finish).
+;;   5. Waits long enough for the natural-completion path to fire.
+;;   6. Asserts the reply-counter is EXACTLY 1.
+
+(deftest jvm-abort-then-server-release-emits-exactly-one-reply-rf2-on7sj
+  (testing "rf2-on7sj — slow-server abort must produce exactly ONE reply
+            even after the underlying server eventually responds. The
+            abort-fn cancels the CompletableFuture and CAS-guards the
+            reply path so the latent whenComplete callback's natural
+            second emit is suppressed."
+    (let [latch (CountDownLatch. 1)
+          reply-count (atom 0)
+          all-replies (atom [])
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; Block until the test releases the latch — simulating
+              ;; a slow server that responds AFTER abort.
+              (.await latch 10 TimeUnit/SECONDS)
+              (write-response! ex 200 "application/json"
+                               "{\"server\":\"responded-after-abort\"}")))]
+      (try
+        (rf/reg-event-fx :on7sj/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              (do
+                (swap! reply-count inc)
+                (swap! all-replies conj reply)
+                {:db (assoc db :reply reply)})
+              {:fx [[:rf.http/managed
+                     {:request    {:url (str "http://127.0.0.1:" port "/slow")}
+                      :request-id :on7sj/req
+                      :decode     :json}]]})))
+        (rf/reg-event-fx :on7sj/abort
+          (fn [_ _] {:fx [[:rf.http/managed-abort :on7sj/req]]}))
+
+        ;; Issue the request. Server blocks on the latch.
+        (rf/dispatch-sync [:on7sj/load])
+        (Thread/sleep 50)
+        ;; Abort while server is still blocked. The synthesised
+        ;; :rf.http/aborted reply should fire immediately.
+        (rf/dispatch-sync [:on7sj/abort])
+        ;; Wait for the abort reply.
+        (let [db (await-reply! #(some? (:reply %)) 5000)]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/aborted (get-in db [:reply :failure :kind])))
+          (is (= 1 @reply-count)
+              "exactly one reply must have fired immediately after abort"))
+
+        ;; Release the server. Pre-fix: the underlying CompletableFuture
+        ;; was never cancelled and would now drain → whenComplete fires
+        ;; → second reply dispatched (the load-bearing bug). Post-fix:
+        ;; the cf.cancel + :finalised? CAS guard ensures the second
+        ;; reply path no-ops.
+        (.countDown latch)
+        ;; Wait long enough for any latent reply to fire. The server
+        ;; blocked above, but once the latch releases it writes the
+        ;; response immediately. The whenComplete callback would fire
+        ;; on the JDK HttpClient's executor; allow >500ms for the
+        ;; second reply to surface if the guard fails.
+        (Thread/sleep 800)
+
+        (is (= 1 @reply-count)
+            (str "rf2-on7sj — exactly ONE reply must fire across abort + server-release. "
+                 "Pre-fix this would dispatch TWO. Saw "
+                 @reply-count " replies: "
+                 (pr-str (mapv :kind @all-replies))))
+        (is (= 1 (count @all-replies))
+            "the all-replies log carries a single entry, matching the counter")
+        (is (= :rf.http/aborted (get-in (first @all-replies) [:failure :kind]))
+            "the single reply is the abort reply, not the late natural-completion one")
+
+        (finally (stop-server! srv))))))
+
 ;; ---- 10. thunk body -------------------------------------------------------
 
 (deftest jvm-thunk-body
