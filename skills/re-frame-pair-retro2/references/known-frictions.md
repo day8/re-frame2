@@ -163,7 +163,7 @@ Signals:
 
 Typical improvements:
 - audit reach-throughs and replace with public APIs from Tool-Pair
-- file a `bd` bead against `re-frame2` if the public surface is missing the needed capability
+- file a GitHub issue against `day8/re-frame2` if the public surface is missing the needed capability
 - add a lint or smoke test that flags private-namespace usage
 
 ### Multi-tool coexistence

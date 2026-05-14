@@ -89,7 +89,7 @@ Prefer proposals that remove repeated effort:
 - add a runtime/script op for a repeated manual step
 - make a platform-specific fallback automatic
 - add a fixture or regression test for the observed failure mode
-- file a `bd` bead against `re-frame2` when the pair tool is working around a missing surface in the Tool-Pair contract
+- file a GitHub issue against `day8/re-frame2` when the pair tool is working around a missing surface in the Tool-Pair contract
 
 Also consider higher-upside redesigns:
 
