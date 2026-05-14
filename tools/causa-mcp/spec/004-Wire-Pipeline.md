@@ -53,8 +53,22 @@ helper:
 - **Scope**: only the trace-stream surface. Mutating ops (`dispatch`,
   `restore-epoch`, `reset-frame-db`) and read-mostly per-frame state
   ops (`get-app-db`, `get-app-db-diff`, `get-machine-state`) don't
-  carry `:sensitive?` stamps — payload redaction in those slots is
-  the `with-redacted` interceptor's job, not the forwarder's.
+  carry `:sensitive?` stamps — they don't ride the trace bus. Note
+  what `with-redacted` does and does not displace: it is the
+  **writing-handler** interceptor that shapes the trace's
+  `:db-before` / `:db-after` slots so the trace stream's projection
+  is redacted at write time; it does **not** scrub a subsequent
+  direct read of `app-db`, the sub-cache, or any tree-typed surface.
+  Direct-read tools (`get-app-db`, `get-app-db-diff`,
+  `get-machine-state`, sub-cache reads, direct epoch slices) ride
+  the `rf/elide-wire-value` walker contract pinned at
+  [`spec/Tool-Pair.md` §Direct-read privacy posture](../../../spec/Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path)
+  — `:include-sensitive?` and `:include-large?` both default
+  `false` off-box, so the walker is the mandatory wire-egress
+  mechanism on the read side (mechanism 6 below, §"Size elision").
+  Apps that need fine-grained app-db privacy continue to use
+  `with-redacted` on writing handlers — defence in depth, not
+  displacement.
 
 The wiring pattern (when implementation lands) mirrors
 [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)'s
