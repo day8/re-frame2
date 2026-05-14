@@ -43,13 +43,6 @@
   (swap! event-counter inc))
 
 ;; ---- handler-scope: the five-slot in-scope reading -----------------------
-;;
-;; Per Spec 009 §Handler-scope. Every handler-execution boundary (router,
-;; subs, fx, cofx, views) publishes a HandlerScope record on
-;; `*handler-scope*` so `emit!` / `emit-error!` can hoist the relevant
-;; slots onto each emitted event. See Spec 009 for the slot semantics,
-;; composition rule (innermost wins for meta-derived slots; call-site /
-;; dispatch-id inherit), and elision contract.
 
 (defrecord HandlerScope [trigger-handler call-site dispatch-id sensitive? no-emit?])
 
@@ -77,26 +70,17 @@
 
 (defn no-emit?-from-meta
   "True iff `meta` carries `:rf.trace/no-emit? true`. Used at queue-time
-  `:event/dispatched` emit, before the handler-scope binding exists.
-  Per Spec 009 §Trace-emission opt-out.
-
-  Sibling reader for `:sensitive?` lives in `re-frame.privacy`
-  (`privacy/sensitive?-from-meta`) per rf2-iwqu9 — privacy owns the
-  policy-locus; trace owns the emit-locus."
+  `:event/dispatched` emit (before handler-scope is bound). Per Spec 009
+  §Trace-emission opt-out."
   [meta]
   (true? (:rf.trace/no-emit? meta)))
 
 (defn handler-scope-from-meta
   "Build a HandlerScope from a registrar slot's `meta` for a handler
-  about to execute. Computes the three meta-derived slots
-  (`:trigger-handler` / `:sensitive?` / `:no-emit?`); leaves
-  `:call-site` and `:dispatch-id` nil — `with-handler-scope` fills
-  them from the parent scope on bind. Per Spec 009 §Handler-scope.
-
-  The `:sensitive?` reading is inlined here to avoid a require cycle
-  with `re-frame.privacy` (privacy requires trace). The same boolean
-  shape is exposed as `re-frame.privacy/sensitive?-from-meta` for
-  every other consumer (router / event-emit) per rf2-iwqu9."
+  about to execute. `:call-site` and `:dispatch-id` are left nil for
+  `with-handler-scope` to inherit from the parent. The `:sensitive?`
+  reading is inlined here to avoid a require cycle with
+  `re-frame.privacy`. Per Spec 009 §Handler-scope."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil
@@ -163,12 +147,6 @@
           ~@body))))
 
 ;; ---- retain-N trace ring buffer (dev-only) -------------------------------
-;;
-;; Per Spec 009 §Retain-N trace ring buffer. Holds the most recent N completed
-;; trace events; queryable via (trace-buffer). All ring-buffer machinery is
-;; gated on interop/debug-enabled? (the same compile-time flag the rest of the
-;; trace surface rides) so production builds drop the buffer entirely — no
-;; allocation, no append, no storage.
 
 (def ^:private default-buffer-depth
   "Per Spec 009 §Retain-N trace ring buffer: default 200 events."
@@ -347,18 +325,9 @@
 
 ;; ---- shared emit substrate ------------------------------------------------
 ;;
-;; `emit!` (success) and `emit-error!` (error) share an envelope-
-;; construction core (`build-event`, pure; reads `*handler-scope*`) and
-;; a delivery path (`deliver!`, side-effect: ring buffer + epoch capture
-;; + listener fan-out). The two public emit fns are thin wrappers
-;; carrying the prod-DCE outer gate.
-;;
-;; The outer `(when interop/debug-enabled? ...)` and inner `(when-not
-;; (:no-emit? *handler-scope*) ...)` guards stay in the wrappers — NOT
-;; in `build-event` — because Spec 009 §Production builds mandates the
-;; outermost form of an emit call be `(when interop/debug-enabled? ...)`
-;; alone for Closure DCE to elide the expression under `:advanced` +
-;; `goog.DEBUG=false`.
+;; The `interop/debug-enabled?` gate stays in the public emit wrappers
+;; (NOT in `build-event`) so Closure DCE elides the whole expression at
+;; `:advanced` + `goog.DEBUG=false`. Per Spec 009 §Production builds.
 
 (defn- compute-sensitive?
   "Hoist `:sensitive?` from the in-scope handler's registration meta,
@@ -477,11 +446,8 @@
       (deliver! (build-event :error error-operation tags)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
-;;
-;; re-frame.registrar emits a trace event when a handler is replaced but
-;; cannot `:require` this namespace without a cyclic load order.
-;; Publish `emit!` through the late-bind hook registry. See
-;; re-frame.late-bind.
+;; Published through `late-bind` so registrar can emit without requiring
+;; this ns (cyclic load order).
 
 (late-bind/set-fn! :trace/emit!       emit!)
 (late-bind/set-fn! :trace/emit-error! emit-error!)
