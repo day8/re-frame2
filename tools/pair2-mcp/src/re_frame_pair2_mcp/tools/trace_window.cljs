@@ -18,13 +18,18 @@
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.cursor :as cursor]
-            [re-frame-pair2-mcp.tools.dedup :as dedup]))
+            [re-frame-pair2-mcp.tools.dedup :as dedup]
+            [re-frame-pair2-mcp.tools.raw-state :as raw-state]))
 
 (defn trace-window-tool [conn raw-args]
   (let [ms        (or (wire/arg raw-args :ms) 1000)
         build-id  (wire/arg-build raw-args)
         frame     (wire/arg-keyword raw-args :frame)
-        incl?     (args/parse-bool-arg raw-args :include-sensitive?)
+        ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
+        ;; `:include-sensitive? false` when OFF (the default).
+        incl?     (if (raw-state/force-redact?)
+                    false
+                    (args/parse-bool-arg raw-args :include-sensitive?))
         mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))

@@ -22,20 +22,31 @@
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
-            [re-frame-pair2-mcp.tools.elision :as elision]))
+            [re-frame-pair2-mcp.tools.elision :as elision]
+            [re-frame-pair2-mcp.tools.raw-state :as raw-state]))
 
 (defn get-path-tool [conn raw-args]
   (let [build-id  (wire/arg-build raw-args)
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         path      (args/parse-path-arg (wire/arg raw-args :path))
-        elision?  (args/parse-bool-arg raw-args :elision)
+        ;; rf2-c2dtu — when the `--allow-raw-state` boot gate is OFF,
+        ;; the per-call `:elision false` arg is overridden so the walker
+        ;; still fires. `force-elision?` is the single arbiter.
+        elision?  (or (args/parse-bool-arg raw-args :elision)
+                      (raw-state/force-elision?))
         ;; rf2-vflrg — `:include-sensitive?` threads into the walker's
         ;; `:rf.size/include-sensitive?` opt. Off-box default per
         ;; Tool-Pair §`Direct-read privacy posture for sub-cache and
         ;; get-path`: declared-sensitive slots redact unless the caller
         ;; opts in explicitly. The shared `parse-bool-arg` table
         ;; (rf2-c4fmh) gates the default at `false`.
-        incl?     (args/parse-bool-arg raw-args :include-sensitive?)]
+        ;;
+        ;; rf2-c2dtu — when the `--allow-raw-state` boot gate is OFF,
+        ;; the per-call `:include-sensitive? true` arg is dropped before
+        ;; reaching the walker.
+        incl?     (if (raw-state/force-redact?)
+                    false
+                    (args/parse-bool-arg raw-args :include-sensitive?))]
     (cond
       (nil? path)
       (js/Promise.resolve
@@ -109,6 +120,7 @@
                             "       :else acc))}"
                             "  {:ok? true :exists? true :path path :value elided-v :elided-count n})"))))]
         (-> (probe/ensure-runtime! conn build-id)
+            (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then (fn [envelope]
                      ;; rf2-6by5s — strip the `:value` slot off, run only

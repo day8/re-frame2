@@ -68,7 +68,8 @@
             [re-frame-pair2-mcp.cache :as cache]
             [re-frame-pair2-mcp.nrepl :as nrepl]
             [re-frame-pair2-mcp.tools :as tools]
-            [re-frame-pair2-mcp.tools.eval-cljs :as eval-cljs]))
+            [re-frame-pair2-mcp.tools.eval-cljs :as eval-cljs]
+            [re-frame-pair2-mcp.tools.raw-state :as raw-state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Test infrastructure — args coercion, result extraction, stub installation.
@@ -132,13 +133,21 @@
 (defn- with-stubbed-eval!
   "Install a stub `cljs-eval-value` that resolves per `eval-script`. Run
   `body-fn` (returning a Promise) and restore the original in
-  `.finally` so cleanup outlives async resolution."
-  [eval-script body-fn]
+  `.finally` so cleanup outlives async resolution.
+
+  The `forms-seen` atom records every form-string the stub is asked to
+  resolve so a fixture's `:fixture/eval-form-must-contain` slot can
+  pin the SHAPE of the form sent over nREPL — used by the rf2-c2dtu
+  raw-state fixtures to verify the gate forces
+  `:rf.size/include-sensitive? false` server-side."
+  [eval-script forms-seen body-fn]
   (let [orig nrepl/cljs-eval-value
         stub (fn
                ([_conn _build-id form-str]
+                (swap! forms-seen conj form-str)
                 (js/Promise.resolve (run-eval-script eval-script form-str)))
                ([_conn _build-id form-str _opts]
+                (swap! forms-seen conj form-str)
                 (js/Promise.resolve (run-eval-script eval-script form-str))))]
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
@@ -526,6 +535,113 @@
     {:isError? false
      :edn-submap {:ok? true :tool "get-pair2-instructions"}}}
 
+   ;; ---------- rf2-c2dtu raw-state boot-gate -----------------------------
+   ;; The default-OFF gate forces `:include-sensitive? false` AND
+   ;; `:elision true` on every snapshot / get-path / subscribe call,
+   ;; regardless of the per-call arg. The gate-ON path defers to the
+   ;; caller's args (pre-rf2-c2dtu posture).
+   {:fixture/id    :raw-state/snapshot-gated-default-forces-redact
+    :fixture/doc   "Gate OFF + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? false."
+    :fixture/tool  "snapshot"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:frames "all" :include-sensitive? true}
+    :fixture/eval-script
+    [["__re_frame_pair2_runtime"  true]
+     [:default                    {:value {:rf/default {:app-db {:k :v}}}
+                                   :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    [":rf.size/include-sensitive? false"
+     ":rf.size/include-large? false"]
+    :fixture/expect
+    {:isError? false}}
+
+   {:fixture/id    :raw-state/snapshot-opt-in-honours-arg
+    :fixture/doc   "Gate ON + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? true."
+    :fixture/tool  "snapshot"
+    :fixture/allow-raw-state? true
+    :fixture/args  {:frames "all" :include-sensitive? true}
+    :fixture/eval-script
+    [["__re_frame_pair2_runtime"  true]
+     [:default                    {:value {:rf/default {:app-db {:k :v}}}
+                                   :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    [":rf.size/include-sensitive? true"]
+    :fixture/expect
+    {:isError? false}}
+
+   {:fixture/id    :raw-state/snapshot-gated-default-forces-elision
+    :fixture/doc   "Gate OFF + caller passes :elision false ⇒ form must still walk via elide-wire-value."
+    :fixture/tool  "snapshot"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:frames "all" :elision false}
+    :fixture/eval-script
+    [["__re_frame_pair2_runtime"  true]
+     [:default                    {:value {:rf/default {:app-db {:k :v}}}
+                                   :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/elide-wire-value"]
+    :fixture/expect
+    {:isError? false}}
+
+   {:fixture/id    :raw-state/snapshot-opt-in-honours-elision-false
+    :fixture/doc   "Gate ON + caller passes :elision false ⇒ form must NOT call elide-wire-value (raw values ride)."
+    :fixture/tool  "snapshot"
+    :fixture/allow-raw-state? true
+    :fixture/args  {:frames "all" :elision false}
+    :fixture/eval-script
+    [["__re_frame_pair2_runtime"  true]
+     [:default                    {:value {:rf/default {:app-db {:k :v}}}
+                                   :elided-count 0}]]
+    :fixture/eval-form-must-not-contain
+    ["re-frame.core/elide-wire-value"]
+    :fixture/expect
+    {:isError? false}}
+
+   {:fixture/id    :raw-state/get-path-gated-default-forces-redact
+    :fixture/doc   "get-path: gate OFF + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? false."
+    :fixture/tool  "get-path"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:path "[:user :token]" :include-sensitive? true}
+    :fixture/eval-script
+    [["__re_frame_pair2_runtime"  true]
+     [:default                    {:ok? true :exists? true :path [:user :token]
+                                   :value :rf/redacted :elided-count 1}]]
+    :fixture/eval-form-must-contain
+    [":rf.size/include-sensitive? false"
+     ":rf.size/include-large? false"]
+    :fixture/expect
+    {:isError? false}}
+
+   {:fixture/id    :raw-state/get-path-opt-in-honours-arg
+    :fixture/doc   "get-path: gate ON + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? true."
+    :fixture/tool  "get-path"
+    :fixture/allow-raw-state? true
+    :fixture/args  {:path "[:user :token]" :include-sensitive? true}
+    :fixture/eval-script
+    [["__re_frame_pair2_runtime"  true]
+     [:default                    {:ok? true :exists? true :path [:user :token]
+                                   :value "raw" :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    [":rf.size/include-sensitive? true"]
+    :fixture/expect
+    {:isError? false}}
+
+   {:fixture/id    :raw-state/signal-runtime-fires-once-on-first-call
+    :fixture/doc   "Boot-gate state is signalled to the runtime via configure-raw-state! on the first state-emitting tool call per build."
+    :fixture/tool  "snapshot"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:frames "all"}
+    :fixture/eval-script
+    [["__re_frame_pair2_runtime"  true]
+     ["configure-raw-state!"      nil]
+     [:default                    {:value {:rf/default {:app-db {:k :v}}}
+                                   :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    ["configure-raw-state!"
+     ":allow-raw-state? false"]
+    :fixture/expect
+    {:isError? false}}
+
    ;; ---------- pipeline: unknown tool ------------------------------------
    {:fixture/id    :pipeline/unknown-tool
     :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error."
@@ -552,20 +668,58 @@
   Honors `:fixture/allow-eval?` — flips the eval-cljs launch-flag gate
   (rf2-cxx5s) for this fixture's invocation and restores it afterward.
   Default OFF mirrors the published-build posture; opt-in fixtures
-  exercise the post-gate paths."
-  [{:fixture/keys [id tool args eval-script expect allow-eval?]}]
+  exercise the post-gate paths.
+
+  Honors `:fixture/allow-raw-state?` (rf2-c2dtu) symmetrically — flips
+  the raw-state boot gate. Default OFF mirrors the published-build
+  posture; opt-in fixtures verify that an operator who passed
+  `--allow-raw-state` gets the legacy per-call-arg-wins behaviour."
+  [{:fixture/keys [id tool args eval-script expect allow-eval? allow-raw-state?
+                    eval-form-must-contain eval-form-must-not-contain]}]
   (cache/clear!)
-  (let [js-args   (args->js args)
-        prev-gate (eval-cljs/allow-eval-enabled?)]
+  (let [js-args        (args->js args)
+        forms-seen     (atom [])
+        prev-eval-gate (eval-cljs/allow-eval-enabled?)
+        prev-raw-gate  (raw-state/allow-raw-state-enabled?)]
     (eval-cljs/set-allow-eval! (boolean allow-eval?))
-    (with-stubbed-eval! eval-script
+    (raw-state/set-allow-raw-state! (boolean allow-raw-state?))
+    ;; Reset the per-build runtime-signal cache so each fixture exercises
+    ;; the signal path freshly. `signal-runtime!` rides one extra nREPL
+    ;; round-trip on first call per build per server-lifetime — the
+    ;; corpus's stub eval-script accepts the `configure-raw-state!` form
+    ;; via the `:default` catch-all.
+    (raw-state/reset-runtime-signal-cache!)
+    (with-stubbed-eval! eval-script forms-seen
       (fn []
         (-> (tools/invoke nil tool js-args nil)
             (.then (fn [result]
-                     (let [[ok? msg] (check-fixture-result result expect)]
+                     (let [[ok? msg]    (check-fixture-result result expect)
+                           ;; rf2-c2dtu — pin the gate-induced shape of
+                           ;; the eval form sent over nREPL. A `must-
+                           ;; contain` substring missing from EVERY form
+                           ;; observed = fail.
+                           form-strs    @forms-seen
+                           any-has?     (fn [needle]
+                                          (some #(str/includes? % needle) form-strs))
+                           missing      (when ok?
+                                          (remove any-has?
+                                                  (or eval-form-must-contain [])))
+                           contains-bad (when ok?
+                                          (filter any-has?
+                                                  (or eval-form-must-not-contain [])))
+                           [ok2? msg2]  (cond
+                                          (seq missing)
+                                          [false
+                                           (str "eval-form-must-contain — missing substring(s) from any observed form: "
+                                                (pr-str missing))]
+                                          (seq contains-bad)
+                                          [false
+                                           (str "eval-form-must-not-contain — substring(s) appeared in some observed form: "
+                                                (pr-str contains-bad))]
+                                          :else [ok? msg])]
                        {:fixture-id id
-                        :passed?    ok?
-                        :failure    msg
+                        :passed?    ok2?
+                        :failure    msg2
                         :result-edn (try (extract-edn result)
                                          (catch :default _ :unparseable))})))
             (.catch (fn [err]
@@ -573,7 +727,9 @@
                        :passed?    false
                        :failure    (str "invoke threw: " (.-message err))
                        :exception  err}))
-            (.finally (fn [] (eval-cljs/set-allow-eval! prev-gate))))))))
+            (.finally (fn []
+                        (eval-cljs/set-allow-eval! prev-eval-gate)
+                        (raw-state/set-allow-raw-state! prev-raw-gate))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The single deftest — walks the corpus serially (each fixture's stub

@@ -32,6 +32,7 @@
             [re-frame-pair2-mcp.nrepl :as nrepl]
             [re-frame-pair2-mcp.tools :as tools]
             [re-frame-pair2-mcp.tools.eval-cljs :as eval-cljs]
+            [re-frame-pair2-mcp.tools.raw-state :as raw-state]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
             ["@modelcontextprotocol/sdk/types.js" :as mcp-types]))
@@ -134,23 +135,36 @@
                                              :hint   (-> boot-error ex-data :hint)})}]})))
 
 (defn parse-launch-flags
-  "Pluck the named boolean launch flags out of the raw process argv. Today's
-  surface is one flag — `--allow-eval` — which opts in to the `eval-cljs`
-  tool per the rf2-cxx5s gate (cascade from rf2-czv3p). Default OFF in
-  published builds.
+  "Pluck the named boolean launch flags out of the raw process argv. Two
+  flags today:
 
-  Returns `{:allow-eval? bool}`. Unknown flags are ignored — node's
-  shadow-cljs entry passes its own argv prelude (script path), and
-  future flags can land here without breaking older invocations."
+    --allow-eval        — opt-in to the `eval-cljs` tool (rf2-cxx5s
+                          cascade from rf2-czv3p). Default OFF.
+    --allow-raw-state   — opt-in to raw state on snapshot / get-path /
+                          subscribe AND raw-value `tap>` emissions from
+                          the preload's `app-db-reset!` (rf2-c2dtu).
+                          Default OFF.
+
+  Returns `{:allow-eval? bool :allow-raw-state? bool}`. Unknown flags
+  are ignored — node's shadow-cljs entry passes its own argv prelude
+  (script path), and future flags can land here without breaking older
+  invocations."
   [argv]
-  {:allow-eval? (boolean (some #{"--allow-eval"} argv))})
+  {:allow-eval?      (boolean (some #{"--allow-eval"} argv))
+   :allow-raw-state? (boolean (some #{"--allow-raw-state"} argv))})
 
 (defn- apply-launch-flags!
   "Wire launch-flag state into the relevant tool gates. Called once
   before the dispatcher accepts requests."
-  [{:keys [allow-eval?]}]
+  [{:keys [allow-eval? allow-raw-state?]}]
   (eval-cljs/set-allow-eval! allow-eval?)
-  (log! "eval-cljs:" (if allow-eval? "ENABLED (--allow-eval)" "disabled (default; pass --allow-eval to opt in)")))
+  (raw-state/set-allow-raw-state! allow-raw-state?)
+  (log! "eval-cljs:" (if allow-eval? "ENABLED (--allow-eval)" "disabled (default; pass --allow-eval to opt in)"))
+  ;; Symmetric with rf2-zyoj2 `--allow-eval` boot-gate logging. The
+  ;; "allowed" / "gated" wording matches the rf2-uaymx (b) story-mcp
+  ;; `--allow-sensitive-reads` shape (rf2-g9fje, in flight) so operators
+  ;; reading multi-MCP logs see one vocabulary.
+  (log! "Raw-state access:" (if allow-raw-state? "allowed (--allow-raw-state)" "gated (default; pass --allow-raw-state to opt in)")))
 
 (defn main [& args]
   (apply-launch-flags! (parse-launch-flags (vec args)))

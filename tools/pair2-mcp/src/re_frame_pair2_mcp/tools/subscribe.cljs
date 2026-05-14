@@ -48,7 +48,8 @@
             [re-frame-pair2-mcp.tools.probe :as probe]
             [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
-            [re-frame-pair2-mcp.tools.sensitive :as sensitive]))
+            [re-frame-pair2-mcp.tools.sensitive :as sensitive]
+            [re-frame-pair2-mcp.tools.raw-state :as raw-state]))
 
 (def ^:private default-poll-ms 100)
 ;; `:max-buffered-events` / `:max-buffered-bytes` are NOT mirrored here
@@ -298,7 +299,15 @@
         poll-ms            (or (wire/arg raw-args :poll-ms) default-poll-ms)
         max-ms             (or (wire/arg raw-args :max-ms) 0)
         max-events         (or (wire/arg raw-args :max-events) 0)
-        incl?              (args/parse-bool-arg raw-args :include-sensitive?)
+        ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
+        ;; `:include-sensitive? false` on every streamed event when OFF
+        ;; (the published-build default). `sensitive/strip-sensitive`
+        ;; below honours the post-gate value, so a caller's
+        ;; `:include-sensitive? true` arg is dropped before reaching the
+        ;; runtime drain.
+        incl?              (if (raw-state/force-redact?)
+                             false
+                             (args/parse-bool-arg raw-args :include-sensitive?))
         dedup?             (args/parse-bool-arg raw-args :dedup)
         {:keys [signal send-note progress-tk]} (parse-mcp-extra extra)]
     (cond
@@ -321,6 +330,7 @@
                             max-buf-bytes  (assoc :max-buffered-bytes  max-buf-bytes)
                             filter-map     (assoc :filter              filter-map))))]
         (-> (probe/ensure-runtime! conn build-id)
+            (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id subscribe-form)))
             (.then
               (fn [subscribe-resp]
