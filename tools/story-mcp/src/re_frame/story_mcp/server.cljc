@@ -32,7 +32,7 @@
 
   Keeps the wire framing (`protocol.cljc`) isolated from the method
   semantics here, and the method semantics isolated from the tool
-  implementations (`tools.cljc`). The split lets tests cover the wire
+  implementations (`tools/`). The split lets tests cover the wire
   layer without booting the full Story registrar (see
   `protocol_test.clj`)."
   (:gen-class)
@@ -40,7 +40,8 @@
             [re-frame.story :as story]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
-            [re-frame.story-mcp.tools :as tools]))
+            [re-frame.story-mcp.tools.cap :as cap]
+            [re-frame.story-mcp.tools.registry :as registry]))
 
 ;; ---- logging --------------------------------------------------------------
 ;;
@@ -92,7 +93,7 @@
   registry is small enough (sixteen tools at Stage 7) that a single
   response is fine."
   [id _params]
-  (proto/response id {:tools (tools/tool-descriptors)}))
+  (proto/response id {:tools (registry/tool-descriptors)}))
 
 ;; ---- tools/call -----------------------------------------------------------
 
@@ -106,7 +107,7 @@
       (proto/invalid-params id "tools/call requires `name` (string)")
 
       :else
-      (if-let [result (tools/invoke-tool tool-name arguments)]
+      (if-let [result (cap/invoke-tool tool-name arguments)]
         (proto/response id result)
         (proto/method-not-found id (str "tools/call name=" tool-name))))))
 

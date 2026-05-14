@@ -10,8 +10,8 @@
   ## Surface
 
   - `allow-writes?` — atom holding the boolean flag. Read by the
-    write-surface tools (`re-frame.story-mcp.tools/register-variant` and
-    friends); a `false` value causes the tool to return an MCP error
+    write-surface tools (`re-frame.story-mcp.tools.write/register-variant`
+    and friends); a `false` value causes the tool to return an MCP error
     result (`isError: true`) rather than a protocol-level error per the
     spec/2025-06-18 tools §Error Handling guidance.
   - `set-allow-writes!` — write helper. Called from `-main` (`--allow-writes`

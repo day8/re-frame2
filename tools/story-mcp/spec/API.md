@@ -6,7 +6,7 @@
 
 All tools dispatch through `re-frame.story-mcp.server`'s `tools/call`
 handler; their definitions live in
-`re-frame.story-mcp.tools/tool-registry`.
+`re-frame.story-mcp.tools.registry/tool-registry`.
 
 ## Dev tools
 

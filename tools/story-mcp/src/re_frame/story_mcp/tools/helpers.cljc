@@ -134,8 +134,16 @@
       (f (args/parse-keyword vid)))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-egress scrubbers (rf2-73wuj). See `tools.cljc` ns docstring for
-;; the spec references and design rationale.
+;; Wire-egress scrubbers (rf2-73wuj). Per spec/Tool-Pair.md §Direct-read
+;; privacy posture (lines 544-566): every pair-shaped tool surfacing live
+;; frame state MUST route the value through `re-frame.core/elide-wire-value`
+;; before the value crosses the wire egress. In story-mcp the two surfaces
+;; that ship live-state reads are `preview-variant` / `run-variant`
+;; (which return the variant frame's `:app-db` slice) and `read-failures`
+;; (which returns the variant frame's `:rf.story/assertions` accumulator).
+;; The walker reads the live `[:rf/elision :declarations]` and
+;; `[:rf/elision :runtime-flagged]` registries from the named frame's
+;; app-db; the `:frame variant-id` opts slot is load-bearing.
 ;; ---------------------------------------------------------------------------
 
 (defn elide-app-db

@@ -16,7 +16,8 @@
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
-            [re-frame.story-mcp.tools :as tools]
+            [re-frame.story-mcp.tools.cap :as cap]
+            [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -66,7 +67,7 @@
 (defn- invoke
   "Invoke a tool by name. Returns the result map (success or error)."
   [tool-name args]
-  (tools/invoke-tool tool-name args))
+  (cap/invoke-tool tool-name args))
 
 (defn- success? [result]
   (and (map? result)
@@ -83,14 +84,14 @@
 
 (deftest registry-shape
   (testing "tool-registry is a vector of complete entries"
-    (doseq [t tools/tool-registry]
+    (doseq [t registry/tool-registry]
       (is (string? (:name t)) (str "tool name: " (:name t)))
       (is (string? (:description t)))
       (is (map? (:inputSchema t)))
       (is (#{:dev :docs :testing :write} (:category t)))
       (is (fn? (:handler t)))))
   (testing "tool-descriptors strips category + handler (MCP wire shape)"
-    (let [ds (tools/tool-descriptors)]
+    (let [ds (registry/tool-descriptors)]
       (is (every? #(every? % [:name :description :inputSchema]) ds))
       (is (every? #(not (contains? % :handler)) ds))
       (is (every? #(not (contains? % :category)) ds)))))
@@ -100,19 +101,19 @@
   ;; response-payload size in tokens; AI clients use it to budget calls.
   ;; Not a cap. Required to be a positive integer on every tool.
   (testing "registry: every tool carries a positive-integer :typicalTokens"
-    (doseq [t tools/tool-registry]
+    (doseq [t registry/tool-registry]
       (is (integer? (:typicalTokens t))
           (str "missing :typicalTokens on " (:name t)))
       (is (pos? (:typicalTokens t))
           (str "non-positive :typicalTokens on " (:name t)))))
   (testing "tool-descriptors surfaces :typicalTokens to the wire"
-    (let [ds (tools/tool-descriptors)]
+    (let [ds (registry/tool-descriptors)]
       (is (every? #(integer? (:typicalTokens %)) ds))
       (is (every? #(pos? (:typicalTokens %)) ds)))))
 
 (deftest registry-covers-impl-spec-7-2
   (testing "every tool from IMPL-SPEC §7.2 + §7.3 is present"
-    (let [names (set (map :name tools/tool-registry))]
+    (let [names (set (map :name registry/tool-registry))]
       ;; Dev
       (is (contains? names "get-story-instructions"))
       (is (contains? names "preview-variant"))
@@ -319,8 +320,8 @@
 ;;      :elapsed-ms <int>}
 ;;
 ;; The MCP wire serialises this as-is on `:structuredContent` (per
-;; tools.cljc `tool-read-failures` + `tool-run-variant`) — Story keys
-;; survive the JSON-RPC round-trip into the agent's view.
+;; `tools/testing.cljc` `tool-read-failures` + `tool-run-variant`) —
+;; Story keys survive the JSON-RPC round-trip into the agent's view.
 ;; ---------------------------------------------------------------------------
 
 (deftest self-healing-loop-failing-assertion-shape
@@ -710,7 +711,7 @@
         ts (-> resp :result :tools)]
     (is (= 2 (:id resp)))
     (is (vector? ts))
-    (is (= (count tools/tool-registry) (count ts)))
+    (is (= (count registry/tool-registry) (count ts)))
     (is (some #(= "list-stories" (:name %)) ts))))
 
 (deftest dispatch-tools-call-happy
@@ -833,7 +834,7 @@
 
 (deftest cap-fires-when-response-exceeds-budget
   (testing "get-story-instructions response is large enough to exceed a 1-token cap"
-    (let [r (tools/invoke-tool "get-story-instructions" {:max-tokens 1})]
+    (let [r (cap/invoke-tool "get-story-instructions" {:max-tokens 1})]
       (is (overflow-marker? r))
       (let [body (get-in r [:structuredContent vocab/overflow-key])]
         (is (= 1 (:cap-tokens body)))
@@ -843,33 +844,33 @@
 
 (deftest cap-zero-disables-the-cap
   (testing "`:max-tokens 0` bypasses the cap; the full payload returns intact"
-    (let [r (tools/invoke-tool "get-story-instructions" {:max-tokens 0})]
+    (let [r (cap/invoke-tool "get-story-instructions" {:max-tokens 0})]
       (is (not (overflow-marker? r)))
       (is (clojure.string/includes? (-> r :content first :text)
                                     "re-frame2-story authoring conventions"))))
   (testing "default cap (no `:max-tokens` arg) leaves a small response intact"
-    (let [r (tools/invoke-tool "list-tags" {})]
+    (let [r (cap/invoke-tool "list-tags" {})]
       (is (not (overflow-marker? r))))))
 
 (deftest cap-honours-default-when-omitted
   (testing "absent `:max-tokens` falls back to `overflow/default-max-tokens` (5000)"
     ;; A tiny payload like `list-tags` is well under 5K tokens; verify
     ;; the cap does not trip on routine reads.
-    (let [r (tools/invoke-tool "list-tags" {})
-          tokens (#'tools/sum-text-tokens r)]
+    (let [r (cap/invoke-tool "list-tags" {})
+          tokens (#'cap/sum-text-tokens r)]
       (is (not (overflow-marker? r)))
       (is (< tokens overflow/default-max-tokens)))))
 
 (deftest cap-marker-shape-is-mcp-base-overflow
   (testing "marker is byte-identical to mcp-base/overflow-payload's shape"
-    (let [r (tools/invoke-tool "get-story-instructions" {:max-tokens 1})
+    (let [r (cap/invoke-tool "get-story-instructions" {:max-tokens 1})
           body (get-in r [:structuredContent vocab/overflow-key])]
       (is (= #{:limit :token-count :cap-tokens :tool :hint}
              (set (keys body)))))))
 
 (deftest every-tool-schema-accepts-max-tokens
   (testing "every tool's input schema carries the `:max-tokens` slot"
-    (doseq [t tools/tool-registry]
+    (doseq [t registry/tool-registry]
       (is (contains? (-> t :inputSchema :properties) :max-tokens)
           (str "tool " (:name t) " missing :max-tokens slot"))
       (is (= "integer" (-> t :inputSchema :properties :max-tokens :type))
@@ -1063,7 +1064,7 @@
 (deftest egress-tools-input-schema-carries-include-sensitive
   (testing "every tool surfacing :app-db or assertions accepts :include-sensitive?"
     (doseq [tname ["preview-variant" "run-variant" "read-failures"]]
-      (let [t     (some #(when (= tname (:name %)) %) tools/tool-registry)
+      (let [t     (some #(when (= tname (:name %)) %) registry/tool-registry)
             props (-> t :inputSchema :properties)]
         (is (contains? props :include-sensitive?)
             (str tname " missing :include-sensitive? slot"))

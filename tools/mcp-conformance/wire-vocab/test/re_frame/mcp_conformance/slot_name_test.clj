@@ -140,7 +140,7 @@
     :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/sensitive.cljs"
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/sensitive.cljc"
-                           "tools/story-mcp/src/re_frame/story_mcp/tools.cljc"]
+                           "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]
                :causa-mcp ["tools/causa-mcp/spec/Principles.md"
                            "tools/causa-mcp/spec/004-Wire-Pipeline.md"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
@@ -151,7 +151,8 @@
     :servers  #{:pair2-mcp :story-mcp :causa-mcp}
     :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/cap.cljs"]
-               :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools.cljc"]
+               :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
+                           "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]
                :causa-mcp ["tools/causa-mcp/spec/Principles.md"
                            "tools/causa-mcp/spec/004-Wire-Pipeline.md"]}
     :doc      "Override integer — per-call wire-cap override (default 5,000).
@@ -358,7 +359,15 @@
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/cap.cljs"
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/elision.cljs"]
          :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/sensitive.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools.cljc"]
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]
          ;; causa-mcp has no impl yet — skipped by `:when seq`.
          :causa-mcp []}]
     (doseq [{:keys [slot]}     canonical-slots

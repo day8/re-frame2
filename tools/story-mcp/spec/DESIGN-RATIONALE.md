@@ -94,7 +94,7 @@ documented hint, not `-32601`) is documented in
 ## §inline-tools-string — why `get-story-instructions` is an inline string
 
 The agent-onboarding text returned by `get-story-instructions` lives
-inline as a single string in `re-frame.story-mcp.tools/story-instructions-text`.
+inline as a single string in `re-frame.story-mcp.tools.dev/story-instructions-text`.
 It is not read from an external resource file at boot.
 
 Rationale:

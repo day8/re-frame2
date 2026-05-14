@@ -152,7 +152,7 @@ configured.
 ## Self-contained jar — no external resources at boot
 
 The agent-onboarding text returned by `get-story-instructions` lives
-inline in the source (`re-frame.story-mcp.tools/story-instructions-text`),
+inline in the source (`re-frame.story-mcp.tools.dev/story-instructions-text`),
 not in an external resource file. There is no `io/resource` lookup
 at boot, no classpath scan, no native-image packaging quirk.
 
