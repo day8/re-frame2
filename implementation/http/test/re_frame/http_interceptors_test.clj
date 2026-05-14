@@ -586,3 +586,159 @@
         "second call on the already-empty registry is also nil")
     (is (= {} @http-managed/interceptors)
         "atom stays empty")))
+
+;; ---- rf2-oyd1b — direct unit tests for the fx wrappers --------------------
+;;
+;; The :rf.fx/reg-http-interceptor + :rf.fx/clear-http-interceptor fxs
+;; (rf2-yhfgf) are exercised through conformance fixtures
+;; (spec/conformance/fixtures/http-interceptor-*). These tests pin the
+;; wrapper contract directly so a conformance-harness DSL change
+;; doesn't ripple — and so a regression in either fx surfaces here
+;; with a precise failure rather than as a conformance-fixture flake.
+
+(deftest reg-http-interceptor-fx-mutates-the-atom-rf2-oyd1b
+  (testing "rf2-oyd1b — [:rf.fx/reg-http-interceptor {...}] adds an
+            interceptor to @http-managed/interceptors on :rf/default."
+    (rf/reg-event-fx :oyd1b/register
+      (fn [_ _]
+        {:fx [[:rf.fx/reg-http-interceptor
+               {:id     :oyd1b/auth
+                :before identity
+                :doc    "fixture interceptor"
+                :tags   #{:auth}}]]}))
+
+    (is (empty? (get @http-managed/interceptors :rf/default))
+        "pre-dispatch: no interceptors on :rf/default")
+
+    (rf/dispatch-sync [:oyd1b/register])
+
+    (let [chain (get @http-managed/interceptors :rf/default)
+          slot  (first (filter #(= :oyd1b/auth (:id %)) chain))]
+      (is (= 1 (count chain))
+          "the fx wrapper actually mutates the atom (not just a return-value smoke)")
+      (is (= :oyd1b/auth (:id slot)))
+      (is (fn? (:before slot)))
+      (is (= "fixture interceptor" (:doc slot)))
+      (is (= #{:auth} (:tags slot))))))
+
+(deftest reg-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
+  (testing "rf2-oyd1b — explicit :frame routes to the named slot, not :rf/default"
+    (rf/reg-event-fx :oyd1b/register-on-named
+      (fn [_ _]
+        {:fx [[:rf.fx/reg-http-interceptor
+               {:frame  :rf/api
+                :id     :oyd1b/named
+                :before identity}]]}))
+
+    (rf/dispatch-sync [:oyd1b/register-on-named])
+
+    (is (empty? (get @http-managed/interceptors :rf/default))
+        ":rf/default is not touched by an :rf/api registration")
+    (let [chain (get @http-managed/interceptors :rf/api)]
+      (is (= 1 (count chain)))
+      (is (= :oyd1b/named (:id (first chain)))))))
+
+(deftest clear-http-interceptor-fx-mutates-the-atom-rf2-oyd1b
+  (testing "rf2-oyd1b — [:rf.fx/clear-http-interceptor {:id ...}] removes
+            the slot from :rf/default (the implicit frame)."
+    (http-managed/reg-http-interceptor
+      {:id :oyd1b/to-clear :before identity})
+    (is (= 1 (count (get @http-managed/interceptors :rf/default)))
+        "pre-clear: the slot is present")
+
+    (rf/reg-event-fx :oyd1b/clear
+      (fn [_ _]
+        {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/to-clear}]]}))
+    (rf/dispatch-sync [:oyd1b/clear])
+
+    (is (empty? (get @http-managed/interceptors :rf/default))
+        "the slot is gone after the fx")))
+
+(deftest clear-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
+  (testing "rf2-oyd1b — explicit :frame on the clear fx scopes the removal"
+    (http-managed/reg-http-interceptor
+      {:frame :rf/api :id :oyd1b/scoped :before identity})
+    (http-managed/reg-http-interceptor
+      {:id :oyd1b/default-survivor :before identity})
+
+    (rf/reg-event-fx :oyd1b/clear-on-named
+      (fn [_ _]
+        {:fx [[:rf.fx/clear-http-interceptor
+               {:frame :rf/api :id :oyd1b/scoped}]]}))
+    (rf/dispatch-sync [:oyd1b/clear-on-named])
+
+    (is (empty? (get @http-managed/interceptors :rf/api))
+        ":rf/api lost its slot")
+    (is (= 1 (count (get @http-managed/interceptors :rf/default)))
+        ":rf/default is unaffected — the clear was scoped to :rf/api")))
+
+(deftest clear-http-interceptor-fx-defaults-frame-to-rf-default-rf2-oyd1b
+  (testing "rf2-oyd1b — when :frame is nil/absent the fx routes to :rf/default
+            (matching the fn-form behaviour)."
+    (http-managed/reg-http-interceptor
+      {:id :oyd1b/dflt :before identity})
+    (rf/reg-event-fx :oyd1b/clear-no-frame
+      (fn [_ _]
+        ;; No :frame key — must default to :rf/default.
+        {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/dflt}]]}))
+    (rf/dispatch-sync [:oyd1b/clear-no-frame])
+    (is (empty? (get @http-managed/interceptors :rf/default)))))
+
+(deftest reg-http-interceptor-fx-rejects-invalid-args-rf2-oyd1b
+  (testing "rf2-oyd1b — invalid args (missing :id, missing :before, non-keyword
+            id) trigger the same :rf.error/http-bad-interceptor throw the
+            fn-form raises. The error fires inside the runtime's fx
+            dispatch loop, so we trap via a trace-error listener and
+            assert NO interceptor was registered."
+    (let [errors (atom [])
+          cb-id  ::oyd1b-bad-args]
+      (try
+        (trace/register-trace-cb!
+          cb-id
+          (fn [ev]
+            (when (= :error (:op-type ev))
+              (swap! errors conj ev))))
+
+        ;; missing :id
+        (rf/reg-event-fx :oyd1b/bad-no-id
+          (fn [_ _]
+            {:fx [[:rf.fx/reg-http-interceptor {:before identity}]]}))
+        (try (rf/dispatch-sync [:oyd1b/bad-no-id])
+             (catch Throwable _ nil))
+        (is (empty? (get @http-managed/interceptors :rf/default))
+            "missing :id → no interceptor registered")
+
+        ;; missing :before
+        (rf/reg-event-fx :oyd1b/bad-no-before
+          (fn [_ _]
+            {:fx [[:rf.fx/reg-http-interceptor {:id :x}]]}))
+        (try (rf/dispatch-sync [:oyd1b/bad-no-before])
+             (catch Throwable _ nil))
+        (is (empty? (get @http-managed/interceptors :rf/default))
+            "missing :before → no interceptor registered")
+
+        ;; non-keyword :id
+        (rf/reg-event-fx :oyd1b/bad-string-id
+          (fn [_ _]
+            {:fx [[:rf.fx/reg-http-interceptor
+                   {:id "not-a-keyword" :before identity}]]}))
+        (try (rf/dispatch-sync [:oyd1b/bad-string-id])
+             (catch Throwable _ nil))
+        (is (empty? (get @http-managed/interceptors :rf/default))
+            "non-keyword :id → no interceptor registered")
+
+        (finally
+          (trace/remove-trace-cb! cb-id))))))
+
+(deftest reg-and-clear-http-interceptor-fxs-roundtrip-rf2-oyd1b
+  (testing "rf2-oyd1b — register-then-clear via fxs round-trips cleanly,
+            mirroring the fn-form's idempotency."
+    (rf/reg-event-fx :oyd1b/round-trip
+      (fn [_ _]
+        {:fx [[:rf.fx/reg-http-interceptor
+               {:id :oyd1b/rt :before identity}]
+              [:rf.fx/clear-http-interceptor
+               {:id :oyd1b/rt}]]}))
+    (rf/dispatch-sync [:oyd1b/round-trip])
+    (is (empty? (get @http-managed/interceptors :rf/default))
+        "register followed by clear in the same event leaves the chain empty")))
