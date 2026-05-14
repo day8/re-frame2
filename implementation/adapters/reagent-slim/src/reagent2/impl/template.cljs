@@ -383,14 +383,17 @@
 
 (declare as-element)
 
-(defn- void-tag? [tag-str]
-  ;; Per HTML5 (and rf2-6phn): void elements that cannot have children.
-  ;; React rejects children passed to these, so we don't emit them.
-  ;; The list is fixed in HTML5 — no maintenance burden.
-  (case tag-str
-    ("area" "base" "br" "col" "embed" "hr" "img" "input" "link"
-     "meta" "param" "source" "track" "wbr") true
-    false))
+(def void-tags
+  "HTML5 elements that self-close and have no closing tag. React rejects
+  children passed to these; the SSR walker emits bare `<br>` etc. and
+  skips the close tag. The list is fixed in HTML5 — no maintenance
+  burden. Shared between template (React) and server (HTML string)
+  paths to keep one source of truth across the artefact."
+  #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link"
+    "meta" "param" "source" "track" "wbr"})
+
+(defn- ^boolean void-tag? [tag-str]
+  (contains? void-tags tag-str))
 
 (defn- make-element
   "Construct a React element via React.createElement.
