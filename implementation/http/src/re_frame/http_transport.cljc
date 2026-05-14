@@ -24,6 +24,7 @@
   and successful completion based on the failing attempt's failure
   category and the request's `:retry` config."
   (:require [clojure.string         :as str]
+            [re-frame.http-decode   :as decode]
             [re-frame.http-encoding :as encoding]
             [re-frame.http-privacy  :as privacy]
             [re-frame.http-registry :as registry]
@@ -378,7 +379,7 @@
 
       ok?
       (try
-        (let [decoded  (encoding/decode-response-body
+        (let [decoded  (decode/decode-response-body
                          {:body-text        body-text
                           :headers          headers
                           :decode           decode
@@ -423,7 +424,7 @@
         [enc-body ct] (encoding/encode-body (encoding/realise-body (:body request))
                                             (:request-content-type request))
         headers  (cond-> (or (:headers request) {})
-                   (and ct (nil? (encoding/content-type-of (:headers request))))
+                   (and ct (nil? (decode/content-type-of (:headers request))))
                    (assoc "Content-Type" ct))
         ctx-no-handle (assoc ctx :url url)
         ;; CLJS: an internal AbortController backs the Fetch signal when

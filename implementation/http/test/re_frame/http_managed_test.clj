@@ -14,6 +14,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
+            [re-frame.http-decode :as http-decode]
             [re-frame.http-encoding :as http-encoding]
             [re-frame.http-managed :as http-managed]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -268,7 +269,7 @@
 ;; the bug only manifested when a hand-constructed headers map reached
 ;; `decode-response-body`. The fix is two-layered: the JVM transport
 ;; (`jvm-headers->map`) lower-cases at the boundary so the JVM path matches
-;; the Fetch path, AND `http-encoding/content-type-of` performs a
+;; the Fetch path, AND `http-decode/content-type-of` performs a
 ;; case-insensitive scan so any future code path that synthesises a
 ;; headers map (interceptors, middleware, tests) decodes correctly.
 ;;
@@ -281,28 +282,28 @@
 (deftest content-type-of-case-insensitive
   (testing "lowercase key"
     (is (= "application/json"
-           (http-encoding/content-type-of {"content-type" "application/json"}))))
+           (http-decode/content-type-of {"content-type" "application/json"}))))
   (testing "canonical Title-Case key"
     (is (= "application/json"
-           (http-encoding/content-type-of {"Content-Type" "application/json"}))))
+           (http-decode/content-type-of {"Content-Type" "application/json"}))))
   (testing "all-caps key (the original bug — CONTENT-TYPE)"
     (is (= "application/json"
-           (http-encoding/content-type-of {"CONTENT-TYPE" "application/json"}))))
+           (http-decode/content-type-of {"CONTENT-TYPE" "application/json"}))))
   (testing "mixed casing"
     (is (= "application/json"
-           (http-encoding/content-type-of {"Content-type" "application/json"})))
+           (http-decode/content-type-of {"Content-type" "application/json"})))
     (is (= "text/plain"
-           (http-encoding/content-type-of {"cOnTeNt-TyPe" "text/plain"}))))
+           (http-decode/content-type-of {"cOnTeNt-TyPe" "text/plain"}))))
   (testing "keyword key (some middlewares use keywords)"
     (is (= "application/json"
-           (http-encoding/content-type-of {:content-type "application/json"})))
+           (http-decode/content-type-of {:content-type "application/json"})))
     (is (= "application/json"
-           (http-encoding/content-type-of {:Content-Type "application/json"}))))
+           (http-decode/content-type-of {:Content-Type "application/json"}))))
   (testing "absent / unrelated headers"
-    (is (nil? (http-encoding/content-type-of {})))
-    (is (nil? (http-encoding/content-type-of {"X-Foo" "bar"})))
-    (is (nil? (http-encoding/content-type-of nil)))
-    (is (nil? (http-encoding/content-type-of "not-a-map")))))
+    (is (nil? (http-decode/content-type-of {})))
+    (is (nil? (http-decode/content-type-of {"X-Foo" "bar"})))
+    (is (nil? (http-decode/content-type-of nil)))
+    (is (nil? (http-decode/content-type-of "not-a-map")))))
 
 (deftest decode-response-body-resolves-content-type-case-insensitively
   (testing "JSON decode under :auto fires when Content-Type has non-canonical casing"
@@ -313,7 +314,7 @@
     ;; header regardless of casing and JSON decodes correctly.
     (doseq [ct-key ["CONTENT-TYPE" "Content-type" "content-type" "Content-Type" "cOnTeNt-TyPe"]]
       (testing (str "casing: " ct-key)
-        (let [decoded (http-encoding/decode-response-body
+        (let [decoded (http-decode/decode-response-body
                         {:body-text        "{\"ok\":true}"
                          :headers          {ct-key "application/json"}
                          :decode           :auto
