@@ -44,7 +44,7 @@
 ;; or an EDN string (legacy; needed because JSON has no native keyword type
 ;; and the registrar's variant schema demands `:tags #{:dev :docs}` and the
 ;; like). The string path is retained because the mcp-conformance probe
-;; (`tools/mcp-conformance/test/end-to-end-story.js`) registers its fixture
+;; (`tools/mcp-conformance/test/end-to-end-story.cjs`) registers its fixture
 ;; variant via the EDN-string path — JSON's keyword-blind surface would
 ;; otherwise force a coercion pass the registrar isn't shaped for.
 ;;

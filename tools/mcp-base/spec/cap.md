@@ -93,7 +93,7 @@ Both reifies are ~10 lines each. The cap algorithm is unchanged.
 
 The overflow marker itself MUST fit under the cap. If the marker grew large enough to exceed `:max-tokens` it would trigger another cap, recursing infinitely.
 
-The conformance harness (`tools/mcp-conformance/test/live-pair2-overflow.js`) asserts this on every cap-trigger; if a future bead grows the marker (a new slot, a longer hint, a verbose recovery message), the test surfaces the regression before it ships.
+The conformance harness (`tools/mcp-conformance/test/live-pair2-overflow.cjs`) asserts this on every cap-trigger; if a future bead grows the marker (a new slot, a longer hint, a verbose recovery message), the test surfaces the regression before it ships.
 
 The structural guarantee comes from the marker shape — `:limit`, `:token-count`, `:cap-tokens`, `:tool`, `:hint` are all small scalars; the marker can grow only by adding new keys. Adding a new key triggers the conformance test, which catches the regression before merge.
 
@@ -108,7 +108,7 @@ The default-ON posture matches the agent-ergonomics threat model: a stock instal
 
 ## Conformance posture
 
-The conformance harness at `tools/mcp-conformance/test/live-pair2-overflow.js` drives a real `:max-tokens 100` over-budget call on each server and asserts:
+The conformance harness at `tools/mcp-conformance/test/live-pair2-overflow.cjs` drives a real `:max-tokens 100` over-budget call on each server and asserts:
 
 1. The response carries the `:rf.mcp/overflow` marker.
 2. The marker's `:cap-tokens` slot equals 100.

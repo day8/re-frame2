@@ -65,7 +65,7 @@
 
   ## Why pure JVM Clojure (not Node SDK)
 
-  The sibling `tools/mcp-conformance/test/end-to-end-*.js` files
+  The sibling `tools/mcp-conformance/test/end-to-end-*.cjs` files
   drive each server through the official MCP SDK client (handshake
   + tools/list + tools/call against a live process). That validates
   *protocol* conformance.
@@ -250,6 +250,56 @@
   "`{:rf.size/large-elided ElisionMarkerBody}` — the wrapper shape."
   [:map [:rf.size/large-elided ElisionMarkerBody]])
 
+(def CacheHitBody
+  "`{:rf.mcp/cache-hit {...}}` body — per-session response-cache hit
+  marker. Per `mcp-base/vocab.cljc/cache-hit-key` and pair2-mcp
+  `cache.cljs/cache-hit-payload`. The agent host correlates by `:hash`
+  and re-uses the prior `tools/call` payload for the same `(tool,
+  args)` pair — the marker itself is content-free (no fresh state
+  observed since `:unchanged-since`).
+
+  `:via` distinguishes the two hit paths: `:result-hash` (rf2-3rt1f
+  match-after-eval) ran the tool and discovered the hash matched;
+  `:precheck` (rf2-36xod) short-circuited the eval entirely. Same
+  vocabulary, different cost saved.
+
+  Single-server today (pair2-mcp); the `:rf.mcp/*` namespace reserves
+  it cross-MCP per Conventions §Reserved namespaces — when causa-mcp
+  grows a session cache it ships the same shape."
+  [:map
+   {:closed false}
+   [:hash            [:or :int :string]]
+   [:unchanged-since :int]
+   [:tool            [:or :string :keyword]]
+   [:via             [:enum :result-hash :precheck]]
+   [:hint            [:or :string :keyword]]])
+
+(def CacheHit
+  "`{:rf.mcp/cache-hit CacheHitBody}` — the wrapper shape."
+  [:map [:rf.mcp/cache-hit CacheHitBody]])
+
+(def CursorStaleResult
+  "Structured error-result envelope where `:reason :rf.mcp/cursor-stale`
+  signals the cursor's epoch-id is no longer in the runtime ring (per
+  `mcp-base/vocab.cljc/cursor-stale-reason` and pair2-mcp
+  `tools/cursor.cljs/cursor-stale-result`).
+
+  Unlike the other markers in this file, `:rf.mcp/cursor-stale` is NOT
+  a top-level wrapper — it rides as the `:reason` value on a generic
+  `{:ok? false ...}` error envelope. Agents pattern-match on the
+  `:reason` keyword to either drop the cursor and restart, or widen
+  the window and retry. The cross-server conformance contract pins
+  the `:reason` keyword + the `:ok? false` posture; envelope-specific
+  slots (`:requested-id`, `:head-id`, `:tool`, `:hint`) are open
+  per-server.
+
+  Single-server today (pair2-mcp); causa-mcp's spec reserves the same
+  reason value for its planned pagination surface."
+  [:map
+   {:closed false}
+   [:ok?    [:enum false]]
+   [:reason [:enum :rf.mcp/cursor-stale]]])
+
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field slots (`:dropped-sensitive` / `:elided-large`).
 ;; Per Conventions §Cross-MCP indicator-field vocabulary (rf2-2499j) and
@@ -397,7 +447,30 @@
                  :reason :runtime-flagged
                  :hint   nil
                  :handle [:rf.elision/at [:cofx :db]]
-                 :digest "sha256:deadbeefcafef00d"}}}}])
+                 :digest "sha256:deadbeefcafef00d"}}}}
+
+   {:key      :rf.mcp/cache-hit
+    :schema   CacheHit
+    ;; pair2-mcp emits today (rf2-3rt1f result-hash + rf2-36xod precheck
+    ;; paths in `cache.cljs/cache-hit-payload`). The literal lives in
+    ;; `mcp-base/vocab.cljc` as `cache-hit-key`, where every cross-MCP
+    ;; marker is canonicalised; causa-mcp's spec mentions the marker
+    ;; family but has no impl. Per rf2-i3ffz F-GAP-4.
+    :servers  #{:pair2-mcp}
+    :fixtures {:pair2-mcp-result-hash
+               {:rf.mcp/cache-hit
+                {:hash            -1234567890
+                 :unchanged-since 1715760000000
+                 :tool            "snapshot"
+                 :via             :result-hash
+                 :hint            "Payload byte-identical to the prior tools/call ..."}}
+               :pair2-mcp-precheck
+               {:rf.mcp/cache-hit
+                {:hash            42
+                 :unchanged-since 1715760123456
+                 :tool            "watch-epochs"
+                 :via             :precheck
+                 :hint            "Pre-eval cache hit (rf2-36xod) — state unchanged."}}}}])
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture conformance — every authored fixture validates against the
@@ -668,7 +741,7 @@
 ;; ---------------------------------------------------------------------------
 ;; JS-vs-Malli `OverflowBody` cross-encoding sanity (rf2-0zqox).
 ;;
-;; `test/live-pair2-overflow.js` hand-rolls `assertOverflowBody` as a JS
+;; `test/live-pair2-overflow.cjs` hand-rolls `assertOverflowBody` as a JS
 ;; re-encoding of `Pair2OverflowBody`. The two encodings must agree on
 ;; the same contract — that's the whole point of pinning a vocabulary
 ;; conformance gate; a drift between the encodings is a vocabulary bug
@@ -696,7 +769,7 @@
 (def ^:private live-pair2-overflow-js-rel
   "Relative path to the hand-rolled JS assertion. Single source of truth
   — drift here surfaces against the slurp below."
-  "tools/mcp-conformance/test/live-pair2-overflow.js")
+  "tools/mcp-conformance/test/live-pair2-overflow.cjs")
 
 (def ^:private pair2-overflow-js-required-grep-markers
   "Substrings the JS `assertOverflowBody` MUST contain to pin every
@@ -930,3 +1003,87 @@
                  "(Conventions rf2-2499j MUST-level parity). Update "
                  "`envelope-emitter-source-files` and "
                  "`envelope-indicator-slots`."))))))
+
+;; ---------------------------------------------------------------------------
+;; `:rf.mcp/cursor-stale` reason-value gate (rf2-i3ffz F-GAP-5).
+;;
+;; Unlike the wrapper-shaped markers in `canonical-markers` above,
+;; `:rf.mcp/cursor-stale` rides as the `:reason` value on a generic
+;; `{:ok? false ...}` error envelope (per `mcp-base/vocab.cljc/
+;; cursor-stale-reason`). The conformance contract is the keyword
+;; itself: a rename or pluralisation would silently break every agent
+;; that pattern-matches on it.
+;;
+;; The pin shape mirrors the wrapper-marker pins above:
+;;   1. fixture validates against `CursorStaleResult` schema.
+;;   2. literal appears in pair2-mcp's emit-source (mcp-base/vocab.cljc).
+;;   3. literal appears in pair2-mcp's doc-sources (003-Tool-Catalogue.md).
+;;   4. no near-miss spelling co-exists in any conformance-tracked file.
+;; ---------------------------------------------------------------------------
+
+(def ^:private cursor-stale-fixture
+  "Canonical pair2-mcp emission shape from `tools/cursor.cljs/
+  cursor-stale-result`. The envelope-specific slots (`:tool`,
+  `:requested-id`, `:head-id`, `:hint`) are open per-server; the
+  load-bearing contract is `:ok? false` + `:reason :rf.mcp/cursor-stale`."
+  {:ok?          false
+   :reason       :rf.mcp/cursor-stale
+   :tool         "watch-epochs"
+   :requested-id "epoch-9001"
+   :head-id      "epoch-9101"
+   :hint         "Cursor's epoch-id is no longer in the runtime ring. Drop the cursor or widen the window."})
+
+(deftest cursor-stale-fixture-conforms-to-schema
+  (is (m/validate CursorStaleResult cursor-stale-fixture)
+      (str "Fixture for :rf.mcp/cursor-stale failed schema validation:\n"
+           (me/humanize (m/explain CursorStaleResult cursor-stale-fixture)))))
+
+(deftest cursor-stale-rejects-non-error-envelopes
+  ;; The reason value MUST ride a `:ok? false` envelope — emitting
+  ;; `{:ok? true :reason :rf.mcp/cursor-stale}` would be a contract
+  ;; break (success doesn't carry a stale-reason).
+  (is (not (m/validate CursorStaleResult
+                       {:ok? true :reason :rf.mcp/cursor-stale}))
+      "CursorStaleResult MUST reject :ok? true")
+  (is (not (m/validate CursorStaleResult
+                       {:ok? false :reason :rf.mcp/cursor-stales}))
+      "CursorStaleResult MUST reject the pluralised near-miss"))
+
+(deftest cursor-stale-literal-in-pair2-mcp-emit-source
+  ;; The canonical declaration lives in mcp-base/vocab.cljc — same
+  ;; emit-source as the wrapper markers. Stripped before grep so a
+  ;; rename trips the gate even if the old name still appears in a
+  ;; docstring.
+  (let [literal "\":rf.mcp/cursor-stale\""
+        ;; Quoted because pr-str on the keyword renders it without the
+        ;; quotes — we want to match the literal token in source code.
+        literal (subs literal 1 (dec (count literal)))
+        rel     "tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"
+        stripped (fx/strip-comments-and-strings (fx/read-source rel))]
+    (is (str/includes? stripped literal)
+        (str literal " missing from " rel
+             " AFTER stripping docstrings/comments. The canonical "
+             "declaration moved — update this test or restore the "
+             "literal."))))
+
+(deftest cursor-stale-literal-in-pair2-mcp-doc-sources
+  ;; Doc-source pin — looser, raw includes? against the prose docs
+  ;; that catalogue pagination semantics.
+  (let [literal ":rf.mcp/cursor-stale"
+        files   (get doc-source-files :pair2-mcp)]
+    (is (some (fn [rel] (str/includes? (fx/read-source rel) literal)) files)
+        (str literal " missing from pair2-mcp doc-sources " files))))
+
+(deftest cursor-stale-no-near-miss-in-any-server-source
+  ;; Defence-in-depth: a rename to a near-miss form (snake_case,
+  ;; pluralised, predicate `?` suffix) MUST NOT co-exist anywhere in
+  ;; the conformance-tracked source/spec tree. Mirrors the marker-key
+  ;; near-miss anti-pin above.
+  (doseq [variant (near-miss-variants :rf.mcp/cursor-stale)
+          [server files] all-source-files
+          rel files]
+    (testing (str server " — " rel " — near-miss " variant)
+      (is (not (str/includes? (fx/read-source rel) variant))
+          (str "Found near-miss variant " variant
+               " for :rf.mcp/cursor-stale in " server "/" rel
+               " — vocabulary-drift bug.")))))

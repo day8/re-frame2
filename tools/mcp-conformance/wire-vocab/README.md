@@ -80,7 +80,7 @@ Total run time on a cold JVM: ~3-5 seconds.
 
 ## Why JVM (not Node SDK)
 
-The sibling `tools/mcp-conformance/test/end-to-end-*.js` files drive
+The sibling `tools/mcp-conformance/test/end-to-end-*.cjs` files drive
 each server through the official MCP SDK client (handshake +
 `tools/list` + `tools/call` against a live process). That's *protocol*
 conformance.
