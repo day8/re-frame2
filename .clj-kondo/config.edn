@@ -1,0 +1,28 @@
+;; clj-kondo config for re-frame2 — repo-root.
+;;
+;; Activates project-aware analysis so editor integrations (Calva,
+;; CIDER, Cursive) and CI lints share one source of truth. Minimal
+;; but useful — enable the high-signal linters and let the per-artefact
+;; classpaths (under implementation/, tools/, examples/) inherit.
+;;
+;; The re-frame2 defining forms (`reg-event-db`, `reg-sub`, `reg-fx`,
+;; `reg-view`, …) are recognised by clj-kondo's built-in support for
+;; clojure.core-style defining forms — no hook lib required for the
+;; canonical shapes. Add :hooks here as the framework's macros grow
+;; surfaces clj-kondo's defaults can't infer.
+{:linters
+ {:unresolved-symbol {:level :warning}
+  :unused-binding    {:level :warning}
+  :unused-referred-var {:level :warning}
+  :unused-namespace  {:level :warning}
+  :redefined-var     {:level :warning}
+  :inline-def        {:level :warning}}
+
+ :lint-as
+ {;; Common re-frame2 registration macros that share clojure.core/def
+  ;; arglist shape — clj-kondo lints the body as a fn definition.
+  re-frame.core/reg-event-db    clojure.core/def
+  re-frame.core/reg-event-fx    clojure.core/def
+  re-frame.core/reg-sub         clojure.core/def
+  re-frame.core/reg-fx          clojure.core/def
+  re-frame.core/reg-cofx        clojure.core/def}}
