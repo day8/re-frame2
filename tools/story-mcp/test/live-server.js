@@ -12,7 +12,7 @@
 // Scenario (per IMPL-SPEC §7.2 + the self-healing-loop motif from rf2-h8z5l):
 //
 //   1. initialize handshake
-//   2. tools/list — confirm 17 tools advertised
+//   2. tools/list — confirm 19 tools advertised
 //   3. register-variant — write a fixture variant (gate open via
 //                          --allow-writes)
 //   4. get-variant — read it back; assert the body round-trips
@@ -107,11 +107,12 @@ function run() {
       console.log('OK   initialize ->', init.result.serverInfo);
       notify('notifications/initialized', {});
 
-      // 2. tools/list — 17 tools advertised.
+      // 2. tools/list — 19 tools advertised (post-rf2-mqp1u list-decorators
+      // and rf2-i0kyy get-docs-markdown additions).
       const list = await call('tools/list', {});
       const tools = list.result?.tools || [];
-      if (tools.length !== 17) {
-        throw new Error('expected 17 tools; got ' + tools.length);
+      if (tools.length !== 19) {
+        throw new Error('expected 19 tools; got ' + tools.length);
       }
       console.log('OK   tools/list -> ' + tools.length + ' tools advertised');
 
