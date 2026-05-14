@@ -305,31 +305,10 @@
          (catch #?(:clj Throwable :cljs :default) _
            (str m)))))
 
-(defn format-time
-  "Render `t` (ms-since-epoch) as `HH:MM:SS.mmm`. Pure-ish — uses the
-  platform Date constructor. Mirrors `issues-ribbon-helpers/format-
-  time`; copied here rather than reused so the routes panel has no
-  cross-panel coupling."
-  [t]
-  (when (number? t)
-    #?(:clj  (let [^java.time.Instant inst (java.time.Instant/ofEpochMilli (long t))
-                   ^java.time.LocalTime lt (.toLocalTime
-                                             (.atZone inst (java.time.ZoneId/systemDefault)))]
-               (format "%02d:%02d:%02d.%03d"
-                       (.getHour lt)
-                       (.getMinute lt)
-                       (.getSecond lt)
-                       (long (mod t 1000))))
-       :cljs (let [d (js/Date. t)
-                   pad (fn [n w]
-                         (let [s (str n)]
-                           (if (< (count s) w)
-                             (str (apply str (repeat (- w (count s)) "0")) s)
-                             s)))]
-               (str (pad (.getHours d) 2) ":"
-                    (pad (.getMinutes d) 2) ":"
-                    (pad (.getSeconds d) 2) "."
-                    (pad (.getMilliseconds d) 3))))))
+;; Re-export the shared `HH:MM:SS.mmm` formatter — body lives once in
+;; `common-helpers` so trace / routes / issues-ribbon / mcp-server all
+;; share a single clock format.
+(def format-time common/format-time-hms)
 
 (defn format-operation
   "Render a history-entry operation as a short label. Keeps the table

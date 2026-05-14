@@ -47,7 +47,8 @@
   is itself memory-only (never written to localStorage / disk).
   Refusing to persist sidesteps the corruption surface a partial
   session-export would create."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-causa.panels.common-helpers :as common]))
 
 ;; ---- defaults ------------------------------------------------------------
 
@@ -68,24 +69,13 @@
 
 ;; ---- pin construction ----------------------------------------------------
 
-(defn dispatch-id-from-epoch
-  "Walk an `:rf/epoch-record`'s `:trace-events` for the first
-  cascade-root `:dispatch-id` tag and return it; nil when no
-  dispatch-id-bearing event is present (synthetic epochs from
-  `reset-frame-db!` record `:trace-events []`).
-
-  Pure data → cascade-id-or-nil. Used both by `pin-from-epoch` (when
-  building a fresh pin) and `chip-state` (when deciding chip
-  presentation against the current history).
-
-  Mirrors `re-frame.story.ui.scrubber-xref/cascade-id-from-trace-events`
-  — same algebra, different home. Both walk `:trace-events` for
-  `:tags :dispatch-id` / `:tags :parent-dispatch-id`."
-  [epoch-record]
-  (some (fn [ev]
-          (or (get-in ev [:tags :dispatch-id])
-              (get-in ev [:tags :parent-dispatch-id])))
-        (:trace-events epoch-record)))
+;; Re-export — canonical body lives in `common-helpers` (used by both
+;; this panel and the causality graph; both walked `:trace-events` for
+;; `:dispatch-id` / `:parent-dispatch-id` with identical algebra prior
+;; to rf2-78xmg). Mirrors
+;; `re-frame.story.ui.scrubber-xref/cascade-id-from-trace-events` —
+;; same algebra, different home.
+(def dispatch-id-from-epoch common/dispatch-id-of-epoch)
 
 (defn- next-default-label
   "Return the next `pin-<n>` default label that does not collide with

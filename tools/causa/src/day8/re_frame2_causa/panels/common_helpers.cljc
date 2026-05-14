@@ -10,6 +10,14 @@
       One source of truth; panels apply it at their row-rendering
       boundary so DOM mount count stays bounded regardless of how
       deep the underlying derivation grows.
+    - `format-time-hms` — render ms-since-epoch as `HH:MM:SS.mmm`;
+      shared across the trace / routes / issues-ribbon / mcp-server
+      ribbons so all four feeds share an identical visual clock.
+    - `dispatch-id-of-epoch` — resolve an `:rf/epoch-record`'s settling
+      cascade-id by walking its `:trace-events`. Shared by
+      time-travel-helpers and causality-graph-helpers; previously
+      duplicated as `dispatch-id-from-epoch` / `dispatch-id-of-epoch`
+      with identical algebra.
 
   ## Why a shared cap
 
@@ -72,8 +80,59 @@
   the capped vector can `(first (cap-rows rows))`."
   ([rows] (cap-rows rows panel-row-cap))
   ([rows n]
-   (let [v     (vec (or rows []))
+   (let [v     (if (vector? rows) rows (vec (or rows [])))
          total (count v)]
      (if (<= total n)
        [v false 0]
        [(subvec v 0 n) true (- total n)]))))
+
+;; ---- formatting ---------------------------------------------------------
+
+(defn format-time-hms
+  "Render `t` (ms-since-epoch) as `HH:MM:SS.mmm`. Pure-ish — uses the
+  platform Date constructor. Canonical shared formatter — the trace,
+  routes, issues-ribbon and mcp-server feeds all share this clock so
+  the four ribbons read with an identical visual rhythm. JVM-testable
+  iff the caller passes a stable time (the runtime clock differs by
+  JVM vs. browser locale but the algebra is identical).
+
+  Returns nil when `t` is not a number, so views can render an em-dash
+  on missing timestamps without guarding the call site."
+  [t]
+  (when (number? t)
+    #?(:clj  (let [^java.time.Instant inst (java.time.Instant/ofEpochMilli (long t))
+                   ^java.time.LocalTime lt (.toLocalTime
+                                             (.atZone inst (java.time.ZoneId/systemDefault)))]
+               (format "%02d:%02d:%02d.%03d"
+                       (.getHour lt)
+                       (.getMinute lt)
+                       (.getSecond lt)
+                       (long (mod t 1000))))
+       :cljs (let [d   (js/Date. t)
+                   pad (fn [n w]
+                         (let [s (str n)]
+                           (if (< (count s) w)
+                             (str (apply str (repeat (- w (count s)) "0")) s)
+                             s)))]
+               (str (pad (.getHours d) 2) ":"
+                    (pad (.getMinutes d) 2) ":"
+                    (pad (.getSeconds d) 2) "."
+                    (pad (.getMilliseconds d) 3))))))
+
+;; ---- epoch → dispatch-id resolution -------------------------------------
+
+(defn dispatch-id-of-epoch
+  "Walk an `:rf/epoch-record`'s `:trace-events` for the first
+  cascade-root `:dispatch-id` tag and return it; nil when no
+  dispatch-id-bearing event is present (synthetic epochs from
+  `reset-frame-db!` record `:trace-events []`).
+
+  Pure data → cascade-id-or-nil. Used by both the time-travel panel
+  (when building a fresh pin or deciding chip presentation) and the
+  causality-graph panel (when routing a selected-epoch → 'filter to
+  this cascade')."
+  [epoch-record]
+  (some (fn [ev]
+          (or (get-in ev [:tags :dispatch-id])
+              (get-in ev [:tags :parent-dispatch-id])))
+        (:trace-events epoch-record)))

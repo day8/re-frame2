@@ -46,6 +46,7 @@
   canonical `trace-bus/filter-events` does the work; this ns adds
   the panel's projection + per-axis chip enumeration on top."
   (:require [clojure.string :as str]
+            [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- the canonical 13-axis vocabulary -----------------------------------
@@ -304,30 +305,10 @@
 
 ;; ---- formatting ---------------------------------------------------------
 
-(defn format-time
-  "Render `t` (ms-since-epoch) as `HH:MM:SS.mmm`. Matches the
-  Issues ribbon's format so the two ribbons share a visual rhythm.
-  Pure-ish — uses the platform Date constructor."
-  [t]
-  (when (number? t)
-    #?(:clj  (let [^java.time.Instant inst (java.time.Instant/ofEpochMilli (long t))
-                   ^java.time.LocalTime lt (.toLocalTime
-                                             (.atZone inst (java.time.ZoneId/systemDefault)))]
-               (format "%02d:%02d:%02d.%03d"
-                       (.getHour lt)
-                       (.getMinute lt)
-                       (.getSecond lt)
-                       (long (mod t 1000))))
-       :cljs (let [d   (js/Date. t)
-                   pad (fn [n w]
-                         (let [s (str n)]
-                           (if (< (count s) w)
-                             (str (apply str (repeat (- w (count s)) "0")) s)
-                             s)))]
-               (str (pad (.getHours d) 2) ":"
-                    (pad (.getMinutes d) 2) ":"
-                    (pad (.getSeconds d) 2) "."
-                    (pad (.getMilliseconds d) 3))))))
+;; Re-export the shared `HH:MM:SS.mmm` formatter so the panel surface
+;; keeps a stable `format-time` symbol while the body lives once in
+;; `common-helpers` (alongside issues-ribbon, routes, mcp-server).
+(def format-time common/format-time-hms)
 
 (defn op-type-colour
   "Colour swatch for an op-type. Drives the per-row dot + the
