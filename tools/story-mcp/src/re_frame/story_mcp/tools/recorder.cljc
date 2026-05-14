@@ -92,7 +92,7 @@
   (h/with-variant arguments
     (fn [vk body]
       (let [write-back? (args/parse-boolean (:write-back? arguments) false)
-            gate-err    (when write-back? (write/assert-writes-allowed))]
+            gate-err    (when write-back? (write/assert-writes-allowed "record-as-variant"))]
         (if gate-err gate-err
           (let [duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)
                 new-vid     (some-> (:new-variant-id arguments) args/parse-keyword)

@@ -22,8 +22,13 @@
 
 (defn assert-writes-allowed
   "Returns nil when writes are allowed; an error-result otherwise. The
-  caller short-circuits on the non-nil branch."
-  []
+  caller short-circuits on the non-nil branch. Threads `tool-name` (the
+  caller's MCP tool name, sans namespace) through to the error's
+  `:structuredContent :tool` slot so agents inspecting a gated-error
+  payload see the tool that actually tripped the gate — not a hardcoded
+  string. Three callers today: `register-variant`, `unregister-variant`,
+  and `record-as-variant` (via the recorder ns)."
+  [tool-name]
   (when-not (config/writes-allowed?)
     (h/error-result
       (str "Write surface disabled. Set `:rf.story-mcp/allow-writes?` "
@@ -31,7 +36,7 @@
            "`-Drf.story-mcp.allow-writes=true` JVM property) to enable. "
            "Per IMPL-SPEC §7.3 the write surface is dev-only; CI runs "
            "should leave it off.")
-      {:gated true :tool "register-variant"})))
+      {:gated true :tool tool-name})))
 
 (defn tool-register-variant
   "Write: programmatically register a variant. Gated behind
@@ -43,7 +48,7 @@
                  EDN via `clojure.edn/read-string` if a string is sent
                  over the wire)."
   [arguments]
-  (or (assert-writes-allowed)
+  (or (assert-writes-allowed "register-variant")
       (let [[vid e1] (h/required-arg arguments :variant-id)
             [body e2] (h/required-arg arguments :body)]
         (cond
@@ -84,7 +89,7 @@
   "Write: programmatically unregister a variant. Gated behind
   `allow-writes?`."
   [arguments]
-  (or (assert-writes-allowed)
+  (or (assert-writes-allowed "unregister-variant")
       (h/with-variant-id arguments
         (fn [vk]
           (let [had? (some? (story/variant->edn vk))]
