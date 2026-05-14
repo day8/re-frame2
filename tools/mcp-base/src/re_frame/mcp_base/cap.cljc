@@ -205,15 +205,32 @@
     ;; 2. Secondary char-byte cap — `cap * byte-cap-multiplier`.
     ;;    Defence-in-depth against payloads where the (count s)/4
     ;;    heuristic undercounts: CJK, emoji, base64, dense code. Trips
-    ;;    independently of the token sum; reports the char count as the
-    ;;    `:token-count` so the agent's overflow handler sees an
+    ;;    independently of the token sum; reports the char count as
+    ;;    the `:token-count` so the agent's overflow handler sees an
     ;;    actionable number (not zero, not nil).
     ;;
     ;; Either gate trips the same truncate-with-marker fallback.
-    (let [tokens    (sum-text-tokens io result)
-          chars     (sum-text-chars io result)
-          byte-cap  (* cap byte-cap-multiplier)
-          over?     (or (> tokens cap) (> chars byte-cap))]
+    ;;
+    ;; ## Single-pass token+char sum (rf2-hyp0z / F9-F10)
+    ;;
+    ;; The previous implementation called `sum-text-tokens` and
+    ;; `sum-text-chars` separately, each invoking `content-texts` on
+    ;; `io` once. For story-mcp's reify that materialised the result
+    ;; twice (including a `(pr-str (:structuredContent result))` on
+    ;; each call — the dominant cost for structured-content responses
+    ;; up to 30K chars). The single-pass transduce below folds both
+    ;; sums in one walk of the content-texts seq, materialising the
+    ;; expensive accessor exactly once per response.
+    (let [{:keys [tokens chars]}
+          (transduce (filter string?)
+                     (completing
+                       (fn [{:keys [tokens chars]} s]
+                         {:tokens (+ tokens (overflow/token-estimate s))
+                          :chars  (+ chars (count s))}))
+                     {:tokens 0 :chars 0}
+                     (content-texts io result))
+          byte-cap (* cap byte-cap-multiplier)
+          over?    (or (> tokens cap) (> chars byte-cap))]
       (if-not over?
         result
         (let [reported (if (> chars byte-cap) chars tokens)
