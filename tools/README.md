@@ -208,6 +208,36 @@ That folder is the framework's normative contract. The tool-level
 `spec/` is the tool's normative contract — bounded scope, downstream
 of the framework's spec.
 
+### Tool-shared contracts indexed back to `spec/Ownership.md`
+
+Where a contract surface is *shared across the tool tier* — typical
+example: the cross-MCP wire vocabulary, privacy filter, and token-
+budget cap pipeline shared by `pair2-mcp`, `story-mcp`, and (when it
+lands) `causa-mcp` — its **canonical home stays with the tool
+artefact** (`tools/mcp-base/spec/`) rather than being lifted into
+the project-level `spec/`. This is the [`spec/README.md` §Canonical
+homes outside `/spec`](../spec/README.md#canonical-homes-outside-spec)
+rule (rf2-0hs5t.3 (a)), and the surface is indexed back to the
+framework via a row in [`spec/Ownership.md`](../spec/Ownership.md).
+
+Two rules apply:
+
+1. **One canonical home.** The tool's `spec/` is the single source
+   of truth for the shared contract. Other tools cite it; they do
+   not redefine it. Drift detection is the same as for in-tree
+   surfaces — a second normative definition is a corpus bug.
+2. **Indexed from `spec/Ownership.md`.** The contract surface gets
+   a row in the framework's ownership matrix with the canonical
+   home cell pointing at the tool's spec path. This keeps the
+   "where does X live?" question single-sourced even when the
+   answer is "downstream of `/spec`."
+
+The rule applies to genuinely-shared tool contracts. Single-tool
+contracts (the `tools/causa/spec/...` panel inventory, the
+`tools/story/spec/...` Story format) stay with their tool and are
+not indexed in the framework's `spec/Ownership.md` — they are not
+*framework-level* surfaces.
+
 ## In design / planned
 
 Entries below are **in design** — the spec is being shaped, but no
