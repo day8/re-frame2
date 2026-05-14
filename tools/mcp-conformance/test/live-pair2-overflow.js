@@ -97,12 +97,20 @@ const DEFAULT_MAX_TOKENS = 5000;
 // path kicks in first).
 const FORM_OVER_BUDGET = '(apply str (repeat 25000 "x"))';
 
-// Canonical schema for `:rf.mcp/overflow`. Mirrors the Malli schema
-// pinned by `tools/mcp-conformance/wire-vocab/` (the JVM-side
-// vocabulary conformance test) — we re-encode it here as plain JS
-// assertions because this is a Node-side harness and the SDK doesn't
-// link Malli. A drift between the two pins is a vocabulary bug:
+// Canonical schema for `:rf.mcp/overflow`. Mirrors the Malli
+// `Pair2OverflowBody` schema pinned by `tools/mcp-conformance/wire-vocab/`
+// (the JVM-side vocabulary conformance test) — we re-encode it here as
+// plain JS assertions because this is a Node-side harness and the SDK
+// doesn't link Malli. A drift between the two pins is a vocabulary bug:
 // the marker MUST validate against both encodings identically.
+//
+// Cross-encoding sanity (rf2-0zqox): the JVM test
+// `js-assertOverflowBody-pins-every-pair2-overflow-required-field`
+// in `wire-vocab/test/.../wire_vocab_test.clj` grep-asserts every
+// required field on `Pair2OverflowBody` against the substrings in this
+// function. Adding / removing a check below MUST keep that gate happy;
+// adding / removing a Malli field on the JVM side MUST update the
+// `pair2-overflow-js-required-grep-markers` table there in lockstep.
 function assertOverflowBody(body, ctx) {
   if (!body || typeof body !== 'object') {
     throw new Error(ctx + ': overflow body is not a map: ' + JSON.stringify(body));
