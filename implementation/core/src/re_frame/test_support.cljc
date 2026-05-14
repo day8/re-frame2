@@ -153,6 +153,10 @@
     :machines/reset-timers!          — cancel in-flight `:after` wall-clock
                                        timers so a stale timer from a
                                        sibling test can't survive.
+    :machines/reset-spawn-order!     — drop the per-frame spawn-order
+                                       channel (rf2-vsigt) so a stale
+                                       entry from a sibling test can't
+                                       contaminate a frame-destroy walk.
     :routing/reset-counters!         — reset the route-registration counter
                                        so reg-index is deterministic across
                                        fixture runs.
@@ -172,6 +176,7 @@
    {:hook :flows/reset-last-inputs!        :phase :pre-dispose}
    {:hook :schemas/clear-by-frame!         :phase :pre-dispose}
    {:hook :machines/reset-timers!          :phase :post-dispose}
+   {:hook :machines/reset-spawn-order!     :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}

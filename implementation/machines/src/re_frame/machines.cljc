@@ -42,6 +42,7 @@
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.timer :as timer]
             [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
@@ -248,6 +249,12 @@
 ;; creation order per Spec 005 §Cross-Spec Interactions §1.
 (late-bind/set-fn! :machines/teardown-on-frame-destroy!
                    frame-destroy/teardown-on-frame-destroy!)
+;; Per rf2-vsigt — test-isolation hook fired by
+;; `re-frame.test-support/reset-runtime-fixture`. Drops the per-frame
+;; spawn-order vectors so a stale entry from a sibling test cannot
+;; contaminate a frame-destroy walk in the next test.
+(late-bind/set-fn! :machines/reset-spawn-order!
+                   spawn-order/reset-all!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 (late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)

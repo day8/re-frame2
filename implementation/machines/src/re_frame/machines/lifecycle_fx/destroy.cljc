@@ -151,7 +151,11 @@
       (traces/emit-system-id-released! frame-id released-sid actor-id)
       ;; Unregister the live handler. Last so any in-flight trace emit
       ;; against the actor still resolves before the slot disappears.
-      (registrar/unregister! :event actor-id))
+      (registrar/unregister! :event actor-id)
+      ;; (rf2-vsigt) Forget the actor from the per-frame spawn-order
+      ;; channel so frame destroy's reverse-creation walk doesn't trip
+      ;; over a stale entry.
+      (spawn-order/forget! frame-id actor-id))
     nil))
 
 (defn destroy-machine-fx
