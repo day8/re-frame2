@@ -119,11 +119,12 @@ wired into the build, and consumers can use it today.
   shadow-cljs) that pair-programs with a live re-frame2 app over a
   persistent nREPL socket. Structural successor to the bash-shim →
   babashka → nREPL chain under `skills/re-frame-pair2/scripts/`.
-  Twelve tools (`discover-app`, `eval-cljs`, `dispatch`,
+  Fourteen tools (`discover-app`, `eval-cljs`, `dispatch`,
   `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
   `get-path`, the streaming triad `subscribe` / `unsubscribe` /
-  `subscription-info`, and `get-pair2-instructions`); per-op latency
-  drops from ~700ms to ~5–50ms. Published to npm as
+  `subscription-info`, the registrar-introspection pair
+  `handler-meta` / `registry-list`, and `get-pair2-instructions`);
+  per-op latency drops from ~700ms to ~5–50ms. Published to npm as
   `@day8/re-frame-pair2-mcp`. See
   [`tools/pair2-mcp/README.md`](./pair2-mcp/README.md).
 

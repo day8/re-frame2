@@ -79,6 +79,6 @@ The agent-facing surface is the same gesture in reverse. An agent host calls `re
 
 That's the **agent self-healing loop**. It's the reason variant bodies are EDN to begin with.
 
-The agent surface lives at [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — a stdio JSON-RPC server exposing seventeen tools across Dev / Docs / Testing / Write categories. The Write surface is gated behind `--allow-writes` at startup. The contract is in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md).
+The agent surface lives at [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — a stdio JSON-RPC server exposing nineteen tools across Dev / Docs / Testing / Write categories. The Write surface is gated behind `--allow-writes` at startup. The contract is in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md).
 
 Next: [workspaces + args editor](04-workspaces.md).
