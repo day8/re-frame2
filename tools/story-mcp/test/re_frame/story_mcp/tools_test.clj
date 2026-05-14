@@ -24,6 +24,7 @@
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
+            [re-frame.story-mcp.tools.testing :as testing-tool]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
@@ -1687,6 +1688,101 @@
                "clients can pre-validate without round-tripping a doomed call"))
       (is (zero? (:minimum dur-schema))
           ":minimum stays at 0 — the no-block default is canonical"))))
+
+;; ---------------------------------------------------------------------------
+;; run-variant :timeout-ms cap (rf2-g9fje fix 3/3)
+;;
+;; The single-threaded stdio loop parks for the full `:timeout-ms` window
+;; — caller-supplied values clamp DOWN to `testing-tool/max-timeout-ms`
+;; (30 s, matches rf2-it1cd's `:rf.http/timeout-ms` baseline). A
+;; legitimately-slow variant runs against the cap; a hostile caller can't
+;; park the loop indefinitely.
+;; ---------------------------------------------------------------------------
+
+(deftest run-variant-timeout-ms-schema-advertises-ceiling
+  (testing "run-variant's :timeout-ms schema carries :maximum mirroring the runtime cap"
+    (let [t          (some #(when (= "run-variant" (:name %)) %) registry/tool-registry)
+          ts-schema  (-> t :inputSchema :properties :timeout-ms)]
+      (is (= testing-tool/max-timeout-ms (:maximum ts-schema))
+          "schema :maximum tracks the runtime cap so clients can pre-validate")
+      (is (= 1 (:minimum ts-schema))
+          ":minimum stays at 1 — a zero-timeout doesn't make sense on a blocking call"))))
+
+(deftest run-variant-timeout-ms-clamps-down-to-cap
+  ;; Pin the behavioural contract: the helper that computes the effective
+  ;; timeout MUST clamp values above the ceiling rather than reject. A
+  ;; legitimate slow variant still runs (against the cap), the loop never
+  ;; parks past 30 s.
+  (testing "values above the ceiling clamp down to max-timeout-ms"
+    (is (= testing-tool/max-timeout-ms
+           (min testing-tool/max-timeout-ms
+                ((requiring-resolve 're-frame.mcp-base.args/parse-positive-int)
+                 60000 testing-tool/default-timeout-ms)))
+        "60s caller-supplied → clamped to 30s")
+    (is (= 5000
+           (min testing-tool/max-timeout-ms
+                ((requiring-resolve 're-frame.mcp-base.args/parse-positive-int)
+                 5000 testing-tool/default-timeout-ms)))
+        "below-cap values ride through unchanged")
+    (is (= testing-tool/default-timeout-ms
+           (min testing-tool/max-timeout-ms
+                ((requiring-resolve 're-frame.mcp-base.args/parse-positive-int)
+                 nil testing-tool/default-timeout-ms)))
+        "absent :timeout-ms uses the default")))
+
+;; ---------------------------------------------------------------------------
+;; Protocol-side frame-length cap (rf2-g9fje fix 3/3)
+;;
+;; `BufferedReader.readLine` allocates unbounded memory for a one-line
+;; frame that never sees a newline. The MCP server's stdio transport is
+;; line-delimited per spec/2025-06-18/basic/transports; an attacker (or
+;; a runaway producer) sending an unterminated frame would OOM the JVM.
+;; `read-frame` now caps each frame at `proto/max-frame-bytes` (4 MB,
+;; well above the largest legitimate MCP message); over-cap frames
+;; throw `:rf.error/frame-too-large`, which the run-loop catches and
+;; converts to a parse-error response.
+;; ---------------------------------------------------------------------------
+
+(deftest read-frame-rejects-oversize-frame
+  (testing "a frame exceeding max-frame-bytes throws :rf.error/frame-too-large"
+    (let [oversize (str (apply str (repeat (inc proto/max-frame-bytes) \x)) "\n")
+          reader   (java.io.BufferedReader. (java.io.StringReader. oversize))]
+      (try
+        (proto/read-frame reader)
+        (is false "should have thrown")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/frame-too-large (:rf.error (ex-data e)))
+              "ex-data carries the rf.error tag the run-loop dispatches on"))))))
+
+(deftest read-frame-survives-after-oversize-frame
+  (testing "the next frame after an oversize one is still readable"
+    (let [oversize (apply str (repeat (inc proto/max-frame-bytes) \x))
+          good     "{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":7}"
+          input    (str oversize "\n" good "\n")
+          reader   (java.io.BufferedReader. (java.io.StringReader. input))]
+      ;; First read throws (frame-too-large drains the oversize frame to
+      ;; the next newline). Second read lands the good frame.
+      (try (proto/read-frame reader) (catch clojure.lang.ExceptionInfo _ nil))
+      (is (= {:jsonrpc "2.0" :method "ping" :id 7}
+             (proto/read-frame reader))
+          "post-cap recovery: stdio loop continues on the next frame"))))
+
+(deftest run-loop-survives-oversize-frame
+  (testing "an oversize frame produces a parse-error response and the loop continues"
+    (let [oversize (apply str (repeat (inc proto/max-frame-bytes) \x))
+          in-text  (str oversize "\n"
+                        "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"ping\"}\n")
+          reader   (java.io.BufferedReader. (java.io.StringReader. in-text))
+          sw       (java.io.StringWriter.)
+          err      (java.io.StringWriter.)]
+      (binding [*err* err]
+        (server/run-loop! reader sw))
+      (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
+            frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
+        (is (= 2 (count frames)) "one parse-error + one ping response")
+        (is (= vocab/code-parse-error (-> (nth frames 0) :error :code))
+            "oversize frame routes through the parse-error response shape")
+        (is (= 11 (:id (nth frames 1))) "the loop continued to the next frame")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cap accounting includes :structuredContent size (rf2-mzndx)

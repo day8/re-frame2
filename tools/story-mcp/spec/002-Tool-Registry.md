@@ -234,6 +234,11 @@ Inputs: `{:variant-id ... :substrate? ... :active-modes? ... :cell-overrides? ..
 The `:passing?` boolean is the headline "did this pass?" answer —
 truthy when every assertion in the play sequence passed.
 
+`:timeout-ms` is clamped DOWN to 30 s (rf2-g9fje); the MCP server's
+stdio loop is single-threaded so an unbounded `:timeout-ms` would
+park unrelated calls. 30 s matches the `:rf.http/timeout-ms`
+baseline (rf2-it1cd) — one ceiling, one number an agent learns.
+
 ### `snapshot-identity`
 
 Content hash of `(variant × args × decorators × loaders × substrate ×

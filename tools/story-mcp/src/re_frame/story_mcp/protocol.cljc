@@ -49,6 +49,21 @@
   auto-namespaced `::eof` form across namespace boundaries."
   ::eof)
 
+;; ---- frame-length cap (rf2-g9fje, fix 3/3) -------------------------------
+
+(def ^:const max-frame-bytes
+  "Hard ceiling on a single newline-delimited JSON-RPC frame from the
+  stdio transport. 4 MB — well above any legitimate MCP message a
+  cooperating client would send (the largest reasonable payload is a
+  `tools/list` response, which Stage 7's nineteen-tool registry
+  prints in ~15 KB), but small enough that a hostile or runaway
+  producer can't OOM the JVM by sending a one-frame `readLine` that
+  never terminates. When a frame exceeds the cap, `read-frame` throws
+  an `ex-info` with `:rf.error/frame-too-large`; the run-loop catches
+  and writes a parse-error response, then continues to the next
+  frame."
+  (* 4 1024 1024))
+
 ;; ---- envelope construction -----------------------------------------------
 
 (defn response
@@ -132,18 +147,69 @@
 
 ;; ---- frame I/O (stdio line-delimited) ------------------------------------
 
+(defn- read-bounded-line
+  "Read characters from `^java.io.BufferedReader reader` until newline,
+  EOF, or `max-bytes` is reached. Returns:
+
+    - `nil`               — EOF before any character was read.
+    - bounded string      — happy path: the read line, without its
+                            trailing newline.
+    - `::frame-too-large` — the cap was reached before a newline.
+                            The remaining bytes of the over-cap frame
+                            are drained to the next newline (or EOF)
+                            so the next `read-bounded-line` call
+                            starts on a fresh frame boundary.
+
+  Unlike `BufferedReader.readLine`, which will happily allocate
+  unbounded memory for a `readLine` that never sees a newline, this
+  helper enforces a hard ceiling — the rf2-g9fje DoS bound for the
+  stdio transport."
+  [^java.io.BufferedReader reader max-bytes]
+  (let [sb (StringBuilder.)]
+    (loop [n 0]
+      (let [c (.read reader)]
+        (cond
+          (neg? c)
+          (if (zero? n) nil (.toString sb))
+
+          (= c (int \newline))
+          (.toString sb)
+
+          (>= n max-bytes)
+          ;; Drain the rest of this frame so the next call lands on a
+          ;; fresh boundary. We don't bound this drain (the bytes have
+          ;; already been allocated on the wire); we just don't keep
+          ;; them in the StringBuilder.
+          (do (loop []
+                (let [d (.read reader)]
+                  (when (and (not (neg? d))
+                             (not= d (int \newline)))
+                    (recur))))
+              ::frame-too-large)
+
+          :else
+          (do (.append sb (char c))
+              (recur (inc n))))))))
+
 (defn read-frame
   "Read one newline-delimited JSON frame from `^java.io.BufferedReader reader`.
   Returns the parsed map, or `::eof` when the reader has closed, or
-  throws `:rf.error/parse-error` on malformed JSON.
+  throws an `ex-info` on malformed JSON / oversize frame.
 
   Empty / whitespace lines are silently consumed (some agent hosts emit
-  trailing newlines)."
+  trailing newlines). Frames exceeding `max-frame-bytes` (rf2-g9fje)
+  throw with `:rf.error/frame-too-large`; the run-loop catches that
+  and writes a parse-error response before continuing — one oversize
+  frame can't park the loop."
   [^java.io.BufferedReader reader]
   (loop []
-    (let [line (.readLine reader)]
+    (let [line (read-bounded-line reader max-frame-bytes)]
       (cond
         (nil? line)                   eof-sentinel
+        (= ::frame-too-large line)    (throw (ex-info
+                                               "re-frame2-story-mcp: frame exceeds cap"
+                                               {:rf.error :rf.error/frame-too-large
+                                                :max-bytes max-frame-bytes}))
         (str/blank? line)             (recur)
         :else                         (parse-json line)))))
 

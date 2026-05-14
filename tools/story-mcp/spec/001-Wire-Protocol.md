@@ -12,6 +12,12 @@
   (failure traces; never used for protocol traffic).
 - The server's main loop terminates on stdin EOF; the `shutdown`
   method is also honoured.
+- **Frame-length cap** (rf2-g9fje): each inbound frame is bounded at
+  `re-frame.story-mcp.protocol/max-frame-bytes` (4 MB — well above
+  the largest legitimate MCP payload). A frame exceeding the cap is
+  drained to its next newline boundary and yields a parse-error
+  response; the loop continues. The cap exists so a hostile or
+  runaway producer can't OOM the server with an unterminated frame.
 
 ## Protocol version pin
 
