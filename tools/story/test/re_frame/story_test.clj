@@ -532,6 +532,26 @@
                            {:events [[:init]]}))
       (is (>= (registrar/current-mutation-tick) (+ t0 5))))))
 
+;; ---- Public tag->axis-index API -------------------------------------
+
+(deftest public-tag-axis-index-no-axis-sentinel
+  (testing "story/tag->axis-index returns the ::no-axis sentinel for tags
+without :axis (rf2-jlsvj — lock the public-API contract)"
+    (story/reg-tag :status/stable  {:axis :status})
+    (story/reg-tag :role/dev       {:axis :role})
+    (story/reg-tag :loose/freeform {:doc "no axis on this tag"})
+    (let [idx (story/tag->axis-index)]
+      (is (map? idx))
+      (testing "axis-bearing tags map to their axis"
+        (is (= :status (get idx :status/stable)))
+        (is (= :role   (get idx :role/dev))))
+      (testing "tags registered without :axis map to the registrar/no-axis sentinel"
+        (is (= :re-frame.story.registrar/no-axis
+               (get idx :loose/freeform))))
+      (testing "canonical tags are pre-registered without :axis and bucket to no-axis"
+        (is (= :re-frame.story.registrar/no-axis
+               (get idx :dev)))))))
+
 ;; ---- Stage 6 contract check -----------------------------------------
 
 (deftest stage-marker
