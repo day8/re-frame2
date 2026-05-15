@@ -12,6 +12,21 @@ The project can require responsible contributors to run rigorous local checks
 before commit, but CI should not spend every pull request on every expensive
 browser, conformance, example, bundle-size, and release-adjacent gate.
 
+## Trust Model
+
+This proposal assumes a responsible-contributor model:
+
+- Rigorous suites are a pre-commit/local obligation for the person or agent
+  changing the code.
+- PR CI is not the full proof that every expensive surface is still green. It
+  is a fast, smaller integration tripwire that catches the highest-value
+  breakage before review/merge.
+- Changed-surface CI and release/nightly/manual gates are how the project keeps
+  coverage depth without putting every expensive suite on every PR's critical
+  path.
+- A contributor who touches a surface owns running that surface's rigorous
+  local checks before pushing, and the final report should name what was run.
+
 Keep the Mayor Method invariant:
 
 - Green can be quiet: one-line summaries, no buffered browser logs unless a
