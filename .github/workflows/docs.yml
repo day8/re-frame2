@@ -7,15 +7,28 @@
 # (Settings → Pages → Build and deployment → Source). If it is still set to
 # "Deploy from a branch" the deploy-pages step below will fail.
 #
-# This workflow only triggers on push to `main` or via manual dispatch. The
-# first publish is a deliberate manual step (run via the Actions tab once
-# Pages is configured) — see PR description for rf2-h09k.
+# This workflow only triggers on docs-affecting pushes to `main`, matching
+# pull-request path filters, or via manual dispatch. The first publish is a
+# deliberate manual step (run via the Actions tab once Pages is configured) —
+# see PR description for rf2-h09k.
 
 name: docs
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'docs/**'
+      - 'spec/**'
+      - 'skills/**/*.md'
+      - 'tools/**/*.md'
+      - 'mkdocs.yml'
+      - 'mkdocs_hooks.py'
+      - 'TESTING.md'
+      - 'requirements.txt'
+      - 'scripts/check_doc_slugs.py'
+      - 'scripts/_test_fixtures/check_doc_slugs/**'
+      - '.github/workflows/docs.yml'
   pull_request:
     branches: [main]
     paths:
