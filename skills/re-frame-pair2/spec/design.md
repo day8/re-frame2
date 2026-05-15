@@ -59,7 +59,7 @@ re-frame2 apps may run multiple named frames (Spec 002). The session caches an o
 
 ### L7 — One trace listener and one epoch listener per skill
 
-The skill registers exactly one trace listener under `:re-frame-pair2` and one epoch listener under `:re-frame-pair2-epoch`. Multi-tool coexistence is the expected default — other listeners (e.g. user-installed ones, 10x in legacy sessions) don't interfere because per Spec 009 §Listener ordering, ordering is not contract.
+The skill registers exactly one trace listener under `:re-frame-pair2` and one epoch listener under `:re-frame-pair2-epoch`. Multi-tool coexistence is the expected default — Causa, user-installed listeners, and legacy 10x sessions don't interfere because per Spec 009 §Listener ordering, ordering is not contract.
 
 ### L8 — Use the assembled epoch stream by default; reach for the raw trace stream when the projection drops detail
 

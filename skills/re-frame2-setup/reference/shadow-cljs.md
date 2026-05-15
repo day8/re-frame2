@@ -48,6 +48,12 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
 <head>
   <meta charset="utf-8">
   <title>your-app</title>
+  <style>
+    body { margin: 0; }
+    .app-shell { display: flex; min-height: 100vh; }
+    [data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+    #app { flex: 1; min-width: 0; }
+  </style>
 </head>
 <body>
   <div class="app-shell">
@@ -59,10 +65,11 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
 </html>
 ```
 
-Three contractual bits:
+Four contractual bits:
 
 - **`<main id="app"></main>`** — the app mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`.
-- **`<aside data-rf-causa-host></aside>`** — Causa's default true-inline devtools host. Keep it as a left-side sibling of `#app` when you enable `day8.re-frame2-causa.preload`; otherwise Causa logs a missing-host diagnostic and does not mount.
+- **`<aside data-rf-causa-host></aside>`** — Causa's default true-inline devtools host. Keep it as a left-side layout column beside `#app` when you enable `day8.re-frame2-causa.preload`; otherwise Causa logs an actionable missing-host diagnostic and exposes the same status through `window.day8.re_frame2_causa.status()`.
+- **`.app-shell` flex CSS** — the host app owns sizing and layout. The minimal contract is a left column (`flex: 0 0 420px; min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0; }`).
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows.
 - **`/js/main.js` is an absolute path from site root.** That's correct for shadow-cljs's dev server.
 
@@ -88,7 +95,7 @@ Add `:devtools` to enable shadow-cljs's hot-reload + dev server:
 
 With this block in place, `shadow-cljs watch app` starts the dev server. Visit `http://localhost:8020/` and the browser auto-refreshes on every recompile.
 
-re-frame2 itself **does not need a preload** for hot-reload. shadow-cljs's default behaviour is enough. Causa is the devtools exception: if you add `day8.re-frame2-causa.preload`, the page must provide `[data-rf-causa-host]` as shown above.
+re-frame2 itself **does not need a preload** for hot-reload. shadow-cljs's default behaviour is enough. Causa is the devtools exception: if you add `day8.re-frame2-causa.preload`, the page must provide `[data-rf-causa-host]` as shown above. The Causa preload registers listeners/keybindings and auto-opens into that app-provided host after `rf/init!` installs the substrate adapter; there is no lazy/manual-only launch step.
 
 ## Production build (`release`)
 
@@ -108,7 +115,7 @@ If you want to pin the port explicitly (e.g. for editor integrations), add a top
 
 A few things you might pull in by reflex from other CLJS framework setups that re-frame2 specifically does not require:
 
-- **No framework preload required** — re-frame2 has no preload analogue to re-frame v1. Causa is optional devtools wiring; when enabled, it auto-opens in `[data-rf-causa-host]`.
+- **No framework preload required** — re-frame2 has no preload analogue to re-frame v1. Causa is optional devtools wiring; when enabled, its default is the `[data-rf-causa-host]` true-inline panel on app load. Overlay/body-padding chrome is optional debug tooling, not the default, and pop-out remains available from the mounted panel.
 - **No `:closure-defines`** for re-frame2 itself in dev. The single exception is opting into the performance-API instrumentation (Spec 009 §Performance instrumentation) — set `re-frame.performance/enabled? true` only if the author asks for it explicitly. Default dev is fine.
 - **No special compiler options** for dev. `{:compiler-options {:warnings {...}}}` is up to the author.
 - **No SSR build entry** unless the author wants SSR. SSR is opt-in via `day8/re-frame2-ssr` (separate per-feature artefact); the SSR build is a separate `:target :node-script` (or `:target :browser` running in a static-render harness). Out of scope for greenfield.

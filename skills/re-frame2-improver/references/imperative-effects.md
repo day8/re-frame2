@@ -19,7 +19,7 @@ Structural signal: the handler returns a `db` value (or an fx-map) **and** has v
 The whole point of re-frame's data-driven loop is that handlers describe *what* should happen as data, and a separate registered fx-handler decides *how* it happens. Imperative leaks defeat:
 
 - **Testability** — the handler can no longer run under `compute-event` without a browser; tests need DOM mocks.
-- **Time-travel & replay** — re-frame-10x replays the event vector against the pre-`db`; imperative side-effects fire again on replay, double-writing to `localStorage` or refocusing the wrong element.
+- **Time-travel & replay** — Causa and re-frame-pair2 restore through re-frame2's epoch surfaces; imperative side-effects inside handlers cannot be represented as data, so replay/restoration can double-write `localStorage` or refocus the wrong element.
 - **Server-side rendering** — Spec 011 SSR runs handlers on the server; `js/document` blows up.
 - **Instrumentation** — Spec 009's `:rf.fx/*` trace channel sees only what flows through `reg-fx`; imperative calls are invisible to the inspector, story, and pair-tool surfaces.
 - **`:platforms` gating** — Spec 003 lets an fx declare `:platforms #{:client}`; an imperative side-effect inside a handler cannot be skipped on the server.

@@ -20,7 +20,7 @@ re-frame-pair2 inverts this. It operates on the live browser runtime *and* on so
 
 ### Non-goals
 
-- Not a replacement for re-frame-10x or any future v2 of it. 10x is a human-facing devtool; re-frame-pair2 is an agent-facing back-channel reading from re-frame2's public surfaces. They coexist as parallel listeners (Spec 009 §Listener ordering).
+- Not a replacement for Causa, and not a revival of re-frame-10x. Causa is the human-facing devtool, defaulting to an app-provided `[data-rf-causa-host]` true-inline panel; re-frame-pair2 is an agent-facing back-channel reading from re-frame2's public surfaces. They coexist as parallel listeners (Spec 009 §Listener ordering).
 - Not a test runner, linter, or static analysis tool. Those operate on source; re-frame-pair2 operates on runtime.
 - Not a production feature. Dev/debug only — `interop/debug-enabled?` gates the entire trace-and-epoch substrate.
 
