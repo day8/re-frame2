@@ -99,26 +99,18 @@ Remove the `:preloads` entry, or:
 | Pop out to second window | `window.day8.re_frame2_causa.popout_BANG_()` |
 | Open AI co-pilot rail | `Ctrl+Shift+/` |
 
-### The launcher pill
+### Closed state
 
-When Causa is closed, a 48×48px circular button sits in the
-bottom-right corner of the viewport (z-index pinned just below modal
-overlays, above app content). The Causa mark centred. Subtle 1px
-violet ring at 60% opacity on idle.
+When Causa is hidden, the inline mount node remains in the layout host
+with `display: none`. The app does not receive body padding, viewport
+overlays, or fixed-position chrome as part of the default developer
+experience. `Ctrl+Shift+C` shows the existing shell again; no React
+remount is required.
 
-Pulses softly when there's an active error in the issues feed —
-600ms expand-fade pulse, every 4s, **max 3 pulses then stops**. The
-pulse is bounded so a long-lived error doesn't become a perpetual
-animation.
-
-Click → Causa opens (same 320ms slide-in animation as the keyboard
-shortcut).
-
-Right-click → contextual mini-menu: Open · Pop out · Settings · Hide
-button.
-
-The button is **hideable** (Settings option for users who only use
-the keyboard). Hidden state persists per-app in localStorage.
+Hosts MAY add their own launcher affordance if they want a visible
+button, but that affordance is host chrome, not Causa's default launch
+contract. Causa's built-in overlay/docked APIs remain optional debug
+modes and must not be described as the primary path.
 
 ### Pop-out to a second window
 
@@ -146,12 +138,14 @@ full-screen" use case.
 
 ### Animation
 
-Slide-in from the right edge: 320ms with `cubic-bezier(0, 0, 0.2, 1)`.
-First paint under 80ms (Causa was mounted hidden; toggle is a CSS
-class swap). Respects `prefers-reduced-motion` (instant fade).
+Default inline launch is normal document layout: Causa renders inside
+the host's left column and the app remains visible to the right. The
+default hide/show operation is a CSS display swap on the mount node
+and MUST respect `prefers-reduced-motion`.
 
-App content underneath dims 12% via a CSS overlay; app interactions
-still pass through (pointer-events on the dim overlay are disabled).
+Overlay-specific slide/dim affordances are allowed only for optional
+debug modes. They MUST NOT be used to approximate the default
+true-inline host contract.
 
 ### Mount lifecycle (rf2-9kkrm)
 

@@ -43,7 +43,7 @@ controls, DOM test ids, and page-evaluable diagnostics for:
 | SSR/hydration mismatch | Server/client render hash mismatch, divergent render-tree row, missing payload, corrupt payload, and multi-frame hydration mismatch. |
 | Source coordinates | Event, view, sub, route, machine, flow, hydration row, and trace row source coords, including a missing-file case that hides the chip. |
 | MCP origin | A reproducible `:origin :causa-mcp` action stream with read-only calls, confirmed writes, one failed tool call, and one empty lifecycle event with no dispatch id. |
-| Shell modes | Overlay toggle, lazy mount, CSS-only close/open, pop-out, inline embedded panel, docked/undocked chrome state if present, settings corruption/reset, and production elision probes. |
+| Shell modes | Default true-inline host auto-mount, CSS-only close/open, pop-out, inline embedded panel, optional overlay/docked debug chrome if present, settings corruption/reset, and production elision probes. |
 
 ## Diagnostics required on failure
 
@@ -99,7 +99,7 @@ debug without re-running under a debugger:
 
 - [`000-Vision.md`](./000-Vision.md) - panel inventory and the five canonical questions.
 - [`007-UX-IA.md`](./007-UX-IA.md) - chrome, keyboard, source-coordinate, redaction, launch, and production posture.
-- [`011-Launch-Modes.md`](./011-Launch-Modes.md) - overlay, pop-out, MCP coexistence, preload, and mount lifecycle.
+- [`011-Launch-Modes.md`](./011-Launch-Modes.md) - true-inline host default, optional overlay/debug chrome, pop-out, MCP coexistence, preload, and mount lifecycle.
 - [`013-Trace-Bus.md`](./013-Trace-Bus.md) - trace buffer, filter vocabulary, privacy gate, lifecycle, and production elision.
 - [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) - owning `:rf.causa/*` ids for panel subscriptions/events/effects.
 - [`015-Configuration.md`](./015-Configuration.md) - host-visible configuration keys and defaults.

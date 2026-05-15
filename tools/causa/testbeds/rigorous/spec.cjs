@@ -169,7 +169,7 @@ module.exports = {
   name: 'causa-rigorous',
   url: '/counter/',
   run: async (page) => {
-    const counterValue = page.locator('span').first();
+    const counterValue = page.locator('#app [data-testid="counter-value"]');
 
     // ----------------------------------------------------------------
     // 1. Initial state — counter ready, shell auto-mounted inline.

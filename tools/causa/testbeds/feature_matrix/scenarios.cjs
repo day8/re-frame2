@@ -915,8 +915,9 @@ async function expectNumericTextAtLeast(locator, min, timeoutMs = 5000) {
 
 async function readHostCounter(page) {
   return page.evaluate(() => {
-    const span = Array.from(document.querySelectorAll('span'))
-      .find((el) => !el.closest('#rf-causa-root'));
+    const span = document.querySelector('#app [data-testid="counter-value"]') ||
+      Array.from(document.querySelectorAll('span'))
+        .find((el) => !el.closest('#rf-causa-root'));
     const text = span ? (span.textContent || '').trim() : '';
     return Number(text);
   });
@@ -1455,7 +1456,7 @@ async function runTwentyEventLoad(page, state) {
 }
 
 async function runTraceBudgetSaturation(page, state) {
-  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  await expectHostCounterEquals(page, 5, 10000);
   await openCausa(page);
   await clickSidebar(page, 'trace', 'rf-causa-trace');
   await clearTrace(page);

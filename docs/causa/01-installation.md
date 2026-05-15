@@ -111,9 +111,9 @@ The counter example bundle is the smallest thing that exercises the full pipelin
 cd implementation
 npx shadow-cljs watch examples/counter   # dev build with Causa preloaded
 npx http-server -p 8080 out/examples/counter
-# then browser: http://localhost:8080 and press Ctrl+Shift+C
+# then browser: http://localhost:8080
 ```
 
-Click the `+` button a few times, press `Ctrl+Shift+C`, and you should see the Event-detail panel painting the cascade your clicks produced. That's the smoke test.
+The Causa shell should appear in the left inline host as soon as the counter app loads. Click the `+` button a few times and the Event-detail panel should paint the cascade your clicks produced. `Ctrl+Shift+C` hides/shows the mounted shell. That's the smoke test.
 
 When that works on your own app, you're ready for the [panel tour](02-panel-tour.md).

@@ -48,12 +48,12 @@ module.exports = {
     // Make sure the app booted and the initial render landed before we
     // sample the User-Timing stream — `dispatch-sync :counter/initialise`
     // and the first reagent render must have run.
-    const span = page.locator('span').first();
+    const span = page.locator('#app [data-testid="counter-value"]');
     await expectTextEquals(span, '5', 10000);
 
     // Drive a real dispatch through the +/- buttons so every bucket
     // (event handler, sub recompute, fx, render) fires at least once.
-    await page.getByRole('button', { name: '+' }).click();
+    await page.locator('#app').getByRole('button', { name: '+' }).click();
     await expectTextEquals(span, '6');
 
     // Read every recorded `measure` entry whose name starts `rf:` and
