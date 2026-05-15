@@ -30,8 +30,40 @@ tools and shell tools do not share the same scoping guarantees.
 1. Give the worker one absolute assigned worktree path.
 2. Tell the worker the mayor checkout path is forbidden for edits.
 3. Require a toplevel check immediately before every edit.
-4. Require absolute patch/edit paths under the assigned worktree.
+4. Require edit-tool paths that explicitly target the assigned worktree.
 5. Tell the worker to stop and report if any edit lands outside the worktree.
+
+## The Safe Delegation Pattern
+
+The reliable pattern is not "cd to the worktree, then patch repo-relative
+paths". That failed. The reliable pattern is:
+
+- shell commands use `workdir` / `cd` inside the assigned worktree;
+- edit tools use paths that are relative to the session root and explicitly
+  walk into the assigned worktree;
+- the worker checks both the worker worktree and the mayor checkout immediately
+  after the first edit.
+
+For this repo, Codex sessions normally start at the mayor checkout:
+
+```text
+C:\Users\miket\code\re-frame2
+```
+
+So an edit in a sibling worker worktree should use patch filenames like:
+
+```text
+../re-frame2-worktrees/<WORKTREE_NAME>/tools/causa/src/...
+```
+
+not:
+
+```text
+tools/causa/src/...
+```
+
+Repo-relative paths are forbidden for worker `apply_patch` calls unless the
+agent session root is itself the assigned worker worktree.
 
 ## Mandatory Prompt
 
@@ -59,8 +91,32 @@ Only edit if git rev-parse --show-toplevel prints exactly:
 <ASSIGNED_WORKTREE>
 
 When using apply_patch or any edit tool, use absolute file paths under
-<ASSIGNED_WORKTREE>. Do not use relative patch paths. If absolute paths are not
-accepted by the tool, stop and report rather than editing.
+<ASSIGNED_WORKTREE> if the tool accepts them.
+
+If the edit tool does not accept absolute paths, use paths relative to the
+session root that explicitly target the worker worktree. In this repo, that
+usually means:
+
+../re-frame2-worktrees/<WORKTREE_NAME>/<repo-relative-path>
+
+Example:
+
+../re-frame2-worktrees/causa-mcp-server-split-rf2-abc12/tools/causa/src/day8/re_frame2_causa/panels/mcp_server.cljs
+
+Never use repo-relative edit paths such as:
+
+tools/causa/src/day8/re_frame2_causa/panels/mcp_server.cljs
+
+unless `git rev-parse --show-toplevel` for the agent session root itself is the
+assigned worktree.
+
+After the first edit, immediately run:
+
+git -C <ASSIGNED_WORKTREE> status --short --branch
+git -C C:\Users\miket\code\re-frame2 status --short --branch
+
+Continue only if the worker worktree is dirty and the mayor checkout did not
+receive code edits.
 
 If any edit lands outside <ASSIGNED_WORKTREE>, stop immediately and report it.
 Do not repair, restore, clean up, commit, or push until the mayor tells you what
