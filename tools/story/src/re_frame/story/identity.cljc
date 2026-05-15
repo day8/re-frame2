@@ -137,7 +137,8 @@
   [x]
   (let [canon (canonical-form [:rf/snapshot-canonical-v1 x])
         s     (pr-str canon)
-        h     (bit-and 0xffffffff (hash s))
+        h     #?(:clj  (bit-and 0xffffffff (hash s))
+                 :cljs (unsigned-bit-shift-right (hash s) 0))
         hex   #?(:clj  (format "%08x" h)
                  :cljs (let [s (.toString h 16)
                              pad (- 8 (.-length s))]

@@ -55,6 +55,7 @@
             [re-frame.story.ui.recorder :as recorder-ui]
             [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.scrubber :as scrubber]
+            [re-frame.story.ui.share :as share]
             [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
@@ -481,6 +482,11 @@
          (toolbar/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
+         ;; Hydrate the share URL's focused variant / overrides /
+         ;; substrate slots after the selection watcher is installed:
+         ;; deep-link selection must take the same preallocate-frame path
+         ;; as a user clicking a sidebar row.
+         (share/hydrate-from-url!)
          ;; rf2-5fc15: install the Test Codegen recorder's trace-bus
          ;; listener once at shell mount. The listener short-circuits
          ;; on every emit when no recording is in flight, so leaving

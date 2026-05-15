@@ -24,6 +24,7 @@
             [re-frame.story.registrar :as registrar]
             [re-frame.story.args :as args]
             [re-frame.story.decorators :as decorators]
+            [re-frame.story.identity :as identity]
             [re-frame.story.runtime :as runtime]
             [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.open-in-editor :as open-in-editor]
@@ -257,8 +258,13 @@
 
        multi?
        ;; Stage 6: multi-substrate side-by-side grid. Per IMPL-SPEC §2.2
-       ;; failures render inline rather than aborting.
-       [multi-substrate/multi-substrate-grid variant-id]
+       ;; failures render inline rather than aborting. The grid still
+       ;; renders user views, so it needs the same frame context as the
+       ;; single-substrate path; otherwise Reagent subscriptions fall
+       ;; back to the live app/default frame.
+       ^{:key (str "multi-" variant-id)}
+       [frame-provider-ns-safe {:frame variant-id}
+        [multi-substrate/multi-substrate-grid variant-id]]
 
        :else
        (let [resolved-view (rf/view view-id)]
@@ -281,6 +287,7 @@
            ;; Story's own UI as the source of violations, which is
            ;; wrong: Story chrome a11y is Story's concern, not the
            ;; variant author's.
+           ^{:key (str "single-" variant-id)}
            [frame-provider-ns-safe {:frame variant-id}
             [:div {:data-rf-story-variant-root (pr-str variant-id)}
              (safe-decorated-view
@@ -310,11 +317,18 @@
        (when config/enabled?
          (when-let [variant-id (:selected-variant @state/shell-state-atom)]
            (run-with-shell-opts! variant-id))))
-     :reagent-render
-     (fn []
-       (let [shell      @state/shell-state-atom
-             variant-id (:selected-variant shell)
-             _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
+    :reagent-render
+    (fn []
+      (let [shell      @state/shell-state-atom
+            variant-id (:selected-variant shell)
+            snapshot   (when variant-id
+                         (identity/snapshot-identity
+                           variant-id
+                           {:active-modes   (:active-modes shell)
+                            :cell-overrides (get-in shell [:cell-overrides
+                                                           variant-id])
+                            :substrate      (:substrate shell)}))
+            _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
          ;; Per rf2-xc65: the canvas wrap is the scrollable container
          ;; for variant content; `tab-index "0"` makes it keyboard-
          ;; focusable so axe-core's `scrollable-region-focusable` rule
@@ -332,7 +346,9 @@
          [:section (cond-> {:style      (:wrap styles)
                             :aria-label "Variant canvas"
                             :tab-index  "0"}
-                     variant-id (assoc :data-test-variant (pr-str variant-id)))
+                     variant-id (assoc :data-test-variant (pr-str variant-id))
+                     (:content-hash snapshot)
+                     (assoc :data-snapshot-hash (:content-hash snapshot)))
           (if variant-id
             [canvas-inner variant-id]
             [:div {:style (:empty styles)}

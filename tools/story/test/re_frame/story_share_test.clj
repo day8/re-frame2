@@ -76,6 +76,29 @@
                 nil)]
       (is (re-find #"\?from=index&variant=" url)))))
 
+(deftest variant-share-url-inserts-query-before-hash-route
+  (testing "hash-routed Story links keep query params in location.search"
+    (let [url (share/variant-share-url
+                :story.foo/bar
+                "https://example.test/counter-with-stories/#/stories"
+                {:active-modes [:Mode.app/dark]})]
+      (is (str/starts-with?
+            url
+            "https://example.test/counter-with-stories/?"))
+      (is (str/includes? url "#/stories"))
+      (is (re-find #"variant=" url))
+      (is (re-find #"modes=" url)))))
+
+(deftest parse-share-url-params
+  (testing "share URL parser reconstructs variant, modes, substrate, and overrides"
+    (is (= :story.counter/loaded
+           (share/parse-keyword-token "story.counter/loaded")))
+    (is (= [:Mode.app/dark :Mode.app/mobile]
+           (share/parse-modes-param "Mode.app/dark,Mode.app/mobile")))
+    (is (= :uix (share/parse-substrate-param "uix")))
+    (is (= {:label "Shared Label" :count 9}
+           (share/parse-overrides-param "label:\"Shared Label\",count:9")))))
+
 (deftest variant-share-url-public-export
   (testing "story/variant-share-url is exported"
     (let [url (story/variant-share-url

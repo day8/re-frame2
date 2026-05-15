@@ -26,6 +26,26 @@
     (let [url (story/variant-share-url :story.x/y "" nil)]
       (is (re-find #"variant=" url)))))
 
+(deftest hash-routed-share-url-keeps-query-before-fragment
+  (testing "CLJS builder emits ?variant= before #/stories so the shell can hydrate"
+    (let [url (share/variant-share-url
+                :story.counter/loaded
+                "https://example.test/counter-with-stories/#/stories"
+                {:cell-overrides {:label "Shared"}})]
+      (is (str/starts-with? url "https://example.test/counter-with-stories/?"))
+      (is (str/includes? url "#/stories"))
+      (is (str/includes? url "variant="))
+      (is (str/includes? url "overrides=")))))
+
+(deftest parse-share-url-params-cljs
+  (testing "CLJS parser reconstructs the share URL tokens used by the shell hydrator"
+    (is (= :story.counter/loaded
+           (share/parse-keyword-token "story.counter/loaded")))
+    (is (= [:Mode.app/dark :Mode.app/mobile]
+           (share/parse-modes-param "Mode.app/dark,Mode.app/mobile")))
+    (is (= {:label "Shared" :count 7}
+           (share/parse-overrides-param "label:\"Shared\",count:7")))))
+
 ;; ---- local QR encoder (rf2-20w5i) ---------------------------------------
 ;;
 ;; Per the security audit, the QR is now generated locally via the
