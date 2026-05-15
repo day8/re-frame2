@@ -17,6 +17,7 @@
   DCE the entire ns via the same reachability path the rest of the UI
   shell uses."
   (:require [reagent.core :as r]
+            [re-frame.story.registrar :as registrar]
             [re-frame.story.qr :as qr]
             [re-frame.story.share :as share]
             [re-frame.story.ui.state :as state]))
@@ -89,13 +90,47 @@
   (let [shell @state/shell-state-atom
         base  (when js/window
                 (let [loc (.-location js/window)]
-                  (str (.-origin loc) (.-pathname loc))))]
+                  (str (.-origin loc) (.-pathname loc) "#/stories")))]
     (share/variant-share-url
       variant-id
       (or base "")
       {:active-modes   (:active-modes shell)
        :cell-overrides (get-in shell [:cell-overrides variant-id])
        :substrate      (:substrate shell)})))
+
+(defn- current-url-params
+  []
+  (when (exists? js/window)
+    (let [search (some-> js/window .-location .-search)]
+      (when (and (string? search) (seq search))
+        (try
+          (js/URLSearchParams. search)
+          (catch :default _ nil))))))
+
+(defn hydrate-from-url!
+  "Hydrate the share-URL-owned shell state from `window.location.search`.
+
+  Toolbar modes hydrate in `re-frame.story.ui.toolbar`; this function
+  owns the rest of the share URL contract: focused variant, per-variant
+  cell overrides, and substrate. Invalid/stale variant ids are ignored
+  so old QR links degrade to the shell empty state instead of crashing."
+  []
+  (when-let [params (current-url-params)]
+    (let [variant-id (share/parse-keyword-token (.get params "variant"))
+          overrides  (share/parse-overrides-param (.get params "overrides"))
+          substrate  (share/parse-substrate-param (.get params "substrate"))
+          valid?     (and variant-id (registrar/registered? :variant variant-id))]
+      (state/swap-state!
+        (fn [s]
+          (let [s' (if valid?
+                     (cond-> (-> s
+                                 (state/select-variant variant-id)
+                                 (state/select-workspace nil))
+                       (seq overrides)
+                       (assoc-in [:cell-overrides variant-id] overrides))
+                     s)]
+            (cond-> s'
+              substrate (assoc :substrate substrate))))))))
 
 (defn- copy-to-clipboard!
   "Best-effort clipboard write. Uses the async clipboard API where
@@ -119,13 +154,16 @@
       [:div {:style {:position "relative" :display "inline-block"}}
        [:button {:style    (:button styles)
                  :title    "Share this variant (URL + QR)"
+                 :data-test "story-share-button"
                  :on-click (fn [_] (swap! open? not))}
         "share"]
        (when @open?
          (let [url (current-share-url variant-id)]
-           [:div {:style (:popover styles)}
+           [:div {:style (:popover styles)
+                  :data-test "story-share-popover"}
             [:div {:style (:url-label styles)} "share link"]
-            [:div {:style (:url styles)} url]
+            [:div {:style (:url styles)
+                   :data-test "story-share-url"} url]
             ;; Local QR encoder per rf2-20w5i: the SVG is generated
             ;; in-process from `qrcode-generator`; no third-party
             ;; endpoint is contacted. `:dangerouslySetInnerHTML` is
@@ -135,6 +173,8 @@
             [:div {:style                   (:qr styles)
                    :role                    "img"
                    :aria-label              "QR code for variant URL"
+                   :data-test               "story-share-qr"
+                   :data-share-url          url
                    :dangerouslySetInnerHTML {:__html (qr/qr-svg-string url 4)}}]
             [:button {:style    (:copy-btn styles)
                       :on-click (fn [_]

@@ -407,6 +407,19 @@
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  (story/reg-variant :story.counter-matrix/recorder-redaction
+    {:doc       "Recorder browser fixture: the visible button dispatches
+                a :sensitive? event with a password payload. The Story
+                recorder must preserve the row position while emitting
+                [:rf/redacted] in the generated :play snippet."
+     :component :counter-with-stories.views/recorder-redaction-card
+     :args      {:label "Recorder redaction"
+                 :settings {:title "Recorder" :enabled? true}}
+     :events    [[:counter/initialise 11]]
+     :play      [[:rf.assert/path-equals [:count] 11]]
+     :tags      #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; -------------------------------------------------------------------------
   ;; reg-workspace — two workspaces, one per layout the v1 ships
   ;;

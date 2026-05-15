@@ -96,7 +96,8 @@
                                      {:substrate :reagent})]
       (is (= :story.cljs.id/v (:variant-id s)))
       (is (string?            (:content-hash s)))
-      (is (= 8 (count (:content-hash s)))))))
+      (is (re-matches #"[0-9a-f]{8}" (:content-hash s))
+          "content-hash is unsigned fixed-width lowercase hex"))))
 
 ;; ---- args precedence ----------------------------------------------------
 

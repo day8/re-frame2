@@ -18,9 +18,19 @@ const BASE_URL = process.env.STORY_FEATURE_LOAD_BASE_URL || 'http://127.0.0.1:80
 const TIMEOUT_MS = parseInt(process.env.STORY_FEATURE_LOAD_TIMEOUT_MS || '300000', 10);
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
-const SPEC_FILES = [
+const ALL_SPEC_FILES = [
   path.join(REPO_ROOT, 'tools', 'story', 'test', 'story_feature_load.cjs'),
+  path.join(REPO_ROOT, 'tools', 'story', 'test', 'story_browser_scenarios.cjs'),
 ];
+
+const SPEC_FILTER = process.env.STORY_FEATURE_LOAD_SPEC || '';
+const SPEC_FILES = SPEC_FILTER
+  ? ALL_SPEC_FILES.filter((file) => path.basename(file).includes(SPEC_FILTER))
+  : ALL_SPEC_FILES;
+
+if (SPEC_FILTER && SPEC_FILES.length === 0) {
+  throw new Error(`STORY_FEATURE_LOAD_SPEC=${SPEC_FILTER} matched no Story specs`);
+}
 
 function withTimeout(promise, ms, label) {
   let timer;

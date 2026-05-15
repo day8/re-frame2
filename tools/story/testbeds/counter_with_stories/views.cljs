@@ -108,3 +108,15 @@
    [:div {:style {:display "flex" :align-items "center"}}
     [counter-buttons]
     [parity-badge]]])
+
+(reg-view recorder-redaction-card [{:keys [label]}]
+  [:div {:style {:display "inline-flex"
+                 :flex-direction "column"
+                 :gap "0.75em"}}
+   [counter-card {:label label}]
+   [:button {:on-click   #(dispatch [:auth/sign-in
+                                      {:email "redaction@example.com"
+                                       :password "browser-secret"}])
+             :aria-label "Dispatch sensitive sign-in event"
+             :data-test  "story-recorder-sensitive-action"}
+    "Sensitive sign in"]])

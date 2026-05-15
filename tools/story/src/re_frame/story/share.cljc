@@ -35,7 +35,9 @@
   `:rf.story/enabled?` false (per IMPL-SPEC §6.2). The QR encoder is
   only reachable from the share UI; under disabled builds Closure DCE
   drops both the UI shell and the qrcode-generator wrapper."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            #?(:clj  [clojure.edn :as edn]
+               :cljs [cljs.reader :as edn])))
 
 ;; ---- pure: URL encoding -------------------------------------------------
 
@@ -55,6 +57,73 @@
   (if (keyword? k)
     (str (when-let [n (namespace k)] (str n "/")) (name k))
     (str k)))
+
+(defn parse-keyword-token
+  "Parse the keyword token emitted by `kw->str`.
+
+  Accepts both the wire form (`\"story.counter/loaded\"`) and the
+  printed keyword form (`\":story.counter/loaded\"`) so old manually-
+  copied URLs remain usable. Returns nil for blank / malformed input."
+  [s]
+  (when (string? s)
+    (let [trimmed (str/trim s)
+          token   (if (str/starts-with? trimmed ":")
+                    (subs trimmed 1)
+                    trimmed)]
+      (when (seq token)
+        (if-let [slash (str/index-of token "/")]
+          (let [ns-part (subs token 0 slash)
+                name-part (subs token (inc slash))]
+            (when (and (seq ns-part) (seq name-part))
+              (keyword ns-part name-part)))
+          (keyword token))))))
+
+(defn parse-modes-param
+  "Parse a `modes=` URLSearchParams value into a vector of mode ids.
+  The wire shape is the same comma-separated token list `build-params`
+  emits."
+  [s]
+  (when (and (string? s) (seq (str/trim s)))
+    (->> (str/split s #",")
+         (map parse-keyword-token)
+         (remove nil?)
+         vec)))
+
+(defn parse-substrate-param
+  "Parse the optional `substrate=` URLSearchParams value. Returns a
+  keyword or nil."
+  [s]
+  (parse-keyword-token s))
+
+(defn- ^:no-doc read-edn
+  [s]
+  (try
+    [true (edn/read-string s)]
+    (catch #?(:clj Exception :cljs :default) _
+      [false nil])))
+
+(defn- ^:no-doc parse-override-entry
+  [entry]
+  (when-let [idx (and (string? entry) (str/index-of entry ":"))]
+    (let [k-token (subs entry 0 idx)
+          v-token (subs entry (inc idx))
+          k       (parse-keyword-token k-token)
+          [ok? v] (read-edn v-token)]
+      (when (and k ok?)
+        [k v]))))
+
+(defn parse-overrides-param
+  "Parse an `overrides=` URLSearchParams value into a cell-overrides
+  map. The v1 wire shape is a comma-separated list of
+  `<arg-token>:<edn-value>` pairs; malformed entries are ignored so a
+  stale share URL degrades to the valid subset instead of poisoning the
+  shell state."
+  [s]
+  (when (and (string? s) (seq (str/trim s)))
+    (not-empty
+      (into {}
+            (keep parse-override-entry)
+            (str/split s #",")))))
 
 (defn- ^:no-doc kv-pair
   "Build a `k=v` URL parameter fragment. `k` is a keyword;
@@ -113,11 +182,17 @@
   ([variant-id opts]           (variant-share-url variant-id "" opts))
   ([variant-id base-url opts]
    (let [params (build-params (assoc opts :variant-id variant-id))
-         sep    (cond
-                  (str/blank? base-url)        ""
-                  (str/includes? base-url "?") "&"
-                  :else                        "?")]
-     (str base-url sep (str/join "&" params)))))
+         joined (str/join "&" params)]
+     (if (str/blank? base-url)
+       joined
+       (let [hash-idx (str/index-of base-url "#")
+             before   (if hash-idx (subs base-url 0 hash-idx) base-url)
+             fragment (when hash-idx (subs base-url hash-idx))
+             sep      (cond
+                        (str/blank? before)      ""
+                        (str/includes? before "?") "&"
+                        :else                    "?")]
+         (str before sep joined fragment))))))
 
 ;; QR rendering lives in re-frame.story.qr (CLJS-only). The vendored
 ;; `qrcode-generator` npm package produces an inline SVG string locally;
