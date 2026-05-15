@@ -12,6 +12,18 @@ bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
 ```
 
+## Worker Worktree Guard
+
+Before making edits as a worker, verify you are in the dedicated worktree, not
+the mayor checkout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/assert-worker-worktree.ps1
+```
+
+Report the printed `WORKTREE_ROOT` in your final handoff. If the guard fails,
+stop and switch to the correct worktree before editing.
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
