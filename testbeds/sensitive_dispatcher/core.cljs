@@ -15,11 +15,13 @@
         the trace event but rides the payload through (the dev surface
         treats `:sensitive?` as declarative — listeners filter).
 
-    Button B · Sign-in with redaction (`:sensitive?` + `with-redacted`)
-      — handler declares both flags. The recorder + the MCP wire +
+    Button B · Sign-in with schema-derived redaction
+      — handler is path-scoped to an app-schema slice carrying
+        `:sensitive? true` slot metadata. The recorder + the MCP wire +
         the trace surface all see redacted payload (the `:password`
-        slot in the event vector becomes `:rf/redacted`); the
-        event-emit substrate still drops the record entirely.
+        and `:totp-code` slots in the event vector become
+        `:rf/redacted`); the event-emit substrate still drops the
+        record entirely.
 
     Button C · Sign-in that throws
       — handler declares `:sensitive? true` and deliberately throws.
@@ -33,9 +35,29 @@
   redacted — all from one surface."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
+
+;; ----------------------------------------------------------------------------
+;; Schema-first privacy declarations
+;; ----------------------------------------------------------------------------
+
+(def AuthSlice
+  [:map
+   [:username {:optional true} :string]
+   [:password {:optional true :sensitive? true} :string]
+   [:totp-code {:optional true :sensitive? true} :string]
+   [:redacted-clicks {:optional true} :int]
+   [:last-login
+    {:optional true}
+    [:map
+     [:username {:optional true} :string]
+     [:password {:optional true :sensitive? true} :string]
+     [:totp-code {:optional true :sensitive? true} :string]]]])
+
+(rf/reg-app-schema [:auth] AuthSlice)
 
 ;; ----------------------------------------------------------------------------
 ;; App-db
@@ -44,10 +66,8 @@
 (rf/reg-event-db ::initialise
   (fn [_db _ev]
     {;; Counters per button — flipped when the handler runs to
-     ;; completion. A spec asserts that the counters DO advance
-     ;; (the handlers themselves see the unredacted payload via the
-     ;; cofx slot per Spec 009 §with-redacted) even when the trace
-     ;; / wire surfaces see redaction.
+     ;; completion. A spec asserts that the counters DO advance even
+     ;; when the trace / wire surfaces see redaction.
      :click-count {:plain 0 :redacted 0 :throw 0}
      ;; A consumer that asks "did the handler's :sensitive? meta
      ;; flow into the registration?" reads the registrar via
@@ -57,10 +77,14 @@
      :handler-meta-mirror
      {::sign-in-plain    nil
       ::sign-in-redacted nil
-      ::sign-in-throw    nil}}))
+      ::sign-in-throw    nil}
+     ;; Button B is path-scoped to this slice so schema-derived
+     ;; sensitive declarations can redact the event payload while the
+     ;; handler still receives the raw credentials.
+     :auth {:redacted-clicks 0}}))
 
 ;; ----------------------------------------------------------------------------
-;; Button A — :sensitive? true on registration, no with-redacted
+;; Button A — :sensitive? true on registration, no payload redaction
 ;; ----------------------------------------------------------------------------
 ;;
 ;; The registration-meta map carries `:sensitive? true`. Per [spec/009
@@ -88,22 +112,23 @@
     (update-in db [:click-count :plain] inc)))
 
 ;; ----------------------------------------------------------------------------
-;; Button B — :sensitive? true + with-redacted interceptor
+;; Button B — schema-derived event-payload redaction
 ;; ----------------------------------------------------------------------------
 ;;
-;; This is the conservative recommended pattern for sensitive
-;; handlers (per [spec/009 §The `with-redacted` interceptor] and
-;; [spec/Security.md §Privacy / secret handling]). The interceptor's
-;; :before stage redacts the named paths in the event vector, in the
-;; downstream :event cofx slot, and in the :event/dispatched +
-;; :event/db-changed trace events.
+;; Path-D privacy is schema-first: the `[:auth]` app-schema marks the
+;; payload slots as `:sensitive? true`, and the router installs the
+;; internal redaction interceptor for handlers path-scoped through
+;; `(rf/path :auth)`. The handler body still receives the raw
+;; credentials; trace/error/wire surfaces see the redacted event form.
 
 (rf/reg-event-db ::sign-in-redacted
-  {:doc        "Verify credentials (redacted via with-redacted)."
+  {:doc        "Verify credentials (redacted via schema metadata)."
    :sensitive? true}
-  [(rf/with-redacted [[:password] [:totp-code]])]
-  (fn [db [_ _credentials]]
-    (update-in db [:click-count :redacted] inc)))
+  [(rf/path :auth)]
+  (fn [auth [_ credentials]]
+    (-> (or auth {})
+        (assoc :last-login credentials)
+        (update :redacted-clicks (fnil inc 0)))))
 
 ;; ----------------------------------------------------------------------------
 ;; Button C — :sensitive? true + throws (exercise the error-emit substrate)
@@ -154,7 +179,8 @@
      :handler-meta-mirror
      {::sign-in-plain    (boolean (:sensitive? (rf/handler-meta :event ::sign-in-plain)))
       ::sign-in-redacted (boolean (:sensitive? (rf/handler-meta :event ::sign-in-redacted)))
-      ::sign-in-throw    (boolean (:sensitive? (rf/handler-meta :event ::sign-in-throw)))}}))
+      ::sign-in-throw    (boolean (:sensitive? (rf/handler-meta :event ::sign-in-throw)))}
+     :auth {:redacted-clicks 0}}))
 
 ;; ----------------------------------------------------------------------------
 ;; Subs + view
@@ -164,7 +190,7 @@
   (fn [db _] (get-in db [:click-count :plain])))
 
 (rf/reg-sub :redacted-count
-  (fn [db _] (get-in db [:click-count :redacted])))
+  (fn [db _] (get-in db [:auth :redacted-clicks])))
 
 (rf/reg-sub :throw-count
   (fn [db _] (get-in db [:click-count :throw])))
@@ -208,7 +234,7 @@
        "A · :sensitive? plain (event-emit drops record)"]
       [:button {:data-testid "sign-in-redacted"
                 :on-click    #(dispatch [::sign-in-redacted example-credentials])}
-       "B · :sensitive? + with-redacted (payload scrubbed)"]
+       "B · schema-sensitive payload scrubbed"]
       [:button {:data-testid "sign-in-throw"
                 :on-click    #(dispatch [::sign-in-throw example-credentials])}
        "C · :sensitive? + throw (error-emit redacts :event)"]
@@ -242,6 +268,7 @@
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [::initialise])
+  (rf/populate-sensitive-from-schemas!)
   ;; Populate the registrar-meta mirror once on boot; the mirror is
   ;; static — the registrations don't change at runtime.
   (rf/dispatch-sync [::populate-meta-mirror])
