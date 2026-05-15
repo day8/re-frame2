@@ -85,6 +85,18 @@ const FIXTURE_DIR = path.join(
   'fixture',
 );
 const PAIR2_MCP_DIR = path.join(REPO_ROOT, 'tools', 'pair2-mcp');
+const {
+  createDiagnosticBuffer,
+  isVerboseTests,
+} = require(path.join(
+  REPO_ROOT,
+  'implementation',
+  'scripts',
+  'lib',
+  'browser-test-report.cjs',
+));
+const VERBOSE_TESTS = isVerboseTests();
+const DIAGNOSTICS = createDiagnosticBuffer();
 
 // Shadow-cljs writes its nREPL port file under whichever cache-root
 // the build is configured for. Default in 3.x is `.shadow-cljs/`; older
@@ -148,11 +160,37 @@ const INNER_TESTS = [
   },
 ];
 
+function recordLine(line, stream = 'stdout') {
+  DIAGNOSTICS.add(line, stream);
+  if (VERBOSE_TESTS) {
+    const write = stream === 'stderr' ? console.error : console.log;
+    write(line);
+  }
+}
+
+function recordChunk(prefix, chunk, stream = 'stdout') {
+  const normalized = String(chunk || '').replace(/\r\n/g, '\n');
+  for (const line of normalized.split('\n')) {
+    if (line.length === 0) continue;
+    recordLine(`${prefix}${line}`, stream);
+  }
+}
+
+function flushDiagnostics() {
+  if (VERBOSE_TESTS || DIAGNOSTICS.isEmpty()) return;
+  console.error('--- pair2 hermetic diagnostics ---');
+  DIAGNOSTICS.flush({
+    stdout: (line) => console.error(line),
+    stderr: (line) => console.error(line),
+  });
+  console.error('----------------------------------');
+}
+
 function log(msg) {
-  process.stdout.write(`[hermetic] ${msg}\n`);
+  recordLine(`[hermetic] ${msg}`);
 }
 function logErr(msg) {
-  process.stderr.write(`[hermetic] ${msg}\n`);
+  recordLine(`[hermetic] ${msg}`, 'stderr');
 }
 
 function exists(p) {
@@ -362,14 +400,23 @@ function runTrusted(name, args, cwd) {
   // comment at the top of this file for the contract. Passing the
   // absolute path is what keeps cross-spawn's `which.sync` from doing
   // its own cwd-relative walk.
+  log(`running ${name} ${args.join(' ')} in ${cwd} (bin=${bin})`);
   const r = crossSpawn.sync(bin, args, {
     cwd,
-    stdio: 'inherit',
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: process.env,
   });
+  if (r.stdout) recordChunk(`[${name}:stdout] `, r.stdout);
+  if (r.stderr) recordChunk(`[${name}:stderr] `, r.stderr, 'stderr');
+  if (r.error) {
+    throw r.error;
+  }
   if (r.status !== 0) {
     throw new Error(`${name} ${args.join(' ')} in ${cwd} exited ${r.status}`);
   }
+  log(`${name} exited ${r.status}`);
 }
 
 function resolvePlaywright() {
@@ -462,16 +509,17 @@ async function main() {
     log(`shadow-cljs exited code=${code} sig=${sig}`);
   });
   shadow.stdout.on('data', (d) => {
-    process.stdout.write('[shadow] ' + d.toString());
+    recordChunk('[shadow:stdout] ', d);
   });
   shadow.stderr.on('data', (d) => {
-    process.stderr.write('[shadow] ' + d.toString());
+    recordChunk('[shadow:stderr] ', d, 'stderr');
   });
 
   let browser = null;
 
   // Wire signal-driven cleanup so a CI cancel doesn't strand the JVM.
   const cleanup = () => {
+    log('cleanup requested');
     if (browser) {
       try { browser.close(); } catch {}
     }
@@ -489,6 +537,7 @@ async function main() {
     process.on(sig, () => {
       logErr(`caught ${sig} — tearing down`);
       cleanup();
+      flushDiagnostics();
       process.exit(130);
     });
   }
@@ -558,11 +607,18 @@ async function main() {
     browser = await playwright.chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
+    log(`browser URL ${FIXTURE_URL}`);
     page.on('console', (msg) => {
-      process.stdout.write(`[browser:${msg.type()}] ${msg.text()}\n`);
+      recordLine(`[browser:${msg.type()}] ${msg.text()}`);
     });
     page.on('pageerror', (err) => {
-      process.stderr.write(`[browser:error] ${err.message}\n`);
+      recordLine(`[browser:pageerror] ${err.message}`, 'stderr');
+      if (err.stack) recordLine(err.stack, 'stderr');
+    });
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) {
+        recordLine(`[browser:navigation] ${frame.url()}`);
+      }
     });
     await page.goto(FIXTURE_URL, { waitUntil: 'load' });
     log('page loaded');
@@ -628,24 +684,29 @@ async function main() {
       SHADOW_CLJS_NREPL_PORT: String(port),
     };
     for (const test of INNER_TESTS) {
-      log(`running ${path.basename(test.path)} — ${test.name}`);
+      const testFile = path.basename(test.path);
+      log(`running ${testFile} - ${test.name}`);
       const testStatus = await new Promise((resolve, reject) => {
         const child = crossSpawn(process.execPath, [test.path], {
           cwd: MCP_CONFORMANCE_ROOT,
-          stdio: 'inherit',
+          stdio: ['ignore', 'pipe', 'pipe'],
           env: testEnv,
         });
+        child.stdout.on('data', (d) => recordChunk(`[${testFile}:stdout] `, d));
+        child.stderr.on('data', (d) => recordChunk(`[${testFile}:stderr] `, d, 'stderr'));
         child.on('error', reject);
         child.on('exit', (code, signal) => {
           // signal-terminated children report null exit codes; treat
           // the signal as a non-zero status so the conformance gate
           // fails loud rather than silently passing.
           if (code === null) {
+            log(`${testFile} killed by ${signal}`);
             reject(new Error(
               `${path.basename(test.path)} killed by ${signal}`,
             ));
             return;
           }
+          log(`${testFile} exited ${code}`);
           resolve(code);
         });
       });
@@ -673,6 +734,7 @@ async function main() {
 // timeout. Length set to cover cold Maven cache + cold chromium boot.
 const watchdog = setTimeout(() => {
   logErr(`watchdog timeout (${HERMETIC_TIMEOUT_MS}ms) — bailing`);
+  flushDiagnostics();
   process.exit(2);
 }, HERMETIC_TIMEOUT_MS);
 watchdog.unref();
@@ -680,12 +742,16 @@ watchdog.unref();
 main()
   .then(() => {
     clearTimeout(watchdog);
+    console.log(
+      `PAIR2-MCP live hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
+    );
     process.exit(0);
   })
   .catch((err) => {
     clearTimeout(watchdog);
     logErr('FAIL: ' + (err && err.message ? err.message : err));
     if (err && err.stack) logErr(err.stack);
+    flushDiagnostics();
     // err.exitCode is set when the inner live-pair2-overflow.cjs itself
     // exited non-zero — surface it so CI distinguishes conformance
     // failure (1) from orchestration failure (2).

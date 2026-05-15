@@ -18,7 +18,7 @@ async function run(ctx) {
   // runtime — discover-app probes the live JS environment.
   const { browser } = await openPage(ctx);
   try {
-    const r = runShim(ctx.skillRoot, ctx.fixtureDir, 'discover');
+    const r = runShim(ctx, 'discover');
     if (r.exit !== 0) {
       throw new Error('discover exit ' + r.exit + ': ' + r.stderr);
     }

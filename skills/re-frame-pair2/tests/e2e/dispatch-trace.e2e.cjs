@@ -22,7 +22,7 @@ async function run(ctx) {
 
     // Dispatch through pair2's sync shim. --sync gives us a deterministic
     // epoch id once drain settles.
-    const d = runShim(ctx.skillRoot, ctx.fixtureDir, 'dispatch', [
+    const d = runShim(ctx, 'dispatch', [
       '[:counter/inc]',
       '--sync',
     ]);
@@ -44,7 +44,7 @@ async function run(ctx) {
     }
 
     // Trace window should carry the epoch.
-    const t = runShim(ctx.skillRoot, ctx.fixtureDir, 'trace-recent', ['10000']);
+    const t = runShim(ctx, 'trace-recent', ['10000']);
     if (t.exit !== 0) throw new Error('trace exit ' + t.exit + ': ' + t.stderr);
     const tv = parseEdn(t.stdout);
     if (!tv || tv['ok?'] !== true) throw new Error('trace !ok?: ' + t.stdout);

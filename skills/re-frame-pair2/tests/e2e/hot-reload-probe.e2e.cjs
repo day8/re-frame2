@@ -24,7 +24,7 @@ async function run(ctx) {
   const { browser } = await openPage(ctx);
   try {
     // Capture before
-    const before = runShim(ctx.skillRoot, ctx.fixtureDir, 'eval', [PROBE]);
+    const before = runShim(ctx, 'eval', [PROBE]);
     if (before.exit !== 0) {
       throw new Error('eval(before) exit ' + before.exit + ': ' + before.stderr);
     }
@@ -48,7 +48,7 @@ async function run(ctx) {
     try {
       // tail-build --probe waits for the value to flip; the default
       // --wait-ms is 5000.
-      const t = runShim(ctx.skillRoot, ctx.fixtureDir, 'tail-build', [
+      const t = runShim(ctx, 'tail-build', [
         '--probe',
         PROBE,
         '--wait-ms',
@@ -69,7 +69,7 @@ async function run(ctx) {
       }
 
       // Sanity: the probe should now read a different value.
-      const after = runShim(ctx.skillRoot, ctx.fixtureDir, 'eval', [PROBE]);
+      const after = runShim(ctx, 'eval', [PROBE]);
       if (after.exit !== 0) {
         throw new Error('eval(after) exit ' + after.exit + ': ' + after.stderr);
       }

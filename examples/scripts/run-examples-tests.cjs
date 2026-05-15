@@ -63,6 +63,13 @@ const SPEC_ROOTS = [
   path.join(REPO_ROOT, 'testbeds'),
 ];
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
+const { isVerboseTests } = require(path.join(
+  IMPL_ROOT,
+  'scripts',
+  'lib',
+  'browser-test-report.cjs',
+));
+const VERBOSE_TESTS = isVerboseTests();
 
 // Specs live alongside the example or testbed they exercise. Under
 // examples/ they sit two or three levels deep with file shape
@@ -159,10 +166,8 @@ function withTimeout(promise, ms, label) {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    const consoleLines = [];
     page.on('console', (msg) => {
       const text = msg.text();
-      consoleLines.push(text);
       log(`[browser:${msg.type()}] ${text}`);
     });
     let pageErrored = null;
@@ -193,7 +198,7 @@ function withTimeout(promise, ms, label) {
       await context.close();
     }
 
-    if (!passed) flush();
+    if (!passed || VERBOSE_TESTS) flush();
     results.push({ label, passed, failure });
   }
 

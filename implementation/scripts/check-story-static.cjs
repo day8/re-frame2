@@ -44,6 +44,10 @@ const fs = require('fs');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+const {
+  createDiagnosticBuffer,
+  isVerboseTests,
+} = require('./lib/browser-test-report.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
@@ -59,25 +63,54 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
 const DEFAULT_PORT = 8040;
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
+const VERBOSE_TESTS = isVerboseTests();
+const diagnostics = createDiagnosticBuffer();
 
 // Per rf2-o38lb: ownership-token sentinel, same shape as
 // serve-and-run-browser-tests.cjs.
 const TOKEN_FILE_BASENAME = '.rf-harness-token';
 const TOKEN_PATH = path.join(OUT_DIR, TOKEN_FILE_BASENAME);
 
-function runBuild() {
+function addChunk(diagnostics, prefix, chunk, stream = 'stdout') {
+  const normalized = String(chunk || '').replace(/\r\n/g, '\n');
+  for (const line of normalized.split('\n')) {
+    if (line.length === 0) continue;
+    diagnostics.add(`${prefix}${line}`, stream);
+  }
+}
+
+function flushDiagnostics(diagnostics) {
+  if (diagnostics.isEmpty()) return;
+  console.error('--- story-static diagnostics ---');
+  diagnostics.flush({
+    stdout: (line) => console.error(line),
+    stderr: (line) => console.error(line),
+  });
+  console.error('--------------------------------');
+}
+
+function runBuild(diagnostics) {
   // Use process.execPath directly without shell:true — on Windows the
   // installed node.exe path commonly contains spaces ("Program Files"),
   // which the shell wrapper splits on. Skipping `shell` keeps the
   // argv pass-through verbatim.
   const script = path.join(__dirname, 'story-build.cjs');
+  diagnostics.add(`Process: ${process.execPath} ${script}`);
   const result = spawnSync(process.execPath, [script], {
     cwd: IMPL_ROOT,
-    stdio: 'inherit',
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
+  if (result.stdout) addChunk(diagnostics, '[story-build:stdout] ', result.stdout);
+  if (result.stderr) addChunk(diagnostics, '[story-build:stderr] ', result.stderr, 'stderr');
+  if (result.error) {
+    throw result.error;
+  }
   if (result.status !== 0) {
     throw new Error(`story-build.cjs failed (exit ${result.status})`);
   }
+  diagnostics.add(`story-build.cjs exited ${result.status}`);
 }
 
 // True if the given TCP port is currently free on 127.0.0.1.
@@ -104,12 +137,12 @@ function findFreePort() {
   });
 }
 
-async function resolvePort() {
+async function resolvePort(diagnostics) {
   if (await isPortFree(DEFAULT_PORT)) {
     return DEFAULT_PORT;
   }
   const fallback = await findFreePort();
-  console.warn(
+  diagnostics.add(
     `Default port ${DEFAULT_PORT} is busy; falling back to free port ${fallback}.`,
   );
   return fallback;
@@ -196,7 +229,7 @@ async function waitForReady(port, expectedToken, deadline, state) {
   return { ok: false, reason: sawReachable ? 'token-never-served' : 'timeout' };
 }
 
-async function smokeTest(baseUrl) {
+async function smokeTest(baseUrl, diagnostics) {
   let playwright;
   try {
     playwright = require('playwright');
@@ -210,10 +243,19 @@ async function smokeTest(baseUrl) {
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  const consoleErrors = [];
-  page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message}`));
+  diagnostics.add('Spec: story-static static export smoke');
+  diagnostics.add(`URL: ${baseUrl}`);
+  page.on('pageerror', (err) => {
+    diagnostics.add(`[browser:pageerror] ${err.message}`, 'stderr');
+    if (err.stack) diagnostics.add(err.stack, 'stderr');
+  });
   page.on('console', (msg) => {
-    if (msg.type() === 'error') consoleErrors.push(`console.error: ${msg.text()}`);
+    diagnostics.add(`[browser:${msg.type()}] ${msg.text()}`);
+  });
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) {
+      diagnostics.add(`[browser:navigation] ${frame.url()}`);
+    }
   });
 
   try {
@@ -270,10 +312,6 @@ async function smokeTest(baseUrl) {
       .first()
       .waitFor({ state: 'visible', timeout: 10000 });
 
-    if (consoleErrors.length > 0) {
-      console.warn('console errors observed (non-fatal):');
-      for (const e of consoleErrors) console.warn('  ' + e);
-    }
   } finally {
     await browser.close();
   }
@@ -281,7 +319,7 @@ async function smokeTest(baseUrl) {
 
 (async () => {
   // 1. Build.
-  runBuild();
+  runBuild(diagnostics);
 
   // 2. Sanity-check the on-disk shape — the build script writes
   //    index.html + main.js + manifest.json next to a `cljs-runtime/`
@@ -290,6 +328,7 @@ async function smokeTest(baseUrl) {
     const p = path.join(OUT_DIR, required);
     if (!fs.existsSync(p)) {
       console.error(`Build output missing ${required} at ${p}`);
+      flushDiagnostics(diagnostics);
       process.exit(1);
     }
   }
@@ -298,18 +337,24 @@ async function smokeTest(baseUrl) {
   const token = writeOwnershipToken();
   if (!token) {
     console.error(`Asset root missing: ${OUT_DIR}`);
+    flushDiagnostics(diagnostics);
     process.exit(1);
   }
 
   // 4. Pick a port and serve.
-  const port = await resolvePort();
-  console.log(`Serving ${OUT_DIR} on http://127.0.0.1:${port}`);
+  const port = await resolvePort(diagnostics);
+  diagnostics.add(`Serving ${OUT_DIR} on http://127.0.0.1:${port}`);
 
   const server = spawn(
     process.execPath,
     [HTTP_SERVER_BIN, OUT_DIR, '-p', String(port), '-s', '-c-1'],
-    { cwd: IMPL_ROOT, stdio: ['ignore', 'inherit', 'inherit'] },
+    { cwd: IMPL_ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
   );
+  diagnostics.add(
+    `Process: ${process.execPath} ${[HTTP_SERVER_BIN, OUT_DIR, '-p', String(port), '-s', '-c-1'].join(' ')}`,
+  );
+  server.stdout.on('data', (d) => addChunk(diagnostics, '[http-server:stdout] ', d));
+  server.stderr.on('data', (d) => addChunk(diagnostics, '[http-server:stderr] ', d, 'stderr'));
 
   // Track server lifecycle for fail-fast on early exit.
   const state = { exited: false, exitCode: null, exitSignal: null };
@@ -318,7 +363,9 @@ async function smokeTest(baseUrl) {
     state.exitCode = code;
     state.exitSignal = signal;
     if (code !== 0 && code !== null) {
-      console.error(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
+      diagnostics.add(`http-server exited unexpectedly (code=${code}, signal=${signal}).`, 'stderr');
+    } else {
+      diagnostics.add(`http-server exited (code=${code}, signal=${signal}).`);
     }
   });
 
@@ -328,6 +375,7 @@ async function smokeTest(baseUrl) {
   const teardown = () => {
     if (tornDownRef.value) return;
     tornDownRef.value = true;
+    diagnostics.add('Tearing down story-static http-server.');
     if (!state.exited) {
       try { server.kill(); } catch (_) {}
     }
@@ -363,24 +411,33 @@ async function smokeTest(baseUrl) {
       );
     }
     teardown();
+    flushDiagnostics(diagnostics);
     process.exit(1);
   }
 
   // 6. Smoke.
   let smokeError = null;
   try {
-    await smokeTest(`http://127.0.0.1:${port}/`);
-    console.log('story-static smoke passed.');
+    await smokeTest(`http://127.0.0.1:${port}/`, diagnostics);
   } catch (err) {
     smokeError = err;
     console.error('story-static smoke failed:', err.message || err);
+    if (err && err.stack) diagnostics.add(err.stack, 'stderr');
   }
 
   // 7. Tear down.
   teardown();
+  if (!smokeError) {
+    if (VERBOSE_TESTS) flushDiagnostics(diagnostics);
+    console.log('Story static smoke passed.');
+  } else {
+    flushDiagnostics(diagnostics);
+  }
   process.exit(smokeError ? 1 : 0);
 })().catch((err) => {
   console.error(err);
+  if (err && err.stack) diagnostics.add(err.stack, 'stderr');
+  flushDiagnostics(diagnostics);
   removeOwnershipToken();
   process.exit(1);
 });
