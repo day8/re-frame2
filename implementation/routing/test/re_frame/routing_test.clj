@@ -722,24 +722,18 @@
       (is (= "" (get-in m [:query :foo]))
           "an unterminated `?foo=` parses to :foo \"\""))))
 
-(deftest match-url-trailing-slash-is-strict
-  (testing "trailing-slash equivalence is NOT implicit — /foo and /foo/
-            are distinct as far as the matcher is concerned (the route's
-            :path declares the canonical shape; consumers add explicit
-            redirects if they want trailing-slash tolerance)"
+(deftest match-url-trailing-slash-normalizes
+  (testing "trailing-slash equivalence is implicit — /foo and /foo/
+            resolve to the same route per Spec 012"
     (rf/reg-route :route/foo {:path "/foo"})
     (is (some? (routing/match-url "/foo"))
         "the canonical /foo matches")
-    ;; The route's pattern is exactly "/foo"; the strictness depends on
-    ;; how `match-against` handles the trailing slash. Pin whichever
-    ;; observable result the current impl produces so future regressions
-    ;; are visible.
-    (let [trailing (routing/match-url "/foo/")]
-      ;; Either behaviour is documentable; what we pin is "the matcher
-      ;; doesn't crash on the trailing slash, and produces a deterministic
-      ;; result". This guards against silent behaviour shifts.
-      (is (or (nil? trailing) (map? trailing))
-          "matcher produces a deterministic nil-or-map result for /foo/"))))
+    (let [canonical (routing/match-url "/foo")
+          trailing  (routing/match-url "/foo/")]
+      (is (= (:route-id canonical) (:route-id trailing))
+          "/foo/ resolves to the same route-id as /foo")
+      (is (= (:params canonical) (:params trailing))
+          "/foo/ carries the same path params as /foo"))))
 
 (deftest match-url-url-encoded-path-round-trip
   (testing "URL-encoded characters in the path round-trip with route-url"
@@ -1052,6 +1046,12 @@
               "empty :q rejects against the query schema")
           (is (= ":rf.error/route-url-validation" (ex-message ex)))
           (is (= :query (:slot (ex-data ex)))))
+        (let [ex (try (routing/route-url :route/search {} {})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex)
+              "an empty query map still validates, so required query params reject")
+          (is (= :query (:slot (ex-data ex)))))
         (finally (restore))))))
 
 ;; ---- rf2-b8ugt: :rf/pending-navigation full slot shape -------------------
@@ -1154,6 +1154,129 @@
         "continue completed the navigation through :rf/url-requested → :rf/url-changed")
     (is (true? (get-in (rf/get-frame-db :rf/default) [:editor :dirty?]))
         ":editor/dirty? remains true — bypass flag did NOT run the guard a second time")))
+
+(deftest can-leave-query-vector-blocks-url-requested
+  (testing "Spec-shaped :can-leave query vectors are subscribed directly"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/dirty true])
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
+      (is (some? pending)
+          "query-vector guard returning false blocks the navigation")
+      (is (= :editor/can-leave? (:rejecting-guard pending))
+          "pending slot stores the guard id, not the whole query vector")
+      (is (= [:editor/can-leave?] (:can-leave (rf/handler-meta :route :editor/article)))
+          "route metadata preserves canonical query-vector semantics"))))
+
+(deftest programmatic-navigate-runs-can-leave-guard
+  (testing ":rf.route/navigate is guarded by the active route's :can-leave"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+      (rf/dispatch-sync [:editor/dirty true])
+      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (let [db (rf/get-frame-db :rf/default)]
+        (is (some? (:rf/pending-navigation db))
+            "programmatic navigation sets pending-navigation when blocked")
+        (is (= :editor/article (get-in db [:rf/route :id]))
+            "the active route does not change")
+        (is (empty? @pushed)
+            "pushState is not requested for a blocked programmatic nav")))))
+
+(deftest handle-url-change-runs-can-leave-guard
+  (testing ":rf.route/handle-url-change is guarded by the active route's :can-leave"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/dirty true])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/cart"])
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (some? (:rf/pending-navigation db))
+          "popstate/initial URL handling sets pending-navigation when blocked")
+      (is (= :editor/article (get-in db [:rf/route :id]))
+          "the active route does not change while pending"))))
+
+(deftest pending-nav-continue-and-cancel-require-matching-id
+  (testing ":rf.route/continue and :rf.route/cancel ignore stale pending-nav ids"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/dirty true])
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (let [pending-id (get-in (rf/get-frame-db :rf/default)
+                             [:rf/pending-navigation :id])]
+      (rf/dispatch-sync [:rf.route/cancel "stale-id"])
+      (is (= pending-id (get-in (rf/get-frame-db :rf/default)
+                                [:rf/pending-navigation :id]))
+          "cancel with the wrong id leaves the pending navigation intact")
+      (rf/dispatch-sync [:rf.route/continue "stale-id"])
+      (is (= :editor/article (get-in (rf/get-frame-db :rf/default)
+                                     [:rf/route :id]))
+          "continue with the wrong id does not navigate")
+      (is (= pending-id (get-in (rf/get-frame-db :rf/default)
+                                [:rf/pending-navigation :id]))
+          "continue with the wrong id leaves the pending navigation intact")
+      (rf/dispatch-sync [:rf.route/cancel pending-id])
+      (is (nil? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
+          "cancel with the matching id clears the slot"))))
+
+(deftest url-requested-classifies-external-before-push
+  (testing ":rf/url-requested does not pushState or rewrite the route for external URLs"
+    (rf/reg-route :route/home {:path "/"})
+    (let [pushed (atom [])
+          traces (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf/url-changed "/"])
+      (rf/register-trace-cb! ::external-url (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-requested {:url "https://example.invalid/cart"}])
+      (rf/remove-trace-cb! ::external-url)
+      (is (empty? @pushed)
+          "external URL is classified before :rf.nav/push-url")
+      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+          "external URL does not become an app not-found route")
+      (is (some #(= :rf.route/external-url-requested (:operation %)) @traces)
+          "external classification is observable in the trace stream"))))
 
 ;; ---- rf2-zlr9k: :rf.route/navigate writes fragment + nav-token + trace --
 ;;
@@ -1428,6 +1551,35 @@
 ;; Audit reference: ai/findings/refactor-audit-r2-routing-2026-05-14.md
 ;; Lens 5 T1-T8.
 
+(deftest invalid-route-patterns-fail-at-registration
+  (testing "non-canonical path patterns raise actionable errors at reg-route"
+    (doseq [[route-id pattern]
+            [[:route/no-leading-slash "cart"]
+             [:route/splat-not-final "/files/*rest/more"]
+             [:route/nested-optional "/a{/:b{/:c}?}?"]
+             [:route/optional-not-slash-prefixed "/articles{:id}?"]]]
+      (let [ex (try
+                 (rf/reg-route route-id {:path pattern})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str pattern " should be rejected"))
+        (is (= ":rf.error/invalid-route-pattern" (ex-message ex)))
+        (is (= route-id (:route-id (ex-data ex))))
+        (is (= pattern (:pattern (ex-data ex))))
+        (is (some? (:reason (ex-data ex)))
+            "ex-data includes an actionable reason"))))
+
+  (testing "canonical optional groups and final splats still register"
+    (is (= :route/articles
+           (rf/reg-route :route/articles {:path "/articles{/:id}?"})))
+    (is (= :route/files
+           (rf/reg-route :route/files {:path "/files/*rest"}))))
+
+  (testing "trailing slashes in registered patterns are canonicalized away"
+    (rf/reg-route :route/cart {:path "/cart/"})
+    (is (= "/cart" (:path (rf/handler-meta :route :route/cart))))
+    (is (= "/cart" (routing/route-url :route/cart {})))))
+
 ;; ---- T1: :rf.warning/route-shadowed-by-equal-score warning ---------------
 
 (deftest route-shadowed-by-equal-score-warning
@@ -1527,6 +1679,16 @@
         (is (= :rf.error/route-too-many-keys (:kind data)))
         (is (= routing/default-max-decoded-keys (:limit data)))
         (is (>= (:count data) routing/default-max-decoded-keys))))))
+
+(deftest rf2-3k3o7-repeated-query-key-counts-once
+  (testing "the cap follows unique-key semantics, not raw pair count"
+    (rf/reg-route :route/search {:path "/search"})
+    (let [n   (inc routing/default-max-decoded-keys)
+          q   (clojure.string/join "&" (repeat n "q=v"))
+          m   (routing/match-url (str "/search?" q))]
+      (is (= :route/search (:route-id m)))
+      (is (= {:q "v"} (:query m))
+          "many repeated pairs for one key stay under the unique-key cap"))))
 
 (deftest rf2-3k3o7-under-cap-succeeds
   (testing "URLs at-or-under the cap parse successfully"
