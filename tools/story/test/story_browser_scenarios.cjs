@@ -121,6 +121,23 @@ async function setMode(page, mode) {
   );
 }
 
+async function scrubTo(page, value, description) {
+  const slider = page.locator('[data-test="story-scrubber-slider"]').first();
+  await slider.waitFor({ state: 'visible', timeout: 5000 });
+  const requiredMax = Math.max(value, 1);
+  await waitForValue(
+    () => slider.getAttribute('max').then((v) => Number.parseInt(v || '0', 10)),
+    (max) => max >= requiredMax,
+    { timeoutMs: 10000, description: `${description} scrubber max` },
+  );
+  await slider.evaluate((el, nextValue) => {
+    el.value = String(nextValue);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  }, value);
+}
+
 async function snapshotHash(page, variantId) {
   return canvas(page, variantId).getAttribute('data-snapshot-hash');
 }
@@ -240,6 +257,29 @@ module.exports = {
       page.__storyBrowserScenarioRequests.push(request.url());
     });
 
+    await scenario(page, 'stale-share-url-degrades-without-selection-or-mode-leak', async () => {
+      await primeHelpDismissed(page);
+      await gotoStory(
+        page,
+        '/counter-with-stories/?variant=story.missing%2Fghost&modes=Mode.app%2Fghost&overrides=label%3A%22Ghost%22#/stories',
+      );
+
+      await expectVisible(
+        page.getByText(/Select a variant or workspace from the sidebar|select a variant from the sidebar/i, { exact: false }).first(),
+        10000,
+      );
+      const selectedVariants = await page.locator('[data-test-variant]').count();
+      if (selectedVariants !== 0) {
+        throw new Error(`stale share URL selected ${selectedVariants} variant canvas(es)`);
+      }
+      const activeModes = await page
+        .locator('[data-test="story-toolbar"] [data-toolbar-mode][aria-pressed="true"]')
+        .count();
+      if (activeModes !== 0) {
+        throw new Error(`unknown URL mode leaked into active toolbar modes; active=${activeModes}`);
+      }
+    });
+
     await scenario(page, 'share-url-hydrates-variant-modes-and-props', async () => {
       await primeHelpDismissed(page);
       await gotoStory(
@@ -330,6 +370,28 @@ module.exports = {
       await page.getByRole('button', { name: /^close$/i }).first().click();
     });
 
+    await scenario(page, 'share-url-follows-current-variant-and-per-variant-props', async () => {
+      await clickVariant(page, '/empty');
+      await waitForCanvas(page, ':story.counter/empty');
+      const emptyCanvas = canvas(page, ':story.counter/empty');
+      await emptyCanvas.locator('[data-test="story-share-button"]').click();
+      const emptyShareUrl = await emptyCanvas.locator('[data-test="story-share-url"]').innerText();
+      const emptyParsed = assertUrlParam(emptyShareUrl.trim(), 'variant', 'story.counter/empty');
+      const emptyOverrides = emptyParsed.searchParams.get('overrides') || '';
+      if (emptyOverrides.includes('Changed by browser scenario')) {
+        throw new Error(`loaded variant control override leaked into empty variant share URL: ${emptyOverrides}`);
+      }
+      await emptyCanvas.getByRole('button', { name: /^close$/i }).first().click();
+
+      await clickVariant(page, '/loaded');
+      await waitForCanvas(page, ':story.counter/loaded');
+      await expectTextContains(
+        canvas(page, ':story.counter/loaded'),
+        'Changed by browser scenario',
+        5000,
+      );
+    });
+
     await scenario(page, 'assertions-pass-fail-structured-output', async () => {
       await setMode(page, 'test');
       await waitForValue(
@@ -399,6 +461,12 @@ module.exports = {
       const a = canvas(page, ':story.counter-matrix/isolation-a');
       await a.locator('[data-test="inc"]').first().click();
       await expectTextEquals(a.locator('[data-test="count"]').first(), '2', 10000);
+      await scrubTo(page, 0, 'isolation-a time travel');
+      await waitForValue(
+        () => page.locator('[data-test="story-trace-panel"]').getAttribute('data-scrubbed-epoch'),
+        (value) => value != null && value !== '',
+        { timeoutMs: 10000, description: 'isolation-a scrubbed epoch recorded' },
+      );
 
       await clickVariant(page, '/isolation-b');
       await waitForCanvas(page, ':story.counter-matrix/isolation-b');
