@@ -38,6 +38,7 @@
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
+            [day8.re-frame2-causa.panels.time-travel-events :as time-travel-events]
             [day8.re-frame2-causa.panels.time-travel-helpers :as h]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -298,7 +299,7 @@
     (register-seed-event!)
     (frame/reg-frame :rf/causa {})
     (seed-history! [(mk-record :e-1 {:counter 7} 1)])
-    (reset! time-travel/restore-epoch-last-result nil)
+    (reset! time-travel-events/restore-epoch-last-result nil)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-epoch :e-1])
       (is (= :e-1 @(rf/subscribe [:rf.causa/selected-epoch-id]))
@@ -308,14 +309,14 @@
       ;; (rf2-o94sp). With-redef the underlying restore-epoch
       ;; implementation to surface the failure path.
       (with-redefs [rf/restore-epoch (fn [_frame-id _epoch-id] false)]
-        (time-travel/restore-epoch-fx-fn
+        (time-travel-events/restore-epoch-fx-fn
           {} {:frame-id :rf/default :epoch-id :e-1}))
       ;; Drain the cleanup events the fx scheduled.
       (rf/dispatch-sync [:rf.causa/bump-restore-epoch-tick])
       (rf/dispatch-sync [:rf.causa/clear-selected-epoch])
       ;; The fx wrote the boolean directly to the atom — assert.
       (is (= {:ok? false :frame-id :rf/default :epoch-id :e-1}
-             @time-travel/restore-epoch-last-result)
+             @time-travel-events/restore-epoch-last-result)
           "fx atom records the failure boolean + identifiers")
       (is (nil? @(rf/subscribe [:rf.causa/selected-epoch-id]))
           "selection cleared after restore failure")
@@ -333,7 +334,7 @@
                                       ([event opts]
                                        (swap! dispatched conj
                                               [event (select-keys opts [:frame])])))]
-        (time-travel/restore-epoch-fx-fn
+        (time-travel-events/restore-epoch-fx-fn
           {} {:frame-id :rf/default :epoch-id :e-1}))
       (is (= [[[:rf.causa/bump-restore-epoch-tick] {:frame :rf/causa}]
               [[:rf.causa/clear-selected-epoch] {:frame :rf/causa}]]
@@ -348,13 +349,13 @@
     (register-seed-event!)
     (frame/reg-frame :rf/causa {})
     (seed-history! [(mk-record :e-1 {:counter 7} 1)])
-    (reset! time-travel/restore-epoch-last-result nil)
+    (reset! time-travel-events/restore-epoch-last-result nil)
     (with-redefs [rf/restore-epoch (fn [_frame-id _epoch-id] true)]
-      (time-travel/restore-epoch-fx-fn
+      (time-travel-events/restore-epoch-fx-fn
         {} {:frame-id :rf/default :epoch-id :e-1}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/bump-restore-epoch-tick])
-      (is (= true (:ok? @time-travel/restore-epoch-last-result))
+      (is (= true (:ok? @time-travel-events/restore-epoch-last-result))
           "fx atom records the success boolean")
       (is (nil? @(rf/subscribe [:rf.causa/last-restore-failure]))
           "no failure recorded on successful restore"))))
