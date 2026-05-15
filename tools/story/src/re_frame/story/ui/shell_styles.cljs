@@ -17,16 +17,42 @@
                :flex "1"
                :min-height "0"
                :overflow "hidden"}
+   :body-narrow {:flex-direction "column"
+                 :overflow "auto"}
    :main      {:display "flex"
                :flex-direction "column"
                :flex "1"
+               :min-width "0"
                :overflow "hidden"}
    :right     {:width "320px"
+               :flex-shrink "0"
                :display "flex"
                :flex-direction "column"
                :border-left "1px solid #444"
                :background "#252526"
                :overflow "auto"}
+   :right-narrow {:width "auto"
+                  :max-height "42vh"
+                  :border-left "none"
+                  :border-top "1px solid #444"}
+   :splitter  {:width "10px"
+               :flex "0 0 10px"
+               :background "#1e1e1e"
+               :border "0"
+               :border-left "1px solid #333"
+               :border-right "1px solid #333"
+               :cursor "col-resize"
+               :padding "0"
+               :position "relative"}
+   :splitter-grip {:position "absolute"
+                   :top "50%"
+                   :left "3px"
+                   :width "2px"
+                   :height "36px"
+                   :transform "translateY(-50%)"
+                   :background "#6a6a6a"
+                   :box-shadow "3px 0 0 #6a6a6a"}
+   :splitter-active {:background "#094771"}
    :tab-bar   {:display "flex"
                :background "#2d2d30"
                :border-bottom "1px solid #444"

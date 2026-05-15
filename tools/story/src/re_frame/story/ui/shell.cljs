@@ -56,6 +56,7 @@
             [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.share :as share]
+            [re-frame.story.ui.shell.rails :as rails]
             [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
@@ -388,11 +389,16 @@
   []
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)
-        vis        (:panel-visibility shell)]
-    [:aside {:style    (:right styles)
-             :role     "complementary"
+        vis        (:panel-visibility shell)
+        widths     (rails/current-widths)
+        narrow?    (rails/narrow-viewport?)]
+    [:aside {:style      (merge (:right styles)
+                                {:width (str (:right widths) "px")}
+                                (when narrow? (:right-narrow styles)))
+             :data-test  "story-inspectors"
+             :role       "complementary"
              :aria-label "Inspectors"
-             :tab-index "0"}
+             :tab-index  "0"}
      (when (:controls vis)
        [controls/panel variant-id])
      (when (and (:scrubber vis) variant-id)
@@ -498,6 +504,7 @@
          ;; can drive the modal without coupling the .cljc helper to
          ;; Reagent / DOM. Idempotent.
          (save-variant-ui/install!)
+         (rails/hydrate!)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
            (ensure-listeners-for-variant! vid))))
      :component-will-unmount
@@ -508,35 +515,48 @@
        (teardown-all-listeners!))
      :reagent-render
      (fn []
-       [:div {:style (:root styles)}
-        ;; rf2-xi9zk: chrome-level toolbar — horizontal strip above the
-        ;; three-pane row. Exposes every registered :mode as a toggle
-        ;; chip; selection writes the chrome-wide :active-modes slot.
-        [toolbar/toolbar-strip]
-        [:div {:style (:body styles)}
-         [sidebar/sidebar]
-         [main-pane]
-         [right-panel]]
-        ;; rf2-381i: first-time help overlay + persistent re-open chip.
-        ;; The chip lives in a fixed-position slot so it floats above the
-        ;; right inspector pane regardless of which panels are visible.
-        [:div {:style (:help-slot styles)}
-         [help/help-button]]
-        [help/help-host]
-        ;; rf2-5fc15: Test Codegen recording overlay (top-right banner
-        ;; while a recording is in flight) + save-as-variant dialog
-        ;; (opens after stop). Both are fixed-position so they float
-        ;; above the three-pane layout. rf2-39u9e adds the mid-recording
-        ;; assertion picker — a modal that opens off the overlay's
-        ;; `+ assert` button.
-        [recorder-ui/recording-overlay]
-        [recorder-ui/assertion-picker]
-        [recorder-ui/save-dialog]
-        ;; rf2-one3t: save-current-canvas-state-as-variant dialog. Lives
-        ;; alongside the recorder's save dialog — both float above the
-        ;; three-pane layout via fixed positioning; both surface the
-        ;; generated EDN snippet for review-then-commit.
-        [save-variant-ui/save-dialog]])}))
+       (let [widths  (rails/current-widths)
+             narrow? (rails/narrow-viewport?)]
+         [:div {:style (:root styles)}
+          ;; rf2-xi9zk: chrome-level toolbar — horizontal strip above the
+          ;; three-pane row. Exposes every registered :mode as a toggle
+          ;; chip; selection writes the chrome-wide :active-modes slot.
+          [toolbar/toolbar-strip]
+          [:div {:style (merge (:body styles)
+                               (when narrow? (:body-narrow styles)))}
+           [sidebar/sidebar {:style (merge {:width       (str (:left widths) "px")
+                                            :flex-basis  (str (:left widths) "px")
+                                            :flex-shrink "0"}
+                                           (when narrow?
+                                             {:width "auto"
+                                              :flex-basis "auto"
+                                              :max-height "42vh"}))}]
+           (when-not narrow?
+             [rails/splitter :left])
+           [main-pane]
+           (when-not narrow?
+             [rails/splitter :right])
+           [right-panel]]
+          ;; rf2-381i: first-time help overlay + persistent re-open chip.
+          ;; The chip lives in a fixed-position slot so it floats above the
+          ;; right inspector pane regardless of which panels are visible.
+          [:div {:style (:help-slot styles)}
+           [help/help-button]]
+          [help/help-host]
+          ;; rf2-5fc15: Test Codegen recording overlay (top-right banner
+          ;; while a recording is in flight) + save-as-variant dialog
+          ;; (opens after stop). Both are fixed-position so they float
+          ;; above the three-pane layout. rf2-39u9e adds the mid-recording
+          ;; assertion picker — a modal that opens off the overlay's
+          ;; `+ assert` button.
+          [recorder-ui/recording-overlay]
+          [recorder-ui/assertion-picker]
+          [recorder-ui/save-dialog]
+          ;; rf2-one3t: save-current-canvas-state-as-variant dialog. Lives
+          ;; alongside the recorder's save dialog — both float above the
+          ;; three-pane layout via fixed positioning; both surface the
+          ;; generated EDN snippet for review-then-commit.
+          [save-variant-ui/save-dialog]]))}))
 
 ;; ---- mount / unmount surface ---------------------------------------------
 

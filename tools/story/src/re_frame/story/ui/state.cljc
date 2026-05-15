@@ -72,6 +72,9 @@
                            Unspecified → :dev (canvas). Persisted in
                            localStorage under `re-frame.story/active-
                            mode-tab/<variant-id>`.
+  - `:rail-widths`       — {:left px :right px}. User-resized Story shell
+                           rail widths, hydrated from localStorage by the
+                           CLJS shell. The defaults keep the canvas usable.
   - `:tests` — sub-map grouping every chrome-test-widget slot under
                one root (rf2-uefbk). Holds:
 
@@ -111,6 +114,7 @@
    :pinned-snapshots    {}
    :panel-visibility    {:trace true :scrubber true :controls true :actions true}
    :active-mode-tab     {}
+   :rail-widths         {:left 260 :right 320}
    :tests               {:runs           {}
                          :watch-mode?    false
                          :content-hashes {}}})

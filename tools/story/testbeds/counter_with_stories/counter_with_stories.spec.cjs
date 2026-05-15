@@ -71,6 +71,27 @@ async function waitForCounterCell(page) {
   });
 }
 
+async function elementWidth(locator, label) {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error(`expected ${label} to have a bounding box`);
+  }
+  return box.width;
+}
+
+async function dragHorizontal(page, locator, dx) {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error('expected splitter to have a bounding box before dragging');
+  }
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y, { steps: 8 });
+  await page.mouse.up();
+}
+
 module.exports = {
   name: 'counter-with-stories',
   url: '/counter-with-stories/',
@@ -137,6 +158,69 @@ module.exports = {
     await expectVisible(page.getByRole('navigation'), 5000);
     await expectVisible(page.getByRole('main'), 5000);
     await expectVisible(page.getByRole('complementary'), 5000);
+
+    // ====================================================================
+    // 2b. Resizable shell rails — drag, constraints, persistence (rf2-fvfji)
+    // ====================================================================
+    //
+    // The Story shell has two keyboard-focusable splitters:
+    //   - left splitter between the stories nav and canvas
+    //   - right splitter between the canvas and inspectors
+    //
+    // Drag both, assert the rails move while the canvas keeps usable
+    // width, then reload and assert the persisted rail widths hydrate.
+    const sidebarRail = page.locator('[data-test="story-sidebar"]');
+    const inspectorsRail = page.locator('[data-test="story-inspectors"]');
+    const leftSplitter = page.locator('[data-test="story-left-rail-splitter"]');
+    const rightSplitter = page.locator('[data-test="story-right-rail-splitter"]');
+
+    await leftSplitter.waitFor({ state: 'visible', timeout: 5000 });
+    await rightSplitter.waitFor({ state: 'visible', timeout: 5000 });
+    if ((await leftSplitter.getAttribute('role')) !== 'separator') {
+      throw new Error('expected left rail splitter to expose role="separator"');
+    }
+    if ((await rightSplitter.getAttribute('role')) !== 'separator') {
+      throw new Error('expected right rail splitter to expose role="separator"');
+    }
+
+    const leftBefore = await elementWidth(sidebarRail, 'sidebar rail before resize');
+    const rightBefore = await elementWidth(inspectorsRail, 'inspectors rail before resize');
+    await dragHorizontal(page, leftSplitter, 72);
+    await dragHorizontal(page, rightSplitter, -64);
+
+    const leftAfter = await elementWidth(sidebarRail, 'sidebar rail after resize');
+    const rightAfter = await elementWidth(inspectorsRail, 'inspectors rail after resize');
+    const canvasAfter = await elementWidth(page.getByRole('main'), 'canvas after rail resize');
+    if (leftAfter < leftBefore + 40) {
+      throw new Error(`expected sidebar rail to grow after drag; before=${leftBefore}, after=${leftAfter}`);
+    }
+    if (rightAfter < rightBefore + 32) {
+      throw new Error(`expected inspectors rail to grow after drag; before=${rightBefore}, after=${rightAfter}`);
+    }
+    if (canvasAfter < 360) {
+      throw new Error(`expected canvas to remain at least 360px wide after rail resize, got ${canvasAfter}`);
+    }
+
+    await page.evaluate(() => {
+      localStorage.setItem('re-frame.story/seen-help-v1', '1');
+    });
+    await page.reload();
+    await page.evaluate(() => {
+      window.location.hash = '#/stories';
+    });
+    await page
+      .getByText(/Select a variant or workspace from the sidebar/i, { exact: false })
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 });
+
+    const leftRestored = await elementWidth(sidebarRail, 'sidebar rail after reload');
+    const rightRestored = await elementWidth(inspectorsRail, 'inspectors rail after reload');
+    if (Math.abs(leftRestored - leftAfter) > 3) {
+      throw new Error(`expected sidebar rail width to persist; before reload=${leftAfter}, after reload=${leftRestored}`);
+    }
+    if (Math.abs(rightRestored - rightAfter) > 3) {
+      throw new Error(`expected inspectors rail width to persist; before reload=${rightAfter}, after reload=${rightRestored}`);
+    }
 
     // ====================================================================
     // 3. Sidebar navigation — variants (rf2-zme7 + rf2-kljn)
@@ -1119,16 +1203,14 @@ module.exports = {
     }
 
     // ====================================================================
-    // 12. A11y panel — clicking "run" produces a status update
+    // 12. A11y panel — clicking "run" reports zero loaded-variant violations
     // ====================================================================
     //
     // The a11y panel exposes a "run" button. Clicking it kicks off the
-    // axe-core lazy-load + scan. The panel's status line transitions
-    // from the idle copy ("click run to scan the variant …") through
-    // "fetching axe-core…" / "scanning…" / "N violation(s) found in
-    // variant". We don't assert which violations land (varies by
-    // environment); we assert that the run was kicked off — the status
-    // text changes away from the idle copy.
+    // axe-core lazy-load + scan. This test opts in explicitly so the
+    // run is deterministic, then requires the loaded variant to report
+    // zero violations. If violations appear, the thrown error includes
+    // the axe id/help/impact/target payload from the panel rows.
     //
     // Per rf2-qgms1: axe-core MUST scan only the variant's tree, NOT
     // Story's surrounding chrome (sidebar, toolbar, panels, title bar).
@@ -1165,29 +1247,45 @@ module.exports = {
       }
     }
 
+    await page.evaluate(() => {
+      localStorage.setItem('rf.story.a11y/cdn-opt-in', 'true');
+    });
     const runBtn = aside.getByRole('button', { name: /^(run|re-run|retry)$/i }).first();
     await runBtn.waitFor({ state: 'visible', timeout: 5000 });
     await runBtn.click();
 
-    // The status copy starts as the idle string ("click run to scan
-    // the variant …") and transitions through "fetching axe-core…"
-    // / "scanning…" / "N violation(s) found in variant". We poll for
-    // the transition off the idle copy — if the status remains the
-    // idle copy the click was ineffective.
+    // Poll until the scan reaches a terminal panel state. A terminal
+    // non-zero result fails with structured violation details so the
+    // offending chrome/variant selector is immediately actionable.
     {
       const start = Date.now();
-      let stillIdle = true;
+      let result = null;
       while (Date.now() - start < 15000) {
-        stillIdle = await aside
-          .getByText(/click run to scan the variant/i)
-          .first()
-          .isVisible()
-          .catch(() => false);
-        if (!stillIdle) break;
+        result = await page.evaluate(() => {
+          const panel = document.querySelector('aside');
+          const text = panel ? panel.innerText : '';
+          const rows = Array.from(document.querySelectorAll('[data-test="story-a11y-violation"]'))
+            .map((el) => ({
+              id: el.getAttribute('data-a11y-id') || '',
+              impact: el.getAttribute('data-a11y-impact') || '',
+              help: el.getAttribute('data-a11y-help') || '',
+              target: el.getAttribute('data-a11y-target') || '',
+            }));
+          return { text, rows };
+        });
+        if (
+          /\d+\s+violation\(s\) found in variant/i.test(result.text) ||
+          /axe-core failed to load|no variant mounted|needs your approval/i.test(result.text)
+        ) {
+          break;
+        }
         await new Promise((r) => setTimeout(r, 100));
       }
-      if (stillIdle) {
-        throw new Error('a11y panel run did not transition off idle status');
+      if (!result || !/0\s+violation\(s\) found in variant/i.test(result.text)) {
+        throw new Error(
+          `expected loaded variant a11y scan to report 0 violations; panel text=${JSON.stringify(result && result.text)}; ` +
+            `violations=${JSON.stringify(result ? result.rows : [])}`,
+        );
       }
     }
 
