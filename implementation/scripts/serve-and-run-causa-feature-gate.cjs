@@ -10,12 +10,16 @@
  * tools/causa/spec/017-Test-Coverage-Matrix.md.
  */
 
-const { spawn, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
-const http = require('http');
 const path = require('path');
 
 const { isVerboseTests } = require('./lib/browser-test-report.cjs');
+const {
+  createHarnessCleanup,
+  spawnHarnessProcess,
+  waitForHttpReady,
+} = require('./lib/local-browser-harness.cjs');
 const {
   SCENARIOS,
   STAGED_SURFACES,
@@ -36,10 +40,8 @@ const { chromium } = require(require.resolve('playwright', {
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const cleanup = createHarnessCleanup();
+cleanup.installSignalHandlers();
 
 function relPath(parts) {
   return path.join(REPO_ROOT, ...parts);
@@ -109,31 +111,6 @@ function stageSurfaces() {
       fs.copyFileSync(src, dest);
     }
   }
-}
-
-function probe(port) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      { host: '127.0.0.1', port, path: '/', timeout: 1000 },
-      (res) => {
-        res.resume();
-        resolve(res.statusCode != null);
-      },
-    );
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-async function waitForReady(port, deadline) {
-  while (Date.now() < deadline) {
-    if (await probe(port)) return true;
-    await sleep(200);
-  }
-  return false;
 }
 
 function safeFileStem(s) {
@@ -318,6 +295,11 @@ function formatDiagnostics(diag) {
 
 async function runScenarios() {
   const browser = await chromium.launch({ headless: true });
+  cleanup.addCleanup(async () => {
+    try {
+      await browser.close();
+    } catch (_) {}
+  });
   const results = [];
   let anyFailed = false;
 
@@ -412,10 +394,10 @@ async function main() {
   compileSurfaces();
   stageSurfaces();
 
-  const server = spawn(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
-  });
+  }));
 
   let serverDown = false;
   server.on('exit', (code, signal) => {
@@ -425,22 +407,23 @@ async function main() {
     }
   });
 
-  const ready = await waitForReady(PORT, Date.now() + READY_TIMEOUT_MS);
+  const ready = await waitForHttpReady(PORT, Date.now() + READY_TIMEOUT_MS, {
+    isAborted: () => serverDown,
+  });
   if (!ready || serverDown) {
-    if (!serverDown) server.kill();
     throw new Error(`http-server did not become reachable on :${PORT} within ${READY_TIMEOUT_MS}ms.`);
   }
 
-  try {
-    return await runScenarios();
-  } finally {
-    if (!serverDown) server.kill();
-  }
+  return await runScenarios();
 }
 
 main()
-  .then((code) => process.exit(code))
-  .catch((err) => {
+  .then(async (code) => {
+    await cleanup.cleanup();
+    process.exit(code);
+  })
+  .catch(async (err) => {
     console.error(err && err.stack ? err.stack : err);
+    await cleanup.cleanup();
     process.exit(1);
   });

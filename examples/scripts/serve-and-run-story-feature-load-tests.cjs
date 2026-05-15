@@ -7,11 +7,15 @@
  * serves implementation/out/examples, and invokes the quiet runner.
  */
 
-const { spawn, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
-const http = require('http');
 const path = require('path');
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
+const {
+  createHarnessCleanup,
+  spawnHarnessProcess,
+  waitForHttpReady,
+} = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
@@ -21,8 +25,9 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
 const READY_TIMEOUT_MS = 30000;
-const POLL_MS = 200;
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
+const cleanup = createHarnessCleanup();
+cleanup.installSignalHandlers();
 
 const TESTBEDS = [
   {
@@ -71,40 +76,15 @@ function stageHtml() {
   }
 }
 
-function probe(port) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      { host: '127.0.0.1', port, path: '/', timeout: 1000 },
-      (res) => {
-        res.resume();
-        resolve(res.statusCode != null);
-      },
-    );
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-async function waitForReady(port, deadline) {
-  while (Date.now() < deadline) {
-    if (await probe(port)) return true;
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-  }
-  return false;
-}
-
-(async () => {
-  const PORT = await resolveStoryFeatureLoadPort({ env: process.env, repoRoot: REPO_ROOT });
+async function main() {
+  const port = await resolveStoryFeatureLoadPort({ env: process.env, repoRoot: REPO_ROOT });
   compileAll();
   stageHtml();
 
-  const server = spawn(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(port), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  }));
 
   let serverDown = false;
   const serverOutput = [];
@@ -122,29 +102,33 @@ async function waitForReady(port, deadline) {
     }
   });
 
-  const ready = await waitForReady(PORT, Date.now() + READY_TIMEOUT_MS);
+  const ready = await waitForHttpReady(port, Date.now() + READY_TIMEOUT_MS, {
+    isAborted: () => serverDown,
+  });
   if (!ready || serverDown) {
-    console.error(`http-server did not become reachable on :${PORT} within ${READY_TIMEOUT_MS}ms.`);
+    console.error(`http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`);
     for (const line of serverOutput.slice(-40)) console.error(line);
-    if (!serverDown) server.kill();
-    process.exit(1);
+    return 1;
   }
 
-  const runner = spawn(process.execPath, [RUNNER], {
+  const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
     env: {
       ...process.env,
-      STORY_FEATURE_LOAD_BASE_URL: `http://127.0.0.1:${PORT}`,
+      STORY_FEATURE_LOAD_BASE_URL: `http://127.0.0.1:${port}`,
     },
-  });
+  }));
 
   const code = await new Promise((resolve) => runner.on('exit', resolve));
 
-  if (!serverDown) {
-    server.kill();
-  }
-  process.exit(code == null ? 1 : code);
-})().catch((err) => {
+  return code == null ? 1 : code;
+}
+
+main().then(async (code) => {
+  await cleanup.cleanup();
+  process.exit(code);
+}).catch(async (err) => {
   console.error(err);
+  await cleanup.cleanup();
   process.exit(1);
 });

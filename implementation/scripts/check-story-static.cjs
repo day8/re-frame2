@@ -38,7 +38,7 @@
 
 'use strict';
 
-const { spawn, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -48,6 +48,10 @@ const {
   createDiagnosticBuffer,
   isVerboseTests,
 } = require('./lib/browser-test-report.cjs');
+const {
+  createHarnessCleanup,
+  spawnHarnessProcess,
+} = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
@@ -65,6 +69,14 @@ const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
 const diagnostics = createDiagnosticBuffer();
+const cleanup = createHarnessCleanup({
+  onError: (err) => diagnostics.add(err && err.stack ? err.stack : String(err), 'stderr'),
+});
+cleanup.addCleanup(() => {
+  diagnostics.add('Tearing down story-static http-server.');
+  removeOwnershipToken();
+});
+cleanup.installSignalHandlers();
 
 // Per rf2-o38lb: ownership-token sentinel, same shape as
 // serve-and-run-browser-tests.cjs.
@@ -240,6 +252,11 @@ async function smokeTest(baseUrl, diagnostics) {
   }
 
   const browser = await playwright.chromium.launch();
+  cleanup.addCleanup(async () => {
+    try {
+      await browser.close();
+    } catch (_) {}
+  });
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -345,11 +362,11 @@ async function smokeTest(baseUrl, diagnostics) {
   const port = await resolvePort(diagnostics);
   diagnostics.add(`Serving ${OUT_DIR} on http://127.0.0.1:${port}`);
 
-  const server = spawn(
+  const server = cleanup.trackProcess(spawnHarnessProcess(
     process.execPath,
     [HTTP_SERVER_BIN, OUT_DIR, '-p', String(port), '-s', '-c-1'],
     { cwd: IMPL_ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
-  );
+  ));
   diagnostics.add(
     `Process: ${process.execPath} ${[HTTP_SERVER_BIN, OUT_DIR, '-p', String(port), '-s', '-c-1'].join(' ')}`,
   );
@@ -368,22 +385,6 @@ async function smokeTest(baseUrl, diagnostics) {
       diagnostics.add(`http-server exited (code=${code}, signal=${signal}).`);
     }
   });
-
-  // Shared teardown — kills the server we spawned (and only that one)
-  // and removes the ownership token. Idempotent.
-  const tornDownRef = { value: false };
-  const teardown = () => {
-    if (tornDownRef.value) return;
-    tornDownRef.value = true;
-    diagnostics.add('Tearing down story-static http-server.');
-    if (!state.exited) {
-      try { server.kill(); } catch (_) {}
-    }
-    removeOwnershipToken();
-  };
-  process.on('exit', teardown);
-  process.on('SIGINT', () => { teardown(); process.exit(130); });
-  process.on('SIGTERM', () => { teardown(); process.exit(143); });
 
   // 5. Wait for ready WITH ownership-token verification.
   const ready = await waitForReady(port, token, Date.now() + READY_TIMEOUT_MS, state);
@@ -410,7 +411,7 @@ async function smokeTest(baseUrl, diagnostics) {
         `http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`,
       );
     }
-    teardown();
+    await cleanup.cleanup();
     flushDiagnostics(diagnostics);
     process.exit(1);
   }
@@ -426,7 +427,7 @@ async function smokeTest(baseUrl, diagnostics) {
   }
 
   // 7. Tear down.
-  teardown();
+  await cleanup.cleanup();
   if (!smokeError) {
     if (VERBOSE_TESTS) flushDiagnostics(diagnostics);
     console.log('Story static smoke passed.');
@@ -437,7 +438,12 @@ async function smokeTest(baseUrl, diagnostics) {
 })().catch((err) => {
   console.error(err);
   if (err && err.stack) diagnostics.add(err.stack, 'stderr');
-  flushDiagnostics(diagnostics);
-  removeOwnershipToken();
-  process.exit(1);
+  cleanup.cleanup().then(() => {
+    flushDiagnostics(diagnostics);
+    process.exit(1);
+  }, (cleanupErr) => {
+    console.error(cleanupErr && cleanupErr.stack ? cleanupErr.stack : cleanupErr);
+    flushDiagnostics(diagnostics);
+    process.exit(1);
+  });
 });
