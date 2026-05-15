@@ -35,7 +35,8 @@
   and the mount fails silently. The fallback is graceful, not
   catastrophic — but the right answer is to keep the preload out of
   production builds via shadow-cljs's `:dev`-only `:devtools` block."
-  (:require [re-frame.core :as rf]
+  (:require [goog.object :as gobj]
+            [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             ;; Pull `re-frame.epoch` into the dev classpath via the
@@ -56,6 +57,7 @@
             ;; bundles by the `:devtools/preloads` shadow-cljs gate.
             [re-frame.epoch]
             [day8.re-frame2-causa.keybinding :as keybinding]
+            [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -142,6 +144,47 @@
   (reset! epoch-cb-registered? false)
   nil)
 
+;; ---- public browser API exports -----------------------------------------
+
+(defn- ensure-js-object!
+  [parent key]
+  (or (gobj/get parent key)
+      (let [obj #js {}]
+        (gobj/set parent key obj)
+        obj)))
+
+(defn- install-api-on!
+  [obj]
+  (gobj/set obj "open_BANG_" mount/open!)
+  (gobj/set obj "close_BANG_" mount/close!)
+  (gobj/set obj "toggle_BANG_" mount/toggle!)
+  (gobj/set obj "dock_BANG_" mount/dock!)
+  (gobj/set obj "undock_BANG_" mount/undock!)
+  (gobj/set obj "popout_BANG_" mount/popout!)
+  (gobj/set obj "mount_inline_panel_BANG_" mount/mount-inline-panel!)
+  (gobj/set obj "unmount_inline_panel_BANG_" mount/unmount-inline-panel!)
+  nil)
+
+(defn install-browser-api-exports!
+  "Expose the dev-only Causa launch API on the browser global object.
+
+  The preload is the namespace shadow-cljs actually loads into host
+  dev bundles; the facade namespace (`day8.re-frame2-causa.core`) may
+  be absent from apps that only install Causa via `:devtools/preloads`.
+  Export on `window.day8.re_frame2_causa` for preload-only bundles, and
+  augment `window.day8.re_frame2_causa.core` only when Closure has
+  already created that real namespace object. Never pre-create `core`:
+  doing so races `goog.provide` in browser-test and fails with
+  \"Namespace already declared\"."
+  []
+  (when (exists? js/window)
+    (let [day8  (ensure-js-object! js/window "day8")
+          causa (ensure-js-object! day8 "re_frame2_causa")]
+      (install-api-on! causa)
+      (when-let [core (gobj/get causa "core")]
+        (install-api-on! core))))
+  nil)
+
 ;; ---- side-effecting boot -------------------------------------------------
 
 ;; Loading this namespace runs the foundation's three side effects.
@@ -161,4 +204,5 @@
   (registry/register-causa-handlers!)
   (register-trace-collector!)
   (register-epoch-collector!)
+  (install-browser-api-exports!)
   (keybinding/attach!))

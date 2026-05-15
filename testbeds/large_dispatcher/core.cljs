@@ -5,43 +5,27 @@
   the `:rf.size/large-elided` marker (per [spec/009 §Size elision in
   traces] / [API.md §`rf/elide-wire-value`]).
 
-  Three nomination paths exist per [spec/009 §Nomination — three
-  entry points]:
+  Path-D elision is schema-first: `:large?` on a Malli app-schema slot
+  is the declaration path. Unschema'd large values deliberately warn
+  but do not auto-elide.
 
-    1. Schema-driven — `:large?` on a Malli slot in `:rf/app-schema`.
-    2. fx-driven    — `:rf.size/declare-large` fx writes the slot
-                      from an event handler's `:fx`. Convenience
-                      wrappers: `rf/declare-large-path!` and
-                      `rf/clear-large-path!`.
-    3. Runtime auto-detect — values exceeding `:rf.size/threshold-
-                      bytes` (default 16 KiB) get auto-flagged on
-                      first wire-emit. Subsequent emits short-
-                      circuit on the cached decision and emit a
-                      `:rf.warning/runtime-large-elision` advisory.
+  This surface exercises one warning-only control and three
+  schema-declared marker paths:
 
-  This surface exercises all three nomination paths plus one
-  control:
-
-    Button A · Auto-detect (no declaration)
+    Button A · Unschema'd large value (warning-only)
       — handler writes a 20 KiB string to `[:auto-large-value]`. The
-        runtime walks the app-db at first wire-emit, finds the value
-        exceeds the 16 KiB threshold, flags the path, and elides on
-        every subsequent emit. The `:rf.warning/runtime-large-elision`
-        advisory fires once on first detection.
+        walker emits `:rf.warning/large-value-unschema'd` but leaves
+        the value inline because no schema declared the path.
 
-    Button B · Declared via REPL wrapper
-      — handler calls `rf/declare-large-path!` directly. The
-        declaration writes `{:large? true :source :declared}` into
-        `[:rf/elision :declarations [:declared-large-value]]`. The
-        handler then writes a small (200 byte) value to the path —
-        elision fires regardless of size because of the declaration
-        (declared wins over runtime threshold).
+    Button B · Schema-declared flat slot
+      — handler writes a small (200 byte) value to
+        `[:declared-large-value]`. Elision fires regardless of size
+        because the registered app-schema marks the slot `:large?`.
 
-    Button C · Declared via fx
-      — handler returns `:fx [[:rf.size/declare-large {:path ...}]]`.
-        Same outcome as Button B; different entry point. The fx
-        declaration is the canonical AI-discoverable shape (apps
-        nominate paths from event handlers).
+    Button C · Second schema-declared flat slot
+      — same outcome as Button B on `[:fx-declared-value]`; it keeps a
+        second deterministic path for consumers that assert multiple
+        marker rows.
 
     Button D · Schema-driven (registered at boot)
       — the surface registers a Malli app-schema with `:large? true`
@@ -50,9 +34,8 @@
         value to the schema-declared slot.
 
   This is NOT a tutorial. The bodies are minimal. The point is to
-  produce four distinct elision triggers a consumer can assert
-  against — auto-flagged + declared (REPL) + declared (fx) + schema
-  — all in one surface."
+  produce deterministic warning-only and schema-elided shapes a
+  consumer can assert against."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Loads the schemas artefact's late-bind hooks (rf2-p7va).
@@ -65,10 +48,9 @@
 ;; The canonical "large" payload — 20 KiB above the 16 KiB threshold
 ;; ----------------------------------------------------------------------------
 ;;
-;; `pr-str` of this string exceeds `:rf.size/threshold-bytes` (default
-;; 16384). The auto-detect path measures the pr-str byte count of each
-;; top-two-level subtree; any subtree at or above the threshold gets
-;; flagged. Per [spec/009 §Runtime auto-detect].
+;; `pr-str` of this string exceeds the framework's warning threshold.
+;; Path-D schema-first elision leaves it inline and emits a warning so
+;; users can add `{:large? true}` to the app-schema slot.
 
 (def kib-20-string
   ;; 20480 chars = 20 KiB. pr-str adds 2 quote chars; effective size
@@ -87,9 +69,17 @@
 ;; ----------------------------------------------------------------------------
 
 (def SchemaLarge
-  [:map [:schema-large-value {:large? true} :string]])
+  [:map
+   [:schema-large-value {:large? true :hint "Nested schema-declared slot"}
+    [:maybe :string]]])
 
-(rf/reg-app-schema [:schema-bag] SchemaLarge)
+(rf/reg-app-schemas
+  {[:declared-large-value]
+   [:maybe [:string {:large? true :hint "Flat schema-declared slot"}]]
+   [:fx-declared-value]
+   [:maybe [:string {:large? true :hint "Second flat schema-declared slot"}]]
+   [:schema-bag]
+   SchemaLarge})
 
 ;; ----------------------------------------------------------------------------
 ;; App-db
@@ -110,57 +100,40 @@
      :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}))
 
 ;; ----------------------------------------------------------------------------
-;; Button A — auto-detect path
+;; Button A — unschema'd warning-only path
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event-db ::write-auto-large
   (fn [db _ev]
-    ;; HOT PATH — commits a 20 KiB value to an undeclared path. On
-    ;; the first wire-emit the runtime's auto-detect walker measures
-    ;; pr-str byte count, finds it above threshold, flags the path,
-    ;; and elides on subsequent emits. A
-    ;; :rf.warning/runtime-large-elision fires once.
+    ;; HOT PATH — commits a 20 KiB value to an undeclared path. The
+    ;; schema-first walker warns about unschema'd large values but does
+    ;; not substitute a marker unless a schema declares the path.
     (-> db
         (assoc :auto-large-value kib-20-string)
         (update-in [:click-count :auto] inc))))
 
 ;; ----------------------------------------------------------------------------
-;; Button B — declared via rf/declare-large-path! (REPL wrapper)
+;; Button B — schema-declared flat slot
 ;; ----------------------------------------------------------------------------
 ;;
-;; The handler calls `rf/declare-large-path!` as a side effect AND
-;; commits the small payload. Per [spec/009 §fx-driven] the wrapper
-;; issues a synthetic dispatch of `:rf.size/declare-large` for us —
-;; same effect as the fx path, but ergonomic at the REPL.
-;;
-;; The declaration writes `{:large? true :source :declared}` into
-;; `[:rf/elision :declarations [:declared-large-value]]`; the slot
-;; is elided on every subsequent emit irrespective of size (declared
-;; wins over runtime per Spec 009).
+;; The schema marks `[:declared-large-value]` as `:large? true`; the
+;; small payload proves declaration, not byte size, drives elision.
 
 (rf/reg-event-db ::write-declared-large
   (fn [db _ev]
-    (rf/declare-large-path! [:declared-large-value]
-                            "Test surface — declared via REPL wrapper")
     (-> db
         (assoc :declared-large-value chars-200-string)
         (update-in [:click-count :declared] inc))))
 
 ;; ----------------------------------------------------------------------------
-;; Button C — declared via :rf.size/declare-large fx
+;; Button C — second schema-declared flat slot
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-fx ::write-fx-declared-large
-  (fn [{:keys [db]} _ev]
-    ;; HOT PATH — the canonical AI-discoverable nomination shape.
-    ;; The fx writes the declaration into the elision registry; the
-    ;; handler's :db commits the small payload; subsequent emits
-    ;; elide the path.
-    {:db (-> db
-             (assoc :fx-declared-value chars-200-string)
-             (update-in [:click-count :fx] inc))
-     :fx [[:rf.size/declare-large {:path [:fx-declared-value]
-                                   :hint "Test surface — declared via fx"}]]}))
+(rf/reg-event-db ::write-fx-declared-large
+  (fn [db _ev]
+    (-> db
+        (assoc :fx-declared-value chars-200-string)
+        (update-in [:click-count :fx] inc))))
 
 ;; ----------------------------------------------------------------------------
 ;; Button D — schema-driven (boot-time declaration on a Malli slot)
@@ -184,13 +157,7 @@
 
 (rf/reg-event-fx ::reset
   (fn [_ctx _ev]
-    {:fx [[:dispatch [::initialise]]
-          ;; Clear the declared paths (the schema-derived entry
-          ;; stays — it's repopulated at boot via the registered
-          ;; schema; only the imperative declarations need
-          ;; clearing for a clean re-run).
-          [:rf.size/clear {:path [:declared-large-value]}]
-          [:rf.size/clear {:path [:fx-declared-value]}]]}))
+    {:fx [[:dispatch [::initialise]]]}))
 
 ;; ----------------------------------------------------------------------------
 ;; Subs + view
@@ -234,13 +201,13 @@
      [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap}}
       [:button {:data-testid "write-auto"
                 :on-click    #(dispatch [::write-auto-large])}
-       "A · auto-detect (20 KiB > threshold)"]
+       "A · unschema'd large warning"]
       [:button {:data-testid "write-declared"
                 :on-click    #(dispatch [::write-declared-large])}
-       "B · declare-large-path! (REPL wrapper)"]
+       "B · schema-declared flat slot"]
       [:button {:data-testid "write-fx-declared"
                 :on-click    #(dispatch [::write-fx-declared-large])}
-       "C · :rf.size/declare-large fx"]
+       "C · second schema-declared flat slot"]
       [:button {:data-testid "write-schema"
                 :on-click    #(dispatch [::write-schema-large])}
        "D · schema-driven (:large? on Malli slot)"]

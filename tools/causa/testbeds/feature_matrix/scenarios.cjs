@@ -304,7 +304,14 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
 }
 
 async function assertOverlayLaunchModes(page, state) {
-  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  const countBeforeText = (await page.locator('span').first().textContent({ timeout: 10000 }) || '').trim();
+  const countBefore = Number(countBeforeText);
+  if (!Number.isFinite(countBefore)) {
+    failWithDetails('Host counter value was not numeric before overlay geometry check', {
+      mode: 'overlay-left-host',
+      observed: { countBeforeText },
+    });
+  }
   const rootBeforeOpen = await page.locator('#rf-causa-root').count();
   await openCausa(page);
   const overlay = await page.evaluate(() => {
@@ -356,26 +363,31 @@ async function assertOverlayLaunchModes(page, state) {
     failWithDetails('Causa chrome is topmost over the left host-app + button', { mode: 'overlay-left-host', observed: overlay });
   }
   await page.mouse.click(overlay.hostPlus.centerX, overlay.hostPlus.centerY);
-  await expectTextEquals(page.locator('span').first(), '6', 5000);
+  await expectTextEquals(page.locator('span').first(), String(countBefore + 1), 5000);
 
   const popout = await page.evaluate(() => {
-    const core = window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.core;
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
     const keys = core ? Object.keys(core).sort() : [];
     const fn = core && core.popout_BANG_;
     if (typeof fn !== 'function') {
-      return { available: false, implemented: false, reason: 'day8.re_frame2_causa.core.popout_BANG_ not exported in this browser bundle', keys };
+      return { available: false, implemented: false, reason: 'Causa popout_BANG_ browser export not available', keys };
     }
     try {
       const beforeUrl = location.href;
       const value = fn();
+      const popoutWindow = window.open('', 'rf-causa-popout');
+      const doc = popoutWindow && popoutWindow.document;
+      const root = doc && doc.getElementById('rf-causa-popout-root');
       return {
         available: true,
-        implemented: false,
+        implemented: Boolean(root),
         beforeUrl,
         afterUrl: location.href,
         returnType: typeof value,
+        rootPresent: Boolean(root),
+        rootMode: root ? root.getAttribute('data-rf-causa-mode') : null,
+        shellPresent: Boolean(doc && doc.querySelector('[data-testid="rf-causa-shell"]')),
         keys,
       };
     } catch (err) {
@@ -383,17 +395,88 @@ async function assertOverlayLaunchModes(page, state) {
     }
   });
 
+  const inlineStart = await page.evaluate(() => {
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
+    const keys = core ? Object.keys(core).sort() : [];
+    const fn = core && core.mount_inline_panel_BANG_;
+    if (typeof fn !== 'function') {
+      return { available: false, implemented: false, reason: 'mount_inline_panel_BANG_ not exported', keys };
+    }
+    const host = document.createElement('div');
+    host.id = 'rf-causa-inline-feature-matrix-host';
+    host.style.minHeight = '260px';
+    document.body.appendChild(host);
+    try {
+      fn(host, window.cljs.core.keyword('event-detail'));
+      return { available: true, scheduled: true, keys };
+    } catch (err) {
+      return { available: true, implemented: false, threw: String(err && (err.stack || err.message || err)), keys };
+    }
+  });
+  if (!inlineStart.available || inlineStart.threw) {
+    failWithDetails('Causa launch mode is not implemented', { mode: 'inline', observed: inlineStart });
+  }
+  await page.waitForSelector('#rf-causa-inline-feature-matrix-host [data-testid="rf-causa-inline-panel"]', { timeout: 2000 });
   const inline = await page.evaluate(() => {
-    const panels = window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.panels;
-    const keys = panels ? Object.keys(panels).sort() : [];
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
+    const keys = core ? Object.keys(core).sort() : [];
+    const host = document.getElementById('rf-causa-inline-feature-matrix-host');
+    const panel = host && host.querySelector('[data-testid="rf-causa-inline-panel"]');
     return {
-      available: false,
-      implemented: false,
-      reason: 'No public inline panel mount/export is present in this browser bundle',
-      panelNamespaces: keys,
+      available: true,
+      implemented: Boolean(panel),
+      hostId: host ? host.id : null,
+      hostMode: host ? host.getAttribute('data-rf-causa-mode') : null,
+      panelPresent: Boolean(panel),
+      panel: panel ? panel.getAttribute('data-panel') : null,
+      eventDetailPresent: Boolean(host && host.querySelector('[data-testid="rf-causa-event-detail"]')),
+      keys,
     };
+  });
+
+  const docking = await page.evaluate(() => {
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
+    const keys = core ? Object.keys(core).sort() : [];
+    const dock = core && core.dock_BANG_;
+    const undock = core && core.undock_BANG_;
+    if (typeof dock !== 'function' || typeof undock !== 'function') {
+      return { available: false, implemented: false, reason: 'dock_BANG_ / undock_BANG_ not exported', keys };
+    }
+    const root = document.getElementById('rf-causa-root');
+    try {
+      dock();
+      const dockedRoot = document.getElementById('rf-causa-root');
+      const dockedShell = dockedRoot && dockedRoot.querySelector('[data-testid="rf-causa-shell"]');
+      const docked = {
+        rootMode: dockedRoot ? dockedRoot.getAttribute('data-rf-causa-mode') : null,
+        shellMode: dockedShell ? dockedShell.getAttribute('data-mode') : null,
+        bodyPaddingRight: document.body.style.paddingRight,
+      };
+      undock();
+      const undockedRoot = document.getElementById('rf-causa-root');
+      const undockedShell = undockedRoot && undockedRoot.querySelector('[data-testid="rf-causa-shell"]');
+      const undocked = {
+        rootMode: undockedRoot ? undockedRoot.getAttribute('data-rf-causa-mode') : null,
+        shellMode: undockedShell ? undockedShell.getAttribute('data-mode') : null,
+        bodyPaddingRight: document.body.style.paddingRight,
+      };
+      return {
+        available: true,
+        implemented: docked.rootMode === 'docked' &&
+          docked.shellMode === 'docked' &&
+          docked.bodyPaddingRight === '40%' &&
+          undocked.rootMode === 'overlay',
+        rootBefore: Boolean(root),
+        docked,
+        undocked,
+        keys,
+      };
+    } catch (err) {
+      return { available: true, implemented: false, threw: String(err && (err.stack || err.message || err)), keys };
+    }
   });
 
   state.launchModes = {
@@ -405,13 +488,14 @@ async function assertOverlayLaunchModes(page, state) {
       leftHostAreaUnobscured: true,
     },
     popout,
-    docking: {
-      available: false,
-      implemented: false,
-      reason: 'No browser docking control is exposed by the current Causa shell.',
-    },
+    docking,
     inline,
   };
+  for (const [mode, record] of Object.entries({ popout, docking, inline })) {
+    if (!record.implemented) {
+      failWithDetails('Causa launch mode is not implemented', { mode, observed: record });
+    }
+  }
 }
 
 async function readSchemaHostState(page) {
@@ -634,7 +718,7 @@ async function runShellFeatureSweep(page) {
 }
 
 async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
-  await assertOverlayLaunchModes(page, state);
+  await openCausa(page);
   await clickSidebar(page, 'trace', 'rf-causa-trace');
   await clearTrace(page);
   await clickHostButtonByLabel(page, '+');
@@ -648,6 +732,7 @@ async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
     panel: 'trace',
     sourceIncludes: 'counter/core.cljs',
   });
+  await assertOverlayLaunchModes(page, state);
 }
 
 async function runExceptionSchemaHttp(page, state, ctx) {
@@ -729,25 +814,37 @@ async function runSchemaViolation(page, state) {
       const el = document.querySelector(`[data-testid="${testId}"]`);
       return el ? (el.textContent || '').trim() : null;
     }
+    const dots = Array.from(
+      document.querySelectorAll('circle[data-testid^="rf-causa-schema-timeline-row-"][data-testid*="-dot-"]'),
+    ).map((dot) => ({
+      testId: dot.getAttribute('data-testid'),
+      schemaKind: dot.getAttribute('data-schema-kind'),
+      recovery: dot.getAttribute('data-recovery'),
+      where: dot.getAttribute('data-where'),
+    }));
     return {
       rowCount: document.querySelectorAll('[data-testid^="rf-causa-schema-timeline-row-"]').length,
-      dotCount: document.querySelectorAll('circle[data-testid^="rf-causa-schema-timeline-row-"][data-testid*="-dot-"]').length,
+      dotCount: dots.length,
+      dots,
       noSchemas: text('rf-causa-schema-timeline-empty-no-schemas'),
       noViolations: text('rf-causa-schema-timeline-empty-no-violations'),
     };
   });
   state.schemaRecovery.timelineProjection = timelineProjection;
-  if (timelineProjection.rowCount > 0 && timelineProjection.dotCount < 4) {
+  if (timelineProjection.rowCount === 0 || timelineProjection.dotCount < 4) {
     failWithDetails('Schema timeline rendered rows without the expected recovery dots', {
       expectedDotCount: 4,
+      expectedWheres,
       observed: timelineProjection,
       schemaEvents,
     });
   }
-  if (timelineProjection.rowCount === 0 &&
-      !timelineProjection.noSchemas &&
-      !timelineProjection.noViolations) {
-    failWithDetails('Schema timeline rendered neither rows nor an explicit empty state', {
+  const missingTimelineWheres = expectedWheres.filter((where) =>
+    !timelineProjection.dots.some((dot) => dot.where === where));
+  if (missingTimelineWheres.length > 0) {
+    failWithDetails('Schema timeline dots did not preserve recovery surfaces', {
+      expectedWheres,
+      missingTimelineWheres,
       observed: timelineProjection,
       schemaEvents,
     });
@@ -848,15 +945,28 @@ async function runMultiFrame(page, state) {
   const eventDetailProjection = await waitForValue(
     () => page.evaluate(() => {
       const orphaned = document.querySelector('[data-testid="rf-causa-event-detail-orphaned"]');
+      const cascade = document.querySelector('[data-testid="rf-causa-event-detail-cascade"]');
       return {
         cascadeRows: document.querySelectorAll('[data-testid^="rf-causa-cascade-row-"]').length,
+        selectedCascadeFrame: cascade ? cascade.getAttribute('data-frame') : null,
+        selectedCascadeDispatchId: cascade ? cascade.getAttribute('data-dispatch-id') : null,
+        selectedCascadeText: cascade ? (cascade.textContent || '').trim() : null,
         orphanedText: orphaned ? (orphaned.textContent || '').trim() : null,
       };
     }),
-    (projection) => projection.cascadeRows > 0 || Boolean(projection.orphanedText),
+    (projection) => projection.selectedCascadeFrame === ':counter/b',
     { timeoutMs: 5000, description: 'event-detail projection after selecting B trace row' },
   );
   state.multiFrame.eventDetailProjection = eventDetailProjection;
+  if (eventDetailProjection.orphanedText ||
+      !eventDetailProjection.selectedCascadeText.includes(':multi-frame.core/inc')) {
+    failWithDetails('Event detail did not render the selected :counter/b cascade', {
+      selected,
+      eventDetailProjection,
+      expectedFrame: ':counter/b',
+      expectedEvent: ':multi-frame.core/inc',
+    });
+  }
   await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
   await expectVisible(page.locator('[data-testid="rf-causa-causality-graph"]'), 5000);
   await setCausaTargetFrame(page, ':counter/b');

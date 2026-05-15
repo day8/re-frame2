@@ -155,12 +155,21 @@
       (is (= :skip-handler (:recovery row))
           "falls back to (:recovery tags) when top-level :recovery is absent"))))
 
-(deftest project-violation-synthetic-schema-id-for-malformed-events
+(deftest project-violation-falls-back-to-recovery-surface-row
   (testing "events missing both :tags :schema and :tags :failing-id bucket
-            under the synthetic ::unknown-schema row"
+            under a first-class recovery-surface row when :where exists"
     (let [ev  {:id 1 :op-type :error
                :operation :rf.error/schema-validation-failure
                :tags {:where :app-db}}
+          row (h/project-violation ev)]
+      (is (= [:schema-recovery :app-db] (:schema-id row))))))
+
+(deftest project-violation-synthetic-schema-id-for-fully-malformed-events
+  (testing "events missing schema, failing-id, and where still surface under
+            the synthetic ::unknown-schema row"
+    (let [ev  {:id 1 :op-type :error
+               :operation :rf.error/schema-validation-failure
+               :tags {}}
           row (h/project-violation ev)]
       (is (= ::h/unknown-schema (:schema-id row))))))
 
@@ -220,6 +229,14 @@
     (is (= h/default-window-ms (h/window-spans-ms {})))
     (is (= h/default-window-ms (h/window-spans-ms {:t0 2000 :t1 1000})))
     (is (= 5000 (h/window-spans-ms {:t0 1000 :t1 6000})))))
+
+(deftest default-window-for-events-uses-trace-time-domain
+  (testing "default windows anchor to the newest trace event timestamp"
+    (is (= {:t0 (- 42500 h/default-window-ms)
+            :t1 42500}
+           (h/default-window-for-events [{:time 10}
+                                         {:time nil}
+                                         {:time 42500}])))))
 
 ;; ---- (5) project-rows ---------------------------------------------------
 
@@ -344,6 +361,9 @@
 (deftest schema-row-label-renders-paths-and-keywords
   (testing "vector paths render as their pr-str form"
     (is (= "[:auth :email]" (h/schema-row-label [:auth :email]))))
+  (testing "schema recovery fallback rows render as meaningful surfaces"
+    (is (= "recovery :fx-args"
+           (h/schema-row-label [:schema-recovery :fx-args]))))
   (testing "keyword schema-ids render with the leading colon"
     (is (= ":schema/user-auth" (h/schema-row-label :schema/user-auth))))
   (testing "the synthetic ::unknown-schema renders as :?:"

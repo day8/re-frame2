@@ -65,22 +65,22 @@
   ([dispatch-id event-vec]
    (cascade-evs dispatch-id event-vec :rf/default))
   ([dispatch-id event-vec frame-id]
-  [{:id 1 :op-type :event    :operation :event/dispatched
-    :tags {:dispatch-id dispatch-id :event event-vec :frame frame-id}}
-   {:id 2 :op-type :event    :operation :event
-    :tags {:dispatch-id dispatch-id :phase :run-start :frame frame-id}}
-   {:id 3 :op-type :event    :operation :event
-    :tags {:dispatch-id dispatch-id :phase :run-end :frame frame-id}}
-   {:id 4 :op-type :event    :operation :event/do-fx
-    :tags {:dispatch-id dispatch-id :frame frame-id}}
-   {:id 5 :op-type :fx       :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id :fx-id :db :frame frame-id}}
-   {:id 6 :op-type :fx       :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id :fx-id :dispatch :frame frame-id}}
-   {:id 7 :op-type :sub/run  :operation :sub/run
-    :tags {:dispatch-id dispatch-id :sub-id :sub/foo :frame frame-id}}
-   {:id 8 :op-type :view     :operation :view/render
-    :tags {:dispatch-id dispatch-id :render-key [:app/root nil] :frame frame-id}}]))
+   [{:id 1 :op-type :event    :operation :event/dispatched
+     :tags {:dispatch-id dispatch-id :event event-vec :frame frame-id}}
+    {:id 2 :op-type :event    :operation :event
+     :tags {:dispatch-id dispatch-id :phase :run-start :frame frame-id}}
+    {:id 3 :op-type :event    :operation :event
+     :tags {:dispatch-id dispatch-id :phase :run-end :frame frame-id}}
+    {:id 4 :op-type :event    :operation :event/do-fx
+     :tags {:dispatch-id dispatch-id :frame frame-id}}
+    {:id 5 :op-type :fx       :operation :rf.fx/handled
+     :tags {:dispatch-id dispatch-id :fx-id :db :frame frame-id}}
+    {:id 6 :op-type :fx       :operation :rf.fx/handled
+     :tags {:dispatch-id dispatch-id :fx-id :dispatch :frame frame-id}}
+    {:id 7 :op-type :sub/run  :operation :sub/run
+     :tags {:dispatch-id dispatch-id :sub-id :sub/foo :frame frame-id}}
+    {:id 8 :op-type :view     :operation :view/render
+     :tags {:dispatch-id dispatch-id :render-key [:app/root nil] :frame frame-id}}]))
 
 (deftest group-cascades-one-cascade-six-buckets
   (testing "a representative cascade reduces to one record with the six

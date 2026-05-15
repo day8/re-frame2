@@ -17,8 +17,8 @@
      companion subs re-fire and `active-frame` / `active-panel`
      read back the new value.
 
-  3. **TBD stubs do not crash.** `popout!` and `load-theme` emit a
-     `:rf.warning/*` trace event and return nil — host code that
+  3. **TBD stubs do not crash.** `load-theme` emits a
+     `:rf.warning/*` trace event and returns nil — host code that
      wires the call ahead of the impl must not throw."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -59,7 +59,12 @@
     ;; as the underlying mount Var.
     (is (identical? mount/open!   core/open!))
     (is (identical? mount/close!  core/close!))
-    (is (identical? mount/toggle! core/toggle!))))
+    (is (identical? mount/toggle! core/toggle!))
+    (is (identical? mount/dock! core/dock!))
+    (is (identical? mount/undock! core/undock!))
+    (is (identical? mount/popout! core/popout!))
+    (is (identical? mount/mount-inline-panel! core/mount-inline-panel!))
+    (is (identical? mount/unmount-inline-panel! core/unmount-inline-panel!))))
 
 (deftest config-fns-are-aliases
   (testing "config knob setters are def-aliases"
@@ -133,20 +138,6 @@
           "facade dispatches the right event with the right arg"))))
 
 ;; ---- (3) TBD stubs — emit warning trace, return nil --------------------
-
-(deftest popout!-emits-warning-trace
-  (testing "popout! emits :rf.warning/causa-popout-not-yet-implemented and returns nil"
-    (preload/register-trace-collector!)
-    (let [result (core/popout!)
-          events (trace-bus/buffer)
-          popout-event (first (filter #(= :rf.warning/causa-popout-not-yet-implemented
-                                          (:operation %))
-                                      events))]
-      (is (nil? result) "stub returns nil")
-      (is (some? popout-event)
-          "trace bus carries the warning emit")
-      (is (= :causa (get-in popout-event [:tags :origin]))
-          "warning is tagged :origin :causa"))))
 
 (deftest load-theme-emits-warning-trace
   (testing "load-theme emits :rf.warning/causa-load-theme-not-yet-implemented and returns nil"

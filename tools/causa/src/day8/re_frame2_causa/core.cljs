@@ -4,7 +4,8 @@
   Per `spec/API.md` §Public CLJS API + the README's `core.cljs` reference,
   this namespace is the *one* import users reach for. It re-exports the
   small handful of programmatic entry points enumerated by the spec —
-  `init!` / `open!` / `close!` / `toggle!` / `popout!` /
+  `init!` / `open!` / `close!` / `toggle!` / `dock!` / `undock!` /
+  `popout!` / `mount-inline-panel!` /
   `target-frame` + `set-target-frame!` / `active-panel` +
   `set-active-panel!` / `load-theme` — plus the boot-time config knob
   surface exposed by `config.cljc` (`configure!` / `set-editor!` /
@@ -19,12 +20,9 @@
 
   ## Pre-alpha posture
 
-  Two surfaces in `spec/API.md` ship as TBD-impl stubs that emit a
-  `:rf.warning/*` trace and otherwise no-op:
+  One surface in `spec/API.md` ships as a TBD-impl stub that emits a
+  `:rf.warning/*` trace and otherwise no-ops:
 
-    - `popout!` — same-browser pop-out window (the `Ctrl+Shift+P`
-      shortcut and the window-management plumbing are scheduled
-      under a follow-on bead).
     - `load-theme` — programmatic theme swap. The theme module
       exists (`day8.re-frame2-causa.theme/*`) but the runtime CSS-
       swap surface is not yet wired.
@@ -79,6 +77,27 @@
   "Toggle the Causa shell's visibility. First call mounts + shows;
   subsequent calls flip visibility."
   mount/toggle!)
+
+(def dock!
+  "Dock Causa against the host page. See `mount/dock!`."
+  mount/dock!)
+
+(def undock!
+  "Return Causa to overlay mode. See `mount/undock!`."
+  mount/undock!)
+
+(def popout!
+  "Open Causa in a same-origin second window. See `mount/popout!`."
+  mount/popout!)
+
+(def mount-inline-panel!
+  "Render a single Causa panel into a caller-supplied DOM node without
+  shell chrome. See `mount/mount-inline-panel!`."
+  mount/mount-inline-panel!)
+
+(def unmount-inline-panel!
+  "Unmount a panel previously mounted with `mount-inline-panel!`."
+  mount/unmount-inline-panel!)
 
 ;; ---- init! (manual install, alternative to :preloads) ------------------
 
@@ -176,27 +195,10 @@
 
 ;; ---- TBD-impl stubs -----------------------------------------------------
 ;;
-;; `popout!` and `load-theme` are promised by `spec/API.md` §Public CLJS
-;; API but the runtime plumbing has not landed. Calling either emits a
+;; `load-theme` is promised by `spec/API.md` §Public CLJS API but the
+;; runtime CSS-swap plumbing has not landed. Calling it emits a
 ;; `:rf.warning/*` trace event so the gap is visible in the trace stream
-;; (and surfaces in Causa's own Issues ribbon). Each stub returns nil
-;; rather than throwing so host code that wires the call ahead of the
-;; impl does not crash.
-
-(defn popout!
-  "Open Causa's same-browser pop-out window. **TBD-impl.** The
-  `Ctrl+Shift+P` shortcut and the window-management plumbing land
-  under a follow-on bead; this stub emits
-  `:rf.warning/causa-popout-not-yet-implemented` and returns nil.
-
-  Hosts wiring the call today are forward-compatible; the trace event
-  documents the gap in the trace stream."
-  []
-  (trace/emit! :rf.warning
-               :rf.warning/causa-popout-not-yet-implemented
-               {:origin :causa
-                :where  'day8.re-frame2-causa.core/popout!})
-  nil)
+;; (and surfaces in Causa's own Issues ribbon).
 
 (defn load-theme
   "Programmatically swap the Causa shell's CSS theme. **TBD-impl.**

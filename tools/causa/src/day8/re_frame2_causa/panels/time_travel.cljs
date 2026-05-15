@@ -407,9 +407,10 @@
   ;; default target frame (`:rf/default`).
   (rf/reg-event-db :rf.causa/set-target-frame
     (fn [db [_ frame-id]]
-      (if (nil? frame-id)
-        (dissoc db :target-frame)
-        (assoc db :target-frame frame-id))))
+      (let [target (or frame-id defaults/default-target-frame)]
+        (cond-> (assoc db :epoch-history (vec (rf/epoch-history target)))
+          (nil? frame-id) (dissoc :target-frame)
+          (some? frame-id) (assoc :target-frame frame-id)))))
 
   ;; Cached snapshot of the target frame's epoch history, pumped
   ;; by `:rf.causa/epoch-recorded` (dispatched from the epoch-cb in

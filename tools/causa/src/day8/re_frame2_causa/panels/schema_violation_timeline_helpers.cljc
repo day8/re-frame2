@@ -200,14 +200,19 @@
 
   Falls back to `[:tags :failing-id]` (the alternate slot Story's
   schema-validation panel reads; see Spec 009 §Error event catalogue
-  for `SchemaValidationTags`). When neither is present the event is
-  bucketed under the synthetic `::unknown-schema` row so violations
-  with malformed tags still surface (instead of silently dropping).
+  for `SchemaValidationTags`). If neither schema slot is present, the
+  recovery surface (`[:tags :where]`) becomes a first-class row key:
+  `[:schema-recovery :event]`, `[:schema-recovery :fx-args]`, etc.
+  That keeps browser recovery traces meaningful even when the schema
+  artefact is absent or the failing schema cannot be named. Only fully
+  malformed events fall back to `::unknown-schema`.
 
   Pure data → keyword-or-synthetic; JVM-testable."
   [ev]
   (or (get-in ev [:tags :schema])
       (get-in ev [:tags :failing-id])
+      (when-let [where (get-in ev [:tags :where])]
+        [:schema-recovery where])
       ::unknown-schema))
 
 (defn project-violation
@@ -274,6 +279,21 @@
     {:t0 (- t1 default-window-ms)
      :t1 t1}))
 
+(defn default-window-for-events
+  "Return the default time-axis window for trace-event timestamps.
+
+  Browser trace events use the framework trace clock (`performance.now`
+  in CLJS), not wall-clock epoch milliseconds. When violations exist,
+  anchor the default window to the newest event timestamp so recent
+  recovery traces render immediately. With no timed events, fall back
+  to `default-window`."
+  [events]
+  (if-let [times (seq (filter number? (keep :time events)))]
+    (let [t1 (apply max times)]
+      {:t0 (- t1 default-window-ms)
+       :t1 t1})
+    (default-window)))
+
 (defn window-spans-ms
   "Return the window span in ms — `(:t1 - :t0)`. Defensive
   guard against `nil` / inverted windows; returns
@@ -332,6 +352,9 @@
   [path-or-id]
   (cond
     (= ::unknown-schema path-or-id) ":?:"
+    (and (vector? path-or-id)
+         (= :schema-recovery (first path-or-id)))
+    (str "recovery " (pr-str (second path-or-id)))
     (vector? path-or-id)            (pr-str path-or-id)
     (keyword? path-or-id)           (str path-or-id)
     :else                           (str path-or-id)))

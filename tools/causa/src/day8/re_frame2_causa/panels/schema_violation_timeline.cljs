@@ -268,12 +268,15 @@
               :x2 track-width :y2 (/ track-row-height 2)
               :stroke (:border-subtle tokens)
               :stroke-width 1}]
-      (for [{:keys [id recovery time] :as v} violations
+      (for [{:keys [id recovery time where schema-id] :as v} violations
             :let [x (h/violation-x-position window track-width v)]
             :when (some? x)]
         (let [{:keys [fill stroke-width re-raised?]} (h/recovery->presentation recovery)]
           ^{:key id}
           [:circle {:data-testid (str row-test-id "-dot-" id)
+                    :data-schema-kind (h/schema-row-label schema-id)
+                    :data-recovery (str recovery)
+                    :data-where    (str where)
                     :cx          x
                     :cy          (/ track-row-height 2)
                     :r           h/default-dot-radius
@@ -423,14 +426,14 @@
       (get db :schema-filter)))
 
   ;; Time-axis window state — `{:t0 :t1}` in ms. nil falls back to
-  ;; the default 60s window ending at now. Per spec §Layout the
+  ;; the newest trace event's clock-domain timestamp. Per spec §Layout the
   ;; window synchronises with the Trace panel's time-axis when
   ;; both are visible; the shared slot is what makes the
   ;; synchronisation a single-source-of-truth read.
   (rf/reg-sub :rf.causa/schema-timeline-window
     (fn [db _query]
       (or (get db :schema-timeline-window)
-          (h/default-window))))
+          (h/default-window-for-events (get db :trace-buffer)))))
 
   ;; Projected violations filtered to the current window. Returns
   ;; a vector of projected violation rows in chronological order

@@ -447,25 +447,24 @@ module.exports = {
       5000,
     );
 
-    // 9b. time-travel — slider exists; drag to position 0 (oldest);
-    // restore-epoch should be issued. We assert the slider is
-    // interactive (the surface of the contract); the actual host
-    // rewind requires the epoch artefact (covered by section 3).
-    await clickSidebar(page, 'time-travel', 'rf-causa-time-travel');
-    const tt9bSlider = page.locator('[data-testid="rf-causa-time-travel-slider"]');
-    if ((await tt9bSlider.count()) > 0) {
-      // The slider exists — Time Travel populated. Section 3 already
-      // pinned the slider population contract; here we just assert
-      // the panel's scrub baseline is observable.
-      await expectVisible(tt9bSlider.first(), 5000);
-    }
-
-    // 9c. app-db diff — the diff panel renders for the most-recent
-    // settle. The canvas data-testid is the assertion target.
+    // 9c. app-db diff — the diff panel renders actual changed-slice
+    // rows for the most-recent settle.
     await clickSidebar(page, 'app-db', 'rf-causa-app-db-diff');
+    await waitForCondition(
+      () => page.locator('[data-testid^="rf-causa-app-db-diff-slice-"]').count(),
+      (count) => count > 0,
+      'app-db diff to render at least one changed-slice row',
+      5000,
+    );
 
     // 9d. causality graph — nodes paint after at least one host
-    // dispatch. The canvas data-testid is the assertion target.
+    // dispatch.
     await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
+    await waitForCondition(
+      () => page.locator('[data-testid^="rf-causa-graph-node-"]').count(),
+      (count) => count > 0,
+      'causality graph to render at least one cascade node',
+      5000,
+    );
   },
 };

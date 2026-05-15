@@ -63,9 +63,10 @@
      free of a static reagent-slim dep — UIx/Helix builds resolve nil."
      [body]
      (when-let [classifier (try (requiring-resolve
-                                  'reagent2.impl.component/classify-form-body)
-                                (catch Exception _ nil))]
-       (classifier body))))
+                                   'reagent2.impl.component/classify-form-body)
+                                 (catch Exception _ nil))]
+       (when (bound? classifier)
+         (classifier body)))))
 
 #?(:clj
    (defn expand-reg-view

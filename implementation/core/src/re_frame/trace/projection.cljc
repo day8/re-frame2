@@ -108,6 +108,8 @@
    :renders     []
    :other       []})
 
+(def ^:private default-frame :rf/default)
+
 (defn- dispatch-id
   "Return an event's concrete dispatch id, or nil when the event was
   emitted outside a dispatch cascade."
@@ -126,15 +128,34 @@
   [ev]
   (or (dispatch-id ev) :ungrouped))
 
+(defn- frame-index
+  "Map dispatch ids to the frames explicitly seen for that dispatch.
+  Frame-less events inside a cascade can then join the only known frame
+  deterministically without merging ambiguous multi-frame dispatch ids."
+  [events]
+  (reduce (fn [acc ev]
+            (if-let [id (dispatch-id ev)]
+              (if-let [frame (or (get-in ev [:tags :frame]) (:frame ev))]
+                (update acc id (fnil conj #{}) frame)
+                acc)
+              acc))
+          {}
+          events))
+
 (defn- cascade-frame
   "Extract the host frame from an event. nil means the event is not
   frame-qualified (registry-time, boot-time, or older traces). Older
   dispatch-scoped traces that predate explicit frame tags are treated as
   default-frame traces so errors/warnings still ride with their cascade."
-  [ev]
+  [frame-index ev]
   (or (get-in ev [:tags :frame])
       (:frame ev)
-      (when (dispatch-id ev) :rf/default)))
+      (when-let [id (dispatch-id ev)]
+        (let [frames (get frame-index id)]
+          (when (= 1 (count frames))
+            (first frames))))
+      (when (dispatch-id ev)
+        default-frame)))
 
 (defn- cascade-key
   "The stable grouping key for a cascade. Dispatch ids are only unique
@@ -142,11 +163,11 @@
   group by `[frame dispatch-id]`. Traces without a dispatch-id are not
   cascades and share the historical ungrouped bucket regardless of
   frame lifecycle metadata."
-  [ev]
+  [frame-index ev]
   (let [id (cascade-id ev)]
     (if (= :ungrouped id)
       [nil :ungrouped]
-      [(cascade-frame ev) id])))
+      [(cascade-frame frame-index ev) id])))
 
 (defn- absorb
   "Fold one trace event into the per-cascade accumulator."
@@ -205,7 +226,8 @@
   want richer projections of `:other` can call `domino-bucket`
   directly on each event."
   [events]
-  (let [groups (group-by cascade-key events)]
+  (let [index  (frame-index events)
+        groups (group-by #(cascade-key index %) events)]
     (->> groups
          (map (fn [[[frame dispatch-id] evs]]
                 (reduce absorb
