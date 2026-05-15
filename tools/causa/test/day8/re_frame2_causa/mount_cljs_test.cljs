@@ -68,7 +68,9 @@
 ;; than re-binding the sentinel itself).
 
 (defn- reset-mount-state! []
-  (reset! @#'mount/mount-state nil))
+  (reset! @#'mount/mount-state nil)
+  (reset! @#'mount/popout-state nil)
+  (reset! @#'mount/inline-mounts {}))
 
 ;; ---- js/document stub ---------------------------------------------------
 ;;
@@ -89,12 +91,24 @@
 ;; calls `create-mount-node!` and `teardown!` make.
 
 (defn- mk-stub-node []
-  (let [node (js-obj
+  (let [attrs (atom {})
+        node (js-obj
               "style"     (js-obj "display" "")
               "id"        ""
               "tagName"   "DIV"
               "children"  (array))]
     (set! (.-parentNode node) nil)
+    (set! (.-setAttribute node)
+          (fn [k v]
+            (swap! attrs assoc k v)
+            nil))
+    (set! (.-getAttribute node)
+          (fn [k]
+            (get @attrs k)))
+    (set! (.-removeAttribute node)
+          (fn [k]
+            (swap! attrs dissoc k)
+            nil))
     (set! (.-appendChild node)
           (fn [child]
             (.push (.-children node) child)
@@ -467,6 +481,48 @@
                 "all five toggles share the single initial render —
                  the substrate render must not fire on the four
                  toggle-after-mount transitions")))))))
+
+(deftest dock!-and-undock!-mark-the-mount-surface
+  (testing "dock! makes the shell an explicit docked surface and adds
+            host-page padding; undock! restores overlay mode"
+    (with-stub-document
+      (fn [doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (let [state (mount/dock!)
+                  node  (:node state)]
+              (is (= 1 (count @calls))
+                  "dock! opens the shell on first use")
+              (is (= :docked (:mode state)))
+              (is (= "docked" (.getAttribute node "data-rf-causa-mode")))
+              (is (= "40%" (.. doc -body -style -paddingRight))
+                  "host body is padded so docked Causa does not obscure the app")
+              (mount/undock!)
+              (is (= "overlay" (.getAttribute node "data-rf-causa-mode")))
+              (is (= "" (.. doc -body -style -paddingRight))
+                  "undock! restores host body padding"))))))))
+
+(deftest mount-inline-panel!-renders-panel-without-shell-chrome
+  (testing "mount-inline-panel! renders a single panel into a caller-owned
+            node and records an unmount handle independent of the shell"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls unmount-calls]} (mk-render-stub)
+              host (mk-stub-node)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (let [state (mount/mount-inline-panel! host :event-detail)]
+              (is (true? (:ok? state)))
+              (is (= :inline (:mode state)))
+              (is (= :event-detail (:panel-id state)))
+              (is (= "inline" (.getAttribute host "data-rf-causa-mode")))
+              (is (= 1 (count @calls)))
+              (let [{:keys [tree node opts]} (first @calls)]
+                (is (= host node))
+                (is (nil? opts))
+                (is (vector? tree)))
+              (mount/unmount-inline-panel! host)
+              (is (= 1 @unmount-calls))
+              (is (nil? (.getAttribute host "data-rf-causa-mode"))))))))))
 
 ;; -------------------------------------------------------------------------
 ;; (6) Teardown — full destroy

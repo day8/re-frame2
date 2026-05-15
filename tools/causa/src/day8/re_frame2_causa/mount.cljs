@@ -54,10 +54,21 @@
   ;; Singleton — only one Causa shell mounted per process. The map shape:
   ;;   {:node      <DOM element>      ; the freshly-created <div>
   ;;    :unmount   (fn [] ...)         ; substrate adapter unmount fn
-  ;;    :visible?  <boolean>}
+  ;;    :visible?  <boolean>
+  ;;    :mode      <:overlay|:docked>}
   ;; Nil before first mount; never re-allocated across reloads thanks
   ;; to defonce.
   (atom nil))
+
+(defonce ^:private popout-state
+  ;; Optional second-window mount. Shape mirrors mount-state plus
+  ;; `:window`. The opener runtime remains the source of truth.
+  (atom nil))
+
+(defonce ^:private inline-mounts
+  ;; DOM-node → {:node :unmount :panel-id}. Inline panel mounts are
+  ;; independent from the overlay shell and from each other.
+  (atom {}))
 
 (defn mounted?
   "True when the Causa shell has been mounted at least once. The shell
@@ -76,6 +87,7 @@
 (defn- create-mount-node! []
   (let [node (.createElement js/document "div")]
     (set! (.-id node) "rf-causa-root")
+    (.setAttribute node "data-rf-causa-mode" "overlay")
     ;; The shell uses position: fixed for its own outer element, so the
     ;; root <div> only needs to be a no-layout-impact host. Leave its
     ;; default block-level styling intact; the shell handles its own
@@ -83,10 +95,26 @@
     (.appendChild (.-body js/document) node)
     node))
 
+(defn- shell-node [node]
+  (when (and (some? node) (.-querySelector node))
+    (.querySelector node "[data-testid=\"rf-causa-shell\"]")))
+
 (defn- set-visible! [node visible?]
   (when (some? node)
     (set! (-> node .-style .-display)
           (if visible? "block" "none"))))
+
+(defn- set-mode-attrs! [node mode]
+  (when (some? node)
+    (let [mode-name (name mode)]
+      (.setAttribute node "data-rf-causa-mode" mode-name)
+      (when-let [shell (shell-node node)]
+        (.setAttribute shell "data-mode" mode-name)))))
+
+(defn- set-body-docked! [docked?]
+  (when (and (exists? js/document) (.-body js/document))
+    (set! (-> js/document .-body .-style .-paddingRight)
+          (if docked? "40%" ""))))
 
 ;; ---- public API ----------------------------------------------------------
 
@@ -157,10 +185,12 @@
       (ensure-causa-frame!)
       (let [node    (create-mount-node!)
             unmount (substrate-adapter/render [shell/shell-view] node nil)]
+        (set-mode-attrs! node :overlay)
         (reset! mount-state
                 {:node     node
                  :unmount  unmount
-                 :visible? true})
+                 :visible? true
+                 :mode     :overlay})
         @mount-state))))
 
 (defn close!
@@ -173,6 +203,28 @@
     (set-visible! (:node state) false)
     (swap! mount-state assoc :visible? false))
   nil)
+
+(defn dock!
+  "Dock Causa against the host page. The shell remains the same
+  runtime-backed panel, but the root and shell DOM carry
+  `data-rf-causa-mode=\"docked\"` / `data-mode=\"docked\"`, and the
+  host body gets right padding so the inspected app is not obscured.
+  Returns the mount-state map."
+  []
+  (when-let [state (open!)]
+    (set-mode-attrs! (:node state) :docked)
+    (set-body-docked! true)
+    (swap! mount-state assoc :mode :docked :visible? true)
+    @mount-state))
+
+(defn undock!
+  "Return the overlay shell to its default non-layout-affecting mode."
+  []
+  (when-let [state @mount-state]
+    (set-mode-attrs! (:node state) :overlay)
+    (set-body-docked! false)
+    (swap! mount-state assoc :mode :overlay))
+  @mount-state)
 
 (defn toggle!
   "Toggle the Causa shell's visibility. First call mounts + shows
@@ -190,5 +242,65 @@
       (try (unmount) (catch :default _ nil)))
     (when (and node (.-parentNode node))
       (.removeChild (.-parentNode node) node))
+    (set-body-docked! false)
     (reset! mount-state nil))
+  nil)
+
+(defn popout!
+  "Open a same-origin Causa pop-out window and render the shell into it.
+  The pop-out shares the opener runtime and Causa frame; no
+  serialisation layer is introduced. Returns a state map, or
+  `{:ok? false :reason :popup-blocked}` when `window.open` fails."
+  []
+  (if-let [state @popout-state]
+    state
+    (if-not (substrate-adapter/current-adapter)
+      {:ok? false :reason :no-substrate-adapter}
+      (let [win (when (exists? js/window)
+                  (.open js/window "" "rf-causa-popout"
+                         "popup,width=960,height=720"))]
+        (if-not win
+          {:ok? false :reason :popup-blocked}
+          (do
+            (ensure-causa-frame!)
+            (let [doc  (.-document win)
+                  body (.-body doc)
+                  node (.createElement doc "div")]
+              (set! (.-title doc) "Causa")
+              (set! (.-id node) "rf-causa-popout-root")
+              (.setAttribute node "data-rf-causa-mode" "popout")
+              (.appendChild body node)
+              (let [unmount (substrate-adapter/render [shell/shell-view] node nil)
+                    state   {:ok? true :window win :node node :unmount unmount :mode :popout}]
+                (reset! popout-state state)
+                state))))))))
+
+(defn mount-inline-panel!
+  "Render one Causa panel into `node` without the shell chrome. `panel-id`
+  is any sidebar panel id; nil defaults to the hero panel. Returns a
+  mount map and stores the unmount fn by DOM node."
+  ([node panel-id]
+   (mount-inline-panel! node panel-id nil))
+  ([node panel-id _opts]
+   (if-not (and node (substrate-adapter/current-adapter))
+     {:ok? false :reason (if node :no-substrate-adapter :missing-node)}
+     (do
+       (ensure-causa-frame!)
+       (.setAttribute node "data-rf-causa-mode" "inline")
+       (let [unmount (substrate-adapter/render
+                       [shell/inline-panel-view {:panel-id (or panel-id :event-detail)}]
+                       node nil)
+             state   {:ok? true :node node :panel-id (or panel-id :event-detail)
+                      :unmount unmount :mode :inline}]
+         (swap! inline-mounts assoc node state)
+         state)))))
+
+(defn unmount-inline-panel!
+  "Unmount a previously mounted inline panel from `node`."
+  [node]
+  (when-let [{:keys [unmount]} (get @inline-mounts node)]
+    (when unmount
+      (try (unmount) (catch :default _ nil)))
+    (.removeAttribute node "data-rf-causa-mode")
+    (swap! inline-mounts dissoc node))
   nil)

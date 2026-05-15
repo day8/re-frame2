@@ -73,6 +73,24 @@
         (cond-> file
           line (str ":" line))))))
 
+(defn- selected-ref
+  "Normalise the selection slot. Newer callers pass
+  `{:dispatch-id <id> :frame <frame-id>}` so non-default frames can be
+  distinguished even if a host implementation scopes dispatch ids per
+  frame. Older callers that still pass the raw id continue to resolve
+  by id only."
+  [selection]
+  (if (map? selection)
+    selection
+    {:dispatch-id selection}))
+
+(defn- cascade-matches-selection?
+  [{:keys [dispatch-id frame]} selection]
+  (let [{selected-id :dispatch-id selected-frame :frame} (selected-ref selection)]
+    (and (= selected-id dispatch-id)
+         (or (nil? selected-frame)
+             (= selected-frame frame)))))
+
 ;; ---- row renderers -------------------------------------------------------
 
 (defn- domino-row
@@ -258,10 +276,12 @@
   "One row in the cascade-list view. Clicking the row fires the
   `:rf.causa/select-dispatch-id` event-db so the panel switches into
   cascade-detail mode."
-  [{:keys [dispatch-id event] :as _cascade}]
-  [:li {:key       dispatch-id
+  [{:keys [dispatch-id frame event] :as _cascade}]
+  [:li {:key       [frame dispatch-id]
         :data-testid (str "rf-causa-cascade-row-" dispatch-id)
-        :on-click   #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
+        :on-click   #(rf/dispatch
+                       [:rf.causa/select-dispatch-id dispatch-id frame]
+                       {:frame :rf/causa})
         :style      {:padding      "8px 12px"
                      :border-bottom (str "1px solid " (:border-subtle tokens))
                      :cursor       "pointer"
@@ -270,6 +290,9 @@
                      :color        (:text-primary tokens)}}
    [:span {:style {:color (:accent-violet tokens) :margin-right "8px"}}
     (str "#" dispatch-id)]
+   (when frame
+     [:span {:style {:color (:text-tertiary tokens) :margin-right "8px"}}
+      (str frame)])
    (format-edn (or event :ungrouped))])
 
 (defn- cascade-list
@@ -308,8 +331,10 @@
 (defn- cascade-detail
   "The six-domino cascade for the selected dispatch-id. `cascade` is a
   single cascade record per `re-frame.trace.projection/group-cascades`."
-  [{:keys [event handler fx effects subs renders other] :as _cascade}]
+  [{:keys [dispatch-id frame event handler fx effects subs renders other] :as _cascade}]
   [:div {:data-testid "rf-causa-event-detail-cascade"
+         :data-dispatch-id (str dispatch-id)
+         :data-frame (str frame)
          :style       {:padding "8px 0"}}
    [:div {:style {:padding "0 12px 8px 12px"
                   :display "flex"
@@ -347,7 +372,7 @@
   layout (when a dispatch-id is selected) or the cascade-list empty
   state (when not)."
   []
-  (let [{:keys [selected-dispatch-id selected-cascade cascades]}
+  (let [{:keys [selected-dispatch-id selected-dispatch-frame selected-cascade cascades]}
         @(rf/subscribe [:rf.causa/event-detail])]
     [:section {:data-testid "rf-causa-event-detail"
                :style       {:height         "100%"
@@ -380,9 +405,13 @@
                              :color   (:text-tertiary tokens)
                              :font-family sans-stack
                              :font-size "13px"}}
-         "Selected dispatch-id "
-         [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
+       "Selected dispatch-id "
+        [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
           (str selected-dispatch-id)]
+        (when selected-dispatch-frame
+          [:span " in frame "
+           [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
+            (str selected-dispatch-frame)]])
          " is no longer in the trace buffer. "
          [:button {:on-click #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
                    :style    {:margin-left "8px"
@@ -419,7 +448,13 @@
   ;; (cascade list, per spec/007-UX-IA.md §The default landing view).
   (rf/reg-sub :rf.causa/selected-dispatch-id
     (fn [db _query]
-      (get db :selected-dispatch-id)))
+      (:dispatch-id (selected-ref (or (get db :selected-dispatch)
+                                      (get db :selected-dispatch-id))))))
+
+  (rf/reg-sub :rf.causa/selected-dispatch-frame
+    (fn [db _query]
+      (:frame (selected-ref (or (get db :selected-dispatch)
+                                (get db :selected-dispatch-id))))))
 
   ;; Event-detail composite — produces everything the panel needs in
   ;; one read so the view stays a thin renderer. Shape:
@@ -441,18 +476,26 @@
     ;; — reg-sub-raw is dropped; see `re-frame.subs/parse-reg-sub-args`).
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/selected-dispatch-id]
-    (fn [[cascades selected-id] _query]
-      (let [by-id (when selected-id
-                    (some #(when (= selected-id (:dispatch-id %)) %)
-                          cascades))]
+    :<- [:rf.causa/selected-dispatch-frame]
+    (fn [[cascades selected-id selected-frame] _query]
+      (let [selection (when selected-id
+                        {:dispatch-id selected-id
+                         :frame       selected-frame})
+            by-id     (when selection
+                        (some #(when (cascade-matches-selection? % selection) %)
+                              cascades))]
         {:cascades             cascades
          :selected-dispatch-id selected-id
+         :selected-dispatch-frame selected-frame
          :selected-cascade     by-id})))
 
   (rf/reg-event-db :rf.causa/select-dispatch-id
-    (fn [db [_ dispatch-id]]
-      (assoc db :selected-dispatch-id dispatch-id)))
+    (fn [db [_ dispatch-id frame-id]]
+      (assoc db
+             :selected-dispatch-id dispatch-id
+             :selected-dispatch    (cond-> {:dispatch-id dispatch-id}
+                                     frame-id (assoc :frame frame-id)))))
 
   (rf/reg-event-db :rf.causa/clear-selected-dispatch-id
     (fn [db _event]
-      (dissoc db :selected-dispatch-id))))
+      (dissoc db :selected-dispatch :selected-dispatch-id))))

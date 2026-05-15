@@ -238,12 +238,12 @@
     :as _row}]
   (let [row-test-id (str "rf-causa-trace-row-" id)
         dot-colour  (h/op-type-colour op-type)]
-    [:li {:key         id
+    [:li {:key         [frame id time op-type operation source-coord]
           :data-testid row-test-id
           :on-click    (fn []
                          (when dispatch-id
                            (rf/dispatch [:rf.causa/select-dispatch-id
-                                         dispatch-id] {:frame :rf/causa})
+                                         dispatch-id frame] {:frame :rf/causa})
                            (rf/dispatch [:rf.causa/select-panel
                                          :event-detail] {:frame :rf/causa})))
           :style       {:display       "grid"

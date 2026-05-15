@@ -137,6 +137,7 @@
    :rf.causa/schema-timeline-window
    :rf.causa/schema-violation-timeline
    :rf.causa/schema-violations-window
+   :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-diff
    :rf.causa/selected-epoch-id
@@ -300,8 +301,8 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 65 subs + 67 events + 4 fxs"
-    (is (= 65 (count all-sub-names)))
+  (testing "registry holds exactly 66 subs + 67 events + 4 fxs"
+    (is (= 66 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     (is (= 67 (count all-event-names)))

@@ -341,6 +341,34 @@
   (when @(rf/subscribe [:rf.causa/copilot-open?])
     [ai-co-pilot/ai-co-pilot-rail]))
 
+(defn panel-content
+  "Return the hiccup view for a panel id. Shared by the full shell
+  canvas and the inline-panel mount API so embedded panels render the
+  exact same product surface as the docked/overlay shell."
+  [selected]
+  (case selected
+    :event-detail [event-detail/event-detail-view]
+    :time-travel  [time-travel/time-travel-view]
+    :app-db       [app-db-diff/app-db-diff-view]
+    :causality    [causality-graph/causality-graph-view]
+    ;; ── effects panel begin ──
+    :fx           [effects/effects-view]
+    ;; ── effects panel end ──
+    :flows        [flows/flows-view]
+    :routes       [routes/routes-view]
+    :schemas      [schema-violation-timeline/schema-violation-timeline-view]
+    :subs         [subscriptions/subscriptions-view]
+    :machines     [machine-inspector/machine-inspector-view]
+    :hydration    [hydration-debugger/hydration-debugger-view]
+    :issues       [issues-ribbon/issues-ribbon-view]
+    :trace        [trace/trace-view]
+    :performance  [performance/performance-view]
+    ;; ── mcp-server panel begin ──
+    :mcp-server   [mcp-server/mcp-server-view]
+    ;; ── mcp-server panel end ──
+    :copilot      [ai-co-pilot/ai-co-pilot-view]
+    [unknown-panel selected]))
+
 (rf/reg-view shell-view
   "The full Causa shell. Wraps every panel region in a `:rf/causa`
   frame-provider so descendant `subscribe` / `dispatch` resolve to
@@ -357,6 +385,7 @@
   []
   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
+          :data-mode   "overlay"
           :style       {:position         "fixed"
                         :top              0
                         :right            0
@@ -381,3 +410,18 @@
      [canvas]
      [rail-gate]]
     [bottom-rail]]])
+
+(rf/reg-view inline-panel-view
+  "A single Causa panel mounted outside the shell chrome. Used by the
+  public inline mount API for host pages that want a deterministic
+  embedded diagnostics pane without the overlay/docked sidebar."
+  [{:keys [panel-id]}]
+  [rf/frame-provider {:frame :rf/causa}
+   [:div {:data-testid "rf-causa-inline-panel"
+          :data-panel  (name (or panel-id registry/default-panel-id))
+          :style       {:height      "100%"
+                        :min-height  "240px"
+                        :background  (:bg-2 tokens)
+                        :color       (:text-primary tokens)
+                        :font-family "Inter, system-ui, -apple-system, Segoe UI, sans-serif"}}
+    (panel-content (or panel-id registry/default-panel-id))]])

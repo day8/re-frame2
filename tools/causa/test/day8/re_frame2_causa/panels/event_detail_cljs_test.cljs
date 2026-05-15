@@ -59,23 +59,33 @@
   "Produce a representative one-cascade event stream — same shape as
   re-frame.trace.projection's own tests. `dispatch-id` rides on every
   event's `:tags :dispatch-id` per rf2-g6ih4."
-  [dispatch-id event-vec id-base]
-  [{:id (+ id-base 1) :op-type :event    :operation :event/dispatched
-    :tags {:dispatch-id dispatch-id :event event-vec}}
-   {:id (+ id-base 2) :op-type :event    :operation :event
-    :tags {:dispatch-id dispatch-id :phase :run-start}}
-   {:id (+ id-base 3) :op-type :event    :operation :event
-    :tags {:dispatch-id dispatch-id :phase :run-end}}
-   {:id (+ id-base 4) :op-type :event    :operation :event/do-fx
-    :tags {:dispatch-id dispatch-id}}
-   {:id (+ id-base 5) :op-type :fx       :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id :fx-id :db}}
-   {:id (+ id-base 6) :op-type :fx       :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id :fx-id :dispatch}}
-   {:id (+ id-base 7) :op-type :sub/run  :operation :sub/run
-    :tags {:dispatch-id dispatch-id :sub-id :sub/foo}}
-   {:id (+ id-base 8) :op-type :view     :operation :view/render
-    :tags {:dispatch-id dispatch-id :render-key [:app/root nil]}}])
+  ([dispatch-id event-vec id-base]
+   (cascade-evs dispatch-id event-vec id-base nil))
+  ([dispatch-id event-vec id-base frame-id]
+   [{:id (+ id-base 1) :op-type :event    :operation :event/dispatched
+     :tags (cond-> {:dispatch-id dispatch-id :event event-vec}
+             frame-id (assoc :frame frame-id))}
+    {:id (+ id-base 2) :op-type :event    :operation :event
+     :tags (cond-> {:dispatch-id dispatch-id :phase :run-start}
+             frame-id (assoc :frame frame-id))}
+    {:id (+ id-base 3) :op-type :event    :operation :event
+     :tags (cond-> {:dispatch-id dispatch-id :phase :run-end}
+             frame-id (assoc :frame frame-id))}
+    {:id (+ id-base 4) :op-type :event    :operation :event/do-fx
+     :tags (cond-> {:dispatch-id dispatch-id}
+             frame-id (assoc :frame frame-id))}
+    {:id (+ id-base 5) :op-type :fx       :operation :rf.fx/handled
+     :tags (cond-> {:dispatch-id dispatch-id :fx-id :db}
+             frame-id (assoc :frame frame-id))}
+    {:id (+ id-base 6) :op-type :fx       :operation :rf.fx/handled
+     :tags (cond-> {:dispatch-id dispatch-id :fx-id :dispatch}
+             frame-id (assoc :frame frame-id))}
+    {:id (+ id-base 7) :op-type :sub/run  :operation :sub/run
+     :tags (cond-> {:dispatch-id dispatch-id :sub-id :sub/foo}
+             frame-id (assoc :frame frame-id))}
+    {:id (+ id-base 8) :op-type :view     :operation :view/render
+     :tags (cond-> {:dispatch-id dispatch-id :render-key [:app/root nil]}
+             frame-id (assoc :frame frame-id))}]))
 
 (defn- seed-buffer!
   "Register Causa's handlers, allocate the :rf/causa frame, then push
@@ -193,6 +203,17 @@
             "orphaned-selection container present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
             "cascade-detail absent when the id has no matching cascade")))))
+
+(deftest frame-qualified-selection-renders-the-matching-cascade
+  (testing "same dispatch-id in two frames resolves to the selected frame's cascade"
+    (seed-buffer! (concat (cascade-evs 100 [:counter/a-inc] 0 :counter/a)
+                          (cascade-evs 100 [:counter/b-inc] 100 :counter/b)))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100 :counter/b])
+      (let [data @(rf/subscribe [:rf.causa/event-detail])]
+        (is (= :counter/b (:selected-dispatch-frame data)))
+        (is (= :counter/b (get-in data [:selected-cascade :frame])))
+        (is (= [:counter/b-inc] (get-in data [:selected-cascade :event])))))))
 
 ;; ---- (3) the select / clear events -------------------------------------
 

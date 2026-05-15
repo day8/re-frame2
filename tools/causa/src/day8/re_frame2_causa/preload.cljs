@@ -35,7 +35,8 @@
   and the mount fails silently. The fallback is graceful, not
   catastrophic — but the right answer is to keep the preload out of
   production builds via shadow-cljs's `:dev`-only `:devtools` block."
-  (:require [re-frame.core :as rf]
+  (:require [goog.object :as gobj]
+            [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             ;; Pull `re-frame.epoch` into the dev classpath via the
@@ -56,6 +57,7 @@
             ;; bundles by the `:devtools/preloads` shadow-cljs gate.
             [re-frame.epoch]
             [day8.re-frame2-causa.keybinding :as keybinding]
+            [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -142,6 +144,39 @@
   (reset! epoch-cb-registered? false)
   nil)
 
+;; ---- public browser API exports -----------------------------------------
+
+(defn- ensure-js-object!
+  [parent key]
+  (or (gobj/get parent key)
+      (let [obj #js {}]
+        (gobj/set parent key obj)
+        obj)))
+
+(defn install-browser-api-exports!
+  "Expose the dev-only Causa launch API on the browser global object.
+
+  The preload is the namespace shadow-cljs actually loads into host
+  dev bundles; the facade namespace (`day8.re-frame2-causa.core`) is a
+  library import target and may be absent from apps that only install
+  Causa via `:devtools/preloads`. These explicit exports make the
+  deterministic browser API available without creating a preload ↔
+  facade require cycle."
+  []
+  (when (exists? js/window)
+    (let [day8  (ensure-js-object! js/window "day8")
+          causa (ensure-js-object! day8 "re_frame2_causa")
+          core  (ensure-js-object! causa "core")]
+      (gobj/set core "open_BANG_" mount/open!)
+      (gobj/set core "close_BANG_" mount/close!)
+      (gobj/set core "toggle_BANG_" mount/toggle!)
+      (gobj/set core "dock_BANG_" mount/dock!)
+      (gobj/set core "undock_BANG_" mount/undock!)
+      (gobj/set core "popout_BANG_" mount/popout!)
+      (gobj/set core "mount_inline_panel_BANG_" mount/mount-inline-panel!)
+      (gobj/set core "unmount_inline_panel_BANG_" mount/unmount-inline-panel!)))
+  nil)
+
 ;; ---- side-effecting boot -------------------------------------------------
 
 ;; Loading this namespace runs the foundation's three side effects.
@@ -161,4 +196,5 @@
   (registry/register-causa-handlers!)
   (register-trace-collector!)
   (register-epoch-collector!)
+  (install-browser-api-exports!)
   (keybinding/attach!))
