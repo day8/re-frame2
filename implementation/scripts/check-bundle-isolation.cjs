@@ -43,9 +43,11 @@
 'use strict';
 
 const path = require('path');
+const { createGateReporter } = require('./lib/gate-report.cjs');
 const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const report = createGateReporter();
 
 // ----- the bundle-isolation contract ----------------------------------------
 
@@ -313,64 +315,87 @@ function countPattern(blob, re) {
 }
 
 function checkArtefact(blob, art) {
-  console.log(`  ${art.name}:`);
+  report.detail(`  ${art.name}:`);
 
   let internalOk = true;
+  let internalFailures = 0;
   for (const { source, sentinel } of art.internalSentinels) {
     const hits = countSubstring(blob, sentinel);
     const ok   = hits === 0;
     const tag  = ok ? 'OK' : 'FAIL';
-    console.log(`    [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} ` +
-                `expected 0, was ${hits}`);
-    if (!ok) internalOk = false;
+    report.detail(`    [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} ` +
+                  `expected 0, was ${hits}`);
+    if (!ok) {
+      internalOk = false;
+      internalFailures += 1;
+    }
   }
 
   let allowListOk = true;
   let allowListHits = 0;
+  const allowListChecked = art.consumerAllowList ? 1 : 0;
   if (art.consumerAllowList) {
     allowListHits = countPattern(blob, art.consumerAllowList);
     allowListOk   = allowListHits <= art.expectedAllowListHits;
     const tag     = allowListOk ? 'OK' : 'FAIL';
-    console.log(`    [${tag}] consumer allow-list ${art.consumerAllowList}: ` +
-                `${allowListHits} hit(s), expected <= ${art.expectedAllowListHits}`);
+    report.detail(`    [${tag}] consumer allow-list ${art.consumerAllowList}: ` +
+                  `${allowListHits} hit(s), expected <= ${art.expectedAllowListHits}`);
   }
 
-  return { ok: internalOk && allowListOk, internalOk, allowListOk, allowListHits };
+  return {
+    ok: internalOk && allowListOk,
+    internalOk,
+    allowListOk,
+    allowListHits,
+    internalChecked: art.internalSentinels.length,
+    internalFailures,
+    allowListChecked,
+  };
 }
 
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  console.log('=== Bundle isolation: counter example (rf2-51x5) ===');
+  report.detail('=== Bundle isolation: counter example (rf2-51x5) ===');
 
   const bundleDir = path.join(ROOT, 'out', 'examples', 'counter');
   const blob = readReleaseBlob(bundleDir);
 
   if (blob == null) {
+    report.flushDetails();
     console.error(`[bundle-isolation] bundle path missing — ${bundleDir}`);
     console.error('                   Did you run "shadow-cljs release examples/counter"?');
     process.exit(1);
   }
 
-  console.log(`bundle: ${bundleDir}`);
-  console.log(`bundle size: ${blob.length} chars`);
-  console.log('');
+  report.detail(`bundle: ${bundleDir}`);
+  report.detail(`bundle size: ${blob.length} chars`);
+  report.detail('');
 
   let allOk = true;
   const failures = [];
+  let internalChecked = 0;
+  let allowListChecked = 0;
   for (const art of ARTEFACTS) {
     const res = checkArtefact(blob, art);
+    internalChecked += res.internalChecked;
+    allowListChecked += res.allowListChecked;
     if (!res.ok) {
       allOk = false;
       failures.push({ name: art.name, ...res });
     }
   }
 
-  console.log('');
+  report.detail('');
   if (allOk) {
-    console.log('=== PASS ===');
+    report.pass(
+      'bundle-isolation',
+      `${ARTEFACTS.length} artefact entries; ${internalChecked} internal sentinels absent; ` +
+        `${allowListChecked} allow-list budgets ok; bundle=${bundleDir} (${blob.length} chars)`
+    );
     process.exit(0);
   } else {
+    report.flushDetails();
     console.error('=== FAIL ===');
     console.error('');
     console.error('At least one per-feature artefact (or tools/story) leaked');
