@@ -41,7 +41,9 @@
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
-            [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]))
+            [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-causa.panels.app-db-diff-subs
+             :as app-db-diff-subs]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -49,10 +51,10 @@
   (causa-test-support/reset-all!)
   (trace-bus/clear-buffer!)
   ;; The `:rf.causa/selected-epoch-diff` cache is a top-level
-  ;; `defonce` (lifted from let-local for rf2-o94sp testability —
-  ;; see app_db_diff.cljs §diff-cache). Reset between tests so
+  ;; `defonce` (lifted from let-local for rf2-o94sp testability).
+  ;; Reset between tests so
   ;; cache-size assertions are reproducible across the corpus.
-  (reset! app-db-diff/diff-cache {}))
+  (reset! app-db-diff-subs/diff-cache {}))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
@@ -265,9 +267,10 @@
         (doseq [eid [:e-1 :e-2 :e-3 :e-4]]
           (rf/dispatch-sync [:rf.causa/select-epoch eid])
           @(rf/subscribe [:rf.causa/selected-epoch-diff]))
-        (is (= 4 (count @app-db-diff/diff-cache))
+        (is (= 4 (count @app-db-diff-subs/diff-cache))
             "after warming all four selections, cache holds four entries")
-        (is (= #{:e-1 :e-2 :e-3 :e-4} (set (keys @app-db-diff/diff-cache)))
+        (is (= #{:e-1 :e-2 :e-3 :e-4}
+               (set (keys @app-db-diff-subs/diff-cache)))
             "cache keys match the live history's epoch-ids exactly"))
       ;; Rotate to a 2-epoch history; :e-1/:e-2 age out.
       (let [hist-b [(mk-record :e-5 [:e] {:n 4} {:n 5})
@@ -277,17 +280,17 @@
           ;; Read newest diff — triggers the prune-on-read step.
           (rf/dispatch-sync [:rf.causa/select-epoch nil])
           @(rf/subscribe [:rf.causa/selected-epoch-diff])
-          (is (<= (count @app-db-diff/diff-cache) 2)
+          (is (<= (count @app-db-diff-subs/diff-cache) 2)
               "after rotation + one read, cache size ≤ live history depth")
-          (is (not (contains? @app-db-diff/diff-cache :e-1))
+          (is (not (contains? @app-db-diff-subs/diff-cache :e-1))
               ":e-1 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff/diff-cache :e-2))
+          (is (not (contains? @app-db-diff-subs/diff-cache :e-2))
               ":e-2 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff/diff-cache :e-3))
+          (is (not (contains? @app-db-diff-subs/diff-cache :e-3))
               ":e-3 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff/diff-cache :e-4))
+          (is (not (contains? @app-db-diff-subs/diff-cache :e-4))
               ":e-4 (aged out) is no longer in the cache")
-          (is (contains? @app-db-diff/diff-cache :e-6)
+          (is (contains? @app-db-diff-subs/diff-cache :e-6)
               ":e-6 (just read) is in the cache"))))))
 
 (deftest selected-epoch-diff-cache-distinguishes-distinct-epochs
