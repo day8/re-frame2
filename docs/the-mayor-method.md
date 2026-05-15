@@ -37,68 +37,71 @@ The mayor does **not** write code in the foreground, run long test suites, do op
 
 Background agents do the heavy lifting. They get a tight, complete prompt. They burn their context window on one task. They report back. They are disposable; the mayor is not.
 
-## Specs are super prompts
+## Prompts are the work
 
 For any AI work, **the prompt is everything**. Quality of output ≈ quality of prompt. The model can only execute what you ask for — if your ask is incomplete, ambiguous, or contradictory, the output will be too. There's no exception to this rule, and no model upgrade fixes it.
 
-The discipline that follows is to take prompts seriously. That's what a "spec" is in this method — not a heavyweight engineering deliverable, but a prompt that's been worked on. Longer, sharper, less ambiguous, with the gaps and edge cases pre-empted. A good spec is a good prompt; a good prompt is a good spec.
+The discipline that follows is to take prompts seriously. Put them under `/ai/prompts/`, not in chat history. Work on them. Make them longer, sharper, less ambiguous, with the gaps and edge cases pre-empted.
+
+Some prompts become specs. Fine. But "prompt" is the better default word: it says what the file is for. It is an instruction artefact for an AI to act on.
 
 Once you see them as the same thing, the workflow follows:
 
-1. Iterate the spec until it's right.
+1. Iterate the prompt until it's right.
 2. Generate the code.
-3. If something's wrong: don't iterate the code — iterate the spec, regenerate.
+3. If something's wrong: don't iterate the code — iterate the prompt, regenerate.
 
-You spend most of your time on specs. Code becomes a by-product.
+You spend most of your time on prompts. Code becomes a by-product.
 
-## How to iterate a spec with the mayor
+## How to iterate a prompt with the mayor
 
-A spec lives at `/ai/specs/X.md`. Tell the mayor: *"I want to write a spec for X. Write the file at `/ai/specs/X.md`. We'll iterate on it together."*
+A prompt lives at `/ai/prompts/X.md`. Tell the mayor: *"I want to write an implementation prompt for X. Write the file at `/ai/prompts/X.md`. We'll iterate on it together."*
 
-Then drive the iteration. The mayor isn't trying to write the spec by itself — it's stress-testing yours. Useful prompts:
+Then drive the iteration. The mayor isn't trying to write the prompt by itself — it's stress-testing yours. Useful prompts:
 
-- **Interview me.** *"Don't write the spec yet. Ask whatever questions you need to write a complete spec. Just ask."*
-- **Find gaps.** *"Where is this spec incomplete? What scenarios doesn't it cover?"*
+- **Interview me.** *"Don't write the prompt yet. Ask whatever questions you need to write a complete implementation prompt. Just ask."*
+- **Find gaps.** *"Where is this prompt incomplete? What scenarios doesn't it cover?"*
 - **Find ambiguity.** *"Where could two readers reasonably interpret this differently? What words am I using that don't mean the same thing to everyone?"*
 - **Propose alternatives.** *"What other approaches could solve this? What are the trade-offs?"*
-- **Restate it back.** *"Restate the problem in two sentences. Restate your solution in two sentences. If either is hard, the spec isn't ready."*
-- **Background audit.** *"Dispatch a background agent to look for reasons the spec might be wrong — bad assumptions, missing prior art, contradictions elsewhere in the repo. Append findings to the end of the doc."*
-- **Codebase sweep.** *"Dispatch a background agent to review the codebase for anything I might have missed — existing patterns, edge cases, conventions, callers — that the spec should account for. Append to the bottom of the doc."*
+- **Restate it back.** *"Restate the problem in two sentences. Restate your solution in two sentences. If either is hard, the prompt isn't ready."*
+- **Background audit.** *"Dispatch a background agent to look for reasons the prompt might be wrong — bad assumptions, missing prior art, contradictions elsewhere in the repo. Append findings to the end of the doc."*
+- **Codebase sweep.** *"Dispatch a background agent to review the codebase for anything I might have missed — existing patterns, edge cases, conventions, callers — that the prompt should account for. Append to the bottom of the doc."*
 
-Read each response. Push back. Edit the spec. Repeat.
+Read each response. Push back. Edit the prompt. Repeat.
 
-The spec is ready when:
+The prompt is ready when:
 - The mayor stops finding gaps.
 - The background audit returns "no concerns I can find."
-- You can read the spec aloud without stumbling.
+- You can read the prompt aloud without stumbling.
 
 ## On format: RFCs are your friend
 
-If you don't know how to structure a spec, model it on an [IETF RFC][rfc]. Tell the mayor to help you. The pieces that pay off fastest:
+If you don't know how to structure a prompt, model the normative parts on an [IETF RFC][rfc]. Tell the mayor to help you. The pieces that pay off fastest:
 
 - **A Terminology section** that defines every word that could be misread, before it's used.
 - **[RFC 2119][rfc-2119] keywords** — `MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT` — used consistently throughout. They look pedantic. They eliminate entire classes of ambiguity.
 - **A Considerations section** at the end (security, backwards compatibility, performance, edge cases). It forces you to think about what could go wrong before the implementation does.
 
-Right now, spec discipline is harder for me than code discipline. I'm learning.
+Right now, prompt discipline is harder for me than code discipline. I'm learning.
 
 [rfc]: https://www.rfc-editor.org/rfc/rfc7322
 [rfc-2119]: https://www.rfc-editor.org/rfc/rfc2119
 
 ## My rule: if the AI makes a mistake, that's on me
 
-If the agent produces wrong code, the cause is almost always upstream in the prompt I wrote — not a flaw in the model's execution. So I treat every AI mistake as evidence that my spec (the super-prompt) was incomplete, ambiguous, or contradictory. The fix is to go back to the spec and tighten it, not to argue with the agent or hand-patch the output.
+If the agent produces wrong code, the cause is almost always upstream in the prompt I wrote — not a flaw in the model's execution. So I treat every AI mistake as evidence that my prompt was incomplete, ambiguous, or contradictory. The fix is to go back to the prompt and tighten it, not to argue with the agent or hand-patch the output.
 
-This rule does two useful things. It keeps me focused on the leverage point (the spec) instead of the visible-but-ineffective lever (the code). And it forces honesty about what I actually asked for — which is almost never as clear as it felt at the time.
+This rule does two useful things. It keeps me focused on the leverage point (the prompt) instead of the visible-but-ineffective lever (the code). And it forces honesty about what I actually asked for — which is almost never as clear as it felt at the time.
 
-Adopt this rule consistently and your specs sharpen fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
+Adopt this rule consistently and your prompts sharpen fast. Within a few cycles you start writing prompts that *predict* the kinds of mistakes a vague prompt would have caused, and pre-empt them.
 
 ## Filesystem layout
 
-Three slots under an `/ai/` root, keeping AI working artefacts out of the way of your code (`.gitignored`):
+Four slots under an `/ai/` root, keeping AI working artefacts out of the way of your code (`.gitignored`):
 
-- **`/ai/specs/`** — the specs (super-prompts).
-- **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Promoted into `/ai/specs/` when a finding stabilises into something worthwhile.
+- **`/ai/prompts/`** — implementation prompts, decision prompts, review prompts. Some may be spec-like; all are instructions for AI work.
+- **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Promoted into `/ai/prompts/` when a finding stabilises into something actionable.
+- **`/ai/extended-context/`** — durable project context that is not obvious from the code alone: operator preferences, naming history, implicit constraints, scars, and "I wish I'd known this earlier" notes.
 - **`/ai/map.md`** — the map. A single file at the `/ai/` root that summarises and categorises every open bead. The mayor maintains it; you keep it open in your editor.
 
 That's the entire layout. Everything else in the method assumes this shape.
@@ -107,22 +110,22 @@ That's the entire layout. Everything else in the method assumes this shape.
 
 **I guard the mayor's context like a jealous lover.**
 
-Anything that would burn a lot of tokens — open-ended exploration, surveys of best practice, what-if analysis, audits of the existing code, design drafts, *"research the security implications of X"* questions — gets farmed out to a background agent. I ask for the output to land as a markdown document in `/ai/findings`, and the mayor and I then use it as in-flight thinking material while fine-tuning the spec.
+Anything that would burn a lot of tokens — open-ended exploration, surveys of best practice, what-if analysis, audits of the existing code, design drafts, *"research the security implications of X"* questions — gets farmed out to a background agent. I ask for the output to land as a markdown document in `/ai/findings`, and the mayor and I then use it as in-flight thinking material while fine-tuning the prompt.
 
 The shape:
 
 1. **Mayor dispatches an agent** to do the exploratory work, with a clear brief: *"research X; write a findings doc at `/ai/findings/X.md`; do not change anything else."*
 2. **Agent returns**. The findings doc is now sitting in `/ai/findings/`, structured with an executive summary, the substance, and (crucially) a numbered list of **open questions for me** at the end.
 3. **The mayor and I walk the open questions together**. One at a time. I answer; the mayor records the lock back into the doc with a `Locked YYYY-MM-DD: <decision> + brief rationale` line. Each answered question closes; the mayor accumulates decisions, and the doc evolves from "proposal" into "decision trail."
-4. **When the design is settled**, the locked outcomes propagate downstream — into the spec under `/ai/specs/`, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the spec and the rationale is recoverable from `bd` notes + git history) or gets promoted to `/ai/specs/` as a committed design rationale.
+4. **When the design is settled**, the locked outcomes propagate downstream — into the prompt under `/ai/prompts/`, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the prompt and the rationale is recoverable from `bd` notes + git history) or gets promoted to `/ai/prompts/` as a committed design rationale.
 
 Periodically, you'll need to clean up `/ai/findings/`. Ask the mayor *"what in /ai/findings can be removed?"* It knows.
 
 ## Only then: implement
 
-Once the spec is good, you say:
+Once the prompt is good, you say:
 
-> *"Create beads to implement what we've speced. Action them with background agents working on a branch."*
+> *"Create beads to implement this prompt. Action them with background agents working on a branch."*
 
 The mayor files beads, dispatches background agents, watches them complete, surfaces results.
 
@@ -165,6 +168,18 @@ The mayor walks you through. You decide. The mayor records the decision into the
 
 You move on. The work flows.
 
+## Retrospectives
+
+At the end of a serious session, ask the mayor:
+
+> *"What information not already recorded would it have been helpful for you to have had before we started this session? What's not obvious from the code alone?"*
+
+This is not status. Status goes in `/ai/map.md`. Work goes in beads. Design output goes in `/ai/prompts/` or `/ai/findings/`.
+
+This is the missing background layer: things that live in your head, or in the scars of the project, but not in the code. Naming decisions. Taste constraints. The reason a tempting path is a trap. Which files are hot zones. What the human cares about more than the tests can express.
+
+Have the mayor record the durable answers in `/ai/extended-context/`. Keep them short, dated, and searchable. Delete or rewrite stale entries. The point is not to build a second wiki. The point is to make the next session less stupid than the last one.
+
 ## Talking to the mayor
 
 The mayor is a pull interface, not a push one. You ask; it answers. You decide; it executes.
@@ -175,6 +190,7 @@ Useful prompts:
 - *"Dispatch what's ready."*
 - *"Tell me about bead X. What are my options?"*
 - *"What decisions are blocking progress?"*
+- *"Run the retrospective: what context should we record that the next session won't infer from code?"*
 - *"Pull main; merge any PRs that are ready; update the map."*
 
 The mayor should never silently start doing work itself. It should say: *"Here's what I'd dispatch a background agent to do — should I?"* If your mayor wanders off and starts coding, redirect it. The mayor that codes loses context; the mayor that orchestrates doesn't.
@@ -219,8 +235,8 @@ After a few weeks of working this way:
 - The mayor knows your project. It remembers what you decided, what you considered, what you flagged for later. It can brief you in 30 seconds on 15 in-flight workstreams.
 - Background agents do the heavy lifting. They burn context windows; the mayor doesn't.
 - The map tells you where to spend your next 30 minutes.
-- Specs accumulate as the project's structural memory. When you onboard someone — human or AI — they read the specs.
-- You write less code by hand than you'd expect. You write a lot more specs.
+- Prompts accumulate as the project's structural memory. When you onboard someone — human or AI — they read the prompts.
+- You write less code by hand than you'd expect. You write a lot more prompts.
 
 ## Outcome
 
@@ -230,11 +246,12 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 
 1. Install beads.
 2. Run one Claude session as your **mayor**. Keep it open. It orchestrates, never does work directly.
-3. **Specs are super prompts.** A spec is a prompt taken seriously: longer, sharper, less ambiguous. Iterate the spec hard. Get the mayor to interview you, find gaps, name ambiguities, propose alternatives, dispatch a background audit. Live in `/ai/specs/`. **When the AI makes a mistake, that's on me for not getting the spec right.**
-4. Only when the spec is right: *"Create beads to implement this. Action them with background agents on a branch."*
+3. **Prompts are the work.** A serious prompt is longer, sharper, less ambiguous, and stored in `/ai/prompts/` instead of lost in chat. Get the mayor to interview you, find gaps, name ambiguities, propose alternatives, dispatch a background audit. **When the AI makes a mistake, that's on me for not getting the prompt right.**
+4. Only when the prompt is right: *"Create beads to implement this. Action them with background agents on a branch."*
 5. Maintain a **map document** at `/ai/map.md`. Keep it open. It's your navigation tool. Decisions surface there; you make them; the mayor records them into the appropriate bead.
-6. Talk to the mayor in pull style: *"Tell me about bead X. What are my options?"*
-7. Use a second model (Codex, etc.) for cross-review. Have it file beads as **suggestions**, not commands.
+6. Run retrospectives with the mayor. Ask what context would have helped at session start, then record the durable, non-obvious bits in `/ai/extended-context/`.
+7. Talk to the mayor in pull style: *"Tell me about bead X. What are my options?"*
+8. Use a second model (Codex, etc.) for cross-review. Have it file beads as **suggestions**, not commands.
 
 **Or — paste this single prompt to a Claude session and it does most of the setup for you. The session you paste it into becomes the mayor.**
 
@@ -246,11 +263,13 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 >
 > *- Maintain `/ai/map.md` (create the `/ai/` directory if needed) for the human, not for yourself. At the top put the current date/time, then the one-line resume command for this session: `codex resume <session-id> "Read /ai/map.md and continue from the top."` for Codex, or `claude --resume <session-id>` for Claude. Then list what needs the human's attention now: decisions, blockers, files they are editing, and anything unsafe to touch. Only after that summarise in-flight work, open PRs, recent merges, cleanup, and useful context. Keep it short enough to re-orient a returning human in 30 seconds. Update it on every signal — bead filed, bead dispatched, PR merged, decision made.*
 > *- Action any open bead where the direction is already set and no operator input is required: dispatch it to a background agent on its own branch in its own git worktree. Tell each worker it is not alone in the repo, must not edit the mayor checkout, must not merge PRs, and must not close beads.*
+> *- Put reusable AI instructions in `/ai/prompts/`, not `/ai/specs/`. Treat prompts as durable working artefacts: iterate them, audit them, and only implement once the prompt is sharp enough. Use `/ai/findings/` for exploratory reports and promote settled findings into `/ai/prompts/`.*
+> *- At useful checkpoints and before ending serious sessions, run a retrospective with this question: "What information not already recorded would it have been helpful for you to have had before we started this session? What's not obvious from the code alone?" Record durable answers in `/ai/extended-context/`. Do not put transient status there; status belongs in `/ai/map.md`, and work belongs in beads.*
 > *- Test output should be quiet when green, but failures must be actionable: include the command, relevant logs, file/line or URL when available, browser console/pageerror output when relevant, and the smallest reproduction known.*
 > *- Workers may open PRs. The mayor owns PR review/merge and bead maintenance. Merge only after CI is green and the scope is correct.*
 > *- After every PR merge, run `git pull --ff-only` so the local main stays current.*
 > *- When dispatching multiple beads at once, sequence them to minimise merge conflicts: beads touching the same hot-zone files run sequentially, not in parallel; beads on isolated surfaces (single-artefact dirs, new files, test-only dirs) can run in parallel.*
-> *- When writing or refining spec documents, human understanding comes first — but where appropriate, use [IETF RFC](https://www.rfc-editor.org/rfc/rfc7322) structure and [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (`MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT`) for normative passages that need to be unambiguous.*
+> *- When writing or refining prompt/spec documents, human understanding comes first — but where appropriate, use [IETF RFC](https://www.rfc-editor.org/rfc/rfc7322) structure and [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (`MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT`) for normative passages that need to be unambiguous.*
 >
 > *Once `CLAUDE.md` is updated, immediately set up a recurring self-reminder so you don't drift over a long session: `/loop 1h re-read CLAUDE.md`. Context is durable but decays; the loop is the heartbeat. Run the loop now, not later.*
 >
