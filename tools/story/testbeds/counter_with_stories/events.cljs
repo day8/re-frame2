@@ -39,6 +39,12 @@
   (fn [db [_ n]]
     (assoc db :count n)))
 
+(rf/reg-event-db :counter/throw-deterministic
+  (fn [_db _event]
+    (throw (ex-info "story-load deterministic event handler failure"
+                    {:surface :story-load
+                     :kind    :event-handler-exception}))))
+
 ;; A user-fx so the `force-fx-stub` decorator story has something
 ;; concrete to stub. In the live app this would talk to a server;
 ;; for the example we keep it tiny — the point is the stub, not the

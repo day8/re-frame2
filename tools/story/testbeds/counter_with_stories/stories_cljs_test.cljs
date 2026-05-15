@@ -87,13 +87,21 @@
     (is (story/registered? :story :story.counter))))
 
 (deftest example-four-variants-registered
-  (testing "all four variants registered, parent is :story.counter"
+  (testing "all four canonical variants registered, parent is :story.counter"
     (let [vs (story/variants-of :story.counter)]
       (is (contains? vs :story.counter/empty))
       (is (contains? vs :story.counter/loaded))
       (is (contains? vs :story.counter/clicked-three-times))
       (is (contains? vs :story.counter/save-stubbed))
       (is (= 4 (count vs))))))
+
+(deftest diagnostic-variants-registered
+  (testing "the diagnostics story exposes deterministic failure surfaces"
+    (let [vs (story/variants-of :story.counter-diagnostics)]
+      (is (contains? vs :story.counter-diagnostics/failing-play))
+      (is (contains? vs :story.counter-diagnostics/event-throws))
+      (is (contains? vs :story.counter-diagnostics/loader-throws))
+      (is (= 3 (count vs))))))
 
 (deftest example-workspaces-registered
   (testing "both workspaces registered"
@@ -165,6 +173,50 @@
               (is (story/assertions-passing? result)
                   (str "play assertions: " (pr-str (:assertions result))))
               (story/destroy-variant! :story.counter/save-stubbed)
+              (done)))))))
+
+(deftest diagnostic-failing-play-records-failure
+  (testing ":story.counter-diagnostics/failing-play records a failed assertion without throwing"
+    (async done
+      (-> (story/run-variant :story.counter-diagnostics/failing-play)
+          (async-lib/then
+            (fn [result]
+              (is (= 1 (-> result :app-db :count)))
+              (is (not (story/assertions-passing? result)))
+              (is (some #(and (= :rf.assert/path-equals (:assertion %))
+                              (false? (:passed? %)))
+                        (:assertions result)))
+              (story/destroy-variant! :story.counter-diagnostics/failing-play)
+              (done)))))))
+
+(deftest diagnostic-event-exception-records-failure
+  (testing ":story.counter-diagnostics/event-throws projects handler exceptions into assertions"
+    (async done
+      (-> (story/run-variant :story.counter-diagnostics/event-throws)
+          (async-lib/then
+            (fn [result]
+              (is (not (story/assertions-passing? result)))
+              (is (some #(and (= :rf.error/exception (:assertion %))
+                              (= :phase-4-play (:phase %))
+                              (re-find #"story-load deterministic event handler failure"
+                                       (get-in % [:error :message] "")))
+                        (:assertions result)))
+              (story/destroy-variant! :story.counter-diagnostics/event-throws)
+              (done)))))))
+
+(deftest diagnostic-loader-exception-records-failure
+  (testing ":story.counter-diagnostics/loader-throws projects loader exceptions into assertions"
+    (async done
+      (-> (story/run-variant :story.counter-diagnostics/loader-throws)
+          (async-lib/then
+            (fn [result]
+              (is (not (story/assertions-passing? result)))
+              (is (some #(and (= :rf.error/exception (:assertion %))
+                              (= :phase-1-loaders (:phase %))
+                              (re-find #"story-load deterministic event handler failure"
+                                       (get-in % [:error :message] "")))
+                        (:assertions result)))
+              (story/destroy-variant! :story.counter-diagnostics/loader-throws)
               (done)))))))
 
 ;; ---- mount-shell / unmount-shell / active-shell --------------------------
