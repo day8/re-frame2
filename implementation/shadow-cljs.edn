@@ -760,7 +760,7 @@
 
   ;; rf2-kzcim Tier 3 — sensitive-dispatcher testbed (three handlers
   ;; marked :sensitive? true in registration meta; each exercises a
-  ;; distinct boundary — event-emit drop, with-redacted scrub, error-
+  ;; distinct boundary — event-emit drop, schema redaction, error-
   ;; emit redact — per Spec 009 §Substrate-level enforcement).
   :testbeds/sensitive-dispatcher
   {:target     :browser
@@ -771,8 +771,7 @@
 
   ;; rf2-kzcim Tier 3 — large-dispatcher testbed (four handlers each
   ;; commit a value to a path whose wire elision is governed by a
-  ;; different nomination path — runtime auto-detect, REPL wrapper,
-  ;; :rf.size/declare-large fx, schema-driven :large? on a Malli slot
+  ;; different nomination path — schema-driven :large? on a Malli slot
   ;; — per Spec 009 §Size elision in traces).
   :testbeds/large-dispatcher
   {:target     :browser

@@ -125,7 +125,7 @@
           ;; value at the flow's output path; each `:input-values`
           ;; entry is the value at the matching input path. The
           ;; walker reads `[:rf/elision :declarations <path>]` and
-          ;; emits the marker for declared-large or auto-detected-
+          ;; emits the marker for schema-declared
           ;; large slots.
           ;;
           ;; Outer `interop/debug-enabled?` gate keeps the elision

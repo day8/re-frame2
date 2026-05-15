@@ -137,24 +137,19 @@
              — AI consumers (pair2-mcp, Causa) see this without
              drilling into the blob")))))
 
-;; ---- 4. runtime auto-detect at the event-emit boundary -------------------
+;; ---- 4. unschema'd inline event payloads are not size-elided -------------
 
-(deftest event-emit-listener-elides-inline-large-payload
-  (testing "Dispatching an event whose payload carries an inline string
-            ≥ 16 kB (the default `:rf.size/threshold-bytes`) causes the
-            event-emit substrate's `elide-wire-value` pass to substitute
-            the leaf with a `:rf.size/large-elided` marker BEFORE the
-            listener receives the record. The runtime auto-detect
-            branch of the walker — orthogonal to the schema-driven
-            branch — keeps inline blobs off the wire even when no
-            schema declared the path. Per Spec 009 §Auto-detect
-            threshold."
+(deftest event-emit-listener-leaves-unschema'd-inline-large-payload
+  (testing "Path D removes runtime size auto-elision. Inline event
+            payloads without schema `{:large? true}` metadata ride
+            through unchanged; authors declare large app-db slots in
+            schemas instead."
     (let [seen (atom [])]
       (rf/register-event-emit-listener!
         ::test-recorder
         (fn [record] (swap! seen conj record)))
 
-      ;; A 20 kB string — well over the 16 kB default threshold.
+      ;; A 20 kB string without schema metadata.
       (rf/dispatch-sync [:user.avatar/upload
                          {:blob (str/join (repeat 20000 "B"))}])
 
@@ -164,16 +159,10 @@
             slot    (:blob payload)]
         (is (= :user.avatar/upload (:event-id r)))
         (is (= :ok (:outcome r)))
-        ;; The listener received the elided shape: where the original
-        ;; payload carried a 20 kB string, the walker's auto-detect
-        ;; substituted in the marker.
-        (is (map? slot)
-            ":blob slot is the marker map, NOT the raw 20 kB string")
-        (is (contains? slot :rf.size/large-elided)
-            "the marker key is present — wire-walker auto-detect fired")
-        (is (number? (get-in slot [:rf.size/large-elided :bytes]))
-            "marker carries the original byte count for sizing
-             pipelines downstream")))))
+        (is (string? slot)
+            ":blob remains raw because no schema declared it large")
+        (is (= 20000 (count slot))
+            "the listener received the original inline payload")))))
 
 ;; ---- 5. event-emit listener fires for every processed event --------------
 

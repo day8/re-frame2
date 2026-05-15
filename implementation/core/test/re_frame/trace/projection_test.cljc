@@ -62,23 +62,25 @@
 
 (defn- cascade-evs
   "Produce a representative one-cascade event stream."
-  [dispatch-id event-vec]
+  ([dispatch-id event-vec]
+   (cascade-evs dispatch-id event-vec :rf/default))
+  ([dispatch-id event-vec frame-id]
   [{:id 1 :op-type :event    :operation :event/dispatched
-    :tags {:dispatch-id dispatch-id :event event-vec}}
+    :tags {:dispatch-id dispatch-id :event event-vec :frame frame-id}}
    {:id 2 :op-type :event    :operation :event
-    :tags {:dispatch-id dispatch-id :phase :run-start}}
+    :tags {:dispatch-id dispatch-id :phase :run-start :frame frame-id}}
    {:id 3 :op-type :event    :operation :event
-    :tags {:dispatch-id dispatch-id :phase :run-end}}
+    :tags {:dispatch-id dispatch-id :phase :run-end :frame frame-id}}
    {:id 4 :op-type :event    :operation :event/do-fx
-    :tags {:dispatch-id dispatch-id}}
+    :tags {:dispatch-id dispatch-id :frame frame-id}}
    {:id 5 :op-type :fx       :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id :fx-id :db}}
+    :tags {:dispatch-id dispatch-id :fx-id :db :frame frame-id}}
    {:id 6 :op-type :fx       :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id :fx-id :dispatch}}
+    :tags {:dispatch-id dispatch-id :fx-id :dispatch :frame frame-id}}
    {:id 7 :op-type :sub/run  :operation :sub/run
-    :tags {:dispatch-id dispatch-id :sub-id :sub/foo}}
+    :tags {:dispatch-id dispatch-id :sub-id :sub/foo :frame frame-id}}
    {:id 8 :op-type :view     :operation :view/render
-    :tags {:dispatch-id dispatch-id :render-key [:app/root nil]}}])
+    :tags {:dispatch-id dispatch-id :render-key [:app/root nil] :frame frame-id}}]))
 
 (deftest group-cascades-one-cascade-six-buckets
   (testing "a representative cascade reduces to one record with the six
@@ -87,6 +89,7 @@
           [c & more] (p/group-cascades evs)]
       (is (empty? more) "single cascade yields one record")
       (is (= 100 (:dispatch-id c)))
+      (is (= :rf/default (:frame c)))
       (is (= [:user/login {:id 42}] (:event c)) ":event slot is the dispatched event vector")
       (is (some? (:handler c)) ":handler slot is populated by the :run-* emit")
       (is (some? (:fx c))      ":fx slot is the :event/do-fx emit")
@@ -106,6 +109,18 @@
       (is (= 2 (count cs)))
       (is (= 200 (:dispatch-id (first cs))))
       (is (= 300 (:dispatch-id (second cs)))))))
+
+(deftest group-cascades-keeps-same-dispatch-id-separate-by-frame
+  (testing "dispatch-id is frame-scoped, so same id in two frames yields two records"
+    (let [a  (cascade-evs 10 [:counter/a-inc] :counter/a)
+          b  (mapv #(update % :id + 100)
+                   (cascade-evs 10 [:counter/b-inc] :counter/b))
+          cs (p/group-cascades (concat a b))]
+      (is (= 2 (count cs)))
+      (is (= [[:counter/a 10] [:counter/b 10]]
+             (mapv (juxt :frame :dispatch-id) cs)))
+      (is (= [[:counter/a-inc] [:counter/b-inc]]
+             (mapv :event cs))))))
 
 (deftest group-cascades-events-without-dispatch-id-land-in-ungrouped
   (testing "events emitted outside any drain (registry-time, frame
@@ -147,7 +162,7 @@
             collection-shaped defaults"
     (let [[c] (p/group-cascades [{:id 1 :op-type :event :operation :event/dispatched
                                   :tags {:dispatch-id 1 :event [:e]}}])]
-      (is (= #{:dispatch-id :event :handler :fx :effects :subs :renders :other}
+      (is (= #{:dispatch-id :frame :event :handler :fx :effects :subs :renders :other}
              (set (keys c))))
       (is (vector? (:effects c)))
       (is (vector? (:subs c)))

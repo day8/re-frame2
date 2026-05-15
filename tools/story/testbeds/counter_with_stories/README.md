@@ -41,20 +41,14 @@ button drives one branch of the privacy + size elision arc the
 README markets as a headline feature:
 
 - **Sign in (sensitive)** dispatches `:auth/sign-in` — registered
-  with `:sensitive? true` metadata + a `(rf/with-redacted
-  [[:password]])` interceptor. The metadata stamps every trace
-  event emitted inside the handler's scope with `:sensitive? true`
-  (Causa filters those out and surfaces `[● REDACTED N]` in the
-  bottom rail); the interceptor scrubs the password to
-  `:rf/redacted` in every in-chain trace event that copies the
-  event vector.
+  with `:sensitive? true` handler metadata as the whole-handler
+  privacy escape hatch. The metadata stamps every trace event emitted
+  inside the handler's scope with `:sensitive? true` (Causa filters
+  those out and surfaces `[● REDACTED N]` in the bottom rail).
 - **Upload large avatar (inline)** dispatches `:user/avatar/upload`
-  with a 20 kB string in the event payload. The wire walker's
-  runtime auto-detect (default 16 kB threshold, Spec 009 §Auto-detect)
-  fires at the wire boundary — the always-on event-emit listener
-  receives the blob already substituted with a
-  `:rf.size/large-elided` marker. Open the browser console to see
-  the elided shape.
+  with a 20 kB string in the event payload. Path D does not auto-elide
+  unschema'd event-vector blobs; large-value elision is declared with
+  schema `{:large? true}` on app-db slots.
 - **Set avatar PDF (large)** writes a synthetic blob into
   `[:user/avatar-pdf]` in app-db — a slot declared `:large?` via
   `reg-app-schema`. Walking app-db through

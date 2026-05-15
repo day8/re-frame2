@@ -10,12 +10,9 @@
 
   The `frame-*-declarations` fns aggregate per-flag declarations across
   every schema registered against a frame. The `populate-*` fns
-  idempotently fold those declarations into a frame's app-db with the
-  Spec 009 conflict-resolution rule applied: existing entries with
-  `:source :declared` are preserved (declared beats schema); entries
-  with `:source :schema` are replaced wholesale by the current
-  frame-derived set on every call. Re-registering a schema with the
-  flag removed prunes the stale `:source :schema` entry (rf2-kr3vp);
+  idempotently replace those declarations in a frame's app-db from the
+  current frame-derived set on every call. Re-registering a schema with
+  the flag removed prunes the stale `:source :schema` entry (rf2-kr3vp);
   re-registering with a new `:hint` refreshes the slot.
 
   Both pairs are published via per-flag late-bind hooks by the outer
@@ -38,34 +35,19 @@
 
 (defn- populate-declarations
   "Idempotent — fold `frame-id`'s schema-derived declarations into `db`
-  at `registry-path`. Preserves `:source :declared` entries; replaces
-  the `:source :schema` subset wholesale with the current frame-derived
-  set so re-registration with the flag removed prunes the stale entry
-  (rf2-kr3vp). When a path appears in both the schema-derived map AND
-  an existing `:source :declared` entry, the declared entry wins
-  (declared beats schema)."
+  at `registry-path`. Schema metadata is canonical: the registry slot is
+  replaced wholesale with the current frame-derived set so re-registration
+  with the flag removed prunes stale entries (rf2-kr3vp)."
   [db frame-id extract-fn registry-path]
   (let [schema-decls (frame-declarations extract-fn frame-id)
-        existing     (get-in db registry-path)]
-    (if (and (empty? schema-decls) (empty? existing))
-      db
-      (let [;; Keep every existing :source :declared entry — schema
-            ;; walking never overrides app-declared paths.
-            declared (reduce-kv (fn [acc path decl]
-                                  (if (= :declared (:source decl))
-                                    (assoc acc path decl)
-                                    acc))
-                                {}
-                                (or existing {}))
-            ;; Schema-derived paths that collide with a :source
-            ;; :declared entry yield to the declared entry.
-            merged   (reduce-kv (fn [acc path decl]
-                                  (if (contains? declared path)
-                                    acc
-                                    (assoc acc path decl)))
-                                declared
-                                schema-decls)]
-        (assoc-in db registry-path merged)))))
+        parent-path  (vec (butlast registry-path))
+        registry-key (last registry-path)]
+    (if (seq schema-decls)
+      (assoc-in db registry-path schema-decls)
+      (let [db' (update-in db parent-path dissoc registry-key)]
+        (if (seq (get-in db' parent-path))
+          db'
+          (dissoc db' (first parent-path)))))))
 
 (defn frame-elision-declarations
   "Return the merged `{path declaration}` map for every `:large? true`

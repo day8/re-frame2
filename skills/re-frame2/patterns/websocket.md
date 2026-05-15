@@ -29,7 +29,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 
 Bearer tokens, cookies, refresh tokens, and similar credentials **must never live in machine `:data`**. Machine state is framework-inspectable (app-db snapshots, trace emissions, recorder fixtures, pair tooling), so anything in `:data` is liable to be serialised into a place the dev never inspects character-by-character. The canonical declaration below holds **only a credential reference** (`:cred-ref`) in `:data` — an opaque key that the host-side socket actor exchanges for the real bearer at spawn time via a client-only cofx (`:rf.cred/fetch`, registered with `:platforms #{:client}` so SSR never sees it). The actor uses the resolved bearer inside its own JS context and discards it; the bearer never re-enters the dispatch stream.
 
-For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/refresh-token` propagating a freshly minted bearer), use the privacy primitives in [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md): mark the handler `:sensitive? true` and scrub the payload with `(rf/with-redacted ...)`. That gates the trace, recorder, and listener fan-out at one normative seam.
+For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/refresh-token` propagating a freshly minted bearer), prefer storing the secret in an app-schema slot marked `{:sensitive? true}` and handle it through a path-scoped event. If the secret is not representable as app-db schema data, use handler metadata `{:sensitive? true}` as the whole-handler escape hatch.
 
 The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaque key your auth slice already issues (a UUID, a `(random-uuid)` index into a host-side credential vault, a session id, etc.). The crucial property: the value in `:data` is **not** the bearer itself.
 
@@ -120,19 +120,18 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault. The bearer itself never crosses the dispatch boundary; the actor's `:rf.cred/fetch` cofx resolves the pointer to a bearer at spawn time.
 
-If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), mark the event handler `:sensitive? true` and scrub the payload — see [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md):
+If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), prefer writing it through a schema-sensitive app-db path — see [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md):
 
 ```clojure
 (rf/reg-event-fx :ws/rotate-cred-from-bearer
   {:sensitive? true}
-  [(rf/with-redacted [[:bearer]])]
   (fn [{:keys [db]} [_ {:keys [bearer]}]]
-    ;; Bearer is :rf/redacted in every trace / recorder / listener emit;
-    ;; the handler body sees the real value via the unredacted :event coeffect.
+    ;; Handler metadata is the escape hatch when the bearer cannot be
+    ;; represented as a schema-sensitive app-db path.
     {:fx [[:rf.cred/store {:bearer bearer :on-stored [:ws/connection [:ws/rotate-cred ::new-ref]]}]]}))
 ```
 
-The `:rf.cred/*` family is the recommended sketch — your app's auth slice provides the real shape. The contract this leaf locks: **opaque ref in `:data`; bearer never in `:data`; if bearer must move via dispatch, it rides through `:sensitive?` + `with-redacted`**.
+The `:rf.cred/*` family is the recommended sketch — your app's auth slice provides the real shape. The contract this leaf locks: **opaque ref in `:data`; bearer never in `:data`; if bearer must move via dispatch, prefer schema `:sensitive?`, with handler metadata as the escape hatch**.
 
 ## Variations
 
@@ -153,7 +152,7 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 - **Anchoring `:invoke` on `:connecting` instead of `:active`.** Destroys the socket on transition to `:authenticating`. Lifetime MUST span all three leaves.
 - **Storing the `WebSocket` JS object in `app-db`.** Not a value, not serialisable, won't survive snapshot replay. Actor owns it host-side; only the actor id appears in `:data`.
 - **Storing a raw bearer / `auth-token` / cookie / refresh token in machine `:data`.** Same reasoning as the WebSocket JS object plus a privacy one: `:data` is framework-inspectable, so anything held there is liable to land in app-db snapshots, trace emissions, recorder fixtures, and pair tooling — places the dev does not inspect character-by-character. Use the opaque-`:cred-ref` shape above; the bearer lives host-side, resolved at actor spawn via a client-only cofx, and never re-enters dispatch.
-- **Routing a refresh bearer through dispatch without `:sensitive?` + `with-redacted`.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), gate the handler at the privacy seam in [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md). The handler body sees the bearer via the unredacted `:event` coeffect; every downstream emit sees `:rf/redacted`.
+- **Routing a refresh bearer through dispatch without schema `:sensitive?` or handler metadata.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), gate it at the privacy seam in [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md).
 - **Reconnect via `setTimeout` from inside fx-handler.** Bypasses the machine, tracing, stale-detection. Use `:after`.
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across messages is state-machine-shaped.

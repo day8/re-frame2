@@ -263,15 +263,15 @@ Nesting works as expected — `:large?` on a deeply-nested slot resolves to the 
 
 Combinators (`:or`, `:and`, `:maybe`, `:tuple`, `:multi`, `:vector`, `:set`) descend at the parent path — these ops don't introduce a new app-db path segment. `:multi` branch slot-level props apply to the dispatched-value's path (the `:multi`'s own path); the inner branch schema's name slots add further sub-paths.
 
-**Conflict resolution.** Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) the precedence is **declared > schema > runtime-flagged**. App knowledge (the `:rf.size/declare-large` fx, per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) beats schema declaration beats the runtime auto-detect heuristic. The schema-driven registry population preserves existing `:source :declared` entries; it overwrites existing `:source :schema` entries on hot-reload (so updating a schema's `:hint` refreshes); it overwrites `:source :runtime-flagged` entries that have been promoted into `:declarations` (the heuristic loses).
+**Conflict resolution.** Schema metadata is canonical. Re-running schema-driven registry population replaces the schema-owned declaration slot from the current schema set; re-registering a schema with a new `:hint` refreshes the marker hint, and removing `:large?` prunes the stale declaration.
 
 **Idempotency.** The walker is pure data and the population is idempotent — re-running it against the same `(db, schema-set)` pair produces the same result. Schemas registered, then re-registered, then walked again yield the same declarations.
 
-**Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same registry shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`, `populate-elision-declarations`) and is published through the late-bind hook table — `re-frame.core` calls it without statically requiring the schemas artefact (per the rf2-p7va per-feature artefact split).
+**Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same registry shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`) and is published through the late-bind hook table — `re-frame.core` calls it without statically requiring the schemas artefact (per the rf2-p7va per-feature artefact split).
 
 ### `:sensitive?` — privacy in schema-validation error traces (rf2-kj51z)
 
-> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture — per-slot schema `:sensitive?` is one of the three composition sites (with the registration-meta stamp and the `with-redacted` interceptor) that together close the privacy surface across every framework-emitted boundary.
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture — per-slot schema `:sensitive?` is the canonical path-level privacy declaration; handler metadata `:sensitive?` is the whole-handler escape hatch.
 
 Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces), the `:sensitive?` flag is the framework's declarative privacy marker. The schema-validation hot path MUST honour it before emitting `:rf.error/schema-validation-failure` trace events — those events carry the **failing value verbatim** by default (Malli's standard behaviour), and a sensitive credential / PII slot whose post-handler `app-db` value fails its schema would leak through the trace surface to every registered listener (including off-box error monitors and pair-tool forwarders).
 
@@ -294,7 +294,7 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
 
 **Redaction shape.** When either source declares the failing slot sensitive, the trace event MUST:
 
-- Replace `:value` (the failing value) and `:received` (if present) with the framework-reserved sentinel keyword `:rf/redacted` (per [009 §`with-redacted` interceptor](009-Instrumentation.md#the-with-redacted-interceptor) — same sentinel, same reserved-keyword guarantee).
+- Replace `:value` (the failing value) and `:received` (if present) with the framework-reserved sentinel keyword `:rf/redacted` (per [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction) — same sentinel, same reserved-keyword guarantee).
 - Replace `:explain` with `:rf/redacted` — the Malli explainer output carries the failing value verbatim under `:value` / `:errors[].value` and re-leaks it. Tools that want a structural error description without the value reach for the path (`:tags :path`) and the schema's id (`:tags :spec-id`).
 - Replace `:fx-args` with `:rf/redacted` on `:where :fx-args` emissions only — this slot is a per-surface doubled-id name for the failing value (semantically equivalent to `:received` on the fx surface; see Spec-Schemas `:rf.fx/handled`). Without redaction the fx-args slot would re-leak the value the `:value` / `:received` redactions just scrubbed.
 - Replace `:query-v` with `:rf/redacted` on `:where :sub-return` emissions only — this slot is the caller-supplied subscription query vector. On `:sensitive?`-marked subs the lookup key (the `(rest query-v)` payload) typically carries the same secret material the registered schema is gating — user ids, auth tokens, document ids. Without redaction the failure trace re-leaks the lookup-key payload alongside the failing return value the other clauses just scrubbed (rf2-adtp2 / rf2-p2adl Q2).
@@ -326,22 +326,19 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 
 **Composition with `:large?`** (per [009 §Unified wire-elision surface](009-Instrumentation.md#privacy--sensitive-data-in-traces)). A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the schema-validation emit site never produces a `:rf.size/large-elided` marker for a sensitive value (the marker itself would leak `:path` / `:bytes` / `:digest`). The validation emit-site mirrors the `rf/elide-wire-value` walker's composition rule.
 
-**Composition with `with-redacted`.** Independent. `with-redacted` (per [009](009-Instrumentation.md#the-with-redacted-interceptor)) overwrites named keys in the event vector and downstream cofx; it does not reach into the schema-validation failure trace. A handler declaring both `:sensitive? true` and `(with-redacted [...])` gets:
-- the event vector redacted at the named keys (via `with-redacted`), AND
-- the schema-validation `:value` / `:explain` redacted on top (via this section's contract).
-The two are orthogonal and additive — the conservative recommendation is to declare both when the handler is sensitive enough to want both layers of defence.
+**Composition with handler metadata.** Independent. Handler metadata `:sensitive? true` stamps the whole handler scope and drives always-on substrate policy; per-slot schema metadata redacts the specific value-bearing validation fields.
 
 **Production elision.** The redaction lives behind the same `(when interop/debug-enabled? ...)` outer gate as the rest of the validation hot path (per [§Production builds](#production-builds)). `:advanced` + `goog.DEBUG=false` builds DCE the entire validate-emit body — including the `:rf/redacted` substitution — alongside the trace surface. The redaction is moot when there is no trace to redact.
 
 **Walker.** The CLJS reference ships `re-frame.schemas/extract-sensitive-paths-from-schema` (parallel to `extract-large-paths-from-schema`) — a pure-data Malli-EDN walker that returns `{path declaration}` entries for every `:sensitive? true` slot in a registered schema. Each declaration carries `{:sensitive? true :source :schema}` plus an optional `:hint` propagated verbatim from the slot's props (apps reuse the same `:hint` key as `:large?` so a slot can be annotated once for both flags). The validation emit-site walks the failing path's schema with this helper to decide whether to redact.
 
-**Registry feeder (rf2-c1l4d).** Mirroring the `:large?` registry-population path, the schemas artefact also ships `frame-sensitive-declarations` (the per-frame aggregate) and `populate-sensitive-declarations` (the idempotent app-db hydrator) — both published through the late-bind hook table so `re-frame.core`'s boot-time / hot-reload integration writes a sibling slot in the unified elision registry at `app-db [:rf/elision :sensitive-declarations]`:
+**Registry feeder (rf2-c1l4d).** Mirroring the `:large?` registry-population path, `re-frame.elision` reads the schemas artefact's `extract-sensitive-paths-from-schema` hook to write a sibling slot in the unified elision registry at `app-db [:rf/elision :sensitive-declarations]`:
 
 ```clojure
 (rf/reg-app-schema [:user]
   [:map [:password {:sensitive? true :hint "argon2id"} :string]])
 
-;; After populate-sensitive-declarations, the frame's app-db carries:
+;; After schema population, the frame's app-db carries:
 ;;   {:rf/elision
 ;;     {:sensitive-declarations
 ;;       {[:user :password] {:sensitive? true
@@ -349,7 +346,7 @@ The two are orthogonal and additive — the conservative recommendation is to de
 ;;                           :hint       "argon2id"}}}}
 ```
 
-The sibling slot lives under the shared `[:rf/elision]` reserved root per [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry). Two slots (not one merged map) because the `:large?` and `:sensitive?` flags compose orthogonally — a slot may carry either or both, and the schema-validation emit-site's composition rule (sensitive wins) is enforced at trace time, not at registry time. Storing them separately keeps the per-flag query (`(get-in db [:rf/elision :sensitive-declarations <path>])`) O(1) without value-shape inspection. The conflict-resolution rule for the sensitive-declarations slot matches the `:large?` sibling: app-declared (via a privacy fx surface, reserved for future use) beats schema, schema beats any future runtime-flagged sensitivity. Hot-reload of a schema refreshes `:source :schema` entries; `:source :declared` entries are preserved.
+The sibling slot lives under the shared `[:rf/elision]` reserved root per [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry). Two slots (not one merged map) because the `:large?` and `:sensitive?` flags compose orthogonally — a slot may carry either or both, and the schema-validation emit-site's composition rule (sensitive wins) is enforced at trace time, not at registry time. Storing them separately keeps the per-flag query (`(get-in db [:rf/elision :sensitive-declarations <path>])`) O(1) without value-shape inspection. Hot-reload of a schema refreshes `:source :schema` entries; removing `:sensitive?` prunes stale schema declarations.
 
 **Backward compatibility.** Non-sensitive validation failures (handlers and slots with no `:sensitive?` declaration) are unchanged — `:value`, `:received`, and `:explain` ride the trace verbatim as before. Legacy listener code (tools that read `:tags :value` directly) continues to work for non-sensitive traces and sees the sentinel keyword `:rf/redacted` for sensitive ones; the sentinel is a normal EDN value the consumer can pattern-match on.
 

@@ -39,8 +39,8 @@
 (def hooks
   "Vector of hook-directory entries — see the ns docstring for shape.
 
-  Ordering: grouped by namespace prefix (router → flows → schemas →
-  machines → routing → http → subs → ssr → reagent → views →
+  Ordering: grouped by namespace prefix (router → elision → flows →
+  schemas → machines → routing → http → subs → ssr → reagent → views →
   adapter → epoch → trace) so additions land near their siblings."
   [;; ---- re-frame.router (rf2-d4sf foundational dispatch seam) ----------------
    {:key         :router/dispatch!
@@ -49,6 +49,20 @@
    {:key         :router/dispatch-sync!
     :producer-ns 're-frame.router
     :description "Process an event synchronously, bypassing the drain queue."}
+
+   ;; ---- re-frame.elision (rf2-w3n5u schema-first registry) ------------------
+   {:key         :elision/populate-from-schemas!
+    :producer-ns 're-frame.elision
+    :design-bead "rf2-w3n5u"
+    :description "Refresh schema-derived :large? and :sensitive? elision declarations for a frame."}
+   {:key         :elision/sensitive-declarations
+    :producer-ns 're-frame.elision
+    :design-bead "rf2-w3n5u"
+    :description "Return the frame's schema-derived sensitive path declarations."}
+   {:key         :elision/clear-warning-cache!
+    :producer-ns 're-frame.elision
+    :design-bead "rf2-w3n5u"
+    :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
    ;; Both the public `rf/reg-flow` / `rf/clear-flow` surfaces AND the
@@ -465,11 +479,11 @@
     :design-bead "rf2-bacs4"
     :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans out to BOTH the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers) AND the per-frame `:on-error` policy fn (rf2-hqbeh — in-app recovery). Both fan-out paths independent and try/catch wrapped. Survives `:advanced` + `goog.DEBUG=false`. Router invokes from the handler-exception path."}
 
-   ;; ---- re-frame.privacy (rf2-isdwf — sensitive-without-redaction cache) ----
+   ;; ---- re-frame.privacy (rf2-w3n5u schema-first privacy) -------------------
    {:key         :privacy/clear-suppression-cache!
     :producer-ns 're-frame.privacy
-    :design-bead "rf2-isdwf"
-    :description "Reset the per-(kind, id) :rf.warning/sensitive-without-redaction suppression cache; called on frame destroy so re-registrations after teardown re-emit the warning if still mis-configured."}])
+    :design-bead "rf2-w3n5u"
+    :description "No-op compatibility teardown hook for the removed registration-time privacy warning cache."}])
 
 (defn hook-keys
   "Set of every late-bind hook key documented in the directory."

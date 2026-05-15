@@ -575,7 +575,6 @@
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 
-(def with-redacted        privacy/with-redacted)
 (def sensitive?           privacy/sensitive?)
 (def validate-at-boundary spec/validate-at-boundary)
 
@@ -591,13 +590,10 @@
 (def unregister-error-emit-listener! error-emit/unregister-error-emit-listener!)
 
 (def elide-wire-value                 elision/elide-wire-value)
-(def declare-large-path!              elision/declare-large-path!)
-(def clear-large-path!                elision/clear-large-path!)
 (def populate-elision-from-schemas!   elision/populate-elision-from-schemas!)
 (def populate-sensitive-from-schemas! elision/populate-sensitive-from-schemas!)
 (def elision-declarations             elision/declarations)
 (def elision-sensitive-declarations   elision/sensitive-declarations)
-(def elision-runtime-flagged          elision/runtime-flagged)
 
 (def group-cascades  trace-projection/group-cascades)
 (def domino-bucket   trace-projection/domino-bucket)
@@ -629,7 +625,6 @@
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
     :trace-buffer  {:depth N}                       ring depth (default 200; 0 disables)
     :sub-cache     {:grace-period-ms N}             dispose grace (default 50ms)
-    :elision       {:rf.size/threshold-bytes N}     runtime auto-detect threshold (default 16384; 0 disables)
   Unknown keys silently no-op. Per-frame settings live on frame metadata.
   Per Tool-Pair §How AI tools attach."
   [knob opts]
@@ -638,7 +633,6 @@
                      (f opts))
     :trace-buffer  (trace/configure-trace-buffer! opts)
     :sub-cache     (subs/configure! opts)
-    :elision       (elision/configure-elision! opts)
     nil))
 
 (def install-adapter!     adapter/install-adapter!)

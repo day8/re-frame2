@@ -18,9 +18,8 @@
   This file owns the **walker** that maps a registered schema's EDN form
   to a `{path declaration}` map; the actual app-db write lives in
   `re-frame.elision` (rf2-v9tw2) so that file owns the unified registry
-  surface across the schema / declared / runtime-flagged sources. The
-  seam between the two is the per-flag late-bind hook registered by the
-  outer façade.
+  surface for schema-owned declarations. The seam between the two is
+  the per-flag late-bind hook registered by the outer façade.
 
   The walker is **pure data** — it doesn't import malli.core. Malli EDN
   forms are vectors of the shape `[op props? children...]`; we pattern-
@@ -78,9 +77,7 @@
   or nil when `flag-key` is not set to `true`. Per Spec 009 §Size
   elision in traces and Spec 010 §`:sensitive?` — `:hint` is optional
   and omitted when absent so the marker shape stays minimal. The
-  `:source` slot records provenance so the unified registry merger
-  (`populate-*-declarations`) can apply the conflict-resolution rule:
-  app-declared beats schema beats runtime-flagged."
+  `:source` slot records schema provenance for the unified registry."
   [flag-key props]
   (when (true? (get props flag-key))
     (cond-> {flag-key true
@@ -192,9 +189,7 @@
 
   Returned declarations carry `:source :schema` per Spec 009 —
   introspection (`(get-in db [:rf/elision :declarations <path>])`)
-  reports provenance so consumers know whether the elision claim
-  came from the schema layer, an app fx, or the runtime auto-detect
-  heuristic."
+  reports schema provenance for wire-boundary elision."
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 

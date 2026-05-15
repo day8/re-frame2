@@ -99,6 +99,7 @@
   "Slot template for a cascade record. Per-cascade reduction starts here;
   every key the consumer can rely on lives in the template."
   {:dispatch-id nil
+   :frame       nil
    :event       nil
    :handler     nil
    :fx          nil
@@ -106,6 +107,12 @@
    :subs        []
    :renders     []
    :other       []})
+
+(defn- dispatch-id
+  "Return an event's concrete dispatch id, or nil when the event was
+  emitted outside a dispatch cascade."
+  [ev]
+  (get-in ev [:tags :dispatch-id]))
 
 (defn- cascade-id
   "Extract the cascade identifier from an event. Per Spec 009 §Dispatch
@@ -117,8 +124,29 @@
   outside any drain (registry-time, frame-creation) carry no
   `:dispatch-id` — they land in the `:ungrouped` bucket."
   [ev]
-  (or (get-in ev [:tags :dispatch-id])
-      :ungrouped))
+  (or (dispatch-id ev) :ungrouped))
+
+(defn- cascade-frame
+  "Extract the host frame from an event. nil means the event is not
+  frame-qualified (registry-time, boot-time, or older traces). Older
+  dispatch-scoped traces that predate explicit frame tags are treated as
+  default-frame traces so errors/warnings still ride with their cascade."
+  [ev]
+  (or (get-in ev [:tags :frame])
+      (:frame ev)
+      (when (dispatch-id ev) :rf/default)))
+
+(defn- cascade-key
+  "The stable grouping key for a cascade. Dispatch ids are only unique
+  inside a frame in the portable contract, so frame-qualified traces
+  group by `[frame dispatch-id]`. Traces without a dispatch-id are not
+  cascades and share the historical ungrouped bucket regardless of
+  frame lifecycle metadata."
+  [ev]
+  (let [id (cascade-id ev)]
+    (if (= :ungrouped id)
+      [nil :ungrouped]
+      [(cascade-frame ev) id])))
 
 (defn- absorb
   "Fold one trace event into the per-cascade accumulator."
@@ -155,6 +183,7 @@
   Returns a vector of maps shaped:
 
       {:dispatch-id <cascade-id-or-:ungrouped>
+       :frame       <frame-id-or-nil>
        :event       <event-vector or nil>     ;; from :event/dispatched
        :handler     <trace-event or nil>      ;; the :run-end emit (last wins)
        :fx          <trace-event or nil>      ;; :event/do-fx
@@ -176,11 +205,13 @@
   want richer projections of `:other` can call `domino-bucket`
   directly on each event."
   [events]
-  (let [groups (group-by cascade-id events)]
+  (let [groups (group-by cascade-key events)]
     (->> groups
-         (map (fn [[dispatch-id evs]]
+         (map (fn [[[frame dispatch-id] evs]]
                 (reduce absorb
-                        (assoc empty-cascade :dispatch-id dispatch-id)
+                        (assoc empty-cascade
+                               :dispatch-id dispatch-id
+                               :frame frame)
                         evs)))
          (sort-by first-id)
          vec)))

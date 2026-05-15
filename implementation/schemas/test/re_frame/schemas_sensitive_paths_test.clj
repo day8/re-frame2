@@ -143,29 +143,28 @@
       (is (= db-1 db-2)
           "second call is a no-op when the schema set is unchanged"))))
 
-(deftest populate-preserves-declared-source
-  (testing "existing :source :declared entries are NEVER overwritten by
-            schema entries — conflict rule: declared beats schema"
+(deftest populate-replaces-prior-non-schema-source
+  (testing "schema metadata is canonical for the populated registry slot"
     (rf/reg-app-schema [:user]
                        [:map [:password {:sensitive? true :hint "schema-hint"}
                               :string]])
     (let [frame-id  (frame/current-frame)
-          db-with-declared
+          db-with-prior
           {:rf/elision
            {:sensitive-declarations
             {[:user :password] {:sensitive? true
-                                :source     :declared
+                                :source     :legacy
                                 :hint       "user-fx-hint"}}}}
           db' (schemas/populate-sensitive-declarations
-                db-with-declared frame-id)]
-      (is (= "user-fx-hint"
+                db-with-prior frame-id)]
+      (is (= "schema-hint"
              (get-in db' [:rf/elision :sensitive-declarations
                           [:user :password] :hint]))
-          "declared :hint preserved")
-      (is (= :declared
+          "schema :hint replaces older registry state")
+      (is (= :schema
              (get-in db' [:rf/elision :sensitive-declarations
                           [:user :password] :source]))
-          "declared :source preserved"))))
+          "schema :source replaces older registry state"))))
 
 (deftest populate-overwrites-prior-schema-entry
   (testing "a re-registered schema with a different :hint refreshes the
@@ -209,8 +208,8 @@
       (rf/reg-app-schema [:user]
                          [:map [:password :string]])
       (let [db-2 (schemas/populate-sensitive-declarations db-1 frame-id)]
-        (is (= {} (get-in db-2 [:rf/elision :sensitive-declarations]))
-            "after flag removal — stale schema entry pruned")))))
+        (is (nil? (:rf/elision db-2))
+            "after flag removal — stale schema entry pruned and empty root removed")))))
 
 ;; ---- nested + edge-case coverage ----------------------------------------
 
