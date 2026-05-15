@@ -1037,12 +1037,11 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      # PR-time targeted gate for Story/Causa browser regressions. The
+      # PR-time targeted gates for Story/Causa browser regressions. The
       # classifier keeps this off for unrelated PRs; nightly/manual CI
-      # still owns the full rigorous browser/bundle sweep.
-      - name: Run Story feature-load browser gate
-        run: npm run test:story-feature-load
-
+      # still owns the full rigorous Story feature-load stress gate until
+      # tools/story/spec/015-Test-Coverage.md graduates it from
+      # occasional/pre-checkin status.
       - name: Run Causa feature browser gate
         run: npm run test:causa-feature-gate
 
