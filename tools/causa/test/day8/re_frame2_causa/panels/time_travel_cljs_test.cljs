@@ -323,6 +323,22 @@
              @(rf/subscribe [:rf.causa/last-restore-failure]))
           "last-restore-failure sub surfaces the failure shape"))))
 
+(deftest restore-epoch-fx-dispatches-cleanup-events-to-causa-frame
+  (testing "restore-epoch cleanup events explicitly target :rf/causa"
+    (let [dispatched (atom [])]
+      (with-redefs [rf/restore-epoch (fn [_frame-id _epoch-id] false)
+                    rf/dispatch*    (fn
+                                      ([event]
+                                       (swap! dispatched conj [event nil]))
+                                      ([event opts]
+                                       (swap! dispatched conj
+                                              [event (select-keys opts [:frame])])))]
+        (time-travel/restore-epoch-fx-fn
+          {} {:frame-id :rf/default :epoch-id :e-1}))
+      (is (= [[[:rf.causa/bump-restore-epoch-tick] {:frame :rf/causa}]
+              [[:rf.causa/clear-selected-epoch] {:frame :rf/causa}]]
+             @dispatched)))))
+
 (deftest restore-epoch-success-does-not-record-failure
   (testing "audit rf2-i0veg §4b corollary — when rf/restore-epoch
             returns true (success), :rf.causa/last-restore-failure

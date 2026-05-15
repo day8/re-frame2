@@ -4,7 +4,7 @@
   ## Scope
 
   `registry.cljs` (1818 LoC) is the central registrar for Causa's
-  framework surface — 64 reg-subs + 63 reg-event-(db|fx) + 3 reg-fx,
+  framework surface — 65 reg-subs + 67 reg-event-(db|fx) + 4 reg-fx,
   all under the `:rf.causa/*` namespace, targeting the `:rf/causa`
   frame. Prior to this file the only coverage was *transitive* through
   per-panel view tests (each panel test calls `(registry/reset-for-test!)`
@@ -23,7 +23,7 @@
 
   ## Trade-off: smoke + high-value, not 1-per-registration
 
-  125 registrations is too many to exhaustively unit-test without
+  136 registrations is too many to exhaustively unit-test without
   duplicating the per-panel suite. The strategy below is:
 
     (1) **Smoke registration block** — one assertion per registered
@@ -79,6 +79,18 @@
   []
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {}))
+
+(defn- causa-event-id? [id]
+  (and (keyword? id)
+       (#{"rf.causa" "rf.causa.issues"} (namespace id))))
+
+(defn- copilot-event-id? [id]
+  (and (keyword? id)
+       (.startsWith (name id) "copilot-")))
+
+(defn- catalogued-causa-event-id? [id]
+  (and (causa-event-id? id)
+       (not (copilot-event-id? id))))
 
 (def ^:private all-sub-names
   "Every :rf.causa/* sub registered by `register-causa-handlers!`. Sorted
@@ -161,6 +173,7 @@
    :rf.causa.issues/set-since-seconds
    :rf.causa.issues/toggle-prefix
    :rf.causa.issues/toggle-severity
+   :rf.causa/bump-restore-epoch-tick
    :rf.causa/clear-flow-selection
    :rf.causa/clear-fx-selection
    :rf.causa/clear-machine-selection
@@ -215,7 +228,9 @@
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
    :rf.causa/show-invalidation-chain
+   :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
+   :rf.causa/time-travel-set-label-input
    :rf.causa/toggle-mcp-op-type
    :rf.causa/toggle-mcp-origin-filter
    :rf.causa/toggle-sub-filter
@@ -248,6 +263,35 @@
       (is (some? (registrar/handler :event event-id))
           (str "expected :event handler for " event-id)))))
 
+(deftest registry-installs-every-catalogued-event-and-no-dead-core-events
+  (testing "register-causa-handlers! installs the catalogued non-Co-Pilot Causa events"
+    (registry/register-causa-handlers!)
+    (let [actual (->> (registrar/registrations :event)
+                      keys
+                      (filter catalogued-causa-event-id?)
+                      set)]
+      (is (= (set all-event-names) actual)))))
+
+(deftest registry-registers-each-causa-event-once
+  (testing "each Causa event id is registered exactly once during install"
+    (let [registered        (atom [])
+          original-register! registrar/register!]
+      (with-redefs [registrar/register!
+                    (fn [kind id metadata]
+                      (when (and (= :event kind) (causa-event-id? id))
+                        (swap! registered conj id))
+                      (original-register! kind id metadata))]
+        (registry/reset-for-test!)
+        (registry/register-causa-handlers!))
+      (let [freqs      (frequencies @registered)
+            duplicates (into {}
+                             (filter (fn [[_id n]] (> n 1)))
+                             freqs)]
+        (is (= (set all-event-names)
+               (set (remove copilot-event-id? @registered))))
+        (is (= {} duplicates)
+            (str "duplicate event registrations: " duplicates))))))
+
 (deftest registry-installs-every-fx
   (testing "register-causa-handlers! resolves every :rf.causa.fx/* fx"
     (registry/register-causa-handlers!)
@@ -256,16 +300,11 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 65 subs + 64 events + 4 fxs"
+  (testing "registry holds exactly 65 subs + 67 events + 4 fxs"
     (is (= 65 (count all-sub-names)))
-    ;; 64 events = 60 baseline + rf2-13bx9's :rf.causa/set-target-frame
-    ;; (companion to time-travel's :rf.causa/target-frame sub; consumed
-    ;; by the `core.cljs` facade's `set-active-frame!`) + rf2-in6l2's
-    ;; trio (:rf.causa/note-trace-event, :rf.causa/clear-trace-buffer,
-    ;; :rf.causa/sync-trace-buffer) — the reactive-mirror dispatches
-    ;; that keep `:trace-buffer` on `:rf/causa`'s app-db in lockstep
-    ;; with the trace-bus atom.
-    (is (= 64 (count all-event-names)))
+    ;; Includes panel-local Causa events and internal mirror/tick events
+    ;; that still occupy the public registrar namespace.
+    (is (= 67 (count all-event-names)))
     ;; 4 fxs = 3 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`)
     ;; + rf2-g5q8d's `:rf.editor/open` (cross-panel open-in-editor

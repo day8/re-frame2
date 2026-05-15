@@ -240,6 +240,41 @@
         (is (not (contains? ids 400))
             "unrelated cascade dropped")))))
 
+(deftest filtered-first-render-keeps-unfiltered-layout-cached
+  (testing "a first render under selected-epoch filter still caches the
+            unfiltered layout for the subsequent clear-filter render"
+    (seed-buffer! (concat (cascade-evs 100 [:family-a] 0)
+                          (cascade-evs 400 [:family-b] 100)))
+    (rf/with-frame :rf/causa
+      (rf/reg-event-db :rf.causa/seed-history-for-test
+        (fn [db [_ records]]
+          (assoc db :epoch-history (vec records))))
+      (rf/dispatch-sync
+        [:rf.causa/seed-history-for-test
+         [{:epoch-id     :e-100
+           :frame        :rf/default
+           :committed-at 0
+           :event-id     :foo
+           :trigger-event [:foo]
+           :db-before    {}
+           :db-after     {}
+           :trace-events [{:id 1 :op-type :event :operation :event/dispatched
+                           :tags {:dispatch-id 100}}]}]])
+      ;; Make the first subscription write the graph cache while a
+      ;; filter is active. Pre-rf2-q4kvy this stored nil under :layout.
+      (rf/dispatch-sync [:rf.causa/select-epoch :e-100])
+      (let [filtered @(rf/subscribe [:rf.causa/causality-graph-data])]
+        (is (true? (:filtered? filtered)))
+        (is (= #{100}
+               (set (keys (get-in filtered [:layout :positions]))))
+            "filtered render has a layout for the selected family"))
+      (rf/dispatch-sync [:rf.causa/clear-selected-epoch])
+      (let [unfiltered @(rf/subscribe [:rf.causa/causality-graph-data])]
+        (is (false? (:filtered? unfiltered)))
+        (is (= #{100 400}
+               (set (keys (get-in unfiltered [:layout :positions]))))
+            "clear-filter render reuses a real unfiltered layout")))))
+
 (deftest selected-epoch-not-in-graph-falls-back
   (testing "when the selected-epoch's cascade-id is NOT in the graph
             (aged out of the buffer), the graph falls back to the

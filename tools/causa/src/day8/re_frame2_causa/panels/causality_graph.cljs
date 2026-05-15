@@ -394,23 +394,24 @@
                                  (h/filter-to-cascade
                                    graph cascade-id-filter)
                                  graph)
-            ;; Layout is only stable when the topology is unchanged
-            ;; AND no filter is active (filter-to-cascade returns a
-            ;; new graph shape per filter). Layout the unfiltered
-            ;; graph once per topology and recompute on filter.
-            layout             (cond
-                                 (and cache-hit? (not filterable?))
-                                 layout
-
-                                 :else
-                                 (h/compute-layout graph'))]
-        ;; Refresh the cache only on topology-change (don't churn the
-        ;; atom on filterable? toggles — those bypass the cache).
-        (when-not cache-hit?
+            ;; Cache the unfiltered layout for the topology. Filtered
+            ;; views get a throwaway layout for their smaller graph, but
+            ;; must not poison the cache with a filter-specific or nil
+            ;; layout (rf2-q4kvy).
+            layout-cache-hit?  (and cache-hit? (some? layout))
+            unfiltered-layout (if layout-cache-hit?
+                                layout
+                                (h/compute-layout graph))
+            layout            (if filterable?
+                                (h/compute-layout graph')
+                                unfiltered-layout)]
+        ;; Refresh the cache on topology-change, or heal a stale cache
+        ;; entry written by older code without an unfiltered layout.
+        (when-not layout-cache-hit?
           (reset! graph-layout-cache
                   {:key   topology-key
                    :graph graph
-                   :layout (when-not filterable? layout)}))
+                   :layout unfiltered-layout}))
         {:graph                graph'
          :layout               layout
          :selected-dispatch-id selected-id

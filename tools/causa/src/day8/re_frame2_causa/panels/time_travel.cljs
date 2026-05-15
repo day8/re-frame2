@@ -378,9 +378,9 @@
   (let [ok? (rf/restore-epoch frame-id epoch-id)]
     (reset! restore-epoch-last-result
             {:ok? ok? :frame-id frame-id :epoch-id epoch-id})
-    (rf/dispatch [:rf.causa/bump-restore-epoch-tick])
+    (rf/dispatch [:rf.causa/bump-restore-epoch-tick] {:frame :rf/causa})
     (when-not ok?
-      (rf/dispatch [:rf.causa/clear-selected-epoch]))))
+      (rf/dispatch [:rf.causa/clear-selected-epoch] {:frame :rf/causa}))))
 
 (defn install!
   "Idempotent install for the Time Travel scrubber panel's Causa-side
@@ -467,12 +467,6 @@
     {:rf.trace/no-emit? true}
     (fn [db _]
       (update db :restore-epoch-tick (fnil inc 0))))
-
-  ;; Clear the panel's scrub selection — used by the fx wrapper on a
-  ;; failed restore to drop the now-stuck pointer.
-  (rf/reg-event-db :rf.causa/clear-selected-epoch
-    (fn [db _]
-      (assoc db :selected-epoch-id nil)))
 
   ;; Per-frame pin store, keyed by target-frame. Persisted into
   ;; Causa's app-db only — never localStorage / disk (Lock 4 per
@@ -587,6 +581,8 @@
     (fn [db [_ epoch-id]]
       (assoc db :selected-epoch-id epoch-id)))
 
+  ;; Clear the panel's scrub selection — used by explicit UI reset and
+  ;; by the fx wrapper on failed restore to drop the now-stuck pointer.
   (rf/reg-event-db :rf.causa/clear-selected-epoch
     (fn [db _event]
       (dissoc db :selected-epoch-id)))
@@ -673,26 +669,4 @@
           {:fx [[:rf.causa.fx/reset-frame-db!
                  {:frame-id target :frame-db (:frame-db pin)}]]}))))
 
-  ;; Failure-surfacing for the confirmed-rewind path. Fired by the
-  ;; `:rf.causa.fx/restore-epoch` fx when `rf/restore-epoch` returns
-  ;; `false` (any of its six failure modes — aged-out epoch, schema
-  ;; mismatch, drain-in-flight, etc.). The structured failure
-  ;; trace event itself was already emitted by re-frame.epoch and
-  ;; flowed through Causa's trace bus into the Issues ribbon; this
-  ;; event clears the stuck selection so the panel doesn't display
-  ;; a confirmed-rewind that didn't actually land, and stamps the
-  ;; failure into Causa's app-db so panel state can react. Per
-  ;; rf2-o94sp + audit 4b.
-  (rf/reg-event-db :rf.causa/restore-epoch-failed
-    (fn [db [_ {:keys [frame-id epoch-id] :as args}]]
-      (-> db
-          ;; Clear the now-stuck selection — there's no scrub position
-          ;; that corresponds to a successful rewind.
-          (assoc :selected-epoch-id nil)
-          ;; Record the most-recent restore failure so panel views
-          ;; can render an inline notice. A map (not a list) — only
-          ;; the latest failure is interesting; older ones flow
-          ;; through the trace bus and the Issues ribbon.
-          (assoc :last-restore-failure
-                 {:frame-id frame-id
-                  :epoch-id epoch-id})))))
+  nil)
