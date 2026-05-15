@@ -108,7 +108,7 @@ Keep AI working material out of the product tree:
   second-opinion reviews.
 - `/ai/extended-context/` contains durable project context that is not obvious
   from the code alone.
-- `/ai/map.md` is the human's navigation file.
+- `/ai/map.md` is my Dashboard.
 
 ## Beads Are the Work Queue
 
@@ -143,7 +143,7 @@ The mayor can explain options. Workers can explore options. Another model can
 review options.
 
 But policy calls, product calls, taste calls, and "what kind of project is this
-trying to be?" calls belong to the human.
+trying to be?" calls belong to me.
 
 The mayor should surface those decisions clearly:
 
@@ -151,7 +151,7 @@ The mayor should surface those decisions clearly:
 > cleaner. Option C is safer but changes the public surface. My recommendation
 > is B because ...
 
-Then the human decides, and the mayor records the decision in the bead.
+Then I decide, and the mayor records the decision in the bead.
 
 That recording step is not paperwork. It is how future agents inherit your
 judgment instead of rediscovering the same argument at 2 a.m.
