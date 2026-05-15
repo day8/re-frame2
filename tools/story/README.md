@@ -97,6 +97,22 @@ The substantive implementation contract is decomposed into
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision was made. |
 | [`spec/findings/`](./spec/findings/) | The Phase-1 and Phase-2 research that informed the design (committed audit trail). |
 
+## Browser testbed guardrails
+
+Story browser tests run in developer worktrees and CI jobs that may overlap.
+When running the feature-load gate locally, set a unique
+`STORY_FEATURE_LOAD_PORT` instead of relying on the default `8031`.
+
+The browser testbeds also depend on a few non-obvious invariants:
+
+- Story panel `:for` scoping is part of frame/testbed isolation. Do not broaden
+  panel visibility unless the isolation behavior is tested.
+- Hot-reload fingerprint baselines are setup state, not behavior under test.
+  Baseline creation must not itself trigger hot-reload reruns or recorder
+  output can include fixture events.
+- Snapshot identity assertions should include the browser-visible unsigned hex
+  string exposed by the shell, not only JVM-side hash values.
+
 ## Status
 
 - **Spec.** [`spec/007-Stories.md`](../../spec/007-Stories.md) — normative.
