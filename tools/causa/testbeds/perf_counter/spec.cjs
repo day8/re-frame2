@@ -20,6 +20,26 @@
  */
 
 const { expectTextEquals } = require('../../../../examples/scripts/spec-helpers.cjs');
+const VERBOSE_TESTS = process.env.RF2_VERBOSE_TESTS === '1';
+
+function userTimingDiagnostics(buckets) {
+  return [
+    '  perf-on counter - User Timing entries:',
+    `    rf:event   count=${buckets.counts.event}   sample=${buckets.samples.event}`,
+    `    rf:sub     count=${buckets.counts.sub}     sample=${buckets.samples.sub}`,
+    `    rf:fx      count=${buckets.counts.fx}      sample=${buckets.samples.fx}`,
+    `    rf:render  count=${buckets.counts.render}  sample=${buckets.samples.render}`,
+  ].join('\n');
+}
+
+function expectTimingBucket(buckets, bucket) {
+  if (buckets.counts[bucket] === 0) {
+    throw new Error(
+      `Expected at least one rf:${bucket}:* measure entry; got 0.\n` +
+        userTimingDiagnostics(buckets)
+    );
+  }
+}
 
 module.exports = {
   name: 'counter-perf',
@@ -71,23 +91,13 @@ module.exports = {
       };
     });
 
-    console.log('  perf-on counter — User Timing entries:');
-    console.log(`    rf:event   count=${buckets.counts.event}   sample=${buckets.samples.event}`);
-    console.log(`    rf:sub     count=${buckets.counts.sub}     sample=${buckets.samples.sub}`);
-    console.log(`    rf:fx      count=${buckets.counts.fx}      sample=${buckets.samples.fx}`);
-    console.log(`    rf:render  count=${buckets.counts.render}  sample=${buckets.samples.render}`);
+    if (VERBOSE_TESTS) {
+      console.log(userTimingDiagnostics(buckets));
+    }
 
-    if (buckets.counts.event === 0) {
-      throw new Error('Expected at least one rf:event:* measure entry; got 0.');
-    }
-    if (buckets.counts.sub === 0) {
-      throw new Error('Expected at least one rf:sub:* measure entry; got 0.');
-    }
-    if (buckets.counts.fx === 0) {
-      throw new Error('Expected at least one rf:fx:* measure entry; got 0.');
-    }
-    if (buckets.counts.render === 0) {
-      throw new Error('Expected at least one rf:render:* measure entry; got 0.');
-    }
+    expectTimingBucket(buckets, 'event');
+    expectTimingBucket(buckets, 'sub');
+    expectTimingBucket(buckets, 'fx');
+    expectTimingBucket(buckets, 'render');
   },
 };

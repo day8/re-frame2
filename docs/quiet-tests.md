@@ -73,3 +73,16 @@ This prevents future `println` creep from re-polluting the output.
 ## Like JVM flags
 
 Treat verbose output the way JVM flags treat verbose GC: it's something you opt into when you're debugging, not the default for every run.
+
+## Opting Into Verbose Browser Diagnostics
+
+Browser / Playwright harnesses follow the same rule. A green run prints
+only a compact summary by default; browser console lines, navigation
+details, and page errors are buffered and emitted on failure.
+
+For local debugging, opt into the buffered green-path diagnostics:
+
+```bash
+RF2_VERBOSE_TESTS=1 npm run test:browser
+RF2_VERBOSE_TESTS=1 npm run test:examples
+```
