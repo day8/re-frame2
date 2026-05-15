@@ -186,6 +186,16 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
+  (story/reg-story :story.counter-diagnostics
+    {:doc        "Small deterministic failure surfaces for Story's
+                 diagnostics and test-mode UI. Kept separate from
+                 :story.counter so the canonical four counter variants
+                 stay stable."
+     :component  :counter-with-stories.views/counter-card
+     :args       {:label "Diagnostics"}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; -------------------------------------------------------------------------
   ;; reg-variant — four variants, each pulling on a different authoring shape
   ;; -------------------------------------------------------------------------
@@ -252,6 +262,38 @@
               [:rf.assert/path-equals     [:saving?] true]
               [:rf.assert/effect-emitted  :counter/sync-to-server]]
      :tags   #{:dev :test}
+     :substrates #{:reagent}})
+
+  ;; Diagnostic variant 1 — failing assertion without an exception.
+  ;; Test mode must show the failure as data, not as an uncaught browser
+  ;; error. This gives the feature-load gate a stable red test-mode
+  ;; surface that does not depend on timing or external services.
+  (story/reg-variant :story.counter-diagnostics/failing-play
+    {:doc    "Deterministic failing play assertion. The counter is
+             initialised to 1 but the play assertion expects 999."
+     :events [[:counter/initialise 1]]
+     :play   [[:rf.assert/path-equals [:count] 999]]
+     :tags   #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  ;; Diagnostic variant 2 — phase-4 handler exception. The Story
+  ;; play-runner projects handler exceptions into the assertion list so
+  ;; the test pane can explain the failure without blanking the shell.
+  (story/reg-variant :story.counter-diagnostics/event-throws
+    {:doc    "Deterministic event-handler exception during :play."
+     :events [[:counter/initialise 0]]
+     :play   [[:counter/throw-deterministic]]
+     :tags   #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  ;; Diagnostic variant 3 — loader-phase exception. This exercises the
+  ;; phase-1 error capture path separately from ordinary play failures.
+  (story/reg-variant :story.counter-diagnostics/loader-throws
+    {:doc     "Deterministic loader exception before events/render."
+     :loaders [[:counter/throw-deterministic]]
+     :events  [[:counter/initialise 0]]
+     :play    [[:rf.assert/path-equals [:count] 0]]
+     :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
