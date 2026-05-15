@@ -10,7 +10,7 @@
   `target-frame` + `set-target-frame!` / `active-panel` +
   `set-active-panel!` / `load-theme` — plus the boot-time config knob
   surface exposed by `config.cljc` (`configure!` / `set-editor!` /
-  `set-show-sensitive!`).
+  `set-auto-open!` / `set-show-sensitive!`).
 
   ## Why a thin facade
 
@@ -240,11 +240,19 @@
 
     `{:editor <kw>}`                 — 'Open in editor' preference.
     `{:layout/host-selector <css>}`  — true-inline layout host selector.
+    `{:launch/auto-open? <bool>}`    — default true-inline auto-open.
     `{:trace/show-sensitive? <bool>}` — `:sensitive?` trace-event gate.
 
   Future phases extend with theme / buffer keys. Hosts typically call
   once at boot, before Causa auto-opens. Returns nothing."
   config/configure!)
+
+(def set-auto-open!
+  "Replace the `:launch/auto-open?` flag. When `true` (default), the
+  dev preload auto-opens Causa into the configured inline host after
+  substrate readiness. `false` suppresses only that automatic launch;
+  explicit open!/toggle! calls keep the normal host diagnostic."
+  config/set-auto-open!)
 
 (def set-editor!
   "Set the 'Open in editor' preference. Accepts `:vscode` /

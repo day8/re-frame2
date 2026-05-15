@@ -100,11 +100,22 @@ The preload registers Causa's listeners under `register-trace-cb!` and
 `register-epoch-cb!`, installs the browser API/keybinding, and
 auto-opens into the layout host after `rf/init!`.
 
+Tool-owned pages that intentionally do not reserve app layout space for
+Causa can suppress only the default page-load open before `rf/init!`:
+
+```clojure
+(causa-config/configure! {:launch/auto-open? false})
+```
+
+Explicit opens still use the normal host contract and emit the same
+missing-host diagnostic when no host exists.
+
 ### Launch
 
 | Action | How |
 |---|---|
 | Auto-open | Page load after `rf/init!`, when `[data-rf-causa-host]` exists |
+| Suppress auto-open on tool-only pages | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!` |
 | Hide/show | `Ctrl+Shift+C` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
 | Pop out to second window | Programmatic `(causa/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |

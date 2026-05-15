@@ -2,7 +2,7 @@
 
 Causa exposes a single top-level configuration entry point —
 `day8.re-frame2-causa.config/configure!` — which the host calls once at
-boot to wire up Causa's two runtime knobs. This doc normatively
+boot to wire up Causa's runtime knobs. This doc normatively
 enumerates `configure!`'s accepted keys, their semantics and defaults,
 and the per-frame Causa app-db slots those knobs drive.
 
@@ -28,6 +28,8 @@ distinct from the persisted Settings shape per [`API.md`](./API.md)
 
 (causa-config/configure!
   {:editor                :cursor
+   :layout/host-selector  "[data-rf-causa-host]"
+   :launch/auto-open?     true
    :trace/show-sensitive? false})
 ```
 
@@ -113,6 +115,40 @@ dropped under the default are gone from the buffer; only the
 suppressed-counter survives. Hosts debugging a redaction policy
 typically flip the flag and re-drive the runtime to see the raw
 cascade.
+
+### `:layout/host-selector`
+
+The CSS selector Causa uses for its default true-inline shell mount.
+The host app owns the normal-flow left-side layout host; Causa renders
+inside it after substrate readiness.
+
+| Value | Meaning |
+|---|---|
+| CSS selector string | Use this selector when finding the app-provided Causa host. |
+| `nil` | Reset to the default selector. |
+
+Default: `[data-rf-causa-host]`.
+
+If the selector cannot be found when the default launch path opens,
+Causa MUST emit the actionable missing-host diagnostic described in
+[`011-Launch-Modes.md`](./011-Launch-Modes.md) §Layout host contract.
+
+### `:launch/auto-open?`
+
+Controls only the preload's default launch attempt. It does not disable
+Causa, the trace/epoch collectors, browser API exports, keybinding, or
+explicit `open!` / `toggle!` calls.
+
+| Value | Meaning |
+|---|---|
+| `true` | Default. After `rf/init!` installs a substrate adapter, the preload opens the Causa shell in the configured true-inline host. |
+| `false` | Suppress only the automatic page-load open. Use this for tool-owned Story/static canvases that intentionally do not reserve app real estate for Causa. |
+| `nil` | Reset to default (`true`). |
+
+Hosts that set this to `false` SHOULD do so before `rf/init!`, so the
+preload's adapter-ready probe sees the final launch posture before it
+would otherwise diagnose a missing host. The missing-host diagnostic is
+unchanged for the default path and for explicit opens.
 
 ## App-db slots
 

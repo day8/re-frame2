@@ -6,8 +6,10 @@
 
 (defn reset-editor [test-fn]
   (config/set-editor! :vscode)
+  (config/set-auto-open! true)
   (test-fn)
-  (config/set-editor! :vscode))
+  (config/set-editor! :vscode)
+  (config/set-auto-open! true))
 
 (use-fixtures :each reset-editor)
 
@@ -46,6 +48,36 @@
     (config/set-editor! :cursor)
     (config/configure! {})
     (is (= :cursor (config/get-editor)))))
+
+(deftest auto-open-defaults-to-enabled
+  (testing "Causa's default launch auto-opens the inline host"
+    (is (true? (config/auto-open-enabled?)))))
+
+(deftest set-auto-open-round-trips
+  (testing "set-auto-open! writes and auto-open-enabled? reads"
+    (config/set-auto-open! false)
+    (is (false? (config/auto-open-enabled?)))
+    (config/set-auto-open! true)
+    (is (true? (config/auto-open-enabled?)))))
+
+(deftest nil-auto-open-resets-to-enabled
+  (testing "set-auto-open! with nil resets to the default"
+    (config/set-auto-open! false)
+    (config/set-auto-open! nil)
+    (is (true? (config/auto-open-enabled?)))))
+
+(deftest configure-passes-auto-open-through
+  (testing "configure! routes :launch/auto-open? through set-auto-open!"
+    (config/configure! {:launch/auto-open? false})
+    (is (false? (config/auto-open-enabled?)))
+    (config/configure! {:launch/auto-open? true})
+    (is (true? (config/auto-open-enabled?)))))
+
+(deftest configure-without-auto-open-leaves-preference
+  (testing "configure! without :launch/auto-open? leaves the flag unchanged"
+    (config/set-auto-open! false)
+    (config/configure! {:editor :cursor})
+    (is (false? (config/auto-open-enabled?)))))
 
 (deftest editor-uri-uses-current-preference
   (testing "config/editor-uri reads from the live preference atom"

@@ -78,6 +78,21 @@ and `register-epoch-cb!`, installs the browser API/keybinding, then
 auto-opens into the configured layout host once `rf/init!` has
 installed a substrate adapter.
 
+Tool-owned pages that deliberately do not allocate app layout real
+estate for Causa (for example Story-only browser-test canvases) MAY
+suppress only the default page-load open before `rf/init!`:
+
+```clojure
+(require '[day8.re-frame2-causa.config :as causa-config])
+(causa-config/configure! {:launch/auto-open? false})
+```
+
+This does not disable Causa. The collectors, browser API, keybinding,
+and explicit `open!` / `toggle!` calls remain installed; if an explicit
+open has no host, it MUST still emit the normal actionable missing-host
+diagnostic. App dev pages should keep the default `true` posture and
+provide `[data-rf-causa-host]`.
+
 ### Disable
 
 Remove the `:preloads` entry, or:
@@ -93,6 +108,7 @@ Remove the `:preloads` entry, or:
 | Action | How |
 |---|---|
 | Auto-open | Page load after `rf/init!`, when `[data-rf-causa-host]` exists |
+| Suppress auto-open on tool-only pages | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!` |
 | Hide/show | `Ctrl+Shift+C` |
 | Legacy overlay debug mode | `window.day8.re_frame2_causa.open_overlay_BANG_()` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
@@ -168,7 +184,8 @@ available. The lifecycle is normative.
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
 5. Schedule default true-inline auto-open once the substrate adapter
-   is ready.
+   is ready, unless `:launch/auto-open?` is false before the probe
+   observes readiness.
 
 The preload MUST NOT mount the shell synchronously during namespace
 load. It MAY schedule a bounded adapter-ready retry. Once the adapter

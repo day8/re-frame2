@@ -17,6 +17,7 @@
             [re-frame.core      :as rf]
             [re-frame.story     :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
+            [day8.re-frame2-causa.config :as causa-config]
             [login-form.events]
             [login-form.subs]
             [login-form.views :as views]
@@ -82,6 +83,12 @@
       (mount-app!))))
 
 (defn ^:export run []
+  ;; Story owns this page's full-width browser-test canvas. When the
+  ;; Causa preload is present in shared dev test runs, keep its trace
+  ;; collectors/API/keybinding installed but skip the default panel
+  ;; launch; app pages that want Causa inline still provide the normal
+  ;; `[data-rf-causa-host]` contract.
+  (causa-config/configure! {:launch/auto-open? false})
   (rf/init! reagent-adapter/adapter)
   (story/install-canonical-vocabulary!)
   ;; The live page wires `:rf.http/managed` to a demo override so

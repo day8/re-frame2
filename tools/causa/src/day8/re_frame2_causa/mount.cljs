@@ -101,7 +101,8 @@
    :visible?      (visible?)
    :mode          (:mode @mount-state)
    :diagnostic    @diagnostic-state
-   :host-selector (config/get-layout-host-selector)})
+   :host-selector (config/get-layout-host-selector)
+   :auto-open?    (config/auto-open-enabled?)})
 
 ;; ---- DOM helpers ---------------------------------------------------------
 
@@ -142,6 +143,10 @@
 
 (defn- clear-diagnostic! []
   (reset! diagnostic-state {:ok? true :reason nil}))
+
+(defn- note-auto-open-disabled! []
+  (reset! diagnostic-state {:ok? true :reason :auto-open-disabled})
+  nil)
 
 (defn- create-inline-mount-node! []
   (if-let [host (layout-host)]
@@ -342,13 +347,19 @@
     (letfn [(tick! []
               (let [{:keys [attempts]} @auto-open-state]
                 (cond
+                  (not (config/auto-open-enabled?))
+                  (note-auto-open-disabled!)
+
                   @mount-state nil
+
                   (substrate-adapter/current-adapter)
                   (open!)
+
                   (< attempts 120)
                   (do
                     (swap! auto-open-state update :attempts inc)
                     (js/setTimeout tick! 50))
+
                   :else
                   (report-diagnostic!
                     {:ok? false

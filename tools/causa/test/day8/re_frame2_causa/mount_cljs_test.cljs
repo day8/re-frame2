@@ -52,6 +52,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
@@ -239,6 +240,7 @@
   ;; `:rf.causa/sync-trace-buffer` to seed the slot — that needs the
   ;; event handlers installed.
   (registry/register-causa-handlers!)
+  (config/set-auto-open! true)
   (trace-bus/clear-buffer!)
   (reset-mount-state!))
 
@@ -664,6 +666,41 @@
                 "no <div> was appended to document.body")
             (is (false? (mount/mounted?)))
             (is (false? (mount/visible?)))))))))
+
+(deftest auto-open-inline!-honours-disabled-launch-config
+  (testing "Story/tool pages can suppress only the preload's default
+            auto-open before adapter readiness; explicit open! keeps
+            the normal missing-host diagnostic path"
+    (with-stub-document
+      (fn [doc]
+        (set! (.-querySelector doc) (fn [_selector] nil))
+        (config/set-auto-open! false)
+        (let [{:keys [render-fn calls]} (mk-render-stub)
+              console-calls (atom [])]
+          (with-redefs [substrate-adapter/render render-fn]
+            (let [prior-console (when (exists? js/console) js/console)]
+              (set! js/console (js-obj "error" (fn [& args]
+                                                  (swap! console-calls conj args)
+                                                  nil)))
+              (try
+                (mount/auto-open-inline!)
+                (is (nil? @@#'mount/mount-state)
+                    "auto-open disabled does not mount")
+                (is (zero? (count @calls))
+                    "auto-open disabled does not render")
+                (is (zero? (count @console-calls))
+                    "auto-open disabled is not a console error")
+                (is (= :auto-open-disabled
+                       (get-in (mount/status) [:diagnostic :reason])))
+                (mount/open!)
+                (is (= :missing-layout-host
+                       (get-in (mount/status) [:diagnostic :reason]))
+                    "explicit open still diagnoses a missing host")
+                (is (= 1 (count @console-calls))
+                    "explicit open emits the actionable diagnostic")
+                (finally
+                  (set! js/console prior-console)
+                  (config/set-auto-open! true))))))))))
 
 (deftest toggle!-without-adapter-is-silent-no-op
   (testing "toggle! routes through open! when nothing is mounted; the

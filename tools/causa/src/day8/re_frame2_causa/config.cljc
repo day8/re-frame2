@@ -3,8 +3,9 @@
 
   Phase 1 held a single config concern: the 'Open in editor'
   preference (rf2-evgf5). Causa now also exposes the default inline
-  layout-host selector used by the dev preload (rf2-eehov). Future
-  phases extend this with theme defaults, buffer depth, etc.
+  layout-host selector and default auto-open switch used by the dev
+  preload (rf2-eehov). Future phases extend this with theme defaults,
+  buffer depth, etc.
 
   ## Why a separate config ns
 
@@ -57,6 +58,29 @@
   "Return the CSS selector for the Causa layout host."
   []
   @layout-host-selector)
+
+(defonce
+  ^{:doc "Atom controlling whether the Causa preload auto-opens the
+         default true-inline shell once the substrate adapter is ready.
+         Defaults to true. Tool-owned Story pages that intentionally
+         do not allocate app real estate for Causa may set this false
+         before `rf/init!`; explicit open!/toggle! calls still retain
+         the normal missing-host diagnostic."}
+  auto-open?
+  (atom true))
+
+(defn set-auto-open!
+  "Replace the `:launch/auto-open?` flag. `nil` resets to the default
+  (`true`)."
+  [v]
+  (reset! auto-open? (if (nil? v) true (boolean v)))
+  nil)
+
+(defn auto-open-enabled?
+  "Return true when the preload should auto-open the default inline
+  Causa shell after the substrate adapter is ready."
+  []
+  @auto-open?)
 
 (defonce
   ^{:doc "Atom holding Causa's 'Open in editor' preference. Default
@@ -263,6 +287,11 @@
     `{:layout/host-selector <css-selector>}` — app-provided true-inline
        layout host for the default shell. Defaults to
        `[data-rf-causa-host]`.
+    `{:launch/auto-open? <bool>}` — whether the preload auto-opens
+       the default true-inline shell after `rf/init!`. Defaults to
+       `true`. Story/tool pages that deliberately run without an app
+       layout host may set this to `false` before `rf/init!`; explicit
+       open!/toggle! still diagnose a missing host.
     `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
        true` trace events per Spec 009 §Privacy (rf2-azls9). Defaults
        to `false` — Causa's trace collector drops sensitive events
@@ -276,17 +305,21 @@
 
       (require '[day8.re-frame2-causa.config :as causa-config])
       (causa-config/configure! {:editor :cursor
-                                :layout/host-selector \"#causa\"})
+                                :layout/host-selector \"#causa\"
+                                :launch/auto-open? true})
 
   Returns nothing."
   [{:keys [editor]
     host-selector-opt :layout/host-selector
+    auto-open-opt :launch/auto-open?
     show-sensitive-opt :trace/show-sensitive?
     :as opts}]
   (when (some? editor)
     (set-editor! editor))
   (when (contains? opts :layout/host-selector)
     (set-layout-host-selector! host-selector-opt))
+  (when (contains? opts :launch/auto-open?)
+    (set-auto-open! auto-open-opt))
   (when (contains? opts :trace/show-sensitive?)
     (set-show-sensitive! show-sensitive-opt))
   nil)
