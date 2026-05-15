@@ -57,9 +57,10 @@
     ;; so `(rf/init!)` raises before reaching the runtime ex-info path.
     ;; CLJS surfaces this as an ordinary Error / TypeError depending on
     ;; compilation mode; we assert only that *something* throws and no
-    ;; adapter is installed.
+    ;; adapter is installed. Use `apply` to keep the intentional bad
+    ;; arity a runtime assertion without a static compiler warning.
     (let [thrown (try
-                   (rf/init!)
+                   (apply rf/init! [])
                    nil
                    (catch :default e e))]
       (is (some? thrown)

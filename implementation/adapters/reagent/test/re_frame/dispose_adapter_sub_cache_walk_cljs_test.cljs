@@ -115,19 +115,23 @@
       (let [reactions-before (vec (cached-reactions-across-all-frames))]
         (is (>= (count reactions-before) 2)
             "precondition: at least one Reaction per frame is cached")
-        (is (every? #(ratom/reactive? %) (filter ratom/reactive? reactions-before))
-            "precondition: snapshotted handles ARE Reagent Reactions")
+        (is (every? #(satisfies? ratom/IDisposable %) reactions-before)
+            "precondition: snapshotted handles satisfy Reagent's disposal contract")
 
-        ;; Drive the walk.
-        (adapter/dispose-adapter!)
+        (let [disposed (atom #{})]
+          (doseq [r reactions-before]
+            (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
 
-        ;; Invariant 1: every previously-cached Reaction is now
-        ;; disposed. Reagent's Reactions carry a mutable `.-state` slot
-        ;; that flips to ::ratom/dispose on dispose.
-        (doseq [r reactions-before]
-          (is (= ratom/dispose (.-state r))
-              (str "post-dispose: Reaction " (pr-str r)
-                   " on a frame's sub-cache is in the disposed state"))))
+          ;; Drive the walk.
+          (adapter/dispose-adapter!)
+
+          ;; Invariant 1: every previously-cached Reaction is now
+          ;; disposed. Assert through Reagent's public disposal callback
+          ;; surface rather than its private state sentinel.
+          (doseq [r reactions-before]
+            (is (contains? @disposed r)
+                (str "post-dispose: Reaction " (pr-str r)
+                     " on a frame's sub-cache fired its dispose hook")))))
 
       ;; Invariant 2: every frame's sub-cache atom is empty.
       (doseq [[fid frame-record] @frame/frames
@@ -167,11 +171,15 @@
 
         ;; Also snapshot the real reactions so we can verify they were
         ;; reached.
-        (let [reactions-before [r-a r-b]]
+        (let [reactions-before [r-a r-b]
+              disposed         (atom #{})]
+          (doseq [r reactions-before]
+            (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
+
           (adapter/dispose-adapter!)
 
           (doseq [r reactions-before]
-            (is (= ratom/dispose (.-state r))
+            (is (contains? @disposed r)
                 "the walk reached and disposed the real Reaction past the poison entry"))
 
           (is (= {} @(:sub-cache (frame/frame :walk/a)))

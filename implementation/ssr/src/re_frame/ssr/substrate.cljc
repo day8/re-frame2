@@ -1,4 +1,4 @@
-(ns re-frame.ssr.adapter
+(ns re-frame.ssr.substrate
   "The SSR substrate adapter (rf2-agql). Per Spec 006 §Plain-atom adapter
   and Spec 011 §init flow.
 
@@ -16,6 +16,11 @@
   exclusively; see Spec 006 §Plain-atom adapter and rf2-z1ke (substrate
   contract portability findings). Eight of the nine contract slots are
   implemented cleanly; render is the deliberate exception.
+
+  Internal implementation namespace. The public adapter remains
+  re-frame.ssr/adapter; this ns deliberately avoids
+  re-frame.ssr.adapter so CLJS does not see a child-namespace /
+  parent-var name clash.
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.ssr.emit :as emit]))
