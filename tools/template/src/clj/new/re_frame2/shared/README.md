@@ -206,8 +206,9 @@ A minimal **counter app** demonstrates the re-frame2 dataflow end-to-end:
 
 This is the same counter walked through in
 [the re-frame2 guide](https://github.com/day8/re-frame2/tree/main/docs/guide) —
-the shape is intentionally identical so the worked example matches what
-you read.
+the state key is intentionally feature-scoped (`:counter/value`, not a
+bare `:count`) so generated applications start with AI-readable,
+non-colliding app-db slices.
 
 ## Next steps
 
