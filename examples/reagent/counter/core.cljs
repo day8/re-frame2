@@ -12,16 +12,16 @@
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
 (rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:count 5}))
+  (fn [_db _event] {:counter/value 5}))
 
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 
 (rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :count dec)))
+  (fn [db _event] (update db :counter/value dec)))
 
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :counter/value
+  (fn [db _query] (:counter/value db)))
 
 ;; -- Views -------------------------------------------------------------------
 ;;
@@ -36,7 +36,7 @@
 (reg-view counter-buttons []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:count])]
+   [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
 ;; The root `counter-app` view renders `counter-buttons` against the

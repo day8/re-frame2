@@ -24,23 +24,23 @@ Here's the file, in full, with the surrounding ceremony removed:
 
 ;; Events
 (rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:count 5}))
+  (fn [_db _event] {:counter/value 5}))
 
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 
 (rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :count dec)))
+  (fn [db _event] (update db :counter/value dec)))
 
 ;; Subscription
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :counter/value
+  (fn [db _query] (:counter/value db)))
 
 ;; View
 (rf/reg-view counter []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span @(subscribe [:count])]
+   [:span @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
 ;; Mount
@@ -66,9 +66,9 @@ That's everything. Copy-paste-runnable. Let's take it apart.
   (rdc/render root [counter]))
 ```
 
-Two things have to happen before the view can render: the runtime needs an adapter installed (so subscriptions know how to track reactivity), and `app-db` needs an initial value (so the first read of `@(subscribe [:count])` returns something sensible). The `run` function does both.
+Two things have to happen before the view can render: the runtime needs an adapter installed (so subscriptions know how to track reactivity), and `app-db` needs an initial value (so the first read of `@(subscribe [:counter/value])` returns something sensible). The `run` function does both.
 
-`(rf/dispatch-sync [:counter/initialise])` runs the `:counter/initialise` event **synchronously**, in-line, before `run` returns. By the time `rdc/render` mounts the view on the next line, `app-db` is `{:count 5}` and the first render shows `5`.
+`(rf/dispatch-sync [:counter/initialise])` runs the `:counter/initialise` event **synchronously**, in-line, before `run` returns. By the time `rdc/render` mounts the view on the next line, `app-db` is `{:counter/value 5}` and the first render shows `5`.
 
 Why `dispatch-sync` rather than plain `dispatch`? Plain `dispatch` puts the event on the queue and returns immediately — the handler runs on the next animation frame. If the view tried to render against an empty `app-db` on the way there, it would either show nothing or pop briefly before the seeded value arrived. `dispatch-sync` is the right hammer for *seed-before-render*: drain this one event right now, treat the result as part of mount.
 
@@ -78,14 +78,14 @@ You'll only reach for `dispatch-sync` in two places, both at app boundaries: at 
 
 ```clojure
 (rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:count 5}))
+  (fn [_db _event] {:counter/value 5}))
 ```
 
 Three things to notice:
 
 1. **The id is namespaced.** `:counter/initialise`, not `:initialise`. The convention is that every event's id starts with the feature it belongs to. This matters more as the app grows, but the habit starts here. An AI scaffolding new code reads existing event ids and picks a non-colliding one — namespacing makes that easy.
 
-2. **The handler is a pure function** of `(db, event) → db`. The arguments start with `_` because we ignore them: this event doesn't read the previous state, and the event vector has no payload. The body returns the *new* state — a map with `:count 5`.
+2. **The handler is a pure function** of `(db, event) → db`. The arguments start with `_` because we ignore them: this event doesn't read the previous state, and the event vector has no payload. The body returns the *new* state — a map with `:counter/value 5`.
 
 3. **There's no side-effect**. The handler doesn't write to anything, doesn't fire HTTP requests, doesn't call `console.log`. It computes a new state and hands it back. The runtime applies it.
 
@@ -93,10 +93,10 @@ The other two events are similarly pure:
 
 ```clojure
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 
 (rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :count dec)))
+  (fn [db _event] (update db :counter/value dec)))
 ```
 
 `update` is Clojure's idiom for "transform a value at this key with this function." It returns a new map, leaving the old one untouched. Immutability everywhere.
@@ -108,9 +108,9 @@ Because pure handlers are *the easiest possible thing to test* — pass in a sta
 ```clojure
 (deftest counter-inc-test
   (let [handler (:handler-fn (rf/handler-meta :event :counter/inc))
-        before  {:count 5}
+        before  {:counter/value 5}
         after   (handler before [:counter/inc])]
-    (is (= 6 (:count after)))))
+    (is (= 6 (:counter/value after)))))
 ```
 
 But there's a deeper reason. **A pure function has no time and no place.** It doesn't matter when it ran or what the global environment looked like; given the same arguments, it returns the same value. That property is what lets you reason about the function in isolation. As soon as a handler can call out to the network, mutate global state, or check the wall clock, you've lost that property — and you've gained a class of bugs that are dynamic, time-dependent, and very hard to fix.
@@ -120,27 +120,27 @@ re-frame2 keeps handlers pure. When side-effects need to happen, the handler *de
 ## Subscriptions
 
 ```clojure
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :counter/value
+  (fn [db _query] (:counter/value db)))
 ```
 
-A **subscription** is a derivation: a function from `app-db` to some value. Here, `:count` is just `(:count db)` — read the `:count` key.
+A **subscription** is a derivation: a function from `app-db` to some value. Here, `:counter/value` is just `(:counter/value db)` — read the feature-scoped counter key.
 
-But the framing matters. By naming this derivation `:count` and making it a registered, queryable thing, we get:
+But the framing matters. By naming this derivation `:counter/value` and making it a registered, queryable thing, we get:
 
-- A view can subscribe to it without knowing the path in `app-db`. If we move `:count` into `[:counter :count]` later, only the subscription changes.
+- A view can subscribe to it without knowing the path in `app-db`. If we move the stored value into a richer counter slice later, only the subscription changes.
 - Tooling can list every derivation in the app: "show me everything anyone could read." Useful for AI code generation and human inspection.
-- Tests can compute the subscription against any state value: `(rf/compute-sub [:count] some-db)` — no React, no rendering, just data → data.
+- Tests can compute the subscription against any state value: `(rf/compute-sub [:counter/value] some-db)` — no React, no rendering, just data → data.
 
-Subscriptions can also chain. A `:count-doubled` sub that depends on `:count` would be:
+Subscriptions can also chain. A `:counter/doubled` sub that depends on `:counter/value` would be:
 
 ```clojure
-(rf/reg-sub :count-doubled
-  :<- [:count]
+(rf/reg-sub :counter/doubled
+  :<- [:counter/value]
   (fn [count _query] (* 2 count)))
 ```
 
-The `:<-` is the input declaration. The framework builds a dependency graph from these declarations; when `:count` changes, `:count-doubled` recomputes — but only when something is reading it. Cheap when nobody's looking, fast when they are.
+The `:<-` is the input declaration. The framework builds a dependency graph from these declarations; when `:counter/value` changes, `:counter/doubled` recomputes — but only when something is reading it. Cheap when nobody's looking, fast when they are.
 
 ## The view
 
@@ -148,7 +148,7 @@ The `:<-` is the input declaration. The framework builds a dependency graph from
 (rf/reg-view counter []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span @(subscribe [:count])]
+   [:span @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 ```
 
@@ -158,7 +158,7 @@ This is the only piece with substantive shape. Let's look at it carefully.
 
 Inside the body, two names are available that you didn't define:
 
-- **`subscribe`** — `@(subscribe [:count])` reads the current value of the `:count` subscription.
+- **`subscribe`** — `@(subscribe [:counter/value])` reads the current value of the `:counter/value` subscription.
 - **`dispatch`** — `(dispatch [:counter/inc])` puts an event on the queue.
 
 These are *injected* by `reg-view`. The body uses them just like the original re-frame's `subscribe` and `dispatch`. No ceremony. The `@(...)` syntax is Clojure's "unwrap this reactive value to its current contents" — it's how Reagent (the underlying view substrate) tracks dependencies.
@@ -190,7 +190,7 @@ Four things happen here.
 
 `(rf/init! reagent-adapter/adapter)` wires re-frame2 to the Reagent substrate. The runtime needs to know which view library it's driving (Reagent vs UIx vs Helix vs SSR), and `init!` is where that binding happens. We require `re-frame.adapter.reagent :as reagent-adapter` at the top of the file and pass its exported `adapter` Var. The call is **idempotent** — calling it twice is a no-op — so hot-reload is safe.
 
-`(rf/dispatch-sync [:counter/initialise])` runs the initialiser inline — by the time the next line runs, `app-db` is `{:count 5}`. The role of this call is covered above in [Initialisation](#initialisation); we list it here for completeness because, in source order, it's part of `run`.
+`(rf/dispatch-sync [:counter/initialise])` runs the initialiser inline — by the time the next line runs, `app-db` is `{:counter/value 5}`. The role of this call is covered above in [Initialisation](#initialisation); we list it here for completeness because, in source order, it's part of `run`.
 
 `(rdc/render root [counter])` is the React/Reagent runtime asking "render this hiccup at this root." `[counter]` is hiccup referencing the Var that `reg-view` defed.
 
@@ -202,13 +202,13 @@ When the page loads, here's what runs:
 
 1. `run` is called. `(rf/init! reagent-adapter/adapter)` installs the Reagent substrate adapter into the runtime.
 
-2. `(rf/dispatch-sync [:counter/initialise])` runs the `:counter/initialise` handler synchronously. The handler returns `{:count 5}`. `app-db` is now `{:count 5}`. Then `rdc/render` mounts the `counter` view at the root.
+2. `(rf/dispatch-sync [:counter/initialise])` runs the `:counter/initialise` handler synchronously. The handler returns `{:counter/value 5}`. `app-db` is now `{:counter/value 5}`. Then `rdc/render` mounts the `counter` view at the root.
 
-3. The view's body runs. `@(subscribe [:count])` returns `5`. The hiccup tree is `[:div [:button "-"] [:span 5] [:button "+"]]`. Reagent renders that as DOM.
+3. The view's body runs. `@(subscribe [:counter/value])` returns `5`. The hiccup tree is `[:div [:button "-"] [:span 5] [:button "+"]]`. Reagent renders that as DOM.
 
 4. The user clicks `+`. The button's `:on-click` fires `(dispatch [:counter/inc])`. The event joins the queue.
 
-5. The runtime pops the event. The `:counter/inc` handler runs: it reads `{:count 5}`, returns `{:count 6}`. The runtime updates `app-db`. The `:count` subscription notices it changed. The view re-renders. The DOM shows `6`.
+5. The runtime pops the event. The `:counter/inc` handler runs: it reads `{:counter/value 5}`, returns `{:counter/value 6}`. The runtime updates `app-db`. The `:counter/value` subscription notices it changed. The view re-renders. The DOM shows `6`.
 
 That's the entire dynamic story. Five steps, all named, no surprises.
 
@@ -220,8 +220,8 @@ The handler is a pure function — given `db` and `event`, return new `db`. That
 (deftest counter-handlers
   (let [inc-handler (:handler-fn (rf/handler-meta :event :counter/inc))
         dec-handler (:handler-fn (rf/handler-meta :event :counter/dec))]
-    (is (= {:count 6} (inc-handler {:count 5} [:counter/inc])))
-    (is (= {:count 4} (dec-handler {:count 5} [:counter/dec])))))
+    (is (= {:counter/value 6} (inc-handler {:counter/value 5} [:counter/inc])))
+    (is (= {:counter/value 4} (dec-handler {:counter/value 5} [:counter/dec])))))
 ```
 
 That test runs on the JVM. There's no browser, no React, no runtime needed — `handler-meta` looks up the registered function, you call it with a value, you assert on the return. Tests like this run in milliseconds and you can have thousands of them. [Chapter 13 — Testing](13-testing.md) covers the richer testing primitives (driving a full event through the dispatch loop, sub computation, fixtures) for when "call the handler as a function" isn't enough.
@@ -245,9 +245,9 @@ What we didn't cover yet:
 
 If you wanted the counter to also remember a history of past values, you'd:
 
-1. Change `:counter/initialise` to seed `{:count 5 :history [5]}`.
-2. Change `:counter/inc` to update both `:count` and `:history`.
-3. Add a `:history` subscription.
+1. Change `:counter/initialise` to seed `{:counter/value 5 :counter/history [5]}`.
+2. Change `:counter/inc` to update both `:counter/value` and `:counter/history`.
+3. Add a `:counter/history` subscription.
 4. Display the history in the view.
 
 That's it. The shape doesn't change. There's no new primitive to learn. Every change happens in the place you'd expect: a new event handler, a new sub, a new view fragment.

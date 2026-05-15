@@ -50,18 +50,20 @@ each variant emits.
 
 Every variant emits a working counter:
 
-- An init event `:counter/initialise` seeds `app-db` with `{:counter
-  0}`.
-- An action event `:counter/increment` adds `1` to `[:counter]`.
+- An init event `:counter/initialise` seeds `app-db` with
+  `{:counter/value 0}`.
+- An action event `:counter/increment` adds `1` to `:counter/value`.
 - A sub `:counter/value` reads the current count.
 - A view subscribes to `:counter/value` and renders the value plus
   an increment button that dispatches `:counter/increment`.
 
-This is the same shape the developer reads about in [Guide chapter
-03 — Your first app](../../../docs/guide/03-your-first-app.md) and
-in the [`examples/<substrate>/counter*/`](../../../examples/)
-trees. The template's generated counter and the guide's worked
-example align.
+The app-db slice and subscription id are intentionally feature-scoped
+(`:counter/value`, not a bare `:count`) so generated applications start
+with AI-readable, non-colliding state keys. This is the same counter
+shape the developer reads about in [Guide chapter 03 — Your first
+app](../../../docs/guide/03-your-first-app.md) and the canonical
+[`examples/reagent/counter`](../../../examples/reagent/counter/)
+example.
 
 ## Resource tree (template-side)
 

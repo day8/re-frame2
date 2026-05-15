@@ -18,7 +18,7 @@ Consider the counter's increment handler from chapter 03:
 
 ```clojure
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 ```
 
 We can proudly claim that this handler is **pure**: `db` and event in, new `db` out. No I/O, no clock, no globals. Tested in one line.
@@ -86,7 +86,7 @@ Then there's the follow-up handler, pure:
   (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc :counter/loading? false)
-        (update :count + (:delta value)))))
+        (update :counter/value + (:delta value)))))
 ```
 
 The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx, and hands it the args. When the request resolves, the fx dispatches `[:counter/inc-loaded {:kind :success :value v}]`. That event goes through the queue exactly like any other event. The cycle runs.
@@ -97,7 +97,7 @@ This shape makes the dynamic story tractable again. You can trace the counter-fe
 
 ## Walking one event through every domino
 
-Chapter 03 left the counter mounted: `app-db` is `{:count 5}`, the view shows `5`, the user is staring at `[-] 5 [+]`. They click `[+]`. Six things happen, in order. Each has a name. Each is observable. Each is testable in isolation.
+Chapter 03 left the counter mounted: `app-db` is `{:counter/value 5}`, the view shows `5`, the user is staring at `[-] 5 [+]`. They click `[+]`. Six things happen, in order. Each has a name. Each is observable. Each is testable in isolation.
 
 <p align="center"><img src="../images/guide/6dominoes.png" alt="The six dominoes: dispatch, event handler, effects produced, effects executed, subscriptions, views." width="600"></p>
 
@@ -127,51 +127,51 @@ The runtime pops `[:counter/inc]` off the queue, looks up its registered handler
 
 ```clojure
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 ```
 
-`reg-event-db` is the simplest registration shape: take the current `db`, return the new `db`. The handler is a pure function — same `db` and event in, same `db` out, no side-effects, no I/O. Tested with one line: `(handler {:count 5} [:counter/inc]) ;=> {:count 6}`.
+`reg-event-db` is the simplest registration shape: take the current `db`, return the new `db`. The handler is a pure function — same `db` and event in, same `db` out, no side-effects, no I/O. Tested with one line: `(handler {:counter/value 5} [:counter/inc]) ;=> {:counter/value 6}`.
 
 ### Domino 3 — Effects produced
 
-The handler returned `{:count 6}`. The runtime wraps that into an effect map:
+The handler returned `{:counter/value 6}`. The runtime wraps that into an effect map:
 
 ```clojure
-{:db {:count 6}}
+{:db {:counter/value 6}}
 ```
 
 That's the entire effect map for this event. No `:fx` vector — no HTTP, no localStorage, no follow-up dispatch. Just "replace `app-db` with this value." `reg-event-db` is sugar for `reg-event-fx` where the handler's return is automatically wrapped as `{:db ...}`; the runtime sees the same shape either way.
 
 ### Domino 4 — Effects executed
 
-The runtime walks the effect map. It sees `:db` and resets `app-db` to `{:count 6}` as a single atomic swap. No intermediate state is visible. If there were an `:fx` vector, the runtime would walk it next, looking up each registered fx by id and invoking it with its args; for this event there is none.
+The runtime walks the effect map. It sees `:db` and resets `app-db` to `{:counter/value 6}` as a single atomic swap. No intermediate state is visible. If there were an `:fx` vector, the runtime would walk it next, looking up each registered fx by id and invoking it with its args; for this event there is none.
 
 The queue is now empty. The cycle proceeds to subscriptions.
 
 ### Domino 5 — Subscriptions recompute
 
-`app-db` changed. The `:count` subscription is watching:
+`app-db` changed. The `:counter/value` subscription is watching:
 
 ```clojure
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :counter/value
+  (fn [db _query] (:counter/value db)))
 ```
 
 It re-runs against the new `db`, gets `6`, and — because `6` differs from its previous value `5` — marks itself dirty. Any view that derefs this sub is now queued to re-render.
 
 ### Domino 6 — Views re-render
 
-The `counter-buttons` view derefs `:count`:
+The `counter-buttons` view derefs `:counter/value`:
 
 ```clojure
 (reg-view counter-buttons []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span {:style {:margin "0 1em"}} @(subscribe [:count])]
+   [:span {:style {:margin "0 1em"}} @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 ```
 
-Reagent re-runs the function body. `@(subscribe [:count])` now returns `6`. The new hiccup tree is `[:div [:button "-"] [:span 6] [:button "+"]]`. Reagent diffs against the previous tree, sees that only the `<span>`'s text content changed, and patches the DOM.
+Reagent re-runs the function body. `@(subscribe [:counter/value])` now returns `6`. The new hiccup tree is `[:div [:button "-"] [:span 6] [:button "+"]]`. Reagent diffs against the previous tree, sees that only the `<span>`'s text content changed, and patches the DOM.
 
 And the view re-renders. One event, six dominoes, the app stays consistent.
 
@@ -193,9 +193,9 @@ That's all. Top-level `:dispatch`, `:dispatch-later`, `:dispatch-n` from re-fram
 ```clojure
 {:db (assoc db :counter/saved? true)
  :fx [[:rf.http/managed
-       {:request {:method :post :url "/api/counter" :body {:count (:count db)}
+       {:request {:method :post :url "/api/counter" :body {:count (:counter/value db)}
                   :request-content-type :json}}]
-      [:localstorage/set  {:key "counter" :value (:count db)}]
+      [:localstorage/set  {:key "counter" :value (:counter/value db)}]
       [:rf.nav/push-url   "/saved"]
       [:dispatch          [:notification/show "Saved!"]]]}
 ```
