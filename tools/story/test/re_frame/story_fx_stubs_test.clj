@@ -167,3 +167,34 @@
     (is (contains? (fx-stubs/observed-fx-ids :story.fxlog/v) :http)
         "observed-fx-ids surfaces the stubbed fx after the run")
     (story/destroy-variant! :story.fxlog/v)))
+
+(deftest force-fx-stub-log-is-per-frame
+  (testing "two variants emitting the same fx id keep stub logs and effect assertions isolated by frame"
+    (rf/reg-event-fx :do/http-a
+      (fn [_ _]
+        {:fx [[:http {:url "/a"}]]}))
+    (rf/reg-event-fx :do/http-b
+      (fn [_ _]
+        {:fx [[:http {:url "/b"}]]}))
+    (story/reg-variant :story.fxisolation/a
+      {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
+       :events     []
+       :play       [[:do/http-a]
+                    [:rf.assert/effect-emitted :http]]})
+    (story/reg-variant :story.fxisolation/b
+      {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
+       :events     []
+       :play       [[:do/http-b]
+                    [:rf.assert/effect-emitted :http]]})
+    (let [ra (async/deref-blocking (story/run-variant :story.fxisolation/a) 5000)
+          rb (async/deref-blocking (story/run-variant :story.fxisolation/b) 5000)
+          log-a (frames/stub-call-log-for :story.fxisolation/a)
+          log-b (frames/stub-call-log-for :story.fxisolation/b)]
+      (is (every? :passed? (:assertions ra)))
+      (is (every? :passed? (:assertions rb)))
+      (is (= [{:url "/a"}] (mapv :payload log-a)))
+      (is (= [{:url "/b"}] (mapv :payload log-b)))
+      (is (= #{:http} (fx-stubs/observed-fx-ids :story.fxisolation/a)))
+      (is (= #{:http} (fx-stubs/observed-fx-ids :story.fxisolation/b))))
+    (story/destroy-variant! :story.fxisolation/a)
+    (story/destroy-variant! :story.fxisolation/b)))

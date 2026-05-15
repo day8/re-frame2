@@ -206,6 +206,49 @@
     ;; The two variants are independent registrations
     (is (= 2 (count (story/variants-of :story.auth.login-form))))))
 
+(deftest form-b-desugars-to-separate-form-shape
+  (testing "Form-B combined authoring produces the same registry bodies as explicit separate forms"
+    (story/reg-story :story.formb.combined
+      {:doc       "Combined story."
+       :component :app.formb/view
+       :args      {:label "parent"}
+       :tags      #{:dev}
+       :variants  {:idle {:events [[:formb/init]]
+                           :args   {:state :idle}
+                           :tags   #{:dev :test}}
+                   :busy {:events [[:formb/init] [:formb/load]]
+                          :args   {:state :busy}
+                          :tags   #{:dev}}}})
+    (let [combined-story (dissoc (story/handler-meta :story :story.formb.combined)
+                                 :source)
+          combined-idle  (dissoc (story/handler-meta :variant :story.formb.combined/idle)
+                                 :source)
+          combined-busy  (dissoc (story/handler-meta :variant :story.formb.combined/busy)
+                                 :source)]
+      (story/clear-all!)
+      (story/install-canonical-vocabulary!)
+      (story/reg-story :story.formb.separate
+        {:doc       "Combined story."
+         :component :app.formb/view
+         :args      {:label "parent"}
+         :tags      #{:dev}})
+      (story/reg-variant :story.formb.separate/idle
+        {:events [[:formb/init]]
+         :args   {:state :idle}
+         :tags   #{:dev :test}})
+      (story/reg-variant :story.formb.separate/busy
+        {:events [[:formb/init] [:formb/load]]
+         :args   {:state :busy}
+         :tags   #{:dev}})
+      (is (= combined-story
+             (dissoc (story/handler-meta :story :story.formb.separate) :source)))
+      (is (= combined-idle
+             (dissoc (story/handler-meta :variant :story.formb.separate/idle) :source)))
+      (is (= combined-busy
+             (dissoc (story/handler-meta :variant :story.formb.separate/busy) :source)))
+      (is (= #{:story.formb.separate/idle :story.formb.separate/busy}
+             (story/variants-of :story.formb.separate))))))
+
 ;; ---- workspace ---------------------------------------------------------
 
 (deftest reg-workspace-grid
