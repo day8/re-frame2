@@ -366,13 +366,12 @@ async function assertOverlayLaunchModes(page, state) {
   await expectTextEquals(page.locator('span').first(), String(countBefore + 1), 5000);
 
   const popout = await page.evaluate(() => {
-    const core = window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.core;
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
     const keys = core ? Object.keys(core).sort() : [];
     const fn = core && core.popout_BANG_;
     if (typeof fn !== 'function') {
-      return { available: false, implemented: false, reason: 'day8.re_frame2_causa.core.popout_BANG_ not exported in this browser bundle', keys };
+      return { available: false, implemented: false, reason: 'Causa popout_BANG_ browser export not available', keys };
     }
     try {
       const beforeUrl = location.href;
@@ -397,9 +396,8 @@ async function assertOverlayLaunchModes(page, state) {
   });
 
   const inlineStart = await page.evaluate(() => {
-    const core = window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.core;
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
     const keys = core ? Object.keys(core).sort() : [];
     const fn = core && core.mount_inline_panel_BANG_;
     if (typeof fn !== 'function') {
@@ -421,9 +419,8 @@ async function assertOverlayLaunchModes(page, state) {
   }
   await page.waitForSelector('#rf-causa-inline-feature-matrix-host [data-testid="rf-causa-inline-panel"]', { timeout: 2000 });
   const inline = await page.evaluate(() => {
-    const core = window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.core;
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
     const keys = core ? Object.keys(core).sort() : [];
     const host = document.getElementById('rf-causa-inline-feature-matrix-host');
     const panel = host && host.querySelector('[data-testid="rf-causa-inline-panel"]');
@@ -440,9 +437,8 @@ async function assertOverlayLaunchModes(page, state) {
   });
 
   const docking = await page.evaluate(() => {
-    const core = window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.core;
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
     const keys = core ? Object.keys(core).sort() : [];
     const dock = core && core.dock_BANG_;
     const undock = core && core.undock_BANG_;

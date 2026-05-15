@@ -356,7 +356,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 7 :op-type :event :operation :event/dispatched
-                              :dispatch-id 42}))
+                              :dispatch-id 42 :frame :rf/default}))
       (let [dispatches (atom [])]
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
@@ -367,8 +367,8 @@
             (is (some? row) "row node present")
             (is (some? handler) "row carries an :on-click handler")
             (when handler (handler))))
-        (is (some #(= [:rf.causa/select-dispatch-id 42] %) @dispatches)
-            "select-dispatch-id fired with the row's dispatch-id")
+        (is (some #(= [:rf.causa/select-dispatch-id 42 :rf/default] %) @dispatches)
+            "select-dispatch-id fired with the row's dispatch-id and frame")
         (is (some #(= [:rf.causa/select-panel :event-detail] %) @dispatches)
             "select-panel fired to pivot")))))
 
