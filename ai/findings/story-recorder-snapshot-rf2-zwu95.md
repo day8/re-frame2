@@ -52,8 +52,9 @@ browser gate both pass locally.
 
 ## Missing or intentionally not forced
 
-- Share URL hydration from a pasted link was not implemented. This slice
-  verifies generation integrity only.
+- Deep-link hydration from a pasted share URL was not added or asserted by
+  this slice. The rebased base already has parser/hydration support; this
+  slice verifies generated URL integrity only.
 - The expensive static-build, production-elision, bundle-size, and release-tier
   checks were not run locally; the changed surface is covered by the
   Story feature-load PR gate and the narrow JVM URL test.
