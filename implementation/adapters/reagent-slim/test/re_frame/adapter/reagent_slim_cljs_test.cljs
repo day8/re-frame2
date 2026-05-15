@@ -20,11 +20,32 @@
   loads multiple adapter ns's no longer sees the last-loaded one
   silently win at the hook regardless of which adapter was
   `(rf/init!)`-installed. The `:reagent/set-hiccup-emitter!` hook is
-  still rebound at ns-load time per the SSR shipping convention.
+  chained at ns-load time per the SSR shipping convention.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.reagent-slim :as reagent-slim]))
+            [clojure.string :as str]
+            [re-frame.adapter.reagent-slim :as reagent-slim]
+            [re-frame.late-bind :as late-bind]))
+
+;; ---------------------------------------------------------------------------
+;; Helpers
+;; ---------------------------------------------------------------------------
+
+(defn- a-mock-emitter
+  "A toy hiccup -> HTML emitter so install-path tests assert wiring, not
+  real rendering."
+  [render-tree _opts]
+  (str "<mock>" (pr-str render-tree) "</mock>"))
+
+(defn- with-cleared-emitter
+  "Run `f` with the adapter's hiccup-emitter forced to nil."
+  [f]
+  (reagent-slim/set-hiccup-emitter! nil)
+  (try
+    (f)
+    (finally
+      (reagent-slim/set-hiccup-emitter! nil))))
 
 ;; ---------------------------------------------------------------------------
 ;; Adapter map shape (per IMPL-SPEC §2.1 + Spec 006 §CLJS reference)
@@ -103,28 +124,45 @@
 
 (deftest render-to-string-throws-without-emitter
   (testing "render-to-string raises when no hiccup-emitter installed"
-    ;; We don't call set-hiccup-emitter! here so the slot is nil.
-    ;; Note: if a previous test ran set-hiccup-emitter!, this assertion
-    ;; would fail. The slim adapter's emitter atom is module-private;
-    ;; we can't reset it from here. We either:
-    ;;   1. Trust test ordering (this test runs first under cljs.test
-    ;;      alpha-sort) — fragile.
-    ;;   2. Just confirm the fn shape exists.
-    ;; Settle for #2:
-    (is (fn? (:render-to-string reagent-slim/adapter)))))
+    (with-cleared-emitter
+      (fn []
+        (let [render-to-string (:render-to-string reagent-slim/adapter)]
+          (is (thrown? :default (render-to-string [:div] {}))))))))
 
 (deftest set-hiccup-emitter-installs-fn
   (testing "set-hiccup-emitter! lets render-to-string emit"
-    (reagent-slim/set-hiccup-emitter! (fn [tree _opts]
-                                        (str "hiccup:" (pr-str tree))))
-    (let [render-to-string (:render-to-string reagent-slim/adapter)]
-      (is (= "hiccup:[:div]"
-             (render-to-string [:div] {})))
-      ;; Reset for downstream determinism — the atom is module-private,
-      ;; so the cleanest way to get it back to nil is to install a
-      ;; throwing fn. Tests downstream don't actually use this; we
-      ;; leave the fn installed.
-      )))
+    (with-cleared-emitter
+      (fn []
+        (reagent-slim/set-hiccup-emitter! a-mock-emitter)
+        (let [render-to-string (:render-to-string reagent-slim/adapter)
+              tree             [:div "ok"]
+              html             (render-to-string tree {})]
+          (is (str/starts-with? html "<mock>")
+              "the installed emitter is what render-to-string invokes")
+          (is (str/includes? html (pr-str tree))
+              "the installed emitter received the render-tree the caller passed in"))))))
+
+(deftest set-hiccup-emitter-published-through-late-bind-chain
+  (testing "rf2-swoks: the Reagent Slim adapter chains its set-hiccup-emitter!
+            into `:reagent/set-hiccup-emitter!` at ns-load. Calling the
+            hook installs the emitter into the Reagent Slim adapter's
+            slot, so SSR's `re-frame.ssr.emit` ns-load can auto-wire
+            render-to-string without a direct `set-hiccup-emitter!`
+            call from user code."
+    (let [hook-fn (late-bind/get-fn :reagent/set-hiccup-emitter!)]
+      (is (some? hook-fn)
+          "the chained hook is registered after the Reagent Slim adapter ns has loaded")
+      (with-cleared-emitter
+        (fn []
+          (let [render-to-string (:render-to-string reagent-slim/adapter)]
+            (is (thrown? :default (render-to-string [:div] {}))
+                "precondition: emitter cleared"))
+          (hook-fn a-mock-emitter)
+          (let [render-to-string (:render-to-string reagent-slim/adapter)
+                html             (render-to-string [:div "via-chain"] {})]
+            (is (str/starts-with? html "<mock>")
+                "the chained hook wired the Reagent Slim adapter's emitter slot"))
+          (hook-fn nil))))))
 
 ;; ---------------------------------------------------------------------------
 ;; dispose-adapter! is a no-op

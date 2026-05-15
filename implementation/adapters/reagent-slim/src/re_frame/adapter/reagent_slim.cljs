@@ -113,13 +113,13 @@
    :dispose-adapter!          dispose-adapter!})
 
 ;; Per rf2-uo7v + IMPL-SPEC §9.2: publish the hiccup-emitter installer
-;; through the late-bind hook table so re-frame.ssr (in
+;; through the chained late-bind hook table so re-frame.ssr (in
 ;; day8/re-frame2-ssr) resolves it at its ns-load. Without this, an
 ;; app pulling in the SSR seam would have to manually call
 ;; `(reagent-slim/set-hiccup-emitter! ssr/render-to-string)` —
 ;; the late-bind table makes that wiring automatic when both
 ;; artefacts are on the classpath.
-(late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
+(late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
 
 ;; Each late-bind hook below is routed through `(substrate-adapter/
 ;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
