@@ -148,6 +148,7 @@ function scenarioDiagnostics(state) {
   const keys = [
     'sourceClicks',
     'launchModes',
+    'launchLoad',
     'schemaRecovery',
     'multiFrame',
   ];

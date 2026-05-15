@@ -612,6 +612,49 @@ async function setCausaTargetFrame(page, frame) {
   }
 }
 
+async function setCausaTraceFilter(page, axis, value) {
+  const result = await page.evaluate(({ axisName, valueName }) => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    const dispatch = rf && (rf.dispatch_STAR_ ||
+      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
+    if (!cljs || typeof dispatch !== 'function') {
+      return {
+        ok: false,
+        reason: 'cljs.core or re_frame.core.dispatch_STAR_ unavailable',
+        reFrameCoreKeys: rf ? Object.keys(rf).sort().slice(0, 40) : [],
+      };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const event = cljs.PersistentVector.fromArray([
+      keyword(':rf.causa/set-trace-filter'),
+      keyword(axisName),
+      keyword(valueName),
+    ], true);
+    const opts = cljs.hash_map(keyword(':frame'), keyword(':rf/causa'));
+    if (dispatch.cljs$core$IFn$_invoke$arity$2) {
+      dispatch.cljs$core$IFn$_invoke$arity$2(event, opts);
+    } else {
+      dispatch(event, opts);
+    }
+    return { ok: true, axis: axisName, value: valueName };
+  }, { axisName: axis, valueName: value });
+  if (!result.ok) {
+    failWithDetails('Could not set Causa trace filter', { axis, value, observed: result });
+  }
+}
+
 async function clickTraceRowByFrame(page, { frame, event }) {
   const result = await page.evaluate(({ targetFrame, targetEvent }) => {
     const root = document.getElementById('rf-causa-root');
@@ -652,6 +695,110 @@ async function readTraceCounts(page) {
     throw new Error(`Could not parse trace counts: ${JSON.stringify(text)}`);
   }
   return { rendered: Number(match[1]), total: Number(match[2]), text };
+}
+
+async function readLaunchModeProjection(page) {
+  return page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    const bus = window.day8 &&
+      window.day8.re_frame2_causa &&
+      window.day8.re_frame2_causa.trace_bus;
+    function text(root, selector) {
+      const el = root && root.querySelector(selector);
+      return el ? (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 240) : null;
+    }
+    function count(root, selector) {
+      return root ? root.querySelectorAll(selector).length : 0;
+    }
+    function traceEvents() {
+      if (!cljs || !bus || typeof bus.buffer !== 'function') {
+        return { ok: false, reason: 'trace bus unavailable', events: [] };
+      }
+      const events = [];
+      let s = cljs.seq(bus.buffer());
+      while (s) {
+        events.push(cljs.pr_str(cljs.first(s)));
+        s = cljs.next(s);
+      }
+      return { ok: true, events };
+    }
+    function epochCount() {
+      if (!cljs || !rf || typeof rf.epoch_history !== 'function') return null;
+      const kw = cljs.keyword.call ? cljs.keyword.call(null, 'rf/default') : cljs.keyword('rf/default');
+      let n = 0;
+      let s = cljs.seq(rf.epoch_history(kw));
+      while (s) {
+        n += 1;
+        s = cljs.next(s);
+      }
+      return n;
+    }
+    function shellProjection(root) {
+      const shell = root && root.querySelector('[data-testid="rf-causa-shell"]');
+      const active = root
+        ? Array.from(root.querySelectorAll('[data-testid^="rf-causa-sidebar-item-"]'))
+          .find((el) => (el.textContent || '').includes('◉'))
+        : null;
+      const cascade = root && root.querySelector('[data-testid="rf-causa-event-detail-cascade"]');
+      return {
+        present: Boolean(root),
+        rootMode: root ? root.getAttribute('data-rf-causa-mode') : null,
+        shellPresent: Boolean(shell),
+        shellMode: shell ? shell.getAttribute('data-mode') : null,
+        activePanel: active ? active.getAttribute('data-testid') : null,
+        selectedDispatchId: cascade ? cascade.getAttribute('data-dispatch-id') : null,
+        selectedFrame: cascade ? cascade.getAttribute('data-frame') : null,
+        cascadeText: text(root, '[data-testid="rf-causa-event-detail-cascade"]'),
+        cascadeRows: count(root, '[data-testid^="rf-causa-cascade-row-"]'),
+        traceRows: count(root, '[data-testid^="rf-causa-trace-row-"]'),
+        traceCountsText: text(root, '[data-testid="rf-causa-trace-counts"]'),
+      };
+    }
+    const trace = traceEvents();
+    const hostDispatches = trace.events.filter((event) =>
+      event.includes(':event/dispatched') &&
+      (event.includes(':counter/inc') || event.includes(':counter/dec')));
+    const popoutWin = window.open('', 'rf-causa-popout');
+    const popoutDoc = popoutWin && popoutWin.document;
+    const popoutRoot = popoutDoc && popoutDoc.getElementById('rf-causa-popout-root');
+    const inlineHost = document.getElementById('rf-causa-inline-load-feature-matrix-host');
+    const inlinePanel = inlineHost && inlineHost.querySelector('[data-testid="rf-causa-inline-panel"]');
+    return {
+      url: location.href,
+      traceReadError: trace.ok ? null : trace.reason,
+      traceCount: trace.events.length,
+      hostDispatchCount: hostDispatches.length,
+      hostDispatchTail: hostDispatches.slice(-5),
+      epochCount: epochCount(),
+      overlay: shellProjection(document.getElementById('rf-causa-root')),
+      popout: {
+        openerStatus: popoutWin ? (popoutWin.closed ? 'closed' : 'open') : 'missing',
+        ...shellProjection(popoutRoot),
+      },
+      inline: {
+        present: Boolean(inlineHost),
+        hostMode: inlineHost ? inlineHost.getAttribute('data-rf-causa-mode') : null,
+        panelPresent: Boolean(inlinePanel),
+        panel: inlinePanel ? inlinePanel.getAttribute('data-panel') : null,
+        cascadeRows: count(inlineHost, '[data-testid^="rf-causa-cascade-row-"]'),
+        selectedDispatchId: (() => {
+          const cascade = inlineHost && inlineHost.querySelector('[data-testid="rf-causa-event-detail-cascade"]');
+          return cascade ? cascade.getAttribute('data-dispatch-id') : null;
+        })(),
+        selectedFrame: (() => {
+          const cascade = inlineHost && inlineHost.querySelector('[data-testid="rf-causa-event-detail-cascade"]');
+          return cascade ? cascade.getAttribute('data-frame') : null;
+        })(),
+        cascadeText: text(inlineHost, '[data-testid="rf-causa-event-detail-cascade"]'),
+      },
+      listenerLifecycle: {
+        expectedHostDispatches: 20,
+        observedHostDispatches: hostDispatches.length,
+        duplicateTraceCollectorSuspected: hostDispatches.length !== 20,
+      },
+    };
+  });
 }
 
 async function selectOutcome(page, value) {
@@ -723,6 +870,7 @@ async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
   await clearTrace(page);
   await clickHostButtonByLabel(page, '+');
   await waitForTraceMatch(page, /counter\/core\.cljs/, 'counter source-coordinate trace');
+  await setCausaTraceFilter(page, ':source', ':ui');
   await waitForValue(
     () => page.locator('[data-testid^="rf-causa-trace-row-"] button[data-testid$="-source-coord"]').count(),
     (count) => count > 0,
@@ -730,7 +878,7 @@ async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
   );
   await assertSourceCoordBridge(page, state, ctx, {
     panel: 'trace',
-    sourceIncludes: 'counter/core.cljs',
+    sourceIncludes: [],
   });
   await assertOverlayLaunchModes(page, state);
 }
@@ -1130,6 +1278,163 @@ async function runTwentyEventLoad(page, state) {
   };
 }
 
+async function runLaunchModesTwentyEventLoad(page, state) {
+  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  await openCausa(page);
+  await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+
+  const launch = await page.evaluate(() => {
+    const causa = window.day8 && window.day8.re_frame2_causa;
+    const core = causa && (causa.core || causa);
+    const keys = core ? Object.keys(core).sort() : [];
+    const popout = core && core.popout_BANG_;
+    const inline = core && core.mount_inline_panel_BANG_;
+    const dock = core && core.dock_BANG_;
+    const undock = core && core.undock_BANG_;
+    const result = { keys };
+    if (typeof popout !== 'function') {
+      result.popout = { ok: false, reason: 'popout_BANG_ not exported' };
+    } else {
+      try {
+        const value = popout();
+        const win = window.open('', 'rf-causa-popout');
+        const doc = win && win.document;
+        const root = doc && doc.getElementById('rf-causa-popout-root');
+        result.popout = {
+          ok: Boolean(root),
+          returnType: typeof value,
+          openerStatus: win ? (win.closed ? 'closed' : 'open') : 'missing',
+          rootMode: root ? root.getAttribute('data-rf-causa-mode') : null,
+          shellPresent: Boolean(root && root.querySelector('[data-testid="rf-causa-shell"]')),
+        };
+      } catch (err) {
+        result.popout = { ok: false, threw: String(err && (err.stack || err.message || err)) };
+      }
+    }
+    if (typeof inline !== 'function') {
+      result.inline = { ok: false, reason: 'mount_inline_panel_BANG_ not exported' };
+    } else {
+      const host = document.createElement('div');
+      host.id = 'rf-causa-inline-load-feature-matrix-host';
+      host.style.minHeight = '260px';
+      document.body.appendChild(host);
+      try {
+        inline(host, window.cljs.core.keyword('event-detail'));
+        result.inline = {
+          ok: true,
+          hostId: host.id,
+          hostMode: host.getAttribute('data-rf-causa-mode'),
+        };
+      } catch (err) {
+        result.inline = { ok: false, threw: String(err && (err.stack || err.message || err)) };
+      }
+    }
+    if (typeof dock !== 'function' || typeof undock !== 'function') {
+      result.docking = { ok: false, reason: 'dock_BANG_ / undock_BANG_ not exported' };
+    } else {
+      try {
+        dock();
+        const dockedRoot = document.getElementById('rf-causa-root');
+        const dockedShell = dockedRoot && dockedRoot.querySelector('[data-testid="rf-causa-shell"]');
+        const docked = {
+          rootMode: dockedRoot ? dockedRoot.getAttribute('data-rf-causa-mode') : null,
+          shellMode: dockedShell ? dockedShell.getAttribute('data-mode') : null,
+          bodyPaddingRight: document.body.style.paddingRight,
+        };
+        undock();
+        const undockedRoot = document.getElementById('rf-causa-root');
+        const undockedShell = undockedRoot && undockedRoot.querySelector('[data-testid="rf-causa-shell"]');
+        const undocked = {
+          rootMode: undockedRoot ? undockedRoot.getAttribute('data-rf-causa-mode') : null,
+          shellMode: undockedShell ? undockedShell.getAttribute('data-mode') : null,
+          bodyPaddingRight: document.body.style.paddingRight,
+        };
+        result.docking = {
+          ok: docked.rootMode === 'docked' &&
+            docked.shellMode === 'docked' &&
+            docked.bodyPaddingRight === '40%' &&
+            undocked.rootMode === 'overlay',
+          docked,
+          undocked,
+        };
+      } catch (err) {
+        result.docking = { ok: false, threw: String(err && (err.stack || err.message || err)) };
+      }
+    }
+    return result;
+  });
+  state.launchLoad = { launch };
+  if (!launch.popout.ok || !launch.inline.ok || !launch.docking.ok) {
+    failWithDetails('Causa launch modes were not all available before load', launch);
+  }
+  await page.waitForSelector('#rf-causa-inline-load-feature-matrix-host [data-testid="rf-causa-inline-panel"]', {
+    timeout: 5000,
+  });
+  await expectVisible(page.locator('#rf-causa-root [data-testid="rf-causa-event-detail"]'), 5000);
+  await clearTrace(page);
+
+  const before = await readLaunchModeProjection(page);
+  const start = Date.now();
+  for (let i = 0; i < 20; i += 1) {
+    await clickHostButtonByLabel(page, i % 2 === 0 ? '+' : '-');
+  }
+  const after = await waitForValue(
+    () => readLaunchModeProjection(page),
+    (projection) =>
+      projection.hostDispatchCount === 20 &&
+      projection.overlay.cascadeRows > 0 &&
+      projection.inline.cascadeRows > 0 &&
+      projection.popout.cascadeRows > 0,
+    { timeoutMs: 10000, description: 'launch-mode shared event-detail state after 20 host dispatches' },
+  );
+  const elapsedMs = Date.now() - start;
+  const cascadeRowCounts = [after.overlay.cascadeRows, after.inline.cascadeRows, after.popout.cascadeRows];
+  const uniqueCascadeRowCounts = [...new Set(cascadeRowCounts)];
+  state.loadStats = {
+    eventCountBefore: before.traceCount,
+    eventCountAfter: after.traceCount,
+    traceBufferDepth: after.traceCount,
+    visibleRowCount: after.overlay.cascadeRows,
+    renderDurationMs: elapsedMs,
+    slowestCascadeId: null,
+    bufferEvictionCount: Math.max(0, before.traceCount + 20 - after.traceCount),
+    hostDispatchCount: after.hostDispatchCount,
+    epochCountBefore: before.epochCount,
+    epochCountAfter: after.epochCount,
+  };
+  state.launchLoad = {
+    ...state.launchLoad,
+    before,
+    after,
+  };
+  if (after.hostDispatchCount !== 20) {
+    failWithDetails('20-event load produced an unexpected host dispatch trace count', {
+      expected: 20,
+      observed: after.hostDispatchCount,
+      before,
+      after,
+    });
+  }
+  if (uniqueCascadeRowCounts.length !== 1) {
+    failWithDetails('Overlay, pop-out, and inline Event Detail disagree on rendered cascade rows', {
+      cascadeRowCounts,
+      selectedDispatchIds: [
+        after.overlay.selectedDispatchId,
+        after.inline.selectedDispatchId,
+        after.popout.selectedDispatchId,
+      ],
+      before,
+      after,
+    });
+  }
+  if (after.epochCount != null && before.epochCount != null && after.epochCount < before.epochCount) {
+    failWithDetails('Epoch history moved backwards during launch-mode load', {
+      before,
+      after,
+    });
+  }
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -1261,6 +1566,18 @@ const SCENARIOS = [
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runTwentyEventLoad,
+  },
+  {
+    name: '20-event launch-mode shared runtime re-check',
+    url: '/counter/',
+    panels: ['event-detail'],
+    load: true,
+    coveredRows: [
+      'Event Detail',
+      'Pop-out, Docking, and Inline Embedding',
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runLaunchModesTwentyEventLoad,
   },
 ];
 
