@@ -1,7 +1,5 @@
 <p align="center"><img src="docs/images/logo/re-frame-colour.png?raw=true" alt="re-frame2 logo"></p>
 
-
-
 > *This, milord, is my family's axe. We have owned it for almost nine hundred years, see. Of course, sometimes it needed a new blade. And sometimes it has required a new handle, new designs on the metalwork, a little refreshing of the ornamentation ... but is this not the nine hundred-year-old axe of my family? And because it has changed gently over time, it is still a pretty good axe, y'know. Pretty good.*
 >
 > — Terry Pratchett, *The Fifth Elephant* — reflecting on identity, flow, and derived values (aka [the Ship of Theseus](https://en.wikipedia.org/wiki/Ship_of_Theseus))
@@ -10,25 +8,25 @@ re-frame2 is the same axe as [before](https://github.com/day8/re-frame), but mad
 
 # What is it?
 
-re-frame2 is an architectural pattern for building Single Page Apps that target a virtual-DOM substrate — React, in practice.
+re-frame2 is an architectural pattern for building single-page apps that target a virtual-DOM substrate — React, in practice.
 
 ## What's novel and interesting?
 
 Five things:
 
-### **1. The spec is the artefact. The code is downstream.** 
+### **1. The spec is the artefact. The code is downstream.**
 
-This one is a little nerdy. 
+This one is a little nerdy.
 
 Historically, here's how every other framework works: somebody writes the implementation, the implementation is the thing, and the documentation heroically tries — usually incompletely — to describe what the implementation does.
 
-re-frame2 inverts that. The pattern is defined by its specification, which currently runs to about 22K lines across 35+ documents in [spec/](spec/). What's in the [clojurescript reference implementation](implementation/) is a consequence of the spec, not the source of truth. And the spec is complete enough — this is the part I find genuinely strange to type — that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
+re-frame2 inverts that. The pattern is defined by its specification, which currently runs to about 22K lines across 35+ documents in [spec/](spec/). What's in the [ClojureScript reference implementation](implementation/) is a consequence of the spec, not the source of truth. And the spec is complete enough — this is the part I find genuinely strange to type — that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
 
 The implication, which I'd like you to sit with for a moment, is this: if you don't like this specification, change it, and one-shot your own framework. **Roll your own** with whatever fork of the spec pleases you. Value has moved up the chain. Code is trending toward $0 and disposable. The spec is the valuable, durable thing.
 
 Yes, I know how that sounds. Don't shoot the messenger. Let's keep going.
 
-### **2. Views are derivative, not central.** 
+### **2. Views are derivative, not central.**
 
 This is the one that bites every React-shaped brain on first contact, so let me set it up properly.
 
@@ -39,23 +37,23 @@ re-frame rejects that. Instead, events update centralised state. Subscriptions d
 **A re-frame2 app is, quite literally, a small virtual machine.** Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the instructions (collectively the program). The runtime executes every event through the same six-step pipeline, every time, no exceptions, no escape hatches. We call one iteration an epoch.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
-> 
+>
 > — Me, being snarky about the direction of the JS/TS frameworks
 
 
 > *Beware of the Turing tar-pit in which everything is possible but nothing of interest is easy.*
-> 
+>
 > — Alan Perlis, apparently equally furious
 
-### **3. Tooling is first-class.** 
+### **3. Tooling is first-class.**
 
-re-frame2's predictable computational pipeline has a single, deeply integrated trace bus. 
+re-frame2's predictable computational pipeline has a single, deeply integrated trace bus.
 
 Result: your application is the ultimate surveillance state. With the ClojureScript implementation, you can even get trace form-by-form (think statement-by-statement), but not by default.
 
 Every tool attaches to that trace bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Pair-programmer AI tooling can interact with your running system. Same with tests, stories. They all consume the same surface.
 
-And, yes, relax, you can set policies to elide sensitive things, as well as too-large binary blobs.
+And, yes, you can set policies to elide sensitive things, as well as too-large binary blobs.
 
 ### **4. Managed external effects.**
 
@@ -65,15 +63,15 @@ re-frame2 has the **managed external effect** — one primitive shape every outb
 
 `:rf.http/managed` is HTTP. `:rf.ws/managed` is WebSockets. `:invoke` / `:invoke-all` on state machines are managed effects. SSR per-request lifecycle is one. **The next surface — postMessage relays, file watchers, Service Worker channels — inherits the shape by name.** Or you can roll your own from the primitives.
 
-And the external story composes naturally with the *internal* management primitives that handle, say, the Nine States Of GUIs problems in an unsuspenceful way. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
+And the external story composes naturally with the *internal* management primitives that handle, say, the Nine States of GUIs problems in an unsuspenseful way. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
 
 ### **5. Lisp's quiet advantage.**
 
-Apologies for the nerd snipe, but ...
+Apologies for the Clojure-poet framing here but ...
 
 re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like meditating in a Zen garden.
 
-Having said that, if living in a washing machine is more your thing, you can roll your own version of re-frame2 in JS, TS, Reason, etc.  :-)
+Not interested? Okay, fine, you can still roll your own version of re-frame2 in your alternative language of choice and transitively reap the benefits anyway. Blink twice if you are being held hostage.
 
 ## Novelty, bah humbug!
 
@@ -82,14 +80,14 @@ Who cares about novelty? I just want a feature-rich, excellent, productive frame
 Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimensions:
 
   - **[Causa](https://day8.github.io/re-frame2/causa/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and who am I to argue.
-  - **[re-frame-pair](https://day8.github.io/re-frame2/causa/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
+  - **[re-frame-pair2](skills/re-frame-pair2/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
   - **[Story](https://day8.github.io/re-frame2/story/)** — a Storybook-class component playground. Parity with [Storybook 9](https://storybook.js.org/), [Histoire](https://histoire.dev/), and [Ladle](https://ladle.dev/) on the chrome shape, *plus* differentiators those tools can't easily reach: EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls (Malli walks generate the args editor automatically), per-variant frame isolation (no state leaks between scenarios), machine-state visualisation, a time-travel scrubber linked to the trace stream, and Test Codegen (record canvas interactions as a `:play` body — Storybook 9's killer feature, with Story's EDN-first form making the captured output cleaner).
   - **[Routing](https://day8.github.io/re-frame2/guide/17-routing/)** — URL-driven navigation with frame-aware semantics. Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes are possible because frames are a thing. Same handler runs server- and client-side.
   - **[SSR](https://day8.github.io/re-frame2/guide/11-server-side/)** — server-side rendering and hydration that doesn't require a different mental model. Pure hiccup → HTML emitter, JVM-runnable (no React-on-the-server needed). Per-request frame lifecycle. Hydration-mismatch detection with structured error projection. `:rf/hydrate` is an event like any other.
   - **[State Machines](https://day8.github.io/re-frame2/guide/09-state-machines/)** — near-parity with [XState](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same six-step pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, `:after`, `:always`, declarative `:invoke`, spawn-and-join, actor model, `:tags` query layer. We skip XState's history states in favour of snapshot-as-value capture — a strict superset for any codebase already using re-frame2's revertibility.
   - **[Flows](https://day8.github.io/re-frame2/guide/18-from-re-frame-v1/#flows--the-replacement-for-on-changes)** — registered, runtime-toggleable derived-computation declarations that recompute only when inputs change. Reactive without the framework gymnastics. The v2 incarnation of v1's `on-changes` interceptor, but registered globally and toggleable as data rather than scattered across event handlers.
   - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
-  - **Security** — auth tokens shouldn't be leaked in logs or sent to tools. re-frame2 has first-class mechanisms to help here.
+  - **[Security](https://day8.github.io/re-frame2/guide/23a-privacy-secrets/)** — auth tokens shouldn't be leaked in logs or sent to tools. re-frame2 has first-class mechanisms to help here. There is also a spec-level [Security Contract](spec/Security.md).
   - **Large Things** — PDF blobs and other large things shouldn't accidentally get logged to Datadog. There are mechanisms for that too.
   - **MCP triplet** — three Model Context Protocol servers ([pair2-mcp](tools/pair2-mcp/), [story-mcp](tools/story-mcp/), [causa-mcp](tools/causa-mcp/)) that expose the running app, the story playground, and the devtools surface to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
 
@@ -110,16 +108,16 @@ This implementation includes all of the above, plus:
 By part:
   - The narrative is production grade.
   - **The spec is Beta.** It has been audited end-to-end endless times — security passes, precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
-  - **The reference implementation and tooling is Beta adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
+  - **The reference implementation and tooling are Beta-adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
 
-We are building apps against the clojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
+We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
-You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration] for you-know-what, then [re-frame-pair] for coding. Finally, use [re-frame-pair-retro] to do a session retrospective and file an issue if you find friction.
+You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration/) for you-know-what, then [re-frame-pair2](skills/re-frame-pair2/) for coding. Finally, use [re-frame-pair-retro2](skills/re-frame-pair-retro2/) to do a session retrospective and file an issue if you find friction.
 
 
-## AI first
+## AI-first
 
-re-frame2 is AI-first, and that decision permeates every other decision in the project. 
+re-frame2 is AI-first, and that decision permeates every other decision in the project.
 
 If the artisanal craftsman in you finds this offensive — and look, the artisanal craftsman in me finds it offensive, I have spent forty years agonising over the human ergonomics of code and UIs and I do not part with that disposition lightly — I get it. But the world has changed, and AI ergonomics is now as important as human ergonomics. The good news, which I think is genuinely good news, is that AI ergonomics and good architecture tend to converge. They both reward predictability, explicit data flow, observable runtimes, and small computational models. The things that make a codebase pleasant for an AI to reason about are, very largely, the things that made it pleasant for humans to reason about in the first place. We were just bad at insisting on them.
 
@@ -151,7 +149,7 @@ After that, consider browsing:
 
 ### For AIs
 
-Because re-frame2 is AI-oriented, **the main body of the repo's documentation is the [specification](spec/)**. 
+Because re-frame2 is AI-oriented, **the main body of the repo's documentation is the [specification](spec/)**.
 
 ## Project layout
 
