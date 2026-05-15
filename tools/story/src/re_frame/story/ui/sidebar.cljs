@@ -457,7 +457,8 @@
   `testable?` check (set membership) and the chrome-level `test-widget`
   share the same derivation. Deeper memoisation keyed on
   `(registrar-tick, tag-filter)` can wait until corpus size justifies."
-  []
+  ([] (sidebar nil))
+  ([opts]
   (let [shell           @state/shell-state-atom
         registry        (state/registry-snapshot)
         tag-filter      (:tag-filter shell)
@@ -475,7 +476,8 @@
         test-runs       (get-in shell [:tests :runs])
         testable-vec    (state/testable-variant-ids (:variants registry))
         testable-set    (set testable-vec)]
-    [:nav {:style      (:wrap styles)
+    [:nav {:style      (merge (:wrap styles) (:style opts))
+           :data-test  "story-sidebar"
            :aria-label "Stories and workspaces"
            :tab-index  "0"}
      [:div {:style (:tree styles)}
@@ -495,4 +497,4 @@
          (for [[wid _body] (sort-by key workspaces)]
            ^{:key wid}
            [workspace-row wid (= wid sel-ws)])])]
-     [test-widget shell registry testable-vec]]))
+     [test-widget shell registry testable-vec]])))

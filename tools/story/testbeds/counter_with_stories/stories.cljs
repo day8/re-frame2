@@ -146,10 +146,10 @@
      :kind :hiccup
      :wrap (fn [body args]
              (let [label (first (:decorator/args args))]
-               [:div {:style {:border  "1px dashed #888"
+               [:div {:style {:border  "1px dashed #9a9a9a"
                               :padding "0.5em"
                               :margin  "0.25em"}}
-                [:div {:style {:font-size "10px" :color "#888"}}
+                [:div {:style {:font-size "10px" :color "#d0d0d0"}}
                  (str "decorator: " (or label "log"))]
                 body]))})
 

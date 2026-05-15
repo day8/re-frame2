@@ -470,7 +470,7 @@
     (:impact-moderate styles)))
 
 (defn- violation-row
-  [v]
+  [^js v]
   (let [impact (.-impact v)
         nodes  (.-nodes v)
         first-target (when (and nodes (pos? (.-length nodes)))
@@ -478,7 +478,12 @@
                              targets (.-target n0)]
                          (when (and targets (pos? (.-length targets)))
                            (aget targets 0))))]
-    [:div {:style (merge (:violation styles) (impact-style impact))}
+    [:div {:style            (merge (:violation styles) (impact-style impact))
+           :data-test        "story-a11y-violation"
+           :data-a11y-id     (.-id v)
+           :data-a11y-impact (or impact "")
+           :data-a11y-help   (.-help v)
+           :data-a11y-target (or first-target "")}
      [:div {:style (:v-help styles)} (.-help v)]
      [:div {:style (:v-desc styles)} (.-description v)]
      (when first-target
