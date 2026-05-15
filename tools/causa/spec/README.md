@@ -19,6 +19,7 @@
 - **[014-Registry-Catalogue.md](014-Registry-Catalogue.md)** — Normative enumeration of every `:rf.causa/*` subscription, event, and effect Causa registers (~140 ids), grouped by owning panel.
 - **[015-Configuration.md](015-Configuration.md)** — `configure!` entry-point contract: every accepted key, default, and the `:rf/causa` app-db slot it drives.
 - **[016-Auxiliary-Panels.md](016-Auxiliary-Panels.md)** — Per-panel contract for the seven panels beyond the hero set (event-detail, effects, flows, issues-ribbon, performance, routes, mcp-server): inputs (subs / events consumed), main interactions, observable outputs (rf2-3lduz).
+- **[017-Test-Coverage-Matrix.md](017-Test-Coverage-Matrix.md)** — Browser-feature coverage matrix for every Causa panel/feature: user-visible contract, required testbed affordance, direct and failure paths, 20-event/load re-check, diagnostics, owning gate, and current status.
 - **[API.md](API.md)** — Consolidated user-facing reference: installation, configuration, public surface; per-area specs are normative.
 - **[Principles.md](Principles.md)** — Causa-specific load-bearing principles (read-only-by-default, etc.); cites framework `Principles.md` where they overlap.
 - **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — The 13 direction-setting decisions: question, options, pick, why, date locked.
