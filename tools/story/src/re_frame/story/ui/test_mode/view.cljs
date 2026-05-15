@@ -228,15 +228,45 @@
                 "release"])]])]))))
 
 (defn- row-detail
-  "The collapsible failure detail — surfaces :expected, :actual,
-  :reason, and the source-coord stamping."
-  [{:keys [expected actual reason source]}]
+  "The collapsible failure detail — surfaces assertion and runtime
+  error context with enough data to diagnose failures from shell output."
+  [{:keys [expected actual reason variant-id phase event predicate error source]}]
   [:div {:style     (:detail-box styles)
          :data-test "story-test-row-detail"}
+   (when variant-id
+     [:div
+      [:span {:style (:detail-key styles)} "variant: "]
+      (pr-str variant-id)])
+   (when phase
+     [:div
+      [:span {:style (:detail-key styles)} "phase: "]
+      (pr-str phase)])
+   (when event
+     [:div
+      [:span {:style (:detail-key styles)} "source: "]
+      (pr-str event)])
+   (when predicate
+     [:div
+      [:span {:style (:detail-key styles)} "predicate: "]
+      (pr-str predicate)])
    (when (some? reason)
      [:div
       [:span {:style (:detail-key styles)} "reason: "]
       (str reason)])
+   (when (map? error)
+     [:div
+      [:div
+       [:span {:style (:detail-key styles)} "error: "]
+       (str (:message error))]
+      (when-let [data (:data error)]
+        [:div
+         [:span {:style (:detail-key styles)} "error data: "]
+         (pr-str data)])
+      (when-let [stack (:stack error)]
+        [:pre {:style {:white-space "pre-wrap"
+                       :max-height "10em"
+                       :overflow "auto"}}
+         (str stack)])])
    (when (or (some? expected) (contains? #{0 false} expected))
      [:div
       [:span {:style (:detail-key styles)} "expected: "]

@@ -45,6 +45,16 @@
                     {:surface :story-load
                      :kind    :event-handler-exception}))))
 
+(rf/reg-event-db :counter/throw-loader-rejection
+  (fn [_db _event]
+    (throw (ex-info "story-load deterministic loader rejection"
+                    {:surface :story-load
+                     :kind    :loader-rejection}))))
+
+(rf/reg-event-db :counter/loader-never-ready?
+  (fn [db _event]
+    (assoc db :rf.story/loaders-complete? false)))
+
 ;; A user-fx so the `force-fx-stub` decorator story has something
 ;; concrete to stub. In the live app this would talk to a server;
 ;; for the example we keep it tiny — the point is the stub, not the

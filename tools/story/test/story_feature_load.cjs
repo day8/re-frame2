@@ -250,6 +250,14 @@ async function assertNoUnexpectedThirdPartyEgress(page) {
   }
 }
 
+async function assertNoRecordedRequestMatching(page, pattern, description) {
+  const requests = page.__storyFeatureRequests || [];
+  const matches = requests.filter((url) => pattern.test(url));
+  if (matches.length > 0) {
+    throw new Error(`${description}: ${JSON.stringify(matches)}`);
+  }
+}
+
 async function installNetworkRecorder(page) {
   page.__storyFeatureRequests = [];
   page.on('request', (request) => {
@@ -550,18 +558,18 @@ async function assertDiagnostics(page, phase) {
       (count) => count >= 1,
       { timeoutMs: 5000, description: 'failing assertion row' },
     );
-    await page
-      .locator('[data-test="story-test-row"][data-status="fail"]')
-      .first()
-      .getByRole('button', { name: /show detail/i })
-      .click();
-    await waitForValue(
-      () => page.locator('[data-test="story-test-row-detail"]').first().innerText().catch(() => ''),
-      (text) =>
-        /expected:\s*999/.test(text) &&
-        /actual:\s*1/.test(text) &&
-        /expected 999 at \[:count\] but got 1/.test(text),
-      { timeoutMs: 5000, description: 'failing assertion detail has expected, actual, and reason' },
+    const detail = await expandFirstFailDetail(
+      page,
+      'failing assertion detail has expected, actual, and reason',
+    );
+    await assertFailureDetailIncludes(
+      detail,
+      [
+        /expected:\s*999/,
+        /actual:\s*1/,
+        /expected 999 at \[:count\] but got 1/,
+      ],
+      'failing assertion',
     );
   });
 
@@ -578,15 +586,17 @@ async function assertDiagnostics(page, phase) {
       (text) => /failed/i.test(text),
       { timeoutMs: 10000, description: 'event exception failure status' },
     );
-    await page
-      .locator('[data-test="story-test-row"][data-status="fail"]')
-      .first()
-      .getByRole('button', { name: /show detail/i })
-      .click();
-    await waitForValue(
-      () => page.locator('[data-test="story-test-row-detail"]').count(),
-      (count) => count >= 1,
-      { timeoutMs: 5000, description: 'event exception detail expands' },
+    const detail = await expandFirstFailDetail(page, 'event exception detail expands');
+    await assertFailureDetailIncludes(
+      detail,
+      [
+        /variant:\s*:story\.counter-diagnostics\/event-throws/,
+        /phase:\s*:phase-4-play/,
+        /source:\s*\[:counter\/throw-deterministic\]/,
+        /story-load deterministic event handler failure/,
+        /:event-handler-exception/,
+      ],
+      'event exception',
     );
     await waitForValue(
       () =>
@@ -612,15 +622,17 @@ async function assertDiagnostics(page, phase) {
       (text) => /failed/i.test(text),
       { timeoutMs: 10000, description: 'loader exception failure status' },
     );
-    await page
-      .locator('[data-test="story-test-row"][data-status="fail"]')
-      .first()
-      .getByRole('button', { name: /show detail/i })
-      .click();
-    await waitForValue(
-      () => page.locator('[data-test="story-test-row-detail"]').count(),
-      (count) => count >= 1,
-      { timeoutMs: 5000, description: 'loader exception detail expands' },
+    const detail = await expandFirstFailDetail(page, 'loader exception detail expands');
+    await assertFailureDetailIncludes(
+      detail,
+      [
+        /variant:\s*:story\.counter-diagnostics\/loader-throws/,
+        /phase:\s*:phase-1-loaders/,
+        /source:\s*\[:counter\/throw-deterministic\]/,
+        /story-load deterministic event handler failure/,
+        /:event-handler-exception/,
+      ],
+      'loader exception',
     );
     await waitForValue(
       () =>
@@ -631,6 +643,10 @@ async function assertDiagnostics(page, phase) {
       (value) => value === ':rf.error/exception',
       { timeoutMs: 5000, description: 'loader exception assertion row type' },
     );
+  });
+
+  await step(page, phase, 'diagnostics/render-exception', async () => {
+    await assertRenderFailure(page);
   });
 }
 
@@ -729,6 +745,7 @@ async function assertWorkspaceLayouts(page) {
 async function assertMatrixVariant(page, slashName, variantId, expectedCount) {
   await gotoStoryShell(page, '/counter-with-stories/#/stories');
   await clickVariant(page, slashName);
+  await setMode(page, 'dev');
   await waitForCanvasVariant(page, variantId);
   if (expectedCount != null) {
     await expectTextEquals(
@@ -743,6 +760,32 @@ async function assertDecoratorFailure(page) {
   await assertMatrixVariant(page, '/decorator-throws', ':story.counter-matrix/decorator-throws');
   await assertMainContains(page, 'Decorator wrap threw', 10000);
   await assertMainContains(page, 'story-load deterministic decorator failure', 10000);
+  await assertMainContains(page, ':story.counter-matrix/decorator-throws', 10000);
+  await assertMainContains(page, ':counter-with-stories/throwing-decorator', 10000);
+}
+
+async function assertRenderFailure(page) {
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  await clickVariant(page, '/render-throws');
+  await waitForCanvasVariant(page, ':story.counter-diagnostics/render-throws');
+  const detail = await waitForValue(
+    () => page.locator('[data-test="story-render-error"]').innerText().catch(() => ''),
+    (text) => /Render threw/.test(text),
+    { timeoutMs: 10000, description: 'render error boundary text' },
+  );
+  await assertFailureDetailIncludes(
+    detail,
+    [
+      /variant:\s*:story\.counter-diagnostics\/render-throws/,
+      /phase:\s*:phase-3-render/,
+      /source:\s*:counter-with-stories\.views\/throwing-card/,
+      /story-load deterministic render failure/,
+    ],
+    'render failure',
+  );
+  await expectVisible(page.getByRole('navigation'), 5000);
+  await clickVariant(page, '/loaded');
+  await waitForCanvasVariant(page, ':story.counter/loaded');
 }
 
 async function assertSchemaInvalid(page) {
@@ -771,6 +814,67 @@ async function assertLoaderSuccess(page) {
   await assertMatrixVariant(page, '/loader-success', ':story.counter-matrix/loader-success', 12);
   await setMode(page, 'test');
   await assertTestPaneStatus(page, /1\s+passed/i, 'loader success assertion');
+  await setMode(page, 'dev');
+}
+
+async function expandFirstFailDetail(page, description) {
+  const row = page.locator('[data-test="story-test-row"][data-status="fail"]').first();
+  await row.waitFor({ state: 'visible', timeout: 10000 });
+  await row.getByRole('button', { name: /show detail/i }).click();
+  return waitForValue(
+    () => page.locator('[data-test="story-test-row-detail"]').first().innerText().catch(() => ''),
+    (text) => text.trim().length > 0,
+    { timeoutMs: 5000, description },
+  );
+}
+
+async function assertFailureDetailIncludes(detail, required, context) {
+  const missing = required.filter((pattern) => !pattern.test(detail));
+  if (missing.length > 0) {
+    throw new Error(
+      `${context} missing diagnostic detail ${missing.map(String).join(', ')} in:\n${detail}`,
+    );
+  }
+}
+
+async function assertLoaderCompletionVariants(page) {
+  await assertLoaderSuccess(page);
+
+  await assertMatrixVariant(
+    page,
+    '/loader-never-completes',
+    ':story.counter-matrix/loader-never-completes',
+    13,
+  );
+  await setMode(page, 'test');
+  await assertTestPaneStatus(page, /failed/i, 'loader incomplete failure status');
+  let detail = await expandFirstFailDetail(page, 'loader incomplete detail expands');
+  await assertFailureDetailIncludes(
+    detail,
+    [
+      /variant:\s*:story\.counter-matrix\/loader-never-completes/,
+      /phase:\s*:phase-1-loaders/,
+      /predicate:\s*:counter\/loader-never-ready\?/,
+      /loaders-complete-when did not report completion/,
+    ],
+    'loader incomplete',
+  );
+
+  await assertMatrixVariant(page, '/loader-rejects', ':story.counter-matrix/loader-rejects');
+  await setMode(page, 'test');
+  await assertTestPaneStatus(page, /failed/i, 'loader rejection failure status');
+  detail = await expandFirstFailDetail(page, 'loader rejection detail expands');
+  await assertFailureDetailIncludes(
+    detail,
+    [
+      /variant:\s*:story\.counter-matrix\/loader-rejects/,
+      /phase:\s*:phase-1-loaders/,
+      /source:\s*\[:counter\/throw-loader-rejection\]/,
+      /story-load deterministic loader rejection/,
+      /:loader-rejection/,
+    ],
+    'loader rejection',
+  );
   await setMode(page, 'dev');
 }
 
@@ -938,11 +1042,12 @@ const FEATURE_CHECKS = {
   'Controls nested widgets': assertNestedControls,
   'Schema/args validation panel': assertSchemaInvalid,
   'Per-variant frame allocation': assertIsolationPair,
-  'Lifecycle phases': assertLoaderSuccess,
-  'Loader completion': assertLoaderSuccess,
+  'Lifecycle phases': assertLoaderCompletionVariants,
+  'Loader completion': assertLoaderCompletionVariants,
   'Error projection': async (page) => {
     await assertDiagnostics(page, 'matrix');
     await assertDecoratorFailure(page);
+    await assertRenderFailure(page);
   },
   'Snapshot identity': async (page) => {
     await assertSnapshotIdentityStable(page);
@@ -1033,6 +1138,17 @@ const FEATURE_CHECKS = {
   'Bundle size comparison': assertHealthyLoaded,
   'Third-party egress': async (page) => {
     await assertHealthyLoaded(page);
+    await assertShareUrlIntegrity(page, 'egress');
+    await assertNoRecordedRequestMatching(
+      page,
+      /api\.qrserver|chart\.google|quickchart|qrcode/i,
+      'QR/share should stay local and must not request a QR service',
+    );
+    await assertNoRecordedRequestMatching(
+      page,
+      /axe-core|cdnjs|unpkg|jsdelivr/i,
+      'a11y CDN should not load without explicit opt-in',
+    );
     await assertNoUnexpectedThirdPartyEgress(page);
   },
   'Hot reload / fingerprint drift': assertTestWidgetAndWatch,

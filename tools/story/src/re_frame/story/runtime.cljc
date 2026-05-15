@@ -194,12 +194,15 @@
 
 (defn- error-record
   "Build an error projection map per IMPL-SPEC §5.5."
-  [phase event err]
+  [variant-id phase event err]
   {:assertion :rf.error/exception
+   :variant-id variant-id
    :phase     phase
    :event     event
    :error     {:message #?(:clj  (.getMessage ^Throwable err)
                            :cljs (str err))
+               :stack   #?(:clj  (with-out-str (.printStackTrace ^Throwable err))
+                            :cljs (.-stack err))
                :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
                                             :cljs ExceptionInfo) err)
                           (ex-data err))}
@@ -210,8 +213,9 @@
   false. The runtime cannot advance into events/play while the loader
   contract says the variant is not ready; returning a failed assertion
   keeps the result actionable without requiring a browser timeout."
-  [variant-body]
+  [variant-id variant-body]
   {:assertion :rf.error/loader-incomplete
+   :variant-id variant-id
    :phase     :phase-1-loaders
    :predicate (:loaders-complete-when variant-body)
    :reason    "loaders-complete-when did not report completion; events and play were skipped"
@@ -222,7 +226,7 @@
   accumulator. Per IMPL-SPEC §5.5 errors continue the play sequence
   rather than aborting — the full picture is captured."
   [variant-id phase event err]
-  (let [record (error-record phase event err)]
+  (let [record (error-record variant-id phase event err)]
     (try
       (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
       (catch #?(:clj Throwable :cljs :default) dispatch-err
@@ -242,7 +246,7 @@
 
 (defn- record-loader-incomplete!
   [variant-id variant-body]
-  (let [record (loader-incomplete-record variant-body)]
+  (let [record (loader-incomplete-record variant-id variant-body)]
     (try
       (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
       (catch #?(:clj Throwable :cljs :default) _ nil))

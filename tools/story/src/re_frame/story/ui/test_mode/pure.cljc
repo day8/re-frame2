@@ -94,6 +94,11 @@
      :detail    {:expected (:expected rec)
                  :actual   (:actual rec)
                  :reason   (:reason rec)
+                 :variant-id (:variant-id rec)
+                 :phase    (:phase rec)
+                 :event    (:event rec)
+                 :predicate (:predicate rec)
+                 :error    (:error rec)
                  :source   (or (:source rec) (:source-coord rec))}}))
 
 ;; ---- pure: formatting ---------------------------------------------------
