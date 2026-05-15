@@ -16,11 +16,10 @@
    :output-dir "resources/public/js"
    :asset-path "/js"
    :modules    {:main {:init-fn {{namespace}}.core/init}}
-   ;; :devtools/preloads loads day8.re-frame2-causa.preload before the
-   ;; :init-fn fires — registers the Ctrl+Shift+C keybinding, mounts
-   ;; the empty Causa shell, and subscribes the trace bus. Cut from
-   ;; release builds automatically (preloads only run under :watch /
-   ;; :compile :app, never under :release).
+   ;; :devtools/preloads loads Causa in dev watch/compile builds.
+   ;; Once rf/init! installs the adapter, Causa auto-mounts into
+   ;; resources/public/index.html's [data-rf-causa-host] left column.
+   ;; Cut from release builds automatically.
    :devtools   {:after-load {{namespace}}.core/init
                 :preloads   [day8.re-frame2-causa.preload]}}
 

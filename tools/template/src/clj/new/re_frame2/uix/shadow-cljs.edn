@@ -16,9 +16,9 @@
    :output-dir "resources/public/js"
    :asset-path "/js"
    :modules    {:main {:init-fn {{namespace}}.core/init}}
-   ;; :devtools/preloads loads the Causa overlay — Ctrl+Shift+C opens
-   ;; the in-app devtools panel against the running app. Skipped
-   ;; under :release.
+   ;; :devtools/preloads loads Causa into the [data-rf-causa-host]
+   ;; left layout column in dev watch/compile builds. Skipped under
+   ;; :release.
    :devtools   {:after-load {{namespace}}.core/init
                 :preloads   [day8.re-frame2-causa.preload]}}
 

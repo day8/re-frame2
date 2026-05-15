@@ -17,6 +17,7 @@
             [re-frame.core      :as rf]
             [re-frame.story     :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
+            [day8.re-frame2-causa.config :as causa-config]
             ;; Source the events + subs + views via the stories ns,
             ;; which itself requires them. When Story is elided the
             ;; stories ns still loads (it's a regular CLJS ns) but
@@ -79,6 +80,12 @@
       (mount-app!))))
 
 (defn ^:export run []
+  ;; Story owns this page's full-width browser-test canvas. When the
+  ;; Causa preload is present in shared dev test runs, keep its trace
+  ;; collectors/API/keybinding installed but skip the default panel
+  ;; launch; app pages that want Causa inline still provide the normal
+  ;; `[data-rf-causa-host]` contract.
+  (causa-config/configure! {:launch/auto-open? false})
   (rf/init! reagent-adapter/adapter)
   ;; Install the Story canonical vocabulary (seven tags, lifecycle
   ;; machine, seven :rf.assert/* handlers, force-fx-stub decorator,

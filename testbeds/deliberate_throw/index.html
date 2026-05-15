@@ -3,9 +3,18 @@
 <head>
   <meta charset="utf-8">
   <title>re-frame2 testbed: deliberate-throw</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    .rf2-testbed-shell { display: flex; min-height: 100vh; }
+    [data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+    #app { flex: 1; min-width: 0; padding: 2em; }
+  </style>
 </head>
 <body>
-  <div id="app"></div>
+  <div class="rf2-testbed-shell">
+    <aside data-rf-causa-host></aside>
+    <main id="app"></main>
+  </div>
   <script src="main.js"></script>
 </body>
 </html>

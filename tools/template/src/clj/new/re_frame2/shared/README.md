@@ -42,10 +42,12 @@ and the next reload drops the old registration.
 ## In-app devtools (Causa)
 
 `shadow-cljs.edn` wires `day8.re-frame2-causa.preload` into
-`:devtools/preloads` on the `:app` build — the scaffold ships
-Causa **on by default** for development. Press **Ctrl+Shift+C** in
-your running app to open the in-app devtools overlay: per-epoch
-dispatch log, app-db diff, causality graph, time-travel scrubber.
+`:devtools/preloads` on the `:app` build — the scaffold ships Causa
+**on by default** for development. `resources/public/index.html`
+includes the `[data-rf-causa-host]` left layout column, so Causa
+auto-opens beside your app once `rf/init!` runs. Press
+**Ctrl+Shift+C** to hide/show it: per-epoch dispatch log, app-db diff,
+causality graph, time-travel scrubber.
 Release builds drop the preload automatically (shadow only runs
 preloads under `watch` / `compile`, never `release`).
 

@@ -4,11 +4,16 @@
   <meta charset="utf-8">
   <title>re-frame2 testbed: ssr-hydration-mismatch</title>
   <style>
-    body { font-family: sans-serif; margin: 2em; }
+    body { font-family: sans-serif; margin: 0; }
+    .rf2-testbed-shell { display: flex; min-height: 100vh; }
+    [data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+    #app { flex: 1; min-width: 0; padding: 2em; }
     h1 { margin-top: 0; }
   </style>
 </head>
 <body>
+  <div class="rf2-testbed-shell">
+    <aside data-rf-causa-host></aside>
   <!--
     Server-rendered HTML — a placeholder shape. The pre-rendered
     `not-hydrated` marker is intentional: the post-hydrate render
@@ -25,6 +30,7 @@
         not-hydrated
       </div>
     </div>
+  </div>
   </div>
   <!--
     The payload bakes a deliberately-wrong :rf/render-hash. The

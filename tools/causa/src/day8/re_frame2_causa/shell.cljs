@@ -372,9 +372,9 @@
 (rf/reg-view shell-view
   "The full Causa shell. Wraps every panel region in a `:rf/causa`
   frame-provider so descendant `subscribe` / `dispatch` resolve to
-  the isolated frame. The shell's outer container is a fixed-position
-  overlay along the right edge of the viewport (40% width per
-  spec/007-UX-IA.md §Layout).
+  the isolated frame. Default `:inline` mode renders in normal document
+  flow inside the app-provided left layout host. `:overlay`, `:docked`,
+  and `:popout` remain available debug/manual modes.
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
   shell region. The shell-view itself sits OUTSIDE its own frame-
@@ -382,25 +382,38 @@
   body still resolves to the default — every subscribing child is its
   own reg-view component so the surrounding `:rf/causa` Provider
   reaches them via React context."
-  []
+  [& [{:keys [mode] :or {mode :inline}}]]
   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
-          :data-mode   "overlay"
-          :style       {:position         "fixed"
-                        :top              0
-                        :right            0
-                        :bottom           0
-                        :width            "40%"
-                        :min-width        "560px"
-                        :display          "flex"
-                        :flex-direction   "column"
-                        :background       (:bg-0 tokens)
-                        :color            (:text-primary tokens)
-                        :z-index          2147483000
-                        :box-shadow       "rgba(0, 0, 0, 0.4) -8px 0 24px"
-                        :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                        :font-size        "14px"
-                        :line-height      1.5}}
+          :data-mode   (name mode)
+          :style       (merge
+                         {:width            "100%"
+                          :height           "100%"
+                          :min-height       "100vh"
+                          :display          "flex"
+                          :flex-direction   "column"
+                          :background       (:bg-0 tokens)
+                          :color            (:text-primary tokens)
+                          :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+                          :font-size        "14px"
+                          :line-height      1.5}
+                         (case mode
+                           :inline
+                           {:position   "relative"
+                            :min-width  "320px"
+                            :box-shadow "rgba(0, 0, 0, 0.28) 8px 0 20px"}
+
+                           :popout
+                           {:position "relative"}
+
+                           {:position   "fixed"
+                            :top        0
+                            :right      0
+                            :bottom     0
+                            :width      "40%"
+                            :min-width  "560px"
+                            :z-index    2147483000
+                            :box-shadow "rgba(0, 0, 0, 0.4) -8px 0 24px"}))}
     [top-strip {}]
     [:div {:style {:flex          1
                    :display       "flex"

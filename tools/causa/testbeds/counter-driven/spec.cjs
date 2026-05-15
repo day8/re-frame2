@@ -10,18 +10,17 @@
  *      :rf.causa/trace-collector.
  *   3. Attaches a global Ctrl+Shift+C keydown listener.
  *
- * The shell does NOT mount at preload time — first paint is gated on
- * the toggle keypress per spec/007-UX-IA.md §The default landing view
- * (the <80ms first-paint target relies on lazy substrate render).
+ * The shell now mounts by default into the app-provided inline host
+ * (`[data-rf-causa-host]`) once the runtime is ready. Ctrl+Shift+C
+ * toggles the already-mounted shell's visibility.
  *
  * This spec is the only test in the repo that exercises the full
  * mount → keybinding → substrate-adapter render → shell hiccup tree →
  * panel routing pipeline end-to-end. Node-test alone cannot drive it
  * (no DOM, no substrate render, no event loop). It covers:
  *
- *   1. Mount: Causa is NOT in the DOM at page-load time.
- *   2. Toggle on: Ctrl+Shift+C mounts the shell and renders the
- *      sidebar with every panel entry.
+ *   1. Mount: Causa auto-mounts inline on page load.
+ *   2. Sidebar: the default inline shell renders every panel entry.
  *   3. Panel handoff: clicking a sidebar entry switches the canvas to
  *      render that panel's distinctive `[data-testid]` element.
  *   4. Toggle off: a second Ctrl+Shift+C hides the shell's container
@@ -60,33 +59,30 @@ module.exports = {
   url: '/counter/',
   run: async (page) => {
     // ----------------------------------------------------------------
-    // 1. Mount — counter is ready, Causa shell is NOT in the DOM yet.
+    // 1. Mount — counter is ready, Causa shell auto-mounted inline.
     // ----------------------------------------------------------------
     //
-    // The preload runs at app boot but defers shell mount until the
-    // first toggle. Wait for the counter to be interactive (asserts the
-    // page loaded and the substrate adapter installed via
-    // (rf/init! ...) before we send keypresses), then assert Causa is
-    // absent.
-    const span = page.locator('span').first();
+    // Wait for the counter to be interactive (asserts the page loaded
+    // and the substrate adapter installed via (rf/init! ...)), then
+    // assert Causa mounted into the explicit host beside the app.
+    const span = page.locator('#app [data-testid="counter-value"]');
     await expectTextEquals(span, '5', 10000);
-
-    if ((await page.locator(`[data-testid="${SHELL_TESTID}"]`).count()) !== 0) {
-      throw new Error('Causa shell rendered at page-load; expected lazy mount on first Ctrl+Shift+C.');
-    }
-
-    // ----------------------------------------------------------------
-    // 2. Toggle on — Ctrl+Shift+C mounts the shell + renders sidebar.
-    // ----------------------------------------------------------------
-    //
-    // The keybinding listener is attached on document with capture
-    // (see keybinding.cljs `attach!`); a top-level page.keyboard.press
-    // dispatches the keydown against the page's focused element and
-    // bubbles to document.
-    await page.keyboard.press('Control+Shift+C');
 
     const shell = page.locator(`[data-testid="${SHELL_TESTID}"]`);
     await expectVisible(shell, 5000);
+    const inline = await page.evaluate(() => {
+      const root = document.getElementById('rf-causa-root');
+      const host = document.querySelector('[data-rf-causa-host]');
+      const shell = document.querySelector('[data-testid="rf-causa-shell"]');
+      return {
+        rootMode: root && root.getAttribute('data-rf-causa-mode'),
+        shellMode: shell && shell.getAttribute('data-mode'),
+        rootParentIsHost: Boolean(root && host && root.parentElement === host),
+      };
+    });
+    if (inline.rootMode !== 'inline' || inline.shellMode !== 'inline' || !inline.rootParentIsHost) {
+      throw new Error(`Expected Causa to auto-mount in the inline host; got ${JSON.stringify(inline)}`);
+    }
 
     // Every sidebar entry from shell.cljs's `sidebar-items` should be
     // present in the DOM — the sidebar is rendered eagerly even though
@@ -157,7 +153,7 @@ module.exports = {
 
     const totalBefore = await readTotal();
 
-    await page.getByRole('button', { name: '+' }).click();
+    await page.locator('#app').getByRole('button', { name: '+' }).click();
     await expectTextEquals(span, '6');
 
     const start = Date.now();
@@ -248,7 +244,7 @@ module.exports = {
       throw new Error(`Expected #rf-causa-root display:none after second toggle; got "${display}".`);
     }
 
-    // Sanity — a third toggle re-opens the shell (CSS-only show, no
+    // Sanity — a second toggle re-opens the shell (CSS-only show, no
     // re-mount per spec/007-UX-IA.md §The default landing view).
     await page.keyboard.press('Control+Shift+C');
     const display2 = await page.evaluate(() => {

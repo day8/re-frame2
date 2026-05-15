@@ -50,7 +50,10 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
   <title>your-app</title>
 </head>
 <body>
-  <div id="app"></div>
+  <div class="app-shell">
+    <aside data-rf-causa-host></aside>
+    <main id="app"></main>
+  </div>
   <script src="/js/main.js"></script>
 </body>
 </html>
@@ -58,7 +61,8 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
 
 Three contractual bits:
 
-- **`<div id="app"></div>`** — the mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`.
+- **`<main id="app"></main>`** — the app mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`.
+- **`<aside data-rf-causa-host></aside>`** — Causa's default true-inline devtools host. Keep it as a left-side sibling of `#app` when you enable `day8.re-frame2-causa.preload`; otherwise Causa logs a missing-host diagnostic and does not mount.
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows.
 - **`/js/main.js` is an absolute path from site root.** That's correct for shadow-cljs's dev server.
 
@@ -84,7 +88,7 @@ Add `:devtools` to enable shadow-cljs's hot-reload + dev server:
 
 With this block in place, `shadow-cljs watch app` starts the dev server. Visit `http://localhost:8020/` and the browser auto-refreshes on every recompile.
 
-re-frame2 itself **does not need a preload** for hot-reload. shadow-cljs's default behaviour is enough. (`re-frame-pair2` and re-frame v1's `re-frame-10x` were both preloads; re-frame2 ships no preload of its own.)
+re-frame2 itself **does not need a preload** for hot-reload. shadow-cljs's default behaviour is enough. Causa is the devtools exception: if you add `day8.re-frame2-causa.preload`, the page must provide `[data-rf-causa-host]` as shown above.
 
 ## Production build (`release`)
 
@@ -104,7 +108,7 @@ If you want to pin the port explicitly (e.g. for editor integrations), add a top
 
 A few things you might pull in by reflex from other CLJS framework setups that re-frame2 specifically does not require:
 
-- **No `:preloads`** — re-frame2 has no preload analogue to re-frame v1 + re-frame-10x.
+- **No framework preload required** — re-frame2 has no preload analogue to re-frame v1. Causa is optional devtools wiring; when enabled, it auto-opens in `[data-rf-causa-host]`.
 - **No `:closure-defines`** for re-frame2 itself in dev. The single exception is opting into the performance-API instrumentation (Spec 009 §Performance instrumentation) — set `re-frame.performance/enabled? true` only if the author asks for it explicitly. Default dev is fine.
 - **No special compiler options** for dev. `{:compiler-options {:warnings {...}}}` is up to the author.
 - **No SSR build entry** unless the author wants SSR. SSR is opt-in via `day8/re-frame2-ssr` (separate per-feature artefact); the SSR build is a separate `:target :node-script` (or `:target :browser` running in a static-render harness). Out of scope for greenfield.

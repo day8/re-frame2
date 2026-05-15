@@ -11,18 +11,26 @@
      `:rf.causa/trace-collector` — see `re-frame2-causa.trace-bus`.
   3. Attaches a global Ctrl+Shift+C keydown listener — see
      `re-frame2-causa.keybinding`.
+  4. Auto-opens the full shell into the host app's normal-flow
+     `[data-rf-causa-host]` layout host once the substrate adapter is
+     ready, unless the host configured `:launch/auto-open? false`
+     before adapter readiness. Missing host is reported via
+     `console.error` and the inspectable Causa status API; startup is
+     not blocked.
 
   All three are idempotent: re-loading the namespace (shadow-cljs
   `:after-load`) re-runs the side-effects but each step
   `defonce`-guards its own state. The net effect is no double-
   registration, no double-listener, no shell re-mount.
 
-  ## Why the preload doesn't mount the shell
+  ## Why the preload waits for adapter readiness
 
-  The shell mounts on first Ctrl+Shift+C, not at preload time. Per
-  spec/007-UX-IA.md §The default landing view the first paint is
-  <80ms because the substrate render runs lazily — we don't pay the
-  React-tree construction cost until the user opens Causa.
+  The shell cannot mount synchronously at preload namespace load:
+  shadow-cljs preloads run before the host calls `rf/init!`, so no
+  substrate adapter is installed yet. The preload schedules a bounded
+  readiness probe and mounts after the host runtime exists. Subsequent
+  hide/show remains a CSS-only toggle, preserving the <80ms repaint
+  target in spec/007-UX-IA.md §The default landing view.
 
   ## Production posture
 
@@ -156,11 +164,13 @@
 (defn- install-api-on!
   [obj]
   (gobj/set obj "open_BANG_" mount/open!)
+  (gobj/set obj "open_overlay_BANG_" mount/open-overlay!)
   (gobj/set obj "close_BANG_" mount/close!)
   (gobj/set obj "toggle_BANG_" mount/toggle!)
   (gobj/set obj "dock_BANG_" mount/dock!)
   (gobj/set obj "undock_BANG_" mount/undock!)
   (gobj/set obj "popout_BANG_" mount/popout!)
+  (gobj/set obj "status" mount/status)
   (gobj/set obj "mount_inline_panel_BANG_" mount/mount-inline-panel!)
   (gobj/set obj "unmount_inline_panel_BANG_" mount/unmount-inline-panel!)
   nil)
@@ -205,4 +215,5 @@
   (register-trace-collector!)
   (register-epoch-collector!)
   (install-browser-api-exports!)
-  (keybinding/attach!))
+  (keybinding/attach!)
+  (mount/auto-open-inline!))

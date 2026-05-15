@@ -10,10 +10,11 @@ and [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 
 ## Layout
 
-Causa fills a panel along the **right edge** of the viewport by
-default, taking 40% of the window width (resizable). Right-edge gives
-more vertical real estate for the graph and the event detail than a
-bottom panel.
+Causa fills a true-inline panel on the **left side** of the host app by
+default. The host app provides `[data-rf-causa-host]` as a normal
+flex/grid column and Causa renders inside it. This is not an overlay
+and not a body-padding dock: the app remains visible and clickable to
+the right because normal layout owns the relationship.
 
 ### The five regions
 
@@ -62,11 +63,11 @@ explaining desktop-only.
 
 ## The default landing view
 
-On `Ctrl+Shift+C`:
+On page load after `rf/init!`, when `[data-rf-causa-host]` exists:
 
-- Slide-in animation: 320ms from the right edge.
-- First-paint target: under 80ms (Causa is preloaded; the show/hide
-  toggle is a CSS class swap).
+- Causa auto-opens in the left inline host.
+- `Ctrl+Shift+C` hides/shows the already-mounted shell with a CSS-only
+  display toggle.
 - **Active panel: Events**, showing the most-recent epoch's
   event-detail.
 - **AI co-pilot: collapsed** (per lock #8). A subtle activation cue

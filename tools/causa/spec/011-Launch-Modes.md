@@ -2,9 +2,11 @@
 
 Causa launches in two complementary ways:
 
-1. **In-app overlay** — the default. Causa preloads into the dev
-   build, mounts a hidden DOM root, and toggles into view on
-   `Ctrl+Shift+C` or via the floating launcher pill.
+1. **In-app true-inline panel** — the default. Causa preloads into
+   the dev build, waits for the substrate adapter, then mounts into an
+   app-provided left-side layout host (`[data-rf-causa-host]` by
+   default). The panel participates in normal layout, so app controls
+   remain visible and clickable to the right.
 
 2. **Standalone via MCP** — the remote-attach story. An AI agent
    running on the user's machine (or elsewhere) drives Causa-MCP
@@ -21,7 +23,48 @@ This is lock #9 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md): a
 remote-attach protocol; the in-app posture covers the local case
 and MCP covers the remote case.
 
-## In-app overlay
+## In-app true-inline panel
+
+### Layout host contract
+
+The host app MUST provide a Causa layout host in its normal page
+layout. Default selector:
+
+```css
+[data-rf-causa-host]
+```
+
+Minimal host markup:
+
+```html
+<div class="app-shell">
+  <aside data-rf-causa-host></aside>
+  <main id="app"></main>
+</div>
+```
+
+Minimal layout:
+
+```css
+body { margin: 0; }
+.app-shell { display: flex; min-height: 100vh; }
+[data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+#app { flex: 1; min-width: 0; }
+```
+
+The host owns sizing and layout. Causa owns the shell rendered inside
+the host. Hosts may override the selector before Causa opens:
+
+```clojure
+(require '[day8.re-frame2-causa.config :as causa-config])
+(causa-config/configure! {:layout/host-selector "#devtools-causa"})
+```
+
+If the selector cannot be found after the substrate adapter is ready,
+Causa MUST fail loudly but safely: `console.error` with the selector
+and snippet above, plus the same diagnostic exposed through
+`window.day8.re_frame2_causa.status()`. It MUST NOT use `alert()` and
+MUST NOT block host app startup.
 
 ### Install
 
@@ -31,10 +74,24 @@ and MCP covers the remote case.
 ```
 
 The preload registers Causa's listeners under `register-trace-cb!`
-and `register-epoch-cb!`, mounts a hidden DOM root, listens for
-`Ctrl+Shift+C`. No code change in the app itself.
+and `register-epoch-cb!`, installs the browser API/keybinding, then
+auto-opens into the configured layout host once `rf/init!` has
+installed a substrate adapter.
 
-Same convention as re-frame-10x v1; muscle-memory transfer is free.
+Tool-owned pages that deliberately do not allocate app layout real
+estate for Causa (for example Story-only browser-test canvases) MAY
+suppress only the default page-load open before `rf/init!`:
+
+```clojure
+(require '[day8.re-frame2-causa.config :as causa-config])
+(causa-config/configure! {:launch/auto-open? false})
+```
+
+This does not disable Causa. The collectors, browser API, keybinding,
+and explicit `open!` / `toggle!` calls remain installed; if an explicit
+open has no host, it MUST still emit the normal actionable missing-host
+diagnostic. App dev pages should keep the default `true` posture and
+provide `[data-rf-causa-host]`.
 
 ### Disable
 
@@ -50,31 +107,26 @@ Remove the `:preloads` entry, or:
 
 | Action | How |
 |---|---|
-| Open | `Ctrl+Shift+C` or click the floating pill |
+| Auto-open | Page load after `rf/init!`, when `[data-rf-causa-host]` exists |
+| Suppress auto-open on tool-only pages | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!` |
+| Hide/show | `Ctrl+Shift+C` |
+| Legacy overlay debug mode | `window.day8.re_frame2_causa.open_overlay_BANG_()` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
-| Pop out to second window | `Ctrl+Shift+P` |
+| Pop out to second window | `window.day8.re_frame2_causa.popout_BANG_()` |
 | Open AI co-pilot rail | `Ctrl+Shift+/` |
 
-### The launcher pill
+### Closed state
 
-When Causa is closed, a 48×48px circular button sits in the
-bottom-right corner of the viewport (z-index pinned just below modal
-overlays, above app content). The Causa mark centred. Subtle 1px
-violet ring at 60% opacity on idle.
+When Causa is hidden, the inline mount node remains in the layout host
+with `display: none`. The app does not receive body padding, viewport
+overlays, or fixed-position chrome as part of the default developer
+experience. `Ctrl+Shift+C` shows the existing shell again; no React
+remount is required.
 
-Pulses softly when there's an active error in the issues feed —
-600ms expand-fade pulse, every 4s, **max 3 pulses then stops**. The
-pulse is bounded so a long-lived error doesn't become a perpetual
-animation.
-
-Click → Causa opens (same 320ms slide-in animation as the keyboard
-shortcut).
-
-Right-click → contextual mini-menu: Open · Pop out · Settings · Hide
-button.
-
-The button is **hideable** (Settings option for users who only use
-the keyboard). Hidden state persists per-app in localStorage.
+Hosts MAY add their own launcher affordance if they want a visible
+button, but that affordance is host chrome, not Causa's default launch
+contract. Causa's built-in overlay/docked APIs remain optional debug
+modes and must not be described as the primary path.
 
 ### Pop-out to a second window
 
@@ -102,19 +154,21 @@ full-screen" use case.
 
 ### Animation
 
-Slide-in from the right edge: 320ms with `cubic-bezier(0, 0, 0.2, 1)`.
-First paint under 80ms (Causa was mounted hidden; toggle is a CSS
-class swap). Respects `prefers-reduced-motion` (instant fade).
+Default inline launch is normal document layout: Causa renders inside
+the host's left column and the app remains visible to the right. The
+default hide/show operation is a CSS display swap on the mount node
+and MUST respect `prefers-reduced-motion`.
 
-App content underneath dims 12% via a CSS overlay; app interactions
-still pass through (pointer-events on the dim overlay are disabled).
+Overlay-specific slide/dim affordances are allowed only for optional
+debug modes. They MUST NOT be used to approximate the default
+true-inline host contract.
 
 ### Mount lifecycle (rf2-9kkrm)
 
-The in-app overlay's <80ms first-paint target is paid for by a
-**lazy mount** — the substrate render tree is not constructed at
-preload time, only on the user's first toggle keypress. The
-lifecycle is normative.
+The in-app panel's first paint is paid after substrate readiness, not
+at preload namespace load. The preload does foundation work first,
+then auto-opens into the app-provided host when `current-adapter` is
+available. The lifecycle is normative.
 
 **Two-phase boot.** Loading the preload namespace runs the
 **foundation** side-effects only:
@@ -129,13 +183,15 @@ lifecycle is normative.
    `day8/re-frame2-epoch` artefact is absent).
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
+5. Schedule default true-inline auto-open once the substrate adapter
+   is ready, unless `:launch/auto-open?` is false before the probe
+   observes readiness.
 
-The preload MUST NOT mount the shell, construct the substrate
-render tree, or create any DOM under `document.body`. The shell
-mounts on the **first** `Ctrl+Shift+C` press (or first click on
-the launcher pill) — never before. This is the lazy-mount
-contract: the React-tree construction cost is paid on first open,
-not at app-boot.
+The preload MUST NOT mount the shell synchronously during namespace
+load. It MAY schedule a bounded adapter-ready retry. Once the adapter
+is ready, it MUST find the configured layout host and mount the shell
+there. If the host is missing, it MUST emit the diagnostic described in
+§Layout host contract and leave the app running.
 
 **Boot order.** Within the preload's foundation phase the side-
 effects MUST run in the order **register-handlers → register-
@@ -144,8 +200,8 @@ listener is attached last so that, in the unlikely race where the
 user presses `Ctrl+Shift+C` mid-load, the handlers required by the
 shell render are already in the registry when the mount fires.
 
-Within the lazy-mount phase (first toggle press) the order MUST be
-**create-mount-node → substrate-render → mark-visible**. The
+Within the mount phase the order MUST be **find-layout-host →
+create-mount-node-in-host → substrate-render → mark-visible**. The
 substrate adapter's `:render` slot is the canonical mount path
 (per [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md)
 §Render contract) — Causa MUST NOT bypass the adapter and call
@@ -200,7 +256,7 @@ down — the shell lives for the page's lifetime once mounted, and
 `Ctrl+Shift+C` close is a CSS hide, not an unmount. The
 `teardown!` operation is **test-only**: it MUST invoke the
 substrate adapter's unmount fn (returned by `:render` at mount
-time), MUST remove the mount-node from `document.body`, and MUST
+time), MUST remove the mount-node from its layout host, and MUST
 reset the mount-state singleton to `nil` so the next test starts
 from a clean slate. The unmount fn MUST be invoked inside a
 swallow-errors guard — substrate adapters MAY throw on a
@@ -502,6 +558,6 @@ in parallel. The panel surfaces the agent's actions (the `:origin
 | Want to debug a mobile browser | Out of scope at v1.0 |
 
 The 95% of cases — local development with in-app inspection — is
-solved by the in-app overlay. The MCP server covers the
+solved by the in-app true-inline panel. The MCP server covers the
 agent-driven case. The remaining 5% (cross-machine, mobile) is
 explicitly out of scope at v1.0.

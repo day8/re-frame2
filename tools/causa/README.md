@@ -12,9 +12,10 @@ surfaces as an issue you cannot miss.
 
 ## What it is
 
-An in-app DOM-injected devtools panel for re-frame2 applications,
-preloaded into dev builds via `:preloads`. Opens on `Ctrl+Shift+C` or
-the floating launcher pill. Production builds elide the entire surface
+An in-app true-inline devtools panel for re-frame2 applications,
+preloaded into dev builds via `:preloads`. The host app provides a
+left-side `[data-rf-causa-host]` column in its normal layout; Causa
+auto-opens there once the substrate adapter is ready. Production builds elide the entire surface
 through the universal `interop/debug-enabled?` gate — zero bytes
 shipped to consumers.
 
@@ -60,6 +61,34 @@ Once published, the dev-deps coord will be
 `day8/re-frame2-causa {:mvn/version "0.0.1.alpha"}` (tracking the repo
 `VERSION`).
 
+### Add The Layout Host
+
+Causa's default launch mode is true inline, not an overlay. Add a
+left-side host to the app layout:
+
+```html
+<div class="app-shell">
+  <aside data-rf-causa-host></aside>
+  <main id="app"></main>
+</div>
+```
+
+```css
+.app-shell { display: flex; min-height: 100vh; }
+[data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+#app { flex: 1; min-width: 0; }
+```
+
+If the host is missing, Causa logs an actionable `console.error` and
+exposes the same state through `window.day8.re_frame2_causa.status()`.
+
+Override the selector before auto-open if needed:
+
+```clojure
+(require '[day8.re-frame2-causa.config :as causa-config])
+(causa-config/configure! {:layout/host-selector "#devtools-causa"})
+```
+
 ### Enable
 
 ```clojure
@@ -67,17 +96,29 @@ Once published, the dev-deps coord will be
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-That's it. The preload registers Causa's listeners under
-`register-trace-cb!` and `register-epoch-cb!`, mounts a hidden DOM root,
-and listens for `Ctrl+Shift+C`. No code change in the app itself.
+The preload registers Causa's listeners under `register-trace-cb!` and
+`register-epoch-cb!`, installs the browser API/keybinding, and
+auto-opens into the layout host after `rf/init!`.
+
+Tool-owned pages that intentionally do not reserve app layout space for
+Causa can suppress only the default page-load open before `rf/init!`:
+
+```clojure
+(causa-config/configure! {:launch/auto-open? false})
+```
+
+Explicit opens still use the normal host contract and emit the same
+missing-host diagnostic when no host exists.
 
 ### Launch
 
 | Action | How |
 |---|---|
-| Open | `Ctrl+Shift+C` or click the floating pill (bottom-right) |
+| Auto-open | Page load after `rf/init!`, when `[data-rf-causa-host]` exists |
+| Suppress auto-open on tool-only pages | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!` |
+| Hide/show | `Ctrl+Shift+C` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
-| Pop out to second window | TBD — programmatic `(causa/popout!)` only until the keybinding + window plumbing lands |
+| Pop out to second window | Programmatic `(causa/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |
 | Open AI co-pilot rail | `Ctrl+Shift+/` |
 | Command palette | `Ctrl+K` |
 
@@ -127,7 +168,7 @@ that the tool could be one-shotted from it.
 | [`spec/008-Embedding-Contract.md`](./spec/008-Embedding-Contract.md) | Story-embed contract; the `Panel` component shape. |
 | [`spec/009-AI-CoPilot.md`](./spec/009-AI-CoPilot.md) | Pull-only Q&A; slash commands; ephemeral conversation. |
 | [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md) | `tools/causa-mcp/`; the Causa MCP tool catalogue. |
-| [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app overlay + standalone-via-MCP for remote-attach. |
+| [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app true-inline host + standalone-via-MCP for remote-attach. |
 | [`spec/Principles.md`](./spec/Principles.md) | Load-bearing principles (read-only, observation-only, etc.). |
 | [`spec/API.md`](./spec/API.md) | User-facing surface (`init!`, panel mount, MCP tool list). |
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | The 13 locked decisions: question, options, pick, why. |

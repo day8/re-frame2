@@ -70,6 +70,7 @@
   (testing "config knob setters are def-aliases"
     (is (identical? config/configure!          core/configure!))
     (is (identical? config/set-editor!         core/set-editor!))
+    (is (identical? config/set-auto-open!      core/set-auto-open!))
     (is (identical? config/set-show-sensitive! core/set-show-sensitive!))))
 
 ;; ---- (2) frame wiring --------------------------------------------------

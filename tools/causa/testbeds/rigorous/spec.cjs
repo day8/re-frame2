@@ -21,7 +21,8 @@
  *
  * Coverage over the bare-minimum smoke:
  *
- *   1. Default landing — Event Detail is the hero panel
+ *   1. Default inline landing — Event Detail is the hero panel on
+ *      page load when the app provides `[data-rf-causa-host]`
  *   2. Co-pilot rail affordances:
  *      - cue button opens the rail
  *      - typing `/` renders the slash popover (rf2-qvz85)
@@ -168,21 +169,48 @@ module.exports = {
   name: 'causa-rigorous',
   url: '/counter/',
   run: async (page) => {
-    const counterValue = page.locator('span').first();
+    const counterValue = page.locator('#app [data-testid="counter-value"]');
 
     // ----------------------------------------------------------------
-    // 1. Initial state — counter ready, shell not mounted yet.
+    // 1. Initial state — counter ready, shell auto-mounted inline.
     // ----------------------------------------------------------------
     await expectTextEquals(counterValue, '5', 10000);
-    if ((await page.locator(`[data-testid="${SHELL_TESTID}"]`).count()) !== 0) {
-      throw new Error('Causa shell rendered at page-load; expected lazy mount.');
+    await expectVisible(page.locator(`[data-testid="${SHELL_TESTID}"]`), 5000);
+    const inline = await page.evaluate(() => {
+      const root = document.getElementById('rf-causa-root');
+      const host = document.querySelector('[data-rf-causa-host]');
+      const shell = document.querySelector('[data-testid="rf-causa-shell"]');
+      const plus = Array.from(document.querySelectorAll('button'))
+        .filter((button) => !button.closest('#rf-causa-root'))
+        .find((button) => (button.textContent || '').trim() === '+');
+      function rect(el) {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, width: r.width, height: r.height };
+      }
+      return {
+        rootMode: root && root.getAttribute('data-rf-causa-mode'),
+        shellMode: shell && shell.getAttribute('data-mode'),
+        bodyPaddingLeft: document.body.style.paddingLeft,
+        bodyPaddingRight: document.body.style.paddingRight,
+        rootParentIsHost: Boolean(root && host && root.parentElement === host),
+        shell: rect(shell),
+        hostPlus: rect(plus),
+      };
+    });
+    if (inline.rootMode !== 'inline' || inline.shellMode !== 'inline' || !inline.rootParentIsHost) {
+      throw new Error(`Expected Causa to auto-mount in the inline host; got ${JSON.stringify(inline)}`);
+    }
+    if (inline.bodyPaddingLeft || inline.bodyPaddingRight) {
+      throw new Error(`Expected inline Causa to avoid body-padding layout tricks; got ${JSON.stringify(inline)}`);
+    }
+    if (!inline.shell || !inline.hostPlus || inline.hostPlus.left < inline.shell.right) {
+      throw new Error(`Expected host controls to be laid out to the right of Causa; got ${JSON.stringify(inline)}`);
     }
 
     // ----------------------------------------------------------------
-    // 2. Open the shell; default panel and cue render.
+    // 2. Default panel and cue render.
     // ----------------------------------------------------------------
-    await page.keyboard.press('Control+Shift+C');
-    await expectVisible(page.locator(`[data-testid="${SHELL_TESTID}"]`), 5000);
     await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
     await expectVisible(page.locator('[data-testid="rf-causa-copilot-cue"]'), 5000);
 
