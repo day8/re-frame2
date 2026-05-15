@@ -541,8 +541,18 @@ The emitter is **static-topology only**:
 
 - States render as Mermaid nodes; compound `:states` render as
   `state X { ... }` blocks with their own `[*] --> initial`.
-- Transitions render as `from --> to : event` edges. The event id
-  becomes the edge label.
+- Event transitions render as `from --> to : event` edges. `:*`
+  wildcard edges render with `*` as the label. Multiple-candidate
+  vectors render every target-bearing guarded branch.
+- `:after` transitions render as plain edges labelled
+  `after(<delay>)`; the countdown-ring semantics are lossy.
+- `:always` transitions render as plain edges labelled `always`;
+  microstep timing remains lossy.
+- Top-level fallback `:on` renders from a synthetic `root fallback`
+  node because Mermaid has no exact deepest-wins fallback primitive.
+- `:type :parallel` machines render as independent region state
+  trees inside a synthetic parallel root. Broadcast macrostep
+  semantics are lossy.
 - `:final?` states render a `state --> [*]` terminal edge.
 - `:initial` becomes `[*] --> <initial>`.
 
@@ -553,10 +563,15 @@ The following data does **not** survive the round-trip:
   renders (as a plain event-less edge), but the countdown semantics
   are lost.
 - `:invoke-all` rows of mini-machines — Mermaid has no
-  parallel-region grammar that maps cleanly; the row is omitted
+  spawn-and-join row grammar that maps cleanly; the row is omitted
   entirely.
-- Microstep flashes, transition glow, `:tags`, guards, actions —
-  none of these are static topology and none round-trip.
+- Parallel-region broadcast macrosteps — regions render, but Mermaid
+  cannot express that one event is broadcast through every active
+  region before the snapshot commits.
+- Microstep flashes, transition glow, `:tags`, guard evaluation,
+  actions — none of these are static topology and none round-trip.
+  Guard ids may appear on edge labels, but their runtime truth
+  semantics do not.
 
 The omission is flagged in a `%% comment` at the top of the emitted
 block, so a reader who pastes the output into a doc sees the

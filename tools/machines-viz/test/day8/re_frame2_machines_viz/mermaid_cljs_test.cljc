@@ -31,6 +31,48 @@
                                        :paying   {:on {:done :browsing}}}
                              :on      {:logout :unauth}}}})
 
+(def duplicate-nested-leaves-machine
+  "Two compound parents both contain an :idle leaf. Mermaid ids must
+  use the full path so those leaves do not collapse."
+  {:initial :left
+   :states  {:left  {:initial :idle
+                     :states  {:idle {:on {:swap [:right :idle]}}}}
+             :right {:initial :idle
+                     :states  {:idle {}}}}})
+
+(def vector-path-target-machine
+  "Compound transitions may target absolute vector paths."
+  {:initial :unauth
+   :states  {:unauth {:on {:login [:authenticated :browsing]}}
+             :authenticated
+             {:initial :browsing
+              :states  {:browsing {:on {:logout [:unauth]}}}}}})
+
+(def timed-and-eventless-machine
+  "State-node :after and :always transitions are static topology and
+  should render as lossy labelled edges."
+  {:initial :loading
+   :states  {:loading {:after {5000  :timeout
+                               30000 {:target :hard-error
+                                      :guard  :still-loading?}}
+                       :on    {:loaded :checking}}
+             :checking {:always [{:guard :ready? :target :ready}
+                                 {:target :blocked}]}
+             :timeout {}
+             :hard-error {}
+             :ready {}
+             :blocked {}}})
+
+(def parallel-region-machine
+  "A :type :parallel root with two independent region state trees."
+  {:type    :parallel
+   :regions {:data {:initial :nothing
+                    :states  {:nothing {:on {:fetch :loading}}
+                              :loading {}}}
+             :form {:initial :neutral
+                    :states  {:neutral {:on {:submit :correct}}
+                              :correct {:final? true}}}}})
+
 (def namespaced-ids-machine
   "Machine using namespaced and hyphenated ids — exercises
   sanitise-id."
@@ -91,7 +133,7 @@
   (testing "compound states render as `state X { ... }` with inner [*] --> initial"
     (let [out (m/emit compound-machine)]
       (is (str/includes? out "state authenticated {"))
-      (is (str/includes? out "[*] --> browsing"))
+      (is (str/includes? out "[*] --> authenticated__browsing"))
       (is (str/includes? out "}")))))
 
 (deftest emit-renders-cross-region-transitions
@@ -103,8 +145,21 @@
       ;; compound state's `:on` map)
       (is (str/includes? out "authenticated --> unauth : logout"))
       ;; nested edges still emit
-      (is (str/includes? out "browsing --> paying : checkout"))
-      (is (str/includes? out "paying --> browsing : done")))))
+      (is (str/includes? out "authenticated__browsing --> authenticated__paying : checkout"))
+      (is (str/includes? out "authenticated__paying --> authenticated__browsing : done")))))
+
+(deftest emit-path-qualifies-duplicate-nested-leaves
+  (testing "duplicate child names under different parents get distinct Mermaid ids"
+    (let [out (m/emit duplicate-nested-leaves-machine)]
+      (is (str/includes? out "[*] --> left__idle"))
+      (is (str/includes? out "[*] --> right__idle"))
+      (is (str/includes? out "left__idle --> right__idle : swap")))))
+
+(deftest emit-renders-vector-path-targets
+  (testing "absolute vector-path targets render without crashing"
+    (let [out (m/emit vector-path-target-machine)]
+      (is (str/includes? out "unauth --> authenticated__browsing : login"))
+      (is (str/includes? out "authenticated__browsing --> unauth : logout")))))
 
 (deftest emit-sanitises-namespaced-and-hyphenated-ids
   (testing "namespaced + hyphenated keywords map to underscore-joined ids"
@@ -126,31 +181,85 @@
                  (m/emit {:initial :idle})))
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo
                     :cljs ExceptionInfo)
-                 (m/emit {:initial :idle :states {}})))))
+                 (m/emit {:initial :idle :states {}})))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo
+                    :cljs ExceptionInfo)
+                 (m/emit {:type :parallel :regions {}})))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo
+                    :cljs ExceptionInfo)
+                 (m/emit {:type :parallel
+                          :regions {:data {:initial :idle
+                                           :states  {}}}})))))
 
-(deftest emit-drops-wildcard-transitions
-  (testing ":* wildcard transitions don't render (Mermaid can't express them)"
+(deftest emit-renders-wildcard-transitions
+  (testing ":* wildcard transitions render as real topology"
     (let [m   {:initial :a
                :states  {:a {:on {:* :b
                                   :go :b}}
                          :b {}}}
           out (m/emit m)]
-      ;; The `:go` edge is present
       (is (str/includes? out "a --> b : go"))
-      ;; The wildcard is not rendered as its own edge: there is
-      ;; exactly one `a --> b` edge in the output (the `:go` one).
-      (is (= 1 (count (re-seq #"a --> b" out))))
-      (is (not (str/includes? out " : *"))))))
+      (is (str/includes? out "a --> b : *")))))
 
 (deftest emit-handles-map-shaped-transition-spec
-  (testing "map-shaped transition specs with :target render their target"
+  (testing "map-shaped transition specs with :target render their target and guard"
     (let [m   {:initial :a
                :states  {:a {:on {:go {:target :b
                                        :action :record
                                        :guard  :ready?}}}
                          :b {}}}
           out (m/emit m)]
-      (is (str/includes? out "a --> b : go")))))
+      (is (str/includes? out "a --> b : go [ready?]")))))
+
+(deftest emit-renders-multiple-candidate-transition-vectors
+  (testing "candidate vectors render every target-bearing branch"
+    (let [m   {:initial :editing
+               :states  {:editing {:on {:submit [{:target :rate-limited
+                                                  :guard  :over-limit?}
+                                                 {:target :validating
+                                                  :guard  :email-valid?}
+                                                 {:target :rejected}]}}
+                         :rate-limited {}
+                         :validating {}
+                         :rejected {}}}
+          out (m/emit m)]
+      (is (str/includes? out "editing --> rate_limited : submit [over-limit?]"))
+      (is (str/includes? out "editing --> validating : submit [email-valid?]"))
+      (is (str/includes? out "editing --> rejected : submit")))))
+
+(deftest emit-renders-after-and-always-transitions
+  (testing ":after and :always targets render as lossy labelled edges"
+    (let [out (m/emit timed-and-eventless-machine)]
+      (is (str/includes? out "loading --> timeout : after(5000)"))
+      (is (str/includes? out "loading --> hard_error : after(30000) [still-loading?]"))
+      (is (str/includes? out "checking --> ready : always [ready?]"))
+      (is (str/includes? out "checking --> blocked : always")))))
+
+(deftest emit-renders-top-level-fallback-on
+  (testing "top-level :on is explicit via a synthetic root fallback node"
+    (let [m   {:initial :a
+               :states  {:a {}
+                         :b {}}
+               :on      {:reset :b
+                         :*     :a}}
+          out (m/emit m)]
+      (is (str/includes? out "state \"root fallback\" as rf_machines_viz_root_fallback"))
+      (is (str/includes? out "rf_machines_viz_root_fallback --> b : reset (root fallback)"))
+      (is (str/includes? out "rf_machines_viz_root_fallback --> a : * (root fallback)")))))
+
+(deftest emit-renders-parallel-region-machines
+  (testing ":type :parallel renders each region inside a synthetic parallel root"
+    (let [out (m/emit parallel-region-machine)]
+      (is (str/includes? out "[*] --> rf_machines_viz_parallel_root"))
+      (is (str/includes? out "state rf_machines_viz_parallel_root {"))
+      (is (str/includes? out "state data {"))
+      (is (str/includes? out "[*] --> data__nothing"))
+      (is (str/includes? out "data__nothing --> data__loading : fetch"))
+      (is (str/includes? out "state form {"))
+      (is (str/includes? out "[*] --> form__neutral"))
+      (is (str/includes? out "form__neutral --> form__correct : submit"))
+      (is (str/includes? out "form__correct --> [*]"))
+      (is (str/includes? out "broadcast macrostep semantics are lossy")))))
 
 (deftest emit-drops-target-less-transitions
   (testing "internal / fn-shaped transitions without a resolvable :target are dropped"

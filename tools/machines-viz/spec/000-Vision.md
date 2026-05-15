@@ -54,9 +54,11 @@ exports:
    registered machine definition and returns a fenced markdown
    code block suitable for paste into a GitHub README / PR
    description / Notion. The emitter is lossy by design — `:after`
-   countdown rings and `:invoke-all` rows are omitted (Mermaid
-   stateDiagram-v2 doesn't model them) and the omission is flagged
-   in a `%% comment` at the top of the output. Per
+   target edges render but countdown rings are omitted, parallel
+   regions render as independent region trees without broadcast
+   macrostep semantics, and `:invoke-all` rows are omitted (Mermaid
+   stateDiagram-v2 doesn't model those runtime semantics). The loss
+   is flagged in a `%% comment` at the top of the output. Per
    [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
 
 ## What it isn't
@@ -81,11 +83,12 @@ exports:
   see [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4); it
   emits a fenced markdown code block for paste into a GitHub README
   / PR description / Notion. The emitter is **lossy by design**:
-  `:after` rings and `:invoke-all` rows are omitted (Mermaid
-  stateDiagram-v2 doesn't model them) and the omission is flagged
-  in a `%% comment` at the top of the output. The share-URL viewer
-  is the interactive complement that renders the full topology;
-  the Mermaid emitter is the static-paste affordance.
+  `:after` target edges render but rings are omitted, parallel
+  region broadcast macrosteps are flattened to independent region
+  trees, and `:invoke-all` rows are omitted. The loss is flagged in
+  a `%% comment` at the top of the output. The share-URL viewer is
+  the interactive complement that renders the full topology; the
+  Mermaid emitter is the static-paste affordance.
 - **Not** an editor. Machines are authored in code via
   `reg-machine`; Machines-Viz visualises what's already
   registered. There is no canvas-driven authoring affordance, no
