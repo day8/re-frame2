@@ -142,11 +142,13 @@ The skip-on-permission-denied rule exists because on Windows, file locks held by
 
 Ask the mayor:
 
-> *"Maintain a document at `/ai/map.md` that summarises and categorises every open bead. Update it on every signal: bead filed, bead dispatched, PR merged, decision made. I'll keep this file open in my editor at all times."*
+> *"Maintain `/ai/map.md` for me, not for yourself. Put the current date/time at the top, followed immediately by the one-line resume command for this session (`codex resume <session-id> "Read /ai/map.md and continue from the top."`, or `claude --resume <session-id>` if this is Claude). Then put what needs my attention now: decisions, blockers, files I am editing, and anything unsafe to touch. After that, summarise in-flight work, open PRs, recent merges, cleanup, and anything interesting. Update it on every signal: bead filed, bead dispatched, PR merged, decision made. Keep it short enough that I can re-orient in 30 seconds."*
 
 This is your **map**. It's not a status report. It's a navigation tool.
 
 When you sit down at the keyboard, you read the map first. It tells you:
+- How to resume the mayor if the session crashed
+- What needs your attention right now
 - What's in flight
 - What's blocked, on what
 - What's waiting on a decision from you
@@ -242,8 +244,10 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 >
 > *Step 2 — update `CLAUDE.md` (create it if absent) to add the following standing rules. These must apply to every future session — both the mayor and any background agent — not just this conversation:*
 >
-> *- Maintain `/ai/map.md` (create the `/ai/` directory if needed) that summarises and categorises every open bead. Update it on every signal — bead filed, bead dispatched, PR merged, decision made.*
-> *- Action any open bead where the direction is already set and no operator input is required: dispatch it to a background agent on its own branch.*
+> *- Maintain `/ai/map.md` (create the `/ai/` directory if needed) for the human, not for yourself. At the top put the current date/time, then the one-line resume command for this session: `codex resume <session-id> "Read /ai/map.md and continue from the top."` for Codex, or `claude --resume <session-id>` for Claude. Then list what needs the human's attention now: decisions, blockers, files they are editing, and anything unsafe to touch. Only after that summarise in-flight work, open PRs, recent merges, cleanup, and useful context. Keep it short enough to re-orient a returning human in 30 seconds. Update it on every signal — bead filed, bead dispatched, PR merged, decision made.*
+> *- Action any open bead where the direction is already set and no operator input is required: dispatch it to a background agent on its own branch in its own git worktree. Tell each worker it is not alone in the repo, must not edit the mayor checkout, must not merge PRs, and must not close beads.*
+> *- Test output should be quiet when green, but failures must be actionable: include the command, relevant logs, file/line or URL when available, browser console/pageerror output when relevant, and the smallest reproduction known.*
+> *- Workers may open PRs. The mayor owns PR review/merge and bead maintenance. Merge only after CI is green and the scope is correct.*
 > *- After every PR merge, run `git pull --ff-only` so the local main stays current.*
 > *- When dispatching multiple beads at once, sequence them to minimise merge conflicts: beads touching the same hot-zone files run sequentially, not in parallel; beads on isolated surfaces (single-artefact dirs, new files, test-only dirs) can run in parallel.*
 > *- When writing or refining spec documents, human understanding comes first — but where appropriate, use [IETF RFC](https://www.rfc-editor.org/rfc/rfc7322) structure and [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (`MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT`) for normative passages that need to be unambiguous.*
