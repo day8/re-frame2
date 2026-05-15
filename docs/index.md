@@ -3,9 +3,10 @@
 ## Status
 
 By part:
-  - The narrative is production grade.
-  - **The spec is Beta.** It has been audited end-to-end endless times — security passes, precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
-  - **The reference implementation and tooling are Beta-adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
+
+- The narrative is production grade.
+- **The spec is Beta.** It has been audited end-to-end endless times — security passes, precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
+- **The reference implementation and tooling are Beta-adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
 
 We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
