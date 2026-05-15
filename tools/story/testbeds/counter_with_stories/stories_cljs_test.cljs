@@ -117,9 +117,11 @@
                    :story.counter-matrix/multi-substrate
                    :story.counter-matrix/isolation-a
                    :story.counter-matrix/isolation-b
-                   :story.counter-matrix/recorder-redaction]]
+                   :story.counter-matrix/recorder-redaction
+                   :story.counter-matrix/a11y-known-good
+                   :story.counter-matrix/a11y-known-bad]]
         (is (contains? vs vid) (str vid " registered")))
-      (is (= 11 (count vs))))))
+      (is (= 13 (count vs))))))
 
 (deftest example-workspaces-registered
   (testing "both workspaces registered"

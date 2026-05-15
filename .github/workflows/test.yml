@@ -1038,15 +1038,17 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # PR-time targeted gates for Story/Causa browser regressions. The
-      # classifier keeps this off for unrelated PRs; nightly/manual CI
-      # still owns the full rigorous Story feature-load stress gate until
-      # tools/story/spec/015-Test-Coverage.md graduates it from
-      # occasional/pre-checkin status.
+      # classifier keeps this off for unrelated PRs. Story feature-load
+      # runner/testbed/matrix changes must exercise the same live browser
+      # gate here, not only in a worker's local loop.
       - name: Run Causa feature browser gate
         run: npm run test:causa-feature-gate
 
       - name: Run Story static-export browser smoke
         run: npm run test:story-static
+
+      - name: Run Story feature-load browser gate
+        run: npm run test:story-feature-load
 
   cljs-reagent-slim-bundle-isolation:
     name: CLJS Reagent Slim bundle isolation (adapter-owned, rf2-2ppcv)

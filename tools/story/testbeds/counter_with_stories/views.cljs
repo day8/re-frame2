@@ -127,6 +127,29 @@
              :data-test  "story-recorder-sensitive-action"}
     "Sensitive sign in"]])
 
+(reg-view a11y-known-good-card [_args]
+  [:div {:style {:display "inline-flex"
+                 :flex-direction "column"
+                 :gap "0.5em"}
+         :data-test "a11y-known-good-fixture"}
+   [:h2 {:style {:margin 0 :font-size "18px"}} "Accessible fixture"]
+   [:button {:type "button"
+             :aria-label "Accessible fixture action"
+             :data-test "a11y-known-good-action"}
+    "Run accessible action"]])
+
+(reg-view a11y-known-bad-card [_args]
+  [:div {:style {:display "inline-flex"
+                 :flex-direction "column"
+                 :gap "0.5em"}
+         :data-test "a11y-known-bad-fixture"}
+   [:h2 {:style {:margin 0 :font-size "18px"}} "Inaccessible fixture"]
+   [:img {:src "data:image/gif;base64,R0lGODlhAQABAAAAACw="
+          :data-test "a11y-known-bad-image"}]
+   [:button {:type "button"
+             :data-test "a11y-known-bad-action"}
+    "Unlabelled image above"]])
+
 (reg-view throwing-card [_args]
   [:div {:style {:background "#5a1d1d"
                  :color "#fff"

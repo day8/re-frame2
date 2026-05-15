@@ -11,8 +11,8 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
 
-const PORT = parseInt(process.env.STORY_FEATURE_LOAD_PORT || '8031', 10);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
@@ -22,6 +22,7 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
 });
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
+const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
 const TESTBEDS = [
   {
@@ -96,15 +97,24 @@ async function waitForReady(port, deadline) {
 }
 
 (async () => {
+  const PORT = await resolveStoryFeatureLoadPort({ env: process.env, repoRoot: REPO_ROOT });
   compileAll();
   stageHtml();
 
   const server = spawn(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   let serverDown = false;
+  const serverOutput = [];
+  const captureServerOutput = (chunk, stream) => {
+    const text = chunk.toString();
+    serverOutput.push(...text.split(/\r?\n/).filter(Boolean).map((line) => `[http-server:${stream}] ${line}`));
+    if (VERBOSE) process[stream].write(text);
+  };
+  server.stdout.on('data', (chunk) => captureServerOutput(chunk, 'stdout'));
+  server.stderr.on('data', (chunk) => captureServerOutput(chunk, 'stderr'));
   server.on('exit', (code, signal) => {
     serverDown = true;
     if (code !== 0 && code !== null) {
@@ -115,6 +125,7 @@ async function waitForReady(port, deadline) {
   const ready = await waitForReady(PORT, Date.now() + READY_TIMEOUT_MS);
   if (!ready || serverDown) {
     console.error(`http-server did not become reachable on :${PORT} within ${READY_TIMEOUT_MS}ms.`);
+    for (const line of serverOutput.slice(-40)) console.error(line);
     if (!serverDown) server.kill();
     process.exit(1);
   }

@@ -12,6 +12,7 @@ const {
   expectVisible,
   waitForValue,
 } = require('../../../examples/scripts/spec-helpers.cjs');
+const assert = require('assert/strict');
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -124,6 +125,16 @@ async function snapshotHash(page, variantId) {
   return canvas(page, variantId).getAttribute('data-snapshot-hash');
 }
 
+function assertBrowserVisibleUnsignedHex(hash, description) {
+  if (!/^[0-9a-f]{8}$/.test(hash || '')) {
+    throw new Error(`${description}: expected browser-visible unsigned 8-char hex, got ${hash}`);
+  }
+  const n = Number.parseInt(hash, 16);
+  if (!Number.isInteger(n) || n < 0 || n > 0xffffffff) {
+    throw new Error(`${description}: hex was not an unsigned 32-bit value: ${hash}`);
+  }
+}
+
 function assertUrlParam(url, key, expected) {
   const parsed = new URL(url);
   const actual = parsed.searchParams.get(key);
@@ -147,6 +158,76 @@ function assertNoThirdPartyRequests(page) {
   if (unexpected.length > 0) {
     throw new Error(`unexpected third-party requests: ${JSON.stringify(unexpected)}`);
   }
+}
+
+async function installDeterministicAxe(page) {
+  await page.evaluate(() => {
+    localStorage.setItem('rf.story.a11y/cdn-opt-in', 'true');
+    window.axe = {
+      run(context) {
+        const bad = context && context.querySelector
+          ? context.querySelector('[data-test="a11y-known-bad-image"]')
+          : null;
+        if (!bad) {
+          return Promise.resolve({ violations: [] });
+        }
+        return Promise.resolve({
+          violations: [
+            {
+              id: 'image-alt',
+              impact: 'critical',
+              help: 'Images must have alternate text',
+              description: 'Fixture image intentionally omits alt text.',
+              nodes: [
+                {
+                  target: ['[data-test="a11y-known-bad-image"]'],
+                },
+              ],
+            },
+          ],
+        });
+      },
+    };
+  });
+}
+
+async function runA11yScan(page, variantId) {
+  await waitForCanvas(page, variantId);
+  await page.locator(`[data-rf-story-variant-root="${variantId}"]`).waitFor({
+    state: 'visible',
+    timeout: 5000,
+  });
+  const runButton = page
+    .getByRole('complementary')
+    .getByRole('button', { name: /^(run|re-run|retry)$/i })
+    .first();
+  await runButton.waitFor({ state: 'visible', timeout: 5000 });
+  await runButton.click();
+}
+
+async function a11yPanelSnapshot(page) {
+  return waitForValue(
+    () =>
+      page.evaluate(() => {
+        const panel = document.querySelector('aside');
+        const rows = Array.from(document.querySelectorAll('[data-test="story-a11y-violation"]'))
+          .map((el) => ({
+            id: el.getAttribute('data-a11y-id') || '',
+            impact: el.getAttribute('data-a11y-impact') || '',
+            help: el.getAttribute('data-a11y-help') || '',
+            target: el.getAttribute('data-a11y-target') || '',
+            inVariantRoot: Boolean(el.closest('[data-rf-story-variant-root]')),
+          }));
+        return {
+          text: panel ? panel.innerText : '',
+          rows,
+        };
+      }),
+    (snapshot) =>
+      /\d+\s+violation\(s\) found in variant/i.test(snapshot.text) ||
+      /axe-core failed to load|no variant mounted|needs your approval/i.test(snapshot.text),
+    { timeoutMs: 10000, description: 'a11y panel reaches terminal state' },
+  );
 }
 
 module.exports = {
@@ -185,6 +266,7 @@ module.exports = {
         (value) => /^[0-9a-f]{8}$/.test(value || ''),
         { timeoutMs: 5000, description: 'initial snapshot hash' },
       );
+      assertBrowserVisibleUnsignedHex(firstHash, 'initial snapshot hash');
 
       await page.reload({ waitUntil: 'load' });
       await primeHelpDismissed(page);
@@ -194,6 +276,7 @@ module.exports = {
         (value) => /^[0-9a-f]{8}$/.test(value || ''),
         { timeoutMs: 5000, description: 'snapshot hash after reload' },
       );
+      assertBrowserVisibleUnsignedHex(secondHash, 'snapshot hash after reload');
       if (secondHash !== firstHash) {
         throw new Error(`snapshot hash was not reproducible: ${firstHash} -> ${secondHash}`);
       }
@@ -215,6 +298,7 @@ module.exports = {
         (value) => /^[0-9a-f]{8}$/.test(value || '') && value !== firstHash,
         { timeoutMs: 5000, description: 'snapshot hash changes after arg override' },
       );
+      assertBrowserVisibleUnsignedHex(changedHash, 'changed snapshot hash');
       if (changedHash === firstHash) {
         throw new Error('snapshot hash did not change after label override');
       }
@@ -351,6 +435,49 @@ module.exports = {
       }
       await page.locator('[data-test="story-recorder-close"]').click();
       await sleep(0);
+    });
+
+    await scenario(page, 'a11y-known-good-and-known-bad-fixtures', async () => {
+      await setMode(page, 'dev');
+      await installDeterministicAxe(page);
+
+      await clickVariant(page, '/a11y-known-good');
+      await runA11yScan(page, ':story.counter-matrix/a11y-known-good');
+      let snapshot = await a11yPanelSnapshot(page);
+      if (!/0\s+violation\(s\) found in variant/i.test(snapshot.text)) {
+        throw new Error(
+          `expected known-good a11y fixture to report zero violations; ` +
+            `panel=${JSON.stringify(snapshot)}`,
+        );
+      }
+
+      await clickVariant(page, '/a11y-known-bad');
+      await runA11yScan(page, ':story.counter-matrix/a11y-known-bad');
+      snapshot = await a11yPanelSnapshot(page);
+      const row = snapshot.rows[0];
+      if (snapshot.rows.length !== 1) {
+        throw new Error(
+          `expected one known-bad a11y violation row; panel=${JSON.stringify(snapshot)}`,
+        );
+      }
+      assert.deepEqual(row, {
+        id: 'image-alt',
+        impact: 'critical',
+        help: 'Images must have alternate text',
+        target: '[data-test="a11y-known-bad-image"]',
+        inVariantRoot: false,
+      });
+      const decoratedTarget = await page
+        .locator(
+          '[data-rf-story-variant-root=":story.counter-matrix/a11y-known-bad"] [data-test="a11y-known-bad-image"][data-rf-a11y-violation="critical"]',
+        )
+        .count();
+      if (decoratedTarget !== 1) {
+        throw new Error(
+          `expected exactly one bad fixture target decorated inside its variant root; ` +
+            `count=${decoratedTarget}`,
+        );
+      }
     });
   },
 };

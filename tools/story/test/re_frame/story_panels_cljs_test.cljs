@@ -69,6 +69,45 @@
       (is (vector? out-visible))
       (is (vector? out-hidden)))))
 
+(defn- rendered-panel-text [tree]
+  (pr-str tree))
+
+(deftest render-panels-respects-for-parent-story-scope
+  (testing "a panel :for parent story appears for child variants only"
+    (story/reg-story-panel :Panel.scope/notes
+      {:title "Scoped"
+       :placement :right
+       :render :Panel.scope/missing-view
+       :for #{:story.scope}})
+    (let [scoped (rendered-panel-text
+                   (panels/render-panels-at-placement
+                     :right :story.scope/child {}))
+          other  (rendered-panel-text
+                   (panels/render-panels-at-placement
+                     :right :story.other/child {}))]
+      (is (re-find #":Panel\.scope/notes" scoped)
+          "parent-story :for scope must include child variants")
+      (is (not (re-find #":Panel\.scope/notes" other))
+          "parent-story :for scope must not leak into unrelated frames"))))
+
+(deftest render-panels-respects-for-exact-variant-scope
+  (testing "a panel :for exact variant appears only for that variant frame"
+    (story/reg-story-panel :Panel.scope/exact
+      {:title "Exact"
+       :placement :right
+       :render :Panel.scope/missing-view
+       :for #{:story.scope/exact}})
+    (let [exact (rendered-panel-text
+                  (panels/render-panels-at-placement
+                    :right :story.scope/exact {}))
+          sibling (rendered-panel-text
+                    (panels/render-panels-at-placement
+                      :right :story.scope/sibling {}))]
+      (is (re-find #":Panel\.scope/exact" exact)
+          "exact variant :for scope must include that frame")
+      (is (not (re-find #":Panel\.scope/exact" sibling))
+          "exact variant :for scope must not leak to siblings"))))
+
 ;; ---- layout-debug toggle state ----------------------------------------
 
 (deftest layout-debug-toggle-roundtrip
