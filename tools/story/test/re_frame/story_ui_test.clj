@@ -582,6 +582,26 @@
       (is (= 0 (:total s)))
       (is (false? (:all-passed? s))))))
 
+(deftest record-test-run-preserves-skipped-and-failure-counts
+  (testing "test-widget projection keeps skipped and failed counts actionable"
+    (let [summary (state/aggregate-summary
+                    [{:assertion :rf.assert/path-equals :passed? true}
+                     {:assertion :rf.assert/path-equals :passed? false}
+                     {:assertion :rf.assert/skipped     :passed? false}])
+          s       (state/record-test-run state/default-shell-state
+                                         :story.agg/failing
+                                         (assoc summary
+                                                :ran-at-ms 123
+                                                :elapsed-ms 7))
+          run     (get-in s [:tests :runs :story.agg/failing])]
+      (is (= :fail (:status run)))
+      (is (= 3 (:total run)))
+      (is (= 1 (:passed run)))
+      (is (= 1 (:failed run)))
+      (is (= 1 (:skipped run)))
+      (is (= 7 (:elapsed-ms run)))
+      (is (= 123 (:ran-at-ms run))))))
+
 (deftest test-mode-assertion-row-projection
   (testing "assertion-row maps a passing record to :status :pass"
     (let [row (test-mode/assertion-row

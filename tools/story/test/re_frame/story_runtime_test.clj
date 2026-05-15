@@ -440,6 +440,37 @@
           "events ran AFTER loaders"))
     (story/destroy-variant! :story.flow/v)))
 
+(deftest run-variant-blocks-events-when-loaders-incomplete
+  (testing "a false loaders-complete-when predicate keeps the variant in :loading and skips events/play"
+    (rf/reg-event-db :test/not-ready?
+      (fn [db _]
+        (assoc db :rf.story/loaders-complete? false)))
+    (rf/reg-event-db :test/load-but-not-ready
+      (fn [db _] (assoc db :loaded? true)))
+    (rf/reg-event-db :test/should-not-run
+      (fn [db _] (assoc db :events-ran? true)))
+    (story/reg-variant :story.flow/blocked
+      {:loaders               [[:test/load-but-not-ready]]
+       :loaders-complete-when :test/not-ready?
+       :events                [[:test/should-not-run]]
+       :play                  [[:rf.assert/path-equals [:events-ran?] true]]})
+    (let [r (async/deref-blocking (story/run-variant :story.flow/blocked) 5000)
+          incomplete (->> (:assertions r)
+                          (filter #(= :rf.error/loader-incomplete (:assertion %)))
+                          first)]
+      (is (= :loading (:lifecycle r))
+          "the lifecycle remains in the loader phase")
+      (is (true? (-> r :app-db :loaded?))
+          "loader events still run")
+      (is (not (contains? (:app-db r) :events-ran?))
+          "normal events are blocked until loaders complete")
+      (is (some? incomplete)
+          "the failure projection is explicit instead of a quiet hang")
+      (is (= :phase-1-loaders (:phase incomplete)))
+      (is (= 1 (count (:assertions r)))
+          "play assertions are skipped because the variant never became ready"))
+    (story/destroy-variant! :story.flow/blocked)))
+
 (deftest run-variant-frame-setup-decorator
   (testing ":frame-setup decorators fire :init events before loaders"
     (rf/reg-event-db :test/mock-init

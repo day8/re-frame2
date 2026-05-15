@@ -68,9 +68,9 @@
    :effective-args  {}
    :lifecycle       :ready})
 
-;; Forward declarations so phase fns (defined before record-error!) can
-;; project exceptions per IMPL-SPEC §5.5 without reordering the file.
-(declare record-error!)
+;; Forward declarations so phase fns (defined before record helpers) can
+;; project failures per IMPL-SPEC §5.5 without reordering the file.
+(declare record-error! record-loader-incomplete!)
 
 ;; ---- phase exception capture --------------------------------------------
 ;;
@@ -182,8 +182,13 @@
     ;; Evaluate :loaders-complete-when. In Stage 3 the predicate
     ;; resolves synchronously; Stage 6+ might add an async-retry shape.
     (let [complete? (loaders/evaluate-complete-when variant-id variant-body)]
-      (when complete?
-        (loaders/finish-loaders! variant-id)))))
+      (if complete?
+        (do
+          (loaders/finish-loaders! variant-id)
+          true)
+        (do
+          (record-loader-incomplete! variant-id variant-body)
+          false)))))
 
 ;; ---- error recording -----------------------------------------------------
 
@@ -198,6 +203,18 @@
                :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
                                             :cljs ExceptionInfo) err)
                           (ex-data err))}
+   :passed?   false})
+
+(defn- loader-incomplete-record
+  "Build the non-throwing projection used when a loader predicate is
+  false. The runtime cannot advance into events/play while the loader
+  contract says the variant is not ready; returning a failed assertion
+  keeps the result actionable without requiring a browser timeout."
+  [variant-body]
+  {:assertion :rf.error/loader-incomplete
+   :phase     :phase-1-loaders
+   :predicate (:loaders-complete-when variant-body)
+   :reason    "loaders-complete-when did not report completion; events and play were skipped"
    :passed?   false})
 
 (defn record-error!
@@ -221,6 +238,14 @@
            :event      event
            :error-msg  #?(:clj  (.getMessage ^Throwable dispatch-err)
                           :cljs (str dispatch-err))})))
+    record))
+
+(defn- record-loader-incomplete!
+  [variant-id variant-body]
+  (let [record (loader-incomplete-record variant-body)]
+    (try
+      (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
+      (catch #?(:clj Throwable :cljs :default) _ nil))
     record))
 
 ;; ---- helper event registrations ------------------------------------------
@@ -303,15 +328,15 @@
   "Phase 1: drive loaders to completion. Thin wrapper that returns
   `ctx` so the orchestrator stays a clean threaded pipeline."
   [{:keys [variant-id] :as ctx}]
-  (run-loaders! variant-id)
-  ctx)
+  (assoc ctx :loaders-complete? (run-loaders! variant-id)))
 
 (defn- run-phase-2!
   "Phase 2: dispatch every `:events` entry, then mark events complete
   on the lifecycle machine."
-  [{:keys [variant-id] :as ctx}]
-  (run-events! variant-id)
-  (loaders/finish-events! variant-id)
+  [{:keys [variant-id loaders-complete?] :as ctx}]
+  (when loaders-complete?
+    (run-events! variant-id)
+    (loaders/finish-events! variant-id))
   ctx)
 
 (defn- run-phase-4!
@@ -320,8 +345,10 @@
 
   Phase 3 (render) is Stage 4's UI-shell concern and is not driven
   from this orchestrator."
-  [{:keys [variant-id play-events]}]
-  (play/execute-play! variant-id play-events))
+  [{:keys [variant-id play-events loaders-complete?]}]
+  (if loaders-complete?
+    (play/execute-play! variant-id play-events)
+    (async/resolved (read-assertions variant-id))))
 
 (defn- finalise-run!
   "Build and deliver the result map once phase 4's promise settles.
