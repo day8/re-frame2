@@ -181,6 +181,58 @@ async function assertAsideContains(page, text, timeoutMs = 5000) {
   );
 }
 
+function canvasFor(page, variantKeyword) {
+  return page.locator(
+    `main section[aria-label="Variant canvas"][data-test-variant="${variantKeyword}"]`,
+  );
+}
+
+async function assertMainNotContains(page, text, timeoutMs = 3000) {
+  await waitForValue(
+    () => page.getByRole('main').getByText(text, { exact: false }).count(),
+    (count) => count === 0,
+    { timeoutMs, description: `main does not contain ${text}` },
+  );
+}
+
+async function setToolbarMode(page, mode) {
+  const toolbar = page.locator('[data-test="story-toolbar"]');
+  await toolbar.waitFor({ state: 'visible', timeout: 5000 });
+  const chip = toolbar.locator(`[data-toolbar-mode="${mode}"]`);
+  await chip.waitFor({ state: 'visible', timeout: 5000 });
+  if ((await chip.getAttribute('aria-pressed')) !== 'true') {
+    await chip.click();
+  }
+  await waitForValue(
+    () => chip.getAttribute('aria-pressed'),
+    (value) => value === 'true',
+    { timeoutMs: 5000, description: `${mode} toolbar mode active` },
+  );
+}
+
+async function resetToolbarModes(page) {
+  const toolbar = page.locator('[data-test="story-toolbar"]');
+  await toolbar.waitFor({ state: 'visible', timeout: 5000 });
+  const reset = toolbar.locator('[data-test="story-toolbar-reset"]');
+  if (await reset.isVisible().catch(() => false)) {
+    await reset.click();
+  }
+  await waitForValue(
+    () => toolbar.locator('[aria-pressed="true"]').count(),
+    (count) => count === 0,
+    { timeoutMs: 5000, description: 'all toolbar modes reset' },
+  );
+}
+
+async function recorderSnippetText(page) {
+  await expectVisible(page.locator('[data-test="story-recorder-dialog"]'), 5000);
+  return waitForValue(
+    () => page.locator('[data-test="story-recorder-snippet"]').textContent().catch(() => ''),
+    (text) => text.trim().length > 0,
+    { timeoutMs: 5000, description: 'recorder snippet text' },
+  );
+}
+
 async function assertNoUnexpectedThirdPartyEgress(page) {
   const requests = page.__storyFeatureRequests || [];
   const baseUrl = page.url();
@@ -287,17 +339,63 @@ async function assertCounterCore(page, phase) {
     );
     await page.locator('[data-test="story-save-variant-close"]').click();
 
-    const shareButton = page.getByRole('button', { name: /^share$/i }).first();
+    const shareButton = canvas.locator('[data-test="story-share-button"]').first();
     await shareButton.waitFor({ state: 'visible', timeout: 5000 });
     await shareButton.click();
-    await expectVisible(page.getByRole('img', { name: /QR code for variant URL/i }), 5000);
-    await page.getByRole('button', { name: /^close$/i }).first().click();
+    await expectVisible(canvas.locator('[data-test="story-share-popover"]'), 5000);
+    await expectVisible(canvas.getByRole('img', { name: /QR code for variant URL/i }), 5000);
+    await canvas.getByRole('button', { name: /^close$/i }).first().click();
 
     await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
     await page.getByRole('button', { name: /Show playground help/i }).click();
     await expectVisible(page.getByRole('dialog', { name: /Story playground help/i }), 5000);
     await page.getByRole('button', { name: /Got it/i }).click();
   });
+}
+
+async function assertShareUrlIntegrity(page, phase) {
+  await ensureCounterLoaded(page);
+  await resetToolbarModes(page);
+  await setToolbarMode(page, ':Mode.app/dark');
+
+  const canvas = canvasFor(page, ':story.counter/loaded');
+  const aside = page.getByRole('complementary');
+  const label = `Share Slice ${phase}`;
+  const labelInput = aside.locator('[data-controls-arg=":label"] input[type="text"]').first();
+  await labelInput.waitFor({ state: 'visible', timeout: 5000 });
+  await labelInput.fill(label);
+  await expectVisible(canvas.getByText(label, { exact: false }).first(), 5000);
+
+  await canvas.locator('[data-test="story-share-button"]').first().click();
+  const popover = canvas.locator('[data-test="story-share-popover"]');
+  await expectVisible(popover, 5000);
+  await expectVisible(popover.getByRole('img', { name: /QR code for variant URL/i }), 5000);
+
+  const shareUrl = await waitForValue(
+    () => popover.locator('[data-test="story-share-url"]').textContent().catch(() => ''),
+    (text) => /variant=/.test(text) && /modes=/.test(text) && /overrides=/.test(text),
+    { timeoutMs: 5000, description: 'share URL includes variant, modes, and overrides' },
+  );
+  const parsed = new URL(shareUrl);
+  const variant = parsed.searchParams.get('variant');
+  const modes = (parsed.searchParams.get('modes') || '').split(',');
+  const overrides = parsed.searchParams.get('overrides') || '';
+  if (variant !== 'story.counter/loaded') {
+    throw new Error(`share URL variant mismatch: expected story.counter/loaded, got ${variant}`);
+  }
+  if (!modes.includes('Mode.app/dark')) {
+    throw new Error(`share URL modes missing Mode.app/dark: ${parsed.searchParams.get('modes')}`);
+  }
+  if (!overrides.includes(`label:"${label}"`)) {
+    throw new Error(`share URL overrides missing label ${JSON.stringify(label)}: ${overrides}`);
+  }
+  if (parsed.hash !== '#/stories') {
+    throw new Error(`share URL hash mismatch: expected #/stories, got ${parsed.hash}`);
+  }
+
+  await popover.getByRole('button', { name: /^close$/i }).click();
+  await aside.getByRole('button', { name: /reset overrides/i }).first().click();
+  await resetToolbarModes(page);
 }
 
 async function assertTraceActionsScrubberA11y(page, phase) {
@@ -361,46 +459,74 @@ async function assertTraceActionsScrubberA11y(page, phase) {
 
 async function assertToolbarRecorder(page, phase) {
   await step(page, phase, 'toolbar/recorder/review-dialog', async () => {
-    await clickVariant(page, '/loaded');
-    await waitForCanvasVariant(page, ':story.counter/loaded');
+    await clickVariant(page, '/empty');
+    await waitForCanvasVariant(page, ':story.counter/empty');
+    await setMode(page, 'dev');
 
     const toolbar = page.locator('[data-test="story-toolbar"]');
     await toolbar.waitFor({ state: 'visible', timeout: 5000 });
-    const dark = toolbar.locator('[data-toolbar-mode=":Mode.app/dark"]');
-    await dark.click();
-    await waitForValue(
-      () => dark.getAttribute('aria-pressed'),
-      (value) => value === 'true',
-      { timeoutMs: 5000, description: 'dark toolbar mode active' },
-    );
-    await toolbar.locator('[data-test="story-toolbar-reset"]').click();
-    await waitForValue(
-      () => dark.getAttribute('aria-pressed'),
-      (value) => value === 'false',
-      { timeoutMs: 5000, description: 'dark toolbar mode reset' },
-    );
+    await setToolbarMode(page, ':Mode.app/dark');
+    await resetToolbarModes(page);
 
     const rec = toolbar.locator('[data-test="story-toolbar-rec"]');
     await rec.waitFor({ state: 'visible', timeout: 5000 });
     await rec.click();
     await expectVisible(page.locator('[data-test="story-recorder-overlay"]'), 5000);
-    await page
-      .locator('[data-test-variant=":story.counter/loaded"]')
-      .locator('[data-test="inc"]')
-      .first()
+    const recordedCanvas = canvasFor(page, ':story.counter/empty');
+    for (let i = 0; i < 3; i += 1) {
+      await recordedCanvas.locator('[data-test="inc"]').first().click();
+    }
+    await waitForValue(
+      () => page.locator('[data-test="story-recorder-overlay"]').innerText(),
+      (text) => /3\s+events/.test(text),
+      { timeoutMs: 5000, description: 'recorder captured three user events' },
+    );
+    await expectTextEquals(recordedCanvas.locator('[data-test="count"]').first(), '3', 10000);
+    await page.locator('[data-test="story-recorder-stop"]').click();
+    const snippet = await recorderSnippetText(page);
+    const incEvents = snippet.match(/\[:counter\/inc\]/g) || [];
+    if (incEvents.length !== 3) {
+      throw new Error(`recorder snippet expected 3 [:counter/inc] events, got ${incEvents.length}: ${snippet}`);
+    }
+    await page.locator('[data-test="story-recorder-close"]').click();
+
+    await clickVariant(page, '/clicked-three-times');
+    await waitForCanvasVariant(page, ':story.counter/clicked-three-times');
+    await expectTextEquals(
+      canvasFor(page, ':story.counter/clicked-three-times').locator('[data-test="count"]').first(),
+      '3',
+      10000,
+    );
+  });
+
+  await step(page, phase, 'toolbar/recorder/redacts-sensitive-events', async () => {
+    await clickVariant(page, '/recorder-redaction');
+    await waitForCanvasVariant(page, ':story.counter-matrix/recorder-redaction');
+    await setMode(page, 'dev');
+
+    const toolbar = page.locator('[data-test="story-toolbar"]');
+    const rec = toolbar.locator('[data-test="story-toolbar-rec"]');
+    await rec.waitFor({ state: 'visible', timeout: 5000 });
+    await rec.click();
+    await expectVisible(page.locator('[data-test="story-recorder-overlay"]'), 5000);
+    await canvasFor(page, ':story.counter-matrix/recorder-redaction')
+      .locator('[data-test="story-recorder-sensitive-action"]')
       .click();
     await waitForValue(
       () => page.locator('[data-test="story-recorder-overlay"]').innerText(),
-      (text) => /\d+\s+events?/.test(text) && !/0\s+events/.test(text),
-      { timeoutMs: 5000, description: 'recorder captured at least one event' },
+      (text) => /1\s+event/.test(text),
+      { timeoutMs: 5000, description: 'recorder captured one redacted event' },
     );
     await page.locator('[data-test="story-recorder-stop"]').click();
-    await expectVisible(page.locator('[data-test="story-recorder-dialog"]'), 5000);
-    await expectTextContains(
-      page.locator('[data-test="story-recorder-snippet"]'),
-      ':counter/inc',
-      5000,
-    );
+    const snippet = await recorderSnippetText(page);
+    if (!snippet.includes('[:rf/redacted]')) {
+      throw new Error(`recorder snippet missing [:rf/redacted]: ${snippet}`);
+    }
+    for (const leaked of ['browser-secret', 'redaction@example.com', ':auth/sign-in']) {
+      if (snippet.includes(leaked)) {
+        throw new Error(`recorder snippet leaked sensitive token ${JSON.stringify(leaked)}: ${snippet}`);
+      }
+    }
     await page.locator('[data-test="story-recorder-close"]').click();
   });
 }
@@ -423,6 +549,19 @@ async function assertDiagnostics(page, phase) {
       () => page.locator('[data-test="story-test-row"][data-status="fail"]').count(),
       (count) => count >= 1,
       { timeoutMs: 5000, description: 'failing assertion row' },
+    );
+    await page
+      .locator('[data-test="story-test-row"][data-status="fail"]')
+      .first()
+      .getByRole('button', { name: /show detail/i })
+      .click();
+    await waitForValue(
+      () => page.locator('[data-test="story-test-row-detail"]').first().innerText().catch(() => ''),
+      (text) =>
+        /expected:\s*999/.test(text) &&
+        /actual:\s*1/.test(text) &&
+        /expected 999 at \[:count\] but got 1/.test(text),
+      { timeoutMs: 5000, description: 'failing assertion detail has expected, actual, and reason' },
     );
   });
 
@@ -523,6 +662,44 @@ async function ensureCounterLoaded(page) {
   await waitForCanvasVariant(page, ':story.counter/loaded');
 }
 
+async function resetLoadedControls(page) {
+  const aside = page.getByRole('complementary');
+  const reset = aside.getByRole('button', { name: /reset overrides/i }).first();
+  if (await reset.isVisible().catch(() => false)) {
+    await reset.click();
+  }
+  await expectVisible(
+    canvasFor(page, ':story.counter/loaded').getByText('Total', { exact: false }).first(),
+    5000,
+  );
+}
+
+async function snapshotHashFor(page, variantKeyword) {
+  return waitForValue(
+    () => canvasFor(page, variantKeyword).getAttribute('data-snapshot-hash'),
+    (value) => /^[0-9a-f]{8}$/.test(value || ''),
+    { timeoutMs: 5000, description: `${variantKeyword} snapshot content hash` },
+  );
+}
+
+async function assertSnapshotIdentityStable(page) {
+  await ensureCounterLoaded(page);
+  await resetToolbarModes(page);
+  await resetLoadedControls(page);
+  const first = await snapshotHashFor(page, ':story.counter/loaded');
+
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  await clickVariant(page, '/loaded');
+  await setMode(page, 'dev');
+  await resetToolbarModes(page);
+  await resetLoadedControls(page);
+  const second = await snapshotHashFor(page, ':story.counter/loaded');
+
+  if (first !== second) {
+    throw new Error(`snapshot identity drifted across reload: ${first} !== ${second}`);
+  }
+}
+
 async function assertHealthyLoaded(page) {
   await ensureCounterLoaded(page);
   await expectTextEquals(
@@ -601,19 +778,24 @@ async function assertIsolationPair(page) {
   await gotoStoryShell(page, '/counter-with-stories/#/stories');
   await clickVariant(page, '/isolation-a');
   await waitForCanvasVariant(page, ':story.counter-matrix/isolation-a');
-  const a = page.locator(
-    'main section[aria-label="Variant canvas"][data-test-variant=":story.counter-matrix/isolation-a"]',
-  );
+  const a = canvasFor(page, ':story.counter-matrix/isolation-a');
   await a.locator('[data-test="inc"]').first().click();
   await expectTextEquals(a.locator('[data-test="count"]').first(), '2', 10000);
 
-  await gotoStoryShell(page, '/counter-with-stories/#/stories');
   await clickVariant(page, '/isolation-b');
   await waitForCanvasVariant(page, ':story.counter-matrix/isolation-b');
-  const b = page.locator(
-    'main section[aria-label="Variant canvas"][data-test-variant=":story.counter-matrix/isolation-b"]',
-  );
+  const b = canvasFor(page, ':story.counter-matrix/isolation-b');
   await expectTextEquals(b.locator('[data-test="count"]').first(), '100', 10000);
+  await b.locator('[data-test="inc"]').first().click();
+  await expectTextEquals(b.locator('[data-test="count"]').first(), '101', 10000);
+
+  await clickVariant(page, '/isolation-a');
+  await waitForCanvasVariant(page, ':story.counter-matrix/isolation-a');
+  await expectTextEquals(
+    canvasFor(page, ':story.counter-matrix/isolation-a').locator('[data-test="count"]').first(),
+    '1',
+    10000,
+  );
 }
 
 async function assertMultiSubstrate(page) {
@@ -712,6 +894,10 @@ const FEATURE_CHECKS = {
     await assertMatrixVariant(page, '/clicked-three-times', ':story.counter/clicked-three-times', 3);
     await assertMainContains(page, 'decorator: story-level');
     await assertMainContains(page, 'decorator: variant-level');
+    await clickVariant(page, '/loaded');
+    await waitForCanvasVariant(page, ':story.counter/loaded');
+    await assertMainContains(page, 'decorator: story-level');
+    await assertMainNotContains(page, 'decorator: variant-level');
     await assertDecoratorFailure(page);
   },
   'reg-story-panel': async (page) => {
@@ -759,8 +945,7 @@ const FEATURE_CHECKS = {
     await assertDecoratorFailure(page);
   },
   'Snapshot identity': async (page) => {
-    await ensureCounterLoaded(page);
-    await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
+    await assertSnapshotIdentityStable(page);
   },
   'Destroy/reset/watch variant API': assertIsolationPair,
   'Assertion events': async (page) => {
@@ -821,11 +1006,8 @@ const FEATURE_CHECKS = {
     await outline.click();
     await outline.click();
   },
-  'Share and QR': async (page) => {
-    await ensureCounterLoaded(page);
-    await page.getByRole('button', { name: /^share$/i }).first().click();
-    await expectVisible(page.getByRole('img', { name: /QR code for variant URL/i }), 5000);
-    await page.getByRole('button', { name: /^close$/i }).first().click();
+  'Share and QR': async (page, phase) => {
+    await assertShareUrlIntegrity(page, phase);
   },
   'Recorder / test codegen': assertToolbarRecorder,
   'Save current canvas state': async (page) => {

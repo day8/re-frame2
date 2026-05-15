@@ -99,6 +99,21 @@
     (is (= {:label "Shared Label" :count 9}
            (share/parse-overrides-param "label:\"Shared Label\",count:9")))))
 
+(deftest variant-share-url-preserves-hash-route
+  (testing "variant-share-url inserts params before # so the Story route survives"
+    (let [url (share/variant-share-url
+                :story.counter/loaded
+                "https://example.test/counter-with-stories/#/stories"
+                {:active-modes   [:Mode.app/dark]
+                 :cell-overrides {:label "Share Slice"}
+                 :substrate      :reagent})]
+      (is (str/starts-with?
+            url
+            "https://example.test/counter-with-stories/?variant=story.counter%2Floaded"))
+      (is (str/includes? url "&modes=Mode.app%2Fdark"))
+      (is (str/includes? url "overrides=label%3A%22Share+Slice%22"))
+      (is (str/ends-with? url "#/stories")))))
+
 (deftest variant-share-url-public-export
   (testing "story/variant-share-url is exported"
     (let [url (story/variant-share-url

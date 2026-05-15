@@ -131,6 +131,31 @@
   [k v-encoded]
   (str (url-encode (name k)) "=" v-encoded))
 
+(defn- ^:no-doc split-fragment
+  "Split `url` into `[base fragment]`, preserving the fragment without
+  its leading `#`. Share links must append query params before the hash
+  route so browsers send `variant=` through `location.search` instead
+  of burying it inside `location.hash`."
+  [url]
+  (if-let [idx (str/index-of (or url "") "#")]
+    [(subs url 0 idx) (subs url (inc idx))]
+    [(or url "") nil]))
+
+(defn- ^:no-doc append-query-params
+  "Append already-encoded query `params` to `base-url`, inserting them
+  before any hash fragment."
+  [base-url params]
+  (let [[path fragment] (split-fragment base-url)
+        query           (str/join "&" params)
+        sep             (cond
+                          (str/blank? path)        ""
+                          (str/includes? path "?") "&"
+                          :else                    "?")
+        with-query      (str path sep query)]
+    (if (some? fragment)
+      (str with-query "#" fragment)
+      with-query)))
+
 ;; ---- pure: param building -----------------------------------------------
 
 (defn build-params
@@ -177,22 +202,15 @@
   Returns a string of the form
   `<base-url>?variant=<id>&modes=<list>&overrides=<list>&substrate=<s>`.
   Empty / nil parts are omitted (e.g. no modes → no `modes=` param).
+  If `base-url` contains a hash route, params are inserted before `#`
+  so the query remains available via `window.location.search`.
   Pure data → data; JVM + CLJS-portable."
   ([variant-id]                (variant-share-url variant-id "" nil))
   ([variant-id opts]           (variant-share-url variant-id "" opts))
   ([variant-id base-url opts]
-   (let [params (build-params (assoc opts :variant-id variant-id))
-         joined (str/join "&" params)]
-     (if (str/blank? base-url)
-       joined
-       (let [hash-idx (str/index-of base-url "#")
-             before   (if hash-idx (subs base-url 0 hash-idx) base-url)
-             fragment (when hash-idx (subs base-url hash-idx))
-             sep      (cond
-                        (str/blank? before)      ""
-                        (str/includes? before "?") "&"
-                        :else                    "?")]
-         (str before sep joined fragment))))))
+   (append-query-params
+     (or base-url "")
+     (build-params (assoc opts :variant-id variant-id)))))
 
 ;; QR rendering lives in re-frame.story.qr (CLJS-only). The vendored
 ;; `qrcode-generator` npm package produces an inline SVG string locally;

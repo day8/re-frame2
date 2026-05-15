@@ -159,11 +159,13 @@
         "share"]
        (when @open?
          (let [url (current-share-url variant-id)]
-           [:div {:style (:popover styles)
-                  :data-test "story-share-popover"}
+           [:div {:style              (:popover styles)
+                  :data-test          "story-share-popover"
+                  :data-share-variant (pr-str variant-id)}
             [:div {:style (:url-label styles)} "share link"]
-            [:div {:style (:url styles)
-                   :data-test "story-share-url"} url]
+            [:div {:style     (:url styles)
+                   :data-test "story-share-url"}
+             url]
             ;; Local QR encoder per rf2-20w5i: the SVG is generated
             ;; in-process from `qrcode-generator`; no third-party
             ;; endpoint is contacted. `:dangerouslySetInnerHTML` is
