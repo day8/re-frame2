@@ -18,10 +18,14 @@
  * local package so teardown kills the real server process on Windows too.
  */
 
-const { spawn, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
-const http = require('http');
 const path = require('path');
+const {
+  createHarnessCleanup,
+  spawnHarnessProcess,
+  waitForHttpReady,
+} = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 const PORT = 8030;
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
@@ -36,7 +40,8 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
 const READY_TIMEOUT_MS = 30000;
-const POLL_MS = 200;
+const cleanup = createHarnessCleanup();
+cleanup.installSignalHandlers();
 
 // Each example: shadow-cljs build id, the html source to stage, and the
 // directory under out/examples it lands in. The url-path is what the
@@ -410,39 +415,14 @@ function stageHtml() {
   }
 }
 
-function probe(port) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      { host: '127.0.0.1', port, path: '/', timeout: 1000 },
-      (res) => {
-        res.resume();
-        resolve(res.statusCode != null);
-      },
-    );
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-async function waitForReady(port, deadline) {
-  while (Date.now() < deadline) {
-    if (await probe(port)) return true;
-    await new Promise((r) => setTimeout(r, POLL_MS));
-  }
-  return false;
-}
-
-(async () => {
+async function main() {
   compileAll();
   stageHtml();
 
-  const server = spawn(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
-  });
+  }));
 
   let serverDown = false;
   server.on('exit', (code, signal) => {
@@ -452,25 +432,29 @@ async function waitForReady(port, deadline) {
     }
   });
 
-  const ready = await waitForReady(PORT, Date.now() + READY_TIMEOUT_MS);
+  const ready = await waitForHttpReady(PORT, Date.now() + READY_TIMEOUT_MS, {
+    isAborted: () => serverDown,
+  });
   if (!ready || serverDown) {
     console.error(`http-server did not become reachable on :${PORT} within ${READY_TIMEOUT_MS}ms.`);
-    if (!serverDown) server.kill();
-    process.exit(1);
+    return 1;
   }
 
-  const runner = spawn(process.execPath, [RUNNER], {
+  const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
     env: { ...process.env, EXAMPLES_BASE_URL: `http://127.0.0.1:${PORT}` },
-  });
+  }));
 
   const code = await new Promise((resolve) => runner.on('exit', resolve));
 
-  if (!serverDown) {
-    server.kill();
-  }
-  process.exit(code == null ? 1 : code);
-})().catch((err) => {
+  return code == null ? 1 : code;
+}
+
+main().then(async (code) => {
+  await cleanup.cleanup();
+  process.exit(code);
+}).catch(async (err) => {
   console.error(err);
+  await cleanup.cleanup();
   process.exit(1);
 });

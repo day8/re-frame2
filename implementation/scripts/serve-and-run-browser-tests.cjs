@@ -23,13 +23,16 @@
  * instead of waiting out the full readiness timeout.
  */
 
-const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
 const path = require('path');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
+const {
+  createHarnessCleanup,
+  spawnHarnessProcess,
+} = require('./lib/local-browser-harness.cjs');
 
 const DEFAULT_PORT = 8021;
 // $BROWSER_TEST_ROOT lets a caller point the orchestrator at a different
@@ -55,6 +58,9 @@ const INDEX = path.join(ROOT, 'index.html');
 const RUNNER = path.resolve(__dirname, 'run-browser-tests.cjs');
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
+const cleanup = createHarnessCleanup();
+cleanup.addCleanup(removeOwnershipToken);
+cleanup.installSignalHandlers();
 
 // shadow-cljs's :browser-test target generates an index.html with an empty
 // <body>. Some example namespaces (e.g. examples/reagent/nine_states/core.cljs)
@@ -264,10 +270,10 @@ async function waitForReady(port, expectedToken, deadline, state) {
   // On Windows, npx is a .cmd shim — must go through the shell.
   const httpServerCmd = isWin ? 'npx.cmd' : 'npx';
   const args = ['http-server', ROOT, '-p', String(port), '-s', '-c-1'];
-  const server = spawn(httpServerCmd, args, {
+  const server = cleanup.trackProcess(spawnHarnessProcess(httpServerCmd, args, {
     stdio: ['ignore', 'inherit', 'inherit'],
     shell: isWin,
-  });
+  }));
 
   // Track the server's lifecycle so the readiness loop can fail fast
   // if http-server dies before becoming reachable. With pre-binding via
@@ -279,21 +285,6 @@ async function waitForReady(port, expectedToken, deadline, state) {
     state.exitCode = code;
     state.exitSignal = signal;
   });
-
-  // Shared teardown — kills the server we spawned (and only that one)
-  // and removes the ownership token. Idempotent.
-  const tornDownRef = { value: false };
-  const teardown = () => {
-    if (tornDownRef.value) return;
-    tornDownRef.value = true;
-    if (!state.exited) {
-      try { server.kill(); } catch (_) {}
-    }
-    removeOwnershipToken();
-  };
-  process.on('exit', teardown);
-  process.on('SIGINT', () => { teardown(); process.exit(130); });
-  process.on('SIGTERM', () => { teardown(); process.exit(143); });
 
   const ready = await waitForReady(port, token, Date.now() + READY_TIMEOUT_MS, state);
   if (!ready.ok) {
@@ -322,21 +313,22 @@ async function waitForReady(port, expectedToken, deadline, state) {
         `http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`
       );
     }
-    teardown();
-    process.exit(1);
+    return 1;
   }
 
-  const runner = spawn(process.execPath, [RUNNER], {
+  const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
     env: { ...process.env, BROWSER_TEST_URL: `http://127.0.0.1:${port}` },
-  });
+  }));
 
   const code = await new Promise((resolve) => runner.on('exit', resolve));
 
-  teardown();
-  process.exit(code == null ? 1 : code);
-})().catch((err) => {
+  return code == null ? 1 : code;
+})().then(async (code) => {
+  await cleanup.cleanup();
+  process.exit(code);
+}).catch(async (err) => {
   console.error(err);
-  removeOwnershipToken();
+  await cleanup.cleanup();
   process.exit(1);
 });
