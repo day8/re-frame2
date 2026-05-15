@@ -91,6 +91,184 @@
                                    #"[\\^$.|?*+()\[\]{}]"
                                    #(str "\\" %))))
 
+;; ---- route-pattern validation -------------------------------------------
+;; Spec 012's path-pattern grammar is deliberately small. Enforce it at
+;; registration time so invalid patterns fail at the authoring boundary
+;; rather than producing surprising matcher/URL-emitter behaviour later.
+
+(def ^:private route-name-re
+  #"^[A-Za-z][A-Za-z0-9_-]*$")
+
+(defn- route-pattern-error!
+  [route-id pattern reason index]
+  (throw (ex-info ":rf.error/invalid-route-pattern"
+                  (cond-> {:route-id route-id
+                           :pattern  pattern
+                           :reason   reason}
+                    (some? index) (assoc :index index)))))
+
+(defn- valid-route-name? [s]
+  (boolean (and (seq s) (re-matches route-name-re s))))
+
+(defn- validate-route-name!
+  [route-id pattern nm start kind]
+  (when-not (valid-route-name? nm)
+    (route-pattern-error!
+      route-id pattern
+      (str kind " name must be a bare identifier: [A-Za-z][A-Za-z0-9_-]*")
+      start)))
+
+(defn- reserved-literal-char? [ch]
+  (or (= ch \:) (= ch \*) (= ch \{) (= ch \})
+      (= ch \?)))
+
+(defn- validate-literal-segment!
+  [route-id pattern segment start]
+  (cond
+    (empty? segment)
+    (route-pattern-error! route-id pattern "empty path segments are not allowed" start)
+
+    (some reserved-literal-char? segment)
+    (route-pattern-error!
+      route-id pattern
+      "literal path segments must percent-encode reserved characters (: * { } ?)"
+      start)))
+
+(defn- validate-optional-group!
+  "Validate a `{...}?` optional group starting at `start`; return the
+  cursor position immediately after the trailing `?`."
+  [route-id pattern start]
+  (let [n     (count pattern)
+        close (.indexOf ^String pattern "}" start)]
+    (when (neg? close)
+      (route-pattern-error! route-id pattern "optional groups must close with `}?`" start))
+    (when (or (>= (inc close) n)
+              (not= \? (.charAt ^String pattern (inc close))))
+      (route-pattern-error! route-id pattern "optional groups must end with `}?`" close))
+    (when (>= (inc start) close)
+      (route-pattern-error!
+        route-id pattern
+        "optional groups must not be empty"
+        start))
+    (let [body (subs pattern (inc start) close)]
+      (when (or (clojure.string/includes? body "{")
+                (clojure.string/includes? body "}"))
+        (route-pattern-error! route-id pattern "nested optional groups are not part of the grammar" start))
+      (when (clojure.string/includes? body "?")
+        (route-pattern-error! route-id pattern "`?` is reserved for the optional-group suffix" start))
+      (when (or (= "/" body)
+                (clojure.string/includes? body "//")
+                (clojure.string/ends-with? body "/"))
+        (route-pattern-error! route-id pattern "optional groups may not contain empty segments" start))
+      (when-not (or (= \/ (.charAt ^String body 0))
+                    (and (= \: (.charAt ^String body 0))
+                         (pos? start)
+                         (= \/ (.charAt ^String pattern (dec start)))))
+        (route-pattern-error!
+          route-id pattern
+          "optional groups must start with `/` or a named param, e.g. `{/:id}?` or `{:base}?`"
+          start))
+      (doseq [segment (if (= \/ (.charAt ^String body 0))
+                        (rest (clojure.string/split body #"/"))
+                        (clojure.string/split body #"/"))]
+        (cond
+          (clojure.string/starts-with? segment ":")
+          (validate-route-name! route-id pattern (subs segment 1) start "param")
+
+          (clojure.string/starts-with? segment "*")
+          (route-pattern-error! route-id pattern "splats are not allowed inside optional groups" start)
+
+          :else
+          (validate-literal-segment! route-id pattern segment start))))
+    (+ close 2)))
+
+(defn- validate-route-pattern!
+  [route-id pattern]
+  (cond
+    (not (string? pattern))
+    (route-pattern-error! route-id pattern ":path is required and must be a string" nil)
+
+    (empty? pattern)
+    (route-pattern-error! route-id pattern ":path must not be empty" 0)
+
+    (not= \/ (.charAt ^String pattern 0))
+    (route-pattern-error! route-id pattern ":path must start with `/`" 0)
+
+    (= "/" pattern)
+    true
+
+    :else
+    (do
+      (let [n (count pattern)]
+        (loop [i 1
+               splat-seen? false]
+          (when (< i n)
+            (let [ch (.charAt ^String pattern i)]
+              (cond
+                (= ch \/)
+                (do
+                  (when (or (= i (dec n))
+                            (= \/ (.charAt ^String pattern (inc i))))
+                    (route-pattern-error! route-id pattern "empty path segments are not allowed" i))
+                  (recur (inc i) splat-seen?))
+
+                (= ch \{)
+                (recur (validate-optional-group! route-id pattern i) splat-seen?)
+
+                (= ch \})
+                (route-pattern-error! route-id pattern "`}` appears without a matching optional-group opener" i)
+
+                (= ch \?)
+                (route-pattern-error! route-id pattern "`?` is reserved for the optional-group suffix" i)
+
+                (= ch \:)
+                (do
+                  (when-not (or (= i 1)
+                                (= \/ (.charAt ^String pattern (dec i))))
+                    (route-pattern-error! route-id pattern "named params must occupy a whole path segment" i))
+                  (let [start (inc i)
+                        end   (segment-end pattern n start)
+                        nm    (subs pattern start end)]
+                    (validate-route-name! route-id pattern nm start "param")
+                    (recur end splat-seen?)))
+
+                (= ch \*)
+                (do
+                  (when-not (or (= i 1)
+                                (= \/ (.charAt ^String pattern (dec i))))
+                    (route-pattern-error! route-id pattern "splats must occupy a whole path segment" i))
+                  (when splat-seen?
+                    (route-pattern-error! route-id pattern "at most one splat is allowed" i))
+                (let [start (inc i)
+                      end   (segment-end pattern n start)
+                      nm    (subs pattern start end)]
+                  (when-not (and (= pattern "/*") (empty? nm))
+                    (validate-route-name! route-id pattern nm start "splat"))
+                  (when-not (= end n)
+                    (route-pattern-error! route-id pattern "splats must be the final path segment" i))
+                  (recur end true)))
+
+                :else
+                (let [end (loop [j i]
+                            (if (or (>= j n)
+                                    (= \/ (.charAt ^String pattern j))
+                                    (= \{ (.charAt ^String pattern j))
+                                    (reserved-literal-char? (.charAt ^String pattern j)))
+                              j
+                              (recur (inc j))))
+                      segment (subs pattern i end)]
+                  (validate-literal-segment! route-id pattern segment i)
+                  (recur end splat-seen?)))))))
+      true)))
+
+(defn- canonical-route-pattern [pattern]
+  (loop [p pattern]
+    (if (and (string? p)
+             (< 1 (count p))
+             (clojure.string/ends-with? p "/"))
+      (recur (subs p 0 (dec (count p))))
+      p)))
+
 ;; ---- single-pass pattern parser ------------------------------------------
 ;; Per Spec 012 §Route ranking algorithm + §Bidirectional URL ↔ params.
 ;; `parse-pattern` derives the rank tuple, the match-time regex, the
@@ -261,13 +439,15 @@
   (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
   the conflict."
   [id metadata]
-  (let [pattern      (:path metadata)
+  (let [pattern      (canonical-route-pattern (:path metadata))
+        metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)
+        _            (validate-route-pattern! id pattern)
         ;; Single-pass parse: rank + regex + capture names +
         ;; per-optional-group lookup all derive from one left-to-right
         ;; walk (rf2-uovh5). Pre-rf2-uovh5 these were three separate
         ;; walkers with hand-replicated segment-end logic.
-        parsed       (when pattern (parse-pattern pattern))
+        parsed       (parse-pattern pattern)
         structural   (when parsed (:rank parsed))
         rank         (when structural (conj structural (- idx)))
         compiled     (when parsed (select-keys parsed [:regex :names :pattern :groups]))
@@ -509,6 +689,17 @@
                   details  (when explain (explain schema value))]
               [true details])))))))
 
+(defn- normalize-match-path
+  "Spec 012 trailing-slash normalisation for incoming URLs. `/cart` and
+  `/cart/` are equivalent; root remains `/`, and the historical
+  no-leading-slash leniency remains (`cart/` → `cart`)."
+  [path]
+  (loop [p (or path "")]
+    (if (and (< 1 (count p))
+             (clojure.string/ends-with? p "/"))
+      (recur (subs p 0 (dec (count p))))
+      p)))
+
 (defn match-url
   "Per Spec 012 §Bidirectional URL ↔ params. Try each registered route's
   pattern against url; return
@@ -545,7 +736,8 @@
   ;; URL-driven navigation. The closure captures `query-str`; the delay
   ;; forces at most once and is held for the lifetime of this call.
   (let [[url-no-frag fragment] (split-fragment url)
-        [path query-str]       (clojure.string/split url-no-frag #"\?" 2)
+        [path0 query-str]      (clojure.string/split url-no-frag #"\?" 2)
+        path                  (normalize-match-path path0)
         ;; rf2-3k3o7: parse query as a **string-keyed** raw map and
         ;; enforce a per-URL cap on the number of unique keys. The cap
         ;; defends against the same accident-class as rf2-wu1n5 (unbounded
@@ -555,21 +747,14 @@
         ;; caller can route the failure (currently propagates through
         ;; navigate / url-change-fx — error projection surfaces it).
         ;;
-        ;; Note: the cap counts **all** raw query keys, not just unique
-        ;; ones declared by the route. Hostile URLs can't avoid the
-        ;; cap by spamming keys outside any route schema; the cap fires
-        ;; at the parse boundary before any per-route resolution.
+        ;; Note: the cap counts unique decoded query keys, not raw pair
+        ;; count. Repeated keys keep last-wins semantics and do not trip
+        ;; the DoS guard unless the unique-key set itself exceeds the
+        ;; configured ceiling.
         raw-query-delayed
         (delay
           (when query-str
-            (let [pairs    (clojure.string/split query-str #"&")
-                  pair-cnt (count pairs)]
-              (when (> pair-cnt default-max-decoded-keys)
-                (throw (ex-info ":rf.error/route-too-many-keys"
-                                {:kind   :rf.error/route-too-many-keys
-                                 :url    url
-                                 :limit  default-max-decoded-keys
-                                 :count  pair-cnt})))
+            (let [pairs (clojure.string/split query-str #"&")]
               (reduce
                 (fn [m pair]
                   (let [[k v] (clojure.string/split pair #"=" 2)
@@ -689,7 +874,8 @@
   ([route-id path-params] (route-url route-id path-params {} nil))
   ([route-id path-params query-params] (route-url route-id path-params query-params nil))
   ([route-id path-params query-params fragment]
-   (let [meta    (registrar/lookup :route route-id)
+   (let [query-params (or query-params {})
+         meta    (registrar/lookup :route route-id)
          pattern (:path meta)]
      (when (nil? pattern)
        (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
@@ -706,14 +892,13 @@
                           :slot     :params
                           :value    path-params
                           :error    p-error}))))
-     (when (seq query-params)
-       (let [[q-failed? q-error] (validate-route-shape meta :query query-params)]
-         (when q-failed?
-           (throw (ex-info ":rf.error/route-url-validation"
-                           {:route-id route-id
-                            :slot     :query
-                            :value    query-params
-                            :error    q-error})))))
+     (let [[q-failed? q-error] (validate-route-shape meta :query query-params)]
+       (when q-failed?
+         (throw (ex-info ":rf.error/route-url-validation"
+                         {:route-id route-id
+                          :slot     :query
+                          :value    query-params
+                          :error    q-error}))))
      (let [n      (count pattern)
            ;; Per Spec 012 §Bidirectional URL ↔ params: optional groups
            ;; are emitted only when every inner param is supplied. The
@@ -892,6 +1077,23 @@
        saved-pos (assoc :saved-pos saved-pos)
        fragment  (assoc :fragment  fragment))]))
 
+(defn- current-route-url
+  "Best-effort URL reconstruction for the active route slice. Used only
+  to key scroll-position capture; route deletion or invalid historical
+  slices skip capture rather than failing navigation."
+  [route-slice]
+  (when-let [id (:id route-slice)]
+    (try
+      (route-url id
+                 (or (:params route-slice) {})
+                 (or (:query route-slice) {})
+                 (:fragment route-slice))
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
+
+(defn- capture-scroll-fx-entry [db]
+  (when-let [url (current-route-url (:rf/route db))]
+    [:rf.nav/capture-scroll {:url url}]))
+
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
 ;; counters are per-frame. Pure allocators: take db, return [db' id-str].
 
@@ -1055,8 +1257,10 @@
   :rf.route/on-match-error-trap
   on-match-error-listener)
 
+(declare maybe-block-navigation)
+
 (events/reg-event-fx :rf.route/navigate
-  (fn [{:keys [db]} [_ target params opts]]
+  (fn [{:keys [db frame]} [_ target params opts :as event-vec]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
     ;; navigation with fragments. Fragment may be supplied in opts
     ;; (`{:fragment "x"}`), on the target-map form (`{:url "/x"
@@ -1073,7 +1277,8 @@
     ;; navigation path diverged from the URL-driven path (rf2-d60go's
     ;; mirror finding) and async loaders had no token to thread through
     ;; stale-suppression.
-    (let [{:keys [route-id path-params query-params matched-fragment]}
+    (let [opts (or opts {})
+          {:keys [route-id path-params query-params matched-fragment]}
           (cond
             (keyword? target)
             {:route-id     target
@@ -1142,28 +1347,35 @@
                          :to        to-route
                          :saved-pos (when (= :restore strategy)
                                       (lookup-scroll-position db url))
-                         :fragment  fragment})]
-      (trace/emit! :event :rf.route.nav-token/allocated
-                   {:route-id  route-id
-                    :nav-token token})
-      {:db (assoc db' :rf/route
-                  {:id         route-id
-                   :params     path-params
-                   :query      query-params
-                   :fragment   fragment
-                   :transition (if (seq on-match-vec) :loading :idle)
-                   :error      nil
-                   :nav-token  token})
-       :fx (vec (concat [push-fx]
-                        (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                        ;; Per Spec 012 §Per-route data loading §2:
-                        ;; transition :loading → :idle when the
-                        ;; on-match drain completes. FIFO order means
-                        ;; the settle dispatch runs after every
-                        ;; on-match event already queued above.
-                        (when (seq on-match-vec)
-                          [[:dispatch [:rf.route/settle-transition token]]])
-                        (when scroll-fx [scroll-fx])))})))
+                         :fragment  fragment})
+          capture-fx  (capture-scroll-fx-entry db)]
+      (if-let [blocked (maybe-block-navigation db (or frame :rf/default)
+                                               event-vec url
+                                               (:bypass-leave-guard? opts))]
+        blocked
+        (do
+          (trace/emit! :event :rf.route.nav-token/allocated
+                       {:route-id  route-id
+                        :nav-token token})
+          {:db (assoc db' :rf/route
+                      {:id         route-id
+                       :params     path-params
+                       :query      query-params
+                       :fragment   fragment
+                       :transition (if (seq on-match-vec) :loading :idle)
+                       :error      nil
+                       :nav-token  token})
+           :fx (vec (concat (when capture-fx [capture-fx])
+                            [push-fx]
+                            (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                            ;; Per Spec 012 §Per-route data loading §2:
+                            ;; transition :loading → :idle when the
+                            ;; on-match drain completes. FIFO order means
+                            ;; the settle dispatch runs after every
+                            ;; on-match event already queued above.
+                            (when (seq on-match-vec)
+                              [[:dispatch [:rf.route/settle-transition token]]])
+                            (when scroll-fx [scroll-fx])))})))))
 
 (defn reset-counters!
   "Reset the route-registration counter to zero. Test-time helper so
@@ -1173,6 +1385,20 @@
 
 ;; ---- :rf/url-requested + can-leave gating + pending-nav protocol ----------
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol.
+
+(defn- can-leave-query [route-meta]
+  (let [declared (:can-leave route-meta)]
+    (cond
+      (vector? declared) declared
+      (keyword? declared) [declared]
+      :else nil)))
+
+(defn- can-leave-guard-id [route-meta]
+  (let [declared (:can-leave route-meta)]
+    (cond
+      (vector? declared) (first declared)
+      (keyword? declared) declared
+      :else nil)))
 
 (defn- can-leave?
   "Resolve and call the route's `:can-leave` sub against the live frame.
@@ -1195,26 +1421,101 @@
     - the sub returns a non-boolean truthy value (route author got the
       polarity wrong; we err on letting the nav through and warn)."
   [frame route-meta]
-  (if-let [sub-id (:can-leave route-meta)]
+  (if-let [query (can-leave-query route-meta)]
     (if-let [subscribe-once (late-bind/get-fn :subs/subscribe-once)]
-      (let [v (subscribe-once frame [sub-id])]
+      (let [v (subscribe-once frame query)]
         (cond
           (false? v) false
           (true?  v) true
           :else
           (do (trace/emit! :warning :rf.warning/can-leave-guard-non-boolean
                            {:route-id (some-> route-meta :path)
-                            :sub-id   sub-id
+                            :query    query
                             :value    v})
               true)))
       (do (trace/emit! :warning :rf.warning/can-leave-subs-artefact-missing
-                       {:sub-id sub-id})
+                       {:query query})
           true))
     true))
 
+(defn- maybe-block-navigation
+  [db frame-id event-vec requested-url bypass-leave-guard?]
+  (let [current-route (:rf/route db)
+        current-meta  (registrar/lookup :route (:id current-route))
+        ok?           (or bypass-leave-guard?
+                          (can-leave? frame-id current-meta))]
+    (when-not ok?
+      (let [[db' pn-id] (alloc-pending-nav-id db)
+            guard-id    (can-leave-guard-id current-meta)]
+        (trace/emit! :event :rf.route/navigation-blocked
+                     {:requested-url   requested-url
+                      :rejecting-route (:id current-route)
+                      :rejecting-guard guard-id})
+        {:db (assoc db' :rf/pending-navigation
+                    (cond-> {:id                 pn-id
+                             :requested-by-event (vec event-vec)
+                             :requested-url      requested-url
+                             :reason             :can-leave
+                             :rejecting-route    (:id current-route)}
+                      guard-id (assoc :rejecting-guard guard-id)))}))))
+
+(defn- absolute-url-like? [url]
+  (boolean
+    (and (string? url)
+         (or (re-find #"^[A-Za-z][A-Za-z0-9+.-]*:" url)
+             (clojure.string/starts-with? url "//")))))
+
+(defn- external-url? [url]
+  #?(:cljs
+     (try
+       (if (and (exists? js/window) (.-location js/window))
+         (let [loc      (.-location js/window)
+               parsed   (js/URL. url (.-href loc))
+               protocol (.-protocol parsed)]
+           (or (not (#{"http:" "https:"} protocol))
+               (not= (.-origin parsed) (.-origin loc))))
+         (absolute-url-like? url))
+       (catch :default _
+         (absolute-url-like? url)))
+     :clj
+     (absolute-url-like? url)))
+
+(defn- request-url->app-url [url]
+  #?(:cljs
+     (try
+       (if (and (exists? js/window) (.-location js/window)
+                (not (external-url? url)))
+         (let [parsed (js/URL. url (.-href (.-location js/window)))]
+           (str (.-pathname parsed) (.-search parsed) (.-hash parsed)))
+         url)
+       (catch :default _ url))
+     :clj
+     url))
+
+(defn- inject-bypass-leave-guard [event-vec fallback-url]
+  (let [event-id (first event-vec)]
+    (case event-id
+      :rf/url-requested
+      (let [request (if (map? (second event-vec)) (second event-vec) {})]
+        [:rf/url-requested (assoc request :bypass-leave-guard? true)])
+
+      :rf.route/navigate
+      (let [[_ target params opts] event-vec]
+        [:rf.route/navigate target params (assoc (or opts {}) :bypass-leave-guard? true)])
+
+      :rf/url-changed
+      (let [[_ url opts] event-vec]
+        [:rf/url-changed url (assoc (or opts {}) :bypass-leave-guard? true)])
+
+      :rf.route/handle-url-change
+      (let [[_ url opts] event-vec]
+        [:rf.route/handle-url-change url (assoc (or opts {}) :bypass-leave-guard? true)])
+
+      [:rf/url-requested {:url fallback-url :bypass-leave-guard? true}])))
+
 (events/reg-event-fx :rf/url-requested
   (fn [{:keys [db frame]}
-       [_ {:keys [url bypass-leave-guard?] :as request} :as event-vec]]
+       [_ {:keys [url bypass-leave-guard?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
     ;; runtime fires :can-leave for the active route on every
     ;; :rf/url-requested; rejection writes :rf/pending-navigation with
@@ -1225,24 +1526,20 @@
     ;; The :bypass-leave-guard? request flag is the rf2-yursn one-shot
     ;; escape hatch :rf.route/continue uses to re-issue the original
     ;; navigation request without re-running the leave guard.
-    (let [current-route  (:rf/route db)
-          current-meta   (registrar/lookup :route (:id current-route))
-          ok?            (or bypass-leave-guard?
-                             (can-leave? (or frame :rf/default) current-meta))]
+    (let [external? (external-url? url)
+          app-url   (request-url->app-url url)
+          blocked   (when-not external?
+                      (maybe-block-navigation db (or frame :rf/default)
+                                              event-vec app-url bypass-leave-guard?))]
       (cond
-        (not ok?)
-        (let [[db' pn-id] (alloc-pending-nav-id db)
-              guard-id    (:can-leave current-meta)]
-          (trace/emit! :event :rf.route/navigation-blocked
-                       {:requested-url   url
-                        :rejecting-route (:id current-route)
-                        :rejecting-guard guard-id})
-          {:db (assoc db' :rf/pending-navigation
-                      (cond-> {:id                 pn-id
-                               :requested-by-event (vec event-vec)
-                               :requested-url      url
-                               :rejecting-route    (:id current-route)}
-                        guard-id (assoc :rejecting-guard guard-id)))})
+        external?
+        (do
+          (trace/emit! :event :rf.route/external-url-requested
+                       {:url url})
+          {})
+
+        blocked
+        blocked
 
         :else
         ;; can leave — push the URL and dispatch :rf/url-changed.
@@ -1251,11 +1548,11 @@
         ;; URL has NOT updated. The handler is responsible for pushing
         ;; the new URL (history pushState) and then synthesising the
         ;; :rf/url-changed event the slice + on-match write keys off.
-        {:fx [[:rf.nav/push-url url]
-              [:dispatch [:rf/url-changed url]]]}))))
+        {:fx [[:rf.nav/push-url app-url]
+              [:dispatch [:rf/url-changed app-url {:bypass-leave-guard? true}]]]}))))
 
 (events/reg-event-fx :rf.route/continue
-  (fn [{:keys [db]} [_ _pn-id]]
+  (fn [{:keys [db]} [_ pn-id]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue
     ;; re-issues the original navigation request, *bypassing* the leave
     ;; guard for this one shot. Pre-rf2-yursn this dispatched
@@ -1267,30 +1564,20 @@
     (let [pending  (:rf/pending-navigation db)
           original (:requested-by-event pending)
           url      (:requested-url pending)]
-      (cond-> {:db (dissoc db :rf/pending-navigation)}
-        ;; Prefer re-dispatching the original event vector with the
-        ;; bypass flag injected; fall back to a synthetic
-        ;; :rf/url-requested for older pending shapes that only carry
-        ;; :requested-url (defensive, for migrations).
-        (vector? original)
-        (assoc :fx
-               [[:dispatch
-                 (cond
-                   (and (= :rf/url-requested (first original))
-                        (map? (second original)))
-                   [:rf/url-requested (assoc (second original)
-                                             :bypass-leave-guard? true)]
-                   :else
-                   [:rf/url-requested {:url url :bypass-leave-guard? true}])]])
-
-        (and (nil? original) url)
-        (assoc :fx [[:dispatch
-                     [:rf/url-requested {:url url
-                                         :bypass-leave-guard? true}]]])))))
+      (if (and pending (= pn-id (:id pending)))
+        (cond-> {:db (dissoc db :rf/pending-navigation)}
+          (or (vector? original) url)
+          (assoc :fx [[:dispatch (if (vector? original)
+                                   (inject-bypass-leave-guard original url)
+                                   [:rf/url-requested {:url url
+                                                       :bypass-leave-guard? true}])]]))
+        {}))))
 
 (events/reg-event-fx :rf.route/cancel
-  (fn [{:keys [db]} [_ _pn-id]]
-    {:db (dissoc db :rf/pending-navigation)}))
+  (fn [{:keys [db]} [_ pn-id]]
+    (if (= pn-id (get-in db [:rf/pending-navigation :id]))
+      {:db (dissoc db :rf/pending-navigation)}
+      {})))
 
 ;; ---- nav-token stale suppression ------------------------------------------
 ;; Per Spec 012 §Navigation tokens — stale-result suppression.
@@ -1352,6 +1639,7 @@
                             (seq params) (assoc :params params)
                             (seq query)  (assoc :query  query))
         strategy          (resolve-scroll-strategy route-meta nil default-scroll)
+        capture-fx        (capture-scroll-fx-entry db)
         scroll-fx         (scroll-fx-entry
                             {:strategy  strategy
                              :from      (route-descriptor (:rf/route db))
@@ -1386,7 +1674,8 @@
                  :transition transition
                  :error      nil
                  :nav-token  token})
-     :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+     :fx (vec (concat (when capture-fx [capture-fx])
+                      (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                       ;; Per Spec 012 §Per-route data loading §2:
                       ;; settle :loading → :idle after the on-match
                       ;; drain. FIFO order: settle runs after every
@@ -1396,7 +1685,7 @@
                       (when scroll-fx [scroll-fx])))}))
 
 (events/reg-event-fx :rf/url-changed
-  (fn [{:keys [db]} [_ url]]
+  (fn [{:keys [db frame]} [_ url opts :as event-vec]]
     ;; Per Spec 012 §URL changes are events / §Fragments. match-url
     ;; surfaces the URL's `#fragment` directly on its result; if only
     ;; the fragment differs from the current slice, update :fragment but
@@ -1407,7 +1696,11 @@
     ;; push) is `:top` per Spec 012 §Scroll restoration; popstate /
     ;; initial / SSR routes through `:rf.route/handle-url-change` which
     ;; defaults to `:restore`.
-    (let [m              (match-url url)
+    (let [opts           (or opts {})
+          blocked        (maybe-block-navigation db (or frame :rf/default)
+                                                event-vec url
+                                                (:bypass-leave-guard? opts))
+          m              (when-not blocked (match-url url))
           fragment       (:fragment m)
           prev           (:rf/route db)
           fragment-only? (and prev m
@@ -1415,7 +1708,11 @@
                               (= (:params prev) (:params m))
                               (= (:query prev)  (:query m))
                               (not= (:fragment prev) fragment))]
-      (if fragment-only?
+      (cond
+        blocked
+        blocked
+
+        fragment-only?
         ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments:
         ;; :rf.route/url-changed is the canonical op-name for
         ;; fragment-only navigation; consumers discriminate full vs
@@ -1426,18 +1723,27 @@
                          {:route-id      (:id prev)
                           :prev-fragment (:fragment prev)
                           :next-fragment fragment})
-            {:db (assoc-in db [:rf/route :fragment] fragment)})
+            (let [capture-fx (capture-scroll-fx-entry db)]
+              (cond-> {:db (assoc-in db [:rf/route :fragment] fragment)}
+                capture-fx (assoc :fx [capture-fx]))))
+
+        :else
         (url-change-fx db url :top nil)))))
 
 (events/reg-event-fx :rf.route/handle-url-change
-  (fn [{:keys [db frame]} [_ url]]
+  (fn [{:keys [db frame]} [_ url opts :as event-vec]]
     ;; Per Spec 012 §URL changes are events — popstate, initial load,
     ;; SSR. Always a full slice rewrite (the fragment-only branch is
     ;; exclusive to `:rf/url-changed`); default scroll strategy is
     ;; `:restore` so the saved position trumps. `:frame` is threaded
     ;; through to `url-change-fx` so the SSR error-projection listener
     ;; can attribute the :no-such-handler trace per-frame.
-    (url-change-fx db url :restore frame)))
+    (let [opts    (or opts {})
+          blocked (maybe-block-navigation db (or frame :rf/default)
+                                          event-vec url
+                                          (:bypass-leave-guard? opts))]
+      (or blocked
+          (url-change-fx db url :restore frame)))))
 
 ;; ---- standard navigation fx ----------------------------------------------
 ;;
@@ -1451,15 +1757,38 @@
 ;; `:rf/default` is URL-bound when no explicit `:url-bound?` slot is
 ;; declared.
 
+(defn- url-bound?-from-config
+  "Read `:url-bound?` from a frame's stored config map. `nil` when
+  unset. Default-on for `:rf/default` is applied at the call site, not
+  here, so the hook can discriminate explicit-`true` from default-`true`."
+  [config]
+  (when (map? config)
+    (:url-bound? config)))
+
+(defn- url-owner-frame-id
+  "Return the single frame allowed to mutate browser history. The default
+  frame owns the URL unless it explicitly opts out; otherwise the first
+  explicit non-default `:url-bound? true` frame wins deterministically.
+  Duplicate registrations still emit `:rf.error/duplicate-url-binding`,
+  but this predicate enforces the one-owner rule at fx time."
+  []
+  (let [frames       (registrar/registrations :frame)
+        default-meta (get frames :rf/default)]
+    (if-not (false? (url-bound?-from-config default-meta))
+      :rf/default
+      (->> frames
+           (filter (fn [[id meta]]
+                     (and (not= :rf/default id)
+                          (true? (url-bound?-from-config meta)))))
+           (sort-by (fn [[id _]] (str id)))
+           ffirst))))
+
 (defn- url-bound-frame?
-  "Return true when the frame named `frame-id` may push to the browser
-  URL. Default-frame default is true; other frames must opt in via
-  `:url-bound? true`. Per Spec 012 §Multi-frame routing."
+  "Return true when the frame named `frame-id` is the one active URL
+  owner. Per Spec 012 §Multi-frame routing, duplicate `:url-bound? true`
+  declarations are reported AND non-owners are prevented from pushing."
   [frame-id]
-  (let [meta (frame/frame-meta frame-id)]
-    (if (contains? meta :url-bound?)
-      (true? (:url-bound? meta))
-      (= :rf/default frame-id))))
+  (= (or frame-id :rf/default) (url-owner-frame-id)))
 
 (fx/reg-fx :rf.nav/push-url
   {:platforms #{:client}
@@ -1499,6 +1828,24 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
                     :frame frame
                     :reason :frame-not-url-bound}))))
 
+(fx/reg-fx :rf.nav/capture-scroll
+  {:platforms #{:client}
+   :doc       "Capture the current browser scroll position under the
+per-frame [:rf.route/scroll-positions <url>] map before leaving a route."}
+  (fn [{:keys [frame]} {:keys [url position]}]
+    #?(:cljs
+       (when url
+         (let [pos (or position
+                       [(or (.-scrollX js/window) (.-pageXOffset js/window) 0)
+                        (or (.-scrollY js/window) (.-pageYOffset js/window) 0)])]
+           (frame/swap-frame-db! (or frame :rf/default)
+                                 save-scroll-position
+                                 url
+                                 pos)))
+       :clj
+       (trace/emit! :fx :rf.fx/skipped-on-platform
+                    {:fx-id :rf.nav/capture-scroll :url url}))))
+
 ;; ---- :url-bound? exclusivity check ----------------------------------------
 ;; Per Spec 012 §Multi-frame routing — "Only one frame can own the URL at
 ;; a time": registering a second `:url-bound? true` frame emits
@@ -1506,20 +1853,11 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
 ;; The check runs from a registrar registration-hook (rf2-w50qm) so it
 ;; fires on BOTH first-time and re-registration paths.
 ;;
-;; The recovery is `:no-recovery` per Spec 009 — the second binding is
-;; rejected (i.e. the existing URL-owning frame is unchanged from the
-;; runtime's perspective; `:rf.nav/push-url` no-ops on the offender
-;; because its frame-meta does not flip — but the spec's contract is
-;; that the registration's storage already wrote the new meta. The
-;; error surfaces the conflict; resolving it is the app's concern).
-
-(defn- url-bound?-from-config
-  "Read `:url-bound?` from a frame's stored config map. `nil` when
-  unset. Default-on for `:rf/default` is applied at the call site, not
-  here, so the hook can discriminate explicit-`true` from default-`true`."
-  [config]
-  (when (map? config)
-    (:url-bound? config)))
+;; The recovery is `:no-recovery` per Spec 009. The registry remains
+;; inspectable as-written, but `url-owner-frame-id` enforces one active
+;; owner at fx time: non-owner `:rf.nav/push-url` / `:rf.nav/replace-url`
+;; calls no-op. The error surfaces the conflict; resolving it is the
+;; app's concern.
 
 (defn- frame-id-of-existing-url-binding
   "Scan the registrar's `:frame` map for any frame OTHER than `exclude-id`
@@ -1543,9 +1881,10 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
 
   Recovery per Spec 009 is `:no-recovery` — the offending registration's
   storage has already been written by `registrar/register!`, but the
-  navigation fx (`:rf.nav/push-url` / `:rf.nav/replace-url`) keys off
-  `frame-meta` and continues to respect whichever frame owns the URL.
-  The app resolves the conflict by removing one of the bindings."
+  navigation fx (`:rf.nav/push-url` / `:rf.nav/replace-url`) consults
+  `url-owner-frame-id`, so only the single active owner can mutate
+  browser history. The app resolves the conflict by removing one of the
+  bindings."
   [{:keys [kind id now]}]
   (when (= :frame kind)
     (when (true? (url-bound?-from-config now))

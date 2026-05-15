@@ -97,14 +97,28 @@
                                            (< next (count entries)))
                                     (assoc s :index next)
                                     s)))))}
+        location #js {:origin   "https://app.example"
+                      :href     "https://app.example/"
+                      :pathname "/"
+                      :search   ""
+                      :hash     ""}
         window  #js {:history history
+                     :location location
+                     :scrollX 0
+                     :scrollY 0
+                     :pageXOffset 0
+                     :pageYOffset 0
                      :scrollTo
                      ;; routing.cljc's `:rf.nav/scroll` fx calls
                      ;; `(.scrollTo js/window 0 0)` on forward nav and
-                     ;; `(.scrollTo js/window x y)` on restore. The
-                     ;; stub no-ops; an atom captures the args for the
-                     ;; one test that asserts scroll behaviour.
-                     (fn [_x _y])
+                     ;; `(.scrollTo js/window x y)` on restore. Mirror
+                     ;; browser state by updating the scroll position
+                     ;; fields that :rf.nav/capture-scroll reads.
+                     (fn [x y]
+                       (set! (.-scrollX js/globalThis.window) x)
+                       (set! (.-scrollY js/globalThis.window) y)
+                       (set! (.-pageXOffset js/globalThis.window) x)
+                       (set! (.-pageYOffset js/globalThis.window) y))
                      :addEventListener
                      (fn [type listener]
                        (swap! state update-in [:listeners type]
@@ -254,6 +268,41 @@
     (is (= :hist/article
            (:id (:rf/route (rf/get-frame-db :rf/default))))
         "the slice tracks the most recently pushed URL")))
+
+(deftest url-requested-external-url-does-not-push-cljs
+  (testing "external absolute URLs are classified before pushState"
+    (register-routes!)
+    (rf/dispatch-sync [:rf.route/handle-url-change "/"])
+    (rf/dispatch-sync [:rf/url-requested {:url "https://elsewhere.example/cart"}])
+    (is (= ["/"] (:entries @*history-state*))
+        "external URL did not append a history entry")
+    (is (= :hist/home
+           (:id (:rf/route (rf/get-frame-db :rf/default))))
+        "external URL did not rewrite the app route to not-found")))
+
+(deftest scroll-position-captured-before-forward-nav-cljs
+  (testing "leaving a route captures the current browser scroll position under that route's URL"
+    (register-routes!)
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (.scrollTo js/globalThis.window 12 345)
+    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (is (= [12 345]
+           (routing/lookup-scroll-position
+             (rf/get-frame-db :rf/default)
+             "/cart"))
+        "scroll position for the route being left is saved before the scroll strategy runs")))
+
+(deftest duplicate-url-bound-frame-does-not-push-cljs
+  (testing "a second :url-bound? true frame is reported but not allowed to mutate browser history"
+    (register-routes!)
+    (rf/reg-frame :hist/duplicate-owner {:url-bound? true})
+    (rf/dispatch-sync [:rf.route/navigate :hist/cart]
+                      {:frame :hist/duplicate-owner})
+    (is (= ["/"] (:entries @*history-state*))
+        "duplicate URL-bound frame did not push to browser history")
+    (is (= :hist/cart
+           (:id (:rf/route (rf/get-frame-db :hist/duplicate-owner))))
+        "the non-owner frame still updates its own route slice")))
 
 ;; =========================================================================
 ;; 2. popstate (back-button) round-trip
