@@ -34,9 +34,11 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { createGateReporter } = require('./lib/gate-report.cjs');
 const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const report = createGateReporter();
 
 // ----- the elision contract --------------------------------------------------
 
@@ -244,58 +246,74 @@ function checkBundle(label, bundlePath, mustContain) {
   if (blob == null) {
     console.error(`[elision] ${label}: bundle path missing — ${bundlePath}`);
     console.error('         Did you run "shadow-cljs release elision-probe"?');
-    return false;
+    return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
   }
-  console.log(`[elision] ${label}: ${bundlePath}`);
-  console.log(`          bundle size: ${blob.length} chars`);
+  report.detail(`[elision] ${label}: ${bundlePath}`);
+  report.detail(`          bundle size: ${blob.length} chars`);
 
   let ok = true;
+  let passedCount = 0;
   for (const { source, sentinel } of DEV_ONLY_SENTINELS) {
     const present = blob.includes(sentinel);
     const expected = mustContain ? 'PRESENT' : 'ABSENT';
     const actual   = present     ? 'PRESENT' : 'ABSENT';
     const passed   = present === mustContain;
     const tag      = passed ? 'OK' : 'FAIL';
-    console.log(`          [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    report.detail(`          [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    if (passed) passedCount += 1;
     if (!passed) ok = false;
   }
-  return ok;
+  return {
+    ok,
+    checked: DEV_ONLY_SENTINELS.length,
+    passed: passedCount,
+    bytes: blob.length,
+    bundlePath,
+    missing: false,
+  };
 }
 
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  console.log('=== Production elision probe (Spec 009 §Production builds) ===');
+  report.detail('=== Production elision probe (Spec 009 §Production builds) ===');
 
   const probeDir   = path.join(ROOT, 'out', 'elision-probe');
   const controlDir = path.join(ROOT, 'out', 'elision-probe-control');
 
   // Production bundle: sentinels MUST be absent.
-  const prodOk = checkBundle('production (goog.DEBUG=false)', probeDir, false);
+  const prod = checkBundle('production (goog.DEBUG=false)', probeDir, false);
 
   // Control bundle: sentinels MUST be present (if compiled).
-  let controlOk = true;
+  let control = { ok: true, skipped: true };
   if (fs.existsSync(controlDir)) {
-    controlOk = checkBundle('control    (goog.DEBUG=true) ', controlDir, true);
+    control = checkBundle('control    (goog.DEBUG=true) ', controlDir, true);
   } else {
-    console.log('[elision] control bundle not built — skipping methodology check.');
-    console.log('          Run "npx shadow-cljs release elision-probe-control"');
-    console.log('          to enable the methodology assertion.');
+    report.detail('[elision] control bundle not built — skipping methodology check.');
+    report.detail('          Run "npx shadow-cljs release elision-probe-control"');
+    report.detail('          to enable the methodology assertion.');
   }
 
-  if (prodOk && controlOk) {
-    console.log('=== PASS ===');
+  if (prod.ok && control.ok) {
+    const controlSummary = control.skipped
+      ? 'control skipped'
+      : `control ${control.passed}/${control.checked} present (${control.bytes} chars)`;
+    report.pass(
+      'elision',
+      `production ${prod.passed}/${prod.checked} absent (${prod.bytes} chars); ${controlSummary}; bundle=${probeDir}`
+    );
     process.exit(0);
   } else {
+    report.flushDetails();
     console.error('=== FAIL ===');
-    if (!prodOk) {
+    if (!prod.ok) {
       console.error('Production elision broke: at least one dev-only sentinel');
       console.error('survived advanced compilation with goog.DEBUG=false.');
       console.error('Per Spec 009 §Production builds, every emit / schema / ');
       console.error('registrar dev-only branch must be gated on');
       console.error('re-frame.interop/debug-enabled? so DCE removes it.');
     }
-    if (!controlOk) {
+    if (!control.ok) {
       console.error('Control bundle missing dev-only sentinels — the grep test');
       console.error('would be vacuous.  A sentinel string was likely renamed,');
       console.error('moved out of a gated branch, or removed.  Update');

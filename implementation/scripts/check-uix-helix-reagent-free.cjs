@@ -35,9 +35,11 @@
 'use strict';
 
 const path = require('path');
+const { createGateReporter } = require('./lib/gate-report.cjs');
 const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const report = createGateReporter();
 
 // ----- sentinels -------------------------------------------------------------
 //
@@ -80,12 +82,13 @@ function checkBundle(label, bundlePath, mustContain) {
   if (blob == null) {
     console.error(`[uix-helix-reagent-free] ${label}: bundle path missing — ${bundlePath}`);
     console.error('                          Did you run the matching shadow-cljs release?');
-    return false;
+    return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
   }
-  console.log(`  ${label}: ${bundlePath}`);
-  console.log(`    bundle size: ${blob.length} chars`);
+  report.detail(`  ${label}: ${bundlePath}`);
+  report.detail(`    bundle size: ${blob.length} chars`);
 
   let ok = true;
+  let passedCount = 0;
   for (const { source, sentinel } of REAGENT_SENTINELS) {
     const hits     = countSubstring(blob, sentinel);
     const present  = hits > 0;
@@ -93,17 +96,25 @@ function checkBundle(label, bundlePath, mustContain) {
     const actual   = present     ? `PRESENT (${hits})` : 'ABSENT (0)';
     const passed   = present === mustContain;
     const tag      = passed ? 'OK' : 'FAIL';
-    console.log(`    [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    report.detail(`    [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    if (passed) passedCount += 1;
     if (!passed) ok = false;
   }
-  return ok;
+  return {
+    ok,
+    checked: REAGENT_SENTINELS.length,
+    passed: passedCount,
+    bytes: blob.length,
+    bundlePath,
+    missing: false,
+  };
 }
 
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  console.log('=== UIx-only / Helix-only Reagent isolation (rf2-jicu2) ===');
-  console.log('');
+  report.detail('=== UIx-only / Helix-only Reagent isolation (rf2-jicu2) ===');
+  report.detail('');
 
   const uixDir     = path.join(ROOT, 'out', 'examples', 'counter-uix');
   const helixDir   = path.join(ROOT, 'out', 'examples', 'counter-helix');
@@ -111,27 +122,32 @@ function main() {
 
   // Negative assertions: the new spine produces a UIx-only / Helix-only
   // bundle with no Reagent dependency.
-  const uixOk   = checkBundle('UIx-only counter   (must NOT contain reagent.ratom / reagent.impl.batching)',
-                              uixDir, false);
-  console.log('');
-  const helixOk = checkBundle('Helix-only counter (must NOT contain reagent.ratom / reagent.impl.batching)',
-                              helixDir, false);
-  console.log('');
+  const uix   = checkBundle('UIx-only counter   (must NOT contain reagent.ratom / reagent.impl.batching)',
+                            uixDir, false);
+  report.detail('');
+  const helix = checkBundle('Helix-only counter (must NOT contain reagent.ratom / reagent.impl.batching)',
+                            helixDir, false);
+  report.detail('');
   // Positive assertion: the Reagent-using counter bundle DOES carry the
   // sentinels. Without this present-check, a sentinel-name regression
   // would silently turn the negative greps above into vacuous passes.
-  const reagentOk = checkBundle('Reagent counter    (methodology sanity — sentinels MUST be present)',
-                                reagentDir, true);
+  const reagent = checkBundle('Reagent counter    (methodology sanity — sentinels MUST be present)',
+                              reagentDir, true);
 
-  if (uixOk && helixOk && reagentOk) {
-    console.log('');
-    console.log('=== PASS ===');
+  if (uix.ok && helix.ok && reagent.ok) {
+    const checked = uix.checked + helix.checked + reagent.checked;
+    report.pass(
+      'uix-helix-reagent-free',
+      `3 bundles checked; ${checked} sentinel checks; uix=${uixDir} (${uix.bytes} chars); ` +
+        `helix=${helixDir} (${helix.bytes} chars); reagent=${reagentDir} (${reagent.bytes} chars)`
+    );
     process.exit(0);
   } else {
+    report.flushDetails();
     console.error('');
     console.error('=== FAIL ===');
     console.error('');
-    if (!uixOk || !helixOk) {
+    if (!uix.ok || !helix.ok) {
       console.error('A UIx-only or Helix-only release bundle pulled in reagent.ratom');
       console.error('or reagent.impl.batching. Per rf2-jicu2 the substrate spine reifies');
       console.error('the re-frame-owned `re-frame.disposable/IDisposable` protocol —');
@@ -141,7 +157,7 @@ function main() {
       console.error('  (b) a UIx/Helix-side ns picked up a transitive Reagent dep');
       console.error('      (e.g. via a new `:require [reagent.* ...]` in adapter wiring).');
     }
-    if (!reagentOk) {
+    if (!reagent.ok) {
       console.error('The Reagent-bundle present-check failed — the sentinel grep would');
       console.error('be vacuous. Either the sentinel strings have moved (refactor in');
       console.error('reagent.ratom / reagent.impl.batching upstream) or the counter');

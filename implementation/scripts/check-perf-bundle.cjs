@@ -31,9 +31,11 @@
 'use strict';
 
 const path = require('path');
+const { createGateReporter } = require('./lib/gate-report.cjs');
 const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const report = createGateReporter();
 
 // ----- the perf-flag elision contract ---------------------------------------
 
@@ -68,22 +70,31 @@ function checkBundle(label, bundlePath, mustContain) {
   if (blob == null) {
     console.error(`[perf-bundle] ${label}: bundle path missing — ${bundlePath}`);
     console.error('              Did you run the matching shadow-cljs release?');
-    return false;
+    return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
   }
-  console.log(`[perf-bundle] ${label}: ${bundlePath}`);
-  console.log(`              bundle size: ${blob.length} chars`);
+  report.detail(`[perf-bundle] ${label}: ${bundlePath}`);
+  report.detail(`              bundle size: ${blob.length} chars`);
 
   let ok = true;
+  let passedCount = 0;
   for (const { source, sentinel } of PERF_SENTINELS) {
     const present = blob.includes(sentinel);
     const expected = mustContain ? 'PRESENT' : 'ABSENT';
     const actual   = present     ? 'PRESENT' : 'ABSENT';
     const passed   = present === mustContain;
     const tag      = passed ? 'OK' : 'FAIL';
-    console.log(`              [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    report.detail(`              [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    if (passed) passedCount += 1;
     if (!passed) ok = false;
   }
-  return ok;
+  return {
+    ok,
+    checked: PERF_SENTINELS.length,
+    passed: passedCount,
+    bytes: blob.length,
+    bundlePath,
+    missing: false,
+  };
 }
 
 // Count `performance.mark|performance.measure|re-frame.performance` for
@@ -99,18 +110,18 @@ function countOccurrences(blob, patterns) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  console.log('=== Performance-API bundle isolation / presence (Spec 009 §Performance instrumentation) ===');
+  report.detail('=== Performance-API bundle isolation / presence (Spec 009 §Performance instrumentation) ===');
 
   const offDir = path.join(ROOT, 'out', 'examples', 'counter');
   const onDir  = path.join(ROOT, 'out', 'examples', 'counter-perf');
 
   // OFF bundle: sentinels MUST be absent.
-  const offOk = checkBundle('perf-off (default counter, enabled?=false)',
-                            offDir, false);
+  const off = checkBundle('perf-off (default counter, enabled?=false)',
+                          offDir, false);
 
   // ON bundle: sentinels MUST be present.
-  const onOk  = checkBundle('perf-on  (counter-perf,  enabled?=true) ',
-                            onDir,  true);
+  const on  = checkBundle('perf-on  (counter-perf,  enabled?=true) ',
+                          onDir,  true);
 
   // Report the counts the bead asks for.
   const offBlob = readReleaseBlob(offDir);
@@ -120,26 +131,31 @@ function main() {
                     're-frame\\.performance'];
   const offCount = countOccurrences(offBlob, patterns);
   const onCount  = countOccurrences(onBlob,  patterns);
-  console.log('');
-  console.log('=== Bundle-grep counts ===');
-  console.log(`  perf-off counter (must be 0):     ${offCount}`);
-  console.log(`  perf-on  counter (must be > 0):   ${onCount}`);
+  report.detail('');
+  report.detail('=== Bundle-grep counts ===');
+  report.detail(`  perf-off counter (must be 0):     ${offCount}`);
+  report.detail(`  perf-on  counter (must be > 0):   ${onCount}`);
 
   const countsOk = (offCount === 0) && (onCount > 0);
 
-  if (offOk && onOk && countsOk) {
-    console.log('=== PASS ===');
+  if (off.ok && on.ok && countsOk) {
+    report.pass(
+      'perf-bundle',
+      `off-count=${offCount}; on-count=${onCount}; off=${offDir} (${off.bytes} chars); ` +
+        `on=${onDir} (${on.bytes} chars)`
+    );
     process.exit(0);
   } else {
+    report.flushDetails();
     console.error('=== FAIL ===');
-    if (!offOk || offCount !== 0) {
+    if (!off.ok || offCount !== 0) {
       console.error('Perf-off bundle isolation broke: a Performance API call');
       console.error('site or the re-frame.performance ns survived advanced');
       console.error('compilation with re-frame.performance/enabled?=false.');
       console.error('Per Spec 009 §Performance instrumentation, the bracket');
       console.error('site must collapse to (f) so DCE removes the gated body.');
     }
-    if (!onOk || !(onCount > 0)) {
+    if (!on.ok || !(onCount > 0)) {
       console.error('Perf-on bundle missing expected sentinels — the grep');
       console.error('test would be vacuous. The helper or its call sites');
       console.error('may have been refactored without updating sentinels.');

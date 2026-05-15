@@ -37,9 +37,11 @@
 const fs   = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const { createGateReporter } = require('./lib/gate-report.cjs');
 const { listReleaseJsFiles } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const report = createGateReporter();
 
 // ----- the schemas bundle-cost contract -------------------------------------
 
@@ -90,8 +92,8 @@ function fmtKb(bytes) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  console.log('=== Schemas bundle-cost gate (Spec 010 §Bundle cost, rf2-fqbcy) ===');
-  console.log('');
+  report.detail('=== Schemas bundle-cost gate (Spec 010 §Bundle cost, rf2-fqbcy) ===');
+  report.detail('');
 
   const sizes = {};
   let bundlesOk = true;
@@ -108,13 +110,13 @@ function main() {
     sizes[b.name] = total;
     const ok = total <= b.gzippedMaxBytes;
     const tag = ok ? 'OK' : 'FAIL';
-    console.log(`  [${tag}] ${b.name}`);
-    console.log(`        spec:      ${b.specRow}`);
-    console.log(`        bundle:    ${fmtKb(total)} gzipped (${total} bytes)`);
-    console.log(`        threshold: ${fmtKb(b.gzippedMaxBytes)} (${b.gzippedMaxBytes} bytes)`);
+    report.detail(`  [${tag}] ${b.name}`);
+    report.detail(`        spec:      ${b.specRow}`);
+    report.detail(`        bundle:    ${fmtKb(total)} gzipped (${total} bytes)`);
+    report.detail(`        threshold: ${fmtKb(b.gzippedMaxBytes)} (${b.gzippedMaxBytes} bytes)`);
     if (!ok) {
       bundlesOk = false;
-      console.error(`        REGRESSION: bundle exceeds threshold by ${fmtKb(total - b.gzippedMaxBytes)}`);
+      report.detail(`        REGRESSION: bundle exceeds threshold by ${fmtKb(total - b.gzippedMaxBytes)}`);
     }
   }
 
@@ -134,22 +136,30 @@ function main() {
     const minDelta = 15 * 1024;
     const ok = delta >= minDelta;
     const tag = ok ? 'OK' : 'FAIL';
-    console.log('');
-    console.log(`  [${tag}] methodology guard — Malli-on bundle is strictly larger`);
-    console.log(`        delta: ${fmtKb(delta)} (${delta} bytes)`);
-    console.log(`        threshold: ≥ ${fmtKb(minDelta)} (Spec row 3 − row 2 = 23.6 KB)`);
+    report.detail('');
+    report.detail(`  [${tag}] methodology guard — Malli-on bundle is strictly larger`);
+    report.detail(`        delta: ${fmtKb(delta)} (${delta} bytes)`);
+    report.detail(`        threshold: ≥ ${fmtKb(minDelta)} (Spec row 3 − row 2 = 23.6 KB)`);
     if (!ok) {
       methodologyOk = false;
-      console.error('        FAIL — Malli adapter\'s body was eliminated;');
-      console.error('        the +Malli gate is now vacuous.');
+      report.detail('        FAIL — Malli adapter\'s body was eliminated;');
+      report.detail('        the +Malli gate is now vacuous.');
     }
   }
 
-  console.log('');
+  report.detail('');
   if (bundlesOk && methodologyOk) {
-    console.log('=== PASS ===');
+    const probe = sizes['schemas-bundle-probe'];
+    const probeMalli = sizes['schemas-bundle-probe-malli'];
+    report.pass(
+      'schemas-bundle',
+      `schemas-bundle-probe=${fmtKb(probe)}/${fmtKb(BUNDLES[0].gzippedMaxBytes)}; ` +
+        `schemas-bundle-probe-malli=${fmtKb(probeMalli)}/${fmtKb(BUNDLES[1].gzippedMaxBytes)}; ` +
+        `delta=${fmtKb(probeMalli - probe)}`
+    );
     process.exit(0);
   } else {
+    report.flushDetails();
     console.error('=== FAIL ===');
     console.error('');
     console.error('Per Spec 010 §Bundle cost the schemas-artefact bundle cost');

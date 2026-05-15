@@ -86,3 +86,20 @@ For local debugging, opt into the buffered green-path diagnostics:
 RF2_VERBOSE_TESTS=1 npm run test:browser
 RF2_VERBOSE_TESTS=1 npm run test:examples
 ```
+
+## Opting Into Verbose JS Gate Diagnostics
+
+Bundle / elision gate scripts follow the same contract. A green run
+prints one compact `PASS <gate>:` line by default. Sentinel tables,
+threshold details, bundle-grep counts, and remediation text are
+buffered and emitted on failure.
+
+For local investigation, opt into the green-path tables:
+
+```bash
+RF2_VERBOSE_TESTS=1 npm run test:elision
+RF2_VERBOSE_TESTS=1 npm run test:bundle-isolation
+RF2_VERBOSE_TESTS=1 npm run test:bundle-comparison
+RF2_VERBOSE_TESTS=1 npm run test:schemas-bundle
+RF2_VERBOSE_TESTS=1 npm run test:perf-bundle
+```

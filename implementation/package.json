@@ -26,6 +26,7 @@
     "test:examples": "node ../examples/scripts/serve-and-run-examples-tests.cjs",
     "story:build": "node scripts/story-build.cjs",
     "test:story-static": "node scripts/check-story-static.cjs",
-    "test:script-policy": "node scripts/_path-policy.test.cjs"
+    "test:script-policy": "node scripts/_path-policy.test.cjs",
+    "test:script-helpers": "node scripts/_browser-test-report.test.cjs && node scripts/_gate-report.test.cjs"
   }
 }
