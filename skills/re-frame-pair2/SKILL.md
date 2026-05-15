@@ -72,7 +72,7 @@ Every operation eventually becomes a short ClojureScript form evaluated through 
 
 ## Setup — preload `re-frame-pair2.runtime`
 
-The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism — exactly the same convention re-frame v1 + re-frame-10x and 10x's Causa successor use. **The preload is required**; there is no per-session cljs-eval inject fallback. `discover-app` refuses with `:reason :runtime-not-preloaded` when it can't find the marker.
+The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism. This is pair2's runtime-helper requirement, separate from Causa's devtools preload and true-inline `[data-rf-causa-host]` panel contract. **The pair2 preload is required**; there is no per-session cljs-eval inject fallback. `discover-app` refuses with `:reason :runtime-not-preloaded` when it can't find the marker.
 
 Two-line setup. In `shadow-cljs.edn`:
 

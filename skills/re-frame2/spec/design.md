@@ -45,7 +45,7 @@ Application keywords use the app's own namespace (`:cart/`, `:auth/`); `:rf/*` a
 
 ### L7 — `reg-*` macros over `register-*` functions
 
-The macros capture source-coords that re-frame-pair2 and re-frame-10x rely on. Functional registrations exist for programmatic / generated cases; recipes always reach for the macro.
+The macros capture source-coords that Causa and re-frame-pair2 rely on. Functional registrations exist for programmatic / generated cases; recipes always reach for the macro.
 
 ### L8 — Frames before globals
 

@@ -59,7 +59,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 1. **Discover the current artefact VERSION.** → [`reference/deps-versions.md`](reference/deps-versions.md). Day-one deps: `day8/re-frame2` + `day8/re-frame2-reagent` only.
 2. **Add the two artefacts to `deps.edn`.** → `reference/deps-versions.md` §`deps.edn`.
 3. **Add `react`, `react-dom`, `shadow-cljs` to `package.json`; run `npm install`.** → `reference/deps-versions.md` §`package.json`.
-4. **Write `shadow-cljs.edn` and `index.html`.** One `:target :browser` build, `:init-fn your-app.core/run`, `:source-paths` including `src/`. If Causa is enabled, `index.html` must include the `[data-rf-causa-host]` left layout host beside `#app`. → [`reference/shadow-cljs.md`](reference/shadow-cljs.md) for the exact shape, the `:devtools` block, and the `index.html`.
+4. **Write `shadow-cljs.edn` and `index.html`.** One `:target :browser` build, `:init-fn your-app.core/run`, `:source-paths` including `src/`. If Causa is enabled, `index.html` must provide the true-inline `[data-rf-causa-host]` left layout column beside `#app`; Causa auto-opens there on app load. → [`reference/shadow-cljs.md`](reference/shadow-cljs.md) for the exact shape, the `:devtools` block, and the `index.html`.
 5. **Write the entry namespace.** `your-app/core.cljs` requires `[re-frame.core :as rf]` and `[re-frame.adapter.reagent :as reagent-adapter]`, then calls `(rf/init! reagent-adapter/adapter)` **before any dispatch or render**. → [`reference/entry-namespace.md`](reference/entry-namespace.md) for the canonical shape, the React-root `defonce` pattern, and the order-of-operations contract.
 6. **Write the first counter.** A registered event, sub, view (`reg-view`), and mount — end-to-end in one file. → [`reference/first-counter.md`](reference/first-counter.md).
 7. **Run and verify.** `npx shadow-cljs watch app` → open `http://localhost:<port>/`. Counter visible, `+`/`-` flips the number. **Done.**
@@ -82,7 +82,7 @@ Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/sc
 - **`Could not locate reagent/dom/client.cljs`** — `react` / `react-dom` not installed. `npm install react react-dom`. Reagent 2.x needs React 18+.
 - **Counter doesn't update, no errors** — `(rf/init! reagent-adapter/adapter)` not called, or called after `rdc/render`. Move it to the top of `run`.
 - **Blank page, no console errors** — `index.html` missing `<main id="app">` / `<div id="app">`, or entry ns looking up a different id.
-- **Causa logs missing layout host** — add `<aside data-rf-causa-host></aside>` as a left sibling of `#app`, or configure `{:layout/host-selector "..."}` before the preload auto-opens.
+- **Causa logs missing layout host** — add the true-inline host markup/CSS from `reference/shadow-cljs.md`, or configure `{:layout/host-selector "..."}` before Causa auto-opens. The same actionable diagnostic is available through `window.day8.re_frame2_causa.status()`.
 - **`Uncaught ReferenceError: re_frame is not defined`** — `:init-fn` in `shadow-cljs.edn` doesn't match the entry-ns `run` symbol. Check `(defn ^:export run [] ...)` matches `:init-fn your-app.core/run`.
 
 Anything else: point at `re-frame2` or `SKILL-REDIRECT.md`.

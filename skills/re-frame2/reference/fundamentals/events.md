@@ -66,7 +66,7 @@ The `:db` and `:fx` keys are the **only** legal top-level keys in an `fx`-handle
 - **`:interceptors` is not a metadata key.** Pass the chain as the positional third argument, not as `{:interceptors [...]}`.
 - **The event vector's first element is the event id.** Always destructure it as `[_ arg1 arg2]` — the id is in `args` because the whole vector is passed.
 - **`reg-event-ctx` is rarely the right tool.** It hands you the raw interceptor context. Use it only when you need to manipulate the chain itself; otherwise `reg-event-db` or `reg-event-fx`.
-- **Metadata-map fields surface to tooling, not to the runtime.** `:doc`, `:spec`, `:tags`, `:platforms` are read by 10x, pair, and the dev-time validator. They do not affect runtime behaviour except where called out (`:spec` for dev validation; `:platforms` on `reg-fx`).
+- **Metadata-map fields surface to tooling, not to the runtime.** `:doc`, `:spec`, `:tags`, `:platforms` are read by Causa, re-frame-pair2, and the dev-time validator. They do not affect runtime behaviour except where called out (`:spec` for dev validation; `:platforms` on `reg-fx`).
 
 ## Deeper material
 
