@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Conservative changed-surface classifier for PR CI tiering.
 # Usage:
-#   .github/scripts/changed-surfaces.sh [--all] [path ...]
+#   .github/scripts/report-changed-surfaces.sh [--all] [path ...]
 #
 # With explicit paths, classify those paths. Without paths, derive the changed
 # file list from the GitHub Actions event, or from HEAD^ locally.
@@ -64,7 +64,7 @@ else
   while IFS= read -r file; do
     [ -z "$file" ] && continue
     case "$file" in
-      .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/changed-surfaces.sh|TESTING.md)
+      .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
         ;;
       implementation/core/*)

@@ -3,17 +3,31 @@ name: tests
 on:
   push:
     branches: [main]
+    # Push-only filter: docs/site-only pushes are covered by docs.yml and
+    # bead-only pushes should run no CI. Pull requests deliberately stay
+    # unfiltered so required checks cannot remain permanently pending.
     paths-ignore:
       - '.beads/**'
+      - 'docs/**'
+      - 'spec/**'
+      - 'skills/**/*.md'
+      - 'tools/**/*.md'
+      - 'mkdocs.yml'
+      - 'mkdocs_hooks.py'
+      - 'TESTING.md'
+      - 'requirements.txt'
+      - 'scripts/check_doc_slugs.py'
+      - 'scripts/_test_fixtures/check_doc_slugs/**'
+      - '.github/workflows/docs.yml'
   pull_request:
     branches: [main]
 
 # Fast PR spine jobs stay always-on: lockstep drift, skill/MCP drift,
 # core JVM, CLJS node integration, and JS harness self-tests. Expensive
-# browser, bundle, examples, tool, template, MCP-live, and skill
-# structural jobs are guarded by the conservative changed-surface
-# classifier below. Skipped diagnostic jobs are not required coverage;
-# the nightly/manual workflow carries the rigorous full sweep.
+# browser, bundle, examples, Story/Causa, tool, template, MCP-live, and
+# skill structural jobs are guarded by the conservative changed-surface
+# classifier below. Skipped diagnostic jobs are not required coverage; the
+# nightly/manual workflow carries the rigorous full sweep.
 
 jobs:
   detect_changed_surfaces:
@@ -40,7 +54,7 @@ jobs:
 
       - name: Classify changed surfaces
         id: detect
-        run: ./.github/scripts/changed-surfaces.sh
+        run: ./.github/scripts/report-changed-surfaces.sh
 
   # PR-time drift detection for the lockstep-version contract
   # (rf2-ace2 / rf2-w05l). Fast — the script is shared with
@@ -976,6 +990,64 @@ jobs:
       # once the suite has been stable for a couple of cycles.
       - name: Compile examples, serve, and run Playwright specs
         run: npm run test:examples
+
+  story-causa-browser:
+    name: Story/Causa browser gates (targeted)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.story_causa_browser == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs (Story/Causa shadow-cljs deps)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-story-causa-browser-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json', 'tools/story/deps.edn', 'tools/causa/deps.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-story-causa-browser-
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: Install Playwright (Chromium + system deps)
+        run: npx playwright install --with-deps chromium
+
+      # PR-time targeted gate for Story/Causa browser regressions. The
+      # classifier keeps this off for unrelated PRs; nightly/manual CI
+      # still owns the full rigorous browser/bundle sweep.
+      - name: Run Story feature-load browser gate
+        run: npm run test:story-feature-load
+
+      - name: Run Causa feature browser gate
+        run: npm run test:causa-feature-gate
+
+      - name: Run Story static-export browser smoke
+        run: npm run test:story-static
 
   cljs-reagent-slim-bundle-isolation:
     name: CLJS Reagent Slim bundle isolation (adapter-owned, rf2-2ppcv)
