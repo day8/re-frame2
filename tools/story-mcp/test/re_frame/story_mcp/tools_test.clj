@@ -15,6 +15,7 @@
             [re-frame.mcp-base.cap :as base-cap]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]
+            [re-frame.schemas :as schemas]
             [re-frame.story :as story]
             [re-frame.story.recorder :as recorder]
             [re-frame.story-mcp.config :as config]
@@ -66,6 +67,7 @@
   ;; the `--allow-sensitive-reads` boot-time posture). Tests that
   ;; exercise the opt-in branch flip it explicitly.
   (config/set-allow-sensitive-reads! false)
+  (schemas/clear-schemas-by-frame!)
   ;; Recorder atom is per-process — clear between tests so a previous
   ;; test's captured events don't bleed in.
   (recorder/clear!)
@@ -1156,18 +1158,17 @@
 ;; `:include-sensitive?` arg (rf2-vw4sq) is the documented escape hatch.
 ;;
 ;; These tests pin the contract at the story-mcp surface: a sensitive
-;; slot declared via the `[:rf/elision :declarations]` registry on the
-;; variant's frame must surface as `:rf/redacted` in the tool's response
-;; `:app-db` slot by default, and as the raw value when the caller opts
-;; in via `:include-sensitive? true`. Assertion records carrying the
-;; top-level `:sensitive? true` stamp must be dropped by default and
-;; included when opted in.
+;; slot declared through app-schema metadata on the variant's frame must
+;; surface as `:rf/redacted` in the tool's response `:app-db` slot by
+;; default, and as the raw value when the caller opts in via
+;; `:include-sensitive? true`. Assertion records carrying the top-level
+;; `:sensitive? true` stamp must be dropped by default and included
+;; when opted in.
 ;;
-;; Pattern mirrors `implementation/core/test/re_frame/elision_test.clj`
-;; — the registry slot is populated via direct container mutation
-;; (`re-frame.substrate.adapter/replace-container!`) so the test does
-;; not depend on the rf2-isdwf cofx-side stamping work, which is
-;; orthogonal to the wire-egress contract under test here.
+;; Pattern mirrors `implementation/schemas/test/re_frame/
+;; schemas_sensitive_paths_test.clj`: schema metadata is the canonical
+;; per-slot declaration surface; story-mcp verifies its wire egress
+;; helper refreshes and consumes those declarations.
 ;; ---------------------------------------------------------------------------
 
 (defn- frame-container [variant-id]
@@ -1202,23 +1203,20 @@
 (defn- destroy-variant-frame!
   "Tear down `variant-id`'s frame so the next test starts fresh. The
   `frames` atom is per-process (not cleared by `story/clear-all!`); a
-  seeded `:rf.story/assertions` or `[:rf/elision :declarations]` slot
-  would otherwise bleed across tests."
+  seeded `:rf.story/assertions` slot would otherwise bleed across
+  tests."
   [variant-id]
   (when (some? (frame-container variant-id))
     ((requiring-resolve 're-frame.frame/destroy-frame!) variant-id)))
 
 (defn- declare-sensitive!
-  "Write a `{:sensitive? true}` entry into `[:rf/elision :declarations
-  <path>]` on the named variant's frame. The walker reads this on the
-  next call to `elide-wire-value` and emits `:rf/redacted` at the slot."
+  "Register schema metadata for a sensitive slot on the named variant's
+  frame. The tool egress helper refreshes schema declarations before it
+  calls `elide-wire-value`."
   [variant-id path]
   (ensure-variant-frame! variant-id)
-  (let [db (or (read-frame-db variant-id) {})]
-    (replace-frame-db! variant-id
-                       (assoc-in db
-                                 [:rf/elision :declarations path]
-                                 {:sensitive? true :source :declared}))))
+  (schemas/reg-app-schema path [:any {:sensitive? true}]
+                          {:frame variant-id}))
 
 (defn- seed-app-db!
   "Write `db` into `variant-id`'s frame app-db. Helper for the privacy
@@ -1231,8 +1229,8 @@
   "Bind `vid` to `variant-kw`, run `body` against a clean variant frame,
   and tear the frame down on exit so the next test sees no residue. The
   `frames` atom is per-process and survives `story/clear-all!`; the
-  seeded `:rf.story/assertions` and `[:rf/elision :declarations]` slots
-  would otherwise leak."
+  seeded `:rf.story/assertions` and `[:rf/elision]` slots would
+  otherwise leak."
   [[vid variant-kw] & body]
   `(let [~vid ~variant-kw]
      (try ~@body

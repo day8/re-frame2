@@ -108,6 +108,12 @@
    :renders     []
    :other       []})
 
+(defn- dispatch-id
+  "Return an event's concrete dispatch id, or nil when the event was
+  emitted outside a dispatch cascade."
+  [ev]
+  (get-in ev [:tags :dispatch-id]))
+
 (defn- cascade-id
   "Extract the cascade identifier from an event. Per Spec 009 §Dispatch
   correlation, `:dispatch-id` is cascade-wide. For `:event/dispatched`
@@ -118,23 +124,29 @@
   outside any drain (registry-time, frame-creation) carry no
   `:dispatch-id` — they land in the `:ungrouped` bucket."
   [ev]
-  (or (get-in ev [:tags :dispatch-id])
-      :ungrouped))
+  (or (dispatch-id ev) :ungrouped))
 
 (defn- cascade-frame
   "Extract the host frame from an event. nil means the event is not
-  frame-qualified (registry-time, boot-time, or older traces)."
+  frame-qualified (registry-time, boot-time, or older traces). Older
+  dispatch-scoped traces that predate explicit frame tags are treated as
+  default-frame traces so errors/warnings still ride with their cascade."
   [ev]
   (or (get-in ev [:tags :frame])
-      (:frame ev)))
+      (:frame ev)
+      (when (dispatch-id ev) :rf/default)))
 
 (defn- cascade-key
   "The stable grouping key for a cascade. Dispatch ids are only unique
   inside a frame in the portable contract, so frame-qualified traces
-  group by `[frame dispatch-id]`. Ungrouped traces without a dispatch-id
-  still share the historical `[:ungrouped nil]` bucket."
+  group by `[frame dispatch-id]`. Traces without a dispatch-id are not
+  cascades and share the historical ungrouped bucket regardless of
+  frame lifecycle metadata."
   [ev]
-  [(cascade-frame ev) (cascade-id ev)])
+  (let [id (cascade-id ev)]
+    (if (= :ungrouped id)
+      [nil :ungrouped]
+      [(cascade-frame ev) id])))
 
 (defn- absorb
   "Fold one trace event into the per-cascade accumulator."

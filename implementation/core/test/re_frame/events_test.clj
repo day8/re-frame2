@@ -12,6 +12,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interceptor :as interceptor]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
@@ -21,6 +22,8 @@
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
+  (when-let [clear-schemas! (late-bind/get-fn :schemas/clear-by-frame!)]
+    (clear-schemas!))
   (trace/clear-trace-cbs!)
   (rf/init! plain-atom/adapter)
   (test-fn))

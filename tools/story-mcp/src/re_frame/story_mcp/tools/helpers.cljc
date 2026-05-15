@@ -27,12 +27,13 @@
 
   `elide-app-db` and `scrub-assertions` apply the cross-MCP
   privacy-posture rules to every live `:app-db` slice and assertion
-  accumulator before egress. Off-box defaults (declared-sensitive paths
-  return `:rf/redacted`; assertion records stamped `:sensitive? true`
-  are dropped). The shared `:include-sensitive?` arg is the documented
-  opt-in escape hatch."
+  accumulator before egress. Off-box defaults (schema-declared
+  sensitive paths return `:rf/redacted`; assertion records stamped
+  `:sensitive? true` are dropped). The shared `:include-sensitive?`
+  arg is the documented opt-in escape hatch."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.sensitive :as sensitive]
             [re-frame.story :as story]
@@ -253,10 +254,20 @@
 ;; that ship live-state reads are `preview-variant` / `run-variant`
 ;; (which return the variant frame's `:app-db` slice) and `read-failures`
 ;; (which returns the variant frame's `:rf.story/assertions` accumulator).
-;; The walker reads the live `[:rf/elision :declarations]` and
-;; `[:rf/elision :runtime-flagged]` registries from the named frame's
-;; app-db; the `:frame variant-id` opts slot is load-bearing.
+;; The walker reads the live schema-owned `[:rf/elision]` registries
+;; from the named frame's app-db; the `:frame variant-id` opts slot is
+;; load-bearing.
 ;; ---------------------------------------------------------------------------
+
+(defn- refresh-elision-from-schemas!
+  "Refresh schema-owned elision declarations before a direct wire read.
+  Event dispatch does this in the router, but MCP tools can read a frame
+  after non-event setup paths too."
+  [variant-id]
+  (when-let [populate! (late-bind/get-fn-cached :elision/populate-from-schemas!)]
+    (try
+      (populate! variant-id)
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn elide-app-db
   "Run `app-db` through `re-frame.core/elide-wire-value` against
@@ -280,7 +291,9 @@
   (cond
     (nil? app-db) app-db
     include?      app-db
-    :else         (rf/elide-wire-value app-db {:frame variant-id})))
+    :else         (do
+                    (refresh-elision-from-schemas! variant-id)
+                    (rf/elide-wire-value app-db {:frame variant-id}))))
 
 (defn scrub-assertions
   "Default-drop any assertion records carrying the top-level
