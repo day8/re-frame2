@@ -44,3 +44,11 @@ re-check. It now exercises the follow-up surfaces directly:
   into `:counter/b` and `:log`, per-frame epoch history, trace selection,
   event-detail projection/orphan-state behavior, causality graph visibility,
   and the time-travel panel's current `:counter/b` target-frame projection.
+- Sensitive and large payload load: the sensitive and large dispatcher
+  scenarios now drive 20 meaningful host dispatches each, asserting redaction
+  indicators, absence of raw secret payloads, large-elision markers, and
+  app-db/trace panel stability under repeated privacy/size events.
+- Trace row budget: the load gate saturates Causa's 1000-event trace ring,
+  asserts the Trace panel keeps the DOM to the 200-row rendering budget with an
+  overflow indicator, then drives 20 more host dispatches without growing the
+  rendered row count.

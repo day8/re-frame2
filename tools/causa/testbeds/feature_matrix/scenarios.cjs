@@ -697,6 +697,80 @@ async function readTraceCounts(page) {
   return { rendered: Number(match[1]), total: Number(match[2]), text };
 }
 
+async function readTraceDomBudget(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById('rf-causa-root');
+    const feed = root && root.querySelector('[data-testid="rf-causa-trace-feed"]');
+    const overflow = root && root.querySelector('[data-testid="rf-causa-trace-overflow-indicator"]');
+    return {
+      rootPresent: Boolean(root),
+      feedPresent: Boolean(feed),
+      rowCount: root ? root.querySelectorAll('li[data-testid^="rf-causa-trace-row-"]').length : 0,
+      overflowPresent: Boolean(overflow),
+      overflowText: overflow ? (overflow.textContent || '').trim() : null,
+    };
+  });
+}
+
+async function pushSyntheticTraceEvents(page, count) {
+  const result = await page.evaluate((eventCount) => {
+    const cljs = window.cljs && window.cljs.core;
+    const bus = window.day8 &&
+      window.day8.re_frame2_causa &&
+      window.day8.re_frame2_causa.trace_bus;
+    if (!cljs || !bus || typeof bus.collect_trace_BANG_ !== 'function') {
+      return {
+        ok: false,
+        reason: 'cljs.core or day8.re_frame2_causa.trace_bus.collect_trace_BANG_ unavailable',
+        busKeys: bus ? Object.keys(bus).sort().slice(0, 60) : [],
+      };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const now = Date.now();
+    for (let i = 0; i < eventCount; i += 1) {
+      const dispatchId = 500000 + i;
+      const tags = cljs.hash_map(
+        keyword(':frame'), keyword(':rf/default'),
+        keyword(':event-id'), keyword(':causa.synthetic/load'),
+        keyword(':event'), cljs.PersistentVector.fromArray([keyword(':causa.synthetic/load'), i], true),
+        keyword(':dispatch-id'), dispatchId,
+        keyword(':origin'), keyword(':app'),
+        keyword(':source'), keyword(':synthetic'),
+      );
+      const ev = cljs.hash_map(
+        keyword(':id'), dispatchId,
+        keyword(':time'), now + i,
+        keyword(':operation'), keyword(':event/dispatched'),
+        keyword(':op-type'), keyword(':info'),
+        keyword(':source'), keyword(':synthetic'),
+        keyword(':tags'), tags,
+      );
+      bus.collect_trace_BANG_(ev);
+    }
+    return {
+      ok: true,
+      pushed: eventCount,
+      depth: typeof bus.current_depth === 'function' ? bus.current_depth() : null,
+      buffered: typeof bus.buffer === 'function' ? cljs.count(bus.buffer()) : null,
+    };
+  }, count);
+  if (!result.ok) {
+    failWithDetails('Could not push synthetic Causa trace events', result);
+  }
+  return result;
+}
+
 async function readLaunchModeProjection(page) {
   return page.evaluate(() => {
     const cljs = window.cljs && window.cljs.core;
@@ -1211,31 +1285,100 @@ async function runAppDbPrivacyLarge(page) {
   await expectVisible(page.locator('[data-testid="rf-causa-app-db-diff"]'), 5000);
 }
 
-async function runSensitiveDispatcher(page) {
+async function runSensitiveDispatcher(page, state) {
   await openCausa(page);
   await clearTrace(page);
-  await clickTestId(page, 'sign-in-plain');
-  await clickTestId(page, 'sign-in-redacted');
-  await expectTextEquals(page.locator('[data-testid="plain-count"]'), '1', 5000);
-  await expectTextEquals(page.locator('[data-testid="redacted-count"]'), '1', 5000);
+  const start = Date.now();
+  for (let i = 0; i < 20; i += 1) {
+    if (i % 5 === 4) {
+      await clickTestId(page, 'sign-in-throw');
+    } else {
+      await clickTestId(page, i % 2 === 0 ? 'sign-in-plain' : 'sign-in-redacted');
+    }
+  }
+  await expectTextEquals(page.locator('[data-testid="plain-count"]'), '8', 5000);
+  await expectTextEquals(page.locator('[data-testid="redacted-count"]'), '8', 5000);
+  await expectTextEquals(page.locator('[data-testid="throw-count"]'), '0', 5000);
   await expectVisible(page.locator('[data-testid="rf-causa-redacted-indicator"]'), 5000);
+  const indicatorText = ((await page.locator('[data-testid="rf-causa-redacted-indicator"]').textContent()) || '').trim();
+  const indicatorCount = Number((/REDACTED\s+(\d+)/.exec(indicatorText) || [])[1]);
+  if (!Number.isFinite(indicatorCount) || indicatorCount < 20) {
+    failWithDetails('Sensitive 20-dispatch load did not increment the redaction indicator enough', {
+      indicatorText,
+      indicatorCount,
+      expectedAtLeast: 20,
+    });
+  }
   const bodyText = await page.locator('body').textContent();
   if ((bodyText || '').includes('shhh-this-is-secret')) {
     throw new Error('Raw sensitive password leaked into DOM.');
   }
+  const traceEvents = await readTrace(page);
+  const sensitiveErrors = traceEvents.filter((event) =>
+    event.includes('sensitive-dispatcher / sign-in-throw'));
+  if (sensitiveErrors.length > 0 &&
+      !sensitiveErrors.every((event) => event.includes(':rf/redacted') && !event.includes('shhh-this-is-secret'))) {
+    failWithDetails('Sensitive error traces were not redacted', {
+      sensitiveErrors,
+    });
+  }
+  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await expectVisible(page.locator('[data-testid="rf-causa-trace-feed"]'), 5000);
+  state.loadStats = {
+    eventCountBefore: 0,
+    eventCountAfter: traceEvents.length,
+    traceBufferDepth: traceEvents.length,
+    visibleRowCount: await page.locator('[data-testid^="rf-causa-trace-row-"]').count(),
+    renderDurationMs: Date.now() - start,
+    sensitiveDispatchCount: 20,
+    redactionIndicatorCount: indicatorCount,
+  };
 }
 
-async function runLargeDispatcher(page) {
+async function runLargeDispatcher(page, state) {
   await openCausa(page);
   await clearTrace(page);
-  for (const id of ['write-auto', 'write-declared', 'write-fx-declared', 'write-schema']) {
-    await clickTestId(page, id);
+  const ids = ['write-declared', 'write-fx-declared', 'write-schema'];
+  const start = Date.now();
+  for (let i = 0; i < 19; i += 1) {
+    await clickTestId(page, ids[i % ids.length]);
   }
-  await expectTextEquals(page.locator('[data-testid="auto-count"]'), '1', 5000);
-  await expectTextEquals(page.locator('[data-testid="declared-count"]'), '1', 5000);
-  await expectTextEquals(page.locator('[data-testid="fx-count"]'), '1', 5000);
-  await expectTextEquals(page.locator('[data-testid="schema-count"]'), '1', 5000);
+  await clickTestId(page, 'write-auto');
+  for (const [testId, expected] of [
+    ['auto-count', '1'],
+    ['declared-count', '7'],
+    ['fx-count', '6'],
+    ['schema-count', '6'],
+  ]) {
+    await expectTextEquals(page.locator(`[data-testid="${testId}"]`), expected, 5000);
+  }
   await expectVisible(page.locator('[data-testid="elision-decls"]'), 5000);
+  const traceEvents = await readTrace(page);
+  await clickSidebar(page, 'app-db', 'rf-causa-app-db-diff');
+  await expectVisible(page.locator('[data-testid="rf-causa-app-db-diff"]'), 5000);
+  const appDbText = ((await page.locator('[data-testid="rf-causa-app-db-diff"]').textContent()) || '').trim();
+  if (!appDbText.includes(':rf.size/large-elided')) {
+    failWithDetails('Large-value 20-dispatch load did not surface elision markers in App-DB Diff', {
+      traceCount: traceEvents.length,
+      tail: traceEvents.slice(-20),
+      appDbText: appDbText.slice(0, 1200),
+    });
+  }
+  if (appDbText.includes('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')) {
+    failWithDetails('Large raw payload leaked into App-DB Diff text', {
+      traceCount: traceEvents.length,
+      appDbText: appDbText.slice(0, 1200),
+    });
+  }
+  state.loadStats = {
+    eventCountBefore: 0,
+    eventCountAfter: traceEvents.length,
+    traceBufferDepth: traceEvents.length,
+    visibleRowCount: await page.locator('[data-testid^="rf-causa-app-db-diff-slice-"]').count(),
+    renderDurationMs: Date.now() - start,
+    largeDispatchCount: 20,
+    elisionMarkerVisible: true,
+  };
 }
 
 async function runHydration(page) {
@@ -1275,6 +1418,59 @@ async function runTwentyEventLoad(page, state) {
     visibleRows: after.rendered,
     traceBufferDepth: after.total,
     elapsedMs,
+  };
+}
+
+async function runTraceBudgetSaturation(page, state) {
+  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  await openCausa(page);
+  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await clearTrace(page);
+  const start = Date.now();
+  const pushed = await pushSyntheticTraceEvents(page, 1000);
+  const saturated = await waitForValue(
+    () => readTraceCounts(page),
+    (counts) => counts.total === 1000,
+    { timeoutMs: 10000, description: 'trace buffer saturation at 1000 rows' },
+  );
+  const saturatedDom = await waitForValue(
+    () => readTraceDomBudget(page),
+    (budget) => budget.rowCount === 200 && budget.overflowPresent,
+    { timeoutMs: 10000, description: 'trace DOM row budget at 200 with overflow indicator' },
+  );
+  if (saturatedDom.rowCount > 200) {
+    failWithDetails('Trace panel exceeded its 200-row DOM budget under saturation', {
+      pushed,
+      counts: saturated,
+      dom: saturatedDom,
+    });
+  }
+
+  for (let i = 0; i < 20; i += 1) {
+    await clickHostButtonByLabel(page, i % 2 === 0 ? '+' : '-');
+  }
+  const after = await waitForValue(
+    async () => ({
+      counts: await readTraceCounts(page),
+      dom: await readTraceDomBudget(page),
+      events: await readTrace(page),
+    }),
+    (snapshot) =>
+      snapshot.counts.total === 1000 &&
+      snapshot.dom.rowCount <= 200 &&
+      snapshot.events.some((event) => event.includes(':counter/inc')) &&
+      snapshot.events.some((event) => event.includes(':counter/dec')),
+    { timeoutMs: 10000, description: 'trace budget still capped after 20 host dispatches' },
+  );
+  state.loadStats = {
+    eventCountBefore: saturated.total,
+    eventCountAfter: after.counts.total,
+    traceBufferDepth: after.counts.total,
+    visibleRowCount: after.dom.rowCount,
+    renderDurationMs: Date.now() - start,
+    bufferEvictionCount: Math.max(0, saturated.total + 20 - after.counts.total),
+    overflowText: after.dom.overflowText,
+    syntheticEventsPushed: pushed.pushed,
   };
 }
 
@@ -1531,16 +1727,18 @@ const SCENARIOS = [
     run: runAppDbPrivacyLarge,
   },
   {
-    name: 'sensitive redaction substrate',
+    name: '20-event sensitive redaction load',
     url: '/testbeds/sensitive-dispatcher/',
     panels: ['trace'],
+    load: true,
     coveredRows: ['Redaction, Sensitive, and Large Values', 'Trace'],
     run: runSensitiveDispatcher,
   },
   {
-    name: 'large value elision substrate',
+    name: '20-event large value elision load',
     url: '/testbeds/large-dispatcher/',
-    panels: ['trace'],
+    panels: ['trace', 'app-db'],
+    load: true,
     coveredRows: ['Redaction, Sensitive, and Large Values', 'App-DB Diff'],
     run: runLargeDispatcher,
   },
@@ -1566,6 +1764,18 @@ const SCENARIOS = [
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runTwentyEventLoad,
+  },
+  {
+    name: '1000-event trace row-budget plus 20-dispatch re-check',
+    url: '/counter/',
+    panels: ['trace'],
+    load: true,
+    coveredRows: [
+      'Trace',
+      'Performance',
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runTraceBudgetSaturation,
   },
   {
     name: '20-event launch-mode shared runtime re-check',

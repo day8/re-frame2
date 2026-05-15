@@ -326,7 +326,10 @@
                   (update :rendered inc))
               state'')))
         result         (reduce accumulate init-state events)
-        sorted-display (vec (:rev-filtered result))
+        sorted-display (mapv (fn [idx row]
+                                (assoc row :row-index idx))
+                              (range)
+                              (:rev-filtered result))
         empty-kind  (cond
                       (zero? (:total result))    :no-events
                       (zero? (:rendered result)) :no-matches
