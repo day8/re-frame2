@@ -233,5 +233,5 @@
                         :cell-overrides (get-in shell [:cell-overrides variant-id])})]
     [:div {:style (:grid styles)}
      (for [substrate (sort-by name substrates)]
-       ^{:key substrate}
-       (safe-render-cell variant-id substrate view-id eff-args))]))
+       [:div {:key (name substrate)}
+        (safe-render-cell variant-id substrate view-id eff-args)])]))

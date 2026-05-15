@@ -15,7 +15,7 @@ const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
 const BASE_URL = process.env.STORY_FEATURE_LOAD_BASE_URL || 'http://127.0.0.1:8031';
-const TIMEOUT_MS = parseInt(process.env.STORY_FEATURE_LOAD_TIMEOUT_MS || '90000', 10);
+const TIMEOUT_MS = parseInt(process.env.STORY_FEATURE_LOAD_TIMEOUT_MS || '300000', 10);
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
 const SPEC_FILES = [

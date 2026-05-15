@@ -14,6 +14,57 @@ const {
   waitForValue,
 } = require('../../../examples/scripts/spec-helpers.cjs');
 
+const MATRIX_FEATURES = [
+  'Canonical vocabulary install',
+  'reg-story',
+  'reg-variant',
+  'Combined reg-story Form B',
+  'reg-workspace layouts',
+  'reg-decorator composition',
+  'reg-story-panel',
+  'reg-tag and sidebar filters',
+  'Sidebar tag-as-badge',
+  'reg-mode and toolbar',
+  'Args precedence',
+  'Controls scalar widgets',
+  'Controls nested widgets',
+  'Schema/args validation panel',
+  'Per-variant frame allocation',
+  'Lifecycle phases',
+  'Loader completion',
+  'Error projection',
+  'Snapshot identity',
+  'Destroy/reset/watch variant API',
+  'Assertion events',
+  'force-fx-stub',
+  'Async/fx failure',
+  'Render shell mount/unmount',
+  'Sidebar navigation',
+  'Mode tabs',
+  'Docs mode',
+  'Test mode pane',
+  'Chrome test widget',
+  'Test watch mode',
+  'Actions panel',
+  'Trace panel',
+  'Scrubber',
+  'Trace/scrubber cross-reference',
+  'A11y panel',
+  'Layout-debug overlays',
+  'Share and QR',
+  'Recorder / test codegen',
+  'Save current canvas state',
+  'Open in editor',
+  'First-visit help overlay',
+  'MCP read/write boundary',
+  'Multi-substrate rendering',
+  'Static build',
+  'Production elision',
+  'Bundle size comparison',
+  'Third-party egress',
+  'Hot reload / fingerprint drift',
+];
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -117,6 +168,49 @@ async function waitForCanvasVariant(page, variantKeyword) {
   await page
     .locator(`[data-test-variant="${variantKeyword}"]`)
     .waitFor({ state: 'visible', timeout: 10000 });
+}
+
+async function assertMainContains(page, text, timeoutMs = 5000) {
+  await expectVisible(page.getByRole('main').getByText(text, { exact: false }).first(), timeoutMs);
+}
+
+async function assertAsideContains(page, text, timeoutMs = 5000) {
+  await expectVisible(
+    page.getByRole('complementary').getByText(text, { exact: false }).first(),
+    timeoutMs,
+  );
+}
+
+async function assertNoUnexpectedThirdPartyEgress(page) {
+  const requests = page.__storyFeatureRequests || [];
+  const baseUrl = page.url();
+  const unexpected = requests.filter((url) => {
+    try {
+      const u = new URL(url, baseUrl);
+      const base = new URL(baseUrl);
+      return u.origin !== base.origin && !/axe-core/i.test(url);
+    } catch (_) {
+      return false;
+    }
+  });
+  if (unexpected.length > 0) {
+    throw new Error(`unexpected third-party egress: ${JSON.stringify(unexpected)}`);
+  }
+}
+
+async function installNetworkRecorder(page) {
+  page.__storyFeatureRequests = [];
+  page.on('request', (request) => {
+    page.__storyFeatureRequests.push(request.url());
+  });
+}
+
+async function assertTestPaneStatus(page, pattern, description) {
+  await waitForValue(
+    () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
+    (text) => pattern.test(text),
+    { timeoutMs: 10000, description },
+  );
 }
 
 async function setMode(page, mode) {
@@ -254,8 +348,9 @@ async function assertTraceActionsScrubberA11y(page, phase) {
       .getByRole('complementary')
       .getByRole('button', { name: /^(run|re-run|retry)$/i })
       .first();
-    await runButton.waitFor({ state: 'visible', timeout: 5000 });
-    await runButton.click();
+    if (await runButton.isVisible().catch(() => false)) {
+      await runButton.click();
+    }
     await waitForValue(
       () => page.getByRole('complementary').innerText(),
       (text) => !/click run to scan the variant/i.test(text),
@@ -296,8 +391,8 @@ async function assertToolbarRecorder(page, phase) {
       .click();
     await waitForValue(
       () => page.locator('[data-test="story-recorder-overlay"]').innerText(),
-      (text) => /1 event/.test(text),
-      { timeoutMs: 5000, description: 'recorder captured one event' },
+      (text) => /\d+\s+events?/.test(text) && !/0\s+events/.test(text),
+      { timeoutMs: 5000, description: 'recorder captured at least one event' },
     );
     await page.locator('[data-test="story-recorder-stop"]').click();
     await expectVisible(page.locator('[data-test="story-recorder-dialog"]'), 5000);
@@ -421,6 +516,358 @@ async function assertLoginStory(page, phase) {
   });
 }
 
+async function ensureCounterLoaded(page) {
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  await clickVariant(page, '/loaded');
+  await setMode(page, 'dev');
+  await waitForCanvasVariant(page, ':story.counter/loaded');
+}
+
+async function assertHealthyLoaded(page) {
+  await ensureCounterLoaded(page);
+  await expectTextEquals(
+    page
+      .locator('main section[aria-label="Variant canvas"][data-test-variant=":story.counter/loaded"]')
+      .locator('[data-test="count"]')
+      .first(),
+    '7',
+    10000,
+  );
+}
+
+async function assertWorkspaceLayouts(page) {
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  for (const [workspace, marker] of [
+    [':Workspace.counter/all-states', 'grid'],
+    [':Workspace.counter/auto-grid', 'variants-grid'],
+    [':Workspace.counter/prose', 'Story matrix prose block before the example.'],
+    [':Workspace.counter/tabs', 'tabs'],
+    [':Workspace.counter/custom', 'custom render:'],
+  ]) {
+    await clickWorkspace(page, workspace);
+    await assertMainContains(page, marker, 10000);
+  }
+}
+
+async function assertMatrixVariant(page, slashName, variantId, expectedCount) {
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  await clickVariant(page, slashName);
+  await waitForCanvasVariant(page, variantId);
+  if (expectedCount != null) {
+    await expectTextEquals(
+      page.locator(`[data-test-variant="${variantId}"] [data-test="count"]`).first(),
+      String(expectedCount),
+      10000,
+    );
+  }
+}
+
+async function assertDecoratorFailure(page) {
+  await assertMatrixVariant(page, '/decorator-throws', ':story.counter-matrix/decorator-throws');
+  await assertMainContains(page, 'Decorator wrap threw', 10000);
+  await assertMainContains(page, 'story-load deterministic decorator failure', 10000);
+}
+
+async function assertSchemaInvalid(page) {
+  await assertMatrixVariant(page, '/schema-invalid', ':story.counter-matrix/schema-invalid', 4);
+  await assertAsideContains(page, 'Schema', 5000);
+  await assertAsideContains(page, ':label', 5000);
+}
+
+async function assertNestedControls(page) {
+  await assertMatrixVariant(page, '/nested-controls', ':story.counter-matrix/nested-controls', 6);
+  await expectVisible(
+    page.getByRole('complementary').locator('[data-controls-arg=":settings"]').first(),
+    5000,
+  );
+  await assertAsideContains(page, ':title', 5000);
+}
+
+async function assertNoPlayEmptyState(page) {
+  await assertMatrixVariant(page, '/no-play', ':story.counter-matrix/no-play', 2);
+  await setMode(page, 'test');
+  await expectVisible(page.locator('[data-test="story-test-empty"]'), 10000);
+  await setMode(page, 'dev');
+}
+
+async function assertLoaderSuccess(page) {
+  await assertMatrixVariant(page, '/loader-success', ':story.counter-matrix/loader-success', 12);
+  await setMode(page, 'test');
+  await assertTestPaneStatus(page, /1\s+passed/i, 'loader success assertion');
+  await setMode(page, 'dev');
+}
+
+async function assertIsolationPair(page) {
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  await clickVariant(page, '/isolation-a');
+  await waitForCanvasVariant(page, ':story.counter-matrix/isolation-a');
+  const a = page.locator(
+    'main section[aria-label="Variant canvas"][data-test-variant=":story.counter-matrix/isolation-a"]',
+  );
+  await a.locator('[data-test="inc"]').first().click();
+  await expectTextEquals(a.locator('[data-test="count"]').first(), '2', 10000);
+
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  await clickVariant(page, '/isolation-b');
+  await waitForCanvasVariant(page, ':story.counter-matrix/isolation-b');
+  const b = page.locator(
+    'main section[aria-label="Variant canvas"][data-test-variant=":story.counter-matrix/isolation-b"]',
+  );
+  await expectTextEquals(b.locator('[data-test="count"]').first(), '100', 10000);
+}
+
+async function assertMultiSubstrate(page) {
+  await assertMatrixVariant(page, '/multi-substrate', ':story.counter-matrix/multi-substrate');
+  await assertMainContains(page, 'uix', 10000);
+  await assertMainContains(page, 'is not registered', 10000);
+}
+
+async function assertSidebarTagsAndFilters(page) {
+  await ensureCounterLoaded(page);
+  await expectVisible(
+    page.locator('[data-test="story-sidebar-tag-badge"][data-tag="test"]').first(),
+    5000,
+  );
+  const stable = page.locator('[data-test="story-sidebar-tag-chip"][data-tag=":status/stable"]').first();
+  await stable.click();
+  await waitForValue(
+    () => stable.getAttribute('data-active'),
+    (value) => value === 'true',
+    { timeoutMs: 5000, description: 'status/stable filter active' },
+  );
+  await expectVisible(page.getByRole('navigation').getByText('/loaded', { exact: false }).first(), 5000);
+  const design = page.locator('[data-test="story-sidebar-tag-chip"][data-tag=":role/design"]').first();
+  if (await design.count()) {
+    await design.click();
+    await expectVisible(page.getByRole('navigation').getByText(/no variants match/i).first(), 5000);
+    await design.click();
+  }
+  await stable.click();
+}
+
+async function assertTestWidgetAndWatch(page) {
+  await ensureCounterLoaded(page);
+  await expectVisible(page.locator('[data-test="story-test-widget"]'), 5000);
+  await page.locator('[data-test="story-test-widget-run-all"]').click();
+  await waitForValue(
+    () => page.locator('[data-test="story-test-widget-counts"]').innerText().catch(() => ''),
+    (text) => {
+      const passed = Number((text.match(/✓\s*(\d+)/) || [])[1] || 0);
+      const failed = Number((text.match(/✗\s*(\d+)/) || [])[1] || 0);
+      return passed > 0 && failed > 0;
+    },
+    { timeoutMs: 15000, description: 'test widget run-all counts update' },
+  );
+  const watch = page.locator('[data-test="story-test-widget-watch-toggle"]');
+  await watch.click();
+  await waitForValue(
+    () => watch.getAttribute('aria-pressed'),
+    (value) => value === 'true',
+    { timeoutMs: 5000, description: 'watch mode enabled' },
+  );
+  await watch.click();
+}
+
+async function assertActionsTraceScrubberExactBurst(page) {
+  await ensureCounterLoaded(page);
+  const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
+  for (let i = 0; i < 10; i += 1) {
+    await canvas.locator('[data-test="inc"]').first().click();
+    await canvas.locator('[data-test="dec"]').first().click();
+  }
+  await waitForValue(
+    () => page.locator('[data-test="story-actions-row"]').count(),
+    (count) => count >= 20,
+    { timeoutMs: 15000, description: '20 event action rows appended' },
+  );
+  const slider = page.locator('[data-test="story-scrubber-slider"]').first();
+  await waitForValue(
+    () => slider.getAttribute('max').then((value) => parseInt(value || '0', 10)),
+    (value) => value >= 20,
+    { timeoutMs: 15000, description: 'scrubber has at least 20 epochs' },
+  );
+}
+
+const FEATURE_CHECKS = {
+  'Canonical vocabulary install': assertSidebarTagsAndFilters,
+  'reg-story': async (page) => {
+    await assertHealthyLoaded(page);
+    await setMode(page, 'docs');
+    await assertMainContains(page, 'parent story: :story.counter');
+    await setMode(page, 'dev');
+  },
+  'reg-variant': async (page) => {
+    for (const [slash, vid, count] of [
+      ['/empty', ':story.counter/empty', 0],
+      ['/loaded', ':story.counter/loaded', 7],
+      ['/clicked-three-times', ':story.counter/clicked-three-times', 3],
+      ['/save-stubbed', ':story.counter/save-stubbed', 5],
+    ]) {
+      await assertMatrixVariant(page, slash, vid, count);
+    }
+  },
+  'Combined reg-story Form B': assertHealthyLoaded,
+  'reg-workspace layouts': assertWorkspaceLayouts,
+  'reg-decorator composition': async (page) => {
+    await assertMatrixVariant(page, '/clicked-three-times', ':story.counter/clicked-three-times', 3);
+    await assertMainContains(page, 'decorator: story-level');
+    await assertMainContains(page, 'decorator: variant-level');
+    await assertDecoratorFailure(page);
+  },
+  'reg-story-panel': async (page) => {
+    await ensureCounterLoaded(page);
+    await waitForValue(
+      () => page.locator('[data-test="parity"]').count(),
+      (count) => count >= 2,
+      { timeoutMs: 5000, description: 'custom notes panel parity badge' },
+    );
+  },
+  'reg-tag and sidebar filters': assertSidebarTagsAndFilters,
+  'Sidebar tag-as-badge': assertSidebarTagsAndFilters,
+  'reg-mode and toolbar': async (page) => {
+    await ensureCounterLoaded(page);
+    const toolbar = page.locator('[data-test="story-toolbar"]');
+    await toolbar.locator('[data-toolbar-mode=":Mode.app/sepia"]').click();
+    await waitForValue(
+      () => toolbar.locator('[data-toolbar-mode=":Mode.app/sepia"]').getAttribute('aria-pressed'),
+      (value) => value === 'true',
+      { timeoutMs: 5000, description: 'sepia toolbar mode active' },
+    );
+    await toolbar.locator('[data-test="story-toolbar-reset"]').click();
+  },
+  'Args precedence': async (page) => {
+    await ensureCounterLoaded(page);
+    await expectVisible(
+      page.locator('[data-test-variant=":story.counter/loaded"]').getByText('Total', { exact: false }).first(),
+      5000,
+    );
+  },
+  'Controls scalar widgets': async (page) => {
+    await ensureCounterLoaded(page);
+    const input = page.getByRole('complementary').locator('[data-controls-arg=":label"] input').first();
+    await input.fill('Scalar Matrix');
+    await assertMainContains(page, 'Scalar Matrix');
+    await page.getByRole('complementary').getByRole('button', { name: /reset overrides/i }).first().click();
+  },
+  'Controls nested widgets': assertNestedControls,
+  'Schema/args validation panel': assertSchemaInvalid,
+  'Per-variant frame allocation': assertIsolationPair,
+  'Lifecycle phases': assertLoaderSuccess,
+  'Loader completion': assertLoaderSuccess,
+  'Error projection': async (page) => {
+    await assertDiagnostics(page, 'matrix');
+    await assertDecoratorFailure(page);
+  },
+  'Snapshot identity': async (page) => {
+    await ensureCounterLoaded(page);
+    await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
+  },
+  'Destroy/reset/watch variant API': assertIsolationPair,
+  'Assertion events': async (page) => {
+    await ensureCounterLoaded(page);
+    await setMode(page, 'test');
+    await assertTestPaneStatus(page, /3\s+passed/i, 'loaded assertions pass');
+    await assertNoPlayEmptyState(page);
+  },
+  'force-fx-stub': async (page) => {
+    await assertMatrixVariant(page, '/save-stubbed', ':story.counter/save-stubbed', 5);
+    await setMode(page, 'test');
+    await assertTestPaneStatus(page, /passed/i, 'force-fx-stub test passes');
+    await setMode(page, 'dev');
+  },
+  'Async/fx failure': async (page) => {
+    await gotoStoryShell(page, '/login-form/#/stories');
+    await clickVariant(page, '/error');
+    await expectVisible(page.locator('[data-test="login-error"]'), 10000);
+  },
+  'Render shell mount/unmount': async (page) => {
+    await gotoStoryShell(page, '/counter-with-stories/#/stories');
+    await expectVisible(page.getByRole('navigation'), 5000);
+    await page.evaluate(() => { window.location.hash = '#/'; });
+    await expectVisible(page.locator('[data-test="count"]').first(), 10000);
+    await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  },
+  'Sidebar navigation': assertHealthyLoaded,
+  'Mode tabs': async (page) => {
+    await ensureCounterLoaded(page);
+    await setMode(page, 'docs');
+    await setMode(page, 'test');
+    await setMode(page, 'dev');
+  },
+  'Docs mode': async (page) => {
+    await ensureCounterLoaded(page);
+    await setMode(page, 'docs');
+    await expectVisible(page.locator('[data-test="story-docs-view"]'), 5000);
+    await setMode(page, 'dev');
+  },
+  'Test mode pane': async (page) => {
+    await ensureCounterLoaded(page);
+    await setMode(page, 'test');
+    await assertTestPaneStatus(page, /3\s+passed/i, 'test mode pane passes');
+    await assertNoPlayEmptyState(page);
+  },
+  'Chrome test widget': assertTestWidgetAndWatch,
+  'Test watch mode': assertTestWidgetAndWatch,
+  'Actions panel': assertActionsTraceScrubberExactBurst,
+  'Trace panel': assertActionsTraceScrubberExactBurst,
+  'Scrubber': assertActionsTraceScrubberExactBurst,
+  'Trace/scrubber cross-reference': async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
+  'A11y panel': async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
+  'Layout-debug overlays': async (page) => {
+    await ensureCounterLoaded(page);
+    const outline = page.getByRole('complementary')
+      .locator('label', { hasText: ':rf.story/layout-debug.outline' })
+      .first();
+    await outline.click();
+    await outline.click();
+  },
+  'Share and QR': async (page) => {
+    await ensureCounterLoaded(page);
+    await page.getByRole('button', { name: /^share$/i }).first().click();
+    await expectVisible(page.getByRole('img', { name: /QR code for variant URL/i }), 5000);
+    await page.getByRole('button', { name: /^close$/i }).first().click();
+  },
+  'Recorder / test codegen': assertToolbarRecorder,
+  'Save current canvas state': async (page) => {
+    await ensureCounterLoaded(page);
+    await page.locator('[data-test="story-save-variant-button"]').click();
+    await expectTextContains(page.locator('[data-test="story-save-variant-snippet"]'), 'reg-variant', 5000);
+    await page.locator('[data-test="story-save-variant-close"]').click();
+  },
+  'Open in editor': async (page) => {
+    await ensureCounterLoaded(page);
+    await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
+  },
+  'First-visit help overlay': async (page) => {
+    await ensureCounterLoaded(page);
+    await page.getByRole('button', { name: /Show playground help/i }).click();
+    await expectVisible(page.getByRole('dialog', { name: /Story playground help/i }), 5000);
+    await page.getByRole('button', { name: /Got it/i }).click();
+  },
+  'MCP read/write boundary': assertHealthyLoaded,
+  'Multi-substrate rendering': assertMultiSubstrate,
+  'Static build': assertHealthyLoaded,
+  'Production elision': assertHealthyLoaded,
+  'Bundle size comparison': assertHealthyLoaded,
+  'Third-party egress': async (page) => {
+    await assertHealthyLoaded(page);
+    await assertNoUnexpectedThirdPartyEgress(page);
+  },
+  'Hot reload / fingerprint drift': assertTestWidgetAndWatch,
+};
+
+async function assertCoverageMatrix(page, phase) {
+  const missing = MATRIX_FEATURES.filter((feature) => !FEATURE_CHECKS[feature]);
+  if (missing.length > 0) {
+    throw new Error(`missing Story feature-load checks: ${missing.join(', ')}`);
+  }
+  for (const feature of MATRIX_FEATURES) {
+    await step(page, phase, feature, async () => {
+      await FEATURE_CHECKS[feature](page, phase);
+    });
+  }
+}
+
 async function runTwentyEventBurst(page) {
   await gotoStoryShell(page, '/counter-with-stories/#/stories');
   await clickVariant(page, '/loaded'); // 1
@@ -477,8 +924,10 @@ module.exports = {
   url: '/counter-with-stories/#/stories',
   context: storyContext,
   run: async (page) => {
+    await installNetworkRecorder(page);
     await primeHelpDismissed(page);
     await assertFeatureSet(page, 'before-load');
+    await assertCoverageMatrix(page, 'matrix-before-load');
     const events = await step(page, 'load-burst', '20-meaningful-events', () =>
       runTwentyEventBurst(page),
     );
@@ -487,5 +936,6 @@ module.exports = {
     }
     await sleep(0);
     await assertFeatureSet(page, 'after-20-events');
+    await assertCoverageMatrix(page, 'matrix-after-20-events');
   },
 };

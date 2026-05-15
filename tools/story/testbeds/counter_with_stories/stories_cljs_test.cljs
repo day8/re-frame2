@@ -103,10 +103,27 @@
       (is (contains? vs :story.counter-diagnostics/loader-throws))
       (is (= 3 (count vs))))))
 
+(deftest matrix-variants-registered
+  (testing "the matrix story exposes deterministic browser-gate affordances"
+    (let [vs (story/variants-of :story.counter-matrix)]
+      (doseq [vid [:story.counter-matrix/no-play
+                   :story.counter-matrix/loader-success
+                   :story.counter-matrix/schema-invalid
+                   :story.counter-matrix/nested-controls
+                   :story.counter-matrix/decorator-throws
+                   :story.counter-matrix/multi-substrate
+                   :story.counter-matrix/isolation-a
+                   :story.counter-matrix/isolation-b]]
+        (is (contains? vs vid) (str vid " registered")))
+      (is (= 8 (count vs))))))
+
 (deftest example-workspaces-registered
   (testing "both workspaces registered"
     (is (story/registered? :workspace :Workspace.counter/all-states))
-    (is (story/registered? :workspace :Workspace.counter/auto-grid))))
+    (is (story/registered? :workspace :Workspace.counter/auto-grid))
+    (is (story/registered? :workspace :Workspace.counter/prose))
+    (is (story/registered? :workspace :Workspace.counter/tabs))
+    (is (story/registered? :workspace :Workspace.counter/custom))))
 
 ;; ---- variants resolve cleanly ------------------------------------------
 
