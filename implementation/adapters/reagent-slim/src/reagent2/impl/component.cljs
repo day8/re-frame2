@@ -348,6 +348,15 @@
   (binding [*current-component* this]
     (f)))
 
+(defn- copy-argv-from-props!
+  "Read the argv off React's `props` and stash it on `c` as
+  `cljsArgv`. Called from the React constructor and from render entry.
+  The argv lives on the instance so wrap-render reads a single source
+  of truth."
+  [^js c ^js props]
+  (when props
+    (set! (.-cljsArgv c) (.-__rfArgv props))))
+
 (defn- install-lifecycle!
   "Attach the cap's lifecycle methods (those present in `spec`) to the
   React class's prototype. The user fn for each key is invoked with
@@ -458,15 +467,6 @@
                        ;; ._run re-captures deps AND produces fresh hiccup.
                        (._run rea false))]
           (->react-element hiccup))))))
-
-(defn- copy-argv-from-props!
-  "Read the argv off React's `props` and stash it on `c` as
-  `cljsArgv`. Called from the React constructor and from
-  componentWillReceiveProps-style points. The argv lives on the
-  instance so wrap-render reads a single source of truth."
-  [^js c ^js props]
-  (when props
-    (set! (.-cljsArgv c) (.-__rfArgv props))))
 
 (defn create-class*
   "Build a React component class from a Form-3 spec map. Validates

@@ -6,7 +6,7 @@
   never depends on this artefact. Cross-references from core to ssr
   flow through `re-frame.late-bind`.
 
-  Façade over eight flat sub-namespaces (`emit`, `hash`, `adapter`,
+  Façade over eight flat sub-namespaces (`emit`, `hash`, `substrate`,
   `hydrate`, `response`, `error-projector`, `error-listener`,
   `request`). All `reg-fx` / `reg-cofx` / `reg-event-fx` /
   `reg-error-projector` / `register-trace-cb!` side-effects fire HERE
@@ -39,7 +39,6 @@
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
-            [re-frame.ssr.adapter :as adapter-ns]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.error-projector :as error-projector]
@@ -54,6 +53,7 @@
             [re-frame.ssr.hydrate :as hydrate]
             [re-frame.ssr.request :as request]
             [re-frame.ssr.response :as response]
+            [re-frame.ssr.substrate :as substrate]
             ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR primitive
             ;; (:rf/suspense-boundary). Loaded eagerly so the three
             ;; late-bind hooks (:ssr.streaming/render-shell!,
@@ -76,7 +76,7 @@
 ;; JVM↔CLJS canonical-EDN parity check (hash_check_cljs_test).
 (def ^:private canonical-edn         hash/canonical-edn)
 (def ^:private fnv-1a-32             hash/fnv-1a-32)
-(def adapter                         adapter-ns/adapter)
+(def adapter                         substrate/adapter)
 (def verify-hydration!               hydrate/verify-hydration!)
 (def default-response                response/default-response)
 ;; framework-private — Spec 011 §Response storage substrate (rf2-jbcmt).

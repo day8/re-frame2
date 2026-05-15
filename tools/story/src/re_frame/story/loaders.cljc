@@ -54,6 +54,7 @@
   Story runtime entry points read `(rf/handler-meta :event
   :rf.story.lifecycle/machine)` and find nothing, returning early."
   (:require [re-frame.story.config    :as config]
+            [re-frame.story.assertions :as assertions]
             #?(:clj  [re-frame.machines :as machines]
                :cljs [re-frame.machines :as machines])
             [re-frame.core            :as rf]))
@@ -325,20 +326,10 @@
   (keyword? pred))
 
 (defn- dispatched-events-set
-  "Read the dispatched-events set for `frame-id`. Lazily resolved to
-  avoid a circular require with the assertions module."
+  "Read the dispatched-events set for `frame-id`."
   [frame-id]
   (try
-    (let [resolve-fn #?(:clj  (requiring-resolve
-                                're-frame.story.assertions/frame-dispatched)
-                       :cljs ((fn []
-                                ;; CLJS: the assertions ns is loaded by
-                                ;; the runtime/install-helpers! path.
-                                (some-> (find-ns 're-frame.story.assertions)
-                                        (ns-resolve 'frame-dispatched)))))]
-      (when resolve-fn
-        (let [evs (resolve-fn frame-id)]
-          (set evs))))
+    (set (assertions/frame-dispatched frame-id))
     (catch #?(:clj Throwable :cljs :default) _ #{})))
 
 (defn- vector-of-events-satisfied?

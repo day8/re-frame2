@@ -66,6 +66,7 @@
   (:require [re-frame.core         :as rf]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.config :as config]
+            [re-frame.story.frames :as frames]
             [re-frame.story.registrar :as registrar]))
 
 ;; ---------------------------------------------------------------------------
@@ -148,13 +149,9 @@
   `re-frame.story.frames/stub-call-log-for`. Each entry carries the
   original `:fx-id`; we set-ify."
   [variant-id]
-  (let [resolve-fn
-        (try
-          #?(:clj  (requiring-resolve 're-frame.story.frames/stub-call-log-for)
-             :cljs (some-> (find-ns 're-frame.story.frames)
-                           (ns-resolve 'stub-call-log-for)))
-          (catch #?(:clj Throwable :cljs :default) _ nil))
-        entries (if resolve-fn (resolve-fn variant-id) [])]
+  (let [entries (try
+                  (frames/stub-call-log-for variant-id)
+                  (catch #?(:clj Throwable :cljs :default) _ []))]
     (set (keep :fx-id entries))))
 
 ;; ---------------------------------------------------------------------------
