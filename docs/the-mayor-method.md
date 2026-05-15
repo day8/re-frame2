@@ -202,21 +202,19 @@ Every so often, I stop and run two reviews.
 
 **Second**, I ask the mayor to spawn independent reviewers against the recent commits:
 
-```text
-Regarding the recent commits, spawn agents to review independently for:
-- performance, but not at the expense of clarity;
-- completeness;
-- correctness;
-- clarity and simplicity;
-- best practice;
-- test coverage and rigour;
-- comments and explanation;
-- documentation updates, including READMEs and changelogs;
-- backwards compatibility, where it matters.
+> Regarding the recent commits, spawn agents to review independently for:
+> - performance, but not at the expense of clarity;
+> - completeness;
+> - correctness;
+> - clarity and simplicity;
+> - best practice;
+> - test coverage and rigour;
+> - comments and explanation;
+> - documentation updates, including READMEs and changelogs;
+> - backwards compatibility, where it matters.
 
-Create beads for each actionable observation. Action accepted beads using
-background workers.
-```
+> Create beads for each actionable observation. Then cluster beads by surface area for potential actioning. Update map.ai with a terse summary so I see what the results are.
+
 
 Different lenses find different issues.
 
