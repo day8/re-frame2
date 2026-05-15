@@ -102,7 +102,7 @@
       (is (contains? vs :story.counter-diagnostics/event-throws))
       (is (contains? vs :story.counter-diagnostics/loader-throws))
       (is (contains? vs :story.counter-diagnostics/render-throws))
-      (is (= 3 (count vs))))))
+      (is (= 4 (count vs))))))
 
 (deftest matrix-variants-registered
   (testing "the matrix story exposes deterministic browser-gate affordances"
@@ -119,7 +119,7 @@
                    :story.counter-matrix/isolation-b
                    :story.counter-matrix/recorder-redaction]]
         (is (contains? vs vid) (str vid " registered")))
-      (is (= 9 (count vs))))))
+      (is (= 11 (count vs))))))
 
 (deftest example-workspaces-registered
   (testing "both workspaces registered"
