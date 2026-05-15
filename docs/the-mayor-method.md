@@ -134,8 +134,16 @@ tower.
 Worker prompt rule:
 
 > You are working in `PATH_TO_WORKTREE`. Do not edit the mayor checkout. You
-> are not alone in this repo. Do not revert unrelated changes. Push your branch
-> and report back. Do not merge PRs or close beads; the mayor owns that.
+> must run `powershell -ExecutionPolicy Bypass -File scripts/assert-worker-worktree.ps1`
+> before edits and report the printed `WORKTREE_ROOT`. You are not alone in
+> this repo. Do not revert unrelated changes. Push your branch and report back.
+> Do not merge PRs or close beads; the mayor owns that.
+
+That guard is a mitigation for harness-level path-resolution leaks observed on
+Windows worktrees. It proves the current Git root is under the worker worktree
+parent and refuses the mayor checkout, but it cannot fix an external edit/write
+tool that ignores its process root after the check. If it fails, the worker
+stops before editing.
 
 ## You Still Own the Hard Calls
 
@@ -263,6 +271,8 @@ When dispatching a worker:
 - Give the worker one bounded task and a clear write scope.
 - Tell it it is not alone in the repo.
 - Tell it not to edit the mayor checkout.
+- Require it to run `powershell -ExecutionPolicy Bypass -File scripts/assert-worker-worktree.ps1`
+  before edits and report `WORKTREE_ROOT`.
 - Tell it not to merge PRs or close beads.
 - Require tests/checks and a final report with changed files, commands run,
   branch/PR, and risks.
