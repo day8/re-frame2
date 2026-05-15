@@ -40,6 +40,7 @@ const MATRIX_FEATURES = [
   'Async/fx failure',
   'Render shell mount/unmount',
   'Sidebar navigation',
+  'Command palette',
   'Mode tabs',
   'Docs mode',
   'Test mode pane',
@@ -728,6 +729,31 @@ async function assertHealthyLoaded(page) {
   );
 }
 
+async function assertCommandPalette(page) {
+  await ensureCounterLoaded(page);
+
+  await page.keyboard.press('Control+K');
+  await expectVisible(page.locator('[data-test="story-command-palette"]'), 5000);
+  await page.locator('[data-test="story-command-palette-input"]').fill('clicked three');
+  await page.keyboard.press('Enter');
+  await waitForCanvasVariant(page, ':story.counter/clicked-three-times');
+
+  await page.keyboard.press('Control+K');
+  await page.locator('[data-test="story-command-palette-input"]').fill('auto grid');
+  await page.locator('[data-test="story-command-palette-result"][data-id=":Workspace.counter/auto-grid"]').click();
+  await assertMainContains(page, 'variants-grid', 10000);
+
+  await page.keyboard.press('Control+K');
+  await page.locator('[data-test="story-command-palette-input"]').fill('sepia');
+  await page.locator('[data-test="story-command-palette-result"][data-id=":Mode.app/sepia"]').click();
+  await waitForValue(
+    () => page.locator('[data-toolbar-mode=":Mode.app/sepia"]').getAttribute('aria-pressed'),
+    (value) => value === 'true',
+    { timeoutMs: 5000, description: 'sepia mode selected through command palette' },
+  );
+  await resetToolbarModes(page);
+}
+
 async function assertWorkspaceLayouts(page) {
   await gotoStoryShell(page, '/counter-with-stories/#/stories');
   for (const [workspace, marker] of [
@@ -1078,6 +1104,7 @@ const FEATURE_CHECKS = {
     await gotoStoryShell(page, '/counter-with-stories/#/stories');
   },
   'Sidebar navigation': assertHealthyLoaded,
+  'Command palette': assertCommandPalette,
   'Mode tabs': async (page) => {
     await ensureCounterLoaded(page);
     await setMode(page, 'docs');
