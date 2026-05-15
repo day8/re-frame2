@@ -20,6 +20,10 @@
             ;; Required before any reg-app-schema / :spec metadata is
             ;; consumed by validation.
             [re-frame.schemas]
+            ;; Publish Malli into the schemas artefact. Without this adapter
+            ;; CLJS schema checks soft-pass by design, so the browser testbed
+            ;; would expose counters but no recovery traces.
+            [re-frame.schemas.malli]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -139,6 +143,11 @@
    [:h1 "schema-violation testbed"]
    [:p "Each button triggers exactly one :where surface of "
     [:code ":rf.error/schema-validation-failure"] "."]
+   [:p {:data-testid "schema-recovery-browser-semantics"
+        :style       {:color "#666"}}
+    "Malli validation is loaded for this browser build; the feature gate
+     asserts rollback, skipped handlers, skipped fx, and the matching
+     Causa timeline traces."]
    [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap}}
     [:button {:data-testid "violate-app-db"
               :on-click #(dispatch [::violate-app-db])}

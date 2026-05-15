@@ -196,6 +196,371 @@ async function waitForTraceMatch(page, pattern, label, timeoutMs = 10000) {
   );
 }
 
+function failWithDetails(message, details) {
+  throw new Error(`${message}: ${JSON.stringify(details, null, 2)}`);
+}
+
+function ensureStateList(state, key) {
+  if (!Array.isArray(state[key])) state[key] = [];
+  return state[key];
+}
+
+async function clickSourceCoordChip(page, { panel, sourceIncludes = [] }) {
+  const needles = Array.isArray(sourceIncludes) ? sourceIncludes : [sourceIncludes];
+  return page.evaluate(({ panel: targetPanel, needles: targetNeedles }) => {
+    const root = document.getElementById('rf-causa-root');
+    const selectors = {
+      trace: '[data-testid^="rf-causa-trace-row-"] button[data-testid$="-source-coord"]',
+      issues: '[data-testid^="rf-causa-issues-row-"] button[data-testid$="-source"]',
+      hydration: '[data-testid="rf-causa-hydration-source-coord"] button',
+    };
+    if (!root) return { clicked: false, reason: 'Causa root missing', candidates: [] };
+    const selector = selectors[targetPanel] || 'button[data-testid*="source"]';
+    const buttons = Array.from(root.querySelectorAll(selector));
+    const candidates = buttons.map((button) => {
+      const rect = button.getBoundingClientRect();
+      return {
+        testId: button.getAttribute('data-testid'),
+        text: (button.textContent || '').trim(),
+        visible: rect.width > 0 && rect.height > 0,
+      };
+    });
+    const target = buttons.find((button) => {
+      const text = (button.textContent || '').trim();
+      const visible = button.getBoundingClientRect().width > 0 &&
+        button.getBoundingClientRect().height > 0;
+      return visible && targetNeedles.every((needle) => !needle || text.includes(needle));
+    });
+    if (!target) {
+      return {
+        clicked: false,
+        reason: `No ${targetPanel} source-coordinate chip matched ${JSON.stringify(targetNeedles)}`,
+        candidates: candidates.slice(0, 20),
+      };
+    }
+    const sourceCoord = (target.textContent || '').trim();
+    const testId = target.getAttribute('data-testid');
+    target.click();
+    return { clicked: true, panel: targetPanel, sourceCoord, testId, candidates: candidates.slice(0, 20) };
+  }, { panel, needles });
+}
+
+async function assertSourceCoordBridge(page, state, ctx, opts) {
+  const beforeUrl = page.url();
+  const requestStart = ctx && ctx.browserState ? ctx.browserState.requestFailures.length : 0;
+  const click = await clickSourceCoordChip(page, opts);
+  if (!click.clicked) {
+    failWithDetails('Could not click source-coordinate chip', {
+      panel: opts.panel,
+      sourceIncludes: opts.sourceIncludes,
+      url: beforeUrl,
+      observed: click,
+    });
+  }
+
+  const expectedUri = click.sourceCoord
+    ? `vscode://file/${click.sourceCoord}:1`
+    : null;
+  const events = await waitForValue(
+    async () => readTrace(page),
+    (traceEvents) => {
+      const hasOpenEvent = traceEvents.some((event) =>
+        event.includes(':rf.causa/open-in-editor') &&
+        event.includes(click.sourceCoord));
+      const hasBridgeFx = traceEvents.some((event) =>
+        event.includes(':rf.editor/open') &&
+        (!expectedUri || event.includes(expectedUri) || event.includes('vscode://file/')));
+      return hasOpenEvent && hasBridgeFx;
+    },
+    {
+      timeoutMs: 10000,
+      description: `open-in-editor bridge for ${opts.panel} ${click.sourceCoord}`,
+    },
+  );
+  await sleep(150);
+  const requestFailures = ctx && ctx.browserState
+    ? ctx.browserState.requestFailures.slice(requestStart)
+    : [];
+  const afterUrl = page.url();
+  const record = {
+    panel: opts.panel,
+    sourceCoord: click.sourceCoord,
+    testId: click.testId,
+    expectedUri,
+    beforeUrl,
+    afterUrl,
+    requestFailures,
+    observedOpenDispatch: events.some((event) =>
+      event.includes(':rf.causa/open-in-editor') && event.includes(click.sourceCoord)),
+    observedBridgeFx: events.some((event) =>
+      event.includes(':rf.editor/open') &&
+      (!expectedUri || event.includes(expectedUri) || event.includes('vscode://file/'))),
+  };
+  ensureStateList(state, 'sourceClicks').push(record);
+  if (afterUrl !== beforeUrl) {
+    failWithDetails('Source-coordinate click changed the page URL', record);
+  }
+  return record;
+}
+
+async function assertOverlayLaunchModes(page, state) {
+  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  const rootBeforeOpen = await page.locator('#rf-causa-root').count();
+  await openCausa(page);
+  const overlay = await page.evaluate(() => {
+    const shell = document.querySelector('[data-testid="rf-causa-shell"]');
+    const plus = Array.from(document.querySelectorAll('button'))
+      .filter((button) => !button.closest('#rf-causa-root'))
+      .find((button) => (button.textContent || '').trim() === '+');
+    function rect(el) {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return {
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        width: r.width,
+        height: r.height,
+        centerX: r.left + r.width / 2,
+        centerY: r.top + r.height / 2,
+      };
+    }
+    const shellRect = rect(shell);
+    const plusRect = rect(plus);
+    const top = plusRect
+      ? document.elementFromPoint(plusRect.centerX, plusRect.centerY)
+      : null;
+    return {
+      shell: shellRect,
+      hostPlus: plusRect,
+      hostPlusText: plus ? (plus.textContent || '').trim() : null,
+      topAtHostPlus: top ? {
+        tag: top.tagName,
+        text: (top.textContent || '').trim(),
+        testId: top.getAttribute('data-testid'),
+        inCausa: Boolean(top.closest('#rf-causa-root')),
+      } : null,
+    };
+  });
+  if (!overlay.shell || overlay.shell.width < 200) {
+    failWithDetails('Causa overlay geometry was not measurable', { mode: 'overlay', observed: overlay });
+  }
+  if (!overlay.hostPlus) {
+    failWithDetails('Host app + button missing while Causa overlay is open', { mode: 'overlay', observed: overlay });
+  }
+  if (overlay.hostPlus.centerX >= overlay.shell.left) {
+    failWithDetails('Causa overlay obscures the left host-app control area', { mode: 'overlay-left-host', observed: overlay });
+  }
+  if (overlay.topAtHostPlus && overlay.topAtHostPlus.inCausa) {
+    failWithDetails('Causa chrome is topmost over the left host-app + button', { mode: 'overlay-left-host', observed: overlay });
+  }
+  await page.mouse.click(overlay.hostPlus.centerX, overlay.hostPlus.centerY);
+  await expectTextEquals(page.locator('span').first(), '6', 5000);
+
+  const popout = await page.evaluate(() => {
+    const core = window.day8 &&
+      window.day8.re_frame2_causa &&
+      window.day8.re_frame2_causa.core;
+    const keys = core ? Object.keys(core).sort() : [];
+    const fn = core && core.popout_BANG_;
+    if (typeof fn !== 'function') {
+      return { available: false, implemented: false, reason: 'day8.re_frame2_causa.core.popout_BANG_ not exported in this browser bundle', keys };
+    }
+    try {
+      const beforeUrl = location.href;
+      const value = fn();
+      return {
+        available: true,
+        implemented: false,
+        beforeUrl,
+        afterUrl: location.href,
+        returnType: typeof value,
+        keys,
+      };
+    } catch (err) {
+      return { available: true, implemented: false, threw: String(err && (err.stack || err.message || err)), keys };
+    }
+  });
+
+  const inline = await page.evaluate(() => {
+    const panels = window.day8 &&
+      window.day8.re_frame2_causa &&
+      window.day8.re_frame2_causa.panels;
+    const keys = panels ? Object.keys(panels).sort() : [];
+    return {
+      available: false,
+      implemented: false,
+      reason: 'No public inline panel mount/export is present in this browser bundle',
+      panelNamespaces: keys,
+    };
+  });
+
+  state.launchModes = {
+    overlay: {
+      rootBeforeOpen,
+      shellRect: overlay.shell,
+      hostPlusRect: overlay.hostPlus,
+      hostClickObserved: true,
+      leftHostAreaUnobscured: true,
+    },
+    popout,
+    docking: {
+      available: false,
+      implemented: false,
+      reason: 'No browser docking control is exposed by the current Causa shell.',
+    },
+    inline,
+  };
+}
+
+async function readSchemaHostState(page) {
+  return page.evaluate(() => {
+    function text(id) {
+      const el = document.querySelector(`[data-testid="${id}"]`);
+      return el ? (el.textContent || '').trim() : null;
+    }
+    return {
+      token: text('auth-token'),
+      appDbCount: Number(text('app-db-count')),
+      eventCount: Number(text('event-count')),
+      cofxCount: Number(text('cofx-count')),
+      fxCount: Number(text('fx-count')),
+      semantics: text('schema-recovery-browser-semantics'),
+    };
+  });
+}
+
+async function readMultiFrameHostState(page) {
+  return page.evaluate(() => {
+    function text(id) {
+      const el = document.querySelector(`[data-testid="${id}"]`);
+      return el ? (el.textContent || '').trim() : null;
+    }
+    return {
+      nA: Number(text('n-A')),
+      nB: Number(text('n-B')),
+      logCount: Number(text('log-count')),
+      logEntries: text('log-entries'),
+      semantics: text('multi-frame-fanout-browser-semantics'),
+    };
+  });
+}
+
+async function readFrameEpochSummary(page) {
+  return page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    if (!cljs || !rf || typeof rf.epoch_history !== 'function') {
+      return { ok: false, reason: 'epoch_history unavailable', frames: {} };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    function history(frame) {
+      const records = [];
+      let s = cljs.seq(rf.epoch_history(keyword(frame)));
+      while (s) {
+        records.push(cljs.pr_str(cljs.first(s)));
+        s = cljs.next(s);
+      }
+      return { count: records.length, last: records.slice(-5) };
+    }
+    return {
+      ok: true,
+      frames: {
+        ':counter/a': history(':counter/a'),
+        ':counter/b': history(':counter/b'),
+        ':log': history(':log'),
+      },
+    };
+  });
+}
+
+async function setCausaTargetFrame(page, frame) {
+  const result = await page.evaluate((targetFrame) => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    const dispatch = rf && (rf.dispatch_STAR_ ||
+      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
+    if (!cljs || typeof dispatch !== 'function') {
+      return {
+        ok: false,
+        reason: 'cljs.core or re_frame.core.dispatch_STAR_ unavailable',
+        reFrameCoreKeys: rf ? Object.keys(rf).sort().slice(0, 40) : [],
+      };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const event = cljs.PersistentVector.fromArray([
+      keyword(':rf.causa/set-target-frame'),
+      keyword(targetFrame),
+    ], true);
+    const opts = cljs.hash_map(keyword(':frame'), keyword(':rf/causa'));
+    if (dispatch.cljs$core$IFn$_invoke$arity$2) {
+      dispatch.cljs$core$IFn$_invoke$arity$2(event, opts);
+    } else {
+      dispatch(event, opts);
+    }
+    return { ok: true, targetFrame };
+  }, frame);
+  if (!result.ok) {
+    failWithDetails('Could not set Causa target frame', { frame, observed: result });
+  }
+}
+
+async function clickTraceRowByFrame(page, { frame, event }) {
+  const result = await page.evaluate(({ targetFrame, targetEvent }) => {
+    const root = document.getElementById('rf-causa-root');
+    if (!root) return { clicked: false, reason: 'Causa root missing', candidates: [] };
+    const rows = Array.from(root.querySelectorAll('[data-testid^="rf-causa-trace-row-"]'));
+    const candidates = rows.map((row) => ({
+      testId: row.getAttribute('data-testid'),
+      text: (row.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 240),
+    }));
+    const target = rows.find((row) => {
+      const text = (row.textContent || '').trim();
+      return text.includes(targetFrame) && text.includes(targetEvent);
+    });
+    if (!target) {
+      return {
+        clicked: false,
+        reason: `No trace row matched frame=${targetFrame} event=${targetEvent}`,
+        candidates: candidates.slice(0, 20),
+      };
+    }
+    target.click();
+    return {
+      clicked: true,
+      testId: target.getAttribute('data-testid'),
+      text: (target.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 240),
+    };
+  }, { targetFrame: frame, targetEvent: event });
+  if (!result.clicked) {
+    failWithDetails('Could not select trace row by frame', { frame, event, observed: result });
+  }
+  return result;
+}
+
 async function readTraceCounts(page) {
   const text = ((await page.locator('[data-testid="rf-causa-trace-counts"]').textContent()) || '').trim();
   const match = /(\d+)\s*\/\s*(\d+)\s+in view/.exec(text);
@@ -268,7 +633,24 @@ async function runShellFeatureSweep(page) {
   await expectVisible(page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'), 5000);
 }
 
-async function runExceptionSchemaHttp(page) {
+async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
+  await assertOverlayLaunchModes(page, state);
+  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await clearTrace(page);
+  await clickHostButtonByLabel(page, '+');
+  await waitForTraceMatch(page, /counter\/core\.cljs/, 'counter source-coordinate trace');
+  await waitForValue(
+    () => page.locator('[data-testid^="rf-causa-trace-row-"] button[data-testid$="-source-coord"]').count(),
+    (count) => count > 0,
+    { timeoutMs: 5000, description: 'trace source-coordinate chips' },
+  );
+  await assertSourceCoordBridge(page, state, ctx, {
+    panel: 'trace',
+    sourceIncludes: 'counter/core.cljs',
+  });
+}
+
+async function runExceptionSchemaHttp(page, state, ctx) {
   await openCausa(page);
   await clearTrace(page);
 
@@ -285,21 +667,91 @@ async function runExceptionSchemaHttp(page) {
 
   await clickSidebar(page, 'issues', 'rf-causa-issues-ribbon');
   await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
+  await assertSourceCoordBridge(page, state, ctx, { panel: 'issues' });
   await clickSidebar(page, 'trace', 'rf-causa-trace');
   await expectVisible(page.locator('[data-testid="rf-causa-trace-feed"]'), 5000);
 }
 
-async function runSchemaViolation(page) {
+async function runSchemaViolation(page, state) {
+  await openCausa(page);
+  await clearTrace(page);
   for (const id of ['violate-app-db', 'violate-event', 'violate-cofx', 'violate-fx-args']) {
     await clickTestId(page, id);
   }
-  await expectTextEquals(page.locator('[data-testid="auth-token"]'), '42', 5000);
-  await expectNumericTextAtLeast(page.locator('[data-testid="event-count"]'), 1, 5000);
-  await expectNumericTextAtLeast(page.locator('[data-testid="cofx-count"]'), 1, 5000);
-  await expectNumericTextAtLeast(page.locator('[data-testid="fx-count"]'), 1, 5000);
-  await openCausa(page);
+  const host = await waitForValue(
+    () => readSchemaHostState(page),
+    (snapshot) =>
+      snapshot.token === 'seed-token' &&
+      snapshot.appDbCount === 0 &&
+      snapshot.eventCount === 0 &&
+      snapshot.cofxCount === 0 &&
+      snapshot.fxCount === 1,
+    { timeoutMs: 10000, description: 'schema recovery host state' },
+  );
+  const expectedWheres = [':app-db', ':event', ':cofx', ':fx-args'];
+  const events = await waitForValue(
+    async () => readTrace(page),
+    (traceEvents) => expectedWheres.every((where) =>
+      traceEvents.some((event) =>
+        event.includes(':rf.error/schema-validation-failure') &&
+        event.includes(`:where ${where}`))),
+    { timeoutMs: 10000, description: 'schema validation failure traces for all recovery surfaces' },
+  );
+  const schemaEvents = events.filter((event) => event.includes(':rf.error/schema-validation-failure'));
+  const missingWheres = expectedWheres.filter((where) =>
+    !schemaEvents.some((event) => event.includes(`:where ${where}`)));
+  const fxWasHandled = events.some((event) =>
+    event.includes(':rf.fx/handled') &&
+    event.includes(':schema-violation.core/violate-fx'));
+  if (missingWheres.length > 0 || fxWasHandled) {
+    failWithDetails('Schema recovery traces did not match expected recovery surface', {
+      expectedWheres,
+      missingWheres,
+      expectedFxArgsRecovery: 'fx args failure skips the offending fx handler',
+      observedFxHandled: fxWasHandled,
+      host,
+      schemaEvents,
+    });
+  }
+  state.schemaRecovery = {
+    host,
+    observedWheres: expectedWheres,
+    validationTraceCount: schemaEvents.length,
+    appDbRollbackObserved: host.token === 'seed-token',
+    eventHandlerSkipped: host.eventCount === 0,
+    cofxHandlerSkipped: host.cofxCount === 0,
+    fxArgsSkipped: !fxWasHandled && host.fxCount === 1,
+  };
   await clickSidebar(page, 'schemas', 'rf-causa-schema-violation-timeline');
   await expectVisible(page.locator('[data-testid="rf-causa-schema-violation-timeline"]'), 5000);
+  const timelineProjection = await page.evaluate(() => {
+    function text(testId) {
+      const el = document.querySelector(`[data-testid="${testId}"]`);
+      return el ? (el.textContent || '').trim() : null;
+    }
+    return {
+      rowCount: document.querySelectorAll('[data-testid^="rf-causa-schema-timeline-row-"]').length,
+      dotCount: document.querySelectorAll('circle[data-testid^="rf-causa-schema-timeline-row-"][data-testid*="-dot-"]').length,
+      noSchemas: text('rf-causa-schema-timeline-empty-no-schemas'),
+      noViolations: text('rf-causa-schema-timeline-empty-no-violations'),
+    };
+  });
+  state.schemaRecovery.timelineProjection = timelineProjection;
+  if (timelineProjection.rowCount > 0 && timelineProjection.dotCount < 4) {
+    failWithDetails('Schema timeline rendered rows without the expected recovery dots', {
+      expectedDotCount: 4,
+      observed: timelineProjection,
+      schemaEvents,
+    });
+  }
+  if (timelineProjection.rowCount === 0 &&
+      !timelineProjection.noSchemas &&
+      !timelineProjection.noViolations) {
+    failWithDetails('Schema timeline rendered neither rows nor an explicit empty state', {
+      observed: timelineProjection,
+      schemaEvents,
+    });
+  }
 }
 
 async function runHttpToggle(page) {
@@ -329,16 +781,115 @@ async function runHttpToggle(page) {
   await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
 }
 
-async function runMultiFrame(page) {
+async function runMultiFrame(page, state) {
+  await openCausa(page);
+  await clearTrace(page);
   await clickTestId(page, 'inc-A');
   await clickTestId(page, 'inc-B');
-  await expectTextEquals(page.locator('[data-testid="n-A"]'), '1', 5000);
-  await expectTextEquals(page.locator('[data-testid="n-B"]'), '1', 5000);
+  const isolated = await waitForValue(
+    () => readMultiFrameHostState(page),
+    (snapshot) => snapshot.nA === 1 && snapshot.nB === 1 && snapshot.logCount === 0,
+    { timeoutMs: 5000, description: 'direct A/B frame isolation' },
+  );
   await clickTestId(page, 'cross-bump');
-  await expectNumericTextAtLeast(page.locator('[data-testid="n-A"]'), 2, 5000);
-  await openCausa(page);
+  const fanout = await waitForValue(
+    () => readMultiFrameHostState(page),
+    (snapshot) => snapshot.nA === 2 && snapshot.nB === 2 && snapshot.logCount === 1,
+    { timeoutMs: 10000, description: 'cross-frame fan-out into B and log' },
+  );
+  const traceChecks = [
+    ['parent A cross-bump dispatch', [':event/dispatched', ':frame :counter/a', ':multi-frame.core/cross-bump']],
+    ['child B inc dispatch', [':event/dispatched', ':frame :counter/b', ':multi-frame.core/inc']],
+    ['child log append dispatch', [':event/dispatched', ':frame :log', ':multi-frame.core/log-append']],
+  ];
+  const events = await waitForValue(
+    async () => readTrace(page),
+    (traceEvents) => traceChecks.every(([, parts]) =>
+      traceEvents.some((event) => parts.every((part) => event.includes(part)))),
+    { timeoutMs: 10000, description: 'multi-frame trace fan-out across A, B, and log' },
+  );
+  const epochSummary = await readFrameEpochSummary(page);
+  if (!epochSummary.ok ||
+      epochSummary.frames[':counter/a'].count < 3 ||
+      epochSummary.frames[':counter/b'].count < 3 ||
+      epochSummary.frames[':log'].count < 2) {
+    failWithDetails('Multi-frame epoch histories did not isolate fan-out across frames', {
+      isolated,
+      fanout,
+      epochSummary,
+      expectedMinimums: {
+        ':counter/a': 3,
+        ':counter/b': 3,
+        ':log': 2,
+      },
+    });
+  }
+  state.multiFrame = {
+    isolated,
+    fanout,
+    epochSummary,
+    matchedTraceEvents: traceChecks.map(([label, parts]) => ({
+      label,
+      count: events.filter((event) => parts.every((part) => event.includes(part))).length,
+    })),
+  };
+  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await waitForValue(
+    () => page.locator('[data-testid^="rf-causa-trace-row-"]').count(),
+    (count) => count > 0,
+    { timeoutMs: 5000, description: 'multi-frame trace rows' },
+  );
+  const selected = await clickTraceRowByFrame(page, {
+    frame: ':counter/b',
+    event: ':multi-frame.core/inc',
+  });
+  state.multiFrame.selectedTraceRow = selected;
+  await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+  const eventDetailProjection = await waitForValue(
+    () => page.evaluate(() => {
+      const orphaned = document.querySelector('[data-testid="rf-causa-event-detail-orphaned"]');
+      return {
+        cascadeRows: document.querySelectorAll('[data-testid^="rf-causa-cascade-row-"]').length,
+        orphanedText: orphaned ? (orphaned.textContent || '').trim() : null,
+      };
+    }),
+    (projection) => projection.cascadeRows > 0 || Boolean(projection.orphanedText),
+    { timeoutMs: 5000, description: 'event-detail projection after selecting B trace row' },
+  );
+  state.multiFrame.eventDetailProjection = eventDetailProjection;
+  await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
+  await expectVisible(page.locator('[data-testid="rf-causa-causality-graph"]'), 5000);
+  await setCausaTargetFrame(page, ':counter/b');
   await clickSidebar(page, 'time-travel', 'rf-causa-time-travel');
   await expectVisible(page.locator('[data-testid="rf-causa-time-travel"]'), 5000);
+  const timeTravelProjection = await waitForValue(
+    () => page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="rf-causa-time-travel"]');
+      const slider = document.querySelector('[data-testid="rf-causa-time-travel-slider"]');
+      const empty = document.querySelector('[data-testid="rf-causa-time-travel-empty"]');
+      const frameCodes = panel
+        ? Array.from(panel.querySelectorAll('header code')).map((el) => (el.textContent || '').trim())
+        : [];
+      return {
+        targetFrame: frameCodes.length > 0 ? frameCodes[frameCodes.length - 1] : null,
+        sliderVisible: Boolean(slider && slider.getBoundingClientRect().width > 0),
+        sliderMax: slider ? Number(slider.getAttribute('max')) : null,
+        emptyText: empty ? (empty.textContent || '').trim() : null,
+      };
+    }),
+    (projection) => projection.targetFrame === ':counter/b' &&
+      (projection.sliderVisible || Boolean(projection.emptyText)),
+    { timeoutMs: 5000, description: 'time-travel target frame projection for :counter/b' },
+  );
+  state.multiFrame.timeTravelProjection = timeTravelProjection;
+  if (timeTravelProjection.sliderVisible &&
+      (!Number.isFinite(timeTravelProjection.sliderMax) || timeTravelProjection.sliderMax < 2)) {
+    failWithDetails('Expected multi-frame time-travel slider to expose at least two epochs', {
+      selected,
+      timeTravelProjection,
+      epochSummary,
+    });
+  }
 }
 
 async function runDeepMachine(page) {
@@ -497,10 +1048,22 @@ const SCENARIOS = [
     run: runShellFeatureSweep,
   },
   {
+    name: 'source coordinates and launch-mode availability',
+    url: '/counter/',
+    panels: ['trace'],
+    coveredRows: [
+      'Open in Editor / Source Coordinates',
+      'Pop-out, Docking, and Inline Embedding',
+      'Trace',
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runSourceCoordinatesAndLaunchModes,
+  },
+  {
     name: 'deterministic exceptions and issue/trace surfacing',
     url: '/testbeds/deliberate-throw/',
     panels: ['issues', 'trace'],
-    coveredRows: ['Event Detail', 'Trace', 'Issues Ribbon', 'Effects', 'Flows', 'Machines'],
+    coveredRows: ['Event Detail', 'Trace', 'Issues Ribbon', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
     run: runExceptionSchemaHttp,
   },
   {
