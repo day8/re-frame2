@@ -234,11 +234,11 @@
 (defn- trace-row
   "One row in the trace ribbon."
   [{:keys [id time op-type operation source origin frame description
-           source-coord dispatch-id]
+           source-coord dispatch-id row-index]
     :as _row}]
   (let [row-test-id (str "rf-causa-trace-row-" id)
         dot-colour  (h/op-type-colour op-type)]
-    [:li {:key         [frame id time op-type operation source-coord]
+    [:li {:key         [row-index frame id time op-type operation source-coord]
           :data-testid row-test-id
           :on-click    (fn []
                          (when dispatch-id

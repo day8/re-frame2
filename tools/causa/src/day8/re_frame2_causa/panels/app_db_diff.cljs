@@ -87,6 +87,42 @@
     (catch :default _
       (str v))))
 
+(def ^:private display-large-string-threshold
+  "Display-only ceiling for string values in App-DB Diff. The panel is
+  a diagnostic surface, not a payload dump; large values are represented
+  structurally so the DOM and failure diagnostics stay bounded."
+  1024)
+
+(defn- display-value
+  "Return `v` with large string leaves replaced by a stable marker for
+  panel rendering. This does not mutate app-db or clipboard behaviour;
+  it only protects the visible Causa surface from rendering huge values."
+  [v]
+  (cond
+    (and (string? v) (> (count v) display-large-string-threshold))
+    {:rf.size/large-elided {:chars (count v)}}
+
+    (map? v)
+    (into (empty v) (map (fn [[k value]] [k (display-value value)])) v)
+
+    (vector? v)
+    (mapv display-value v)
+
+    (set? v)
+    (into (empty v) (map display-value) v)
+
+    (sequential? v)
+    (doall (map display-value v))
+
+    :else
+    v))
+
+(defn- format-display-edn
+  "Best-effort EDN-like format for visible values. Large leaves are
+  rendered as `:rf.size/large-elided` markers before printing."
+  [v]
+  (format-edn (display-value v)))
+
 (defn- truncate
   "Truncate `s` to `n` chars (adding an ellipsis)."
   [s n]
@@ -141,7 +177,7 @@
                   :color         (:text-primary tokens)
                   :word-break    "break-word"
                   :white-space   "pre-wrap"}}
-    (format-edn value)]])
+    (format-display-edn value)]])
 
 (defn- slice-row
   "One slice mini-panel for a `[op path before after]` triple.
