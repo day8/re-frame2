@@ -144,6 +144,20 @@ function trimLines(lines, max = 80) {
   return lines.slice(Math.max(0, lines.length - max));
 }
 
+function scenarioDiagnostics(state) {
+  const keys = [
+    'sourceClicks',
+    'launchModes',
+    'schemaRecovery',
+    'multiFrame',
+  ];
+  const out = {};
+  for (const key of keys) {
+    if (state[key] != null) out[key] = state[key];
+  }
+  return Object.keys(out).length === 0 ? null : out;
+}
+
 async function readCausaState(page) {
   return page.evaluate(() => {
     function text(testId) {
@@ -239,6 +253,7 @@ async function collectFailureDiagnostics(page, scenario, state, browserState) {
     },
     causa: causaState,
     loadStats: state.loadStats || null,
+    scenarioState: scenarioDiagnostics(state),
   };
 }
 
@@ -279,6 +294,14 @@ function formatDiagnostics(diag) {
     for (const [k, v] of Object.entries(diag.loadStats)) {
       lines.push(`  ${k}=${v}`);
     }
+  }
+  if (diag.scenarioState) {
+    lines.push('');
+    lines.push('scenario-specific state:');
+    lines.push(JSON.stringify(diag.scenarioState, null, 2)
+      .split('\n')
+      .map((line) => `  ${line}`)
+      .join('\n'));
   }
   lines.push('');
   lines.push('last 20 trace events:');
@@ -332,7 +355,7 @@ async function runScenarios() {
       try {
         await page.goto(fullUrl, { waitUntil: 'load', timeout: TIMEOUT_MS });
         await Promise.race([
-          scenario.run(page, state),
+          scenario.run(page, state, { browserState, scenario }),
           new Promise((_, reject) => {
             setTimeout(() => reject(new Error(`Scenario timed out after ${TIMEOUT_MS}ms`)), TIMEOUT_MS);
           }),

@@ -19,7 +19,9 @@
     Button A · Inc A          → frame :counter/a only
     Button B · Inc B          → frame :counter/b only
     Button X · Cross-bump     → handler in :counter/a fans out a
-                                `:fx [[:dispatch ... {:frame ...}]]`
+                                testbed bridge fx that dispatches with
+                                public `rf/dispatch` frame opts. Reserved
+                                `:dispatch` is intra-frame by contract.
                                 that bumps :counter/b AND appends to
                                 :log/entries. The three frames'
                                 app-dbs diverge in lockstep.
@@ -90,31 +92,35 @@
 ;;
 ;; The handler RUNS against :counter/a (Button X dispatches against
 ;; :counter/a). It returns three fx — one local `:db` write and two
-;; cross-frame `:dispatch` entries targeted at :counter/b and :log.
+;; testbed bridge entries targeted at :counter/b and :log.
 ;;
-;; Per [spec/002 §Dispatches issued from inside a handler body] the
-;; reserved `:dispatch` fx carries an explicit `{:frame ...}` opt; the
-;; fx walker (`do-fx`) calls `dispatch!` with the requested frame, so
-;; the queued event lands on :counter/b's router queue (not
-;; :counter/a's). Same for :log.
+;; Reserved `:dispatch` inherits the parent envelope frame, so this
+;; testbed uses a deliberately tiny custom fx that calls public
+;; `rf/dispatch` with explicit frame opts. That keeps the surface inside
+;; the testbed while giving consumers real browser-visible fan-out.
 ;;
 ;; A consumer that watches the trace stream sees three
 ;; `:event/dispatched` traces for one click — one per frame — and
 ;; three separate epoch ring buffer entries.
+
+(rf/reg-fx ::dispatch-to-frame
+  (fn [_ctx {:keys [event frame]}]
+    (rf/dispatch event {:frame frame})))
 
 (rf/reg-event-fx ::cross-bump
   (fn [{:keys [db]} _ev]
     {;; Local write against :counter/a.
      :db (update db :n (fnil inc 0))
      :fx [;; HOT PATH — cross-frame dispatch to :counter/b.
-          [:dispatch [::inc] {:frame frame-b}]
+          [::dispatch-to-frame {:event [::inc]
+                                :frame frame-b}]
           ;; HOT PATH — cross-frame dispatch to :log; carries the
           ;; bridge's source-frame id verbatim as evidence the
           ;; framework didn't quietly rewrite it.
-          [:dispatch [::log-append {:from frame-a
-                                    :to   #{frame-b frame-log}
-                                    :kind :cross-bump}]
-           {:frame frame-log}]]}))
+          [::dispatch-to-frame {:event [::log-append {:from frame-a
+                                                      :to   #{frame-b frame-log}
+                                                      :kind :cross-bump}]
+                                :frame frame-log}]]}))
 
 ;; ----------------------------------------------------------------------------
 ;; Views
@@ -163,6 +169,11 @@
         a fan-out from " [:code ":counter/a"]
     " that bumps " [:code ":counter/b"] " and appends to "
     [:code ":log"] " in one drain."]
+   [:p {:data-testid "multi-frame-fanout-browser-semantics"
+        :style       {:color "#666"}}
+    "The browser gate asserts direct A/B isolation, cross-frame fan-out
+     into B and log, and Causa panel selection across the resulting
+     frame-tagged traces."]
 
    [:div {:style {:display :flex :flex-wrap :wrap :align-items :flex-start}}
     [rf/frame-provider {:frame frame-a}
@@ -179,7 +190,7 @@
     ;; reads the React-context default (`:rf/default`) and supplies
     ;; the target frame explicitly via the two-arg dispatch form.
     ;; The handler then fans out to :counter/b and :log via cross-
-    ;; frame `:dispatch` fx (see ::cross-bump above).
+    ;; frame bridge fx (see ::cross-bump above).
     [:button {:data-testid "cross-bump"
               :on-click    #(rf/dispatch [::cross-bump] {:frame frame-a})}
      "Cross-bump (A → B + log)"]]])

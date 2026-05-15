@@ -26,14 +26,21 @@ state, the last trace rows, load stats when applicable, and a screenshot path.
 
 ## Current slice
 
-This first gate pass covers 19 matrix rows with deterministic browser
-substrates and includes the 20-event/load re-check. It intentionally leaves
-these rows or sub-rows for follow-up work:
+This gate covers the deterministic browser substrates plus the 20-event/load
+re-check. It now exercises the follow-up surfaces directly:
 
-- Open in Editor / Source Coordinates: unit coverage exists, but this browser
-  gate does not yet click source chips across every panel.
-- Pop-out, Docking, and Inline Embedding: not yet exercised by this browser
-  gate.
-- Schema recovery and multi-frame fan-out: the shared testbeds are staged, but
-  the gate currently asserts stable substrate and panel handoff only where the
-  browser build does not yet expose the full recovery/fan-out semantics.
+- Open in Editor / Source Coordinates: trace and issues source chips are
+  clicked in the browser. Failures include the panel, source coordinate,
+  expected editor URI, observed bridge traces, network outcome, and screenshot.
+- Pop-out, Docking, and Inline Embedding: the current shell exposes the overlay
+  surface only. The gate asserts that the right-side overlay leaves the left
+  host app clickable, and records explicit current-build observations for
+  pop-out, docking, and inline public-mount availability.
+- Schema recovery: the schema testbed loads the Malli adapter so browser runs
+  assert rollback, skipped handlers, skipped fx, and the Causa schema panel's
+  current row/empty-state projection.
+- Multi-frame fan-out: the multi-frame testbed uses a testbed-only bridge fx to
+  dispatch into explicit frames. The gate asserts direct A/B isolation, fan-out
+  into `:counter/b` and `:log`, per-frame epoch history, trace selection,
+  event-detail projection/orphan-state behavior, causality graph visibility,
+  and the time-travel panel's current `:counter/b` target-frame projection.
