@@ -7,9 +7,10 @@ directory is that one-shot.
 
 ## Status
 
-The full conformance corpus runs green on every commit; the JVM and
-CLJS suites are required CI checks. Open implementation beads live in
-`../.beads/`.
+The fast PR spine runs on every pull request; expensive browser, bundle,
+tool, template, and live-MCP gates run by changed surface and in the
+scheduled/manual rigorous workflow. See [`../TESTING.md`](../TESTING.md)
+for the canonical matrix. Open implementation beads live in `../.beads/`.
 
 ## Layout
 
@@ -168,6 +169,14 @@ matrix.
 
 ## Running tests
 
+For the repo-level tiers, prefer:
+
+```sh
+../scripts/test-fast-pr.sh
+../scripts/test-jvm-implementation.sh
+../scripts/test-rigorous-local.sh
+```
+
 **Per-artefact JVM** (no setup beyond Clojure CLI):
 
 ```sh
@@ -221,6 +230,8 @@ npm install
 npm run test:cljs       # node-test build, every artefact's CLJS test tree
 npm run test:browser    # browser-test build, headless Chromium via Playwright
 npm run test:elision    # production-elision contract (Spec 009 §Production builds)
+npm run test:bundle-isolation
+npm run test:reagent-slim:bundle-isolation
 npm run test:examples   # example-app browser tests
 ```
 

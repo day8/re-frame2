@@ -221,6 +221,14 @@ jobs:
         working-directory: implementation
         run: npm run test:elision
 
+      - name: CLJS per-feature bundle isolation
+        working-directory: implementation
+        run: npm run test:bundle-isolation
+
+      - name: CLJS Reagent Slim bundle isolation
+        working-directory: implementation
+        run: npm run test:reagent-slim:bundle-isolation
+
   # ─────────────────────────────────────────────────────────────────
   # 3. Deploy core. The lockstep root: every other deploy job depends
   #    on this one because their published poms reference

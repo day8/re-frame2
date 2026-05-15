@@ -11,7 +11,7 @@ Story Stage 8 (`tools/story` end-to-end on the counter) moved out to a tool-owne
 ```
 reagent/
   counter/                     <-- the smallest possible app (CP-1, CP-2, CP-4)
-  counter_slim_and_fast/       <-- same dataflow on day8/reagent-slim (bundle-comparison contract)
+  counter_slim_and_fast/       <-- adapter-owned day8/reagent-slim bundle-isolation fixture
   login/                       <-- single-feature scaffold (CP-5, CP-6)
   todomvc/                     <-- canonical benchmark (TodoMVC spec)
   routing/                     <-- CP-7 worked example (Spec 012)

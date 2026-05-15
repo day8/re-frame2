@@ -351,7 +351,7 @@
   ;; rf2-5lbx — counter mounted on day8/reagent-slim (the rewrite),
   ;; same six-domino logic as :examples/counter but every Reagent
   ;; import points at reagent2.* and rf/init! receives the slim
-  ;; adapter Var. The bundle-comparison contract from the
+  ;; adapter Var. The Reagent Slim bundle-isolation contract from the
   ;; reagent-slim IMPL-SPEC (§1.4, §1.8, §12.3, S3-008) binds here:
   ;;
   ;;   - The :advanced bundle for this build must contain NO
@@ -361,8 +361,8 @@
   ;;     (slim's render-to-static-markup is pure-CLJS).
   ;;
   ;; The grep that enforces both invariants lives at
-  ;; scripts/check-counter-slim-and-fast.cjs; the corresponding
-  ;; CI job is `cljs-bundle-comparison` in .github/workflows/test.yml.
+  ;; scripts/check-reagent-slim-bundle-isolation.cjs; the corresponding
+  ;; CI job is `cljs-reagent-slim-bundle-isolation` in .github/workflows/test.yml.
   :examples/counter-slim-and-fast
   {:target     :browser
    :output-dir "out/examples/counter-slim-and-fast"

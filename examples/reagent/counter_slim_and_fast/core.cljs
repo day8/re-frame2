@@ -8,7 +8,7 @@
    `reagent.*`, and `(rf/init!)` is called with the slim adapter Var
    `re-frame.adapter.reagent-slim/adapter`.
 
-   What this example proves (the bundle-comparison contract):
+   What this fixture proves (the Reagent Slim bundle-isolation contract):
 
      - The advanced-compiled bundle for this example contains NO
        `reagent.impl.*` symbols. The slim rewrite has its own
@@ -22,7 +22,7 @@
        both groups of symbols, demonstrating that the assertion logic
        actually detects them.
 
-   See `implementation/scripts/check-counter-slim-and-fast.cjs` for the
+   See `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` for the
    bundle-isolation grep that enforces both invariants in CI.
 
    NOTE on frame-provider: the namespace docstring on
@@ -89,7 +89,7 @@
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   ;; Exercise the slim's pure-CLJS render-to-static-markup so the
-  ;; bundle DOES compile in the SSR path. The bundle-comparison
+  ;; bundle DOES compile in the SSR path. The bundle-isolation
   ;; contract (S3-008) is then non-vacuous: even with SSR pulled in,
   ;; the bundle still must NOT contain `react-dom/server` symbols,
   ;; because reagent2.dom.server is pure-CLJS (no

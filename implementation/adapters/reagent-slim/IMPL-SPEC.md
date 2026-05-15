@@ -120,7 +120,7 @@ Two-line addition under `:source-paths`:
 
 The `:dependencies` vector adds NO new entries — `reagent-slim` is a re-implementation that does not depend on stock `reagent`. (Stock Reagent stays in the dependency vector while the existing thin-bridge adapter ships; once the thin bridge is renamed to `day8/reagent-classic` and split off to its own future Maven coord, the stock-Reagent dep can be made conditional.)
 
-The build matrix gains one switch: per-example builds that opt into the rewrite use the new adapter ns; per-example builds that stay on the bridge use the existing one. The parallel `examples/counter-slim-and-fast` build exercises the rewrite under the S3-008 bundle-comparison contract: source at `examples/reagent/counter_slim_and_fast/core.cljs`, build entry in `implementation/shadow-cljs.edn`, Playwright spec at `counter_slim_and_fast.spec.cjs`, and the symbol-grep contract at `implementation/scripts/check-counter-slim-and-fast.cjs` (npm script `test:bundle-comparison`, CI job `cljs-bundle-comparison` in `.github/workflows/test.yml`). Delivered per bead **rf2-5lbx**.
+The build matrix gains one switch: per-example builds that opt into the rewrite use the new adapter ns; per-example builds that stay on the bridge use the existing one. The parallel `examples/counter-slim-and-fast` build exercises the rewrite under the S3-008 adapter-owned bundle-isolation contract: source at `examples/reagent/counter_slim_and_fast/core.cljs`, build entry in `implementation/shadow-cljs.edn`, Playwright spec at `counter_slim_and_fast.spec.cjs`, and the symbol-grep contract at `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` (npm script `test:reagent-slim:bundle-isolation`, changed-surface CI job `cljs-reagent-slim-bundle-isolation` in `.github/workflows/test.yml`). Delivered per bead **rf2-5lbx** and rehomed per **rf2-2ppcv**.
 
 ### §1.5 Lockstep verifier
 
@@ -155,10 +155,10 @@ Per rf2-zvjme the matrix has one slim-specific step inserted between the `:local
 
 ### §1.8 Bundle-isolation contract
 
-**Delivered (rf2-5lbx)**: the dedicated bundle-comparison verifier lives at `implementation/scripts/check-counter-slim-and-fast.cjs` rather than in `scripts/check-bundle-isolation.cjs`. The two scripts answer different questions:
+**Delivered (rf2-5lbx), rehomed (rf2-2ppcv)**: the dedicated adapter-owned bundle-isolation verifier lives at `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` rather than in the global `scripts/check-bundle-isolation.cjs` shape. The two scripts answer different questions:
 
 - `check-bundle-isolation.cjs` (rf2-51x5) — proves per-feature artefacts (schemas, machines, routing, flows, http, ssr, story) stay isolated from a no-feature counter bundle. The contract is about *which artefacts get pulled into a given bundle*.
-- `check-counter-slim-and-fast.cjs` (rf2-5lbx) — proves the slim rewrite displaces stock-Reagent's impl tree even when both adapters live on the same shadow-cljs classpath. The contract is about *which substrate implementation ends up in the bundle*.
+- `check-reagent-slim-bundle-isolation.cjs` (rf2-5lbx / rf2-2ppcv) — proves the slim rewrite displaces stock-Reagent's impl tree even when both adapters live on the same shadow-cljs classpath. The contract is about *which substrate implementation ends up in the bundle*.
 
 The slim-side contract: any stock `reagent.impl.*` / `reagent.dom` / `reagent.ratom` fingerprint appearing in the `examples/counter-slim-and-fast` :advanced bundle is a leak (S3-008). Likewise any `react-dom/server` symbol is a leak (S3-005's pure-CLJS-SSR claim) — the slim build deliberately exercises `reagent2.dom.server/render-to-static-markup` at boot so the contract is non-vacuous.
 
@@ -1042,14 +1042,14 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 
 | Test | Target |
 |---|---|
-| `examples/counter-slim-and-fast` (**delivered, rf2-5lbx**) | Same counter logic as `examples/counter`; mounted on the rewrite. Playwright spec at `examples/reagent/counter_slim_and_fast/counter_slim_and_fast.spec.cjs` is authored for identical user-visible behaviour (initial-render value 5, +/- click round-trips); presently `skip`ed at runtime pending rf2-s36l (the re-frame.interop seam still hardcodes stock `reagent.ratom`, so `(rf/init! slim-adapter/adapter)` fails the first subscribe with an IDisposable protocol miss). The :advanced bundle compiles cleanly, the bundle-comparison contract enforces S3-008 + S3-005, and the spec module is shipped intact so dropping `skip` re-enables the smoke once rf2-s36l lands. The example's `run` fn invokes `reagent2.dom.server/render-to-static-markup` at boot so the SSR path is compiled into the :advanced bundle — making the react-dom/server-absence assertion in §12.3 non-vacuous. |
+| `examples/counter-slim-and-fast` (**delivered, rf2-5lbx; fixture, not tutorial**) | Same counter logic as `examples/counter`; mounted on the rewrite. Playwright spec at `examples/reagent/counter_slim_and_fast/counter_slim_and_fast.spec.cjs` is authored for identical user-visible behaviour (initial-render value 5, +/- click round-trips); presently `skip`ed at runtime pending rf2-s36l (the re-frame.interop seam still hardcodes stock `reagent.ratom`, so `(rf/init! slim-adapter/adapter)` fails the first subscribe with an IDisposable protocol miss). The :advanced bundle compiles cleanly, the adapter-owned bundle-isolation contract enforces S3-008 + S3-005, and the spec module is shipped intact so dropping `skip` re-enables the smoke once rf2-s36l lands. The fixture's `run` fn invokes `reagent2.dom.server/render-to-static-markup` at boot so the SSR path is compiled into the :advanced bundle — making the react-dom/server-absence assertion in §12.3 non-vacuous. |
 | Cross-substrate ratom test | Constructs a `reagent2.ratom/Reaction`, a UIx-side derived value (uix.cljs:75-127), and a Helix-side derived value; calls `add-on-dispose!` on each via `re-frame.interop/add-on-dispose!`; asserts the protocol dispatch succeeds without an `instance?` branch. |
 | re-com smoke test (Stage 4-B) | Pin `re-com 3.x` (post the React-19 readiness work per rf2-cgcv §7) and mount one of each `create-class` site (debug.cljs's `validate-args-error`, popover.cljs's `popover-border`, dropdown.cljs's `body-wrapper`, v-table.cljs's `v-table`). Asserts no key-cap violations. |
 | Dash8/rf8 error-boundary smoke test | Mount the shared `reagent_error_boundary.cljs` shape (rf2-kfpf §4); throw in a child; assert `:component-did-catch` fires with the right error info. |
 
 ### §12.3 Bundle-comparison grep contract
 
-**Delivered (rf2-5lbx)** — see §1.8. The contract is enforced by `implementation/scripts/check-counter-slim-and-fast.cjs` (npm script `test:bundle-comparison`, CI job `cljs-bundle-comparison` in `.github/workflows/test.yml`). Three assertions:
+**Delivered (rf2-5lbx), rehomed (rf2-2ppcv)** — see §1.8. The contract is enforced by `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` (npm script `test:reagent-slim:bundle-isolation`, changed-surface CI job `cljs-reagent-slim-bundle-isolation` in `.github/workflows/test.yml`). Three assertions:
 
 1. **Methodology sanity** — every stock-Reagent sentinel from the chosen set (`Compiler.parse-tag`, `Compiler.as-element`, `Compiler.get-id`, `Compiler.make-element`, `ReagentInput`, `cljsRatom`, `cljsLegacyRender`) appears at least once in the stock `examples/counter` bundle. If a future stock-Reagent revision DCEs them out of the stock bundle too, the grep has lost signal and the script catches the methodology break — re-derive a fresh sentinel set.
 2. **S3-008 stock-Reagent isolation** — every stock-Reagent sentinel above hits zero times in the `examples/counter-slim-and-fast` bundle.

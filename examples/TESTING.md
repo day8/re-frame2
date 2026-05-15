@@ -10,6 +10,10 @@ It complements [`README.md`](README.md) (which describes the example layout)
 and the per-example `README.md` files (which describe what each example
 demonstrates).
 
+CI tiering is defined in [`../TESTING.md`](../TESTING.md). Example browser
+gates are not part of the always-on PR spine; they run when example/browser
+surfaces change and in the scheduled/manual expensive workflow.
+
 ## The two surfaces
 
 | Command                            | What it runs                                                                                                        | Where the orchestrator lives                                                                                                |

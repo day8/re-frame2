@@ -18,7 +18,8 @@
 ;;;;   - tests/runtime/ exercises the pure CLJS helpers (parse-rf2-coord,
 ;;;;     epoch-matches?, etc.) — no nREPL.
 ;;;;   - tests/shim/ (this file) exercises the bash → bb → nREPL contract
-;;;;     against a stub, so the shim wiring is validated per-push.
+;;;;     against a stub, so the shim wiring is validated when pair2
+;;;;     skill paths change.
 ;;;;   - tests/e2e/ exercises the same shims against a live shadow-cljs
 ;;;;     build — slow, gated on a fixture being up.
 ;;;;

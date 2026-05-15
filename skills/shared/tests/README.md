@@ -59,13 +59,11 @@ protocol.
 
 ## Wiring into CI
 
-Currently **not wired into `.github/workflows/`.** The structural
-test is fast (single-file `bb` run, ~1 second) and could be added to
-the `test.yml` job that already runs the
-`skills/re-frame-pair2/tests/prompts/prompt_regression_test.clj` style
-suite. Filing the wire-up is a follow-on bead (low priority — the
-test still runs locally on demand, and the protocol leaf doesn't
-change often enough for drift to slip in unnoticed for long).
+The structural test is wired into `.github/workflows/test.yml` through
+the `skills-structural` job, but only when `skills/shared/**` or the
+shared skill-test workflow surface changes. Behavioural replay fixtures
+remain manual/diagnostic; they are intentionally not required PR
+coverage.
 
 ## Cross-references
 

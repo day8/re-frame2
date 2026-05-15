@@ -25,6 +25,7 @@ on:
       - 'tools/**/*.md'
       - 'mkdocs.yml'
       - 'mkdocs_hooks.py'
+      - 'TESTING.md'
       - 'requirements.txt'
       - 'scripts/check_doc_slugs.py'
       - 'scripts/_test_fixtures/check_doc_slugs/**'

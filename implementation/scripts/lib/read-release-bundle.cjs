@@ -13,7 +13,7 @@
 // those stale dev sources alongside the release artefact, producing
 // false FAILs on dev-only sentinels. CI is unaffected because every
 // CI run is on a clean dir; local repros after a dev compile tripped
-// the trap. `check-counter-slim-and-fast.cjs` documented the trap
+// the trap. `check-reagent-slim-bundle-isolation.cjs` documented the trap
 // inline and filtered to top-level; this module factors the same fix
 // out so the four sibling scanners share one implementation.
 //

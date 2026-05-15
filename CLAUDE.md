@@ -76,6 +76,12 @@ Per `docs/the-mayor-method.md`, the `ai/` directory at repo root holds all AI wo
 The CLJS reference implementation builds and tests run from `implementation/`. shadow-cljs is the build tool; npm scripts in `implementation/package.json` are the canonical entry points.
 
 ```bash
+# From repo root:
+scripts/test-fast-pr.sh                # fast pre-checkin spine
+scripts/test-jvm-implementation.sh     # all implementation JVM artefacts
+scripts/test-jvm-tools.sh              # tool JVM artefacts
+scripts/test-rigorous-local.sh         # expensive local/release-sized sweep
+
 # From implementation/:
 npm install                          # one-time, installs shadow-cljs + react
 npm run test:cljs                    # node-runtime CLJS tests (fast, default gate)
@@ -83,11 +89,12 @@ npm run test:browser                 # browser tests via Playwright
 npm run test:elision                 # production elision probe
 npm run test:perf-bundle             # perf-budget bundle check
 npm run test:bundle-isolation        # tools must not leak into production bundles
+npm run test:reagent-slim:bundle-isolation # slim must not pull stock Reagent/react-dom/server
 npm run test:examples                # examples test runner
 npm run story:build                  # build the story artefact
 ```
 
-Per-artefact tests run from each artefact directory via `clojure -M:test` (see e.g. `tools/story/deps.edn` `:test` alias). Workflow gates live in `.github/workflows/`.
+Per-artefact tests run from each artefact directory via `clojure -M:test` (see e.g. `tools/story/deps.edn` `:test` alias). The canonical matrix and PR/nightly/release split lives in `TESTING.md`; workflow gates live in `.github/workflows/`.
 
 Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 

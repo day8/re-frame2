@@ -11,9 +11,9 @@
  *   - Click '-' twice from 6: value becomes 4.
  *
  * This is the "no behavioural regression" half of the S3-008
- * contract; the bundle-comparison half lives in
- * implementation/scripts/check-counter-slim-and-fast.cjs and is
- * already enforced by CI's cljs-bundle-comparison job.
+ * contract; the adapter-owned bundle-isolation half lives in
+ * implementation/scripts/check-reagent-slim-bundle-isolation.cjs and is
+ * enforced by CI's cljs-reagent-slim-bundle-isolation job when slim changes.
  *
  * Three seams (rf2-s36l interop late-binding, rf2-08t0 wrap-render
  * → as-element conversion, rf2-u5p5 reaction `._run` on

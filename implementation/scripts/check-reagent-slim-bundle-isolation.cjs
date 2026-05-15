@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * counter-slim-and-fast bundle-comparison verifier (bead rf2-5lbx).
+ * Reagent Slim bundle-isolation verifier (bead rf2-5lbx / rf2-2ppcv).
  *
  * The S3-008 contract from
  * implementation/adapters/reagent-slim/IMPL-SPEC.md §1.8 + §12.3:
@@ -48,7 +48,7 @@ const { createGateReporter } = require('./lib/gate-report.cjs');
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
 
-// ----- the bundle-comparison contract ---------------------------------------
+// ----- the adapter-owned bundle-isolation contract ---------------------------
 
 // Stock-Reagent impl-namespace sentinels. Each is a string literal that
 // appears in the :advanced bundle of `examples/counter` exactly because
@@ -202,7 +202,7 @@ function checkPresent(blob, sentinels, blobLabel) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Bundle comparison: counter-slim-and-fast (rf2-5lbx) ===');
+  report.detail('=== Reagent Slim bundle isolation (rf2-5lbx / rf2-2ppcv) ===');
   report.detail('');
 
   const slimDir  = path.join(ROOT, 'out', 'examples', 'counter-slim-and-fast');
@@ -212,13 +212,13 @@ function main() {
 
   if (slim == null) {
     report.flushDetails();
-    console.error(`[bundle-comparison] slim bundle missing — ${slimDir}`);
+    console.error(`[reagent-slim-bundle-isolation] slim bundle missing — ${slimDir}`);
     console.error('                    Did you run "shadow-cljs release examples/counter-slim-and-fast"?');
     process.exit(1);
   }
   if (stock == null) {
     report.flushDetails();
-    console.error(`[bundle-comparison] stock bundle missing — ${stockDir}`);
+    console.error(`[reagent-slim-bundle-isolation] stock bundle missing — ${stockDir}`);
     console.error('                    Did you run "shadow-cljs release examples/counter"?');
     console.error('                    The stock bundle is required as the methodology control:');
     console.error('                    its presence of the stock-Reagent sentinels proves the');
@@ -263,7 +263,7 @@ function main() {
   if (allOk) {
     const checked = c1.checked + c2.checked + c3.checked;
     report.pass(
-      'bundle-comparison',
+      'reagent-slim-bundle-isolation',
       `3 contracts passed; ${checked} sentinel checks; slim=${slimDir} (${slim.length} chars); ` +
         `stock=${stockDir} (${stock.length} chars)`
     );
@@ -285,6 +285,7 @@ function main() {
       console.error('`:require`ing stock `reagent.*` instead of routing through the slim');
       console.error('adapter\'s late-bind hooks. See implementation/adapters/reagent-slim/');
       console.error('IMPL-SPEC.md §1.4 + §1.8.');
+      console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
     }
     if (!c3.ok) {
       console.error('Contract 3 failed: react-dom/server is in the slim bundle. The');
@@ -292,6 +293,7 @@ function main() {
       console.error('cause: a `:require ["react-dom/server" ...]` slipped into a slim');
       console.error('namespace, or a downstream consumer ns imports stock');
       console.error('reagent.dom.server.');
+      console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
     }
     process.exit(1);
   }

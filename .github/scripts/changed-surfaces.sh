@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Conservative changed-surface classifier for PR CI tiering.
+# Usage:
+#   .github/scripts/changed-surfaces.sh [--all] [path ...]
+#
+# With explicit paths, classify those paths. Without paths, derive the changed
+# file list from the GitHub Actions event, or from HEAD^ locally.
+
+force_all=false
+declare -a explicit_paths=()
+for arg in "$@"; do
+  case "$arg" in
+    --all) force_all=true ;;
+    *) explicit_paths+=("$arg") ;;
+  esac
+done
+
+if [ "$force_all" = true ]; then
+  files="__ALL__"
+elif [ "${#explicit_paths[@]}" -gt 0 ]; then
+  files="$(printf '%s\n' "${explicit_paths[@]}")"
+elif [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
+  git fetch --no-tags --depth=100 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
+  files="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
+else
+  files="$(git diff --name-only HEAD^ HEAD 2>/dev/null || git diff --name-only HEAD)"
+fi
+
+implementation_jvm=false
+adapter_diagnostic=false
+cljs_browser=false
+cljs_prod=false
+bundle_isolation=false
+reagent_slim_bundle=false
+examples_browser=false
+tools_jvm=false
+template_expensive=false
+mcp_conformance=false
+mcp_live=false
+story_causa_browser=false
+skills_structural=false
+
+mark_all() {
+  implementation_jvm=true
+  adapter_diagnostic=true
+  cljs_browser=true
+  cljs_prod=true
+  bundle_isolation=true
+  reagent_slim_bundle=true
+  examples_browser=true
+  tools_jvm=true
+  template_expensive=true
+  mcp_conformance=true
+  mcp_live=true
+  story_causa_browser=true
+  skills_structural=true
+}
+
+if [ "$files" = "__ALL__" ]; then
+  mark_all
+else
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    case "$file" in
+      .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/changed-surfaces.sh|TESTING.md)
+        mark_all
+        ;;
+      implementation/core/*)
+        implementation_jvm=true
+        adapter_diagnostic=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        examples_browser=true
+        tools_jvm=true
+        template_expensive=true
+        mcp_conformance=true
+        mcp_live=true
+        story_causa_browser=true
+        ;;
+      implementation/adapters/reagent-slim/*|examples/reagent/counter_slim_and_fast/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
+        implementation_jvm=true
+        adapter_diagnostic=true
+        cljs_browser=true
+        cljs_prod=true
+        reagent_slim_bundle=true
+        examples_browser=true
+        ;;
+      implementation/adapters/*)
+        implementation_jvm=true
+        adapter_diagnostic=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        examples_browser=true
+        tools_jvm=true
+        template_expensive=true
+        mcp_conformance=true
+        mcp_live=true
+        ;;
+      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/epoch/*|implementation/deps.edn)
+        implementation_jvm=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        examples_browser=true
+        ;;
+      implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        examples_browser=true
+        story_causa_browser=true
+        ;;
+      examples/*)
+        cljs_browser=true
+        examples_browser=true
+      ;;
+      tools/template/*)
+        tools_jvm=true
+        template_expensive=true
+        ;;
+      tools/story/*|tools/story-mcp/*|tools/causa/*|tools/causa-mcp/*)
+        tools_jvm=true
+        mcp_conformance=true
+        story_causa_browser=true
+        ;;
+      tools/pair2-mcp/*|tools/mcp-conformance/*|tools/mcp-base/*)
+        tools_jvm=true
+        mcp_conformance=true
+        mcp_live=true
+        ;;
+      skills/re-frame-pair2/tests/fixture/*)
+        skills_structural=true
+        mcp_conformance=true
+        mcp_live=true
+        ;;
+      skills/re-frame-pair2/*|skills/shared/*)
+        skills_structural=true
+        ;;
+    esac
+  done <<< "$files"
+fi
+
+emit() {
+  local key="$1"
+  local value="$2"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
+  else
+    printf '%s=%s\n' "$key" "$value"
+  fi
+}
+
+emit implementation_jvm "$implementation_jvm"
+emit adapter_diagnostic "$adapter_diagnostic"
+emit cljs_browser "$cljs_browser"
+emit cljs_prod "$cljs_prod"
+emit bundle_isolation "$bundle_isolation"
+emit reagent_slim_bundle "$reagent_slim_bundle"
+emit examples_browser "$examples_browser"
+emit tools_jvm "$tools_jvm"
+emit template_expensive "$template_expensive"
+emit mcp_conformance "$mcp_conformance"
+emit mcp_live "$mcp_live"
+emit story_causa_browser "$story_causa_browser"
+emit skills_structural "$skills_structural"
