@@ -75,14 +75,12 @@ deliberate request and can pre-filter with `(rf/trace-buffer {:sensitive? false}
 - **Not dropped**: events with `:sensitive? false` or no `:sensitive?`
   key, the underlying `rf/trace-buffer` ring, and `:rf/epoch-record`
   values surfaced via `epoch-history` / the `:epoch` streaming topic.
-  Epoch records do not carry a top-level `:sensitive?` stamp per spec —
-  if the app needs the per-event payload redacted inside an epoch, the
-  authoring side must use `(rf/with-redacted [...])` in the handler's
-  interceptor chain.
-- **Sentinel-aware**: `:rf/redacted` keywords still appear in event
-  vectors and db snapshots that rode through `with-redacted` —
-  redaction is a separate, orthogonal mechanism (the payload value is
-  replaced), `:sensitive?` is the routing flag (the event is dropped).
+  Epoch records do not carry a top-level `:sensitive?` stamp per spec;
+  schema-sensitive slots are redacted by the app-side elision walker
+  before off-box egress.
+- **Sentinel-aware**: `:rf/redacted` keywords appear where schema
+  metadata declares a sensitive slot and the egress policy excludes
+  sensitive values.
 
 ### Asking for the unmasked view
 

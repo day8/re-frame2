@@ -472,20 +472,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest computed-trace-elides-large-result
-  (testing ":rf.flow/computed :result rides through elide-wire-value — declared-large path is elided"
-    ;; Seed the app-db with `merge` semantics so the elision declarations
-    ;; written by `declare-large-path!` survive the :init handler — a
-    ;; replacing handler (e.g. `(fn [_ _] {:n 1})`) would wipe the
-    ;; `:rf/elision` registry slot under the same key, masking the
-    ;; declaration before the flow's evaluate-time registry read.
+  (testing ":rf.flow/computed :result rides through elide-wire-value — schema-large path is elided"
+    ;; Seed the app-db with `merge` semantics so the schema-installed
+    ;; elision registry survives the :init handler. A replacing handler
+    ;; (e.g. `(fn [_ _] {:n 1})`) would wipe the `:rf/elision` slot
+    ;; before the flow's evaluate-time registry read.
     (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
     (rf/reg-flow {:id     :payload
                   :inputs [[:n]]
                   :output (fn [_] {:bytes "BIG"})
                   :path   [:derived :blob]})
-    ;; Declare the flow's :path as a large-elision candidate. The walker
-    ;; consults `[:rf/elision :declarations <path>]` per frame.
-    (elision/declare-large-path! [:derived :blob])
+    (rf/reg-app-schema [:derived :blob] [:map {:large? true}])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [ev   (last (by-op :rf.flow/computed))
@@ -495,20 +492,20 @@
           ":result is replaced by the `:rf.size/large-elided` marker")
       (let [marker (:rf.size/large-elided (:result tags))]
         (is (= [:derived :blob] (:path marker))
-            "marker carries the declared path")
-        (is (= :declared (:reason marker))
-            "marker carries :reason :declared for declared-large paths")))))
+            "marker carries the schema-declared path")
+        (is (= :schema (:reason marker))
+            "marker carries :reason :schema for schema-large paths")))))
 
 (deftest failed-trace-elides-inputs
   (testing ":rf.flow/failed :inputs rides through elide-wire-value"
-    ;; Register the flow that will throw; the input path is declared
-    ;; large so the walker substitutes the marker on emit.
+    ;; Register the flow that will throw; the input path is schema-
+    ;; declared large so the walker substitutes the marker on emit.
     (rf/reg-event-db :init (fn [db _] (merge db {:payload {:big "value"}})))
     (rf/reg-flow {:id     :boom
                   :inputs [[:payload]]
                   :output (fn [_] (throw (ex-info "boom" {})))
                   :path   [:doomed]})
-    (elision/declare-large-path! [:payload])
+    (rf/reg-app-schema [:payload] [:map {:large? true}])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [ev   (last (by-op :rf.flow/failed))

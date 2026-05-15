@@ -49,8 +49,8 @@
   See also: `get-coeffect`, `assoc-coeffect`, `get-effect`,
   `assoc-effect`, `inject-cofx`, `path` / `unwrap` (the std interceptors
   v2 ships), `reg-event-ctx` (full-context handler)."
-  [& {:keys [id before after]}]
-  (cond-> {:id (or id :unnamed)}
+  [& {:keys [id before after] :as opts}]
+  (cond-> (assoc opts :id (or id :unnamed))
     before (assoc :before before)
     after  (assoc :after after)))
 

@@ -18,14 +18,10 @@
      from the buffer (default posture); the bottom rail surfaces a
      `[● REDACTED N]` hint.
 
-  2. **`with-redacted` interceptor** — paired with `:sensitive?` so
-     the password is scrubbed to `:rf/redacted` in-place before any
-     in-chain trace event copies the event vector. The handler body
-     still sees the unredacted payload via the `:event` cofx slot
-     (it needs the real value to do the work). Spec 009 §Composition
-     calls this the conservative-recommended companion to
-     `:sensitive?`; without it the registrar emits
-     `:rf.warning/sensitive-without-redaction`.
+  2. **Schema-installed redaction** — per-slot `{:sensitive? true}`
+     metadata is the path-level privacy surface. This event payload is
+     intentionally modeled with handler metadata because it is not an
+     app-db path-scoped write.
 
   3. **`:large?` schema-meta slot** — the `:user/avatar-pdf` schema
      entry carries `{:large? true :hint \"Avatar PDF blob\"}`. When
@@ -39,16 +35,9 @@
   4. **Always-on `event-emit` listener** — the demo registers a
      console-logger via `register-event-emit-listener!`. The
      listener receives one record per processed event and
-     demonstrates a different elision surface: the **runtime
-     auto-detect** branch of the wire walker. When the
-     `:user.avatar/upload` event vector carries an inline large
-     string (≥ 16 kB, Spec 009 §Auto-detect threshold), the walker
-     substitutes the string with `:rf.size/large-elided` BEFORE the
-     listener sees the record — even though no schema slot declared
-     the path. This is the production-survivable substrate the
-     chapter-22 Datadog recipe pivots around: the listener fires
-     under `:advanced` + `goog.DEBUG=false` where the trace surface
-     is DCE'd.
+     demonstrates the production-survivable substrate the chapter-22
+     Datadog recipe pivots around: the listener fires under `:advanced`
+     + `goog.DEBUG=false` where the trace surface is DCE'd.
 
   ## What to look for in the running app
 
@@ -59,20 +48,14 @@
     by the `:sensitive?` top-level stamp); the bottom rail shows
     `[● REDACTED N]`. The console line from the always-on listener
     is honest about its scope: it shows the original event vector
-    because the event-emit substrate does NOT consult handler-meta
-    for `:sensitive?` — the listener sees what the walker would
-    write to the wire, and the walker's sensitivity check consults
-    the `:rf/elision` registry of app-db PATHS, not handler
-    metadata. (Production deployments add a registration-time
-    `goog.DEBUG=false` gate on the listener so dev-only PII never
-    reaches the wire.)
+    because the event-emit substrate consults handler-meta for
+    `:sensitive?` before fan-out.
 
   - **Click 'Upload large avatar (inline)'** — dispatches
     `:user.avatar/upload` with a 20 kB string in the event payload.
     The console line from the listener shows the inline blob
-    REPLACED with the `:rf.size/large-elided` marker. The walker's
-    runtime auto-detect fired at the wire boundary — the listener
-    never saw the bytes.
+    visible in the event payload; schema `:large?` applies to app-db
+    slots, not arbitrary event-vector blobs.
 
   - **Click 'Walk app-db through elision'** — runs
     `rf/elide-wire-value` over a snapshot of the live frame's
@@ -120,16 +103,11 @@
                                      :hint   "Avatar PDF blob"}]])
 
 ;; ============================================================================
-;; EVENTS  (Spec 009 §`:sensitive?` + §`with-redacted`)
+;; EVENTS  (Spec 009 §`:sensitive?`)
 ;; ============================================================================
 ;;
-;; The conventional event-vector shape per Conventions §Unwrap
-;; interceptor is `[event-id payload-map]`; `with-redacted`'s path
-;; vector addresses keys inside that payload map. Declaring BOTH
-;; `:sensitive? true` AND `with-redacted [[:password]]` is the
-;; conservative-recommended pattern per Spec 009 §Composition —
-;; the metadata stamp is the trace-surface filter signal; the
-;; interceptor is the in-handler scrub.
+;; Handler metadata is the cross-cutting escape hatch for event payloads
+;; that cannot be represented as schema-sensitive app-db slots.
 
 (rf/reg-event-fx :auth/sign-in
   ;; Registration metadata — the registrar copies `:sensitive? true`
@@ -137,17 +115,9 @@
   ;; TOP level of every trace event emitted within this handler's
   ;; scope. Causa filters on the top-level stamp.
   {:doc        "Demo sign-in handler — the password rides the event
-                vector. `:sensitive? true` tells trace consumers to
-                drop these events; `with-redacted [[:password]]`
-                scrubs the field in-place before any downstream emit
-                copies the event vector."
+                vector. `:sensitive? true` tells trace consumers and
+                always-on substrates to suppress or redact these events."
    :sensitive? true}
-
-  ;; Positional interceptor chain — `with-redacted` runs in `:before`
-  ;; so every in-chain emit that copies the event vector sees the
-  ;; redacted form. The handler body itself sees the unredacted
-  ;; payload via the `:event` cofx slot.
-  [(rf/with-redacted [[:password]])]
 
   (fn handler-auth-sign-in [{:keys [db]} [_ {:keys [email password]}]]
     ;; In a real app this is where you'd dispatch the http request
@@ -309,7 +279,7 @@
            (if last-sign-in
              (str "submitted for " (:email last-sign-in)
                   " — trace surface redacted, [● REDACTED N] in Causa")
-             "dispatch :auth/sign-in — :sensitive? + with-redacted")]]
+             "dispatch :auth/sign-in — handler :sensitive? escape hatch")]]
 
          ;; -- 2. inline large payload (wire-walker auto-detect) ---
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"

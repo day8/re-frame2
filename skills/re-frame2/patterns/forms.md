@@ -28,7 +28,7 @@ Two non-obvious rules:
 
 Password, TOTP, recovery-code, and similar secret fields are a **different lifecycle** to the everyday text input. The slice shape above does not change, but four extra disciplines apply:
 
-1. **Mark the submit handler `:sensitive? true` and scrub the payload with `(rf/with-redacted ...)`.** This is the single normative privacy seam — it drops trace/listener emissions and replaces the recorded payload with `:rf/redacted`. The handler body still sees the real value via the unredacted `:event` coeffect. See [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md) — the canonical worked example there is `:auth/login-submitted`.
+1. **Mark secret schema slots `{:sensitive? true}` and use a path-scoped submit handler.** Schema metadata is the single normative path-level privacy seam; the router auto-installs trace/error redaction while the handler body still sees the real value via the unredacted `:event` coeffect. Use handler metadata `{:sensitive? true}` only as a whole-handler escape hatch. See [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md).
 2. **Do not copy a secret field into `:submitted`.** The `:dirty?` sub compares `:draft` against `:submitted`; persisting a password into `:submitted` keeps the secret in app-db longer than the form needs it. Either omit the secret from the `:submitted` mirror (the `:dirty?` sub falls back to comparing against defaults, which is fine for auth forms — re-submitting a login *should* feel "dirty" again), or clear the secret out of `:submitted` after the request resolves.
 3. **Clear secret fields out of `:draft` after submit.** Once the request is in flight, the secret has done its job — `assoc-in [:auth :login :draft :password] nil` in the `:submitting` transition (or the `:submit-success` / `:submit-error` handlers). Don't leave a credential sitting in app-db waiting for the next snapshot, recorder capture, or pair-tooling inspection.
 4. **Do not include the secret in `:errors`.** Server-side rejection ("password incorrect") lands under the reserved `:_form` key with a non-revealing message; the offending value never echoes back.
@@ -37,8 +37,7 @@ Worked auth example — minimal diff from the slice form above:
 
 ```clojure
 (rf/reg-event-fx :form.login/submit
-  {:sensitive? true}                                            ;; gate trace/listener fan-out
-  [(rf/with-redacted [[:draft :password]])]                     ;; scrub draft.password in every downstream emit
+  [(rf/path :auth :login)]                                      ;; schema redaction maps draft.password to payload password
   (fn [{:keys [db]} _]
     (let [draft  (get-in db [:auth :login :draft])
           errors (validate-against LoginForm draft)
@@ -58,7 +57,7 @@ Worked auth example — minimal diff from the slice form above:
         {:db (assoc-in db' [:auth :login :errors] errors)}))))
 ```
 
-For 2FA flows, the same shape applies to the TOTP / recovery-code field. The `[:auth :2fa-verify :draft :totp-code]` path is `:sensitive? true` + scrubbed + cleared after submit.
+For 2FA flows, the same shape applies to the TOTP / recovery-code field. The `[:auth :2fa-verify :draft :totp-code]` path is schema `:sensitive? true` and cleared after submit.
 
 This is a complement to, not a replacement for, the slice form above — apply the four disciplines only on auth / 2FA / password-change / API-key-rotation flows. Everyday forms (settings, article-editor, comments) keep the plain slice shape.
 

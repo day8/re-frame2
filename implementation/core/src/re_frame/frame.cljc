@@ -435,6 +435,8 @@
     *. cleanup hooks (best-effort, no-op when artefact absent):
          :privacy/clear-suppression-cache!  — reset sensitive-without-
                                               redaction warn-once cache.
+         :elision/clear-warning-cache!      — reset schema-first elision
+                                              warning cache.
          :ssr/on-frame-destroyed            — clear SSR side-channel
                                               atoms for this frame.
          :machines/on-frame-destroyed!      — clear the machines
@@ -463,6 +465,7 @@
     (mark-frame-destroyed! id)
     (tear-down-sub-cache! f)
     (safe-call-hook! :privacy/clear-suppression-cache!)
+    (safe-call-hook! :elision/clear-warning-cache!)
     (safe-call-hook! :ssr/on-frame-destroyed id)
     (safe-call-hook! :machines/on-frame-destroyed! id)
     ;; Per rf2-wkxng / rf2-6m0se: drop every schema registered against

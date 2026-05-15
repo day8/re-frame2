@@ -34,7 +34,7 @@ Four sections:
 | Schema walker — populates `[:rf/elision :sensitive-declarations]` at boot | `re-frame.schemas.walker/collect-sensitive-declarations` | `day8/re-frame2-schemas` (core split pending [rf2-p7va](#)) |
 | Always-on error-emit substrate (production-survivable) | `re-frame.error-emit/emit-error!` | `day8/re-frame2` (core) — `re-frame.error-emit` |
 | Always-on event-emit substrate | `re-frame.event-emit/emit-event!` | `day8/re-frame2` (core) — `re-frame.event-emit` |
-| `with-redacted` interceptor (positional payload scrubber) | `re-frame.core/with-redacted` | `day8/re-frame2` (core) — `re-frame.interceptor.privacy` |
+| Schema-installed redaction | `{:sensitive? true}` on app-schema slots | `day8/re-frame2` (core) — `re-frame.privacy` |
 | MCP-tool wire-egress walker (off-box defaults) | `re-frame.mcp-base.elision/walk-for-wire` (wraps `elide-wire-value`) | `day8/re-frame2-mcp-base` ([rf2-vw4sq](#)) |
 | Hiccup → HTML attribute-key escape | `re-frame.ssr.hiccup/escape-attr-key` | `day8/re-frame2-ssr` (`re-frame.ssr.hiccup`) |
 | JSON-LD `<script>` body `<` escape | `re-frame.ssr.hiccup/escape-script-body` | `day8/re-frame2-ssr` (`re-frame.ssr.hiccup`) |
@@ -51,7 +51,7 @@ Every numeric default the reference ships, with its config slot, its purpose, an
 |---|---|---|---|
 | `:rf.http/max-decoded-keys` | `10000` | Per-request keyword-interning cap (DoS + integrity threat on JSON decode) | `:rf.http/decode-failure` with `:reason :too-many-keys` |
 | `:timeout-ms` (managed-HTTP) | `30000` (30 seconds) | Per-attempt wall-clock timeout; slow-loris defense. `nil` / `0` opt out (deliberate caller intent) | `:rf.http/timeout` |
-| `:rf.size/threshold-bytes` | `16384` (16 KB) | Wire-elision size cap — values bigger than this elide with `:rf.size/large-elided` | n/a (elision, not failure) |
+| Unschema'd large-value warning floor | `16384` (16 KB) | Dev-only advisory floor for large strings lacking `{:large? true}` schema metadata | n/a (warning, not failure) |
 | `:rf.size/include-sensitive?` | `false` | Off-box wire-egress sensitivity opt-in (MCP tools, log forwarders) | n/a (filter; `:dropped-sensitive` indicator slot reports filtered count) |
 | `:rf.size/include-large?` | `false` | Off-box wire-egress oversize opt-in | n/a (filter; `:elided-large` indicator slot reports filtered count) |
 | Drain-depth ceiling (`:rf/drain-depth-limit`) | `1024` cascaded dispatches per drain | Cascading-dispatch DoS defense | `:rf.error/drain-depth-exceeded` with `:tags {:depth :queue-size :last-event}` |
@@ -122,7 +122,7 @@ Every safety check the reference performs surfaces a structured `:rf.error/*` ke
 
 | Surface | Event id | Emission rule |
 |---|---|---|
-| Registration declares `:sensitive? true` but interceptor chain has no `with-redacted` | `:rf.warning/sensitive-without-redaction` | One-shot at registration time per (frame-id, event-id); idempotent |
+| Large string reaches wire elision without schema metadata | `:rf.warning/large-value-unschema'd` | One-shot at wire-elision time per (frame-id, path); idempotent |
 | Async-callback dispatch landed on `:rf/default` because frame-context binding did not survive | `:rf.warning/dispatch-from-async-callback-fell-through-to-default` | Per dispatch site |
 
 ## Decisions log — the 38-bead audit trail
@@ -167,8 +167,8 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 | rf2-vnjfg | `:sensitive?` enforcement on always-on error path (not warning-only) | Always-on error-emit substrate survives `:advanced` + `goog.DEBUG=false`; a sensitive failing value would land at hosted error monitors as a verbatim secret without substrate-level enforcement. |
 | rf2-kj51z | Schema-validation-failure redacts `:value` / `:received` / `:explain` / `:fx-args` when slot is `:sensitive?` | Malli's standard behaviour carries the failing value verbatim under `:value` / `:errors[].value`. Without redaction the trace event re-leaks the secret to every registered listener. |
 | rf2-hdadz | Recorder redacts payload but records the slot | Drop-the-payload semantics, not refuse-to-record — devs lose useful correlation otherwise. Matches the always-on error-emit substrate's posture. |
-| rf2-czv3p | Direct-read tools MUST run `re-frame.core/elide-wire-value`; named mutations need no extra gate | Direct reads (`get-app-db`, `get-path`) bypass the trace surface where `with-redacted` and `:sensitive?` stamping operate. The MCP egress is the right boundary for live-value redaction. Named mutations get no extra gate — invoking the tool is the consent. |
-| rf2-b2hip | spec/004-Wire-Pipeline.md aligned to spec/Tool-Pair MUST on direct-read privacy | Spec-vs-spec drift resolution: `with-redacted` shapes trace `:db-before` / `:db-after`; it does NOT protect a live-value direct read. Tool-Pair MUST wins. |
+| rf2-czv3p | Direct-read tools MUST run `re-frame.core/elide-wire-value`; named mutations need no extra gate | Direct reads (`get-app-db`, `get-path`) bypass handler-scoped trace stamping. The MCP egress is the right boundary for schema-declared live-value redaction. Named mutations get no extra gate — invoking the tool is the consent. |
+| rf2-b2hip | spec/004-Wire-Pipeline.md aligned to spec/Tool-Pair MUST on direct-read privacy | Spec-vs-spec drift resolution: trace redaction does NOT protect a live-value direct read. Tool-Pair MUST wins. |
 | rf2-isdwf | `:sensitive?` hoisted from `:tags` to trace-event top-level | Consumers route on top-level `:sensitive?` rather than `(get-in trace-event [:tags :sensitive?])` — flatter access path, cheaper conformance gate. |
 | rf2-iwqu9 | `re-frame.privacy/sensitive?-from-meta` for non-trace consumers | Same boolean as the trace surface uses, exposed for non-trace consumers (the always-on substrates). One reader, two surfaces. |
 
@@ -234,5 +234,5 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 - [`../spec/010-Schemas.md`](../spec/010-Schemas.md) — schema-driven privacy declaration; boundary-validation seam.
 - [`../spec/011-SSR.md`](../spec/011-SSR.md) — response-shape fx (the CRLF-check sites); `:rf.server/safe-redirect`.
 - [`../spec/014-HTTPRequests.md`](../spec/014-HTTPRequests.md) — managed-HTTP input-validation and DoS defaults.
-- [`../spec/API.md`](../spec/API.md) — public-surface signatures (the names a user types: `with-redacted`, `:sensitive?` meta, `elide-wire-value`).
+- [`../spec/API.md`](../spec/API.md) — public-surface signatures (the names a user types: schema `:sensitive?` / `:large?` metadata, handler `:sensitive?` meta, `elide-wire-value`).
 - [`../spec/Tool-Pair.md`](../spec/Tool-Pair.md) — MCP-server direct-read wire-egress contract.

@@ -30,6 +30,7 @@
   (let [path-vec (vec path-segs)]
     (interceptor/->interceptor
       :id    :path
+      :path  path-vec
       :before
       (fn [ctx]
         (-> ctx

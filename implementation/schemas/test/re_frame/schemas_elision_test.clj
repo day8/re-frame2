@@ -216,30 +216,25 @@
       (is (= db-1 db-2)
           "second call is a no-op when the schema set is unchanged"))))
 
-(deftest populate-preserves-declared-source
-  (testing "existing :source :declared entries are NEVER overwritten by schema entries"
-    ;; The conflict rule per Spec 009 §Conflict resolution: declared
-    ;; beats schema beats runtime-flagged. populate-elision-
-    ;; declarations honours this — if the user has imperatively
-    ;; declared a path large via :rf.size/declare-large fx, a sibling
-    ;; schema-derived entry MUST NOT clobber it.
+(deftest populate-replaces-prior-non-schema-source
+  (testing "schema metadata is canonical for the populated registry slot"
     (rf/reg-app-schema [:user] [:map
                                 [:pdf {:large? true :hint "schema-hint"} :string]])
     (let [frame-id  (frame/current-frame)
-          db-with-declared
+          db-with-prior
           {:rf/elision
            {:declarations
             {[:user :pdf] {:large? true
-                           :source :declared
+                           :source :legacy
                            :hint   "user-fx-hint"}}}}
           db'      (schemas/populate-elision-declarations
-                     db-with-declared frame-id)]
-      (is (= "user-fx-hint"
+                     db-with-prior frame-id)]
+      (is (= "schema-hint"
              (get-in db' [:rf/elision :declarations [:user :pdf] :hint]))
-          "declared :hint preserved")
-      (is (= :declared
+          "schema :hint replaces older registry state")
+      (is (= :schema
              (get-in db' [:rf/elision :declarations [:user :pdf] :source]))
-          "declared :source preserved"))))
+          "schema :source replaces older registry state"))))
 
 (deftest populate-overwrites-prior-schema-entry
   (testing "a re-registered schema with a different :hint refreshes the schema-source slot"
@@ -284,69 +279,42 @@
       (rf/reg-app-schema [:user]
                          [:map [:pdf :string]])
       (let [db-2 (schemas/populate-elision-declarations db-1 frame-id)]
-        (is (= {} (get-in db-2 [:rf/elision :declarations]))
-            "after flag removal — stale schema entry pruned")))))
+        (is (nil? (:rf/elision db-2))
+            "after flag removal — stale schema entry pruned and empty root removed")))))
 
-(deftest populate-prunes-and-preserves-declared
-  (testing "pruning leaves :source :declared entries untouched (rf2-kr3vp)"
-    ;; Pruning the schema-derived subset MUST NOT collateral-damage
-    ;; user-declared paths.  The conflict rule (declared beats schema)
-    ;; still holds: an app-declared `[:rf.size/declare-large :secrets]`
-    ;; survives even when the schema set is wiped.
+(deftest populate-prunes-registry-slot
+  (testing "pruning removes the schema-owned registry slot (rf2-kr3vp)"
     (rf/reg-app-schema [:user]
                        [:map [:pdf {:large? true} :string]])
     (let [frame-id (frame/current-frame)
-          db-with-declared
+          db-with-prior
           {:rf/elision
            {:declarations
             {[:secrets] {:large? true
-                         :source :declared
+                         :source :legacy
                          :hint   "user-fx"}}}}
-          db-1 (schemas/populate-elision-declarations db-with-declared frame-id)]
-      (is (= "user-fx"
-             (get-in db-1 [:rf/elision :declarations [:secrets] :hint]))
-          "declared entry rides through populate")
+          db-1 (schemas/populate-elision-declarations db-with-prior frame-id)]
       (is (= :schema
              (get-in db-1 [:rf/elision :declarations [:user :pdf] :source]))
-          "schema entry installed alongside the declared entry")
+          "schema entry replaces prior registry state")
       ;; Now wipe the schema set entirely (drop the registration).
       (reset! schemas/schemas-by-frame {})
       (let [db-2 (schemas/populate-elision-declarations db-1 frame-id)]
-        (is (= {[:secrets] {:large? true :source :declared :hint "user-fx"}}
-               (get-in db-2 [:rf/elision :declarations]))
-            "schema entry pruned; declared entry preserved")))))
+        (is (nil? (:rf/elision db-2))
+            "schema entry pruned; empty registry root removed")))))
 
-(deftest populate-preserves-runtime-flagged-source
-  (testing "runtime-flagged entries are NEVER overwritten — schema doesn't beat runtime-flagged"
-    ;; Conflict rule per Spec 009: declared > schema > runtime-flagged.
-    ;; But the populate fn is conservative — only overwrites entries
-    ;; that are already :source :schema OR absent. A runtime-flagged
-    ;; entry is left alone (the framework's elision-walker downstream
-    ;; resolves the conflict at emit time per the documented rule).
-    ;;
-    ;; Rationale: if the runtime auto-detector flagged a path, that's
-    ;; the empirical truth at the moment; the schema-source entry can
-    ;; co-exist in :runtime-flagged separately. The schema slot is
-    ;; the authoritative declarations entry.
+(deftest populate-replaces-legacy-source
+  (testing "schema metadata replaces any legacy source in the declaration slot"
     (rf/reg-app-schema [:user]
                        [:map [:pdf {:large? true} :string]])
     (let [frame-id (frame/current-frame)
-          db-with-rt
+          db-with-legacy
           {:rf/elision
            {:declarations
             {[:user :pdf] {:large? true
-                           :source :runtime-flagged}}}}
+                           :source :legacy}}}}
           db'      (schemas/populate-elision-declarations
-                     db-with-rt frame-id)]
-      ;; populate-elision-declarations defers to the conflict-resolution
-      ;; rule downstream: schema beats runtime-flagged. We treat
-      ;; :source :runtime-flagged in :declarations the same way as
-      ;; :source :schema (the schema layer can update it). The walker
-      ;; downstream is the authoritative arbiter.
-      ;;
-      ;; This assertion locks the CURRENT behaviour: schema slots
-      ;; overwrite anything not specifically :source :declared. If
-      ;; that decision is revisited, this test is the canary.
+                     db-with-legacy frame-id)]
       (is (= :schema
              (get-in db' [:rf/elision :declarations [:user :pdf] :source]))))))
 

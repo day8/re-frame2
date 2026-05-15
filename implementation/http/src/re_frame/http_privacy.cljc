@@ -20,8 +20,8 @@
     `redact-url-query-string` (and future home of `url-encode` /
     `params->query` / `merge-params` per rf2-5ijhk).
 
-  Three cooperating mechanisms, mirroring Spec 009's `:sensitive?` /
-  `with-redacted` split:
+  Three cooperating mechanisms, mirroring Spec 009's schema-first
+  privacy split:
 
   1. **Header denylist** (`re-frame.http-privacy-headers`) — a canonical
      set of always-sensitive header names. Redacted in trace events

@@ -285,7 +285,7 @@
             listener's `:event` slot with `:rf/redacted`. The raw
             event payload — which may carry credentials, payment
             details, PII — does NOT reach off-box listeners even
-            when `with-redacted` was not declared on the handler's
+            when schema redaction was not installed for the handler's
             interceptor chain. Mirrors the rf2-6hklf event-emit
             policy but redacts (vs. drops) because errors are a
             recovery surface that MUST be observable."
@@ -297,7 +297,7 @@
                        {:sensitive? true
                         ;; opt out of the registration-time warning;
                         ;; this test pins the substrate behaviour, not
-                        ;; the with-redacted advisory.
+                        ;; schema-redaction setup.
                         :no-redaction-needed? true}
                        (fn [_db _]
                          (throw (ex-info "boom" {:cause :test}))))

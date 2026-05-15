@@ -49,7 +49,7 @@
        every validation failure in that handler's scope as a coarse
        fallback.
   The substitution sentinel is `:rf/redacted` (the framework-reserved
-  keyword per Spec 009 §`with-redacted`). The trace event's `:tags`
+  keyword per Spec 009 §Privacy). The trace event's `:tags`
   map is stamped with `:sensitive? true` so consumers can route on it
   (until rf2-isdwf's top-level hoisting lands in core).
 
@@ -79,7 +79,7 @@
 (def ^:private redacted-sentinel
   "The `:rf/redacted` privacy sentinel emitted by validation traces
   for slots matching the `:sensitive?` predicate. Per Spec 009
-  §`with-redacted` — the framework-reserved keyword that cannot
+  §Privacy — the framework-reserved keyword that cannot
   collide with an app-defined value."
   :rf/redacted)
 

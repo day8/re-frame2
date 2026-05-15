@@ -327,13 +327,10 @@
   drain must not abort); this helper translates that into both delivery
   channels.
 
-  Per Spec 009 §The `with-redacted` interceptor (line 1226): the
-  `:tags :event` slot of `:rf.error/handler-exception` MUST honour
-  `with-redacted` — if the failing handler declared redacted paths,
-  the trace event carries the scrubbed event vector, not the
-  unredacted one. `ctx` (the final interceptor context) carries the
-  scrubbed form under `:rf/redacted-event` when `with-redacted`
-  ran; we surface that here.
+  Schema-derived redaction is reflected in the `:tags :event` slot:
+  when the handler's path-scoped db slice overlaps a sensitive schema
+  slot, the router-installed redaction interceptor stores the scrubbed
+  event form under `:rf/redacted-event`; this helper surfaces it.
 
   Per rf2-hqbeh: the per-frame `:on-error` slot is a runtime error-
   recovery surface and MUST fire even when the trace surface is
@@ -352,7 +349,7 @@
   [error event-id event frame ctx start-ms]
   (let [e          (:exception error)
         msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
-        emit-event (or (:rf/redacted-event ctx) event)
+        emit-event (privacy/redacted-event-from-ctx ctx)
         end-ms     (interop/now-ms)
         ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
         ;; `interop/now-ms` returns a long on the JVM but a float on
@@ -450,16 +447,15 @@
   Subscriptions whose inputs changed re-fire on the second commit so
   the UI never settles on a non-conforming snapshot.
 
-  Per Spec 009 §The `with-redacted` interceptor (line 1225): the
-  `:event/db-changed` trace event MUST surface the scrubbed event
-  vector under `:tags :event` when `with-redacted` ran on the
-  handler's chain. The interceptor stashes `:rf/redacted-event`
-  on the context; we read it through and emit the scrubbed form."
+  Schema-derived redaction is reflected in the `:event/db-changed`
+  trace event's `:tags :event` slot. The router-installed internal
+  interceptor stashes the scrubbed form under `:rf/redacted-event`;
+  this commit path reads it through."
   [effects event-id event frame ctx db-before]
   (if (contains? effects :db)
     (let [container  (frame/get-frame-db frame)
           new-db     (:db effects)
-          emit-event (or (:rf/redacted-event ctx) event)]
+          emit-event (privacy/redacted-event-from-ctx ctx)]
       (adapter/replace-container! container new-db)
       (trace/emit! :event :event/db-changed
                    {:event-id event-id :event emit-event :frame frame})
@@ -657,6 +653,15 @@
                       :kind     :event
                       :recovery :replaced-with-default}))
 
+(defn- refresh-elision-from-schemas!
+  "Refresh schema-owned elision registries before a handler runs. No-op
+  when the schemas artefact is absent."
+  [frame]
+  (when-let [populate! (late-bind/get-fn-cached :elision/populate-from-schemas!)]
+    (try
+      (populate! frame)
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
+
 (defn- prepare-handler-ctx
   "Build the effective interceptor chain and initial context for a
   resolved handler. Merges per-frame + per-call overrides (Spec 002
@@ -683,11 +688,21 @@
         prepended-chain (if (seq extra-interceptors)
                           (vec (concat extra-interceptors (:interceptors handler-meta)))
                           (:interceptors handler-meta))
-        full-chain      (apply-icpt-overrides prepended-chain icpt-overrides)
+        base-chain      (apply-icpt-overrides prepended-chain icpt-overrides)
+        redaction-paths (privacy/schema-redaction-paths frame base-chain)
+        full-chain      (if (seq redaction-paths)
+                          (into [(privacy/schema-redaction-interceptor
+                                   redaction-paths)]
+                                base-chain)
+                          base-chain)
         initial-ctx     (assemble-initial-ctx envelope frame frame-record fx-overrides)]
     {:full-chain   full-chain
      :initial-ctx  initial-ctx
-     :fx-overrides fx-overrides}))
+     :fx-overrides fx-overrides
+     :emit-event   (if (seq redaction-paths)
+                     (privacy/redact-event (:event envelope) redaction-paths)
+                     (:event envelope))
+     :schema-sensitive? (boolean (seq redaction-paths))}))
 
 (defn- run-chain
   "Execute the interceptor chain bracketed in performance marks. When
@@ -759,10 +774,10 @@
   but a float on CLJS (`js/performance.now()` carries sub-millisecond
   precision). Round once at the substrate boundary so the record's
   contract holds on both platforms."
-  [event-id event frame error start-ms]
+  [event-id event emit-event frame error start-ms]
   (trace/emit! :event :event
                {:event-id event-id
-                :event    event
+                :event    emit-event
                 :frame    frame
                 :phase    :run-end})
   ;; Sticky hook (rf2-f72pd) — always-on per-event observability fan-out
@@ -770,7 +785,7 @@
   (when-let [emit-event! (late-bind/get-fn-cached :event-emit/dispatch-on-event)]
     (let [end-ms     (interop/now-ms)
           elapsed-ms (long (max 0 (- end-ms start-ms)))]
-      (emit-event! event
+      (emit-event! emit-event
                    event-id
                    frame
                    end-ms
@@ -799,23 +814,27 @@
   always-on event-emit substrate can report `:elapsed-ms` in its per-
   event record."
   [envelope event-id event frame frame-record handler-meta]
-  (trace/with-handler-scope
-    (trace/handler-scope-from-meta :event event-id handler-meta)
-    (let [start-ms  (interop/now-ms)
-          _         (trace/emit! :event :event
-                                 {:event-id event-id
-                                  :event    event
-                                  :frame    frame
-                                  :source   (:source envelope)
-                                  :trace-id (:trace-id envelope)
-                                  :phase    :run-start})
-          event-ok? (validate-event! event-id event handler-meta)
-          {:keys [full-chain initial-ctx fx-overrides]}
-          (prepare-handler-ctx envelope frame frame-record handler-meta)
-          final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
-          error     (commit-and-flow! final-ctx event-id event frame
-                                      frame-record fx-overrides envelope start-ms)]
-      (emit-cascade-trailers! event-id event frame error start-ms))))
+  (refresh-elision-from-schemas! frame)
+  (let [{:keys [full-chain initial-ctx fx-overrides emit-event
+                schema-sensitive?]}
+        (prepare-handler-ctx envelope frame frame-record handler-meta)
+        scope-meta (cond-> handler-meta
+                     schema-sensitive? (assoc :sensitive? true))]
+    (trace/with-handler-scope
+      (trace/handler-scope-from-meta :event event-id scope-meta)
+      (let [start-ms  (interop/now-ms)
+            _         (trace/emit! :event :event
+                                   {:event-id event-id
+                                    :event    emit-event
+                                    :frame    frame
+                                    :source   (:source envelope)
+                                    :trace-id (:trace-id envelope)
+                                    :phase    :run-start})
+            event-ok? (validate-event! event-id event handler-meta)
+            final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
+            error     (commit-and-flow! final-ctx event-id event frame
+                                        frame-record fx-overrides envelope start-ms)]
+        (emit-cascade-trailers! event-id event emit-event frame error start-ms)))))
 
 (defn- process-event*
   "Per-event drain body. Resolve handler, then sequence the four cascade
