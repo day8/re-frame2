@@ -20,9 +20,15 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const {
+  createDiagnostics,
+  flushDiagnostics,
+  isVerboseTests,
+} = require('./_helpers.cjs');
 
 const HERE = __dirname;
 const SKILL_ROOT = path.resolve(HERE, '..', '..');
+const VERBOSE_TESTS = isVerboseTests();
 
 async function pingFixture(url, timeoutMs = 1500) {
   return new Promise((resolve) => {
@@ -51,6 +57,9 @@ function pickFixtureUrl() {
 async function main() {
   const fixtureDir = pickFixtureDir();
   const fixtureUrl = pickFixtureUrl();
+  const diagnostics = createDiagnostics({ verbose: VERBOSE_TESTS });
+  diagnostics.add(`[pair2-e2e] fixture URL: ${fixtureUrl}`);
+  diagnostics.add(`[pair2-e2e] fixture dir: ${fixtureDir || '(not found)'}`);
 
   const fixtureUp = await pingFixture(fixtureUrl);
   if (!fixtureUp) {
@@ -63,8 +72,9 @@ async function main() {
     );
     process.exit(0);
   }
+  diagnostics.add('[pair2-e2e] fixture reachable');
 
-  const ctx = { fixtureDir, fixtureUrl, skillRoot: SKILL_ROOT };
+  const ctx = { fixtureDir, fixtureUrl, skillRoot: SKILL_ROOT, diagnostics };
 
   const specs = fs
     .readdirSync(HERE)
@@ -73,28 +83,31 @@ async function main() {
 
   if (specs.length === 0) {
     console.error('[pair2-e2e] no spec files found in ' + HERE);
+    flushDiagnostics(diagnostics);
     process.exit(1);
   }
 
   let failures = 0;
   for (const spec of specs) {
     const specPath = path.join(HERE, spec);
-    console.log('[pair2-e2e] running ' + spec);
+    diagnostics.add('[pair2-e2e] running ' + spec);
     try {
       const mod = require(specPath);
       if (typeof mod.run !== 'function') {
         throw new Error('spec did not export `run(ctx)`');
       }
-      await mod.run(ctx);
-      console.log('[pair2-e2e]   ' + spec + ' PASS');
+      await mod.run({ ...ctx, spec });
+      diagnostics.add('[pair2-e2e]   ' + spec + ' PASS');
     } catch (err) {
       failures += 1;
-      console.error('[pair2-e2e]   ' + spec + ' FAIL: ' + (err.stack || err));
+      console.error('[pair2-e2e]   ' + spec + ' FAIL: ' + (err.message || err));
+      diagnostics.add('[pair2-e2e]   ' + spec + ' FAIL: ' + (err.stack || err), 'stderr');
     }
   }
 
   if (failures > 0) {
     console.error('[pair2-e2e] ' + failures + ' failed');
+    flushDiagnostics(diagnostics);
     process.exit(1);
   }
   console.log('[pair2-e2e] ' + specs.length + ' passed');
