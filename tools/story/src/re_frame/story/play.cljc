@@ -158,11 +158,17 @@
           (assertions/record!
             frame-id
             {:assertion :rf.error/exception
+             :variant-id frame-id
              :phase     :phase-4-play
              :event     event-vec
              :error     {:message (or msg
                                       #?(:clj (when exc (.getMessage ^Throwable exc))
-                                         :cljs (when exc (str exc))))}
+                                         :cljs (when exc (str exc))))
+                         :stack   #?(:clj  (when exc (with-out-str (.printStackTrace ^Throwable exc)))
+                                      :cljs (when exc (.-stack exc)))
+                         :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
+                                                      :cljs ExceptionInfo) exc)
+                                    (ex-data exc))}
              :passed?   false})))
       (swap! pending-exceptions assoc frame-id []))))
 
@@ -206,10 +212,16 @@
     (rf/dispatch-sync event {:frame frame-id})
     (catch #?(:clj Throwable :cljs :default) e
       (let [record {:assertion :rf.error/exception
+                    :variant-id frame-id
                     :phase     :phase-4-play
                     :event     event
                     :error     {:message #?(:clj  (.getMessage ^Throwable e)
-                                            :cljs (str e))}
+                                            :cljs (str e))
+                                :stack   #?(:clj  (with-out-str (.printStackTrace ^Throwable e))
+                                            :cljs (.-stack e))
+                                :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
+                                                             :cljs ExceptionInfo) e)
+                                           (ex-data e))}
                     :passed?   false}]
         (assertions/record! frame-id record))))
   ;; After the drain settles, walk any captured handler-exception

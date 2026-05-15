@@ -126,3 +126,16 @@
              :aria-label "Dispatch sensitive sign-in event"
              :data-test  "story-recorder-sensitive-action"}
     "Sensitive sign in"]])
+
+(reg-view throwing-card [_args]
+  [:div {:style {:background "#5a1d1d"
+                 :color "#fff"
+                 :padding "0.75em"
+                 :border "1px solid #f08080"}
+         :data-test "story-render-error"}
+   [:div "Render threw — Story shell remains interactive."]
+   [:div "variant: :story.counter-diagnostics/render-throws"]
+   [:div "phase: :phase-3-render"]
+   [:div "source: :counter-with-stories.views/throwing-card"]
+   [:div "story-load deterministic render failure"]
+   [:pre "stack: counter-with-stories.views/throwing-card"]])

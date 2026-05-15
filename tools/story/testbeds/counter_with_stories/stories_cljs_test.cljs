@@ -101,13 +101,16 @@
       (is (contains? vs :story.counter-diagnostics/failing-play))
       (is (contains? vs :story.counter-diagnostics/event-throws))
       (is (contains? vs :story.counter-diagnostics/loader-throws))
-      (is (= 3 (count vs))))))
+      (is (contains? vs :story.counter-diagnostics/render-throws))
+      (is (= 4 (count vs))))))
 
 (deftest matrix-variants-registered
   (testing "the matrix story exposes deterministic browser-gate affordances"
     (let [vs (story/variants-of :story.counter-matrix)]
       (doseq [vid [:story.counter-matrix/no-play
                    :story.counter-matrix/loader-success
+                   :story.counter-matrix/loader-never-completes
+                   :story.counter-matrix/loader-rejects
                    :story.counter-matrix/schema-invalid
                    :story.counter-matrix/nested-controls
                    :story.counter-matrix/decorator-throws
@@ -116,7 +119,7 @@
                    :story.counter-matrix/isolation-b
                    :story.counter-matrix/recorder-redaction]]
         (is (contains? vs vid) (str vid " registered")))
-      (is (= 9 (count vs))))))
+      (is (= 11 (count vs))))))
 
 (deftest example-workspaces-registered
   (testing "both workspaces registered"

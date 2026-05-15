@@ -323,6 +323,17 @@
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  (story/reg-variant :story.counter-diagnostics/render-throws
+    {:doc       "Deterministic render exception. The canvas error
+                boundary should project variant id, render phase, view
+                id, and stack detail while keeping the Story shell
+                interactive."
+     :component :counter-with-stories.views/throwing-card
+     :events    [[:counter/initialise 0]]
+     :play      [[:rf.assert/path-equals [:count] 0]]
+     :tags      #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   (story/reg-variant :story.counter-matrix/no-play
     {:doc    "Healthy variant with no :play sequence. Test mode should
              render its explicit empty state instead of pretending the
@@ -341,6 +352,31 @@
                :settings {:title "Loader" :enabled? true}}
      :loaders [[:counter/set 12]]
      :play    [[:rf.assert/path-equals [:count] 12]]
+     :tags    #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/loader-never-completes
+    {:doc     "Loader completion failure path. The loader runs, but the
+              predicate intentionally never reports ready, so Story
+              records a deterministic loader-incomplete assertion
+              instead of making the browser wait for a timeout."
+     :args    {:label "Loader never complete"
+               :settings {:title "Never" :enabled? true}}
+     :loaders [[:counter/set 13]]
+     :loaders-complete-when :counter/loader-never-ready?
+     :play    [[:rf.assert/path-equals [:count] 13]]
+     :tags    #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/loader-rejects
+    {:doc     "Loader rejection path. The loader throws a deterministic
+              ExceptionInfo value whose data must be visible in test
+              diagnostics."
+     :args    {:label "Loader rejects"
+               :settings {:title "Rejects" :enabled? true}}
+     :loaders [[:counter/throw-loader-rejection]]
+     :events  [[:counter/initialise 0]]
+     :play    [[:rf.assert/path-equals [:count] 0]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
