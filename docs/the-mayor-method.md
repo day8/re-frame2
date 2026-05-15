@@ -1,4 +1,4 @@
-# The Mayor Method: Run the Project, Not the Chat Window
+# The Mayor Method
 
 Most people use AI coding tools as if the chat window were the whole team.
 
@@ -13,9 +13,7 @@ produced a large amount of re-frame2 in a short burst, but the point is not
 speed theater. The point is control.
 
 The inspiration is [Gastown](https://github.com/gastownhall/gastown). I do not
-use Gastown directly, but the big shape came from studying it: one
-orchestrator, many workers, serious prompts, explicit work tracking, and enough
-process to keep the humans from drowning in chat history. Credit lands there.
+use Gastown directly, but the shape came from studying it. Credit lands there.
 
 The short version:
 
@@ -24,8 +22,8 @@ The short version:
 - Prompts are treated as serious working artefacts.
 - [Beads](https://github.com/gastownhall/beads) track all work.
 - Git worktrees isolate workers.
-- `/ai/map.md` keeps the human oriented.
-- Humans make the important calls.
+- `/ai/map.md` keeps me oriented.
+- I make the important calls.
 
 That is basically it. The rest is discipline.
 
@@ -35,12 +33,12 @@ The mayor's job is to stay oriented and to coordinate.
 
 It talks to you. It knows you, your processes, and your goals. It files beads.
 It dispatches background workers. It reviews their output. It merges PRs when
-CI is green. It records decisions.
+CI is green. It records decisions in beads.
 
 I guard the mayor's context like a jealous lover. It must **not** burn its
 context window implementing features.
 
-This is the part everyone cheats on, because watching the mayor code feels
+This is the part everyone struggles with, because watching the mayor code feels
 productive. It is not. It is like asking the air-traffic controller to leave
 the tower and help unload bags. For five minutes, sure, a few bags move. Then
 the planes start doing interesting things.
@@ -52,12 +50,10 @@ become disposable. The mayor remains.
 ## Prompts Are the Work
 
 An AI implementation is only as good as the prompt behind it. So do not leave
-the prompt in chat. Put it in `/ai/prompts/` and work on it.
+the prompt in chat. Put it in `/ai/prompts/` and iterate on it.
 
-Some prompts become specs. Fine. But the useful default word is "prompt",
-because it says what the artefact is for: terms defined, edge cases named,
-trade-offs settled, success criteria explicit, failure modes anticipated, and
-an AI able to act on it cold.
+Good use of AIs is all about prompt engineering and context management. Nothing
+much has changed there for two years.
 
 The workflow is:
 
@@ -71,10 +67,8 @@ The workflow is:
 If the AI does the wrong thing, that's on you.
 
 You are dealing with a 12-year-old savant. It can do a staggeringly good job if
-it is given the right guidance.
-
-The useful reflex is not "the AI is stupid." The useful reflex is "what did I
-fail to say?"
+it is given the right guidance. If it does the wrong thing, you didn't get
+the guidance right.
 
 ## How to Write a Prompt With the Mayor
 
@@ -115,14 +109,6 @@ Keep AI working material out of the product tree:
 - `/ai/extended-context/` contains durable project context that is not obvious
   from the code alone.
 - `/ai/map.md` is the human's navigation file.
-
-At useful checkpoints, run a retrospective:
-
-> What information not already recorded would it have been helpful for you to
-> have had before we started this session? What's not obvious from the code
-> alone?
-
-The mayor records durable answers in `/ai/extended-context/`.
 
 ## Beads Are the Work Queue
 
@@ -200,15 +186,25 @@ The useful prompt is:
 Different models notice different things. That is useful. But one authority
 must decide what lands, or the project becomes a committee made of weather.
 
-## Checkpoint Reviews
+## Checkpoints
 
-Every so often, stop and review the body of work, not just the last diff.
+Every so often, I stop and run two reviews.
 
-Ask the mayor to spawn independent reviewers against the recent commits:
+**First**, I ask the mayor to run a retrospective via a prompt like this:
+
+> What information not already recorded in the code or beads would it have been
+> helpful for you to have had before we started this session? What's not obvious
+> from the code alone? Capture that information in a file within
+> `/ai/extended-context/` if it is not already present. Ensure you are not
+> creating a duplicate. Structure your insight like an AI Skill, with front
+> matter and then a body. Give the file a good expressive name; long is fine.
+> Itemise it in the README.
+
+**Second**, I ask the mayor to spawn independent reviewers against the recent commits:
 
 ```text
 Regarding the recent commits, spawn agents to review independently for:
-- efficiency, but not at the expense of clarity;
+- performance, but not at the expense of clarity;
 - completeness;
 - correctness;
 - clarity and simplicity;
@@ -222,7 +218,7 @@ Create beads for each actionable observation. Action accepted beads using
 background workers.
 ```
 
-Different lenses find different bugs.
+Different lenses find different issues.
 
 ## Minimal Setup Prompt
 
@@ -295,8 +291,8 @@ a file and ask it to schedule a reread every hour.
 
 ## Warnings
 
-This is not free. You will spend tokens, and you'll need a Claude Max plan,
-5x or better.
+This is not free. You will spend tokens, a lot of them, and you'll need a
+Claude Max plan, 5x or better.
 
 Also: this is a single-player method. Teams need more protocol, more explicit
 ownership, and probably less cowboy orchestration.
