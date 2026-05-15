@@ -115,44 +115,45 @@
     (is (not (contains? recognised :unknown)))))
 
 ;; The progress payload shape — the MCP notifications/progress
-;; notification we emit on each batch tick. Per rf2-ho4ve the `:data`
+;; notification we emit on each batch tick. Per rf2-ho4ve `_meta.data`
 ;; slot now carries `:dropped-events`, `:dropped-bytes`, and
 ;; `:overflow-reason` (stringified keyword) so the AI client can
-;; pattern-match on WHICH budget tripped without re-parsing EDN.
+;; pattern-match on WHICH budget tripped without re-parsing EDN. The
+;; official MCP SDK preserves `_meta` in progress callbacks.
 
 (defn- progress-payload
   [progress-token tick events-edn dropped-events dropped-bytes overflow-reason]
   #js {:progressToken progress-token
        :progress      tick
        :message       events-edn
-       :data          #js {:dropped-events  dropped-events
-                           :dropped-bytes   dropped-bytes
-                           :overflow-reason (when overflow-reason
-                                              (pr-str overflow-reason))}})
+       :_meta         #js {:data #js {:dropped-events  dropped-events
+                                      :dropped-bytes   dropped-bytes
+                                      :overflow-reason (when overflow-reason
+                                                         (pr-str overflow-reason))}}})
 
 (deftest progress-payload-carries-token-and-counters
   (let [p (progress-payload "tok-1" 3 "{:events [...]}" 0 0 nil)]
     (is (= "tok-1" (j/get p :progressToken)))
     (is (= 3 (j/get p :progress)))
     (is (= "{:events [...]}" (j/get p :message)))
-    (is (= 0 (j/get-in p [:data :dropped-events])))
-    (is (= 0 (j/get-in p [:data :dropped-bytes])))
-    (is (nil? (j/get-in p [:data :overflow-reason])))))
+    (is (= 0 (j/get-in p [:_meta :data :dropped-events])))
+    (is (= 0 (j/get-in p [:_meta :data :dropped-bytes])))
+    (is (nil? (j/get-in p [:_meta :data :overflow-reason])))))
 
 (deftest progress-payload-with-events-overflow
   ;; Count-budget eviction.
   (let [p (progress-payload 42 1 "{...}" 7 0 :max-buffered-events)]
     (is (= 42 (j/get p :progressToken)))
-    (is (= 7 (j/get-in p [:data :dropped-events])))
-    (is (= 0 (j/get-in p [:data :dropped-bytes])))
-    (is (= ":max-buffered-events" (j/get-in p [:data :overflow-reason])))))
+    (is (= 7 (j/get-in p [:_meta :data :dropped-events])))
+    (is (= 0 (j/get-in p [:_meta :data :dropped-bytes])))
+    (is (= ":max-buffered-events" (j/get-in p [:_meta :data :overflow-reason])))))
 
 (deftest progress-payload-with-bytes-overflow
   ;; Byte-budget eviction — same shape, different reason keyword.
   (let [p (progress-payload "tok-9" 4 "{...}" 3 12345 :max-buffered-bytes)]
-    (is (= 3 (j/get-in p [:data :dropped-events])))
-    (is (= 12345 (j/get-in p [:data :dropped-bytes])))
-    (is (= ":max-buffered-bytes" (j/get-in p [:data :overflow-reason])))))
+    (is (= 3 (j/get-in p [:_meta :data :dropped-events])))
+    (is (= 12345 (j/get-in p [:_meta :data :dropped-bytes])))
+    (is (= ":max-buffered-bytes" (j/get-in p [:_meta :data :overflow-reason])))))
 
 ;; Unsubscribe + drain form pinning — built over the eval-form DSL
 ;; (rf2-dpzpe). The expected source strings are the DSL's emit output;

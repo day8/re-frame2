@@ -103,6 +103,7 @@ const NREPL_PORT_FILE_CANDIDATES = [
 
 const FIXTURE_HTTP_PORT = 8030; // hard-coded in fixture's shadow-cljs.edn
 const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_HTTP_PORT}/`;
+const FIXTURE_BUNDLE_PATH = path.join(FIXTURE_DIR, 'public', 'out', 'main.js');
 
 // Wall-clock caps. shadow-cljs cold-start with a warm Maven cache is
 // typically 30-60s on GHA; warm restart is much faster. We give the
@@ -141,15 +142,10 @@ const INNER_TESTS = [
     name: 'live overflow conformance',
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-pair2-overflow.cjs'),
   },
-  // live-pair2-subscribe (rf2-zb5z6) skipped pending rf2-4gr88 — the
-  // dispatch arg name was fixed but the harness still doesn't trigger
-  // a notifications/progress emit within the 1500ms window. The Malli
-  // schema + cross-encoding gate landed cleanly; only the live wire
-  // pin needs harness rework. Re-enable here when rf2-4gr88 lands.
-  // {
-  //   name: 'live subscribe / notifications/progress conformance',
-  //   path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-pair2-subscribe.cjs'),
-  // },
+  {
+    name: 'live subscribe / notifications/progress conformance',
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-pair2-subscribe.cjs'),
+  },
 ];
 
 function log(msg) {
@@ -288,12 +284,11 @@ function probeShadowRuntimeReady(nreplPort, hostname = '127.0.0.1') {
     };
     sock.on('connect', () => {
       // Bencode-encoded nREPL eval op: route through
-      // `shadow.cljs.devtools.api/cljs-eval` on build `:app`. A trivial
-      // `1` form keeps the probe fast and avoids any reliance on the
-      // runtime sentinel — we only care whether shadow can route the
-      // eval to a connected runtime.
+      // `shadow.cljs.devtools.api/cljs-eval` on build `:app`. Probe the
+      // same runtime sentinel pair2-mcp checks so this gate cannot pass
+      // before the preload is visible through the nREPL eval path.
       const code =
-        '(shadow.cljs.devtools.api/cljs-eval :app "1" {})';
+        '(shadow.cljs.devtools.api/cljs-eval :app "(some? (and (exists? js/globalThis) (.-__re_frame_pair2_runtime js/globalThis)))" {})';
       // Minimal bencode hand-encode (avoid adding a dep). Op fields:
       // {"op": "eval", "code": <code>, "id": "rt-probe"}
       const dict =
@@ -307,13 +302,12 @@ function probeShadowRuntimeReady(nreplPort, hostname = '127.0.0.1') {
     sock.on('data', (chunk) => {
       buf = Buffer.concat([buf, chunk]);
       const txt = buf.toString('utf8');
-      // Look for a `:results` frame (signals successful eval round-trip
-      // with a CLJS value coming back). The shape shadow emits is
-      // bencoded but `:results` survives as literal bytes inside the
-      // dict's `value` field. If shadow has no runtime it sends back
-      // `:ex` with "No application has connected to the REPL server" —
-      // we treat that as not-ready.
-      if (txt.includes(':results') && !txt.includes('No application')) {
+      // Look for a `:results` frame with the sentinel expression's
+      // boolean `true`. A successful trivial eval is not enough: the
+      // runtime can be addressable before the preload marker is visible,
+      // which makes pair2-mcp's first `ensure-runtime!` fail with a
+      // false `:runtime-not-preloaded`.
+      if (txt.includes(':results') && txt.includes('true') && !txt.includes('No application')) {
         finish(true);
       } else if (txt.includes('"status"') && txt.includes('done')) {
         // Op completed but no `:results` — either an error or empty.
@@ -434,6 +428,12 @@ async function main() {
     } catch (e) {
       log(`could not remove stale port file ${p} (${e.message}); continuing`);
     }
+  }
+  try {
+    const removed = safeUnlinkInside(FIXTURE_BUNDLE_PATH, FIXTURE_DIR);
+    if (removed) log(`removed stale fixture bundle ${FIXTURE_BUNDLE_PATH}`);
+  } catch (e) {
+    log(`could not remove stale fixture bundle ${FIXTURE_BUNDLE_PATH} (${e.message}); continuing`);
   }
 
   // ---- Install fixture deps --------------------------------------------

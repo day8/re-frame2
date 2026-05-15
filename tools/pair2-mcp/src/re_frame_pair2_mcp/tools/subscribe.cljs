@@ -128,28 +128,29 @@
   "Build the JSON params payload for one `notifications/progress` tick.
   `events` is the EDN-printed string of the batch (kept as a string so
   the agent host sees the same shape as `tools/call` results). The
-  `:data` slot carries the structured drop counts and the
+  `_meta.data` carries the structured drop counts and the
   `:overflow-reason` keyword (per rf2-ho4ve) so AI clients can
   pattern-match on which budget tripped without re-parsing the EDN
-  message."
+  message. The official MCP SDK strips unknown top-level progress
+  params, but preserves `_meta`."
   [progress-token tick events dropped-events dropped-bytes overflow-reason]
   #js {:progressToken progress-token
        :progress      tick
        ;; `message` is the human-readable slot. We stash an EDN form
        ;; here so an MCP client that surfaces progress messages to
        ;; the agent shows the events directly. A capable client can
-       ;; additionally inspect the `data` slot for the structured
+       ;; additionally inspect `_meta.data` for the structured
        ;; counts.
        :message       events
-       :data          #js {:dropped-events  dropped-events
-                           :dropped-bytes   dropped-bytes
-                           ;; `overflow-reason` is an EDN keyword on
-                           ;; the runtime side — stringify here so it
-                           ;; rides JSON-RPC cleanly. The runtime
-                           ;; sentinels are `:max-buffered-events` /
-                           ;; `:max-buffered-bytes`.
-                           :overflow-reason (when overflow-reason
-                                              (pr-str overflow-reason))}})
+       :_meta         #js {:data #js {:dropped-events  dropped-events
+                                      :dropped-bytes   dropped-bytes
+                                      ;; `overflow-reason` is an EDN keyword on
+                                      ;; the runtime side — stringify here so it
+                                      ;; rides JSON-RPC cleanly. The runtime
+                                      ;; sentinels are `:max-buffered-events` /
+                                      ;; `:max-buffered-bytes`.
+                                      :overflow-reason (when overflow-reason
+                                                         (pr-str overflow-reason))}}})
 
 (defn final-summary
   "The terminal `ok-text` result emitted when the subscription ends —

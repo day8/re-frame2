@@ -823,10 +823,12 @@ While the subscription is open, each non-empty batch tick emits
     "progressToken": "<token>",  // echoed from the call's _meta
     "progress": <tick-number>,   // monotonic, 1-based
     "message": "{:sub-id \"...\" :events [...] :dropped-events 0 :dropped-bytes 0}",
-    "data": {
-      "dropped-events": 0,                    // events evicted this tick
-      "dropped-bytes":  0,                    // bytes evicted this tick (pr-str)
-      "overflow-reason": null                 // ":max-buffered-events" | ":max-buffered-bytes" | null
+    "_meta": {
+      "data": {
+        "dropped-events": 0,                    // events evicted this tick
+        "dropped-bytes":  0,                    // bytes evicted this tick (pr-str)
+        "overflow-reason": null                 // ":max-buffered-events" | ":max-buffered-bytes" | null
+      }
     }
   }
 }
@@ -834,8 +836,10 @@ While the subscription is open, each non-empty batch tick emits
 
 `message` is an EDN-printed string carrying the event batch — the
 same shape the runtime's `drain-subscription!` returns. Capable MCP
-clients can also inspect the `data` slot for the structured drop
-counts. `overflow-reason` carries the stringified EDN keyword of the
+clients can also inspect the `_meta.data` slot for the structured drop
+counts. `_meta` is used because the official MCP SDK preserves it in
+progress callbacks while stripping unknown top-level progress fields.
+`overflow-reason` carries the stringified EDN keyword of the
 budget that tripped LAST (`":max-buffered-events"` or
 `":max-buffered-bytes"` — see [`Principles.md` §Streaming subscribe
 byte+event budget](Principles.md#streaming-subscribe-byteevent-budget-rf2-ho4ve)

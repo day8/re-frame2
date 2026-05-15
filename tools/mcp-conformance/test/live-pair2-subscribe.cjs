@@ -15,9 +15,9 @@
 //
 // This variant fills that gap. With a real nREPL connected:
 //
-//   1. We register an MCP notification handler for the SDK's
-//      `ProgressNotificationSchema` — the same handler shape a real
-//      MCP-aware consumer (Claude Code, Continue, …) would install.
+//   1. We pass a request-scoped `onprogress` callback to the SDK
+//      `tools/call` — the same progress path a real MCP-aware
+//      consumer (Claude Code, Continue, …) would use.
 //   2. We `tools/call subscribe` to `:trace` with a short
 //      `max-ms` (1500ms) so the tool returns promptly with a
 //      terminal summary.
@@ -34,11 +34,11 @@
 //
 // ## Catches
 //
-//   - `notifications/progress` method-name drift (the SDK rejects a
-//     rename via its `ProgressNotificationSchema` parse step).
+//   - `notifications/progress` method-name drift (the SDK progress
+//     router rejects a rename before invoking `onprogress`).
 //   - `progressToken` slot rename / removal (agent-host correlation
 //     break).
-//   - `:data` slot shape drift (`:dropped-events`, `:dropped-bytes`,
+//   - `_meta.data` slot shape drift (`:dropped-events`, `:dropped-bytes`,
 //     `:overflow-reason` are the documented contract slots).
 //   - subscribe entirely failing to emit a progress frame on a
 //     well-formed dispatch (e.g. drain loop regression).
@@ -55,7 +55,6 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { ProgressNotificationSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { runWithWatchdog } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
@@ -83,7 +82,7 @@ const REQUIRED_PARAMS = [
   ['progressToken',  (v) => v !== undefined,         'present (opaque)'],
   ['progress',       (v) => typeof v === 'number',   'int'],
   ['message',        (v) => typeof v === 'string',   'string'],
-  ['data',           (v) => v && typeof v === 'object', 'map'],
+  ['_meta',          (v) => v && typeof v === 'object', 'map'],
 ];
 
 const REQUIRED_DATA = [
@@ -104,22 +103,29 @@ function assertProgressParams(params, ctx) {
       );
     }
   }
+  const data = params._meta && params._meta.data;
+  if (!data || typeof data !== 'object') {
+    throw new Error(
+      ctx + ': params._meta.data MUST be map; got ' + JSON.stringify(data) +
+        '. (Schema: Pair2ProgressNotificationParams._meta.data)',
+    );
+  }
   for (const [field, ok, desc] of REQUIRED_DATA) {
-    if (!ok(params.data[field])) {
+    if (!ok(data[field])) {
       throw new Error(
-        ctx + ': params.data.' + field + ' MUST be ' + desc +
-          '; got ' + JSON.stringify(params.data[field]) +
-          '. (Schema: Pair2ProgressNotificationParams.data.' + field + ')',
+        ctx + ': params._meta.data.' + field + ' MUST be ' + desc +
+          '; got ' + JSON.stringify(data[field]) +
+          '. (Schema: Pair2ProgressNotificationParams._meta.data.' + field + ')',
       );
     }
   }
   // `:overflow-reason` is `[:maybe :string]` — present-and-string OR
   // null/undefined (server's `(when overflow-reason ...)` suppresses
   // when nil; the Malli `:maybe` covers both).
-  const ov = params.data['overflow-reason'];
+  const ov = data['overflow-reason'];
   if (ov !== null && ov !== undefined && typeof ov !== 'string') {
     throw new Error(
-      ctx + ": params.data['overflow-reason'] MUST be string|nil; got " +
+      ctx + ": params._meta.data['overflow-reason'] MUST be string|nil; got " +
         JSON.stringify(ov),
     );
   }
@@ -158,27 +164,32 @@ runWithWatchdog(
       process.env.SHADOW_CLJS_NREPL_PORT,
     );
 
-    // Collect every `notifications/progress` frame the server emits
-    // while subscribe is alive. The SDK's handler validates each frame
-    // against `ProgressNotificationSchema` BEFORE invoking our
-    // callback — a malformed envelope throws inside the SDK and the
-    // frame never reaches us. That's the load-bearing protocol gate;
-    // the shape assertions below cover the cross-MCP contract on top.
+    // Collect every `notifications/progress` frame emitted while
+    // subscribe is alive. `onprogress` is request-scoped: the SDK
+    // creates a progressToken, stamps it onto the outgoing tools/call
+    // `_meta`, then routes matching progress notifications here.
     const frames = [];
-    client.setNotificationHandler(ProgressNotificationSchema, async (notification) => {
-      frames.push(notification.params);
-    });
+    const onProgress = (params) => {
+      // The SDK validates and strips progressToken before invoking the
+      // callback. Reattach a sentinel so the cross-MCP assertion table
+      // still pins the slot while the SDK pins the actual token match.
+      frames.push({ ...params, progressToken: '<sdk-validated>' });
+    };
 
     // Fire `subscribe` and `dispatch` concurrently. subscribe blocks
     // until max-ms; dispatch lands on the trace bus while it's alive
     // and produces a frame.
-    const subscribePromise = client.callTool({
-      name: 'subscribe',
-      arguments: {
-        topic: TOPIC,
-        'max-ms': MAX_MS,
+    const subscribePromise = client.callTool(
+      {
+        name: 'subscribe',
+        arguments: {
+          topic: TOPIC,
+          'max-ms': MAX_MS,
+        },
       },
-    });
+      undefined,
+      { onprogress: onProgress },
+    );
 
     // Yield briefly so subscribe has a chance to install its drain
     // loop before the dispatch lands. The runtime's poll cadence is

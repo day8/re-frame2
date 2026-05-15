@@ -798,10 +798,12 @@ byte budget tripping signals a large-payload storm — the
 event-budget tripping in isolation is the easy case).
 
 The MCP server forwards these on every `notifications/progress`
-frame's `:data` slot (with the keyword stringified per JSON-RPC
-constraints) and accumulates them onto the final tools/call
-summary. The agent host pattern-matches on `:overflow-reason`
-to decide which budget to raise — bytes-bound storms call for
+frame's `:_meta.data` slot (with the keyword stringified per JSON-RPC
+constraints) and accumulates them onto the final tools/call summary.
+The `_meta` wrapper is intentional: the official MCP SDK preserves it
+in progress callbacks while stripping unknown top-level progress
+fields. The agent host pattern-matches on `:overflow-reason` to decide
+which budget to raise — bytes-bound storms call for
 `max-buffered-bytes` (or a tighter `filter`); event-bound
 storms call for `max-buffered-events`.
 
@@ -819,7 +821,7 @@ budget individually but together swamp drain throughput).
 (`:max-buffered-events`, `:max-buffered-bytes`) sit in the
 runtime's own namespace because they're a property of the
 upstream queue, not a wire marker. The MCP wire payload's
-`:data` slot stringifies them for JSON-RPC. The
+`:_meta.data` slot stringifies them for JSON-RPC. The
 `:dropped-events` / `:dropped-bytes` field names mirror the
 existing `:dropped-sensitive` slot already used for the
 privacy filter (Spec 009 §Privacy / rf2-3cted) — the agent

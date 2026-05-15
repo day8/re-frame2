@@ -289,9 +289,9 @@
        :params {:progressToken <opaque>          ;; echoed from caller's _meta
                 :progress      <tick :int>        ;; monotonically increasing
                 :message       <edn-string>       ;; EDN-printed batch
-                :data          {:dropped-events  :int
-                                :dropped-bytes   :int
-                                :overflow-reason [:maybe :string]}}}
+                :_meta        {:data {:dropped-events  :int
+                                      :dropped-bytes   :int
+                                      :overflow-reason [:maybe :string]}}}}
 
   `:dropped-events` / `:dropped-bytes` ride non-negative; the runtime
   emits them on every tick (zero values are valid — the slot is the
@@ -310,12 +310,15 @@
    [:progressToken :any]                          ;; opaque per MCP spec
    [:progress      :int]
    [:message       :string]
-   [:data
+   [:_meta
     [:map
      {:closed false}
-     [:dropped-events nat-int?]
-     [:dropped-bytes  nat-int?]
-     [:overflow-reason [:maybe :string]]]]])
+     [:data
+      [:map
+       {:closed false}
+       [:dropped-events nat-int?]
+       [:dropped-bytes  nat-int?]
+       [:overflow-reason [:maybe :string]]]]]]])
 
 (def CursorStaleResult
   "Structured error-result envelope where `:reason :rf.mcp/cursor-stale`
@@ -1169,14 +1172,14 @@
 (def ^:private pair2-progress-fixture
   "Canonical pair2-mcp `notifications/progress` params shape — what
   `subscribe` emits per tick. The `:message` slot is the EDN-printed
-  batch (variable per-tick); `:data` carries the structured counts +
-  overflow-reason slot."
+  batch (variable per-tick); `:_meta.data` carries the structured
+  counts + overflow-reason slot."
   {:progressToken "probe-token-42"
    :progress      1
    :message       "{:sub-id \"sub-abc\" :events [] :dropped-events 0 :dropped-bytes 0}"
-   :data          {:dropped-events  0
-                   :dropped-bytes   0
-                   :overflow-reason nil}})
+   :_meta         {:data {:dropped-events  0
+                          :dropped-bytes   0
+                          :overflow-reason nil}}})
 
 (deftest pair2-progress-fixture-conforms-to-schema
   (is (m/validate Pair2ProgressNotificationParams pair2-progress-fixture)
@@ -1191,19 +1194,19 @@
   (is (m/validate
         Pair2ProgressNotificationParams
         (assoc-in pair2-progress-fixture
-                  [:data :overflow-reason]
+                  [:_meta :data :overflow-reason]
                   ":max-buffered-events"))
       "overflow-reason as pr-str'd keyword MUST validate")
   (is (m/validate
         Pair2ProgressNotificationParams
         (assoc-in pair2-progress-fixture
-                  [:data :overflow-reason]
+                  [:_meta :data :overflow-reason]
                   ":max-buffered-bytes"))
       "overflow-reason as pr-str'd keyword (bytes) MUST validate"))
 
 (deftest pair2-progress-rejects-missing-required-slots
   ;; Tightening: an emit missing `:progressToken`, `:progress`, or
-  ;; `:data` MUST fail. The slot is the load-bearing contract; a
+  ;; `:_meta.data` MUST fail. The slot is the load-bearing contract; a
   ;; future regression that drops one would silently break agent-host
   ;; correlation (progressToken) or polling cadence (progress).
   (is (not (m/validate Pair2ProgressNotificationParams
@@ -1213,11 +1216,14 @@
                        (dissoc pair2-progress-fixture :progress)))
       "missing :progress MUST fail")
   (is (not (m/validate Pair2ProgressNotificationParams
-                       (dissoc pair2-progress-fixture :data)))
-      "missing :data MUST fail")
+                       (dissoc pair2-progress-fixture :_meta)))
+      "missing :_meta MUST fail")
   (is (not (m/validate Pair2ProgressNotificationParams
-                       (update pair2-progress-fixture :data dissoc :dropped-events)))
-      "missing :data.dropped-events MUST fail"))
+                       (update-in pair2-progress-fixture [:_meta] dissoc :data)))
+      "missing :_meta.data MUST fail")
+  (is (not (m/validate Pair2ProgressNotificationParams
+                       (update-in pair2-progress-fixture [:_meta :data] dissoc :dropped-events)))
+      "missing :_meta.data.dropped-events MUST fail"))
 
 (deftest pair2-progress-emit-literal-in-source
   ;; Source-text pin: the literal `"notifications/progress"` MUST
@@ -1258,13 +1264,15 @@
     "'progress',       (v) => typeof v === 'number',"]
    [":message : string"
     "'message',        (v) => typeof v === 'string',"]
-   [":data : map"
-    "'data',           (v) => v && typeof v === 'object',"]
-   [":data.dropped-events : nat-int"
+   [":_meta : map"
+    "'_meta',          (v) => v && typeof v === 'object',"]
+   [":_meta.data : map"
+    "params._meta.data MUST be map"]
+   [":_meta.data.dropped-events : nat-int"
     "'dropped-events', (v) => typeof v === 'number' && v >= 0"]
-   [":data.dropped-bytes : nat-int"
+   [":_meta.data.dropped-bytes : nat-int"
     "'dropped-bytes',  (v) => typeof v === 'number' && v >= 0"]
-   [":data.overflow-reason : maybe-string"
+   [":_meta.data.overflow-reason : maybe-string"
     "'overflow-reason'"]])
 
 (deftest js-assertProgressParams-pins-every-pair2-progress-required-field
