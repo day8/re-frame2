@@ -136,7 +136,10 @@ Each skill subdir contains, at minimum:
 Skills do not run independently of re-frame2's CI; their workflows have
 been removed in favour of release coordination through re-frame2's own
 release pipeline. See each skill's `RELEASING.md` (where present) for
-historical npm publish mechanics.
+historical npm publish mechanics. Deterministic structural tests for
+`re-frame-pair2/` and `shared/` are wired into `.github/workflows/test.yml`
+only when those skill paths change; behavioural replay fixtures remain
+manual/diagnostic and are not required PR coverage.
 
 ### Leaf size discipline
 

@@ -40,7 +40,7 @@ Failing points to flag on first run:
 
 ## 2. Bash-shim integration (`tests/shim/`)
 
-**Status: scaffolded — 7 tests, 28 assertions, runs per-push.**
+**Status: scaffolded — 7 tests, 28 assertions, runs in changed-surface PR CI.**
 
 Per-push integration suite against a **stubbed nREPL**, not the live
 fixture. `tests/shim/stub_nrepl.clj` is a babashka program that accepts
@@ -73,7 +73,7 @@ Drives a headless Chromium via [playwright](https://playwright.dev/)
 against the live fixture app (`tests/fixture/`). The runner
 (`tests/e2e/run.cjs`) auto-detects fixture availability via an HTTP
 probe and soft-skips with exit 0 when nothing's running — so the suite
-is safe to wire into per-push CI lanes without false failures.
+is safe to run manually without false failures.
 
 Specs (each a `*.e2e.cjs` exporting `async function run(ctx)`):
 
@@ -105,7 +105,7 @@ page-refresh + re-injection, multi-frame routing. See
 
 ## 4. Skill-prompt regression (`tests/prompts/`)
 
-**Status: scaffolded — 8 tests, 27 assertions, runs per-push.**
+**Status: scaffolded — 8 tests, 27 assertions, runs in changed-surface PR CI.**
 
 Table-driven structural regression against `references/recipes.md`,
 `references/ops.md` (which now also carries the hot-reload-coordination
@@ -153,18 +153,20 @@ re-deriving the prompts.
 
 | Surface | Runs on |
 |---|---|
-| Runtime unit tests | every push |
-| Bash-shim integration | every push (once fixture exists) |
-| End-to-end in-browser | `main` + nightly |
-| Prompt regression | `main` + nightly |
+| Runtime structural tests | PR CI when `skills/re-frame-pair2/**` changes; nightly/manual expensive workflow may also run them before release. |
+| Bash-shim integration | PR CI when `skills/re-frame-pair2/**` changes. |
+| End-to-end in-browser | Manual/nightly diagnostic; not required PR coverage because it depends on a live fixture. |
+| Prompt regression | PR CI when `skills/re-frame-pair2/**` changes. |
 
-Release gates on all four passing.
+Release should not be cut from an unverified pair2 surface: structural
+tests must pass, and live fixture/E2E diagnostics should be green for a
+release candidate even though they are not required PR checks.
 
 ### Known coverage gap — probe-based reload
 
-`hot-reload/wait`'s probe-based confirmation (§4.5) is *safety-critical* — Claude uses it to gate dispatches after a source edit, and a false positive means Claude interacts with stale code. Yet the only way to genuinely exercise it requires a real browser + real shadow-cljs + real edit + real compile pipeline — i.e. the E2E surface, which runs nightly and on `main`, not per-push.
+`hot-reload/wait`'s probe-based confirmation (§4.5) is *safety-critical* — Claude uses it to gate dispatches after a source edit, and a false positive means Claude interacts with stale code. Yet the only way to genuinely exercise it requires a real browser + real shadow-cljs + real edit + real compile pipeline — i.e. the E2E surface, which is manual/nightly diagnostic, not required PR coverage.
 
-Mitigation until we can run E2E per-push:
+Mitigation while E2E remains manual/nightly:
 
 - **Unit-test the probe-selection heuristics** (which probe to pick for a `reg-*` edit vs a view edit vs no-good-probe-available). Cheap; catches drift in the selection logic without needing a browser.
 - **Soft-confirmation signalling**: when no probe is available, `hot-reload/wait` returns `:soft? true`; SKILL.md asks Claude to surface this to the user rather than trust it as a hard landing confirmation.

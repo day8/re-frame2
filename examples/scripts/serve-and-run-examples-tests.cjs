@@ -49,7 +49,8 @@ const EXAMPLES = [
   },
   // counter-slim-and-fast (rf2-5lbx) — the same counter mounted on
   // day8/reagent-slim instead of the bridge. Paired with the
-  // bundle-comparison contract in scripts/check-counter-slim-and-fast.cjs.
+  // Reagent Slim bundle-isolation contract in
+  // scripts/check-reagent-slim-bundle-isolation.cjs.
   {
     build: 'examples/counter-slim-and-fast',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter_slim_and_fast', 'index.html'),

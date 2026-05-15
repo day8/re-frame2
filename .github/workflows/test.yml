@@ -6,15 +6,40 @@ on:
   pull_request:
     branches: [main]
 
-# Per-artefact JVM jobs and the CLJS / browser / elision / examples
-# jobs all run in parallel — none `needs:` another, by design (per
-# rf2-ace2 audit). The lockstep-version-verify job below also runs in
-# parallel; it is fast (single bash script over seven deps.edn files)
-# and adds no critical-path latency. We deliberately do NOT gate the
-# test jobs on lockstep verify so a drift report and a test failure
-# surface together rather than serialising.
+# Fast PR spine jobs stay always-on: lockstep drift, skill/MCP drift,
+# core JVM, CLJS node integration, and JS harness self-tests. Expensive
+# browser, bundle, examples, tool, template, MCP-live, and skill
+# structural jobs are guarded by the conservative changed-surface
+# classifier below. Skipped diagnostic jobs are not required coverage;
+# the nightly/manual workflow carries the rigorous full sweep.
 
 jobs:
+  detect_changed_surfaces:
+    name: Detect changed test surfaces
+    runs-on: ubuntu-latest
+    outputs:
+      implementation_jvm: ${{ steps.detect.outputs.implementation_jvm }}
+      adapter_diagnostic: ${{ steps.detect.outputs.adapter_diagnostic }}
+      cljs_browser: ${{ steps.detect.outputs.cljs_browser }}
+      cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
+      bundle_isolation: ${{ steps.detect.outputs.bundle_isolation }}
+      reagent_slim_bundle: ${{ steps.detect.outputs.reagent_slim_bundle }}
+      examples_browser: ${{ steps.detect.outputs.examples_browser }}
+      tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
+      template_expensive: ${{ steps.detect.outputs.template_expensive }}
+      mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
+      mcp_live: ${{ steps.detect.outputs.mcp_live }}
+      story_causa_browser: ${{ steps.detect.outputs.story_causa_browser }}
+      skills_structural: ${{ steps.detect.outputs.skills_structural }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed surfaces
+        id: detect
+        run: ./.github/scripts/changed-surfaces.sh
+
   # PR-time drift detection for the lockstep-version contract
   # (rf2-ace2 / rf2-w05l). Fast — the script is shared with
   # release.yml's pre-deploy gate so the contract has a single source
@@ -92,7 +117,9 @@ jobs:
         run: clojure -M:test
 
   jvm-reagent:
-    name: JVM reagent-adapter (clojure -M:test)
+    name: Diagnostic skip-ok JVM reagent-adapter classpath probe
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -133,7 +160,9 @@ jobs:
         run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
 
   jvm-reagent-slim:
-    name: JVM reagent-slim-adapter (clojure -M:test)
+    name: Diagnostic skip-ok JVM reagent-slim-adapter classpath probe
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -175,7 +204,9 @@ jobs:
         run: clojure -M:test || echo "no JVM-runnable tests in reagent-slim artefact (expected)"
 
   jvm-uix:
-    name: JVM uix-adapter (clojure -M:test)
+    name: Diagnostic skip-ok JVM uix-adapter classpath probe
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -218,7 +249,9 @@ jobs:
         run: clojure -M:test || echo "no JVM-runnable tests in uix artefact (expected)"
 
   jvm-helix:
-    name: JVM helix-adapter (clojure -M:test)
+    name: Diagnostic skip-ok JVM helix-adapter classpath probe
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -262,6 +295,8 @@ jobs:
 
   jvm-schemas:
     name: JVM schemas (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -306,6 +341,8 @@ jobs:
 
   jvm-machines:
     name: JVM machines (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -351,6 +388,8 @@ jobs:
 
   jvm-routing:
     name: JVM routing (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -386,6 +425,8 @@ jobs:
 
   jvm-flows:
     name: JVM flows (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -421,6 +462,8 @@ jobs:
 
   jvm-http:
     name: JVM http (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -456,6 +499,8 @@ jobs:
 
   jvm-ssr:
     name: JVM ssr (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -502,6 +547,8 @@ jobs:
 
   jvm-epoch:
     name: JVM epoch (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -575,8 +622,27 @@ jobs:
           npx shadow-cljs compile node-test
           node out/node-test.js
 
+  js-harness-self-tests:
+    name: JS harness self-tests (quiet reporters + path policy)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+
+      - name: Run JS harness self-tests
+        run: npm run test:script-policy && npm run test:script-helpers
+
   cljs-browser:
     name: CLJS (shadow-cljs :browser-test, headless Chromium)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_browser == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -624,6 +690,8 @@ jobs:
 
   cljs-browser-schemas-boundary-prod:
     name: CLJS (shadow-cljs :browser-test-schemas-boundary-prod, :advanced + goog.DEBUG=false, rf2-84e9)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -678,6 +746,8 @@ jobs:
 
   cljs-browser-prod-elision:
     name: CLJS (shadow-cljs :browser-test-prod-elision, :advanced + goog.DEBUG=false, rf2-2zdu/rf2-uwg5)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -735,6 +805,8 @@ jobs:
 
   cljs-elision:
     name: CLJS production elision (Spec 009, bead rf2-11hn)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -786,6 +858,8 @@ jobs:
 
   cljs-bundle-isolation:
     name: CLJS bundle isolation (counter, rf2-51x5)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.bundle_isolation == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -845,6 +919,8 @@ jobs:
 
   examples-browser:
     name: Examples (browser, headless Chromium, rf2-lyj0)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.examples_browser == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -899,8 +975,10 @@ jobs:
       - name: Compile examples, serve, and run Playwright specs
         run: npm run test:examples
 
-  cljs-bundle-comparison:
-    name: CLJS bundle comparison (counter-slim-and-fast, rf2-5lbx)
+  cljs-reagent-slim-bundle-isolation:
+    name: CLJS Reagent Slim bundle isolation (adapter-owned, rf2-2ppcv)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.reagent_slim_bundle == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -932,15 +1010,15 @@ jobs:
           path: |
             ~/.m2/repository
             ~/.gitlibs
-          key: ${{ runner.os }}-cljs-bundle-comparison-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          key: ${{ runner.os }}-cljs-reagent-slim-bundle-isolation-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-cljs-bundle-comparison-
+            ${{ runner.os }}-cljs-reagent-slim-bundle-isolation-
             ${{ runner.os }}-cljs-
 
       - name: npm install
         run: npm ci
 
-      # The S3-008 bundle-comparison contract for day8/reagent-slim
+      # The S3-008 adapter-owned bundle-isolation contract for day8/reagent-slim
       # (rf2-5lbx). Builds both `examples/counter` (stock-Reagent) and
       # `examples/counter-slim-and-fast` (slim Reagent rewrite) under
       # :advanced, then greps the slim bundle for stock-Reagent
@@ -957,8 +1035,8 @@ jobs:
       # react-dom/server-absence assertion is non-vacuous (the SSR path
       # IS in the slim bundle, just pure-CLJS — per IMPL-SPEC §8 +
       # S3-005).
-      - name: Verify counter-slim-and-fast bundle isolates stock Reagent + react-dom/server
-        run: npm run test:bundle-comparison
+      - name: Verify Reagent Slim bundle isolates stock Reagent + react-dom/server
+        run: npm run test:reagent-slim:bundle-isolation
 
   # ---------------------------------------------------------------------------
   # Per-tool CI jobs (rf2-qq70f).
@@ -976,7 +1054,9 @@ jobs:
   # ---------------------------------------------------------------------------
 
   jvm-tools-causa:
-    name: JVM tools/causa (clojure -M:test)
+    name: Diagnostic skip-ok JVM tools/causa classpath probe
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1019,6 +1099,8 @@ jobs:
 
   jvm-tools-story:
     name: JVM tools/story (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1062,6 +1144,8 @@ jobs:
 
   jvm-tools-story-mcp:
     name: JVM tools/story-mcp (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1102,6 +1186,8 @@ jobs:
 
   jvm-tools-mcp-base:
     name: JVM tools/mcp-base (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1146,6 +1232,8 @@ jobs:
 
   jvm-tools-template:
     name: JVM tools/template (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.template_expensive == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1229,6 +1317,8 @@ jobs:
 
   node-test-tools-pair2-mcp:
     name: Node tools/pair2-mcp (shadow-cljs :server-test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1280,6 +1370,8 @@ jobs:
 
   node-test-tools-story-mcp:
     name: Node tools/story-mcp (stdio roundtrip + live-server, rf2-h8z5l)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1364,6 +1456,8 @@ jobs:
 
   mcp-conformance-pair2:
     name: MCP conformance tools/pair2-mcp (rf2-cum40)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.mcp_live == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1477,6 +1571,8 @@ jobs:
 
   mcp-conformance-story:
     name: MCP conformance tools/story-mcp (rf2-cum40)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1521,7 +1617,9 @@ jobs:
         run: npm run test:story
 
   mcp-conformance-causa:
-    name: MCP conformance tools/causa-mcp (rf2-cum40, SKIPPED until impl)
+    name: Diagnostic skip-ok MCP conformance tools/causa-mcp placeholder
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1568,6 +1666,8 @@ jobs:
 
   mcp-conformance-wire-vocab:
     name: MCP conformance wire-vocab (rf2-j2z7o + rf2-6m8tq + rf2-zvv65)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1600,3 +1700,28 @@ jobs:
 
       - name: Run JVM wire-vocab conformance gates
         run: clojure -M:test
+
+  skills-structural:
+    name: Skills structural tests (changed skill paths only)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.skills_structural == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Babashka
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          bb: latest
+
+      - name: Run pair2 structural tests
+        working-directory: skills/re-frame-pair2
+        run: |
+          set -euo pipefail
+          bb tests/prompts/prompt_regression_test.clj
+          for test_file in tests/runtime/*_test.clj tests/shim/shim_test.clj; do
+            bb "$test_file"
+          done
+
+      - name: Run shared retro-protocol structural test
+        run: bb skills/shared/tests/retro_protocol_test.clj

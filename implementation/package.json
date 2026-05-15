@@ -22,7 +22,7 @@
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
     "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
     "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/counter-helix && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-helix-reagent-free.cjs",
-    "test:bundle-comparison": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-counter-slim-and-fast.cjs",
+    "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",
     "test:examples": "node ../examples/scripts/serve-and-run-examples-tests.cjs",
     "story:build": "node scripts/story-build.cjs",
     "test:story-feature-load": "node ../examples/scripts/serve-and-run-story-feature-load-tests.cjs",

@@ -11,12 +11,12 @@ stock `reagent.*`, and `(rf/init!)` is called with
 `re-frame.adapter.reagent-slim/adapter`. The same six-domino
 dataflow flows through a different reactive substrate.
 
-## What this example demonstrates
+## What this fixture verifies
 
 The S3-008 + S3-005 contract from
 [`implementation/adapters/reagent-slim/IMPL-SPEC.md`](../../../implementation/adapters/reagent-slim/IMPL-SPEC.md)
-§1.4 + §1.8 + §8 — a binding bundle-comparison claim about the
-slim substrate:
+§1.4 + §1.8 + §8 — a binding adapter-owned bundle-isolation claim
+about the slim substrate:
 
 1. **Stock-Reagent impl isolation.** The advanced-compiled bundle for
    this example contains NO `reagent.impl.*` symbols. The slim
@@ -34,8 +34,8 @@ slim substrate:
    the sentinel set gets re-derived.
 
 The grep that enforces all three invariants lives at
-[`implementation/scripts/check-counter-slim-and-fast.cjs`](../../../implementation/scripts/check-counter-slim-and-fast.cjs);
-the CI job is `cljs-bundle-comparison` in
+[`implementation/scripts/check-reagent-slim-bundle-isolation.cjs`](../../../implementation/scripts/check-reagent-slim-bundle-isolation.cjs);
+the changed-surface CI job is `cljs-reagent-slim-bundle-isolation` in
 `.github/workflows/test.yml`.
 
 The slim adapter is also a drop-in for the bridge at the
@@ -53,8 +53,8 @@ counter_slim_and_fast/
   README.md                          this file
 ```
 
-The bundle-comparison verifier is repo-level rather than per-example
-and lives under `implementation/scripts/`.
+The bundle-isolation verifier is adapter-owned rather than a general
+human-facing example test and lives under `implementation/scripts/`.
 
 ## How to run
 
@@ -70,13 +70,13 @@ That compiles every example (this one builds under shadow-cljs id
 `out/examples/counter-slim-and-fast/`, serves the lot on port 8030,
 and runs the Playwright smoke spec.
 
-The bundle-comparison contract is exercised separately by the
-`cljs-bundle-comparison` CI job. To run it locally:
+The Reagent Slim bundle-isolation contract is exercised separately
+when slim-related paths change, and in the nightly/manual expensive
+workflow. To run it locally:
 
 ```bash
 # From implementation/ — release both bundles, then grep.
-npx shadow-cljs release examples/counter examples/counter-slim-and-fast
-node scripts/check-counter-slim-and-fast.cjs
+npm run test:reagent-slim:bundle-isolation
 ```
 
 To iterate on the source alone, watch the build directly from
@@ -95,7 +95,7 @@ watch builds reuse it.)
 - [`examples/reagent/counter/`](../counter/) — the canonical counter
   on the stock-Reagent bridge; this example's behavioural twin.
 - [`implementation/adapters/reagent-slim/IMPL-SPEC.md`](../../../implementation/adapters/reagent-slim/IMPL-SPEC.md)
-  §1.4 + §1.8 + §8 — the spec the bundle-comparison contract binds
+  §1.4 + §1.8 + §8 — the spec the bundle-isolation contract binds
   to.
 - [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) —
   the substrate contract the slim adapter satisfies.

@@ -15,7 +15,7 @@ The smallest possible re-frame2 app. One `reg-event-db`, one `reg-sub`, one `reg
 
 ## counter_slim_and_fast — `examples/reagent/counter_slim_and_fast/`
 
-The counter dataflow mounted on the slim Reagent rewrite (`day8/reagent-slim`) — the `reagent2.*` substrate that excludes `reagent.impl.*` and `react-dom/server`. Same six-domino dataflow as `counter/`, but every Reagent import points at `reagent2.*` and `(rf/init!)` takes the slim adapter Var. Point at this example only when the task is about substrate-swap, the bundle-isolation contract (the `check-counter-slim-and-fast.cjs` script in CI), or proving that the slim adapter is API-shape-compatible with the stock Reagent adapter. Not a teaching example — it is the live bundle-comparison target for the slim epic.
+The counter dataflow mounted on the slim Reagent rewrite (`day8/reagent-slim`) — the `reagent2.*` substrate that excludes `reagent.impl.*` and `react-dom/server`. Same six-domino dataflow as `counter/`, but every Reagent import points at `reagent2.*` and `(rf/init!)` takes the slim adapter Var. Point at this fixture only when the task is about substrate-swap, the adapter-owned bundle-isolation contract (`check-reagent-slim-bundle-isolation.cjs`), or proving that the slim adapter is API-shape-compatible with the stock Reagent adapter. It is not a human-facing teaching example; it is the live isolation fixture for the slim epic.
 
 ## counter_with_stories — `tools/story/testbeds/counter_with_stories/`
 

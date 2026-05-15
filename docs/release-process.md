@@ -124,7 +124,7 @@ Per [Spec 009 §Performance instrumentation](../spec/009-Instrumentation.md#perf
   - the off bundle carries zero `performance.mark` / `performance.measure` / `re-frame.performance` strings (bundle-isolation: shipped binaries that don't ask for timing have no User-Timing cost);
   - the on bundle carries those strings (bundle-presence: the toggle actually produces the measure entries).
 
-The grep methodology mirrors `npm run test:elision` (the trace-surface elision contract). Both jobs run on every push/PR; either failing blocks merge.
+The grep methodology mirrors `npm run test:elision` (the trace-surface elision contract). These gates run by changed surface in PR CI, in the scheduled/manual expensive workflow, and in the release workflow before deploy.
 
 Apps that ship a perf-instrumented prod bundle alongside their default release set their own consumer config:
 

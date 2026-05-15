@@ -18,14 +18,14 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | `package.json` + GH Actions (CI + release) | Written |
 | Fixture app | **Landed (rf2-cxik)** — `tests/fixture/`. Minimal Reagent counter + `re-frame-pair2.runtime` preload. |
 | End-to-end against a live re-frame2 app | **Scaffolded (rf2-cxik)** — three Playwright specs under `tests/e2e/`, soft-skips when no fixture. |
-| Shim integration (per-push) | **Landed (rf2-cxik)** — 7 tests, 28 assertions against a stubbed nREPL. |
-| Prompt regression (per-push) | **Landed (rf2-cxik)** — 8 tests, 27 assertions, structural drift on `references/*.md` + `SKILL.md`. |
+| Shim integration (changed-surface PR) | **Landed (rf2-cxik)** — 7 tests, 28 assertions against a stubbed nREPL. |
+| Prompt regression (changed-surface PR) | **Landed (rf2-cxik)** — 8 tests, 27 assertions, structural drift on `references/*.md` + `SKILL.md`. |
 
-**Per-push validation envelope is in place.** Live-runtime e2e is opt-in
-until CI gets a shadow-cljs job. The bb-runnable test surfaces
-(`tests/runtime/`, `tests/shim/`, `tests/prompts/`) run on every push
-without external infra; the live e2e fixture provides ground truth on
-demand. Still pre-alpha — see *Known unknowns* below.
+**Changed-surface validation envelope is in place.** Live-runtime e2e is
+opt-in/manual. The bb-runnable test surfaces (`tests/runtime/`,
+`tests/shim/`, `tests/prompts/`) run in PR CI when
+`skills/re-frame-pair2/**` changes; the live e2e fixture provides ground
+truth on demand. Still pre-alpha — see *Known unknowns* below.
 
 ---
 
@@ -99,8 +99,8 @@ In order:
 3. Adjust `runtime.cljs` and `ops.clj` to match any findings.
 4. Wire `tests/runtime/` into an actual shadow-cljs test build (the bb
    mirrors are the canonical drift-detector for now).
-5. Wire `tests/shim/` and `tests/prompts/` into per-push CI (currently
-   runnable but not yet wired into `.github/workflows/`).
+5. ~~Wire `tests/shim/` and `tests/prompts/` into PR CI.~~
+   **Done (rf2-70yi0)** — changed-surface only via `skills-structural`.
 6. Graduate out of pre-alpha and cut `v0.1.0-beta.1`.
 
 ---

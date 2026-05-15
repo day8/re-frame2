@@ -26,7 +26,7 @@ Three flows, each end-to-end against running infrastructure:
    contents (then restoring), confirm the probe value flips, and confirm
    `scripts/tail-build.sh --probe ...` reports `:ok? true :soft? false`.
 
-## Why they're not run on every push
+## Why they're not required PR coverage
 
 Each spec needs:
 
@@ -34,7 +34,8 @@ Each spec needs:
 - a live Chromium via Playwright
 - enough wallclock for compile + reload (~30s warm boot, ~3s per reload)
 
-Per `docs/TESTING.md` §CI-gating these run on `main` + nightly.
+Per `docs/TESTING.md` §CI gating these are manual/nightly diagnostics,
+not required PR coverage.
 
 ## Run locally
 

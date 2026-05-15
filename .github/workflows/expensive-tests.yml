@@ -1,0 +1,182 @@
+name: expensive tests
+
+on:
+  schedule:
+    - cron: "17 15 * * *"
+  workflow_dispatch:
+
+jobs:
+  browser-bundle-and-story-gates:
+    name: Browser, bundle, examples, Story/Causa gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-expensive-implementation-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-expensive-implementation-
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: Install Playwright (Chromium + system deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run rigorous implementation browser and bundle gates
+        run: |
+          set -euo pipefail
+          npm run test:browser
+          npm run test:browser-schemas-boundary-prod
+          npm run test:browser-prod-elision
+          npm run test:elision
+          npm run test:bundle-isolation
+          npm run test:reagent-slim:bundle-isolation
+          npm run test:examples
+          npm run test:story-feature-load
+          npm run test:causa-feature-gate
+          npm run test:story-static
+
+  template-emitted-app:
+    name: Template emitted-app smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/template
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-expensive-template-${{ hashFiles('tools/template/deps.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-expensive-template-
+            ${{ runner.os }}-clj-
+
+      - name: npm install (for emitted-test-run smoke)
+        working-directory: implementation
+        run: npm ci
+
+      - name: Run template emitted-app smoke
+        env:
+          RF2_TEMPLATE_DEPS_RESOLVE: "1"
+          RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
+        run: clojure -M:test
+
+  mcp-live:
+    name: MCP live and client conformance
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/mcp-conformance
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-expensive-mcp-live-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame-pair2/tests/fixture/deps.edn', 'skills/re-frame-pair2/tests/fixture/shadow-cljs.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-expensive-mcp-live-
+            ${{ runner.os }}-cljs-tools-pair2-mcp-
+            ${{ runner.os }}-clj-
+
+      - name: Install pair2-mcp deps
+        working-directory: tools/pair2-mcp
+        run: npm install
+
+      - name: Compile pair2-mcp server bundle
+        working-directory: tools/pair2-mcp
+        run: npx shadow-cljs compile server
+
+      - name: Install mcp-conformance deps
+        run: npm install
+
+      - name: Run MCP client conformance
+        run: |
+          set -euo pipefail
+          npm run test:exec-safety
+          npm run test:pair2
+          npm run test:story
+          npm run test:causa
+
+      - name: Install implementation deps (for Playwright)
+        working-directory: implementation
+        run: npm install --no-audit --no-fund
+
+      - name: Install Playwright chromium (for hermetic browser preload)
+        working-directory: implementation
+        run: npx playwright install --with-deps chromium
+
+      - name: Run pair2 live-overflow conformance
+        run: npm run test:pair2-live-overflow-hermetic

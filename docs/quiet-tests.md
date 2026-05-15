@@ -14,6 +14,11 @@ For agent-driven workflows the cost compounds: each agent run runs tests, each t
 
 Both `clojure.test` and `cljs.test` dispatch through a `report` multi-method. Override its success-path methods to no-op; leave its failure-path methods on the default verbose implementation.
 
+The command matrix and PR/nightly/release ownership live in
+[`../TESTING.md`](../TESTING.md). This page only defines the output
+contract: green is quiet, red names the violated contract, owning
+surface, and reproduction command.
+
 ### Clojure (`clojure.test`)
 
 ```clojure
@@ -99,7 +104,7 @@ For local investigation, opt into the green-path tables:
 ```bash
 RF2_VERBOSE_TESTS=1 npm run test:elision
 RF2_VERBOSE_TESTS=1 npm run test:bundle-isolation
-RF2_VERBOSE_TESTS=1 npm run test:bundle-comparison
+RF2_VERBOSE_TESTS=1 npm run test:reagent-slim:bundle-isolation
 RF2_VERBOSE_TESTS=1 npm run test:schemas-bundle
 RF2_VERBOSE_TESTS=1 npm run test:perf-bundle
 ```
