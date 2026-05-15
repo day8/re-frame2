@@ -306,15 +306,26 @@ It just keeps the city from burning down while the workers build it.
 
 ## Other Prompts
 
-Use these two prompts too:
+Use these two prompts too.
 
-```
-When multiple open beads target the same surface (same artefact / same files), we’d like to dispatch ONE background agent for the cluster — one PR, commits ordered so hot files are sequenced inside. Target 8–12 beads per cluster. Reserve solo dispatches for: P0/P1 correctness, structural refactors >250 LoC, decision-resolved work (keep the decision auditable in git history), and cross-cutting changes that span surfaces.
-Why: hot-file sequencing inside one PR = 0 rebases vs N-1 with parallel solo dispatches. Cross-bead context often surfaces unifications the bead system missed. One review pass per cluster instead of N.
-Every 30 mins, I'd like you to dispatch a background agent to review beads opened in the last 30 mins to see if they can be added to existing batches. Or if they should be clustered into a new batch.
+**Batch review cadence**
 
-```
+> When multiple open beads target the same surface (same artefact / same
+> files), dispatch one background agent for the cluster: one PR, with commits
+> ordered so hot files are sequenced inside. Target 8-12 beads per cluster.
+> Reserve solo dispatches for P0/P1 correctness, structural refactors over
+> 250 LoC, decision-resolved work where the decision must stay auditable in git
+> history, and cross-cutting changes that span surfaces.
+>
+> Why: hot-file sequencing inside one PR means zero rebases instead of N-1
+> rebases with parallel solo dispatches. Cross-bead context often surfaces
+> unifications the bead system missed. One cluster also means one review pass.
+>
+> Every 30 minutes, dispatch a background agent to review beads opened in the
+> last 30 minutes and decide whether they can be added to existing batches or
+> should form a new batch.
 
-```
-Every 60 mins, I'd like you to do a hygiene sweep of worktrees. Be careful to only remove anything stale. Do the same for local and origin branches.
-```
+**Worktree hygiene cadence**
+
+> Every 60 minutes, do a hygiene sweep of worktrees. Be careful to remove only
+> stale worktrees. Do the same for local and origin branches.
