@@ -3,10 +3,13 @@
 `day8/re-frame2-machines-viz` — **Machines-Viz**, the state-chart
 component for re-frame2 machines. *Stately-quality charts; live; embedded.*
 
-Status: **spec only; no code yet.** This directory holds the
-normative contract; implementation work begins after the spec
-ratifies. The same posture
-[`tools/causa-mcp/`](../causa-mcp/) takes (when scaffolded).
+Status: **spec ratified; impl bootstrapping.** This directory
+holds the normative contract; implementation lands incrementally
+as beads under the spec. First impl-side artefact is the pure-data
+Mermaid `stateDiagram-v2` emitter (per rf2-deo2i) at
+[`src/day8/re_frame2_machines_viz/mermaid.cljc`](./src/day8/re_frame2_machines_viz/mermaid.cljc);
+the React-flavoured `MachineChart` component and the read-only
+viewer page land in later beads.
 
 ## What it is
 

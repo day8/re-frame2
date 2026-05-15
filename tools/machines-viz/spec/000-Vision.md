@@ -49,6 +49,15 @@ exports:
    embedded fonts. Both include `<title>` / `<desc>` (SVG) or alt-
    text sidecar (PNG) summarising the machine id, current state,
    and node / transition counts.
+5. **Mermaid `stateDiagram-v2` exporter.** A pure-data emitter
+   (`day8.re-frame2-machines-viz.mermaid/emit`) that takes a
+   registered machine definition and returns a fenced markdown
+   code block suitable for paste into a GitHub README / PR
+   description / Notion. The emitter is lossy by design — `:after`
+   countdown rings and `:invoke-all` rows are omitted (Mermaid
+   stateDiagram-v2 doesn't model them) and the omission is flagged
+   in a `%% comment` at the top of the output. Per
+   [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
 
 ## What it isn't
 
@@ -67,14 +76,16 @@ exports:
   stream, no epoch buffer, no app-db slices, no conversation
   buffer. Per Causa Lock #4 (session export forbidden), lifted
   into Machines-Viz as load-bearing.
-- **Not** a Markdown-embed (mermaid-style) renderer at v1.
-  Mermaid's killer feature is "paste this into a GitHub README
-  and it renders." The framework's post-v1 `(machine->mermaid)`
-  exporter (per [Spec 005 §Future](../../../spec/005-StateMachines.md))
-  fills that niche; Machines-Viz's share-URL viewer is the
-  interactive complement. Both live alongside; neither
-  duplicates the other. See [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)
-  §Lock #4.
+- **Not** an *interactive* Markdown-embed. Machines-Viz **does**
+  ship a Mermaid `stateDiagram-v2` exporter at v1.0 (per rf2-deo2i;
+  see [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4); it
+  emits a fenced markdown code block for paste into a GitHub README
+  / PR description / Notion. The emitter is **lossy by design**:
+  `:after` rings and `:invoke-all` rows are omitted (Mermaid
+  stateDiagram-v2 doesn't model them) and the omission is flagged
+  in a `%% comment` at the top of the output. The share-URL viewer
+  is the interactive complement that renders the full topology;
+  the Mermaid emitter is the static-paste affordance.
 - **Not** an editor. Machines are authored in code via
   `reg-machine`; Machines-Viz visualises what's already
   registered. There is no canvas-driven authoring affordance, no
@@ -162,6 +173,11 @@ surface Causa and Story require to ship their panels.
 - Read-only viewer page (per [`API.md`](./API.md) §Read-only viewer).
 - Share-URL encoding (per [`API.md`](./API.md) §Share-URL encoding).
 - PNG + SVG exporters.
+- Mermaid `stateDiagram-v2` exporter (per
+  [`API.md`](./API.md) §Mermaid `stateDiagram-v2`) — the
+  Markdown-paste affordance. Lossy by design (`:after` rings +
+  `:invoke-all` rows omitted; flagged inline). Per
+  [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
 - Compound / parallel / `:after` / `:invoke-all` / `:final?`
   rendering as specified in
   [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
@@ -179,11 +195,11 @@ surface Causa and Story require to ship their panels.
 
 - Chart alt-view for screen readers (the v1 commitment deferred
   from accessibility).
-- Mermaid emit as an export format — for cases where the topology
-  fits Mermaid's vocabulary and the user wants a Markdown-paste-
-  able artefact.
 - "Paste a machine definition" web playground hosted under the
   viewer page (Stately-Visualizer-style onboarding flow).
+- D2 / `xstate-json` emitters alongside Mermaid (the topology fn
+  generalises; D2 + xstate-json are different output grammars over
+  the same input). Per [Spec 005 §Future §Diagram export](../../../spec/005-StateMachines.md#diagram-export-from-transition-tables).
 
 ### Out of scope (any version)
 
@@ -219,11 +235,14 @@ Where Machines-Viz **wins** against the peer set (per
 - Source-coord per node — every state, transition, guard, action
   jumps to source.
 - Bundle isolation by classpath, not by tree-shaking discipline.
+- Mermaid `stateDiagram-v2` export as a peer to the SVG / PNG /
+  share-URL trio — paste into a GitHub README and it renders.
+  Stately Studio has no Markdown-paste posture; the XState
+  Inspector has no exporter at all. Per
+  [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
 
 Where Machines-Viz **defers** to peers:
 
-- Markdown-embed posture — Spec 005's post-v1 `(machine->mermaid)`
-  fills the niche.
 - Paste-and-render onboarding — v1.1 candidate; the v1 share-URL
   viewer is the closest thing.
 - Statechart-from-non-machine code — Stately Studio's lane.

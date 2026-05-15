@@ -507,6 +507,71 @@ SVG renders identically when pasted into a doc or a Figma frame.
 (or a hiccup-equivalent reference). The export functions derive the
 payload from the element's bound props + the live snapshot.
 
+### Mermaid `stateDiagram-v2`
+
+```clojure
+(:require [day8.re-frame2-machines-viz.mermaid :as mermaid]
+          [day8.re-frame2-machines-viz.export  :as export])
+
+(mermaid/emit definition)
+;; => String — a fenced ```mermaid block containing a
+;;    `stateDiagram-v2` rendering of the machine's static topology
+
+(mermaid/emit definition {:fenced? false :header-comment? false})
+;; => String — just the diagram body, no markdown fence, no caveat
+
+(export/chart-as-mermaid chart-element)
+;; => String — convenience wrapper that pulls `definition` off the
+;;    bound chart-element and calls `mermaid/emit`
+
+(export/copy-mermaid-to-clipboard! chart-element)
+;; => Promise; clipboard contains the fenced markdown block as
+;;    text/plain — paste into a GitHub README / PR description /
+;;    Notion / any Mermaid-aware renderer and it renders inline.
+```
+
+`mermaid/emit` is the load-bearing pure function; it takes the same
+normalised machine definition `(rf/machine-meta machine-id)` returns
+(per [Spec 005 §Transition table grammar](../../../spec/005-StateMachines.md#transition-table-grammar))
+and emits a string suitable for paste. It is substrate-independent
+and DOM-independent — callable from JVM tests, from the JS bundle,
+and from the read-only viewer.
+
+The emitter is **static-topology only**:
+
+- States render as Mermaid nodes; compound `:states` render as
+  `state X { ... }` blocks with their own `[*] --> initial`.
+- Transitions render as `from --> to : event` edges. The event id
+  becomes the edge label.
+- `:final?` states render a `state --> [*]` terminal edge.
+- `:initial` becomes `[*] --> <initial>`.
+
+The following data does **not** survive the round-trip:
+
+- `:after` timer rings — Mermaid `stateDiagram-v2` has no
+  countdown-ring vocabulary. The timer's `:target` edge still
+  renders (as a plain event-less edge), but the countdown semantics
+  are lost.
+- `:invoke-all` rows of mini-machines — Mermaid has no
+  parallel-region grammar that maps cleanly; the row is omitted
+  entirely.
+- Microstep flashes, transition glow, `:tags`, guards, actions —
+  none of these are static topology and none round-trip.
+
+The omission is flagged in a `%% comment` at the top of the emitted
+block, so a reader who pastes the output into a doc sees the
+lossy-round-trip caveat without consulting the spec. The full
+topology renders correctly in the SVG / share-URL viewer; Mermaid
+is the Markdown-paste lane only.
+
+Source: per [DESIGN-RATIONALE Lock #4](./DESIGN-RATIONALE.md) (the
+"Mermaid covers the static-paste lane" lift, revised 2026-05-15 per
+rf2-deo2i — Mermaid emit promoted from v1.1 to v1.0 as a thin
+static-topology exporter), and
+[Spec 005 §Future §Diagram export](../../../spec/005-StateMachines.md#diagram-export-from-transition-tables)
+(the framework-level forward-pointer the tool-side exporter
+realises).
+
 ### Accessibility
 
 Per [Causa 003 §Accessibility](../../causa/spec/003-Machine-Inspector.md#accessibility)
@@ -533,11 +598,14 @@ accessible surface in the meantime.
 day8.re-frame2-machines-viz.chart/MachineChart    ; component
 day8.re-frame2-machines-viz.share/encode-share-url
 day8.re-frame2-machines-viz.share/decode-share-url
+day8.re-frame2-machines-viz.mermaid/emit          ; pure fn — definition → string
 day8.re-frame2-machines-viz.export/chart-as-png!
 day8.re-frame2-machines-viz.export/chart-as-svg
+day8.re-frame2-machines-viz.export/chart-as-mermaid
 day8.re-frame2-machines-viz.export/share-url
 day8.re-frame2-machines-viz.export/copy-png-to-clipboard!
 day8.re-frame2-machines-viz.export/copy-svg-to-clipboard!
+day8.re-frame2-machines-viz.export/copy-mermaid-to-clipboard!
 day8.re-frame2-machines-viz.export/copy-share-url-to-clipboard!
 ```
 
