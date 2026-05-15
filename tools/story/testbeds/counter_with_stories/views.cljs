@@ -79,15 +79,21 @@
 
 (reg-view parity-badge []
   (r/with-let [_ nil]
-    (let [p @(subscribe [:count-parity])]
+    (let [p @(subscribe [:count-parity])
+          badge (case p
+                  :even {:bg "#dff6dd" :fg "#107c10" :text "even"}
+                  :odd  {:bg "#fff4ce" :fg "#7e5b00" :text "odd"}
+                  ;; Story chrome can render this panel before the
+                  ;; selected variant frame has replayed its seed events.
+                  {:bg "#f3f2f1" :fg "#605e5c" :text "pending"})]
       [:span {:style {:padding         "2px 8px"
                       :border-radius   "10px"
                       :font-size       "11px"
-                      :background      (case p :even "#dff6dd" :odd "#fff4ce")
-                      :color           (case p :even "#107c10" :odd "#7e5b00")
+                      :background      (:bg badge)
+                      :color           (:fg badge)
                       :margin-left     "1em"}
               :data-test "parity"}
-       (case p :even "even" :odd "odd")])))
+       (:text badge)])))
 
 ;; ---- Composed counter card ----------------------------------------------
 ;;
