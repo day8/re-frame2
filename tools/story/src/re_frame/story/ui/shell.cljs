@@ -47,6 +47,7 @@
             [re-frame.trace :as rf-trace]
             [re-frame.story.ui.actions :as actions]
             [re-frame.story.ui.canvas :as canvas]
+            [re-frame.story.ui.command-palette.view :as command-palette]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.help :as help]
@@ -573,7 +574,8 @@
           ;; alongside the recorder's save dialog — both float above the
           ;; three-pane layout via fixed positioning; both surface the
           ;; generated EDN snippet for review-then-commit.
-          [save-variant-ui/save-dialog]]))}))
+          [save-variant-ui/save-dialog]
+          [command-palette/command-palette-host]]))}))
 
 ;; ---- mount / unmount surface ---------------------------------------------
 

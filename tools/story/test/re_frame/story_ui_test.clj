@@ -22,6 +22,7 @@
             [re-frame.story.config    :as config]
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.registrar :as story-registrar]
+            [re-frame.story.ui.command-palette :as command-palette]
             [re-frame.story.ui.docs   :as docs]
             [re-frame.story.ui.state  :as state]
             [re-frame.story.ui.test-mode.pure :as test-mode]
@@ -122,6 +123,57 @@
     (let [s  state/default-shell-state
           s1 (state/toggle-panel s :trace)]
       (is (= false (get-in s1 [:panel-visibility :trace]))))))
+
+;; ---- command palette -----------------------------------------------------
+
+(deftest command-palette-builds-search-corpus
+  (testing "entries enumerate stories, variants, workspaces, modes, and decorators"
+    (let [snapshot {:stories    {:story.cp {:doc "Counter parent"}}
+                    :variants   {:story.cp/empty {:doc "Fresh counter"}
+                                 :story.cp/full  {:doc "Loaded counter"}}
+                    :workspaces {:Workspace.cp/all {:doc "All states"}}
+                    :modes      {:Mode.cp/dark {:doc "Dark theme"}}
+                    :decorators {:cp/outline {:doc "Outline wrapper"}}}
+          entries  (command-palette/entries snapshot)
+          by-kind  (frequencies (map :kind entries))
+          story    (first (filter #(= [:story :story.cp]
+                                      [(:kind %) (:id %)])
+                                  entries))]
+      (is (= 1 (:story by-kind)))
+      (is (= 2 (:variant by-kind)))
+      (is (= 1 (:workspace by-kind)))
+      (is (= 1 (:mode by-kind)))
+      (is (= 1 (:decorator by-kind)))
+      (is (= [:story.cp/empty :story.cp/full] (:variant-ids story))))))
+
+(deftest command-palette-search-matches-id-doc-and-kind
+  (let [entries (command-palette/entries
+                  {:stories    {:story.checkout {:doc "Payment flow"}}
+                   :variants   {:story.checkout/error {:doc "Declined card state"}}
+                   :workspaces {:Workspace.checkout/grid {:doc "All payment states"}}
+                   :modes      {:Mode.theme/dark {:doc "Night palette"}}
+                   :decorators {:checkout/auth {:doc "Authenticated shell"}}})]
+    (testing "id substring matches rank exact surface hits"
+      (is (= :story.checkout/error
+             (:id (first (command-palette/search entries "checkout error"))))))
+    (testing "doc text is searchable"
+      (is (= :story.checkout/error
+             (:id (first (command-palette/search entries "declined"))))))
+    (testing "kind participates in search"
+      (is (= :Workspace.checkout/grid
+             (:id (first (command-palette/search entries "workspace payment"))))))
+    (testing "fuzzy subsequence catches compact user input"
+      (is (= :Mode.theme/dark
+             (:id (first (command-palette/search entries "mthdrk"))))))
+    (testing "unmatched query returns no rows"
+      (is (empty? (command-palette/search entries "no such thing"))))))
+
+(deftest command-palette-active-index-wraps
+  (testing "arrow navigation wraps both directions"
+    (is (= 1 (command-palette/move-active-index 0 1 3)))
+    (is (= 0 (command-palette/move-active-index 2 1 3)))
+    (is (= 2 (command-palette/move-active-index 0 -1 3)))
+    (is (= 0 (command-palette/move-active-index 0 1 0)))))
 
 ;; ---- mode-tabs (rf2-9hc8) ------------------------------------------------
 

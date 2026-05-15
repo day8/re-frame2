@@ -22,6 +22,8 @@
             [re-frame.story :as story]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.canvas :as canvas]
+            [re-frame.story.ui.command-palette :as command-palette]
+            [re-frame.story.ui.command-palette.view :as command-palette-view]
             [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.controls :as controls]
@@ -87,6 +89,51 @@
     (state/swap-state! state/clear-cell-overrides :story.x/y)
     (is (nil? (get-in (state/get-state)
                       [:cell-overrides :story.x/y])))))
+
+;; ---- command palette -----------------------------------------------------
+
+(deftest command-palette-shortcut-detection
+  (testing "Cmd-K and Ctrl-K open the global palette"
+    (is (command-palette-view/shortcut-event?
+          #js {:type "keydown" :key "k" :metaKey true}))
+    (is (command-palette-view/shortcut-event?
+          #js {:type "keydown" :key "K" :ctrlKey true})))
+  (testing "modified or unrelated keydowns do not open it"
+    (is (not (command-palette-view/shortcut-event?
+               #js {:type "keydown" :key "k" :ctrlKey true :shiftKey true})))
+    (is (not (command-palette-view/shortcut-event?
+               #js {:type "keyup" :key "k" :ctrlKey true})))))
+
+(deftest command-palette-selection-side-effects
+  (testing "variant selection focuses a variant and clears workspace"
+    (state/swap-state! state/select-workspace :Workspace.cp/all)
+    (command-palette-view/select-entry! {:kind :variant :id :story.cp/empty})
+    (is (= :story.cp/empty (:selected-variant (state/get-state))))
+    (is (nil? (:selected-workspace (state/get-state)))))
+  (testing "workspace selection focuses a workspace and clears variant"
+    (state/swap-state! state/select-variant :story.cp/empty)
+    (command-palette-view/select-entry! {:kind :workspace :id :Workspace.cp/all})
+    (is (= :Workspace.cp/all (:selected-workspace (state/get-state))))
+    (is (nil? (:selected-variant (state/get-state)))))
+  (testing "story selection jumps to the first registered child variant"
+    (command-palette-view/select-entry!
+      {:kind :story :id :story.cp :variant-ids [:story.cp/a :story.cp/b]})
+    (is (= :story.cp/a (:selected-variant (state/get-state)))))
+  (testing "mode selection toggles the active mode"
+    (command-palette-view/select-entry! {:kind :mode :id :Mode.cp/dark})
+    (is (= [:Mode.cp/dark] (:active-modes (state/get-state))))))
+
+(deftest command-palette-search-roundtrip
+  (testing "CLJS search path mirrors the JVM helper"
+    (let [results (command-palette/search
+                    (command-palette/entries
+                      {:stories    {:story.cljs.cp {:doc "Shell docs"}}
+                       :variants   {:story.cljs.cp/happy {:doc "Happy path"}}
+                       :workspaces {}
+                       :modes      {}
+                       :decorators {}})
+                    "happy")]
+      (is (= :story.cljs.cp/happy (:id (first results)))))))
 
 ;; ---- pure filter + grouping ---------------------------------------------
 
