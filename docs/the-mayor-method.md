@@ -8,7 +8,7 @@ The claim that [re-frame2](https://github.com/day8/re-frame2) is "AI first" has 
 
 This is the workflow I use for non-trivial AI-assisted projects.
 
-The method is derived from a deep dive into [gastown's approach][gastown]. I don't use gastown directly, but the shape of this workflow — the orchestrator role, the spec-first discipline, the dispatched workers — comes directly from studying theirs. Credit lands there; any awkwardness in this write-up is mine.
+The method is derived from a deep dive into [gastown's approach][gastown]. I don't use gastown directly, but the shape of this workflow — the orchestrator role, the serious-prompt discipline, the dispatched workers — comes directly from studying theirs. Credit lands there; any awkwardness in this write-up is mine.
 
 I borrow gastown's term for the orchestrator role: **the mayor** — a figure who orchestrates without doing the work, has overview without losing it, and makes the decisions that keep the city running. That's the role one Claude session plays in my setup.
 
