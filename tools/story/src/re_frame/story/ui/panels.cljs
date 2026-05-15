@@ -49,6 +49,7 @@
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.config :as config]
+            [re-frame.story.args :as args]
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.a11y :as a11y]
@@ -274,6 +275,17 @@
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}})
 
+(defn- panel-applies-to-variant?
+  "True when a panel's optional `:for` set matches the focused variant
+  or its parent story. Panels with no `:for` are global. Without this
+  filter, project-specific panels leak into unrelated stories and their
+  frame-scoped subscriptions can crash against missing app-db shape."
+  [body variant-id]
+  (let [targets (:for body)]
+    (or (empty? targets)
+        (contains? targets variant-id)
+        (contains? targets (args/parent-story-id variant-id)))))
+
 (defn render-panels-at-placement
   "Render every registered `:story-panel` whose `:placement` matches
   `placement` and whose visibility flag in the shell state is truthy.
@@ -293,6 +305,7 @@
         slots  (->> panels
                     (filter (fn [[pid body]]
                               (and (= placement (:placement body))
+                                   (panel-applies-to-variant? body variant-id)
                                    ;; default visible unless explicit false
                                    (let [vis (get panel-visibility pid)]
                                      (or (nil? vis) (true? vis))))))

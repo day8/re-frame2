@@ -78,6 +78,23 @@
         (map (fn [vid] [vid (decorators/resolution-fingerprints vid)]))
         (frames/variant-frames)))
 
+(defn- existing-frame-fingerprint-drift?
+  "True when a frame that was present on the previous poll now reports
+  different decorator fingerprints.
+
+  New frames are not hot-reload drift: they were just allocated by
+  selection/canvas and already ran with the current registry. Treating
+  their first snapshot as drift forces an immediate second run, which
+  replays static `:events` and can pollute recorder output. Removed
+  frames likewise only need the baseline updated."
+  [prev current]
+  (boolean
+    (some (fn [[variant-id fingerprints]]
+            (let [previous (get prev variant-id ::missing)]
+              (and (not= previous ::missing)
+                   (not= previous fingerprints))))
+          current)))
+
 (defn detect-and-tick!
   "Compare the current fingerprint snapshot against the shell state's
   recorded fingerprints; if anything drifted, bump the hot-reload tick
@@ -88,14 +105,14 @@
   (when config/enabled?
     (let [current (compute-fingerprint-snapshot)
           shell   (state/get-state)
-          prev    (:fingerprints shell)]
+          prev    (:fingerprints shell)
+          drift?  (existing-frame-fingerprint-drift? prev current)]
       (when (not= current prev)
         (state/swap-state!
           (fn [s]
-            (-> s
-                (state/bump-hot-reload-tick)
-                (assoc :fingerprints current))))
-        true))))
+            (cond-> (assoc s :fingerprints current)
+              drift? state/bump-hot-reload-tick)))
+        drift?))))
 
 ;; ---- watch-mode detector (rf2-z1h0f) -------------------------------------
 ;;

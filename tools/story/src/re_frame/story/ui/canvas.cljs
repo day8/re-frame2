@@ -24,7 +24,6 @@
             [re-frame.story.registrar :as registrar]
             [re-frame.story.args :as args]
             [re-frame.story.decorators :as decorators]
-            [re-frame.story.identity :as identity]
             [re-frame.story.runtime :as runtime]
             [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.open-in-editor :as open-in-editor]
@@ -191,6 +190,34 @@
     (runtime/run-variant variant-id opts)
     nil))
 
+(defn- run-key
+  "The shell-state slice that should trigger a fresh runtime run for
+  the focused variant. Ordinary app-db updates inside the variant frame
+  must not re-dispatch the variant's static `:events`; otherwise user
+  interactions reset the canvas and the recorder captures fixture
+  initialisation events as if they were user actions."
+  [shell variant-id]
+  {:variant-id       variant-id
+   :hot-reload-tick  (:hot-reload-tick shell)
+   :active-modes     (:active-modes shell)
+   :cell-overrides   (get-in shell [:cell-overrides variant-id])
+   :substrate        (:substrate shell)})
+
+(defonce ^:private canvas-last-run-key
+  (atom nil))
+
+(defn- run-if-needed!
+  []
+  (when config/enabled?
+    (let [shell      @state/shell-state-atom
+          variant-id (:selected-variant shell)]
+      (if-not variant-id
+        (reset! canvas-last-run-key nil)
+        (let [key (run-key shell variant-id)]
+          (when (not= key @canvas-last-run-key)
+            (reset! canvas-last-run-key key)
+            (run-with-shell-opts! variant-id)))))))
+
 (defn- variant-substrate-set
   "Resolve the variant's effective substrate set. Per IMPL-SPEC §3.1
   the variant body's `:substrates` wins, otherwise the parent story's
@@ -289,7 +316,8 @@
            ;; variant author's.
            ^{:key (str "single-" variant-id)}
            [frame-provider-ns-safe {:frame variant-id}
-            [:div {:data-rf-story-variant-root (pr-str variant-id)}
+            [:div {:key (str "variant-root:" (pr-str variant-id))
+                   :data-rf-story-variant-root (pr-str variant-id)}
              (safe-decorated-view
                [resolved-view eff-args]
                (:hiccup decorator-pack)
@@ -299,36 +327,35 @@
      (render-errors (:errors decorator-pack))
      (render-assertions assertions)]))
 
-(defn canvas
+(def canvas
   "Render the focused variant. Triggers a `run-variant` on mount and on
   each `:hot-reload-tick` bump. Renders the variant's `:component` view
   with the resolved `:hiccup` decorator stack applied."
-  []
   (r/create-class
-    {:display-name "rf-story-canvas"
-     :component-did-mount
-     (fn [_this]
-       (when config/enabled?
-         (when-let [variant-id (:selected-variant @state/shell-state-atom)]
-           (run-with-shell-opts! variant-id))))
-     :component-did-update
-     (fn [this _old-argv]
-       ;; Re-run when the selected variant changes or hot-reload ticks.
-       (when config/enabled?
-         (when-let [variant-id (:selected-variant @state/shell-state-atom)]
-           (run-with-shell-opts! variant-id))))
-    :reagent-render
-    (fn []
-      (let [shell      @state/shell-state-atom
-            variant-id (:selected-variant shell)
-            snapshot   (when variant-id
-                         (identity/snapshot-identity
-                           variant-id
-                           {:active-modes   (:active-modes shell)
-                            :cell-overrides (get-in shell [:cell-overrides
-                                                           variant-id])
-                            :substrate      (:substrate shell)}))
-            _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
+     {:display-name "rf-story-canvas"
+      :component-did-mount
+      (fn [_this]
+        (run-if-needed!))
+      :component-did-update
+      (fn [_this _old-argv]
+        ;; Re-run only when the variant runtime inputs change. The old
+        ;; unconditional update path re-fired `:events` on every app-db
+        ;; render, resetting interactive state and polluting recorder
+        ;; output with fixture setup events.
+        (run-if-needed!))
+      :component-will-unmount
+      (fn [_this]
+        (reset! canvas-last-run-key nil))
+     :reagent-render
+     (fn []
+       (let [shell      @state/shell-state-atom
+             variant-id (:selected-variant shell)
+             opts       {:active-modes   (:active-modes shell)
+                         :cell-overrides (get-in shell [:cell-overrides variant-id])
+                         :substrate      (:substrate shell)}
+             snapshot   (when variant-id
+                          (runtime/snapshot-identity variant-id opts))
+             _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
          ;; Per rf2-xc65: the canvas wrap is the scrollable container
          ;; for variant content; `tab-index "0"` makes it keyboard-
          ;; focusable so axe-core's `scrollable-region-focusable` rule
@@ -343,12 +370,12 @@
          ;; have torn down (sidebar `:selected-variant` and
          ;; `:selected-workspace` are independent slots; clicking a
          ;; variant doesn't clear a previously-selected workspace).
-         [:section (cond-> {:style      (:wrap styles)
-                            :aria-label "Variant canvas"
-                            :tab-index  "0"}
+        [:section (cond-> {:style      (:wrap styles)
+                           :aria-label "Variant canvas"
+                           :tab-index  "0"}
                      variant-id (assoc :data-test-variant (pr-str variant-id))
-                     (:content-hash snapshot)
-                     (assoc :data-snapshot-hash (:content-hash snapshot)))
+                     (:content-hash snapshot) (assoc :data-snapshot-hash
+                                                     (:content-hash snapshot)))
           (if variant-id
             [canvas-inner variant-id]
             [:div {:style (:empty styles)}
