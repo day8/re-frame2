@@ -456,6 +456,30 @@
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  (story/reg-variant :story.counter-matrix/a11y-known-good
+    {:doc       "Deterministic a11y known-good browser fixture. The
+                browser scenario injects a stable axe-compatible
+                scanner and asserts this fixture reports zero rows."
+     :component :counter-with-stories.views/a11y-known-good-card
+     :args      {:label "A11y known good"
+                 :settings {:title "A11y good" :enabled? true}}
+     :events    [[:counter/initialise 21]]
+     :play      [[:rf.assert/path-equals [:count] 21]]
+     :tags      #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/a11y-known-bad
+    {:doc       "Deterministic a11y known-bad browser fixture. The
+                violation is tied to a fixture-owned image selector so
+                output stays stable and never depends on Story chrome."
+     :component :counter-with-stories.views/a11y-known-bad-card
+     :args      {:label "A11y known bad"
+                 :settings {:title "A11y bad" :enabled? true}}
+     :events    [[:counter/initialise 22]]
+     :play      [[:rf.assert/path-equals [:count] 22]]
+     :tags      #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; -------------------------------------------------------------------------
   ;; reg-workspace — two workspaces, one per layout the v1 ships
   ;;
