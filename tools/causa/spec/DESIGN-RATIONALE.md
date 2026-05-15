@@ -427,8 +427,9 @@ favour of the unobtrusive default.
 
 ## Lock #9 — Launch modes
 
-**Locked 2026-05-12 (Mike).** **Hybrid.** In-app overlay (`Ctrl+Shift+C`
-or launcher pill) + standalone-via-MCP for remote-attach.
+**Locked 2026-05-12 (Mike); refined 2026-05-16.** **Hybrid.** In-app
+same-runtime UI with a true inline host by default, optional same-runtime
+pop-out/overlay affordances, plus standalone-via-MCP for remote-attach.
 
 ### Question
 
@@ -450,7 +451,7 @@ mode?
 
 ### Pick
 
-**(d) Hybrid.** In-app overlay primary; MCP for the agent-driven /
+**(d) Hybrid.** In-app same-runtime UI primary; MCP for the agent-driven /
 remote case.
 
 ### Why
@@ -467,8 +468,10 @@ remote case.
 - **MCP handles the remote/agent case.** Causa-MCP (lock #6) is the
   protocol; the agent host owns the network plumbing. The user's
   consent model is already wired.
-- **In-app overlay is the right default.** Zero IPC, runtime is one
-  closure away, same elision contract as the runtime.
+- **In-app same-runtime UI is the right default.** The current product
+  decision makes this a true inline layout host rather than an overlay:
+  zero IPC, runtime is one closure away, same elision contract as the
+  runtime, and host controls remain visible/clickable.
 - **`window.opener` pop-out is the second-monitor story.** No
   serialisation cost, no protocol versioning, no reconnect logic;
   same JS realm.

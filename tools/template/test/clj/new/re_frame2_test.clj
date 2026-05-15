@@ -251,6 +251,8 @@
               "index.html CSP forbids framing (anti-clickjacking)")
           (is (.contains index-text "object-src 'none'")
               "index.html CSP forbids plugin objects")
+          (is (.contains index-text "data-rf-causa-host")
+              "index.html provides Causa's default true-inline layout host")
           (is (.contains readme-text "Production hardening")
               "README documents Production hardening")
           (is (.contains readme-text "X-Content-Type-Options")

@@ -303,18 +303,22 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
   return record;
 }
 
-async function assertOverlayLaunchModes(page, state) {
-  const countBeforeText = (await page.locator('span').first().textContent({ timeout: 10000 }) || '').trim();
-  const countBefore = Number(countBeforeText);
+async function assertDefaultInlineLaunchModes(page, state) {
+  const countBefore = await waitForValue(
+    () => readHostCounter(page),
+    (value) => Number.isFinite(value),
+    { timeoutMs: 10000, description: 'host counter before inline geometry check' },
+  );
   if (!Number.isFinite(countBefore)) {
-    failWithDetails('Host counter value was not numeric before overlay geometry check', {
-      mode: 'overlay-left-host',
-      observed: { countBeforeText },
+    failWithDetails('Host counter value was not numeric before inline geometry check', {
+      mode: 'inline',
+      observed: { countBefore },
     });
   }
-  const rootBeforeOpen = await page.locator('#rf-causa-root').count();
   await openCausa(page);
-  const overlay = await page.evaluate(() => {
+  const defaultInline = await page.evaluate(() => {
+    const root = document.getElementById('rf-causa-root');
+    const host = document.querySelector('[data-rf-causa-host]');
     const shell = document.querySelector('[data-testid="rf-causa-shell"]');
     const plus = Array.from(document.querySelectorAll('button'))
       .filter((button) => !button.closest('#rf-causa-root'))
@@ -339,6 +343,11 @@ async function assertOverlayLaunchModes(page, state) {
       ? document.elementFromPoint(plusRect.centerX, plusRect.centerY)
       : null;
     return {
+      rootMode: root ? root.getAttribute('data-rf-causa-mode') : null,
+      shellMode: shell ? shell.getAttribute('data-mode') : null,
+      rootParentIsHost: Boolean(root && host && root.parentElement === host),
+      bodyPaddingLeft: document.body.style.paddingLeft,
+      bodyPaddingRight: document.body.style.paddingRight,
       shell: shellRect,
       hostPlus: plusRect,
       hostPlusText: plus ? (plus.textContent || '').trim() : null,
@@ -350,20 +359,26 @@ async function assertOverlayLaunchModes(page, state) {
       } : null,
     };
   });
-  if (!overlay.shell || overlay.shell.width < 200) {
-    failWithDetails('Causa overlay geometry was not measurable', { mode: 'overlay', observed: overlay });
+  if (!defaultInline.shell || defaultInline.shell.width < 200) {
+    failWithDetails('Causa inline geometry was not measurable', { mode: 'inline', observed: defaultInline });
   }
-  if (!overlay.hostPlus) {
-    failWithDetails('Host app + button missing while Causa overlay is open', { mode: 'overlay', observed: overlay });
+  if (defaultInline.rootMode !== 'inline' || defaultInline.shellMode !== 'inline' || !defaultInline.rootParentIsHost) {
+    failWithDetails('Causa did not auto-mount into the layout host', { mode: 'inline', observed: defaultInline });
   }
-  if (overlay.hostPlus.centerX >= overlay.shell.left) {
-    failWithDetails('Causa overlay obscures the left host-app control area', { mode: 'overlay-left-host', observed: overlay });
+  if (defaultInline.bodyPaddingLeft || defaultInline.bodyPaddingRight) {
+    failWithDetails('Causa inline default used body-padding layout tricks', { mode: 'inline', observed: defaultInline });
   }
-  if (overlay.topAtHostPlus && overlay.topAtHostPlus.inCausa) {
-    failWithDetails('Causa chrome is topmost over the left host-app + button', { mode: 'overlay-left-host', observed: overlay });
+  if (!defaultInline.hostPlus) {
+    failWithDetails('Host app + button missing while Causa is open', { mode: 'inline', observed: defaultInline });
   }
-  await page.mouse.click(overlay.hostPlus.centerX, overlay.hostPlus.centerY);
-  await expectTextEquals(page.locator('span').first(), String(countBefore + 1), 5000);
+  if (defaultInline.hostPlus.left < defaultInline.shell.right) {
+    failWithDetails('Host app controls are not laid out to the right of Causa', { mode: 'inline', observed: defaultInline });
+  }
+  if (defaultInline.topAtHostPlus && defaultInline.topAtHostPlus.inCausa) {
+    failWithDetails('Causa chrome is topmost over the host-app + button', { mode: 'inline', observed: defaultInline });
+  }
+  await page.mouse.click(defaultInline.hostPlus.centerX, defaultInline.hostPlus.centerY);
+  await expectHostCounterEquals(page, countBefore + 1, 5000);
 
   const popout = await page.evaluate(() => {
     const causa = window.day8 && window.day8.re_frame2_causa;
@@ -418,7 +433,7 @@ async function assertOverlayLaunchModes(page, state) {
     failWithDetails('Causa launch mode is not implemented', { mode: 'inline', observed: inlineStart });
   }
   await page.waitForSelector('#rf-causa-inline-feature-matrix-host [data-testid="rf-causa-inline-panel"]', { timeout: 2000 });
-  const inline = await page.evaluate(() => {
+  const embeddedInline = await page.evaluate(() => {
     const causa = window.day8 && window.day8.re_frame2_causa;
     const core = causa && (causa.core || causa);
     const keys = core ? Object.keys(core).sort() : [];
@@ -480,18 +495,19 @@ async function assertOverlayLaunchModes(page, state) {
   });
 
   state.launchModes = {
-    overlay: {
-      rootBeforeOpen,
-      shellRect: overlay.shell,
-      hostPlusRect: overlay.hostPlus,
+    inlineDefault: {
+      rootMode: defaultInline.rootMode,
+      shellMode: defaultInline.shellMode,
+      shellRect: defaultInline.shell,
+      hostPlusRect: defaultInline.hostPlus,
       hostClickObserved: true,
-      leftHostAreaUnobscured: true,
+      normalFlowHost: true,
     },
     popout,
     docking,
-    inline,
+    inline: embeddedInline,
   };
-  for (const [mode, record] of Object.entries({ popout, docking, inline })) {
+  for (const [mode, record] of Object.entries({ popout, docking, inline: embeddedInline })) {
     if (!record.implemented) {
       failWithDetails('Causa launch mode is not implemented', { mode, observed: record });
     }
@@ -897,8 +913,25 @@ async function expectNumericTextAtLeast(locator, min, timeoutMs = 5000) {
   );
 }
 
+async function readHostCounter(page) {
+  return page.evaluate(() => {
+    const span = Array.from(document.querySelectorAll('span'))
+      .find((el) => !el.closest('#rf-causa-root'));
+    const text = span ? (span.textContent || '').trim() : '';
+    return Number(text);
+  });
+}
+
+async function expectHostCounterEquals(page, expected, timeoutMs = 10000) {
+  await waitForValue(
+    () => readHostCounter(page),
+    (value) => value === expected,
+    { timeoutMs, description: `host counter equals ${expected}` },
+  );
+}
+
 async function runShellFeatureSweep(page) {
-  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  await expectHostCounterEquals(page, 5, 10000);
   await openCausa(page);
 
   for (const [id, canvas] of PANEL_HANDOFFS) {
@@ -954,7 +987,7 @@ async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
     panel: 'trace',
     sourceIncludes: [],
   });
-  await assertOverlayLaunchModes(page, state);
+  await assertDefaultInlineLaunchModes(page, state);
 }
 
 async function runExceptionSchemaHttp(page, state, ctx) {
@@ -1389,7 +1422,7 @@ async function runHydration(page) {
 }
 
 async function runTwentyEventLoad(page, state) {
-  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  await expectHostCounterEquals(page, 5, 10000);
   await openCausa(page);
   await clickSidebar(page, 'trace', 'rf-causa-trace');
   await clearTrace(page);
@@ -1475,7 +1508,7 @@ async function runTraceBudgetSaturation(page, state) {
 }
 
 async function runLaunchModesTwentyEventLoad(page, state) {
-  await expectTextEquals(page.locator('span').first(), '5', 10000);
+  await expectHostCounterEquals(page, 5, 10000);
   await openCausa(page);
   await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
 

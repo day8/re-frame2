@@ -1,9 +1,10 @@
 (ns day8.re-frame2-causa.config
   "Compile-time and runtime configuration for Causa.
 
-  Phase 1 holds a single config concern: the 'Open in editor' preference
-  (rf2-evgf5). Future phases extend this with theme defaults, buffer
-  depth, panel placement, etc.
+  Phase 1 held a single config concern: the 'Open in editor'
+  preference (rf2-evgf5). Causa now also exposes the default inline
+  layout-host selector used by the dev preload (rf2-eehov). Future
+  phases extend this with theme defaults, buffer depth, etc.
 
   ## Why a separate config ns
 
@@ -29,6 +30,33 @@
                        [re-frame.frame :as frame]])))
 
 ;; ---- editor preference ---------------------------------------------------
+
+(def default-layout-host-selector
+  "[data-rf-causa-host]")
+
+(def default-layout-host-snippet
+  "<div class=\"app-shell\">
+  <aside data-rf-causa-host></aside>
+  <main id=\"app\"></main>
+</div>")
+
+(defonce
+  ^{:doc "Atom holding the CSS selector for the app-provided normal-flow
+         Causa layout host. The default is `[data-rf-causa-host]`."}
+  layout-host-selector
+  (atom default-layout-host-selector))
+
+(defn set-layout-host-selector!
+  "Set the selector Causa uses for its default true-inline shell mount.
+  `nil` resets to `[data-rf-causa-host]`."
+  [selector]
+  (reset! layout-host-selector (or selector default-layout-host-selector))
+  nil)
+
+(defn get-layout-host-selector
+  "Return the CSS selector for the Causa layout host."
+  []
+  @layout-host-selector)
 
 (defonce
   ^{:doc "Atom holding Causa's 'Open in editor' preference. Default
@@ -232,6 +260,9 @@
   "Top-level Causa configuration. Accepts:
 
     `{:editor <kw>}` — Causa's 'Open in editor' preference (rf2-evgf5).
+    `{:layout/host-selector <css-selector>}` — app-provided true-inline
+       layout host for the default shell. Defaults to
+       `[data-rf-causa-host]`.
     `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
        true` trace events per Spec 009 §Privacy (rf2-azls9). Defaults
        to `false` — Causa's trace collector drops sensitive events
@@ -244,14 +275,18 @@
   Hosts typically call this once at boot:
 
       (require '[day8.re-frame2-causa.config :as causa-config])
-      (causa-config/configure! {:editor :cursor})
+      (causa-config/configure! {:editor :cursor
+                                :layout/host-selector \"#causa\"})
 
   Returns nothing."
   [{:keys [editor]
+    host-selector-opt :layout/host-selector
     show-sensitive-opt :trace/show-sensitive?
     :as opts}]
   (when (some? editor)
     (set-editor! editor))
+  (when (contains? opts :layout/host-selector)
+    (set-layout-host-selector! host-selector-opt))
   (when (contains? opts :trace/show-sensitive?)
     (set-show-sensitive! show-sensitive-opt))
   nil)

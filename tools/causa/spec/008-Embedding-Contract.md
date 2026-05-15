@@ -1,5 +1,10 @@
 # 008-Embedding-Contract
 
+Causa's default full-shell integration is an app-provided true-inline
+layout host (`[data-rf-causa-host]`) described in
+[`011-Launch-Modes.md`](./011-Launch-Modes.md). This file covers the
+separate embedded-panel contract.
+
 Causa is consumed by Story (per `spec/007-Stories.md` §6.7) as a
 per-variant observability ribbon. This doc specifies the contract:
 every Causa panel exports a React component (or hiccup-fn equivalent)

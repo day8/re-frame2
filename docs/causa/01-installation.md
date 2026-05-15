@@ -1,6 +1,6 @@
 # 1. Installation
 
-Five minutes, two edits.
+Five minutes, three edits.
 
 ## 1. Add the dependency
 
@@ -15,7 +15,29 @@ Causa lives at [`tools/causa/`](https://github.com/day8/re-frame2/tree/main/tool
 
 Once we publish to Clojars, the dev-deps coord will be `day8/re-frame2-causa {:mvn/version "0.0.1.alpha"}` (tracking the repo's [`VERSION`](https://github.com/day8/re-frame2/blob/main/VERSION) file). Until then, vendor through a checkout.
 
-## 2. Wire the preload
+## 2. Add the layout host
+
+Causa's default launch is true inline. Add a left-side host to your
+normal app layout:
+
+```html
+<div class="app-shell">
+  <aside data-rf-causa-host></aside>
+  <main id="app"></main>
+</div>
+```
+
+```css
+.app-shell { display: flex; min-height: 100vh; }
+[data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+#app { flex: 1; min-width: 0; }
+```
+
+If Causa cannot find the host, it logs an actionable `console.error`
+and exposes the same diagnostic through
+`window.day8.re_frame2_causa.status()`.
+
+## 3. Wire the preload
 
 ```clojure
 ;; shadow-cljs.edn — dev build only
@@ -24,17 +46,13 @@ Once we publish to Clojars, the dev-deps coord will be `day8/re-frame2-causa {:m
   {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-That's it. The preload registers Causa's listeners, attaches the `Ctrl+Shift+C` keybinding, and mounts a hidden DOM root. **No code change in your app**. No `(require '[day8.re-frame2-causa.core])`. No `init!` call. The preload is the entire integration surface.
+That's it. The preload registers Causa's listeners, attaches the `Ctrl+Shift+C` keybinding, and auto-opens into `[data-rf-causa-host]` once `rf/init!` has installed the substrate adapter. No `(require '[day8.re-frame2-causa.core])`. No `init!` call. The preload plus host element are the integration surface.
 
 A re-frame2 dev build with that preload, reloaded, is the precondition for the rest of this tutorial.
 
-## 3. Launch
+## 4. Launch
 
-Open your app in dev. You'll see a small **floating pill** in the bottom-right corner:
-
-![The Causa floating pill on the live counter app](../images/causa/01-floating-pill.png)
-
-Press `Ctrl+Shift+C` (or click the pill). The shell mounts:
+Open your app in dev. The shell appears in the left inline host:
 
 ![The Causa shell, opened over the live app](../images/causa/02-shell-opened.png)
 
@@ -44,7 +62,7 @@ The shell is a three-region layout:
 - **Canvas** (right): the selected panel.
 - **Bottom rail**: the time-travel scrubber.
 
-The first paint happens lazily on this first keypress — the preload only registers listeners; the React tree pays construction cost only here. The published target is **&lt;80 ms** from press to interactive paint; in practice it's usually well under that.
+`Ctrl+Shift+C` now hides/shows that mounted shell without unmounting it.
 
 ## Keybindings
 

@@ -134,6 +134,10 @@
        (let [n (mk-stub-node)]
          (swap! created conj n)
          n))
+     "querySelector"
+     (fn [selector]
+       (when (= selector "[data-rf-causa-host]")
+         body))
      ;; Test introspection — not part of the DOM API, but lets the
      ;; assertions count nodes created during a run.
      "_created"
@@ -289,27 +293,43 @@
               (is (true? (mount/visible?))
                   "visible? flips true after first open!"))))))))
 
-(deftest first-open!-leaves-display-at-browser-default
-  (testing "first open! creates the container WITHOUT explicitly
-            writing style.display — the source's create-mount-node!
-            leaves default block-level styling intact (the shell
-            handles its own position:fixed geometry). Only the
-            second open!-after-close! / toggle! show path writes
-            style.display=block via set-visible!"
+(deftest first-open!-marks-inline-root-visible
+  (testing "first open! creates the inline container under the
+            app-provided Causa host and explicitly writes
+            style.display=block so close/open remains a CSS-only
+            visibility transition"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
           (with-redefs [substrate-adapter/render render-fn]
             (mount/open!)
             (let [node (:node @@#'mount/mount-state)]
-              ;; The stub's default is "" — matches the browser's
-              ;; "no inline style" baseline. The point of the
-              ;; assertion is that mount.cljs does NOT touch the
-              ;; display property on first mount (re-mount via
-              ;; close+open will write "block" explicitly — see
-              ;; second-open!-does-not-re-render).
-              (is (= "" (.-display (.-style node)))
-                  "no explicit display written on first mount"))))))))
+              (is (= "block" (.-display (.-style node)))
+                  "inline root is explicitly visible on first mount")
+              (is (= "inline" (.getAttribute node "data-rf-causa-mode"))
+                  "default open! uses true-inline mode"))))))))
+
+(deftest open!-without-layout-host-reports-actionable-diagnostic
+  (testing "with an adapter installed but no `[data-rf-causa-host]`,
+            open! does not mount and reports an inspectable diagnostic"
+    (with-stub-document
+      (fn [doc]
+        (set! (.-querySelector doc) (fn [_selector] nil))
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (let [prior-console (when (exists? js/console) js/console)]
+              (set! js/console (js-obj "error" (fn [& _args] nil)))
+              (try
+                (let [result (mount/open!)
+                      diagnostic (:diagnostic (mount/status))]
+                  (is (= :missing-layout-host (:reason result)))
+                  (is (= :missing-layout-host (:reason diagnostic)))
+                  (is (= "[data-rf-causa-host]" (:selector diagnostic)))
+                  (is (re-find #"data-rf-causa-host" (:snippet diagnostic)))
+                  (is (nil? @@#'mount/mount-state))
+                  (is (zero? (count @calls))))
+                (finally
+                  (set! js/console prior-console))))))))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Open — second call (already mounted; no re-render)

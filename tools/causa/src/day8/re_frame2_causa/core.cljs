@@ -4,8 +4,9 @@
   Per `spec/API.md` §Public CLJS API + the README's `core.cljs` reference,
   this namespace is the *one* import users reach for. It re-exports the
   small handful of programmatic entry points enumerated by the spec —
-  `init!` / `open!` / `close!` / `toggle!` / `dock!` / `undock!` /
-  `popout!` / `mount-inline-panel!` /
+  `init!` / `open!` / `open-overlay!` / `close!` / `toggle!` /
+  `dock!` / `undock!` / `popout!` / `status` /
+  `mount-inline-panel!` /
   `target-frame` + `set-target-frame!` / `active-panel` +
   `set-active-panel!` / `load-theme` — plus the boot-time config knob
   surface exposed by `config.cljc` (`configure!` / `set-editor!` /
@@ -57,15 +58,22 @@
 ;;       production.
 
 (def open!
-  "Mount + show the Causa shell. On first call, creates the root
-  `<div>`, renders the shell into it via the installed substrate
-  adapter, marks the shell visible. On subsequent calls (when already
-  mounted), flips the container to `display: block`.
+  "Mount + show the Causa shell in the app-provided true-inline layout
+  host (`[data-rf-causa-host]` by default). On first call, creates
+  `#rf-causa-root` inside the host, renders the shell into it via the
+  installed substrate adapter, marks the shell visible. On subsequent
+  calls (when already mounted), flips the container to `display: block`.
 
-  Returns the mount-state map (for tests / introspection). No-op
-  (returns nil) when no substrate adapter is installed — production
-  builds, hosts that never called `rf/init!`, etc."
+  Returns the mount-state map or a missing-host diagnostic map (for
+  tests / introspection). No-op (returns nil) when no substrate adapter
+  is installed — production builds, hosts that never called `rf/init!`,
+  etc."
   mount/open!)
+
+(def open-overlay!
+  "Debug/fallback launch path: mount Causa as the legacy fixed overlay
+  under `document.body`. Not the default developer experience."
+  mount/open-overlay!)
 
 (def close!
   "Hide the Causa shell — flip the container to `display: none`. The
@@ -89,6 +97,11 @@
 (def popout!
   "Open Causa in a same-origin second window. See `mount/popout!`."
   mount/popout!)
+
+(def status
+  "Return inspectable Causa mount/API status, including the last
+  non-blocking diagnostic when the default inline host is missing."
+  mount/status)
 
 (def mount-inline-panel!
   "Render a single Causa panel into a caller-supplied DOM node without
@@ -226,10 +239,11 @@
   "Top-level Causa configuration. Accepts:
 
     `{:editor <kw>}`                 — 'Open in editor' preference.
+    `{:layout/host-selector <css>}`  — true-inline layout host selector.
     `{:trace/show-sensitive? <bool>}` — `:sensitive?` trace-event gate.
 
-  Future phases extend with theme / buffer / placement keys. Hosts
-  typically call once at boot. Returns nothing."
+  Future phases extend with theme / buffer keys. Hosts typically call
+  once at boot, before Causa auto-opens. Returns nothing."
   config/configure!)
 
 (def set-editor!

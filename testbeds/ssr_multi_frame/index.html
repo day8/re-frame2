@@ -4,12 +4,17 @@
   <meta charset="utf-8">
   <title>re-frame2 testbed: ssr-multi-frame</title>
   <style>
-    body { font-family: sans-serif; margin: 2em; }
+    body { font-family: sans-serif; margin: 0; }
+    .rf2-testbed-shell { display: flex; min-height: 100vh; }
+    [data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+    #app { flex: 1; min-width: 0; padding: 2em; }
     h1, h3 { margin: 0.25em 0; }
     p { margin: 0.25em 0; }
   </style>
 </head>
 <body>
+  <div class="rf2-testbed-shell">
+    <aside data-rf-causa-host></aside>
   <!--
     The pre-rendered HTML is a placeholder (`not-hydrated`); the
     interesting assertion is the per-frame `:rf/hydration` metadata
@@ -23,6 +28,7 @@
     <div data-testid="ssr-multi-frame">
       <h1>ssr-multi-frame testbed (loading)</h1>
     </div>
+  </div>
   </div>
   <!--
     Per-frame payload bundle. The outer map carries one entry per

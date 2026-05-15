@@ -2,9 +2,11 @@
   "DOM-side mount machinery for the Causa shell. Per rf2-tijr Option C +
   spec/007-UX-IA.md §The default landing view:
 
-  - First Ctrl+Shift+C press creates a fresh `<div>` under
-    `document.body` and mounts the shell into it via the substrate
-    adapter's render fn.
+  - The preload auto-opens the shell into the app-provided
+    `[data-rf-causa-host]` layout host once the substrate adapter is
+    ready. This is true inline layout: Causa participates in normal
+    flex/grid flow on the left, and the app stays visible/clickable to
+    the right.
   - Subsequent presses toggle the container's `display` between
     `block` and `none` (a CSS-only show/hide; per the spec a re-mount
     would discard internal state and miss the <80ms toggle target).
@@ -44,6 +46,7 @@
   toggles are no-ops on this axis."
   (:require [re-frame.core :as rf]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
@@ -55,7 +58,7 @@
   ;;   {:node      <DOM element>      ; the freshly-created <div>
   ;;    :unmount   (fn [] ...)         ; substrate adapter unmount fn
   ;;    :visible?  <boolean>
-  ;;    :mode      <:overlay|:docked>}
+  ;;    :mode      <:inline|:overlay|:docked>}
   ;; Nil before first mount; never re-allocated across reloads thanks
   ;; to defonce.
   (atom nil))
@@ -70,6 +73,14 @@
   ;; independent from the overlay shell and from each other.
   (atom {}))
 
+(defonce ^:private diagnostic-state
+  (atom {:ok? true :reason nil}))
+
+(defonce ^:private auto-open-state
+  (atom {:started? false :attempts 0}))
+
+(declare ensure-causa-frame!)
+
 (defn mounted?
   "True when the Causa shell has been mounted at least once. The shell
   may currently be hidden — see `visible?`."
@@ -82,9 +93,19 @@
   []
   (boolean (:visible? @mount-state)))
 
+(defn status
+  "Return inspectable Causa mount/API status. Diagnostics are non-
+  blocking; missing host failures land here and in `console.error`."
+  []
+  {:mounted?      (mounted?)
+   :visible?      (visible?)
+   :mode          (:mode @mount-state)
+   :diagnostic    @diagnostic-state
+   :host-selector (config/get-layout-host-selector)})
+
 ;; ---- DOM helpers ---------------------------------------------------------
 
-(defn- create-mount-node! []
+(defn- create-overlay-mount-node! []
   (let [node (.createElement js/document "div")]
     (set! (.-id node) "rf-causa-root")
     (.setAttribute node "data-rf-causa-mode" "overlay")
@@ -94,6 +115,48 @@
     ;; geometry.
     (.appendChild (.-body js/document) node)
     node))
+
+(defn- layout-host []
+  (when (and (exists? js/document) (.-querySelector js/document))
+    (.querySelector js/document (config/get-layout-host-selector))))
+
+(defn- missing-host-diagnostic []
+  (let [selector (config/get-layout-host-selector)]
+    {:ok?      false
+     :reason   :missing-layout-host
+     :selector selector
+     :message  (str "Causa default launch requires an app-provided true-inline "
+                    "layout host matching " selector ". Add a left-side host "
+                    "to your normal app layout, or configure "
+                    ":layout/host-selector before the preload opens.")
+     :snippet  config/default-layout-host-snippet}))
+
+(defn- report-diagnostic! [diagnostic]
+  (reset! diagnostic-state diagnostic)
+  (when (and (exists? js/console) (.-error js/console))
+    (.error js/console
+            (:message diagnostic)
+            (clj->js {:selector (:selector diagnostic)
+                      :snippet  (:snippet diagnostic)})))
+  diagnostic)
+
+(defn- clear-diagnostic! []
+  (reset! diagnostic-state {:ok? true :reason nil}))
+
+(defn- create-inline-mount-node! []
+  (if-let [host (layout-host)]
+    (let [node (.createElement js/document "div")]
+      (set! (.-id node) "rf-causa-root")
+      (.setAttribute node "data-rf-causa-mode" "inline")
+      (set! (-> node .-style .-display) "block")
+      (set! (-> node .-style .-height) "100%")
+      (set! (-> node .-style .-minHeight) "100vh")
+      (.appendChild host node)
+      (clear-diagnostic!)
+      node)
+    (do
+      (report-diagnostic! (missing-host-diagnostic))
+      nil)))
 
 (defn- shell-node [node]
   (when (and (some? node) (.-querySelector node))
@@ -115,6 +178,17 @@
   (when (and (exists? js/document) (.-body js/document))
     (set! (-> js/document .-body .-style .-paddingRight)
           (if docked? "40%" ""))))
+
+(defn- mount-shell-into! [node mode]
+  (ensure-causa-frame!)
+  (let [unmount (substrate-adapter/render [shell/shell-view {:mode mode}] node nil)]
+    (set-mode-attrs! node mode)
+    (reset! mount-state
+            {:node     node
+             :unmount  unmount
+             :visible? true
+             :mode     mode})
+    @mount-state))
 
 ;; ---- public API ----------------------------------------------------------
 
@@ -166,32 +240,42 @@
                        (vec (rf/epoch-history defaults/default-target-frame))])))
 
 (defn open!
-  "Mount + show the Causa shell. On first call: register the `:rf/causa`
-  frame, create the root <div>, render the shell into it via the
-  installed substrate adapter, mark visible. On subsequent calls (when
-  already mounted): make the container visible.
+  "Mount + show the default Causa shell in the app-provided true-inline
+  layout host. On first call: register the `:rf/causa` frame, find the
+  configured host (`[data-rf-causa-host]` by default), create
+  `#rf-causa-root` inside it, render the shell via the installed
+  substrate adapter, mark visible. On subsequent calls (when already
+  mounted): make the container visible.
 
   Per rf2-in6l2 the `:rf/causa` registration is lazy here (post-
   `rf/init!`) rather than at preload time; see `ensure-causa-frame!`
   for the rationale.
 
-  Returns the mount-state map for tests / introspection."
+  If the substrate adapter is absent, returns nil so preload retry can
+  wait. If the layout host is missing, returns an inspectable
+  diagnostic map and logs `console.error` without blocking startup."
   []
   (if-let [state @mount-state]
     (do (set-visible! (:node state) true)
         (swap! mount-state assoc :visible? true)
         @mount-state)
     (when (substrate-adapter/current-adapter)
-      (ensure-causa-frame!)
-      (let [node    (create-mount-node!)
-            unmount (substrate-adapter/render [shell/shell-view] node nil)]
-        (set-mode-attrs! node :overlay)
-        (reset! mount-state
-                {:node     node
-                 :unmount  unmount
-                 :visible? true
-                 :mode     :overlay})
-        @mount-state))))
+      (if-let [node (create-inline-mount-node!)]
+        (mount-shell-into! node :inline)
+        @diagnostic-state))))
+
+(defn open-overlay!
+  "Debug/fallback launch path: mount Causa as the old fixed overlay
+  under `document.body`. Not the default developer experience."
+  []
+  (if-let [state @mount-state]
+    (do (set-visible! (:node state) true)
+        (set-mode-attrs! (:node state) :overlay)
+        (set-body-docked! false)
+        (swap! mount-state assoc :visible? true :mode :overlay)
+        @mount-state)
+    (when (substrate-adapter/current-adapter)
+      (mount-shell-into! (create-overlay-mount-node!) :overlay))))
 
 (defn close!
   "Hide the shell — make the container display:none. The DOM tree and
@@ -211,14 +295,14 @@
   host body gets right padding so the inspected app is not obscured.
   Returns the mount-state map."
   []
-  (when-let [state (open!)]
+  (when-let [state (or @mount-state (open-overlay!))]
     (set-mode-attrs! (:node state) :docked)
     (set-body-docked! true)
     (swap! mount-state assoc :mode :docked :visible? true)
     @mount-state))
 
 (defn undock!
-  "Return the overlay shell to its default non-layout-affecting mode."
+  "Return the overlay shell to its non-layout-affecting debug mode."
   []
   (when-let [state @mount-state]
     (set-mode-attrs! (:node state) :overlay)
@@ -244,6 +328,35 @@
       (.removeChild (.-parentNode node) node))
     (set-body-docked! false)
     (reset! mount-state nil))
+  (clear-diagnostic!)
+  (reset! auto-open-state {:started? false :attempts 0})
+  nil)
+
+(defn auto-open-inline!
+  "Preload entry: wait briefly for the host app to call `rf/init!`, then
+  open Causa in the true-inline host. Missing host emits a single
+  actionable diagnostic; no alert and no blocking startup."
+  []
+  (when (compare-and-set! auto-open-state {:started? false :attempts 0}
+                          {:started? true :attempts 0})
+    (letfn [(tick! []
+              (let [{:keys [attempts]} @auto-open-state]
+                (cond
+                  @mount-state nil
+                  (substrate-adapter/current-adapter)
+                  (open!)
+                  (< attempts 120)
+                  (do
+                    (swap! auto-open-state update :attempts inc)
+                    (js/setTimeout tick! 50))
+                  :else
+                  (report-diagnostic!
+                    {:ok? false
+                     :reason :no-substrate-adapter
+                     :message "Causa preload could not auto-open because no re-frame2 substrate adapter was installed. Call (rf/init! adapter) before app render."
+                     :selector (config/get-layout-host-selector)
+                     :snippet  config/default-layout-host-snippet}))))]
+      (tick!)))
   nil)
 
 (defn popout!
@@ -270,7 +383,7 @@
               (set! (.-id node) "rf-causa-popout-root")
               (.setAttribute node "data-rf-causa-mode" "popout")
               (.appendChild body node)
-              (let [unmount (substrate-adapter/render [shell/shell-view] node nil)
+              (let [unmount (substrate-adapter/render [shell/shell-view {:mode :popout}] node nil)
                     state   {:ok? true :window win :node node :unmount unmount :mode :popout}]
                 (reset! popout-state state)
                 state))))))))
