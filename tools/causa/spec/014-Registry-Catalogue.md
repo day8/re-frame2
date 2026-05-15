@@ -101,6 +101,8 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 |---|---|---|
 | `:rf.causa/selected-epoch-id` | Epoch-id or `nil` (= newest, no scrub in flight). | Per §The passive-scrubbing rule — scrubbing rebases panels; rewind is opt-in. |
 | `:rf.causa/selected-epoch-record` | `:rf/epoch-record` or `nil`. | Resolved from history + selected-id. |
+| `:rf.causa/last-restore-failure` | `{:frame-id :epoch-id}` or `nil`. | Most recent failed confirmed rewind, captured by `:rf.causa.fx/restore-epoch`; exists so the scrubber can render an inline notice without scanning trace events. |
+| `:rf.causa/restore-epoch-tick` | Integer tick, default `0`. | Reactivity anchor for `:rf.causa/last-restore-failure`; bumped after each restore attempt because the fx writes the result to a module-scope atom outside app-db. |
 | `:rf.causa/pin-store` | `{frame-id [<pin> ...]}` map. | Lock 4 session-scoped per §Pinned snapshots — never persisted to disk. |
 | `:rf.causa/pinned-snapshots` | Vector of pins for current target-frame. | Decoupled from pin-store so unrelated frames' pins don't re-render the view. |
 | `:rf.causa/time-travel` | Composite — `{:target-frame :history :selected-epoch-id :selected-record :selected-index :pins :chip-states :cap-reached?}`. | Mirrors the per-panel composite pattern. `chip-states` runs chip-state projection over each pin against current history. |
@@ -115,6 +117,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 | `:rf.causa/unpin` | `[_ epoch-id]` | Drops a pin. |
 | `:rf.causa/rename-pin` | `[_ epoch-id new-label]` | Rewrites a pin's `:label`; other 4-tuple slots are immutable. |
 | `:rf.causa/dismiss-pin-overflow-toast` | `[_]` | Dismisses the cap-reached toast. |
+| `:rf.causa/bump-restore-epoch-tick` | `[_]` | Internal no-trace event dispatched by the restore fx after each restore attempt; increments `:restore-epoch-tick` so the failure sub recomputes. |
 | `:rf.causa/reset-to-epoch` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.causa.fx/restore-epoch {:frame-id ... :epoch-id ...}]]}`. The confirmed-rewind branch (per spec §rewind = explicit). |
 | `:rf.causa/reset-to-pinned` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.causa.fx/reset-frame-db! {:frame-id ... :frame-db ...}]]}`. Per spec §Why reset-frame-db! not restore-epoch — pins hold the value directly. |
 
@@ -122,7 +125,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 
 | Fx | Args | Behaviour |
 |---|---|---|
-| `:rf.causa.fx/restore-epoch` | `{:frame-id :epoch-id}` | Thin delegation to `rf/restore-epoch`. The indirection lets test fixtures stub the write. |
+| `:rf.causa.fx/restore-epoch` | `{:frame-id :epoch-id}` | Calls `rf/restore-epoch`, writes `{:ok? :frame-id :epoch-id}` to the module-scope restore result atom, dispatches `:rf.causa/bump-restore-epoch-tick`, and clears `:rf.causa/selected-epoch-id` on failure. The indirection lets test fixtures stub the write and lets Causa surface failed confirmed rewinds inline. |
 | `:rf.causa.fx/reset-frame-db!` | `{:frame-id :frame-db}` | Thin delegation to `rf/reset-frame-db!`. |
 
 ## Causality graph

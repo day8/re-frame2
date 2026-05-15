@@ -99,6 +99,29 @@ rewind, with a `Cancel` and (where applicable) a `Try anyway` button.
 The modal cites the `:operation` keyword so the user can search the
 spec.
 
+### Failure surfacing
+
+Confirmed rewinds route through `:rf.causa.fx/restore-epoch`. The fx
+records the boolean return from `rf/restore-epoch` and the addressed
+identifiers, then bumps an app-db tick so panel subscriptions can
+react to the out-of-band result.
+
+`[:rf.causa/last-restore-failure]` is the scrubber-facing subscription
+for that result. It returns `nil` when no failed confirmed rewind has
+been observed, or when the most recent confirmed rewind succeeded. On
+failure it returns:
+
+```clojure
+{:frame-id frame-id
+ :epoch-id epoch-id}
+```
+
+The detailed failure kind remains the structured `:rf.epoch/restore-*`
+trace event. `:rf.causa/last-restore-failure` is only the compact
+inline-notice surface: it names the failed target so the scrubber can
+clear the stale selection and render that the requested rewind did not
+land.
+
 ## Pinned snapshots
 
 At any epoch, the user can **pin a snapshot** — a named reference to
