@@ -153,6 +153,16 @@
                  (str "decorator: " (or label "log"))]
                 body]))})
 
+  (story/reg-decorator :counter-with-stories/throwing-decorator
+    {:doc  "Deterministic decorator failure used only by the
+           occasional Story feature-load coverage gate. The canvas must
+           project the error and keep rendering the underlying variant."
+     :kind :hiccup
+     :wrap (fn [_body _args]
+             (throw (ex-info "story-load deterministic decorator failure"
+                             {:surface :story-load
+                              :kind    :decorator-exception})))})
+
   ;; -------------------------------------------------------------------------
   ;; reg-story-panel — a project-custom right-pane panel
   ;;
@@ -195,6 +205,23 @@
      :args       {:label "Diagnostics"}
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
+
+  (story/reg-story :story.counter-matrix
+    {:doc        "Deterministic browser-only affordances for the
+                 Story feature coverage matrix. These variants keep
+                 the canonical four counter variants stable while
+                 exposing empty/error/schema/layout/isolation surfaces
+                 for the occasional feature-load gate."
+     :component  :counter-with-stories.views/counter-card
+     :args       {:label "Matrix"}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}
+     :schema     [:map
+                  [:label :string]
+                  [:settings
+                   [:map
+                    [:title :string]
+                    [:enabled? :boolean]]]]})
 
   ;; -------------------------------------------------------------------------
   ;; reg-variant — four variants, each pulling on a different authoring shape
@@ -296,6 +323,90 @@
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  (story/reg-variant :story.counter-matrix/no-play
+    {:doc    "Healthy variant with no :play sequence. Test mode should
+             render its explicit empty state instead of pretending the
+             variant passed."
+     :args   {:label "No play"
+              :settings {:title "No play" :enabled? true}}
+     :events [[:counter/initialise 2]]
+     :tags   #{:dev :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/loader-success
+    {:doc     "Loader success path. The loader seeds :count before the
+              normal event phase and the play assertion observes the
+              loaded value."
+     :args    {:label "Loaded by loader"
+               :settings {:title "Loader" :enabled? true}}
+     :loaders [[:counter/set 12]]
+     :play    [[:rf.assert/path-equals [:count] 12]]
+     :tags    #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/schema-invalid
+    {:doc    "Deliberately invalid args against the parent story
+             schema. The schema-validation panel should show the exact
+             failing key while the shell stays interactive."
+     :args   {:label 42
+              :settings {:title "Bad label" :enabled? true}}
+     :events [[:counter/initialise 4]]
+     :play   [[:rf.assert/path-equals [:count] 4]]
+     :tags   #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/nested-controls
+    {:doc    "Nested args/schema fixture for the controls panel. The
+             counter card ignores :settings; the right-pane controls
+             still expose path-aware nested widgets."
+     :args   {:label "Nested"
+              :settings {:title "Nested title" :enabled? true}}
+     :events [[:counter/initialise 6]]
+     :play   [[:rf.assert/path-equals [:count] 6]]
+     :tags   #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/decorator-throws
+    {:doc        "Decorator failure projection fixture."
+     :args       {:label "Decorator failure"
+                  :settings {:title "Decorator" :enabled? true}}
+     :events     [[:counter/initialise 8]]
+     :decorators [[:counter-with-stories/throwing-decorator]]
+     :play       [[:rf.assert/path-equals [:count] 8]]
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/multi-substrate
+    {:doc        "Side-by-side substrate fixture. Reagent should render;
+                 the synthetic substrate should project an unsupported
+                 state rather than leak frames or crash."
+     :args       {:label "Substrates"
+                  :settings {:title "Substrates" :enabled? true}}
+     :events     [[:counter/initialise 10]]
+     :play       [[:rf.assert/path-equals [:count] 10]]
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent :uix}})
+
+  (story/reg-variant :story.counter-matrix/isolation-a
+    {:doc    "Frame-isolation fixture A. Same handlers as fixture B,
+             different seed."
+     :args   {:label "Isolation A"
+              :settings {:title "A" :enabled? true}}
+     :events [[:counter/initialise 1]]
+     :play   [[:rf.assert/path-equals [:count] 1]]
+     :tags   #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-matrix/isolation-b
+    {:doc    "Frame-isolation fixture B. Same handlers as fixture A,
+             different seed."
+     :args   {:label "Isolation B"
+              :settings {:title "B" :enabled? true}}
+     :events [[:counter/initialise 100]]
+     :play   [[:rf.assert/path-equals [:count] 100]]
+     :tags   #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; -------------------------------------------------------------------------
   ;; reg-workspace — two workspaces, one per layout the v1 ships
   ;;
@@ -320,7 +431,32 @@
      :layout   :variants-grid
      :for      :story.counter
      :columns  2
-     :tags     #{:docs}}))
+     :tags     #{:docs}})
+
+  (story/reg-workspace :Workspace.counter/prose
+    {:doc     "Prose layout fixture for docs/workspace coverage."
+     :layout  :prose
+     :content [{:type :prose
+                :body "Story matrix prose block before the example."}
+               {:type :variant
+                :id   :story.counter/loaded}
+               {:type :prose
+                :body "Story matrix prose block after the example."}]
+     :tags    #{:docs}})
+
+  (story/reg-workspace :Workspace.counter/tabs
+    {:doc      "Tabs layout fixture for workspace coverage."
+     :layout   :tabs
+     :variants [:story.counter/empty
+                :story.counter/loaded]
+     :tags     #{:docs}})
+
+  (story/reg-workspace :Workspace.counter/custom
+    {:doc    "Custom layout fixture for workspace coverage. The current
+             renderer projects the configured view id as data."
+     :layout :custom
+     :render :counter-with-stories.views/counter-card
+     :tags   #{:docs}}))
 
 ;; Fire the registrations once at namespace load.
 (register-all!)
