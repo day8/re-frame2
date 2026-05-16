@@ -71,7 +71,21 @@
          ;; Per rf2-vw4sq the base ns is the single source of truth
          ;; for the privacy contract — same predicate, same fail-
          ;; closed posture, same accept-shapes across the MCP triplet.
-         day8/re-frame2-mcp-base    {:local/root "../mcp-base"}}
+         day8/re-frame2-mcp-base    {:local/root "../mcp-base"}
+
+         ;; day8/de-dupe — structural dedup of persistent data
+         ;; structures (W-5 of rf2-8xzoe; tranche bead rf2-8xzoe.9).
+         ;; Substitutes repeated subtrees with namespaced-symbol
+         ;; references (`de-dupe.cache/cache-N`); the flat cache map
+         ;; round-trips back through `expand`. Applied at the MCP wire
+         ;; boundary BEFORE the W-1 token-cap check so dedup gets to
+         ;; shrink first.
+         ;;
+         ;; Git-coord pinned to the same commit pair2-mcp uses
+         ;; (cross-MCP-aligned per spec/004 §5); the library's
+         ;; Clojars release lags the alive master.
+         day8/de-dupe               {:git/url "https://github.com/day8/de-dupe.git"
+                                     :git/sha "a2be701ddf42d94218116eda9e9ca822cef035bc"}}
 
  :aliases
  {:test {:extra-paths ["test"]
