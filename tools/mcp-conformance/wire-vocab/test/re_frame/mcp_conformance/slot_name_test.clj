@@ -187,12 +187,12 @@
                when the rendered payload exceeds the cap (cross-server)."}])
 
 ;; ---------------------------------------------------------------------------
-;; Divergence pin — `:include-large?` (causa-mcp spec) vs `:elision`
-;; (pair2-mcp impl). Pinned explicitly so the divergence cannot creep
-;; in silently — when causa-mcp's impl lands, the reviewer either
-;; renames pair2-mcp to align with `:include-large?` or extends the
-;; vocabulary to recognise `:elision` cross-server. The test does NOT
-;; choose for them; it surfaces the choice.
+;; Divergence pin — `:include-large?` (causa-mcp) vs `:elision`
+;; (pair2-mcp). Pinned explicitly so the divergence cannot creep in
+;; silently — the reviewer either renames pair2-mcp to align with
+;; `:include-large?` or extends the vocabulary to recognise `:elision`
+;; cross-server. The test does NOT choose for them; it surfaces the
+;; choice.
 ;;
 ;; Both slots are *semantically* the cross-MCP size-elision opt-out.
 ;; The pair2-mcp implementation predates causa-mcp's spec naming
@@ -224,14 +224,13 @@
                                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"]
                            :status  :impl-divergent}}
    :resolution
-   "Resolve in one of two ways when causa-mcp's `tools/causa-mcp/src/`
-    lands. Option A — rename pair2-mcp's `:elision` arg to
-    `:include-large?` (the polarity flips too — `:elision true`
-    becomes `:include-large? false`); remove this divergence pin.
-    Option B — extend causa-mcp's spec to document `:elision` as
-    cross-server cognate; update this pin's `:canonical` slot.
-    Today the gate prevents the slot from drifting further (e.g. a
-    third server inventing a fourth spelling)."})
+   "Resolve in one of two ways. Option A — rename pair2-mcp's
+    `:elision` arg to `:include-large?` (the polarity flips too —
+    `:elision true` becomes `:include-large? false`); remove this
+    divergence pin. Option B — extend causa-mcp's spec to document
+    `:elision` as cross-server cognate; update this pin's `:canonical`
+    slot. Today the gate prevents the slot from drifting further (e.g.
+    a third server inventing a fourth spelling)."})
 
 ;; ---------------------------------------------------------------------------
 ;; mcp-base vocab pin — the keyword constants. The canonical home for

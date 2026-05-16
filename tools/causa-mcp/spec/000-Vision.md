@@ -10,13 +10,12 @@ rewind to a named epoch, subscribe to live trace events — over
 stdio JSON-RPC, without opening Causa's UI.
 
 This spec folder is the per-tool normative contract for
-`tools/causa-mcp/`. It is the **load-bearing scaffold** stood up
-before implementation begins: the design decisions accumulated
+`tools/causa-mcp/`. The design decisions originally accumulated
 inside [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
-get their permanent home here. When implementation lands, this
-folder gets fleshed out with the four `tools/pair2-mcp/spec/`-shape
-files (`001-Wire-Protocol`, `002-nREPL-Transport`,
-`003-Tool-Catalogue`) parameterised for Causa.
+have their permanent home here, and the eighteen-tool catalogue
+ships in [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md)
+alongside [`004-Wire-Pipeline.md`](./004-Wire-Pipeline.md) as the
+load-bearing normative pair.
 
 ## Why a separate jar
 
@@ -78,7 +77,7 @@ mirrors pair2-mcp exactly (see
 
 | Side | Root ns | Lives in | Loaded by | Role |
 |---|---|---|---|---|
-| **MCP server** (Node process) | `day8.re-frame2-causa-mcp.*` | `tools/causa-mcp/src/` (when impl lands) | `npx @day8/re-frame2-causa-mcp` (the agent host spawns the subprocess) | Speaks MCP/JSON-RPC over stdio; speaks nREPL/bencode to shadow-cljs; renders eval forms that target the injected runtime. |
+| **MCP server** (Node process) | `day8.re-frame2-causa-mcp.*` | [`tools/causa-mcp/src/`](../src/) | `npx @day8/re-frame2-causa-mcp` (the agent host spawns the subprocess) | Speaks MCP/JSON-RPC over stdio; speaks nREPL/bencode to shadow-cljs; renders eval forms that target the injected runtime. |
 | **Injected runtime** (browser eval target) | `day8.re-frame2-causa.runtime` | the [Causa](../../causa/) panel's preload classpath | shadow-cljs `:devtools :preloads` (rides Causa-the-panel's existing preload) | Lives in the consumer app's runtime; exposes the eighteen tool-shaped accessors the server's eval forms call; carries the `current-origin` dynamic var that stamps `:origin :causa-mcp` on mutations. |
 
 **The two namespaces never share a JVM / Node process.** The MCP
@@ -155,10 +154,12 @@ Meta) carry the per-tool detail; the eighteenth-tool addition
 (`list-subscriptions` in the Streaming band) is locked at
 [`DESIGN-RATIONALE.md` Lock #12](./DESIGN-RATIONALE.md).
 
-When implementation lands and this folder grows its own
-`003-Tool-Catalogue.md` (the pair2-mcp-shape companion to
-`Principles.md` and `DESIGN-RATIONALE.md`), the catalogue prose
-migrates here and `010-MCP-Server.md` shrinks to a pointer.
+The per-tool detail for those eighteen tools lives in
+[`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) — the
+pair2-mcp-shape companion to `Principles.md` and
+`DESIGN-RATIONALE.md`;
+[`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
+carries the Causa-panel-side prose for the same set.
 
 Each tool maps to a Causa-side affordance (the seventeen panel
 mirrors plus the streaming-registry diagnostic); together they
@@ -175,12 +176,13 @@ query API, or the per-frame `app-db` reader directly; only these
 four bind to Tool-Pair as their canonical contract source.
 
 This subsection pins **which Tool-Pair section each tool binds
-to**, ahead of `003-Tool-Catalogue.md`. When the catalogue lands
-the per-tool entries cite these bindings rather than re-deriving
-the contract; drift between the catalogue prose and Tool-Pair is
-caught here, not three documents later. The pattern mirrors how
+to**, upstream of [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md).
+The catalogue's per-tool entries cite these bindings rather than
+re-deriving the contract; drift between the catalogue prose and
+Tool-Pair is caught here, not three documents later. The pattern
+mirrors how
 [`tools/pair2-mcp/spec/003-Tool-Catalogue.md`](../../pair2-mcp/spec/003-Tool-Catalogue.md)
-already cross-references its framework anchors.
+cross-references its framework anchors.
 
 | Tool | Tool-Pair binding | What the binding pins |
 |---|---|---|
@@ -221,13 +223,14 @@ isolate where the schema drifted. The binding cite stays on
 Tool-Pair's restore-failure table; the SSR fxs are a sibling
 producer of one of its fields, not a separate binding.
 
-**What changes when `003-Tool-Catalogue.md` lands.** Each of the
-four per-tool entries in the catalogue cites the binding row
-above and adds the MCP-specific wire shape (the input arg map,
-the response envelope, the error projection). The binding row
-itself remains in this Vision doc as the **single anchor** the
-catalogue points back to — Tool-Pair drift can be caught by
-reading this subsection alone, without re-folding the catalogue.
+**How the catalogue cites these rows.** Each of the four
+per-tool entries in [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md)
+cites the binding row above and adds the MCP-specific wire shape
+(the input arg map, the response envelope, the error projection).
+The binding row itself stays in this Vision doc as the **single
+anchor** the catalogue points back to — Tool-Pair drift can be
+caught by reading this subsection alone, without re-folding the
+catalogue.
 
 ## Every MCP-driven mutation leaves a visible footprint
 
@@ -286,7 +289,7 @@ Causa-MCP is the **debugger-side** counterpart to pair2-mcp's
 | Audience | Editor-side AI workflows (build/edit/test). | Debugger-side AI workflows (inspect/time-travel). |
 | Surface | 14 tools (editor-side: discover/eval/dispatch/snapshot/trace + streaming pair + registrar-introspection pair + onboarding). | 18 tools (inspection + mutation + streaming + escape hatch + meta). |
 | `:origin` tag | `:pair` | `:causa-mcp` |
-| MCP-server ns (Node-side) | `re-frame-pair2-mcp.*` (e.g. `re-frame-pair2-mcp.server`, `.tools`, `.nrepl`, `.cache`) | `day8.re-frame2-causa-mcp.*` (when impl lands) |
+| MCP-server ns (Node-side) | `re-frame-pair2-mcp.*` (e.g. `re-frame-pair2-mcp.server`, `.tools`, `.nrepl`, `.cache`) | `day8.re-frame2-causa-mcp.*` (e.g. `.server`, `.tools`, `.nrepl`, `.elision`, `.privacy`, `.token-cap`) |
 | Injected-runtime ns (browser-side) | `re-frame-pair2.runtime` | `day8.re-frame2-causa.runtime` (rides Causa's preload) |
 | Implementation | shadow-cljs `:node-script`, npm-published. | Same. |
 | MCP transport | stdio JSON-RPC 2.0. | Same. |
@@ -317,9 +320,7 @@ Every domain question is a filter, not a regex.
 
 Per-tool comparison and the co-install snippet are in
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
-§Chrome DevTools MCP co-install. When implementation lands and
-this folder grows `003-Tool-Catalogue.md`, the comparison moves
-with the catalogue.
+§Chrome DevTools MCP co-install.
 
 ## Why ClojureScript + shadow-cljs → Node
 
@@ -344,23 +345,22 @@ captured as Lock #2 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 
 ## Status
 
-**Spec scaffold.** No source yet. The implementation work begins
-once [`tools/causa/`](../../causa/) ships its v1.0 panel; the four
-pair2-mcp-shape capability files (`001-Wire-Protocol`,
-`002-nREPL-Transport`,
-`003-Tool-Catalogue`, plus an `API.md`) land at that point. The
-locked design decisions accumulated to date live in
-[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md); the load-bearing
-tie-breakers live in [`Principles.md`](./Principles.md).
+**Catalogue complete; eighteen tools shipped.** The Inspection
+band (T-Insp, rf2-8xzoe.14..22), Mutation band (T-Mut,
+rf2-8xzoe.23..25), Streaming band (T-Stream, rf2-8xzoe.26..28),
+and Meta band (T-Meta, rf2-8xzoe.29..32) are all live. The
+catalogue lives in [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md);
+the wire-pipeline contracts in [`004-Wire-Pipeline.md`](./004-Wire-Pipeline.md);
+the locked design decisions in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md);
+the load-bearing tie-breakers in [`Principles.md`](./Principles.md).
 
-The forward references that motivated this scaffold:
+Sibling cross-references:
 
 - [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
-  describes the entire MCP contract from Causa's side. When this
-  folder grows `003-Tool-Catalogue.md`, the catalogue prose
-  migrates here and `010-MCP-Server.md` shrinks to a pointer.
+  describes the same MCP contract from Causa-the-panel's side —
+  user-facing install / configure prose lives there alongside the
+  band enumeration; this folder owns the agent-facing normative
+  catalogue.
 - [`tools/causa/README.md`](../../causa/README.md) §MCP
   advertises `npm install -g @day8/re-frame2-causa-mcp` — the
-  npm coord is locked even though the package doesn't exist
-  yet. The scaffold prevents that coord becoming an orphan when
-  implementation lands.
+  npm coord pinned by [`DESIGN-RATIONALE.md` Lock #4](./DESIGN-RATIONALE.md).

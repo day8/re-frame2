@@ -24,10 +24,11 @@ bus, Tool-Pair epoch history, the registrar query API) — it adds
 nothing the framework didn't already expose. The 16 panels are
 *presentation* of an already-structured runtime.
 
-A separate jar `tools/causa-mcp/` is planned to expose Causa's surfaces
-as MCP tools for AI agents — same architecture as `tools/pair2-mcp/`,
-different tool catalogue. The artefact does not yet exist on disk; the
-contract is being designed in [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md).
+A separate jar `tools/causa-mcp/` exposes Causa's surfaces as MCP
+tools for AI agents — same architecture as `tools/pair2-mcp/`,
+different tool catalogue (18 tools across five bands). Contract at
+[`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md);
+catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md).
 
 ## Headline experiences
 
@@ -147,27 +148,26 @@ Remove the `:preloads` entry, or set
 `:closure-defines {day8.re-frame2-causa.config/enabled? false}` to
 force-disable in dev.
 
-### MCP (Causa as an agent surface) — planned
+### MCP (Causa as an agent surface)
 
-A separate `tools/causa-mcp/` artefact is in design — it will expose
-Causa's surfaces as MCP tools so AI agents can drive the same
-observations through a tool catalogue. Neither the jar nor the npm
-wrapper ships yet.
+A separate `tools/causa-mcp/` artefact exposes Causa's surfaces as
+MCP tools so AI agents can drive the same observations through a
+tool catalogue (18 tools: Inspection band, Mutation band, Streaming
+band, Meta band, plus the `eval-cljs` escape hatch).
 
-When the artefact lands, the consumer-side wiring will look roughly
-like this (the exact coord names are not final):
+Consumer-side wiring:
 
 ```bash
-# planned — not yet published
 npm install -g @day8/re-frame2-causa-mcp
 ```
 
 ```json
-// planned — ~/.claude/settings.json
+// ~/.claude/settings.json
 { "mcpServers": { "causa": { "command": "re-frame2-causa-mcp" } } }
 ```
 
-Tool catalogue under design in [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md).
+Tool catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md);
+Causa-panel-side prose at [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md).
 
 ## Spec
 

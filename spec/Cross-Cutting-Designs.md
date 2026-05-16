@@ -53,7 +53,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Consumers.**
 - `tools/pair2-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; fourteen tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
-- `tools/causa-mcp/` (planned impl) — adopts the same cap, the same override slot, the same overflow shape per its Principles lock #1.
+- `tools/causa-mcp/` — adopts the same cap, the same override slot, the same overflow shape per its Principles lock #1.
 - `tools/story-mcp/` — enforces the cap in `tools/cap.cljc` at the `invoke-tool` egress (rf2-zavp5); nineteen tools each declare their typical-token hint and inherit the `:max-tokens` per-call override.
 
 **The result.** Cross-MCP, the token-cap shape is one decision applied uniformly. New MCP tools land against the catalogued cap (5K default), the catalogued override slot (`:max-tokens` per-call, `0` to disable), and the catalogued overflow marker shape (`{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens … :tool … :hint …}}`). The mechanisms above the cap (path slicing, lazy summary, dedup, pagination) shape the response so the cap rarely trips; the cap stays the backstop.
@@ -68,7 +68,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Consumers.**
 - `tools/pair2-mcp/` — 14 tools, audited as fully conformant.
 - `tools/story-mcp/` — 19 tools, audited; two named deviations (`variant->edn`, `snapshot-identity`) catalogued as accepted exceptions.
-- `tools/causa-mcp/` (planned impl) — 18 tools per `tools/causa-mcp/spec/DESIGN-RATIONALE.md` Lock #5 (amended by Lock #12), audited against the table as a design check before impl lands.
+- `tools/causa-mcp/` — 18 tools per `tools/causa-mcp/spec/004-Tools-Catalogue.md` (locked by Lock #5 + Lock #12), audited against the verb table for cross-server conformance.
 - [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/) — sibling harness that pins the *payload* vocabulary (`:rf.mcp/*` keys). NAMING.md covers the catalogue surface; wire-vocab covers the wire shape.
 
 **The result.** Verb drift is detected at PR review, not at agent runtime. New tools land against an existing verb; novel verbs require a Lock entry in the server's `DESIGN-RATIONALE.md` and a return-trip to NAMING.md to extend the table. Cross-server, the same verb means the same thing — `get-` is single-entity read, `list-` is enumeration, `subscribe` is streaming pair, `dispatch` is the bare event-fire — so an agent that knows one server's grammar reads the others.
@@ -83,7 +83,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Consumers.**
 - `tools/pair2-mcp/` — tags every dispatch / eval-cljs / restore-epoch / reset-frame-db with `:origin :pair2-mcp` (per its NAMING.md row).
-- `tools/causa-mcp/` (planned impl) — same shape, value `:causa-mcp`.
+- `tools/causa-mcp/` — same shape, value `:causa-mcp`.
 - `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` / `record-as-variant` writes carry `:origin :story-mcp`.
 - `tools/causa/` — trace panel filter axis; one of the catalogued filter facets in `010-MCP-Server.md`.
 - Framework boot paths (router, SSR, machine timer) — set `:origin` to a runtime-reserved `:rf/*` value where the post-mortem distinction is useful.

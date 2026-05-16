@@ -336,8 +336,8 @@ Highlights this doc relies on as principles:
 - **Token budget**: every tool response is bounded at ≤5,000 tokens
   by default; the six-mechanism cascade (cap, path slicing, cursor
   pagination, lazy summary, structural dedup, size elision) is the
-  load-bearing budget posture. Catalogue entries (in
-  `003-Tool-Catalogue.md` when impl lands) MUST declare which
+  load-bearing budget posture. Catalogue entries in
+  [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) MUST declare which
   mechanisms apply, the typical-token hint, and the cap-reached
   behaviour. Full normative wording at
   [`004-Wire-Pipeline.md` §"Tight token budget per response"](./004-Wire-Pipeline.md#tight-token-budget-per-response).
@@ -367,7 +367,7 @@ Lock #6.
 
 ## Tool verbs follow the cross-MCP convention
 
-Tool names in Causa-MCP's planned catalogue pick from the verb table
+Tool names in Causa-MCP's catalogue pick from the verb table
 at [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
 (rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
 shared with pair2-mcp and story-mcp. The shared verbs the triplet
@@ -376,9 +376,11 @@ pins are `get-` / `list-` / `read-` / `discover-` / `restore-` /
 `record-as-` / `tail-` plus the bare universals `dispatch`,
 `eval-cljs`, `subscribe`, `unsubscribe`.
 
-Causa-MCP's spec'd catalogue (per
-[`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
-§"Tool catalogue") leans heavily on `get-<thing>` for
+Causa-MCP's catalogue (per
+[`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md), with
+panel-side prose at
+[`tools/causa/spec/010-MCP-Server.md` §"Tool catalogue"](../../causa/spec/010-MCP-Server.md))
+leans heavily on `get-<thing>` for
 filter-addressed slice reads (`get-trace-buffer`, `get-epoch-history`,
 `get-app-db`, `get-app-db-diff`, `get-machine-state`,
 `get-machine-list`, `get-issues`, `get-handlers`, `get-source-coord`)
@@ -388,13 +390,11 @@ plus the mutating triple (`restore-epoch`, `reset-frame-db`,
 (`discover-app`, `tail-build`). All eighteen are conformant to the
 canonical table.
 
-This pin is **load-bearing for the impl pass**: when
-`tools/causa-mcp/src/` lands and the catalogue prose migrates from
-`tools/causa/spec/010-MCP-Server.md` to
-`tools/causa-mcp/spec/003-Tool-Catalogue.md`, the verb pick is
-already locked. New catalogue entries land against an existing verb,
-or via a Lock entry in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)
-plus an extension to the canonical table.
+This pin is **load-bearing for the catalogue**: every entry in
+[`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) lands against
+an existing verb, or via a Lock entry in
+[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) plus an extension to
+the canonical table.
 
 ## Backed by Causa's and the framework's principles
 

@@ -57,6 +57,6 @@ Three escape routes:
 
 - **You want a long-form retro on a debugging session.** Use [`re-frame-pair-retro2`](../skills/re-frame-pair-retro2.md) instead — it reads the structured transcripts the editor-side pair skill keeps, and the retro skill is designed for "let's review what we tried and what we learned."
 - **You want the agent to *do* something** (dispatch, hot-swap, reset-frame-db!). The rail won't; `re-frame-pair2` will. The skill's recipe is "open a session, the agent dispatches a probe, you read the trace, you ask the agent to refine." The skill is editor-side because the writes are editor-anchored.
-- **You want to drive Causa from an external agent**. That's what the planned `causa-mcp` server is for — same surfaces, MCP-protocol wrapper. See [chapter 11](11-mcp-server.md).
+- **You want to drive Causa from an external agent**. That's what the `causa-mcp` server is for — same surfaces, MCP-protocol wrapper. See [chapter 11](11-mcp-server.md).
 
 Next: [the MCP-server panel](11-mcp-server.md).

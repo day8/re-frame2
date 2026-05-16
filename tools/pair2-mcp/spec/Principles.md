@@ -915,7 +915,7 @@ the namespace once and recognises every marker.
 Tool names in pair2-mcp's catalogue pick from the verb table at
 [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
 (rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
-shared with story-mcp and (planned) causa-mcp. The shared verbs the
+shared with story-mcp and causa-mcp. The shared verbs the
 triplet pins are `get-` / `list-` / `read-` / `discover-` /
 `restore-` / `reset-` / `register-` / `unregister-` / `run-` /
 `preview-` / `record-as-` / `tail-` plus the bare universals
