@@ -791,5 +791,83 @@ module.exports = {
       `event-detail cascade selection preserved after Flows round-trip (=${nodeDispatchId})`,
       5000,
     );
+
+    // ----------------------------------------------------------------
+    // 10b. Effects panel (rf2-5aw5v.6 — L-6).
+    //
+    // The Effects panel reads `(rf/registrations :fx)` — re-frame2's
+    // framework-built-in fxs (`:db`, `:dispatch`, `:fx`, ...) plus any
+    // Causa-side fxs registered by the shell (`:rf.causa.fx/...`,
+    // `:rf.editor/open`, ...) populate the row set. The panel is
+    // therefore deterministically in the POPULATED branch on the
+    // counter testbed, not the empty branch.
+    //
+    // Beyond-mount surfaces asserted here:
+    //   - sidebar pivot → effects lands on the `:rf.causa/fx` section
+    //   - the populated list renders with `rf-causa-fx-list` and >= 1
+    //     fx row testid (`rf-causa-fx-row-<fx-id>`); the empty-state
+    //     branch is NOT present
+    //   - the per-row id chip (`rf-causa-fx-id-<fx-id>`) is rendered
+    //     for every row — guards against the row-renderer regressing
+    //     to a structure that drops the id slot (the row is the click
+    //     target for the deferred cross-panel fx-filter jump)
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id on `:rf/causa`'s
+    //     app-db (same cross-panel selection invariant as L-5)
+    //
+    // The full fx-outcome feature path (HTTP success / 4xx / 5xx /
+    // abort / overridden / skipped / throwing) needs deterministic
+    // fx-driving cascades inside the rigorous testbed's host app
+    // (e.g. the managed-http-counter testbed woven in); follow-on
+    // when the http-toggle testbed lands inside the rigorous compile
+    // graph. Matrix row 81 (Effects) is already `covered`; no row
+    // flip needed.
+    // ----------------------------------------------------------------
+    // Sidebar id for the Effects panel is `:fx` (not `:effects`); the
+    // canvas testid is `rf-causa-fx`. See shell.cljs §sidebar-items.
+    await clickSidebar(page, 'fx', 'rf-causa-fx');
+    // The counter testbed has fxs registered (framework-built-in +
+    // Causa-side), so the populated branch is the expected mount path.
+    await expectVisible(page.locator('[data-testid="rf-causa-fx-list"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-fx-empty"]').count()) !== 0) {
+      throw new Error('Expected Effects empty-state to be absent (framework-built-in fxs are registered).');
+    }
+    const fxRows = page.locator('[data-testid^="rf-causa-fx-row-"]');
+    const fxRowCount = await fxRows.count();
+    if (fxRowCount < 1) {
+      throw new Error(`Expected at least one Effects row; got ${fxRowCount}.`);
+    }
+    // Per-row id chip — read against the first row's testid suffix.
+    const firstFxRowTestid = await fxRows.first().getAttribute('data-testid');
+    // `rf-causa-fx-row-stub-<id>` also matches the prefix; the
+    // straight-row id chip lives on `rf-causa-fx-id-<id>`. We narrow
+    // to rows that aren't the stub variant. The stub-row testid only
+    // appears when an `:fx-overrides` redirect is wired (Causa's
+    // dev-time inversion-of-control hook); on counter no overrides are
+    // configured so every row is the plain variant.
+    const plainRowTestids = await fxRows.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-testid'))
+         .filter((t) => t && !t.startsWith('rf-causa-fx-row-stub-')),
+    );
+    if (plainRowTestids.length === 0) {
+      throw new Error(
+        `Expected at least one plain fx row; got only stub rows from ${firstFxRowTestid}.`,
+      );
+    }
+    const sampleFxId = plainRowTestids[0].replace('rf-causa-fx-row-', '');
+    await expectVisible(
+      page.locator(`[data-testid="rf-causa-fx-id-${sampleFxId}"]`),
+      5000,
+    );
+    // Sidebar round-trip — same cross-panel selection invariant as L-5.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const fxPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => fxPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade selection preserved after Effects round-trip (=${nodeDispatchId})`,
+      5000,
+    );
   },
 };
