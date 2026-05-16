@@ -1,0 +1,108 @@
+;; Conformance fixture: flow/eval-exception
+;; Per Spec 013 §Failure semantics — when a flow's :output fn throws:
+;;
+;;   1. Prior successful flows' writes are PRESERVED.
+;;   2. The failing flow's own output is NOT written; its last-inputs
+;;      is NOT advanced (re-attempts next drain).
+;;   3. Downstream flows scheduled later in topo order do NOT run.
+;;   4. The exception surfaces at the router's outer catch as
+;;      `:rf.error/flow-eval-exception` on BOTH the dev-only trace
+;;      surface AND the always-on error-emit substrate (per Spec 013
+;;      §Resolved decisions §`:rf.error/flow-eval-exception` rides the
+;;      always-on error substrate, rf2-0q0du).
+;;
+;; The fixture also asserts the cascade halt: an
+;; :fx [[:dispatch [:should-not-fire]]] entry on the failing handler
+;; does NOT run (because the flow walk throws AFTER :db commits but
+;; BEFORE :fx walks — per Spec 013 §Drain integration §rule 3 +
+;; rf2-fslx0).
+;;
+;; ONE flow keeps the topo order deterministic across hosts: the
+;; flow throws iff its input is a string. The conformance DSL's
+;; `:count` builtin already does this — see
+;; core/src/re_frame/conformance.cljc line 64; the error/sub-exception
+;; fixture uses the same trick.
+
+{:fixture/id           :flow/eval-exception
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace :flow/basic :flow/trace}
+ :fixture/doc          "A flow's :output throws. The runtime halts the cascade at the failing flow, fires the per-flow :rf.flow/failed trace, and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (per Spec 013 §Failure semantics rule 4 / Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate, rf2-0q0du). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run — Spec 013 §Drain integration rule 3 cascade halt."
+
+ :fixture/registry
+ {:event {:flow/init       {:doc "Seed :token to a non-string vector — first drain computes :tries without throwing."}
+          :flow/bad-input  {:doc "Replace :token with a string; the :tries flow's [:fn :count] throws. The handler ALSO emits :fx [:dispatch [:should-not-fire]] which Spec 013 §Drain integration rule 3 says must NOT run."}
+          :should-not-fire {:doc "If the cascade-halt contract holds, this never fires."}}
+  :flow  {:tries
+          {:doc    "Materialised :tries — counts :token. The conformance :count builtin throws if :token is a string."
+           :inputs [[:token]]
+           :path   [:tries]}}}
+
+ :fixture/handlers
+ {:event {:flow/init       [[:set [:token] [1 2 3]]
+                            [:set [:fired] []]]
+          :flow/bad-input  [[:set [:token] "this-is-a-string"]
+                            ;; Spec 013 §Drain integration rule 3:
+                            ;; this :fx MUST NOT run because the flow
+                            ;; walk halts the cascade.
+                            [:fx :dispatch [:should-not-fire]]]
+          :should-not-fire [[:update [:fired] [:fn :conj :should-not-fire]]]}}
+
+ :fixture/flow-bodies
+ ;; :count is the builtin that throws on string input — see
+ ;; conformance.cljc line 64-77.
+ {:tries [[:fn :count [:event-arg 0]]]}
+
+ :fixture/frame-config
+ {:on-create [:flow/init]}
+
+ ;; First dispatch drives a successful flow eval — :token is the seeded
+ ;; vector [1 2 3]; :tries computes (count [1 2 3]) = 3 and writes.
+ ;; Conformance runners register flows AFTER the on-create cascade
+ ;; (per the comment at run-fixture's `realise-flows!` call site;
+ ;; rf2-wbtjn), so the on-create drain itself doesn't trigger :tries.
+ ;; A bare no-op dispatch is enough to fire the drain on which :tries
+ ;; first-evals — we use :flow/init again because re-dispatching it is
+ ;; deterministic and re-seeds the same vector.
+ :fixture/dispatches
+ [[:flow/init]
+  [:flow/bad-input]]
+
+ :fixture/expect
+ ;; After the failing drain:
+ ;;   :token is "this-is-a-string"  (the :db commit landed)
+ ;;   :tries is 3                    (preserved from the first drain
+ ;;                                    when :token was [1 2 3]; the
+ ;;                                    failing :output left the slot
+ ;;                                    untouched — Spec 013 §Failure
+ ;;                                    semantics rule 2)
+ ;;   :fired is []                   (cascade halt — :should-not-fire
+ ;;                                    never ran)
+ {:final-app-db
+  {:token "this-is-a-string"
+   :tries 3
+   :fired []}
+
+  ;; Trace stream: per-flow :rf.flow/failed first (with flow
+  ;; attribution), then the cascade-level :rf.error/flow-eval-exception.
+  ;; The router emits the cascade-level trace with :frame / :event /
+  ;; :exception in tags (per router.cljc:577-578); :where :flow-eval
+  ;; rides on the always-on substrate record only (asserted via
+  ;; :error-emit-records below).
+  :trace-emissions
+  [{:op-type   :flow
+    :operation :rf.flow/failed
+    :tags      {:flow-id :tries
+                :frame   :rf/default}}
+   {:op-type   :error
+    :operation :rf.error/flow-eval-exception
+    :tags      {:frame :rf/default}}]
+
+  ;; Production-survivable always-on substrate (Spec 013 §Resolved
+  ;; decisions §`:rf.error/flow-eval-exception` rides the always-on
+  ;; error substrate, rf2-0q0du / rf2-hrt5c). The runner registers a
+  ;; corpus-wide error-emit listener at fixture-start; this matcher
+  ;; asserts the listener captured the cascade-level record.
+  :error-emit-records
+  [{:error    :rf.error/flow-eval-exception
+    :event-id :flow/bad-input
+    :frame    :rf/default}]}}

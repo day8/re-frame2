@@ -25,7 +25,13 @@
             [re-frame.adapter.uix-source-coord-dom-elision-prod-test]
             [re-frame.adapter.helix-source-coord-dom-elision-prod-test]
             [re-frame.on-error-elision-prod-test]
-            [re-frame.event-emit-elision-prod-test]))
+            [re-frame.event-emit-elision-prod-test]
+            ;; Per rf2-gmrks — `:rf.error/flow-eval-exception` rides
+            ;; the always-on error-emit substrate (Spec 013 §Failure
+            ;; semantics rule 4 + Resolved decisions, rf2-0q0du).
+            ;; This prod-elision test pins the production-survival
+            ;; contract under `:advanced` + `goog.DEBUG=false`.
+            [re-frame.flow-eval-exception-elision-prod-test]))
 
 (defn ^:export init []
   (-> (env/get-test-data)
