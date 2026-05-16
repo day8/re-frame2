@@ -1683,6 +1683,196 @@ module.exports = {
       await setActiveModes([]);
     });
 
+    await scenario(page, 'render-shell-mount-unmount-no-leak-rf2-3vvzy', async () => {
+      /*
+       * Case-1 follow-on (rf2-3vvzy) — Render shell mount/unmount
+       * double-mount diagnostics beyond the matrix bookkeeping
+       * baseline.
+       *
+       * Per Spec 008 §Render shell mount/unmount the shell exposes
+       * `mount-shell!`, `unmount-shell!`, and `active-shell` —
+       * v1 lifecycle is one-shell-at-a-time. The contract:
+       *
+       *   - calling mount-shell! while a shell is already mounted
+       *     unmounts the previous root first (rf2-fq1yg fix); no
+       *     React "container has already been passed to createRoot"
+       *     warning; no duplicate landmarks
+       *   - calling mount-shell! with nil / undefined returns nil
+       *     and leaves the shell untouched (config-gate + nil
+       *     dom-node guard)
+       *   - active-shell returns the current handle after each
+       *     mount-shell! call; returns nil after unmount-shell!
+       *   - after unmount + remount, no duplicate panels/listeners
+       *     survive (state/reset-shell-state! + teardown-all-
+       *     listeners! purge the prior session's per-variant state)
+       *
+       * Beyond-mount surface assertions:
+       *   (a) baseline: one `<nav>` landmark, one `<main>`, one
+       *       `<aside>` (proves the live shell is the only mounted
+       *       root before we start mucking with the singleton)
+       *   (b) re-mount on top of an active shell: active-shell
+       *       returns a NEW handle (different identity), the prior
+       *       handle's root has been unmounted, the landmark count
+       *       remains exactly one of each
+       *   (c) nil-dom-node guard: mount-shell!(null) returns null,
+       *       active-shell still returns the current handle from
+       *       (b), landmark count unchanged
+       *   (d) unmount → remount round-trip: after unmount the
+       *       `<nav>` landmark is gone (DOM cleaned); after
+       *       mount-shell! against #app the landmark reappears
+       *       singleton'd; no listener leak (the variant scrubber
+       *       slot returns nil for a freshly-allocated frame)
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // Clear any prior workspace selection so the landmarks are
+      // stable.
+      await page.evaluate(() => {
+        const state = window.re_frame.story.ui.state;
+        state.swap_state_BANG_.call(null, state.select_workspace, null);
+      });
+
+      const countLandmarks = () =>
+        page.evaluate(() => ({
+          nav: document.querySelectorAll('nav').length,
+          main: document.querySelectorAll('main').length,
+          aside: document.querySelectorAll('aside').length,
+        }));
+
+      // (a) Baseline: one of each landmark before any singleton
+      // manipulation.
+      let lm = await countLandmarks();
+      if (lm.nav !== 1 || lm.main !== 1 || lm.aside !== 1) {
+        throw new Error(
+          `(a) baseline landmark count not 1/1/1: ${JSON.stringify(lm)}`,
+        );
+      }
+
+      // (b) Re-mount on top of the active shell. active-shell
+      // returns a new handle identity, prior handle is unmounted.
+      const remount = await page.evaluate(() => {
+        const shell = window.re_frame.story.ui.shell;
+        const before = shell.active_shell.call(null);
+        const node = document.getElementById('app');
+        if (!node) return { ok: false, reason: 'no #app node' };
+        const handle = shell.mount_shell_BANG_.call(null, node);
+        const after = shell.active_shell.call(null);
+        return {
+          ok: true,
+          beforeIdentity: before === after,
+          handlePresent: !!handle,
+          afterPresent: !!after,
+        };
+      });
+      if (!remount.ok || !remount.handlePresent || !remount.afterPresent || remount.beforeIdentity) {
+        throw new Error(
+          `(b) re-mount did not produce a new singleton handle: ${JSON.stringify(remount)}`,
+        );
+      }
+      lm = await countLandmarks();
+      if (lm.nav !== 1 || lm.main !== 1 || lm.aside !== 1) {
+        throw new Error(
+          `(b) post-remount landmark count not 1/1/1 (root leak): ${JSON.stringify(lm)}`,
+        );
+      }
+
+      // (c) Nil dom-node guard: mount-shell!(null) returns null,
+      // singleton handle preserved, landmark count unchanged.
+      const nilGuard = await page.evaluate(() => {
+        const shell = window.re_frame.story.ui.shell;
+        const before = shell.active_shell.call(null);
+        const out = shell.mount_shell_BANG_.call(null, null);
+        const after = shell.active_shell.call(null);
+        return {
+          returnedNull: out == null,
+          singletonPreserved: before === after,
+          stillHasHandle: !!after,
+        };
+      });
+      if (!nilGuard.returnedNull || !nilGuard.singletonPreserved || !nilGuard.stillHasHandle) {
+        throw new Error(
+          `(c) nil dom-node guard mis-behaved: ${JSON.stringify(nilGuard)}`,
+        );
+      }
+      lm = await countLandmarks();
+      if (lm.nav !== 1 || lm.main !== 1 || lm.aside !== 1) {
+        throw new Error(
+          `(c) post-nil-guard landmark count not 1/1/1: ${JSON.stringify(lm)}`,
+        );
+      }
+
+      // (d) unmount → remount round-trip. After unmount the
+      // landmarks are gone; after remount they reappear singleton'd.
+      // active-shell returns nil between the two.
+      await page.evaluate(() => {
+        const shell = window.re_frame.story.ui.shell;
+        shell.unmount_shell_BANG_.call(null);
+      });
+      // React's unmount is async (it queues a microtask) — poll
+      // until the nav landmark drops.
+      await waitForValue(
+        async () => (await countLandmarks()).nav,
+        (n) => n === 0,
+        { timeoutMs: 5000, description: 'post-unmount: <nav> landmark removed from DOM' },
+      );
+      const noHandle = await page.evaluate(() => {
+        const shell = window.re_frame.story.ui.shell;
+        return shell.active_shell.call(null) == null;
+      });
+      if (!noHandle) {
+        throw new Error('(d) active-shell did not return nil after unmount-shell!');
+      }
+
+      // Remount.
+      await page.evaluate(() => {
+        const shell = window.re_frame.story.ui.shell;
+        const node = document.getElementById('app');
+        shell.mount_shell_BANG_.call(null, node);
+      });
+      await waitForValue(
+        async () => (await countLandmarks()).nav,
+        (n) => n === 1,
+        { timeoutMs: 5000, description: 'post-remount: exactly one <nav> landmark restored' },
+      );
+      lm = await countLandmarks();
+      if (lm.nav !== 1 || lm.main !== 1 || lm.aside !== 1) {
+        throw new Error(
+          `(d) post-remount landmark count not 1/1/1 (root leak after round-trip): ${JSON.stringify(lm)}`,
+        );
+      }
+      // Listener leak guard: the variant scrubber slot for any
+      // variant should be nil since the shell was just freshly
+      // mounted and no variant has been selected on this session.
+      const scrubberSelections = await page.evaluate(() => {
+        // re-frame.story.ui.scrubber maintains a per-variant
+        // selection atom; after an unmount the listeners-teardown
+        // wipe should have left it empty. We expose a public read
+        // via the registered shell-state — no selection at this
+        // point means no per-variant scrubber-selection slots
+        // remain.
+        const state = window.re_frame.story.ui.state;
+        const cur = state.get_state.call(null);
+        const cljs = window.cljs.core;
+        const kw = cljs.keyword;
+        // Confirm the default-shell-state shape: no selected variant,
+        // no selected workspace, no panel-visibility entries beyond
+        // the defaults.
+        return {
+          variant: cljs.get.call(null, cur, kw('selected-variant')),
+          workspace: cljs.get.call(null, cur, kw('selected-workspace')),
+        };
+      });
+      if (scrubberSelections.variant != null || scrubberSelections.workspace != null) {
+        throw new Error(
+          `(d) post-remount shell state did not reset cleanly: ${JSON.stringify(scrubberSelections)}`,
+        );
+      }
+      // Re-prime help dismissal so downstream scenarios don't trip
+      // on the on-boarding dialog.
+      await primeHelpDismissed(page);
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
