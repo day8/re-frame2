@@ -216,3 +216,24 @@
       ;; as `{:ok? false :reason :nrepl-port-not-found}`.
       (let [server (build-server (degraded-handler e))]
         (connect-transport! server "ready (degraded — no nREPL port)")))))
+
+;; ---- bundle-isolation sentinel ------------------------------------------
+;;
+;; Per rf2-8xzoe.35: `implementation/scripts/check-bundle-isolation.cjs`
+;; greps the counter bundle for this exact string. The string lives
+;; ONLY in this file's source body — no other namespace, no docstring,
+;; no test fixture references it — so its presence in a production
+;; consumer bundle proves that the Node-only MCP-server code got
+;; pulled into a browser-targeted build (most likely via a stray
+;; `:require` from a core/* ns or an adapter, which would violate the
+;; tools/README.md bundle-isolation contract that dependencies flow
+;; tool → implementation and never the reverse).
+;;
+;; The sentinel survives `:advanced` because string literals are not
+;; renamed by the closure compiler; it sits outside any
+;; `interop/debug-enabled?` gate so DCE cannot drop the literal
+;; independently of the surrounding ns body. Mirrors the
+;; rf2-qwm0a / rf2-bmzq0 trace.tooling + subs.tooling pattern.
+
+(defonce ^:private bundle-isolation-sentinel
+  "day8.re-frame2-causa-mcp/sentinel:rf2-8xzoe.35-2026-05-17:do-not-rename")
