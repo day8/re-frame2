@@ -1,6 +1,6 @@
 # Spec 006 — Reactive Substrate
 
-> Status: Drafting. **v1-required (CLJS reference).**
+> Status: v1-required (CLJS reference).
 >
 > For where the adapter sits in relation to the rest of the runtime — the frame container, sub-cache, drain loop, and trace bus — see [Runtime-Architecture](Runtime-Architecture.md).
 

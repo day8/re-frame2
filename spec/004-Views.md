@@ -1,6 +1,6 @@
 # Spec 004 — Views
 
-> Status: Drafting. **v1-required.** A view is a pure function `(state, props) → render-tree`, with the render-tree as a serialisable nested data structure. The CLJS reference's `reg-view` is a **defn-shape macro** that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects frame-bound `dispatch`/`subscribe` — an ergonomic realisation of the explicit-frame contract. The plain-fn surface `reg-view*` is the runtime-callable escape hatch. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
+> Status: v1-required. A view is a pure function `(state, props) → render-tree`, with the render-tree as a serialisable nested data structure. The CLJS reference's `reg-view` is a **defn-shape macro** that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects frame-bound `dispatch`/`subscribe` — an ergonomic realisation of the explicit-frame contract. The plain-fn surface `reg-view*` is the runtime-callable escape hatch. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
 
 ## Abstract
 

@@ -1,6 +1,6 @@
 # Spec 000 — re-frame2 Vision
 
-> Status: Drafting.
+> Status: v1-required. Foundation; load-bearing for every other Spec.
 
 ## Abstract
 
@@ -283,7 +283,7 @@ Goal 3 is the named justification for the following decisions documented elsewhe
 - **Two-tier registry** (central + frame-local; see [002 §State machines are just event handlers](002-Frames.md#state-machines-are-just-event-handlers) and [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)) → frame-level undo doesn't disturb source-code-level state.
 - **Run-to-completion drain** (see [002](002-Frames.md)) → atomic transitions per event; every settled state is a snapshottable boundary.
 
-Production elision of instrumentation is non-negotiable; see [009 §Production builds](009-Instrumentation.md). Testing is first-class; see [008](008-Testing.md). Schemas are Malli-flavoured for the CLJS reference; see [010](010-Schemas.md). State machines are post-v1 with v1 foundation hooks; see [005](005-StateMachines.md).
+Production elision of instrumentation is non-negotiable; see [009 §Production builds](009-Instrumentation.md). Testing is first-class; see [008](008-Testing.md). Schemas are Malli-flavoured for the CLJS reference; see [010](010-Schemas.md). State machines are v1-required and ship in `day8/re-frame2-machines`; the v1 foundation hooks live in 002 and the transition-table grammar in [005](005-StateMachines.md).
 
 ### AI-implementable from the spec alone
 
@@ -452,6 +452,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 | 001 | Registration | Registration calls accept a metadata map. Foundation for everything below. |
 | 002 | Frames | Isolated runtime boundaries; one global handler registrar; explicit-frame addressing at the pattern level. CLJS reference uses React context as an optimisation. |
 | 004 | Views | Pure `(state, props) → render-tree`; render-tree is serialisable data. CLJS reference: `reg-view` + hiccup + Reagent. |
+| 005 | State Machines | Transition-table grammar layered on 002's machines-as-event-handlers hooks; hierarchical states, `:always`, `:after`, `:invoke`, `:invoke-all`, `:type :parallel` + `:regions`. CLJS reference ships `day8/re-frame2-machines` with a full conformance fixture set. |
 | 006 | Reactive Substrate | Substrate-agnostic core + adapter contract; Reagent default; plain-atom for JVM/SSR/headless. v1-required for the CLJS reference; pattern-level for any host. |
 | 008 | Testing | Test fixtures, sync triggers, per-test stubbing, headless sub/machine evaluation, framework adapters. |
 | 009 | Instrumentation, Tracing, Performance | Trace event stream, listener API, Performance API integration; tools depend on traces. |
@@ -468,8 +469,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 
 ### Post-v1 (foundation hooks ship in v1; ergonomic libraries land later)
 
-- **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure factory `create-machine-handler`, pure `machine-transition`, the `:raise` reserved fx-id (machine-internal), and the `:rf.machine/spawn` / `:rf.machine/destroy` canonical actor-lifecycle fx-ids). Pattern adopted from xstate.
-- **Spec 007 — Stories, Variants, Workspaces.** Storybook-class tooling. Layered on Specs 002 and 008.
+- **Spec 007 — Stories, Variants, Workspaces.** Storybook-class tooling. Layered on Specs 002 and 008. (The `tools/story` workbench ships as a dev tool; the Maven artefact `day8/re-frame2-stories` lands post-v1.)
 
 ### New / deferred
 
@@ -488,7 +488,6 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 ### Out of Scope for v1
 
 - **Multiple different apps on one page** (different handler sets sharing a single page). Out of scope, full stop — iframes serve this case. Multi-frame in re-frame2 is "multiple instances of the *same* app's handlers" (devcards, widgets, story variants, test fixtures).
-- **State machines as a shipped library** — Spec 005 is post-v1; the foundation hooks ship in v1 inside [002-Frames.md](002-Frames.md).
 - **Persistence / offline** — see Goal #10 dispositions above.
 - **Authentication / sessions library** — see Goal #10 dispositions above.
 

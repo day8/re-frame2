@@ -1,6 +1,6 @@
 # Spec 001 — Registration
 
-> Status: Drafting. **v1-required.** The metadata-map shape that every `reg-*` registration accepts. This Spec is the single-source for the registration grammar and the registry kind taxonomy. State machines themselves register under `:event` — a machine *is* an event handler whose body comes from `create-machine-handler` (per [005](005-StateMachines.md)).
+> Status: v1-required. The metadata-map shape that every `reg-*` registration accepts. This Spec is the single-source for the registration grammar and the registry kind taxonomy. State machines themselves register under `:event` — a machine *is* an event handler whose body comes from `create-machine-handler` (per [005](005-StateMachines.md)).
 
 ## Abstract
 

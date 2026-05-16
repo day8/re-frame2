@@ -1,6 +1,6 @@
 # Spec 005 — State Machines
 
-> Status: Drafting. Post-v1 per [000 §Scope and roadmap](000-Vision.md#scope-and-roadmap). Builds on the foundation hooks in [002-Frames.md §State machines are just event handlers](002-Frames.md).
+> Status: v1-required. Ships in `day8/re-frame2-machines` with a full conformance fixture set. Builds on the foundation hooks in [002-Frames.md §State machines are just event handlers](002-Frames.md).
 >
 > **Why this Spec exists:** state machines and actors are in the pattern because **constrained execution models are easier to reason about than Turing-complete control flow.** A finite state machine has an enumerable state space and a discrete transition relation; an actor system bounds concurrency to message-passing across well-defined boundaries with run-to-completion semantics. This is disproportionately valuable for AI use — an AI can fully simulate a finite machine; it cannot fully simulate a free-form imperative program. The cost is some expressiveness; the benefit is an execution model that survives mechanical reasoning.
 >
