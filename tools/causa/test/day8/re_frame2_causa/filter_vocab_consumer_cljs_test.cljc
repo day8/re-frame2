@@ -98,22 +98,17 @@
           extras)))
 
 (defn- seed!
-  "Push the given event vector into Causa's buffer in order. Bypasses
-  `collect-trace!`'s `interop/debug-enabled?` gate by writing through
-  `push` directly — pure-data, JVM-runnable. The buffer is reset by
-  the fixture before each test, so seeded events are the only
-  contents."
+  "Push the given event vector into Causa's buffer in order via
+  `seed-buffer-for-test!` — bypasses every ingest gate
+  (`interop/debug-enabled?`, the privacy filter, and the rf2-xs8vu
+  self-noise filter that drops `:frame :rf/causa` events) so the
+  filter-axis suite can populate the buffer with synthetic shapes
+  that wouldn't normally survive the public collector. Pure-data,
+  JVM-runnable. The buffer is reset by the fixture before each test,
+  so seeded events are the only contents."
   [evs]
   (doseq [e evs]
-    ;; Same path collect-trace! uses, minus the debug-gate. Asserting
-    ;; against the actual buffer (not a private accumulator) keeps the
-    ;; tests honest: any future change to the push path is caught here.
-    (trace-bus/collect-trace! e))
-  ;; Belt-and-braces: in case debug-enabled? is false at compile time
-  ;; on some test runner (e.g. an :advanced build), the seed call above
-  ;; is a no-op. Production-mode invocation of this test ns is not in
-  ;; the contract, so we don't compensate — the fixture clears the
-  ;; buffer either way.
+    (trace-bus/seed-buffer-for-test! e))
   nil)
 
 ;; ---- pre-rf2-97ah0 axes (4) ------------------------------------------------

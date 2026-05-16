@@ -129,6 +129,49 @@
        (rf/with-frame :rf/causa
          (rf/dispatch event-v)))))
 
+;; ---- self-noise guard (rf2-xs8vu) ---------------------------------------
+;;
+;; Causa's own panels render INSIDE the host app. Every host dispatch
+;; dirties the host app-db → the layer-1 `:rf.causa/trace-buffer` sub
+;; re-fires → every Causa panel that derefs it re-renders → every
+;; `:rf/causa`-frame sub it reads emits `:sub/run` → every re-render
+;; emits `:view/render`. Without a guard, those self-induced trace
+;; events flow back through the framework's trace-cb fan-out, through
+;; THIS collector, into the buffer, and (because they fire outside a
+;; host dispatch) bucket as `:ungrouped :ungrounded` — drowning the
+;; host event the user actually cared about under a cascade of
+;; `:rf.causa/*` sub-reads.
+;;
+;; The fix is at INGEST (not at READ time — readers shouldn't have to
+;; know about internals). Any trace event whose `:frame` slot resolves
+;; to `:rf/causa` is Causa's own machinery; we drop it before it ever
+;; enters the buffer. The framework's `:rf.trace/no-emit?` flag on
+;; Causa's registry handlers already silences `:event/dispatched` etc.
+;; from Causa's bookkeeping cascade — this filter handles the
+;; remaining sub-read + view-render emits that fire reactively from
+;; panel re-renders.
+;;
+;; Pre-alpha posture: drop unconditionally. No "show internals" toggle
+;; — if Causa needs to introspect its own machinery later, that's a
+;; separate feature (a parallel Causa-internal buffer would be the
+;; right shape), not an opt-out on the user-facing trace feed.
+
+(defn causa-internal-event?
+  "True when `event`'s `:frame` slot is `:rf/causa` — i.e. the trace
+  event was emitted by Causa's own subscriptions, views, or any other
+  machinery running under `(rf/with-frame :rf/causa ...)`.
+
+  Reads top-level `:frame` first, falling back to `(:tags :frame)`,
+  matching the resolution order `filter-events` already uses for the
+  `:frame` filter axis. Both keys can carry the frame id depending on
+  emit site (Spec 009 §Core fields hoists some, leaves others under
+  `:tags`).
+
+  Pure-data + JVM-runnable so the predicate is testable without a CLJS
+  runtime."
+  [event]
+  (= :rf/causa (or (:frame event) (get-in event [:tags :frame]))))
+
 ;; ---- collector --------------------------------------------------------
 
 (defn collect-trace!
@@ -137,6 +180,16 @@
   time. Production builds elide the call (the framework's trace
   emission is gated on `interop/debug-enabled?` and never invokes the
   callback).
+
+  Per rf2-xs8vu: trace events whose `:frame` is `:rf/causa` are
+  dropped at ingest — Causa's own panels render inside the host app,
+  so every host dispatch reactively re-fires Causa's subs and re-
+  renders Causa's views; without the filter, those self-induced
+  `:sub/run` + `:view/render` emits would land in Causa's own trace
+  buffer as `:ungrouped :ungrounded` (they fire outside a host
+  dispatch) and drown the host event the user clicked. See
+  `causa-internal-event?`. Pre-alpha — no opt-out toggle; Causa-
+  internal introspection is a separate feature surface if needed.
 
   Per Spec 009 §Privacy + rf2-azls9: events whose `:sensitive?` flag
   is true are dropped before the buffer push when the global
@@ -171,6 +224,15 @@
   [event]
   (when interop/debug-enabled?
     (cond
+      ;; rf2-xs8vu — drop Causa's own machinery before anything else.
+      ;; Self-emitted sub-reads / view-renders from Causa's own panels
+      ;; would otherwise drown the host event in `:ungrouped` noise.
+      ;; Sits above the privacy gate so internal-frame sensitive events
+      ;; (none expected today, but symmetrical) don't bump the host's
+      ;; REDACTED counter. See `causa-internal-event?` for the contract.
+      (causa-internal-event? event)
+      nil
+
       (config/suppress-sensitive? event)
       (config/note-suppressed! (get-in event [:tags :frame]))
 
@@ -199,6 +261,28 @@
   `set-buffer-depth!` rewrites it)."
   []
   @buffer-depth)
+
+(defn seed-buffer-for-test!
+  "Push `event` straight into the buffer atom, bypassing
+  `collect-trace!`'s ingest gates (privacy filter, self-noise filter,
+  app-db mirror dispatch). Test-only — callers that want to drive
+  the public ingest path use `collect-trace!`.
+
+  Lifted from the consumer-test suite (`filter_vocab_consumer_cljs_
+  test.cljc`'s `seed!`) which seeds synthetic events into the buffer
+  to exercise `filter-events`. Those tests need events shaped like
+  `{:frame :rf/causa}` to land in the buffer to verify the `:frame`
+  filter axis — but `collect-trace!` now (rf2-xs8vu) drops those
+  before the buffer push, so the consumer-test suite cannot reach the
+  buffer through the public collector. This helper preserves the
+  consumer-test contract without weakening the production ingest
+  guard.
+
+  Pure mutation, no privacy / no mirror / no debug gate — strictly
+  for assembling buffer fixtures in tests."
+  [event]
+  (swap! buffer-state push @buffer-depth event)
+  nil)
 
 ;; ---- consumer-side filter ------------------------------------------------
 ;;

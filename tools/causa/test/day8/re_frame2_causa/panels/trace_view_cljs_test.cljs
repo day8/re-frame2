@@ -103,9 +103,15 @@
 
 (defn- push-trace! [ev]
   ;; Per rf2-e9s81: `:rf.causa/trace-buffer` thunks the trace-bus
-  ;; atom; pushing via `collect-trace!` (the production path) lands
-  ;; the event in the atom and the next subscribe sees it.
-  (trace-bus/collect-trace! ev))
+  ;; atom; pushing via `seed-buffer-for-test!` (the test-side bypass
+  ;; of the public collector) lands the event in the atom and the
+  ;; next subscribe sees it. We bypass `collect-trace!` because
+  ;; rf2-xs8vu's self-noise filter drops `:frame :rf/causa` events
+  ;; before the buffer push — the trace-view filter axes need to
+  ;; assert against synthetic events with arbitrary `:frame` slots
+  ;; (including `:rf/causa`) to lock the filter algebra, separately
+  ;; from the ingest guard.
+  (trace-bus/seed-buffer-for-test! ev))
 
 ;; Construct a synthetic trace event with the canonical 9-axis tags.
 (defn- mk-trace
