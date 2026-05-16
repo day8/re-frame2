@@ -118,28 +118,49 @@
   projection.
 
   Per rf2-lbjnz (Mike decision a, aligned with XState convention) —
-  destroying an already-destroyed actor is a **silent idempotent no-op**.
-  The actor's lifecycle has one observable transition (Active → Stopped);
-  subsequent destroy attempts emit NO `:rf.machine/destroyed` trace,
-  perform NO teardown, and raise NO error. The liveness probe is
-  form-specific so we don't accidentally swallow legitimate cleanup of a
-  spec-less spawn (SSR / platform-gated):
+  destroying an **already-destroyed** actor is a **silent idempotent
+  no-op**. The actor's lifecycle has one observable transition
+  (Active → Stopped); subsequent destroy attempts emit NO
+  `:rf.machine/destroyed` trace, perform NO teardown, and raise NO
+  error.
 
-    - **Keyword form** — `live?` iff the snapshot is present at
-      `[:rf/machines actor-id]`. Final-state auto-destroy
-      (finalize.cljc) and prior explicit destroys both dissoc the
-      snapshot via the unified teardown projection, so a missing
-      snapshot reliably means \"already destroyed.\" Re-emitting
-      `:rf.machine/destroyed` here would double-fire the observability
-      signal; we return early.
-    - **Tracked map form** — `live?` iff EITHER the snapshot is present
-      OR the `[:rf/spawned parent-id invoke-id]` slot is still present.
-      The slot-present branch covers spec-less spawns (where no
-      snapshot was ever installed because `:machine-id` resolved to no
-      registered spec) — the destroy still has slot-clearing work to do
-      and the trace still IS the cleanup signal. A truly-already-
-      destroyed tracked form has BOTH gone (the projection clears both
-      atomically per teardown.cljc).
+  The liveness probe must distinguish *already-destroyed* (the actor
+  was alive, the teardown projection ran, the registrar slot was
+  cleared) from *not-yet-materialised-snapshot* (the actor IS alive
+  in this drain — spec-less spawn, or spawn + destroy back-to-back
+  before the snapshot was even read — but its snapshot was never
+  installed at `[:rf/machines actor-id]`). Snapshot-presence alone is
+  not the right signal: a spec-less spawn (`:machine-id` resolved to
+  no registered spec — SSR / platform-gated) never installs a
+  snapshot, yet its destroy still owns legitimate cleanup work
+  (spawn-order/forget + the observability trace).
+
+  `live?` is true iff ANY of the following hold:
+
+    - **Handler still registered** at `actor-id` in the event
+      registrar. Final-state auto-destroy (finalize.cljc) and prior
+      explicit destroys both unregister the handler; a still-
+      registered handler reliably means \"not yet destroyed.\"
+    - **Snapshot present** at `[:rf/machines actor-id]`. Covers the
+      narrow window where a singleton's handler has been replaced
+      mid-drain but the snapshot still lives, plus belt-and-braces
+      for hand-crafted call sites.
+    - **Spawn-order entry present** for `actor-id` in the per-frame
+      spawn-order channel. The dedicated liveness signal for spec-
+      less spawns whose handler+snapshot were both skipped at spawn
+      time. `spawn-order/record!` runs unconditionally on spawn;
+      `spawn-order/forget!` runs unconditionally on destroy — so the
+      entry's presence/absence is the most reliable
+      \"alive-or-gone\" bit for this category.
+    - **Tracked-form slot present** at `[:rf/spawned parent-id
+      invoke-id]`. Belt-and-braces for the declarative-`:invoke`
+      tracked-map form — covers the spec-less spawn case under the
+      tracked codepath even when the actor-id resolution above
+      went via the slot lookup.
+
+  A truly-already-destroyed actor has ALL FOUR gone — the unified
+  teardown projection + `registrar/unregister!` + `spawn-order/forget!`
+  run atomically per `destroy-single-actor!` and `finalize-machine`.
 
   See [Spec 005 §Destroy is silent-idempotent (rf2-lbjnz)] for the
   normative paragraph."
@@ -151,14 +172,16 @@
         slot-id   (when (and tracked? old-db)
                     (get-in old-db [:rf/spawned parent-id invoke-id]))
         actor-id  (if tracked? slot-id args)
-        ;; rf2-lbjnz — silent-idempotent guard. Form-specific liveness
-        ;; probe (see docstring).
+        ;; rf2-lbjnz — silent-idempotent guard. `live?` is true iff ANY
+        ;; liveness signal survives (handler registered / snapshot
+        ;; present / spawn-order entry / tracked-slot present). See
+        ;; docstring for the rationale and what each signal covers.
         live?     (and actor-id
-                       (some? old-db)
-                       (or (contains? (get old-db :rf/machines) actor-id)
-                           ;; Tracked form: slot-present-but-snapshot-
-                           ;; absent IS still live (spec-less spawn —
-                           ;; the slot needs clearing).
+                       (or (some? (registrar/lookup :event actor-id))
+                           (and (some? old-db)
+                                (contains? (get old-db :rf/machines) actor-id))
+                           (some #(= actor-id %)
+                                 (spawn-order/frame-order frame-id))
                            (and tracked? (some? slot-id))))]
     (when live?
       (let [released-sid (teardown/find-system-id-for-actor old-db actor-id)]
