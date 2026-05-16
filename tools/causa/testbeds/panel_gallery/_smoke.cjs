@@ -100,6 +100,12 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-subscriptions-card',
         expectedAtLeast: 10,
       },
+      {
+        id:          'time-travel',
+        workspaceRe: /Workspace\.causa\.time-travel\/all/,
+        cardTestid:  'panel-gallery-time-travel-card',
+        expectedAtLeast: 8,
+      },
     ];
 
     const results = [];

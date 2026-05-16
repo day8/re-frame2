@@ -36,6 +36,7 @@
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
+            [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.theme.tokens :refer [tokens]]))
 
 (def ^:private card-style
@@ -98,6 +99,23 @@
          :data-testid "panel-gallery-subscriptions-card"}
    [subscriptions/subscriptions-view]])
 
+(defn- time-travel-panel
+  "Embedded mount of the Causa time-travel panel for one Story
+  variant. The variant-frame provider above this tree routes
+  `:rf.causa/time-travel` reads to the variant frame's app-db, where
+  the seed events have written `:epoch-history`, `:selected-epoch-id`,
+  `:pin-store`, and `:label-input`.
+
+  `time-travel/time-travel-view` is a `reg-view` registration whose
+  body composes inline hiccup + sub-views via plain function calls —
+  the facade is itself the frame-aware render boundary. The gallery
+  wrapper mounts it as a Reagent vector — safe because reg-view
+  threads `:contextType` through React."
+  [_args]
+  [:div {:style       card-style
+         :data-testid "panel-gallery-time-travel-card"}
+   [time-travel/time-travel-view]])
+
 (defn register!
   "Register every gallery view-id referenced by a variant `:component`.
   Uses `reg-view*` (the runtime-registration surface, per Spec 004)
@@ -111,4 +129,5 @@
   (rf/reg-view* :panel-gallery.event-detail/Panel  event-detail-panel)
   (rf/reg-view* :panel-gallery.app-db-diff/Panel   app-db-diff-panel)
   (rf/reg-view* :panel-gallery.subscriptions/Panel subscriptions-panel)
+  (rf/reg-view* :panel-gallery.time-travel/Panel   time-travel-panel)
   nil)

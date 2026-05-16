@@ -59,7 +59,8 @@
             ;; their `register-all!` at load time.
             [panel-gallery.event-detail-stories]
             [panel-gallery.app-db-diff-stories]
-            [panel-gallery.subscriptions-stories]))
+            [panel-gallery.subscriptions-stories]
+            [panel-gallery.time-travel-stories]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
