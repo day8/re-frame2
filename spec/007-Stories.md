@@ -501,6 +501,13 @@ Workspaces are *not* frames (or not necessarily — they may be ordinary frames 
 
 Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to rf2-9amwm.
 
+#### Post-v1 Tracking — rf2-9amwm
+
+- **Foundation in v1.** The variant id surface (`:story.<ns>/<variant>`) is stable; the registry is readable via `rf/variants` (per the story registry shape); rendered hiccup is a plain value.
+- **Scope deferred.** A thin adapter shim per host tool — devcards (`defcard` wrapping a `story/run-variant` call) and nubank/workspaces (workspace card from variant id) are the obvious first targets. No story-side change required.
+- **Reconsideration trigger.** A downstream project migrating from devcards/workspaces asks for the shim, or the story tool's own UI needs an embeddable card form.
+- **Out of scope for the bead.** Reverse direction (rendering a devcard inside a story workspace) — devcards' macro-time registration model doesn't compose cleanly with story's variant registry.
+
 ## Resolved decisions
 
 ### Should `story/reg-story` and `story/reg-variant` be separate, or unified?
