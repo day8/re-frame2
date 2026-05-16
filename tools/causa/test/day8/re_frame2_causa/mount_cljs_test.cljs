@@ -855,3 +855,348 @@
                 (is (some? second-frame))
                 (is (identical? first-db second-db)
                     "app-db container preserved across re-register")))))))))
+
+;; -------------------------------------------------------------------------
+;; (9) Teardown covers ALL three mount singletons (rf2-yudol)
+;; -------------------------------------------------------------------------
+;;
+;; Per the rf2-yudol fix (sourced from audit rf2-a6tvr Q1-1+Q1-2),
+;; `teardown!` must clear all three mount singletons — `mount-state`,
+;; `popout-state`, `inline-mounts` — not just the in-app shell. Before
+;; the fix `teardown!` touched only the first; the other two leaked
+;; across test runs and caused subsequent `(popout!)` / `(mount-inline-
+;; panel!)` calls to short-circuit on stale state. These tests pin the
+;; broadened contract documented in tools/causa/spec/011-Launch-Modes.md
+;; §Mount lifecycle.
+
+(defn- mk-stub-popout-window
+  "Build a fake popout window with enough surface for the popout!
+  code path: `addEventListener`, `close`, `closed`, plus a `document`
+  that supports `createElement` + a `body` whose `appendChild` keeps
+  a reference. Listener registrations are recorded so the test can
+  fire the unload handler directly."
+  []
+  (let [listeners (atom {})
+        closed?   (atom false)
+        body      (mk-stub-node)
+        doc       (js-obj "body"          body
+                          "title"         ""
+                          "createElement" (fn [_tag] (mk-stub-node)))
+        win       (js-obj "document" doc)]
+    (set! (.-addEventListener win)
+          (fn [event-name handler]
+            (swap! listeners update event-name (fnil conj []) handler)
+            nil))
+    (set! (.-close win)
+          (fn []
+            (reset! closed? true)
+            nil))
+    ;; `closed` is a read-only property in real browsers; on a stub we
+    ;; expose it via a JS getter so `(.-closed win)` reflects the atom.
+    (js/Object.defineProperty
+      win "closed"
+      (js-obj "get" (fn [] @closed?)
+              "configurable" true))
+    {:window    win
+     :listeners listeners
+     :closed?   closed?}))
+
+(defn- seed-popout-state!
+  "Install a synthetic popout-state into the singleton — the equivalent
+  of what `popout!` would install if it had a real browser window
+  available. Returns the seeded state map so the test can assert
+  against its slots."
+  [{:keys [window unmount-fn]}]
+  (let [node    (mk-stub-node)
+        unmount (or unmount-fn (fn [] nil))
+        state   {:ok? true
+                 :window  window
+                 :node    node
+                 :unmount unmount
+                 :mode    :popout}]
+    (reset! @#'mount/popout-state state)
+    state))
+
+(deftest teardown!-clears-popout-state-and-closes-window
+  (testing "rf2-yudol Q1-1: teardown! must invoke the popout's substrate
+            unmount, close the popout window, and reset popout-state to
+            nil. Before the fix popout-state leaked — a subsequent
+            (popout!) returned the stale state whose :window was orphaned."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window closed?]} (mk-stub-popout-window)
+              unmount-calls (atom 0)]
+          (seed-popout-state! {:window     window
+                               :unmount-fn (fn []
+                                             (swap! unmount-calls inc)
+                                             nil)})
+          (is (some? @@#'mount/popout-state)
+              "sanity — popout-state populated")
+          (mount/teardown!)
+          (is (nil? @@#'mount/popout-state)
+              "popout-state cleared by teardown!")
+          (is (= 1 @unmount-calls)
+              "popout's substrate unmount fn invoked exactly once")
+          (is (true? @closed?)
+              "popout window's .close() invoked"))))))
+
+(deftest teardown!-tolerates-already-closed-popout-window
+  (testing "rf2-yudol: if the popout window is already closed (user
+            closed it before teardown! runs), teardown! must not throw
+            and must still clear the singleton and invoke the substrate
+            unmount."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window closed?]} (mk-stub-popout-window)
+              unmount-calls (atom 0)]
+          (reset! closed? true)       ; pretend the user already closed it
+          (seed-popout-state! {:window     window
+                               :unmount-fn (fn []
+                                             (swap! unmount-calls inc)
+                                             nil)})
+          (is (nil? (mount/teardown!))
+              "teardown! returns nil even when the window is already closed")
+          (is (nil? @@#'mount/popout-state))
+          (is (= 1 @unmount-calls)
+              "substrate unmount still invoked"))))))
+
+(deftest teardown!-swallows-popout-unmount-errors
+  (testing "rf2-yudol: a throwing popout unmount must not strand the
+            singleton or the window-close attempt"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window closed?]} (mk-stub-popout-window)]
+          (seed-popout-state!
+            {:window     window
+             :unmount-fn (fn [] (throw (ex-info "popout unmount blew up"
+                                                {:reason :test})))})
+          (is (nil? (mount/teardown!))
+              "teardown returns nil even when popout unmount throws")
+          (is (nil? @@#'mount/popout-state)
+              "popout-state cleared despite the throw")
+          (is (true? @closed?)
+              "popout window still closed despite the throw"))))))
+
+(deftest teardown!-clears-inline-mounts-and-invokes-each-unmount
+  (testing "rf2-yudol Q1-2: teardown! must iterate every entry in
+            inline-mounts, invoke each unmount fn inside an independent
+            swallow-errors guard, and reset the registry to {}."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn unmount-calls]} (mk-render-stub)
+              host-a (mk-stub-node)
+              host-b (mk-stub-node)
+              host-c (mk-stub-node)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/mount-inline-panel! host-a :event-detail)
+            (mount/mount-inline-panel! host-b :trace)
+            (mount/mount-inline-panel! host-c :app-db-diff)
+            (is (= 3 (count @@#'mount/inline-mounts))
+                "sanity — three inline-panel mounts registered")
+            (mount/teardown!)
+            (is (= {} @@#'mount/inline-mounts)
+                "inline-mounts reset to empty map")
+            (is (= 3 @unmount-calls)
+                "every inline-panel unmount fn invoked")
+            (is (nil? (.getAttribute host-a "data-rf-causa-mode"))
+                "data-rf-causa-mode attribute removed from each host node")
+            (is (nil? (.getAttribute host-b "data-rf-causa-mode")))
+            (is (nil? (.getAttribute host-c "data-rf-causa-mode")))))))))
+
+(deftest teardown!-swallows-inline-unmount-errors-independently
+  (testing "if one inline-panel unmount throws, teardown! must still
+            invoke the remaining unmounts and clear the registry. The
+            failure isolation matters because the registry can hold
+            mounts from independent caller sites (story-mode embeds,
+            ad-hoc tool integrations) and one buggy site must not
+            poison the whole teardown."
+    (with-stub-document
+      (fn [_doc]
+        (let [calls (atom 0)
+              host-good-1 (mk-stub-node)
+              host-bad    (mk-stub-node)
+              host-good-2 (mk-stub-node)
+              render-stub (fn [_tree node _opts]
+                            (fn []
+                              (swap! calls inc)
+                              (when (identical? node host-bad)
+                                (throw (ex-info "inline unmount blew up"
+                                                {:reason :test})))))]
+          (with-redefs [substrate-adapter/render render-stub]
+            (mount/mount-inline-panel! host-good-1 :event-detail)
+            (mount/mount-inline-panel! host-bad    :trace)
+            (mount/mount-inline-panel! host-good-2 :app-db-diff)
+            (is (= 3 (count @@#'mount/inline-mounts)))
+            (is (nil? (mount/teardown!))
+                "teardown returns nil even when one inline unmount throws")
+            (is (= 3 @calls)
+                "all three unmount fns attempted despite the middle throw")
+            (is (= {} @@#'mount/inline-mounts)
+                "registry cleared despite the middle throw")))))))
+
+(deftest teardown!-clears-all-three-singletons-in-one-call
+  (testing "rf2-yudol: a single teardown! call clears mount-state +
+            popout-state + inline-mounts together. The fixture between
+            tests pokes these atoms back to baseline; teardown! itself
+            must achieve the same baseline so a test that omits the
+            reset (or a tear-down + re-open sequence inside a single
+            test) starts from a clean slate."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn unmount-calls]} (mk-render-stub)
+              {:keys [window closed?]}          (mk-stub-popout-window)
+              host (mk-stub-node)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (seed-popout-state! {:window     window
+                                 :unmount-fn (fn []
+                                               (swap! unmount-calls inc)
+                                               nil)})
+            (mount/mount-inline-panel! host :event-detail)
+            (is (some? @@#'mount/mount-state))
+            (is (some? @@#'mount/popout-state))
+            (is (= 1 (count @@#'mount/inline-mounts)))
+            (mount/teardown!)
+            (is (nil? @@#'mount/mount-state)
+                "mount-state cleared")
+            (is (nil? @@#'mount/popout-state)
+                "popout-state cleared")
+            (is (= {} @@#'mount/inline-mounts)
+                "inline-mounts cleared")
+            (is (= 3 @unmount-calls)
+                "three unmount fns invoked (in-app shell + popout + one inline)")
+            (is (true? @closed?)
+                "popout window closed by teardown!")))))))
+
+(deftest teardown!-isolation-across-multi-run
+  (testing "rf2-yudol regression guard: two consecutive open!/seed-popout/
+            mount-inline-panel! → teardown! cycles must not leak state.
+            Before the fix the second cycle would observe stale popout-
+            state + inline-mounts entries left over from the first run."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)
+              cycle! (fn []
+                       (let [{:keys [window]} (mk-stub-popout-window)
+                             host             (mk-stub-node)]
+                         (with-redefs [substrate-adapter/render render-fn]
+                           (mount/open!)
+                           (seed-popout-state! {:window window})
+                           (mount/mount-inline-panel! host :event-detail)
+                           (mount/teardown!))))]
+            (cycle!)
+            (is (nil? @@#'mount/mount-state))
+            (is (nil? @@#'mount/popout-state))
+            (is (= {} @@#'mount/inline-mounts))
+            (cycle!)
+            (is (nil? @@#'mount/mount-state)
+                "second cycle's teardown still clears mount-state")
+            (is (nil? @@#'mount/popout-state)
+                "second cycle's teardown still clears popout-state")
+            (is (= {} @@#'mount/inline-mounts)
+                "second cycle's teardown still clears inline-mounts"))))))
+
+;; -------------------------------------------------------------------------
+;; (10) Popout external-close → opener-side cleanup (rf2-yudol)
+;; -------------------------------------------------------------------------
+;;
+;; When the user closes the popout window externally, the opener-side
+;; popout-state singleton MUST be cleared via the pagehide/unload
+;; listener `popout!` registered at mount time. Without this, a
+;; subsequent (popout!) short-circuits on the stale singleton whose
+;; :window has .closed = true.
+
+(defn- register-popout-cleanup!
+  "Test-side accessor for the private fn `register-popout-unload-cleanup!`
+  that `popout!` calls. Per the rf2-yudol fix, this is the listener-
+  registration step we want to exercise directly without standing up a
+  real browser window."
+  [win]
+  ((deref #'mount/register-popout-unload-cleanup!) win))
+
+(deftest popout-registers-unload-listeners-on-popout-window
+  (testing "rf2-yudol: register-popout-unload-cleanup! must register
+            pagehide + unload listeners on the popout window so the
+            opener-side singleton clears when the popout closes
+            externally"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window listeners]} (mk-stub-popout-window)]
+          (seed-popout-state! {:window window})
+          (register-popout-cleanup! window)
+          (is (= 1 (count (get @listeners "pagehide")))
+              "pagehide listener registered on the popout window")
+          (is (= 1 (count (get @listeners "unload")))
+              "unload listener registered on the popout window"))))))
+
+(deftest popout-pagehide-clears-popout-state-and-invokes-unmount
+  (testing "rf2-yudol: firing the popout window's pagehide event must
+            clear popout-state and invoke the substrate unmount fn.
+            Simulates the user closing the popout via the browser's
+            window-close affordance"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window listeners]} (mk-stub-popout-window)
+              unmount-calls (atom 0)]
+          (seed-popout-state! {:window     window
+                               :unmount-fn (fn []
+                                             (swap! unmount-calls inc)
+                                             nil)})
+          (register-popout-cleanup! window)
+          (is (some? @@#'mount/popout-state)
+              "sanity — popout-state populated")
+          ;; Fire the pagehide handler — simulating the user closing
+          ;; the popout via the browser window-close affordance.
+          (let [pagehide-handler (first (get @listeners "pagehide"))]
+            (pagehide-handler (js-obj "type" "pagehide")))
+          (is (nil? @@#'mount/popout-state)
+              "popout-state cleared by the pagehide handler")
+          (is (= 1 @unmount-calls)
+              "substrate unmount fn invoked by the pagehide handler"))))))
+
+(deftest popout-unload-handler-also-clears-popout-state
+  (testing "rf2-yudol: the unload event is the older companion to
+            pagehide — both must clear popout-state for cross-browser
+            coverage"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window listeners]} (mk-stub-popout-window)
+              unmount-calls (atom 0)]
+          (seed-popout-state! {:window     window
+                               :unmount-fn (fn []
+                                             (swap! unmount-calls inc)
+                                             nil)})
+          (register-popout-cleanup! window)
+          (let [unload-handler (first (get @listeners "unload"))]
+            (unload-handler (js-obj "type" "unload")))
+          (is (nil? @@#'mount/popout-state)
+              "popout-state cleared by the unload handler")
+          (is (= 1 @unmount-calls)
+              "substrate unmount fn invoked by the unload handler"))))))
+
+(deftest popout-stale-unload-handler-does-not-nuke-fresh-state
+  (testing "rf2-yudol: a stale unload handler that fires AFTER a fresh
+            popout has replaced the singleton must not nuke the new
+            state. The handler identifies its window via identical?
+            on the :window slot and ignores events that don't match."
+    (with-stub-document
+      (fn [_doc]
+        (let [{window-a :window listeners-a :listeners} (mk-stub-popout-window)
+              {window-b :window}                        (mk-stub-popout-window)]
+          ;; First popout — window-a. Register the cleanup handler.
+          (seed-popout-state! {:window window-a})
+          (register-popout-cleanup! window-a)
+          (is (identical? window-a (:window @@#'mount/popout-state)))
+          ;; Manually clear and seed a fresh popout for window-b. The
+          ;; stale window-a unload handler is still registered against
+          ;; window-a.
+          (reset! @#'mount/popout-state nil)
+          (seed-popout-state! {:window window-b})
+          (is (identical? window-b (:window @@#'mount/popout-state))
+              "fresh popout-state references window-b")
+          ;; Fire the stale window-a unload handler. It must NOT
+          ;; nuke window-b's state.
+          (let [stale-handler (first (get @listeners-a "unload"))]
+            (stale-handler (js-obj "type" "unload")))
+          (is (identical? window-b (:window @@#'mount/popout-state))
+              "stale handler did not nuke the fresh popout state"))))))
