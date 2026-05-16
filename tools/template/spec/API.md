@@ -54,14 +54,21 @@ clojure -X:project/new :template re-frame2 :name acme/my-app \
 | Arg | Required | Meaning | Default |
 |---|---|---|---|
 | `:substrate` | no | One of `:reagent` `:uix` `:helix`. | `:reagent` |
+| `:include-story?` | no | When `true`, scaffolds the Story playground alongside the live app — adds the `day8/re-frame2-story` coord, emits `src/.../stories.cljs`, and swaps the entry `core.cljs` for the hash-routing `core_with_stories.cljs` variant. **Reagent only in v1** — non-Reagent substrates throw a clear error (UIx + Helix follow once those variants' app-shells catch up to Reagent's). | `false` |
 
 `:substrate` accepts a keyword, a string (with or without leading
 `:`), or a symbol. The template coerces to a keyword internally.
 Anything not in the valid set throws.
 
-Future toggles (`:include-story?`, `:include-10x?`,
-`:include-routing?`) would slot in as additional `:edn-args`
-entries. None ship in v1.
+`:include-story?` accepts `true` / `false` / `nil`; anything else
+throws. The branching exception is justified in
+[`000-Vision.md`](000-Vision.md) §Non-goals and
+[`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §No-Story-yet — flags
+are permitted when they enable optional shared scaffolding whose
+absence would force the user into hand-wiring known idioms.
+
+Future toggles (`:include-10x?`, `:include-routing?`) would slot in
+as additional `:edn-args` entries. None ship in v1.
 
 ## Why `:edn-args`
 
