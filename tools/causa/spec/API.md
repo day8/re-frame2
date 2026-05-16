@@ -16,14 +16,47 @@ wins.
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-The preload:
+Loading the preload runs the foundation's six side-effects — all
+gated on `interop/debug-enabled?` so production bundles strip them
+via Closure DCE, and all idempotent so shadow-cljs's `:after-load`
+cycle re-runs without double-registration:
 
-1. Registers Causa's trace listener via `re-frame.core/register-trace-cb!`.
-2. Registers Causa's epoch listener via `re-frame.core/register-epoch-cb!`.
-3. Mounts a hidden `<div id="causa-root">` into `document.body`.
-4. Listens for `Ctrl+Shift+C` (toggle) and the floating-pill click.
-5. Reads localStorage for theme / density / AI-provider settings.
-6. Boots the React root with the closed-by-default panel state.
+1. Registers Causa's `:rf.causa/*` subs / events / fxs via
+   `registry/register-causa-handlers!`.
+2. Registers the trace collector under `:rf.causa/trace-collector`
+   via `re-frame.core/register-trace-cb!` (sentinel-guarded).
+3. Registers the epoch-settle pump under `:rf.causa/epoch-collector`
+   via `re-frame.core/register-epoch-cb!` (sentinel-guarded; no-op
+   when the `day8/re-frame2-epoch` artefact is absent).
+4. Installs the dev-only browser API on `window.day8.re_frame2_causa.*`
+   (`open!`, `toggle!`, `popout!`, `status`, …).
+5. Attaches the global keydown listeners — `Ctrl+Shift+C` (toggle
+   shell) and `Ctrl+Shift+/` (AI co-pilot rail).
+6. Auto-opens the shell **true-inline** into the host app's
+   normal-flow layout host (`[data-rf-causa-host]` by default) once
+   the substrate adapter is ready — per rf2-eehov, this is the
+   default landing posture. There is no floating pill, no body
+   mount, no closed-by-default panel state, and no viewport overlay
+   in the default path. Auto-open is suppressed when the host has
+   set `(causa-config/configure! {:launch/auto-open? false})`
+   before adapter readiness (e.g. Story-only tool pages).
+
+The layout host is sized by the host's stylesheet; the recommended
+rule reads `var(--rf-causa-inline-width, 420px)` for its
+`flex-basis` so developers can resize the inline panel by
+overriding a single CSS custom property anywhere up the cascade
+(rf2-um813). Causa itself does not read or set the property — the
+host's stylesheet is the single source of truth for inline width.
+
+If the layout host selector cannot be found after adapter
+readiness, the preload reports the missing host via
+`console.error` and `window.day8.re_frame2_causa.status()` and
+leaves host startup unblocked.
+
+For the full mount lifecycle, layout-host contract, launch matrix,
+suppression knob, and legacy overlay / popout postures, see
+[`011-Launch-Modes.md`](./011-Launch-Modes.md) and the repo-root
+`README.md`'s install section.
 
 ### Force-disable
 
