@@ -1004,6 +1004,147 @@ module.exports = {
       );
     });
 
+    await scenario(page, 'reg-workspace-layouts-and-unknown-rf2-u2ztw', async () => {
+      /*
+       * Case-1 follow-on (rf2-u2ztw) — reg-workspace feature-gate
+       * beyond the matrix bookkeeping baseline.
+       *
+       * The counter testbed registers five workspaces covering
+       * every Spec 008 §Workspace layout:
+       *   - :Workspace.counter/all-states     :grid
+       *   - :Workspace.counter/auto-grid      :variants-grid
+       *   - :Workspace.counter/tabs           :tabs
+       *   - :Workspace.counter/prose          :prose
+       *   - :Workspace.counter/custom         :custom
+       *
+       * The terminal :kgn0c walk already exercises grid /
+       * variants-grid / tabs round-trips for the stale-subscribe
+       * regression. This walk targets the remaining layouts (prose,
+       * custom) plus the unknown-workspace empty branch:
+       *
+       *   - :prose layout mounts mixed prose blocks AND variant cells
+       *     in declared order; the rendered <section> aria-label
+       *     embeds the workspace id; the layout name is in the
+       *     workspace title (per workspace-view rendering)
+       *   - :custom layout mounts ONE cell that surfaces the
+       *     configured :render id verbatim ("custom render: :foo")
+       *     — the resolve-layout :custom branch's single-cell
+       *     pass-through (workspace.cljc resolve-layout)
+       *   - unknown workspace: programmatically selecting a not-
+       *     registered id via re_frame.story.ui.state/select-
+       *     workspace renders the workspace-view's `(nil? body)`
+       *     fallback ("workspace :foo is not registered") inside
+       *     a still-mounted <section> landmark — degraded by rule,
+       *     no exception, shell still interactive.
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // (a) :prose layout — interleaves two prose blocks with a
+      // variant cell.
+      const proseRow = page.getByRole('navigation').getByText('Workspace.counter/prose', { exact: false }).first();
+      await proseRow.waitFor({ state: 'visible', timeout: 10000 });
+      await proseRow.click();
+      const proseSection = page.locator('main section[aria-label="Workspace :Workspace.counter/prose"]');
+      await proseSection.waitFor({ state: 'visible', timeout: 10000 });
+      // The two prose blocks render as inline-styled <div>s with
+      // the configured body text. Anchor on the prose strings the
+      // testbed registered.
+      await expectVisible(
+        proseSection.getByText('Story matrix prose block before the example', { exact: false }).first(),
+        5000,
+      );
+      await expectVisible(
+        proseSection.getByText('Story matrix prose block after the example', { exact: false }).first(),
+        5000,
+      );
+      // One variant cell mounts inside the prose-flow container.
+      await waitForValue(
+        () => proseSection.locator('[data-test-variant]').count(),
+        (count) => count === 1,
+        {
+          timeoutMs: 10000,
+          description: 'prose workspace mounts exactly one variant cell beside its two prose blocks',
+        },
+      );
+      // The cell's variant carries its own variant-id stamp (per
+      // workspace.cljc :data-test-variant attribute).
+      const proseCellId = await proseSection
+        .locator('[data-test-variant]')
+        .first()
+        .getAttribute('data-test-variant');
+      if (proseCellId !== ':story.counter/loaded') {
+        throw new Error(
+          `prose workspace's variant cell carries data-test-variant=${proseCellId}; ` +
+            `expected ':story.counter/loaded' per the workspace body.`,
+        );
+      }
+
+      // (b) :custom layout — a single cell surfacing the registered
+      // :render id verbatim. The cell's text starts with "custom
+      // render: " per workspace-view's :custom branch.
+      const customRow = page.getByRole('navigation').getByText('Workspace.counter/custom', { exact: false }).first();
+      await customRow.waitFor({ state: 'visible', timeout: 10000 });
+      await customRow.click();
+      const customSection = page.locator('main section[aria-label="Workspace :Workspace.counter/custom"]');
+      await customSection.waitFor({ state: 'visible', timeout: 10000 });
+      await expectVisible(
+        customSection.getByText(/custom render: :counter-with-stories\.views\/counter-card/i).first(),
+        5000,
+      );
+
+      // (c) Unknown workspace — programmatically swap shell state
+      // to select an unregistered workspace id. The workspace-view's
+      // (nil? body) branch renders "workspace :Workspace.counter/
+      // does-not-exist is not registered" inside a still-mounted
+      // <section aria-label="Workspace">. No exception, shell still
+      // interactive.
+      await page.evaluate(() => {
+        const state = window.re_frame.story.ui.state;
+        const kw = window.cljs.core.keyword;
+        state.swap_state_BANG_.call(
+          null,
+          state.select_workspace,
+          kw('Workspace.counter', 'does-not-exist'),
+        );
+      });
+      const unknownSection = page.locator('main section[aria-label="Workspace"]');
+      await unknownSection.waitFor({ state: 'visible', timeout: 5000 });
+      await expectVisible(
+        unknownSection.getByText(
+          /workspace :Workspace\.counter\/does-not-exist is not registered/i,
+        ).first(),
+        5000,
+      );
+      // Shell sidebar landmark still mounted and interactive (proves
+      // the unknown selection didn't crash the chrome).
+      await expectVisible(page.getByRole('navigation'), 5000);
+      await expectVisible(page.getByRole('complementary'), 5000);
+
+      // Round-trip back to a registered workspace to confirm the
+      // shell recovers from the unknown selection without manual
+      // refresh.
+      await page.evaluate(() => {
+        const state = window.re_frame.story.ui.state;
+        const kw = window.cljs.core.keyword;
+        state.swap_state_BANG_.call(
+          null,
+          state.select_workspace,
+          kw('Workspace.counter', 'all-states'),
+        );
+      });
+      const recovered = page.locator('main section[aria-label="Workspace :Workspace.counter/all-states"]');
+      await recovered.waitFor({ state: 'visible', timeout: 10000 });
+      await waitForValue(
+        () => recovered.locator('[data-rf-story-variant-root]').count(),
+        (count) => count >= 1,
+        {
+          timeoutMs: 10000,
+          description: 'shell recovers from unknown-workspace selection by re-mounting a registered workspace',
+        },
+      );
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
