@@ -31,7 +31,17 @@
             ;; semantics rule 4 + Resolved decisions, rf2-0q0du).
             ;; This prod-elision test pins the production-survival
             ;; contract under `:advanced` + `goog.DEBUG=false`.
-            [re-frame.flow-eval-exception-elision-prod-test]))
+            [re-frame.flow-eval-exception-elision-prod-test]
+            ;; Per rf2-xxd6z — runtime prod-elision pins for the
+            ;; routing / http / flows trace-emit surfaces. Companion
+            ;; behavioural check to the string-grep sentinel sweep in
+            ;; `scripts/check-elision.cjs`; pins that no `:rf.route/*`
+            ;; / `:rf.http/*` / `:rf.flow/*` events are delivered to a
+            ;; registered trace listener under `:advanced` +
+            ;; `goog.DEBUG=false`.
+            [re-frame.routing-trace-emit-elision-prod-test]
+            [re-frame.http-trace-emit-elision-prod-test]
+            [re-frame.flows-trace-emit-elision-prod-test]))
 
 (defn ^:export init []
   (-> (env/get-test-data)
