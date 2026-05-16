@@ -261,22 +261,20 @@
             middleware composition, tool-then-watcher fan-out) MUST NOT
             re-leak a sensitive value across passes.
 
-            NOTE — the :large? marker is NOT idempotent under repeated
-            projection: the marker is a map carrying `:path` / `:bytes`
-            / `:digest` / `:handle`, and the walker re-walks the marker
-            on the next pass (the slot's path still matches the
-            schema-declared :large? declaration), producing a new marker
-            map whose `:bytes` reflects the printed length of the
-            previous marker. Spec Security.md does not promise large-
-            marker idempotence and a real forwarder pipeline that
-            double-projects across a large slot is itself a bug to fix.
-            See rf2-pk8ur-followon idempotence-under-large-markers bead.
+            Sibling test `forwarder-projected-record-is-large-idempotent`
+            pins the parallel guarantee for the :large? marker: the
+            wire-elision walker is now marker-aware (per rf2-fq8ep), so
+            both the sensitive and large substitutions are uniformly
+            idempotent under repeated projection. The sensitive case
+            holds because `:rf/redacted` is a non-matchable scalar; the
+            large case holds because the walker recognises its own
+            `:rf.size/large-elided` marker shape at the declared path
+            and passes it through unchanged.
 
-            What an MCP forwarder relies on: the sensitive substitution
-            is irreversible across passes — once `:rf/redacted`, always
-            `:rf/redacted`. The large marker is shape-stable on the
-            FIRST projection pass (which is the only pass a correctly-
-            implemented forwarder runs)."
+            What an MCP forwarder relies on: BOTH substitutions are
+            irreversible across passes. Once a record has been projected,
+            re-projecting it yields the same shape, byte-for-byte at
+            the substitution points."
     (rf/reg-frame :test/mcp {})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
@@ -301,6 +299,60 @@
           "the secret is still absent after three projection passes —
            the MCP forwarder's no-leak guarantee holds even under
            accidental double-projection"))))
+
+(deftest forwarder-projected-record-is-large-idempotent
+  (testing "MCP forwarder pattern: under :large? substitutions
+            `projected-record` is idempotent — re-projecting a record
+            whose `:large?`-declared path already carries the
+            `:rf.size/large-elided` marker MUST return a structurally-
+            equal value at that slot. Per rf2-fq8ep, the wire-elision
+            walker is marker-aware: when it encounters a value at a
+            `:large?`-declared path that already satisfies
+            `elision/marker?`, it passes the value through unchanged
+            rather than re-marking it.
+
+            Why this matters: without the guard, a second projection
+            pass produced a new marker map whose `:bytes` reflected the
+            printed length of the previous marker (not the original
+            payload), and the `:digest` rotated similarly. Forwarder
+            pipelines that accidentally double-project (middleware
+            composition, tool-then-watcher fan-out) would have shipped
+            drifting `:bytes` / `:digest` slots across passes — a
+            recordkeeping wobble, not a leak, but it broke fingerprint-
+            based dedup and confused consumers.
+
+            With the marker-aware walker, the large marker is now
+            irreversible across passes: once `:rf.size/large-elided`,
+            always `:rf.size/large-elided` with the SAME `:bytes` /
+            `:digest` slots. Parallel to the sensitive-case guarantee."
+    (rf/reg-frame :test/mcp {})
+    (install-mcp-style-schemas! :test/mcp)
+    (drive-mixed-ring! :test/mcp)
+    (let [raw    (rf/epoch-history :test/mcp)
+          once   (mapv epoch/projected-record raw)
+          twice  (mapv epoch/projected-record once)
+          thrice (mapv epoch/projected-record twice)
+          ;; The :upload cascade is the third one driven (index 2):
+          ;; that record is the one whose :db-after carries the large
+          ;; payload at the schema-declared `[:blob :payload]` slot.
+          large-slot (fn [r] (get-in r [:db-after :blob :payload]))]
+      (is (elision/marker? (large-slot (nth once 2)))
+          "first projection pass substitutes a marker at the large slot")
+      (is (= (large-slot (nth once 2))
+             (large-slot (nth twice 2)))
+          "second projection pass returns the SAME marker (byte-identical
+           :bytes / :digest / :path) — the walker passed it through
+           unchanged rather than re-marking the marker map")
+      (is (= (large-slot (nth once 2))
+             (large-slot (nth thrice 2)))
+          "third projection pass remains byte-identical — the large
+           marker is irreversible across passes, matching the
+           sensitive-case guarantee")
+      (is (= once twice thrice)
+          "across the full record vector, every slot is byte-identical
+           across N>=2 projection passes — projected-record is now
+           uniformly idempotent under both :sensitive? and :large?
+           substitutions"))))
 
 (deftest forwarder-projected-record-handles-mixed-nil-and-real-records
   (testing "MCP forwarder pattern: projected-record returns nil for nil
