@@ -43,6 +43,19 @@
             [day8.re-frame2-causa-mcp.tools.get-epoch-history]
             [day8.re-frame2-causa-mcp.tools.get-app-db]
             [day8.re-frame2-causa-mcp.tools.get-app-db-diff]
+            ;; T-Mut tranche (rf2-8xzoe.23..25) — Class-1 named mutations.
+            [day8.re-frame2-causa-mcp.tools.dispatch]
+            [day8.re-frame2-causa-mcp.tools.restore-epoch]
+            [day8.re-frame2-causa-mcp.tools.reset-frame-db]
+            ;; T-Stream tranche (rf2-8xzoe.26..28) — per-drain-batch streaming.
+            [day8.re-frame2-causa-mcp.tools.subscribe]
+            [day8.re-frame2-causa-mcp.tools.unsubscribe]
+            [day8.re-frame2-causa-mcp.tools.list-subscriptions]
+            ;; T-Eval tranche (rf2-8xzoe.29) — --allow-eval-gated escape hatch.
+            [day8.re-frame2-causa-mcp.tools.eval-cljs]
+            ;; T-Meta tranche (rf2-8xzoe.30..31) — health + build-tail.
+            [day8.re-frame2-causa-mcp.tools.discover-app]
+            [day8.re-frame2-causa-mcp.tools.tail-build]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------

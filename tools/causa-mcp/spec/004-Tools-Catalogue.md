@@ -400,3 +400,424 @@ declared-sensitive paths are scrubbed before path-comparison.
 `get-app-db`). Default fallback `:narrow-filter`.
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_app_db_diff.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs).
+
+## Mutation band
+
+Mutation-band tools change framework state. Per `004-Wire-Pipeline.md`
+§Authority classes, **Class-1 named mutations** (`dispatch`,
+`restore-epoch`, `reset-frame-db`) carry **no per-call consent
+gate** — consent is the server-launch enable signal. Every mutation
+routes through the framework's normal dispatch / restore / reset
+cascade; the runtime stamps `:tags :origin :causa-mcp` on emitted
+traces via the `*current-origin*` dynamic binding (B-3 of the
+wire-pipeline tranche). Trace egress from a mutation's cascade is
+read via `subscribe :trace` (T-Stream-1) or the next
+`get-trace-buffer` call.
+
+### dispatch (T-Mut-1, rf2-8xzoe.23)
+
+Fire a re-frame event through the frame's normal dispatch cascade.
+Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
+§Part 1 bead #23.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:event` | EDN-vec str | **required** | event vector, e.g. `"[:cart/add 42]"` |
+| `:frame` | keyword | nil | scope to one frame; nil → sole frame |
+| `:sync?` | bool | false | `:sync` (true) vs `:queued` (false) |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :event-id <kw>
+ :frame    <kw>
+ :origin   :causa-mcp
+ :mode     <:queued|:sync>}
+```
+
+**Failure envelopes:**
+
+- `{:ok? false :reason :missing-event :hint ...}`
+- `{:ok? false :reason :event-malformed :given <s> :hint ...}`
+- `{:ok? false :reason :not-an-event-vector :hint ...}` — parsed
+  value isn't a vector.
+- `{:ok? false :reason :no-frame-resolved :hint ...}` — multi-frame
+  app without an explicit `:frame` arg.
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — the
+mutation envelope is small; overflow would only happen with
+pathological runtime auxiliary metadata).
+
+Implementation: [`tools/causa-mcp/src/.../tools/dispatch.cljs`](../src/day8/re_frame2_causa_mcp/tools/dispatch.cljs).
+
+### restore-epoch (T-Mut-2, rf2-8xzoe.24)
+
+Rewind a frame's `app-db` to the named epoch's `:db-after` via
+`re-frame.core/restore-epoch`. Bound by the Tool-Pair §Time-travel
+restore contract: returns `:ok? true` on success, `:ok? false`
+with `:reason :rf.epoch/restore-failed` on any of the six
+documented failure rows. The per-row `:rf.epoch/*` keyword surfaces
+on the trace bus (read via `get-trace-buffer` or `subscribe :trace`)
+— the tool envelope intentionally does not double-project it (the
+framework wrapper returns a plain boolean; the row already lives
+on the bus). Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #24.
+
+**Six-row failure table** (read off the trace bus by `:op-type`):
+
+| Row | Trace `:op-type` keyword |
+|---|---|
+| unknown frame | `:rf.error/no-such-handler` (kind `:frame`) |
+| unknown epoch | `:rf.epoch/restore-unknown-epoch` |
+| schema mismatch | `:rf.epoch/restore-schema-mismatch` |
+| missing handler | `:rf.epoch/restore-missing-handler` |
+| version mismatch | `:rf.epoch/restore-version-mismatch` |
+| restore during drain | `:rf.epoch/restore-during-drain` |
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:epoch-id` | string | **required** | epoch-id from `get-epoch-history` |
+| `:frame` | keyword | nil | scope to one frame; nil → sole frame |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (success):**
+
+```clojure
+{:ok? true :frame <kw> :epoch-id <id> :origin :causa-mcp}
+```
+
+**Return shape (failure):**
+
+```clojure
+{:ok? false :frame <kw> :epoch-id <id> :origin :causa-mcp
+ :reason :rf.epoch/restore-failed
+ :hint "Restore failed — read the trace bus for the structured :rf.epoch/* row."}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/restore_epoch.cljs`](../src/day8/re_frame2_causa_mcp/tools/restore_epoch.cljs).
+
+### reset-frame-db (T-Mut-3, rf2-8xzoe.25)
+
+Re-inject a value into a frame's `app-db`, bypassing the dispatch
+cascade. Schema-validates against registered app-db schemas via
+`re-frame.core/reset-frame-db!`. Same projection rationale as
+`restore-epoch`: the framework wrapper returns a boolean, the per-row
+`:rf.epoch/*` keyword lives on the trace bus, this tool surfaces
+`:rf.epoch/reset-failed` and points at the bus. Every reset rides
+the restore-audit ring tagged `:origin :causa-mcp`. Source-coord
+pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
+bead #25.
+
+**Three-row failure table** (read off the trace bus):
+
+| Row | Trace `:op-type` keyword |
+|---|---|
+| unknown frame | `:rf.error/no-such-handler` (kind `:frame`) |
+| reset during drain | `:rf.epoch/reset-frame-db-during-drain` |
+| schema mismatch | `:rf.epoch/reset-frame-db-schema-mismatch` |
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:value` | EDN-map str | **required** | the new `app-db` value |
+| `:frame` | keyword | nil | scope to one frame; nil → sole frame |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (success):**
+
+```clojure
+{:ok? true :frame <kw> :origin :causa-mcp}
+```
+
+**Return shape (failure):**
+
+```clojure
+{:ok? false :frame <kw> :origin :causa-mcp
+ :reason :rf.epoch/reset-failed
+ :hint "Reset failed — read the trace bus for the structured :rf.epoch/* row."}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/reset_frame_db.cljs`](../src/day8/re_frame2_causa_mcp/tools/reset_frame_db.cljs).
+
+## Streaming band
+
+Streaming-band tools surface push-mode data over an MCP `tools/call`
+that stays open across many polling ticks. The contract surface is
+**per-drain-batch port-pinning** (the cross-MCP wire-batching idiom):
+one `tools/call` ↔ one `progressToken` ↔ one stream of
+`notifications/progress` ticks ↔ one terminal summary on close. The
+agent reads ticks correlated by `progressToken` and pattern-matches
+on the terminal envelope's `:reason` slot to discover why the stream
+closed.
+
+### subscribe (T-Stream-1, rf2-8xzoe.26)
+
+Open a per-drain-batch streaming subscription on topic `:trace`,
+`:epoch`, `:fx`, or `:error`. The `tools/call` stays open until the
+client aborts, `:max-events` / `:max-ms` is reached, or `unsubscribe`
+is called. Each non-empty polling tick emits one
+`notifications/progress` notification carrying the batch's events;
+the terminal `tools/call` result is a summary with cumulative
+`:delivered` + `:ticks` + `:reason`. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #26.
+
+**Topic → trace-bus projection:**
+
+| Topic | Source |
+|---|---|
+| `:trace` | full trace buffer; `:op-type` filter optional |
+| `:epoch` | trace events with `:op-type :epoch/closed` |
+| `:fx` | trace events with `:op-type :fx/run` |
+| `:error` | issue-tier events (`:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`) |
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:topic` | keyword | **required** | one of `:trace :epoch :fx :error` |
+| `:filter` | map | nil | per-topic Spec 009 filter |
+| `:frame` | keyword | nil | scope to one frame |
+| `:poll-ms` | int | 100 | polling cadence |
+| `:max-events` | int | 0 | terminate after N events (0 = unbounded) |
+| `:max-ms` | int | 0 | terminate after N ms (0 = unbounded) |
+| `:include-sensitive?` | bool | false | opt back in to `:sensitive? true` |
+| `:include-large?` | bool | false | passes to runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Per-tick `notifications/progress` payload:**
+
+```clojure
+;; progressToken correlated to the originating tools/call
+{:progressToken <token>
+ :progress      <tick-int>
+ :message       (pr-str {:sub-id <uuid>
+                         :events [<event> ...]
+                         :dropped-sensitive <int?>
+                         :elided-large <int?>})}
+```
+
+**Terminal `tools/call` result:**
+
+```clojure
+{:ok? true
+ :sub-id <uuid>
+ :topic <kw>
+ :delivered <int>
+ :ticks <int>
+ :reason <:aborted|:max-events-reached|:max-ms-reached|:unsubscribed>
+ :dropped-sensitive <int?>
+ :elided-large <int?>}
+```
+
+**Failure envelopes:**
+
+- `{:ok? false :reason :unknown-topic :given <s> :hint ...}` — topic
+  not in `{:trace :epoch :fx :error}`.
+- `{:ok? false :reason :runtime-not-preloaded :hint <setup>}` —
+  Causa-the-panel preload isn't loaded.
+
+**Cap-reached hint:** `:paginate` (default fallback `:narrow-filter`)
+— shorten the stream via `:max-events` / `:max-ms`, or narrow the
+`:filter`.
+
+Implementation: [`tools/causa-mcp/src/.../tools/subscribe.cljs`](../src/day8/re_frame2_causa_mcp/tools/subscribe.cljs).
+
+### unsubscribe (T-Stream-2, rf2-8xzoe.27)
+
+Close a streaming subscription by `:sub-id`. Idempotent: re-calling
+for an already-closed sub-id returns `:existed? false`. An open
+`subscribe` `tools/call` observes the missing sub-id on its next
+polling tick and resolves with `:reason :unsubscribed`. Source-coord
+pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
+bead #27.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:sub-id` | string | **required** | sub-id from a prior `subscribe` |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true :sub-id <uuid> :existed? <bool>}
+```
+
+**Failure envelopes:**
+
+- `{:ok? false :reason :missing-sub-id :hint ...}` — `:sub-id`
+  arg absent / blank (returned as `isError`).
+- `{:ok? false :reason :runtime-not-preloaded :hint <setup>}` —
+  Causa-the-panel preload isn't loaded.
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/unsubscribe.cljs`](../src/day8/re_frame2_causa_mcp/tools/unsubscribe.cljs).
+
+### list-subscriptions (T-Stream-3, rf2-8xzoe.28)
+
+Diagnostic enumerating active streaming subscriptions. The
+**eighteenth** tool added by DESIGN-RATIONALE Lock #12 (rf2-3we2k).
+Useful when a streaming probe seems quiet (confirm the sub is still
+registered) or when pruning leaked subs across crashed `subscribe`
+calls. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #28.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:topic` | keyword | nil | filter to one topic |
+| `:sub-id` | string | nil | filter to one sub-id |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :subs [{:id <uuid> :topic <kw> :filter <map>
+         :origin <kw> :created-at <ms>} ...]
+ :count <int>
+ :elided-large <int?>}
+```
+
+**Cap-reached hint:** `:narrow-filter` — pass `:topic` to scope the
+enumeration to one topic.
+
+Implementation: [`tools/causa-mcp/src/.../tools/list_subscriptions.cljs`](../src/day8/re_frame2_causa_mcp/tools/list_subscriptions.cljs).
+
+## Meta band
+
+Meta-band tools serve the introspection / escape-hatch / build-time
+diagnostic surfaces — `discover-app` (health summary), `eval-cljs`
+(arbitrary CLJS evaluation, `--allow-eval` gated), `tail-build`
+(hot-reload landed signal).
+
+### eval-cljs (T-Eval-1, rf2-8xzoe.29)
+
+Evaluate an arbitrary CLJS form in the host runtime. **GATED behind
+`--allow-eval` at server launch** (sibling to pair2-mcp's
+`rf2-cxx5s` gate; default OFF in published builds). When the gate is
+OFF, the tool returns `:rf.error/eval-cljs-disabled` refusal
+envelope without touching the nREPL socket. When ON, the form runs
+inside a `(binding [*current-origin* :causa-mcp] ...)` wrapper so
+**synchronous-extent** mutations tag `:origin :causa-mcp` —
+async-extent handlers fired AFTER the user-form returns do NOT
+inherit the binding (the documented Lock #4 / I6 async-tagging gap).
+The result routes through `re-frame.core/elide-wire-value`; privacy
++ size scrub still apply unless `:include-sensitive?` /
+`:include-large?` opt out. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #29.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:form` | string | **required** | CLJS source string to eval |
+| `:include-sensitive?` | bool | false | passes to runtime walker |
+| `:include-large?` | bool | false | passes to runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (enabled):**
+
+```clojure
+{:ok? true :value <edn>
+ :elided-large <int?>}
+```
+
+**Refusal shape (default — gate OFF):**
+
+```clojure
+{:ok?    false
+ :reason :rf.error/eval-cljs-disabled
+ :hint   "eval-cljs is disabled by default for security; pass --allow-eval at server launch to opt in."}
+```
+
+**Cap-reached hint:** `:narrow-filter` — narrow the form to return
+less data.
+
+Implementation: [`tools/causa-mcp/src/.../tools/eval_cljs.cljs`](../src/day8/re_frame2_causa_mcp/tools/eval_cljs.cljs).
+
+### discover-app (T-Meta-1, rf2-8xzoe.30)
+
+One-call summary of the runtime's view of the world — preload status,
+debug-enabled flag, registered frames (and ambiguity flag),
+source-coord annotation status, `--allow-eval` gate state. Use as
+the first call of every session to confirm the environment is
+healthy. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #30.
+
+**Warning ladder** (fail-loud-but-useful):
+
+1. `:debug-disabled` (production build; trace/epoch elided) — `:ok? false`.
+2. `:no-frames-registered` (call `rf/init!`) — `:ok? false`.
+3. `:ambiguous-frame` (multi-frame; mutating ops need `:frame`) — `:ok? true` with `:warning`.
+4. `:no-source-coord-annotation` (DOM coord annotation not enabled) — `:ok? true` with `:warning`.
+5. otherwise `:ok? true` with no warning.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (healthy):**
+
+```clojure
+{:ok? true
+ :session-id <uuid>
+ :debug-enabled? <bool>
+ :frames <vec>
+ :ambiguous-frame? <bool>
+ :coord-annotation-enabled? <bool>
+ :origin :causa-mcp
+ :eval-cljs-enabled? <bool>
+ :build-id <kw>}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — health
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/discover_app.cljs`](../src/day8/re_frame2_causa_mcp/tools/discover_app.cljs).
+
+### tail-build (T-Meta-2, rf2-8xzoe.31)
+
+Wait for a shadow-cljs hot-reload to land. Two modes:
+
+- **Probe mode** (default when `:probe` supplied) — poll the user's
+  `:probe` form's value; resolve when it changes (signaling the
+  reload completed) or `:reason :timed-out` after `:wait-ms`. A
+  timeout typically means a compile error (the operator can look at
+  the shadow-cljs build log).
+- **Soft-delay mode** (no `:probe`) — resolve after a fixed 300ms
+  delay; gives the bundle-swap cycle a chance to complete without
+  instrumenting a probe.
+
+Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
+§Part 1 bead #31.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:probe` | string | nil | CLJS source whose value-change signals reload |
+| `:wait-ms` | int | 5000 | timeout for probe-mode |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+;; probe mode — change detected
+{:ok? true :t <ms> :soft? false}
+
+;; probe mode — timeout
+{:ok? false :reason :timed-out :timed-out? true :note <s>}
+
+;; soft-delay mode
+{:ok? true :t <ms> :soft? true :note <s>}
+
+;; probe eval threw
+{:ok? false :reason :probe-failed :message <s>}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is tiny scalars).
+
+Implementation: [`tools/causa-mcp/src/.../tools/tail_build.cljs`](../src/day8/re_frame2_causa_mcp/tools/tail_build.cljs).

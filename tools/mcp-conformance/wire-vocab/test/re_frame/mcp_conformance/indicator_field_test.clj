@@ -374,10 +374,25 @@
   - `elision.cljs` — auxiliary `stamp-elided-large` helper (parallel to
                      `privacy/stamp-dropped-sensitive`). Same posture —
                      a sibling stamper composed by the elision boundary
-                     when running independently of `wire/with-indicators`."
+                     when running independently of `wire/with-indicators`.
+  - `tools/subscribe.cljs` — per-stream rolling-accumulator atom holds
+                             the indicator counts as INTERNAL state
+                             slots (`{:dropped-sensitive 0 :elided-large 0}`
+                             in `initial-state`; bumped in `merge-tick`).
+                             Egress emits route through
+                             `wire/with-indicators` in `final-summary`
+                             (terminal summary) and `emit-progress-tick!`
+                             (per-tick `notifications/progress`). The
+                             internal slot names align with the egress
+                             slot names by convention (no rename layer)
+                             but the actual emit path goes through the
+                             helper. Mirrors pair2-mcp's
+                             `subscribe.cljs` whitelist entry (same
+                             rationale)."
   #{"tools/causa-mcp/src/day8/re_frame2_causa_mcp/wire.cljs"
     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/privacy.cljs"
-    "tools/causa-mcp/src/day8/re_frame2_causa_mcp/elision.cljs"})
+    "tools/causa-mcp/src/day8/re_frame2_causa_mcp/elision.cljs"
+    "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/subscribe.cljs"})
 
 (defn- mcp-source-files
   "Walk `src-rel` (a repo-relative subdir) and return every `.cljs`
