@@ -508,13 +508,11 @@ Layers 2 and 3 are tooling, not specification, but are first-class deliverables 
 
 These remain open at 000. Per-Spec documents track narrower open questions in their own appendices.
 
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Event-id re-registration warnings" classifies as **`:still-blocking`** for design polish at the 000-Vision tier — the load-bearing prose lives at [002 §Open questions — Event-id collisions on re-registration](002-Frames.md#event-id-collisions-on-re-registration), where the same item is classified the same way. The `~~Audit the re-frame.alpha namespace~~` entry that previously lived here as a strike-through pointer has been migrated to `## Resolved decisions` per SA-4's migration rule.
+
 ### Event-id re-registration warnings
 
 Hot-reloading the same handler under the same id is normal and expected (figwheel/shadow-cljs save). But re-registering with a *different* function — accidentally, e.g. two namespaces colliding on `:save` — is silent last-write-wins. Open: how loud should re-frame2 warn at registration time, and is the warning on by default? Linked: [002 §Open questions — Event-id collisions on re-registration](002-Frames.md#event-id-collisions-on-re-registration).
-
-### ~~Audit the `re-frame.alpha` namespace~~ — *resolved by [§re-frame.alpha is dissolved](#re-framealpha-is-dissolved-rf2-7cb2--rf2-s9dn) below.*
-
-The audit landed; the disposition is dissolution rather than promotion. See [Resolved decisions §re-frame.alpha is dissolved](#re-framealpha-is-dissolved-rf2-7cb2--rf2-s9dn) below for what each of the surveyed symbols mapped to.
 
 ## Resolved decisions
 

@@ -1022,13 +1022,15 @@ Per-host adapters for non-CLJS implementations ship as separate packages, implem
 
 ## Open questions
 
-### Cooperative rendering substrate
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Cooperative rendering substrate" classifies as **`:post-v1 tracked`** (tracked at rf2-8fyig — deferred to a later cycle's benefits-vs-cost evaluation); "Multi-adapter coexistence" classifies as **`:post-v1 tracked`** (tracked at rf2-uipko — additive on the v1 single-adapter contract once a concrete use case emerges).
 
-A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle.
+### Cooperative rendering substrate (post-v1, rf2-8fyig)
 
-### Multi-adapter coexistence
+A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle. Deferred to rf2-8fyig.
 
-The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract.
+### Multi-adapter coexistence (post-v1, rf2-uipko)
+
+The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to rf2-uipko.
 
 ## Resolved decisions
 

@@ -1,29 +1,31 @@
 # `testbeds/large-dispatcher`
 
-Four handlers each commit a value to a path whose wire-elision is
-governed by a different one of the three nomination paths defined in
-[spec/009 §Nomination — three entry points](../../spec/009-Instrumentation.md).
-A consumer (Causa, Story, pair2-mcp) reads the surface to verify
-the wire-boundary walker substitutes the `:rf.size/large-elided`
-marker on the appropriate slot under each path.
+Four handlers exercise the schema-first wire-elision surface defined
+in [spec/009 §Size elision in traces](../../spec/009-Instrumentation.md).
+Three buttons write to schema-declared `:large?` slots and one button
+writes to an undeclared slot to exercise the
+`:rf.warning/large-value-unschema'd` dev-mode advisory. A consumer
+(Causa, Story, pair2-mcp) reads the surface to verify the
+wire-boundary walker substitutes the `:rf.size/large-elided`
+marker on the appropriate slot.
 
-## The four nomination paths
+## The four buttons
 
-| Button | `data-testid` | Path written | Mechanism | Payload size | Why it elides |
+| Button | `data-testid` | Path written | Mechanism | Payload size | Outcome |
 |---|---|---|---|---|---|
-| A | `write-auto` | `[:auto-large-value]` | Runtime auto-detect (no declaration) | **20 KiB** | The walker's `pr-str` byte count exceeds `:rf.size/threshold-bytes` (16 KiB default); the path gets auto-flagged on first emit and elides on every subsequent emit. The `:rf.warning/runtime-large-elision` advisory fires once on first detection. |
-| B | `write-declared` | `[:declared-large-value]` | `rf/declare-large-path!` (REPL wrapper) | 200 bytes | Handler calls the wrapper directly; declaration writes `{:large? true :source :declared}` into the elision registry. Elision fires regardless of size (declared wins over runtime threshold). |
-| C | `write-fx-declared` | `[:fx-declared-value]` | `:rf.size/declare-large` fx | 200 bytes | Canonical AI-discoverable nomination shape — handler returns `:fx [[:rf.size/declare-large {:path ...}]]`. Same outcome as button B, different entry point. |
-| D | `write-schema` | `[:schema-bag :schema-large-value]` | Malli app-schema `:large? true` slot | 200 bytes | The slot is declared `:large?` on a registered `:rf/app-schema`. The runtime walks every registered app-schema at boot (per `populate-elision-from-schemas!`) and writes a `{:large? true :source :schema}` entry into the registry. |
+| A | `write-auto` | `[:auto-large-value]` | No schema declaration | **20 KiB** | The wire-boundary walker emits the `:rf.warning/large-value-unschema'd` dev-mode advisory once (the path has no `:large?` schema and exceeds the 16 KiB warning threshold) and leaves the value inline. Schemas are the only path to elision — the warning is the nudge to add one. |
+| B | `write-declared` | `[:declared-large-value]` | Flat Malli `:large? true` slot | 200 bytes | The slot is registered with `:large? true` via `rf/reg-app-schemas`. The walker substitutes the `:rf.size/large-elided` marker on every emit regardless of size. |
+| C | `write-fx-declared` | `[:fx-declared-value]` | Second flat Malli `:large? true` slot | 200 bytes | Same outcome as Button B on a second slot — gives consumers two simultaneous schema-declared marker rows to assert against. |
+| D | `write-schema` | `[:schema-bag :schema-large-value]` | Nested Malli `:large? true` slot | 200 bytes | Same outcome as Button B/C but the `:large?` lives inside a composed `:map` schema (`SchemaLarge`) rather than at the flat root. Exercises the schema walker's traversal into nested slots. |
 
 ## DOM mirrors
 
 | Element | What it asserts |
 |---|---|
-| `auto-len` | `20480` after click A — the handler sees the full 20 KiB value via the regular cofx slot. The handler body is NOT affected by elision; only the wire-emit shape is. |
-| `declared-len` / `fx-len` / `schema-len` | `200` after the corresponding click — small payloads but declared/fx/schema-derived elision still fires on the wire. |
+| `auto-len` | `20480` after click A — the handler sees the full 20 KiB value via the regular cofx slot. Click A does NOT cause wire elision (no schema declaration); it only fires the unschema'd-large warning. |
+| `declared-len` / `fx-len` / `schema-len` | `200` after the corresponding click — small payloads but schema-declared elision still fires on the wire. |
 | `auto-count` / `declared-count` / `fx-count` / `schema-count` | Advances on each click — proves the handler ran. |
-| `elision-decls` | The contents of `[:rf/elision :declarations]` — a Playwright spec can assert that buttons B + C + D populate the slot with the expected `:source` (`:declared` / `:declared` / `:schema`). |
+| `elision-decls` | The contents of `[:rf/elision :declarations]` — populated at boot from the schema. A Playwright spec can assert that all three schema-declared paths land with `:source :schema` (the only nomination path the runtime supports). |
 
 ## The wire marker
 
@@ -32,40 +34,41 @@ substitutes the elided value with a normative shape:
 
 ```clojure
 {:rf.size/large-elided
-  {:path    [:auto-large-value]               ;; absolute path
-   :bytes   20482                              ;; pr-str byte count
+  {:path    [:declared-large-value]            ;; absolute path
+   :bytes   202                                ;; pr-str byte count
    :type    :string                            ;; one of :map :vector :set :scalar :string
-   :reason  :runtime-flagged                   ;; or :declared / :schema
-   :handle  [:rf.elision/at [:auto-large-value]]}}
+   :reason  :schema                            ;; schema is the only nomination path
+   :handle  [:rf.elision/at [:declared-large-value]]}}
 ```
 
 A consumer asserting on the wire emit looks for the
 `:rf.size/large-elided` keyword in the trace event's `:tags :app-db-*`
-slots (or `:db-before` / `:db-after` in the epoch record); the
-specific `:reason` distinguishes the nomination path.
+slots (or `:db-before` / `:db-after` in the epoch record). All three
+schema-declared paths emit `:reason :schema`; click A does not produce
+a marker (it produces the `:rf.warning/large-value-unschema'd`
+advisory instead).
 
 ## Why four buttons
 
-Three nomination paths plus one composition control (auto-detect on
-a 20 KiB write vs. declared on a 200-byte write) is the smallest
-shape that exercises all the discrimination axes a consumer needs:
+Three schema-declared paths plus one warning-only control is the
+smallest shape that exercises every discrimination axis a consumer
+needs:
 
-- **Three independent `:source` values** (`:declared`, `:schema`,
-  `:runtime-flagged`) — a consumer that conflates them fails on
-  button A (auto-detect should show `:source :runtime-flagged`,
-  not `:declared`).
-- **Imperative entry point vs declarative** (button B vs button C)
-  — the REPL wrapper and the fx end at the same registry slot;
-  a consumer that surfaces `:source :declared` for both is correct.
-- **Schema-derived vs handler-declared** (button D vs B/C) — the
-  `:source :schema` entry exists in the registry from boot, before
-  any click. A consumer that only walks declarations on dispatch
-  misses this category.
-- **Threshold-triggered vs declaration-triggered** (button A vs
-  B/C/D) — the auto-detect path produces a one-shot
-  `:rf.warning/runtime-large-elision` advisory; the declaration
-  paths do not. The presence/absence of the warning is the
-  discriminator.
+- **Flat vs nested schema slot** (B / C vs D) — buttons B and C
+  exercise flat root slots registered directly via
+  `rf/reg-app-schemas`; button D exercises a `:large?` slot nested
+  inside a composed Malli `:map` schema. A consumer that only
+  resolves flat registrations misses button D.
+- **Two simultaneous flat declarations** (B vs C) — having two
+  flat declarations active at the same time lets a consumer
+  assert the registry contains a *map* of declarations, not
+  just a single one. A consumer that overwrites declarations
+  on each registration fails this check.
+- **Schema vs unschema'd large value** (B / C / D vs A) — only
+  schema-declared slots emit the marker; an undeclared large
+  slot emits the `:rf.warning/large-value-unschema'd` advisory
+  once. The presence/absence of the warning is the discriminator
+  between "add a schema" and "I already did".
 
 ## What's deliberately *missing*
 
@@ -90,12 +93,12 @@ shape that exercises all the discrimination axes a consumer needs:
 **Causa (26)**:
 - **`:large?` value arrives as `:rf.size/large-elided` marker** —
   the load-bearing scenario this surface unblocks. Causa's trace
-  panel must show the `[:auto-large-value]` slot replaced with the
-  marker shape under `:tags :app-db-after` on the first emit after
-  button A.
-- `:rf.warning/runtime-large-elision` highlighted in trace stream —
+  panel must show the `[:declared-large-value]` slot replaced with
+  the marker shape under `:tags :app-db-after` on the first emit
+  after button B.
+- `:rf.warning/large-value-unschema'd` highlighted in trace stream —
   button A's first emit fires the advisory; subsequent button-A
-  clicks do not (the path is cached as flagged).
+  clicks do not (the path is cached as warned-once).
 - Click-to-source from trace event lands on source-coord line —
   every handler in this surface carries reader meta; the four
   buttons each resolve to their handler's coord.
@@ -130,4 +133,4 @@ lands in `implementation/out/testbeds/large-dispatcher/`.
 - [`spec/009-Instrumentation.md` §Wire marker — `:rf.size/large-elided`](../../spec/009-Instrumentation.md) — the marker shape consumers assert against.
 - [`spec/API.md` §`rf/elide-wire-value`](../../spec/API.md) — the wire-boundary walker (single normative emission site).
 - [`spec/Spec-Schemas.md` §`:rf/elision-marker`](../../spec/Spec-Schemas.md) — the per-field MUST-level requirements on the marker shape.
-- [`spec/Conventions.md` §Reserved fx-ids](../../spec/Conventions.md) — the `:rf.size/declare-large` / `:rf.size/clear` framework fxs.
+- [`spec/Conventions.md` §Reserved namespaces](../../spec/Conventions.md) — the `:rf.size/*` and `:rf.elision/*` reserved-namespace rows.

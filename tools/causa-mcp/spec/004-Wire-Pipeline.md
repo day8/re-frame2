@@ -371,7 +371,7 @@ and [`spec/009-Instrumentation.md §Size elision in traces`](../../../spec/009-I
  {:path   [<segment>...]            ; absolute path inside the slice's root
   :bytes  <int>                     ; pr-str byte count, exact when known
   :type   :map | :vector | :set | :scalar | :string
-  :reason :declared | :schema | :runtime-flagged
+  :reason :schema                   ; schemas are the only nomination path
   :hint   <string-or-nil>           ; copied verbatim from the registry entry
   :digest <"sha256:hex">            ; OPTIONAL; gated on :rf.size/include-digests?
   :handle [:rf.elision/at <path>]}} ; EDN handle passable to get-path

@@ -121,7 +121,7 @@ If you've registered a handler under a name that looks like a future framework r
 ## Cross-references
 
 - [Conventions.md §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned) — the normative catalogue.
-- [Conventions.md §Reserved fx-ids](../../../spec/Conventions.md#reserved-fx-ids) — the unqualified reserved fx-id set (`:dispatch`, `:dispatch-later`, `:raise`, `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.size/declare-large`, `:rf.size/clear`).
+- [Conventions.md §Reserved fx-ids](../../../spec/Conventions.md#reserved-fx-ids) — the unqualified reserved fx-id set (`:dispatch`, `:dispatch-later`, `:raise`, `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`).
 - [Conventions.md §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys) — `:rf/machines`, `:rf/system-ids`, `:rf/spawned`, `:rf/route`, `:rf/pending-navigation`, `:rf/elision`.
 - [Conventions.md §Reserved state-node keys](../../../spec/Conventions.md#reserved-state-node-keys-machine-transition-tables) — the machine transition-table state-node keys (`:on`, `:entry`, `:exit`, `:meta`, `:states`, `:always`, `:after`, `:invoke`, `:invoke-all`).
 - [Chapter 14 — Errors](../14-errors.md) — the `:rf.error/*` taxonomy in narrative form.

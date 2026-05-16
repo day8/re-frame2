@@ -503,6 +503,10 @@ Most animations are Regime A. Reach for B only when the state genuinely advances
 
 ## Open questions
 
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the bare-`[:my-view "args"]`-in-hiccup item classifies as **`:post-v1 tracked`** — out of scope for v1 and folded into the substrate-decoupling work tracked at [Spec 006 §Open questions](006-ReactiveSubstrate.md#open-questions).
+
+### Bare `[:my-view "args"]` in raw hiccup (post-v1)
+
 The bare `[:my-view "args"]` form in raw hiccup requires Reagent extension and is out of scope for v1; it is deferred to the substrate-decoupling work in [Spec 006](006-ReactiveSubstrate.md).
 
 ## Resolved decisions

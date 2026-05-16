@@ -647,9 +647,8 @@ such slots with a marker carrying a fetch handle.
 is run through the walker server-side, inside the eval form
 sent over nREPL. The walker reads the per-frame
 `[:rf/elision]` registry — populated at boot from
-`:large? true` schema metadata (rf2-nwv63) and at runtime via
-`rf/declare-large-path!` — and substitutes registered paths
-plus over-threshold leaves:
+`:large? true` schema metadata (rf2-nwv63) — and substitutes
+registered paths:
 
 ```clojure
 ;; Wire shape (substitution at a single elidable slot)
@@ -657,7 +656,7 @@ plus over-threshold leaves:
  {:path   [<segment>...]            ; address of the elided slot
   :bytes  <int>                     ; pr-str byte count
   :type   :map | :vector | :set | :string | :scalar
-  :reason :declared | :schema | :runtime-flagged
+  :reason :schema
   :hint   <string-or-nil>           ; from the registry entry
   :handle [:rf.elision/at <path>]}} ; agent re-fetches via get-path
 ```

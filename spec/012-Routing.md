@@ -986,11 +986,13 @@ The story / devcard / SSR cases all benefit:
 
 ## Open questions
 
-- Native nested layouts (true `<Outlet/>`-style render slots, parent-loader cascades, partial revalidation on child-only navigations) — the current surface is `:parent` + `:rf.route/chain` sub.
-- Data-form path patterns (a vector-of-segments alternative to the string grammar), formally specified — the string grammar is the canonical wire form.
-- Custom scroll-strategy registry — current contract is the three enums (`:top`, `:restore`, `:preserve`).
-- URL-state-as-source-of-truth (URL canonical, `app-db` derives) — currently the inverse: `app-db` canonical, URL derives.
-- Declarative redirect rules in route metadata — currently redirects are interceptors.
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all five items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
+
+- Native nested layouts (true `<Outlet/>`-style render slots, parent-loader cascades, partial revalidation on child-only navigations) — the current v1 surface is `:parent` + `:rf.route/chain` sub. Deferred to rf2-ohupw.
+- Data-form path patterns (a vector-of-segments alternative to the string grammar), formally specified — the string grammar is the canonical v1 wire form. Deferred to rf2-r6049.
+- Custom scroll-strategy registry — current v1 contract is the three enums (`:top`, `:restore`, `:preserve`). Deferred to rf2-3tjl8.
+- URL-state-as-source-of-truth (URL canonical, `app-db` derives) — v1 is the inverse: `app-db` canonical, URL derives. Deferred to rf2-kbozz.
+- Declarative redirect rules in route metadata — v1 redirects are interceptors. Deferred to rf2-lpjzj.
 
 ## Resolved decisions
 

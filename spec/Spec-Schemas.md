@@ -107,6 +107,8 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
 ### `:rf/dispatch-opts`
 
 > **Layer:** Public
+> **Owner:** [002-Frames §Routing](002-Frames.md#routing-the-dispatch-envelope)
+> **Status:** v1-required
 
 The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event opts)` / `(subscribe query-v opts)`. The runtime promotes these into a `:rf/dispatch-envelope`. **The opts schema is a *subset* of the envelope** — opts the user supplies are user-facing; envelope keys the runtime adds (`:event` itself, `:dispatched-at`) are internal.
 
@@ -127,6 +129,8 @@ The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:e
 ### `:rf/registration-metadata`
 
 > **Layer:** Public
+> **Owner:** [001-Registration §Registration grammar](001-Registration.md#registration-grammar)
+> **Status:** v1-required
 
 Common shape for the metadata map every `reg-*` accepts in its middle slot.
 
@@ -379,6 +383,8 @@ The route-shape — `:rf/route-metadata` — is defined separately further below
 ### `:rf/source-coord-meta`
 
 > **Layer:** Public
+> **Owner:** [001-Registration §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)
+> **Status:** v1-required
 
 The registration-metadata source-coord shape captured at `reg-*` macro-expansion time. The four keys (`:ns` / `:line` / `:column` / `:file`) are merged **flat** onto `:rf/registration-metadata` — the same level as `:doc` / `:spec` / `:tags` — so `(rf/handler-meta kind id)` and `(rf/frame-meta id)` returns expose them as top-level keys: `(:line meta)` / `(:file meta)` / `(:ns meta)` / `(:column meta)`. Pair-shaped tools and IDE jump-to-source consumers read them for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code). Trace events are the one shape that nests these keys under a `:source-coord` sub-map — see `:rf.trace/trigger-handler` on `:rf/trace-event` below — because traces carry coords for *another* handler (the in-scope trigger), so a sub-map keeps the trigger-handler shape self-contained alongside the trace's own keys.
 
@@ -396,6 +402,8 @@ The four keys are the canonical source-coord shape. The CLJS reference fills all
 ### `:rf/source-coord-attr`
 
 > **Layer:** Public
+> **Owner:** [006-ReactiveSubstrate §Attribute value format](006-ReactiveSubstrate.md#attribute-value-format)
+> **Status:** v1-required
 
 The DOM-attribute string contract emitted by Reagent / SSR adapters as the value of `data-rf2-source-coord` on rendered view roots (per [Spec 006 §Attribute value format](006-ReactiveSubstrate.md#attribute-value-format) and [011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr)). A 4-segment colon-separated string:
 
@@ -526,6 +534,8 @@ The error category schemas in [009 §Error event catalogue](009-Instrumentation.
 ### `:rf/error-event`
 
 > **Layer:** Runtime
+> **Owner:** [009-Instrumentation §Error contract](009-Instrumentation.md#error-contract)
+> **Status:** v1-required
 
 A refinement of `:rf/trace-event` for the unified error/warning envelope. Every error or warning emitted by the runtime conforms to this shape; per-category schemas (one per row in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) further constrain `:tags`.
 
@@ -1167,16 +1177,19 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category :keyword]
    [:reason   :string]])
 
-;; --- warning: runtime auto-detect of an oversized app-db path (rf2-vnmt6 / rf2-hmmx7 / rf2-123y5) ---
+;; --- warning: dev-mode advisory when the walker observes a large string at an unschema'd path ---
+;; Schemas are the only nomination path for size elision; the walker does NOT auto-elide
+;; unschema'd values, but it emits this warning once per (frame, path) to nudge authors toward
+;; declaring `{:large? true}` on the slot's Malli schema. Per spec/009-Instrumentation.md
+;; §Size elision in traces.
 
-(def RuntimeLargeElisionTags
+(def LargeValueUnschemadTags
   [:map
-   [:category       [:= :rf.warning/runtime-large-elision]]
-   [:frame          :keyword]
-   [:path           [:vector :any]]            ;; the app-db path the walker auto-flagged
-   [:bytes          :int]                       ;; `pr-str` byte count that tripped the threshold
-   [:max-bytes-cap  :int]                       ;; the threshold that tripped (per :rf.size/threshold-bytes)
-   [:reason         :string]])
+   [:category  [:= :rf.warning/large-value-unschema'd]]
+   [:frame     :keyword]
+   [:path      [:vector :any]]              ;; the app-db path the walker observed
+   [:bytes     :int]                         ;; `pr-str` byte count that exceeded the dev threshold
+   [:hint      {:optional true} [:maybe :string]]])
 
 ;; --- info: managed-HTTP retry advisories ---
 
@@ -1269,6 +1282,8 @@ The schemas above are *open* (Malli's default `[:map ...]`) — consumers receiv
 ### `InterceptorContextErrorKeys` — post-chain interceptor-context error contract
 
 > **Layer:** Runtime
+> **Owner:** [002-Frames §Per-event drain](002-Frames.md)
+> **Status:** v1-required
 
 When an interceptor's `:before` or `:after` function throws, the chain runner records the failure into the context map under two paired keys before continuing or short-circuiting:
 
@@ -1300,6 +1315,8 @@ Both keys are namespaced under `:rf/`, so user-installed interceptors that read 
 ### `:rf/handler-body-dsl`
 
 > **Layer:** Conformance
+> **Owner:** [spec/conformance/README](conformance/README.md)
+> **Status:** v1-required (conformance corpus)
 
 Conformance-corpus event/sub/view handler bodies are described as data so any in-scope host (per [§Scope](#scope)) can interpret them without shipping CLJS lambdas. The DSL is a small fixed vocabulary of operations the harness in each host implements. Grammar:
 
@@ -1359,6 +1376,8 @@ State-machine transition-table guards and actions are referenced by **inline fn 
 ### `:rf/transition-table`
 
 > **Layer:** Public
+> **Owner:** [005-StateMachines §Transition tables](005-StateMachines.md)
+> **Status:** v1-required
 
 Grammar for state-machine transition tables (per [005](005-StateMachines.md)). Public because the user supplies the transition table to `create-machine-handler` as registration data; tools introspect it via `(machine-meta id)`. The v1 foundation (`machine-transition` / `create-machine-handler` and the rest of the machine-as-event-handler surface — see [005 §Disposition](005-StateMachines.md#disposition)) interprets the grammar that maps to the v1 reference's claimed [capability list](005-StateMachines.md#capability-matrix). The CLJS reference claims flat FSM, hierarchical compound states, eventless `:always`, delayed `:after`, and declarative `:invoke`; it does **not** claim parallel regions or history states (substitutes per [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features)).
 
@@ -1554,6 +1573,8 @@ A second `:always`-related category, **`:rf.error/machine-always-depth-exceeded`
 ### `:rf/machine-snapshot`
 
 > **Layer:** Runtime
+> **Owner:** [005-StateMachines §Snapshot shape](005-StateMachines.md#snapshot-shape)
+> **Status:** v1-required
 
 The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-StateMachines.md#snapshot-shape), every conformant snapshot is print/read round-trippable so it survives the wire (SSR hydration, [011](011-SSR.md)) and the time-axis (Tool-Pair epoch replay).
 
@@ -1614,6 +1635,8 @@ Stability invariants the implementation upholds (see [005 §Snapshot shape](005-
 ### `:rf/machines` (reserved app-db key)
 
 > **Layer:** Runtime
+> **Owner:** [005-StateMachines §Where snapshots live](005-StateMachines.md#where-snapshots-live)
+> **Status:** v1-required
 
 `[:rf/machines]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live), every machine's snapshot lives at `[:rf/machines <machine-id>]` — the location is fixed and is not part of any user-supplied spec.
 
@@ -1632,6 +1655,8 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 ### `:rf/spawned` (reserved app-db key)
 
 > **Layer:** Runtime
+> **Owner:** [005-StateMachines §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn)
+> **Status:** v1-required
 
 `[:rf/spawned]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn) and rf2-t07u (Option A revised), the runtime tracks each declarative-`:invoke` spawn at `[:rf/spawned <parent-machine-id> <invoke-id>]` so the matching destroy cascade can locate the spawned id without depending on the user's `:on-spawn` callback having stashed it under any particular `:data` slot.
 
@@ -1676,23 +1701,19 @@ Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spaw
 ### `:rf/elision-registry` (reserved app-db key)
 
 > **Layer:** Runtime
+> **Owner:** [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)
+> **Status:** v1-required
 
 `[:rf/elision]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces), the slot carries the wire-elision declaration registry consulted by `rf/elide-wire-value` (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) at every wire-boundary emit.
 
 ```clojure
 (def ElisionDeclaration
-  ;; The per-path declaration map. Source provenance is required so introspection
-  ;; reports where the entry came from (an app fx, a schema slot, the heuristic).
+  ;; The per-path declaration map. Source provenance is `:schema` — schemas are
+  ;; the only nomination path; the slot is kept open as an enum for future-proofing.
   [:map
    [:large?  :boolean]                                                       ;; the size-elision predicate
    [:hint    {:optional true} [:maybe :string]]                              ;; free-form short description; copied into the wire marker's :hint slot
-   [:source  [:enum :declared :schema :runtime-flagged]]])                   ;; provenance
-
-(def ElisionRuntimeFlag
-  ;; The auto-detector's cached decision for paths the runtime walker has measured.
-  [:map
-   [:bytes             :int]                                                 ;; pr-str byte count at first sight
-   [:first-seen-epoch  {:optional true} :int]])                              ;; the epoch-id of the first sighting; absent on pre-epoch ports
+   [:source  [:enum :schema]]])                                              ;; provenance
 
 (def SensitiveDeclaration
   ;; Privacy sibling of ElisionDeclaration. Same shape contract — the per-path
@@ -1701,19 +1722,18 @@ Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spaw
   [:map
    [:sensitive? :boolean]                                                    ;; the privacy predicate
    [:hint       {:optional true} [:maybe :string]]                           ;; free-form short description; propagated verbatim from the slot's props
-   [:source     [:enum :declared :schema :runtime-flagged]]])                ;; provenance; :runtime-flagged reserved for symmetry — currently unused for sensitivity
+   [:source     [:enum :schema]]])                                           ;; provenance
 
 (def ElisionRegistry
   [:map
    [:declarations           {:optional true} [:map-of [:vector :any] ElisionDeclaration]]
-   [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]
-   [:runtime-flagged        {:optional true} [:map-of [:vector :any] ElisionRuntimeFlag]]])
+   [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]])
 
 ;; registered by the runtime at boot:
 (rf/reg-app-schema [:rf/elision] ElisionRegistry)
 ```
 
-The `:declarations` sub-map is **app-managed** (via the `:rf.size/declare-large` / `:rf.size/clear` fx per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids), plus schema-driven boot population for every `:large? true` slot in `(rf/app-schema)` per [§`:rf/app-schema-meta`](#rfapp-schema-meta) above). The `:sensitive-declarations` sub-map is the **privacy sibling** — schema-driven boot population for every `:sensitive? true` slot in `(rf/app-schema)` (rf2-c1l4d / rf2-kj51z; consumed by the schema-validation emit-site's `:value` / `:explain` redaction path per [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)). The `:runtime-flagged` sub-map is **runtime-managed** by the auto-detect walker. Conflict-resolution rule (specified normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)): declared wins, schema wins, runtime-flagged loses; the walker consults `:declarations` first. The privacy sibling follows the same rule — app-declared sensitive paths beat schema-derived ones.
+The `:declarations` sub-map is **schema-derived** — boot-time walker population for every `:large? true` slot in `(rf/app-schema)` per [§`:rf/app-schema-meta`](#rfapp-schema-meta) above. The `:sensitive-declarations` sub-map is the **privacy sibling** — schema-driven boot population for every `:sensitive? true` slot in `(rf/app-schema)` (rf2-c1l4d / rf2-kj51z; consumed by the schema-validation emit-site's `:value` / `:explain` redaction path per [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)). Schemas are the only nomination path: there is no runtime declaration API for size, and the runtime does NOT auto-detect over-threshold un-schema'd paths (the dev-mode `:rf.warning/large-value-unschema'd` advisory fires instead — per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)).
 
 Allocated lazily — absent until the first declaration. Per-frame isolation is automatic; declarations survive `restore-epoch` because they ride app-db (this is the named mechanism by which the elision contract inherits [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility)).
 
@@ -1722,6 +1742,8 @@ Cross-reference: `:rf/elision-marker` (below) is the wire shape emitted by the w
 ### `:rf/elision-marker`
 
 > **Layer:** Public
+> **Owner:** [009-Instrumentation §Wire marker — `:rf.size/large-elided`](009-Instrumentation.md#wire-marker--rfsizelarge-elided)
+> **Status:** v1-required
 
 The wire shape `rf/elide-wire-value` substitutes for an elided large value. Catalogued normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and threaded through every tool that walks tree-typed payloads (per [Tool-Pair.md](Tool-Pair.md)).
 
@@ -1731,8 +1753,8 @@ The wire shape `rf/elide-wire-value` substitutes for an elided large value. Cata
    [:path    [:vector :any]]                                                ;; absolute path inside the slice's root value
    [:bytes   :int]                                                          ;; pr-str byte count
    [:type    [:enum :map :vector :set :scalar :string]]                     ;; top-level shape of the elided value
-   [:reason  [:enum :declared :schema :runtime-flagged]]                    ;; provenance
-   [:hint    [:maybe :string]]                                              ;; verbatim from the declaration's :hint slot; nil for runtime-flagged
+   [:reason  [:enum :schema]]                                               ;; provenance — schemas are the only nomination path
+   [:hint    [:maybe :string]]                                              ;; verbatim from the declaration's :hint slot
    [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]                   ;; fetch-handle: [:rf.elision/at <path>]
    [:digest  {:optional true} :string]])                                    ;; sha256:<hex>; only when :rf.size/include-digests? true
 
@@ -1752,6 +1774,8 @@ The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per 
 ### `:rf/route-pattern`
 
 > **Layer:** Public
+> **Owner:** [012-Routing §Path-pattern grammar](012-Routing.md#path-pattern-grammar-canonical)
+> **Status:** v1-required
 
 The canonical **path-pattern grammar** for `reg-route`'s `:path` value. Per [012 §Path-pattern grammar](012-Routing.md#path-pattern-grammar-canonical), this is the wire-form every conforming implementation parses and emits.
 
@@ -1779,6 +1803,8 @@ Implementations register this schema via `reg-app-schema [:rf/route-pattern]` so
 ### `:rf/route-rank`
 
 > **Layer:** Runtime
+> **Owner:** [012-Routing §Route ranking algorithm](012-Routing.md#route-ranking-algorithm)
+> **Status:** v1-required
 
 The structural-rank tuple `match-url` computes for each registered route, per [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm). Registrars attach the computed rank under `:rf.route/rank` on the route's metadata so tooling can read it via `(rf/handler-meta :route route-id)` and so AI scaffolds can render the precedence cascade without re-parsing patterns.
 
@@ -1798,6 +1824,8 @@ Implementations rank candidates by descending `route-rank` then by ascending reg
 ### `:rf/route-slice`
 
 > **Layer:** Runtime
+> **Owner:** [012-Routing §The `:rf/route` slice](012-Routing.md#the-rfroute-slice)
+> **Status:** v1-required
 
 The shape of `app-db`'s `:rf/route` slice, per [012 §The `:rf/route` slice](012-Routing.md#the-rfroute-slice).
 
@@ -1818,6 +1846,8 @@ Open shape — implementations may add `:rf.route/...`-namespaced keys (e.g., th
 ### `:rf/route-metadata`
 
 > **Layer:** Public
+> **Owner:** [012-Routing §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys)
+> **Status:** v1-required
 
 The shape of the metadata map passed to `reg-route`. Reserved keys per [012 §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys).
 
@@ -1845,6 +1875,8 @@ Per-host extension keys (`:myapp/...`, `:rf.tooling/...`) are tolerated — Rout
 ### `:rf/pending-navigation`
 
 > **Layer:** Runtime
+> **Owner:** [012-Routing §Navigation blocking — pending-nav protocol](012-Routing.md#navigation-blocking--pending-nav-protocol)
+> **Status:** v1-required
 
 The shape of `app-db`'s `:rf/pending-navigation` slot, set by the runtime when a navigation is blocked by a `:can-leave` guard. Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
 
@@ -1864,6 +1896,8 @@ The slot is `nil` (or absent) when no navigation is pending. Cleared by `:rf.rou
 ### `:rf.fx/with-nav-token-args`
 
 > **Layer:** Runtime
+> **Owner:** [012-Routing §Navigation tokens — stale-result suppression](012-Routing.md#navigation-tokens--stale-result-suppression)
+> **Status:** v1-required
 
 Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). Threads the current `:nav-token` into a wrapped follow-up dispatch so the receiving handler can detect stale results.
 
@@ -1927,6 +1961,8 @@ The split between v1 and post-v1 keeps the v1 contract auditable: a v1 conforman
 ### `:rf/response`
 
 > **Layer:** Runtime
+> **Owner:** [011-SSR §HTTP response contract](011-SSR.md#http-response-contract)
+> **Status:** v1 (optional capability — SSR)
 
 The HTTP-response accumulator owned by the request frame during SSR. Per [011 §HTTP response contract](011-SSR.md#http-response-contract). Populated during the drain by the standard `:rf.server/*` fx; consumed by the host adapter to build the wire response.
 
@@ -1947,6 +1983,8 @@ Open shape — implementations may attach `:rf.response/...`-namespaced keys (e.
 ### `:rf.server/cookie`
 
 > **Layer:** Runtime
+> **Owner:** [011-SSR §Cookie shape](011-SSR.md#cookie-shape)
+> **Status:** v1 (optional capability — SSR)
 
 The structured-cookie shape that `:rf.server/set-cookie` and `:rf.server/delete-cookie` produce. Per [011 §Cookie shape](011-SSR.md#cookie-shape). The host adapter serialises this to a `Set-Cookie:` header per RFC 6265.
 
@@ -1969,6 +2007,8 @@ Either `:max-age` or `:expires` may be supplied (or neither — session cookie).
 ### `:rf/head-model`
 
 > **Layer:** Runtime
+> **Owner:** [011-SSR §Head/meta contract](011-SSR.md#headmeta-contract)
+> **Status:** v1 (optional capability — SSR)
 
 The data model for SSR head/meta content. Per [011 §Head/meta contract](011-SSR.md#headmeta-contract). Pure data; the runtime emits `<head>...</head>` from this map in canonical key order.
 
@@ -1989,6 +2029,8 @@ The shape is **open** — implementations may add `:rf.head/...`-namespaced keys
 ### `:rf/public-error`
 
 > **Layer:** Runtime
+> **Owner:** [011-SSR §Server error projection](011-SSR.md#server-error-projection)
+> **Status:** v1 (optional capability — SSR)
 
 The sanitised, client-safe projection of an internal error trace event. Per [011 §Server error projection](011-SSR.md#server-error-projection). The error projector consumes a `:rf/error-event` (per [009 §Error event shape](009-Instrumentation.md#the-error-event-shape)) and returns this shape.
 
@@ -2158,6 +2200,8 @@ Per-fx args validation runs as part of the standard fx-arg validation (per [010 
 ### `:rf/frame-meta`
 
 > **Layer:** Public
+> **Owner:** [002-Frames §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)
+> **Status:** v1-required
 
 Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records which preset was applied (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)); the *expanded* keys are the effective metadata map. Composes with `:rf/registration-metadata` the same way every other per-kind shape does — base `:doc` / `:tags` / `:spec` / `:ns` / `:line` / `:column` / `:file` / `:platforms` / `:sensitive?` come from the merge; the keys below are the frame-specific additions.
 
@@ -2184,6 +2228,8 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
 ### `:rf/preset-expansion`
 
 > **Layer:** Public
+> **Owner:** [002-Frames §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)
+> **Status:** v1-required
 
 The fixed, closed expansion table for `:preset` values. Each preset expands to a metadata sub-map; the runtime merges user-supplied metadata over the expansion. Known presets: `:default`, `:test`, `:story`, `:ssr-server`. Unknown values raise `:rf.error/unknown-preset` at registration time.
 
@@ -2207,6 +2253,8 @@ The fully-expanded metadata returned from `frame-meta` conforms to `:rf/frame-me
 ### `:rf/variant`
 
 > **Layer:** Public (post-v1 library)
+> **Owner:** [007-Stories §Variant artefact contract](007-Stories.md#variant-artefact-contract--variants-are-data-not-functions)
+> **Status:** post-v1 (Story library — separate package)
 
 The serialisable artefact contract for a story variant (post-v1 library; see [007 §Variant artefact contract](007-Stories.md#variant-artefact-contract--variants-are-data-not-functions)). **Variants are data, not functions** — every key is a value-shape, no fn-valued slots.
 
@@ -2306,6 +2354,8 @@ The runtime commits an epoch record on every drain boundary — both clean settl
 ### `:rf/fixture-file`
 
 > **Layer:** Conformance
+> **Owner:** [spec/conformance/README](conformance/README.md)
+> **Status:** v1-required (conformance corpus)
 
 The host-agnostic conformance fixture format. Per [conformance/README.md](conformance/README.md), each fixture is one EDN file describing a canonical interaction (registry, handlers-as-data, dispatches/calls, expected emissions).
 
@@ -2408,7 +2458,7 @@ The schema is open by convention — fixture files may add `:fixture/<key>`-name
 
 ### Per-kind registration-metadata schemas (RESOLVED rf2-kxs6j)
 
-The open-shape `:rf/registration-metadata` describes the common keys every `reg-*` accepts; each registration kind additionally has its own narrowed shape. Per [§Per-kind refinements](#per-kind-refinements), the catalogue ships `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata` (defined separately above). The closure resolves the open-question carried in [001 §Per-kind metadata schemas (RESOLVED rf2-kxs6j)](001-Registration.md#per-kind-metadata-schemas-resolved-rf2-kxs6j) and satisfies the SA-3/SA-4 commitment that every shape on the wire has a Spec-Schemas entry. AI scaffolders (Construction-Prompts) and conformance harnesses validate per-kind metadata at registration time against the corresponding refinement.
+The open-shape `:rf/registration-metadata` describes the common keys every `reg-*` accepts; each registration kind additionally has its own narrowed shape. Per [§Per-kind refinements](#per-kind-refinements), the catalogue ships `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata` (defined separately above). The closure resolves the open-question carried in [001 §Resolved decisions](001-Registration.md#resolved-decisions) (per-kind metadata schemas, rf2-kxs6j) and satisfies the SA-3/SA-4 commitment that every shape on the wire has a Spec-Schemas entry. AI scaffolders (Construction-Prompts) and conformance harnesses validate per-kind metadata at registration time against the corresponding refinement.
 
 ## Conformance
 

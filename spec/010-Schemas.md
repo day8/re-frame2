@@ -626,17 +626,19 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 
 ## Open questions
 
-### Schema-driven generative tests
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Schema-driven generative tests" classifies as **`:post-v1 tracked`** (folded into the property-based-testing pattern at rf2-rs0ux); "Boundary-validation interceptor naming" classifies as **`:still-blocking`** at rf2-ys2zn (naming decision needed before v1); "Schema versioning" classifies as **`:post-v1 tracked`** at rf2-7fk8a.
 
-Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:spec`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md).
+### Schema-driven generative tests (post-v1, rf2-rs0ux)
 
-### Boundary-validation interceptor naming
+Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:spec`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1, tracked at rf2-rs0ux.
 
-`:spec/validate-at-boundary` is a placeholder name. Alternatives: `:spec/strict`, `:spec/always`, `:spec/at-boundary`.
+### Boundary-validation interceptor naming (blocking — needs decision, rf2-ys2zn)
 
-### Schema versioning
+`:spec/validate-at-boundary` is a placeholder name. Alternatives: `:spec/strict`, `:spec/always`, `:spec/at-boundary`. Blocking for v1 because the interceptor name is API surface — downstream tools and tutorials reference it. Decision tracked at rf2-ys2zn.
 
-Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is open.
+### Schema versioning (post-v1, rf2-7fk8a)
+
+Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is post-v1; tracked at rf2-7fk8a.
 
 ## Resolved decisions
 
