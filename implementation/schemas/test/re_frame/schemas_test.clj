@@ -31,6 +31,9 @@
             [re-frame.late-bind]
             [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
+            ;; rf2-pk8ur public-surface printer tests need run-printer
+            ;; to assert the hot path observes the registered fn.
+            [re-frame.schemas.validator :as validator]
             ;; Per rf2-t0hq the default validator routes through the
             ;; late-bind hook `:schemas/malli-validate`, which the
             ;; `re-frame.schemas.malli` adapter ns publishes at load
@@ -966,6 +969,82 @@
       (rf/set-schema-validator! my-fn)
       (is (= my-fn @schemas/validator-fn)
           "the atom carries the fn the user registered"))))
+
+;; ---- rf2-pk8ur — set-schema-printer! public-surface contract -------------
+;;
+;; Per Spec 010 §Schema digest line 491 (rf2-wla45) the printer fn is the
+;; third leg of the validator-surface seam: substitute-Malli ports register
+;; their own (validate, explain, print) triple so the digest reflects the
+;; port's own serialisation contract rather than the framework's Malli-EDN
+;; default. The artefact-side contract — atom swap, default fallback,
+;; map-arity, hot-path read — is locked by `printer_seam_test.clj`.
+;;
+;; This file pins the PUBLIC-SURFACE contract: a call to the re-exported
+;; `re-frame.core/set-schema-printer!` flows through the late-bind directory
+;; and reaches the schemas artefact's printer atom + run-printer hot path
+;; + digest pipeline. Parallel to `validator-set-via-public-api-is-visible-
+;; on-schemas-ns` above; closes the rf2-kp835 Phase-1 audit gap (the public
+;; symbol had no end-to-end caller exercising the wiring).
+
+(deftest printer-set-via-public-api-is-visible-on-schemas-ns
+  (testing "rf2-pk8ur — the public re-export rf/set-schema-printer! flows
+            through the late-bind directory to the schemas artefact's
+            printer-fn atom. Parallels the rf/set-schema-validator! /
+            rf/set-schema-explainer! end-to-end pins above."
+    (let [my-fn (fn [_schema-value] "::PUBLIC-SURFACE::")]
+      (rf/set-schema-printer! my-fn)
+      (is (= my-fn @schemas/printer-fn)
+          "the atom carries the printer the public-surface caller registered")
+      (is (= "::PUBLIC-SURFACE::" (validator/run-printer :int))
+          "run-printer's hot path reaches the public-surface registration"))))
+
+(deftest printer-set-via-public-api-flips-digest-bytes
+  (testing "rf2-pk8ur — the canonical end-to-end use of the public surface:
+            a custom printer registered via rf/set-schema-printer! changes
+            the digest pipeline's output. This is what a non-Malli port
+            (a Zod port, a clojure.spec port) does at boot — and what the
+            existing 0-caller audit on the public symbol failed to
+            exercise. Spec 010 §Schema digest line 491: 'two ports using
+            different schema languages produce different digests by
+            construction'."
+    (rf/reg-app-schema [:n] :int)
+    (let [default-digest (rf/app-schemas-digest)]
+      (rf/set-schema-printer! (fn [_] "::CUSTOM-PORT::"))
+      (let [custom-digest (rf/app-schemas-digest)]
+        (is (re-matches #"^sha256:[0-9a-f]{16}$" custom-digest)
+            "digest is still the wire-form '\"sha256:\" + 16-hex'")
+        (is (not= default-digest custom-digest)
+            "registering a different printer through the public surface
+             produces a different digest — the bytes the printer emits
+             are what the digest pipeline hashes")))))
+
+(deftest printer-set-via-public-api-nil-restores-default
+  (testing "rf2-pk8ur — passing nil to the public rf/set-schema-printer!
+            reinstalls the default EDN canonicaliser. The digest is
+            never undefined for a present schema set, even after a
+            port-specific printer has been registered and then
+            withdrawn. Mirrors the artefact-side `set-schema-printer!-
+            nil-falls-back-to-default` test on the public symbol."
+    (rf/set-schema-printer! (fn [_] "::TRANSIENT::"))
+    (is (= "::TRANSIENT::" (validator/run-printer :int)))
+    (rf/set-schema-printer! nil)
+    (is (= ":int" (validator/run-printer :int))
+        "nil through the public surface falls back to default-edn-print")))
+
+(deftest printer-set-via-public-api-map-arity-installs-printer
+  (testing "rf2-pk8ur — the public rf/set-schema-validator! map arity
+            installs a `:print` printer alongside `:validate` / `:explain`
+            atomically. End-to-end pin of the documented one-call
+            substitute-Malli boot pattern via the public surface."
+    (let [v-fn (fn [_ _] true)
+          e-fn (fn [_ _] {:explained true})
+          p-fn (fn [_] "::FROM-PUBLIC-MAP-ARITY::")]
+      (rf/set-schema-validator! {:validate v-fn :explain e-fn :print p-fn})
+      (is (= v-fn @schemas/validator-fn))
+      (is (= e-fn @schemas/explainer-fn))
+      (is (= p-fn @schemas/printer-fn))
+      (is (= "::FROM-PUBLIC-MAP-ARITY::" (validator/run-printer :int))
+          "the printer installed via the map arity reaches the hot path"))))
 
 ;; ---- rf2-r2uh — :spec/at-boundary interceptor ----------------------------
 ;;
