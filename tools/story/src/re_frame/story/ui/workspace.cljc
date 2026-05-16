@@ -277,9 +277,10 @@
    (defn- variant-cell
      "Reagent component for one variant cell. Pre-allocates the
      variant's frame and dispatches its `:events` slot SYNCHRONOUSLY
-     before the first render, then re-runs on each
-     `:hot-reload-tick` bump so the cell stays in sync with fingerprint
-     drift.
+     before the first render, then re-runs whenever ANY component of
+     the canvas/workspace shared `run-key` advances — `:variant-id`,
+     `:hot-reload-tick`, `:active-modes`, `:cell-overrides`, or
+     `:substrate`.
 
      Per rf2-zme7: the pre-allocation must happen before any subscribe
      deref. A `:component-did-mount` hook fires AFTER React's first
@@ -299,20 +300,25 @@
      to hang off (one selection drives N variants), so the cell itself
      owns the pre-allocation.
 
-     The per-cell `last-tick` atom tracks the most-recent
-     `:hot-reload-tick` value seen by THIS cell: re-running
-     `run-variant` only when the tick advances avoids re-dispatching
-     the variant's `:events` on every re-render — which would otherwise
-     reset state on every user interaction (an inc click re-renders the
-     cell, an unconditional re-run of `:events` would clobber the
-     count back to its initial value)."
+     Per rf2-c56hr (sibling to rf2-kgn0c, rf2-z4fza): the per-cell
+     `last-run-key` atom tracks the most-recent `(canvas/run-key shell
+     variant-id)` value seen by THIS cell. The prior implementation
+     keyed only on `:hot-reload-tick`, so editing a control through
+     the controls panel — which writes through to `:cell-overrides`
+     — never re-seeded the cell's frame and the cell kept rendering
+     against its original `:events`-seeded app-db. Mirroring the
+     canvas's full run-key (`canvas.cljs` `run-key` + `run-if-needed!`)
+     also covers chrome-level `:active-modes` toggles and substrate
+     flips. Keying on the full tuple still skips re-runs on ordinary
+     intra-cell renders (an inc click bumps app-db but leaves the run-
+     key intact), so the variant's `:events` are NOT clobbered on user
+     interaction — same property the tick-only path preserved."
      [variant-id]
-     (r/with-let [_init     (run-variant-with-shell-opts! variant-id)
-                  last-tick (atom 0)]
+     (r/with-let [last-run-key (atom nil)]
        (let [shell @state/shell-state-atom
-             tick  (or (:hot-reload-tick shell) 0)]
-         (when (> tick @last-tick)
-           (reset! last-tick tick)
+             key   (canvas/run-key shell variant-id)]
+         (when (not= key @last-run-key)
+           (reset! last-run-key key)
            (run-variant-with-shell-opts! variant-id))
          [variant-cell-inner variant-id]))))
 

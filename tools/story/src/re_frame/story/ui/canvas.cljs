@@ -190,12 +190,20 @@
     (runtime/run-variant variant-id opts)
     nil))
 
-(defn- run-key
+(defn run-key
   "The shell-state slice that should trigger a fresh runtime run for
-  the focused variant. Ordinary app-db updates inside the variant frame
-  must not re-dispatch the variant's static `:events`; otherwise user
+  `variant-id`. Ordinary app-db updates inside the variant frame must
+  not re-dispatch the variant's static `:events`; otherwise user
   interactions reset the canvas and the recorder captures fixture
-  initialisation events as if they were user actions."
+  initialisation events as if they were user actions.
+
+  Public so the workspace renderer (`ui/workspace.cljc`) can mirror the
+  canvas's trigger condition for its per-cell run loop (rf2-c56hr).
+  Both surfaces re-run when ANY of `:variant-id` / `:hot-reload-tick` /
+  `:active-modes` / `:cell-overrides` / `:substrate` changes — keeping
+  them lockstep prevents the workspace cell from rendering against
+  stale `:events-seeded` app-db when the controls panel writes a new
+  `:cell-overrides` entry or the user toggles a mode / substrate."
   [shell variant-id]
   {:variant-id       variant-id
    :hot-reload-tick  (:hot-reload-tick shell)

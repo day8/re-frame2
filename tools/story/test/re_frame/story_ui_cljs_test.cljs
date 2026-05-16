@@ -413,6 +413,98 @@
           (str "workspace-root key MUST embed the workspace id; got "
                (pr-str k))))))
 
+;; ---- workspace cells re-run on full run-key (rf2-c56hr) -----------------
+;;
+;; Sibling to rf2-kgn0c (variant-id-keyed React identity) and rf2-z4fza
+;; (Causa trace `t:<trace-id>` keying). The prior workspace `variant-cell`
+;; kept a `last-tick` atom and re-ran `run-variant-with-shell-opts!` ONLY
+;; when `:hot-reload-tick` advanced. Consequence in `:variants-grid` /
+;; `:grid` workspaces: editing a control through the controls panel
+;; wrote through to `:cell-overrides` but the cell's frame was never
+;; re-seeded → the cell kept rendering against its original `:events`-
+;; seeded app-db. Same hazard for chrome-level `:active-modes` toggles
+;; and substrate flips.
+;;
+;; Fix: lift the canvas's `run-key` into a shared public helper and key
+;; the workspace cell's re-run trigger on the FULL tuple
+;; `{:variant-id :hot-reload-tick :active-modes :cell-overrides
+;;   :substrate}` — same shape canvas's `run-if-needed!` uses. These
+;; tests pin both halves: the shared helper detects the three previously-
+;; missed transitions, AND ordinary intra-cell renders (app-db updates
+;; that DON'T touch the run-key slice) still skip the re-run so user
+;; interactions are not clobbered.
+
+(deftest run-key-detects-cell-overrides-change-rf2-c56hr
+  (testing "canvas/run-key flips when the shell's :cell-overrides for
+            the variant changes — the workspace cell's trigger MUST see
+            this transition (per rf2-c56hr; the prior :hot-reload-tick-
+            only key missed it)"
+    (let [vid     :story.rf2-c56hr.co/v
+          shell-0 {:hot-reload-tick 0
+                   :active-modes    []
+                   :cell-overrides  {}
+                   :substrate       :reagent}
+          shell-1 (assoc-in shell-0 [:cell-overrides vid :label] "edited")
+          k0      (canvas/run-key shell-0 vid)
+          k1      (canvas/run-key shell-1 vid)]
+      (is (not= k0 k1)
+          "writing a per-variant override MUST yield a distinct run-key")
+      (is (= "edited" (get-in k1 [:cell-overrides :label]))
+          "the override value is carried through the run-key slice"))))
+
+(deftest run-key-detects-active-modes-change-rf2-c56hr
+  (testing "canvas/run-key flips when chrome-level :active-modes change
+            — the workspace cell MUST re-seed on mode toggle"
+    (let [vid     :story.rf2-c56hr.am/v
+          shell-0 {:hot-reload-tick 0 :active-modes []
+                   :cell-overrides {} :substrate :reagent}
+          shell-1 (assoc shell-0 :active-modes [:Mode.x/dark])
+          k0      (canvas/run-key shell-0 vid)
+          k1      (canvas/run-key shell-1 vid)]
+      (is (not= k0 k1)))))
+
+(deftest run-key-detects-substrate-change-rf2-c56hr
+  (testing "canvas/run-key flips when the host substrate changes — the
+            workspace cell MUST re-seed on substrate flip"
+    (let [vid     :story.rf2-c56hr.sb/v
+          shell-0 {:hot-reload-tick 0 :active-modes []
+                   :cell-overrides {} :substrate :reagent}
+          shell-1 (assoc shell-0 :substrate :uix)
+          k0      (canvas/run-key shell-0 vid)
+          k1      (canvas/run-key shell-1 vid)]
+      (is (not= k0 k1)))))
+
+(deftest run-key-stable-across-ordinary-app-db-renders-rf2-c56hr
+  (testing "canvas/run-key stays equal when nothing in the watched slice
+            changes — guarantees an inc-click re-render does NOT clobber
+            the variant's :events-seeded state. Pins the rf2-c56hr fix
+            against an over-eager future change that would re-seed on
+            every render."
+    (let [vid     :story.rf2-c56hr.stable/v
+          shell-0 {:hot-reload-tick 0 :active-modes []
+                   :cell-overrides {} :substrate :reagent
+                   :other-unrelated-slot "anything"}
+          shell-1 (assoc shell-0 :other-unrelated-slot "changed")
+          k0      (canvas/run-key shell-0 vid)
+          k1      (canvas/run-key shell-1 vid)]
+      (is (= k0 k1)
+          (str "run-key MUST be stable when only non-watched shell "
+               "slots change; got k0=" (pr-str k0)
+               " k1=" (pr-str k1))))))
+
+(deftest run-key-detects-hot-reload-tick-change-rf2-c56hr
+  (testing "canvas/run-key still flips on :hot-reload-tick — the new
+            workspace cell trigger MUST preserve the legacy tick-driven
+            re-run path on top of the three previously-missed
+            transitions"
+    (let [vid     :story.rf2-c56hr.tick/v
+          shell-0 {:hot-reload-tick 0 :active-modes []
+                   :cell-overrides {} :substrate :reagent}
+          shell-1 (assoc shell-0 :hot-reload-tick 1)
+          k0      (canvas/run-key shell-0 vid)
+          k1      (canvas/run-key shell-1 vid)]
+      (is (not= k0 k1)))))
+
 ;; ---- trace six-domino projection ----------------------------------------
 
 (deftest trace-group-cascades-classifies
