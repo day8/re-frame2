@@ -6,20 +6,27 @@ implementation yet.
 
 ## Status
 
-**Spec scaffold.** This folder contains the per-tool spec/
-contract ([`spec/`](./spec/)) and nothing else. No `deps.edn`,
-no `src/`, no `test/`. Implementation work begins after Causa's
-panel ratifies; the four pair2-mcp-shape capability files
-(`001-Wire-Protocol`, `002-nREPL-Transport`,
-`003-Tool-Catalogue`, plus an `API.md`) land at that point.
+**Build substrate scaffold landed (rf2-8xzoe.1).** This folder
+now carries the build substrate — `deps.edn`, `package.json`,
+`shadow-cljs.edn`, a placeholder `src/day8/re_frame2_causa_mcp/`
+ns, and a placeholder `test/day8/re_frame2_causa_mcp/` test —
+plus the long-standing per-tool spec/ contract
+([`spec/`](./spec/)). `npm install` succeeds; `shadow-cljs
+compile server` produces a (placeholder) `out/server.js`.
 
-The scaffold exists so that direction-setting decisions
+The substrate is the F-1 dependency gate for the rest of the
+rf2-8xzoe epic. Real surface — wire protocol, persistent nREPL
+bridge, the eighteen-tool Causa-shaped catalogue — lands in
+subsequent F-tranche beads. The four pair2-mcp-shape capability
+files (`001-Wire-Protocol`, `002-nREPL-Transport`,
+`003-Tool-Catalogue`, plus an `API.md`) land alongside.
+
+The spec scaffold exists so that direction-setting decisions
 accumulated inside
 [`tools/causa/spec/010-MCP-Server.md`](../causa/spec/010-MCP-Server.md)
 have a permanent home. Per the per-tool spec convention in
 [`tools/README.md`](../README.md), every shipped tool has a
-local `spec/` folder; this one is the spec folder ahead of the
-tool.
+local `spec/` folder.
 
 ## What it will be
 
