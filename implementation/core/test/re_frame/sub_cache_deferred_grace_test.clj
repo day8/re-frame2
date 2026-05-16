@@ -378,8 +378,22 @@
 (deftest resubscribe-mid-grace-cancels-parent-and-preserves-inputs
   (testing "a new subscribe inside the parent's grace window cancels
             disposal AND preserves the inputs' ref-counts — the cascade
-            never fires because the parent reaction was never disposed"
-    (subs/configure! {:grace-period-ms 200})
+            never fires because the parent reaction was never disposed.
+
+            Determinism: cancellation is an in-memory CAS in `subscribe`'s
+            HIT branch — it does NOT depend on wall-clock elapsed time
+            within the grace window. So we use a *long* grace (60s) and
+            call unsubscribe → subscribe back-to-back. The window is
+            vastly larger than any plausible JVM scheduler hiccup; the
+            ScheduledExecutorService cannot fire mid-test and `identical?`
+            holds deterministically. The earlier version of this test
+            used grace=200ms and Thread/sleep 80 — under CI scheduler
+            variation the timer could fire before the resubscribe arrived,
+            evicting the slot and forcing compute-and-cache! to mint a
+            new reaction (rf2-e8e74)."
+    ;; Long grace — the timer cannot fire during this test under any
+    ;; realistic scheduler.
+    (subs/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -399,8 +413,9 @@
           "inputs untouched during parent's grace window")
       (is (= 1 (entry-ref-count [:b])))
 
-      ;; Mid-window resubscribe (sleep ~40% of the grace-period).
-      (Thread/sleep 80)
+      ;; In-window resubscribe — no sleep needed. Cancellation is a CAS
+      ;; on the cache map; whether we resubscribe at t=0 or t=grace/2
+      ;; exercises the same code path.
       (let [r2 (rf/subscribe [:sum])]
         (is (identical? r1 r2)
             "resubscribe within grace returns the same reaction")
@@ -410,15 +425,45 @@
             "parent's ref-count restored to 1")
         (is (= 1 (entry-ref-count [:a]))
             "inputs still at ref-count 1 — cascade never fired")
-        (is (= 1 (entry-ref-count [:b]))))
+        (is (= 1 (entry-ref-count [:b])))))))
 
-      ;; And waiting past the ORIGINAL grace-period: the cancelled
-      ;; timer must NOT fire — the cache stays alive.
-      (Thread/sleep 400)
-      (is (contains? (cache-keys) [:sum])
-          "cancelled timer did not fire")
-      (is (contains? (cache-keys) [:a]))
-      (is (contains? (cache-keys) [:b])))))
+(deftest resubscribe-mid-grace-cancelled-timer-stays-dead
+  (testing "the cancelled grace-period timer must NOT fire after the
+            original grace-period would have elapsed — proves the
+            cancellation path actually calls clear-timeout!, not just
+            nulls the handle in the cache map.
+
+            Uses a short grace + post-window wait. Unlike the sibling
+            test, we don't assert reaction identity here, so the
+            scheduler-jitter risk is gone — we're only asserting that
+            the slot is STILL ALIVE after a wait that's an order of
+            magnitude past the original window."
+    (subs/configure! {:grace-period-ms 50})
+    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+
+    (rf/subscribe [:sum])
+    (rf/unsubscribe [:sum])
+    (is (pending-dispose? [:sum])
+        "parent entered grace window after last unsubscribe")
+    ;; Resubscribe immediately — cancellation handler runs synchronously.
+    (rf/subscribe [:sum])
+    (is (not (pending-dispose? [:sum]))
+        "timer handle cleared from cache map")
+
+    ;; Wait an order of magnitude past the original grace window.
+    ;; If clear-timeout! is broken, the orphaned timer would fire here
+    ;; and dispose-entry-now! would evict the slot.
+    (Thread/sleep 500)
+    (is (contains? (cache-keys) [:sum])
+        "cancelled timer did not fire")
+    (is (contains? (cache-keys) [:a]))
+    (is (contains? (cache-keys) [:b]))
+    (is (= 1 (entry-ref-count [:sum]))
+        "ref-count untouched by would-have-been-fired timer")))
 
 (deftest resubscribe-during-input-grace-after-cascade-rebuilds-cleanly
   (testing "after the parent has cascaded its inputs into their own
@@ -455,46 +500,63 @@
 
 (deftest mid-grace-window-resubscribe-stress
   (testing "stress: rapid subscribe/unsubscribe pairs with grace > 0
-            and a resubscribe at a randomised offset inside the grace
-            window. Either path (cancel-the-timer OR let-it-fire +
-            rebuild) must converge — no leaked slots, balanced ref-counts.
+            and a resubscribe interleaved with the grace window. Either
+            path (cancel-the-timer OR let-it-fire + rebuild) must
+            converge — no leaked slots, balanced ref-counts.
 
-            We use grace=200ms so resubscribe-at-100ms is comfortably
-            inside the window. The 'fire' arm sleeps 400ms (> 2 × grace
-            so the full cascade fires)."
-    (subs/configure! {:grace-period-ms 200})
+            Two-grace setup (rf2-e8e74): the cancel-arm uses a LONG
+            grace (60s) so the resubscribe deterministically lands
+            inside the window — no scheduler race against `Thread/sleep`.
+            After asserting `identical?` and the cancellation effect,
+            we collapse the grace to 0 and unsubscribe so the cascade
+            tears the slot down synchronously without a wait.
+
+            The let-fire arm uses a SHORT grace (30ms) + wait so the
+            ScheduledExecutorService timer lands and the full cascade
+            actually fires through the deferred path."
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
 
-    ;; 20 iterations, alternating: cancel-mid-window (10) vs let-fire (10).
-    ;; Bigger counts blow out the test runtime — grace=200ms means even
-    ;; the cancel path costs ~100ms per iteration.
+    ;; 20 iterations, alternating cancel-arm (10) vs let-fire-arm (10).
     (dotimes [i 20]
-      (let [r (rf/subscribe [:sum])]
-        (is (= 5 @r))
-        (is (= 1 (entry-ref-count [:sum])))
-        (rf/unsubscribe [:sum])
-        (is (pending-dispose? [:sum]))
-        (if (even? i)
-          ;; Cancel-mid-window arm.
-          (do (Thread/sleep 100)
-              (let [r2 (rf/subscribe [:sum])]
-                (is (identical? r r2)
-                    "mid-window resubscribe returned same reaction"))
-              (rf/unsubscribe [:sum])
-              ;; Now wait for the cascade to fully fire.
-              (Thread/sleep 500))
-          ;; Let-fire arm: wait past 2 × grace.
-          (Thread/sleep 500))
-        ;; Both arms converge: cache fully drained.
-        (is (not (contains? (cache-keys) [:sum]))
-            (str "iter " i ": parent must be disposed"))
-        (is (not (contains? (cache-keys) [:a]))
-            (str "iter " i ": input :a must be disposed"))
-        (is (not (contains? (cache-keys) [:b]))
-            (str "iter " i ": input :b must be disposed")))))
+      (if (even? i)
+        ;; Cancel-mid-window arm — long grace, no wall-clock dependency.
+        (do
+          (subs/configure! {:grace-period-ms 60000})
+          (let [r (rf/subscribe [:sum])]
+            (is (= 5 @r))
+            (is (= 1 (entry-ref-count [:sum])))
+            (rf/unsubscribe [:sum])
+            (is (pending-dispose? [:sum]))
+            ;; Resubscribe deterministically inside the 60s window.
+            (let [r2 (rf/subscribe [:sum])]
+              (is (identical? r r2)
+                  (str "iter " i ": mid-window resubscribe returned same reaction"))
+              (is (not (pending-dispose? [:sum]))
+                  (str "iter " i ": timer cancelled on resubscribe"))))
+          ;; Collapse grace to 0 to tear down synchronously — both arms
+          ;; converge on a fully drained cache before the next iteration.
+          (subs/configure! {:grace-period-ms 0})
+          (rf/unsubscribe [:sum]))
+        ;; Let-fire arm: short grace + wait > 2 × grace so the full
+        ;; cascade fires through the deferred path.
+        (do
+          (subs/configure! {:grace-period-ms 30})
+          (let [r (rf/subscribe [:sum])]
+            (is (= 5 @r))
+            (is (= 1 (entry-ref-count [:sum])))
+            (rf/unsubscribe [:sum])
+            (is (pending-dispose? [:sum])))
+          (Thread/sleep 500)))
+      ;; Both arms converge: cache fully drained.
+      (is (not (contains? (cache-keys) [:sum]))
+          (str "iter " i ": parent must be disposed"))
+      (is (not (contains? (cache-keys) [:a]))
+          (str "iter " i ": input :a must be disposed"))
+      (is (not (contains? (cache-keys) [:b]))
+          (str "iter " i ": input :b must be disposed"))))
   (is (empty? (cache-keys))
       "after the stress loop the cache is fully drained"))
