@@ -34,6 +34,41 @@
   `m/schema` ↔ raw EDN — round-tripping a registry ref loses the slot
   metadata).
 
+  ## Discoverability caveat — non-vector forms (rf2-yaioz)
+
+  A user that registers a schema via a compiled `m/schema` value or a
+  registry reference and adds per-slot `:sensitive?` / `:large?` flags
+  inside that opaque value will see the walker **silently skip** them.
+  No warning fires; the validation-failure trace will not redact the
+  sensitive slot.
+
+  Two workable shapes when per-slot flags need to apply:
+
+    1. **Register the vector form, not the compiled one.** Pass the
+       raw EDN `[op props? children...]` to `reg-app-schema` — the
+       walker can introspect it.
+
+    2. **Use registration-level metadata for coarse honour.** A
+       handler's `:sensitive?` registration meta still applies to the
+       whole event-handler-shipped value (per Spec 010 §`:sensitive?`)
+       even when the walker cannot reach per-slot flags. This is the
+       fallback when the schema MUST stay opaque (third-party
+       compiled schemas, registry refs that require lazy resolution).
+
+  Example — vector form vs registry ref:
+
+    ;; Vector form — walker sees :sensitive? per-slot.
+    (rf/reg-app-schema [:user]
+      [:map
+       [:id    :int]
+       [:token {:sensitive? true} :string]])
+
+    ;; Registry ref — walker treats the schema as an opaque leaf;
+    ;; the per-slot :sensitive? inside `:my/user-schema` is invisible.
+    ;; Coarse honour via `:sensitive?` on the consuming reg-event-* is
+    ;; still available.
+    (rf/reg-app-schema [:user] :my/user-schema)
+
   The walker is parameterised on the per-slot flag key (`:large?` /
   `:sensitive?`); both flags share identical structural recognition
   (`:map` name-bearing, `:multi`/`:orn`/`:catn`/`:altn` dispatch-bearing,
