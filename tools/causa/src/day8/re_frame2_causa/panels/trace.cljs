@@ -232,13 +232,21 @@
      (format-axis-value value)]))
 
 (defn- trace-row
-  "One row in the trace ribbon."
+  "One row in the trace ribbon.
+
+  Per rf2-z4fza: the React `:key` is the row's stable trace `:id`
+  (via `h/row-key`). The earlier shape keyed on a tuple that mixed
+  in the row's positional index inside the visible viewport — every
+  new trace push shifted every visible row's index, so every key
+  changed, and React unmounted+remounted the entire viewport on
+  EVERY push. Same discipline class as rf2-kgn0c's `v:<variant-id>`
+  cell-keying in the story workspace."
   [{:keys [id time op-type operation source origin frame description
-           source-coord dispatch-id row-index]
-    :as _row}]
+           source-coord dispatch-id]
+    :as row}]
   (let [row-test-id (str "rf-causa-trace-row-" id)
         dot-colour  (h/op-type-colour op-type)]
-    [:li {:key         [row-index frame id time op-type operation source-coord]
+    [:li {:key         (h/row-key row)
           :data-testid row-test-id
           :on-click    (fn []
                          (when dispatch-id

@@ -415,3 +415,112 @@
           "filter map lands on Causa")
       (is (nil? (:trace-filters default-db))
           "filter map did NOT leak into :rf/default"))))
+
+;; ---- (8) React-key stability across trace pushes — rf2-z4fza -----------
+;;
+;; Sibling of rf2-kgn0c (same React-key discipline class). The earlier
+;; trace row shape keyed `<li>` on a tuple that included the row's
+;; positional index inside the visible viewport. Every trace push
+;; shifted every visible row's index → every key changed → React
+;; unmounted + remounted the entire viewport on EVERY push — the
+;; dominant frame cost under burst event rate (animation frames,
+;; polling). This test pins the fix: the rendered `<li>` for any row
+;; that survives a push has the SAME `:key` before and after.
+
+(defn- row-li-by-id
+  "Walk the rendered tree and return the `<li>` whose data-testid is
+  `rf-causa-trace-row-<id>`. Returns nil when the row isn't rendered."
+  [tree id]
+  (let [testid (str "rf-causa-trace-row-" id)]
+    (some (fn [node]
+            (when (and (vector? node)
+                       (= :li (first node))
+                       (map? (second node))
+                       (= testid (:data-testid (second node))))
+              node))
+          (hiccup-seq tree))))
+
+(defn- sync-push!
+  "Push a trace event AND synchronously flush the `:rf.causa/note-
+  trace-event` mirror into `:rf/causa`'s app-db. The production
+  `collect-trace!` mirror dispatches async (`rf/dispatch`); the
+  layer-1 `:rf.causa/trace-buffer` sub falls back to the atom when
+  the db slot is nil, which lets the first read succeed in tests.
+  But once the sub has materialised, subsequent atom-only pushes
+  are invisible to the cached sub. `dispatch-sync` of the note
+  event forces the db update so the sub re-fires."
+  [ev]
+  (push-trace! ev)
+  (rf/dispatch-sync [:rf.causa/note-trace-event ev]))
+
+(deftest trace-row-react-keys-are-stable-across-pushes
+  (testing "rf2-z4fza — appending a new trace event must NOT change the
+            :key of any previously-rendered <li>. Same input row → same
+            React key → React's reconciler reuses the DOM node instead
+            of unmounting + remounting it. Mirrors rf2-kgn0c's
+            v:<variant-id> discipline in the story workspace."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Seed three rows.
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :time 100 :dispatch-id 1}))
+      (sync-push! (mk-trace {:id 2 :op-type :fx    :operation :rf.fx/handled
+                             :time 200 :dispatch-id 1}))
+      (sync-push! (mk-trace {:id 3 :op-type :sub/run :operation :sub/run
+                             :time 300 :dispatch-id 1}))
+      (let [tree-1   (trace/trace-view)
+            keys-1   {1 (:key (second (row-li-by-id tree-1 1)))
+                      2 (:key (second (row-li-by-id tree-1 2)))
+                      3 (:key (second (row-li-by-id tree-1 3)))}]
+        (is (every? some? (vals keys-1))
+            "every initial row carries a React :key")
+        (is (= 3 (count (distinct (vals keys-1))))
+            "initial row keys are distinct")
+        ;; Push three more events — under the broken positional-key
+        ;; shape, this would shift every existing key.
+        (sync-push! (mk-trace {:id 4 :op-type :event :operation :event/dispatched
+                               :time 400 :dispatch-id 2}))
+        (sync-push! (mk-trace {:id 5 :op-type :fx    :operation :rf.fx/handled
+                               :time 500 :dispatch-id 2}))
+        (sync-push! (mk-trace {:id 6 :op-type :error :operation :rf.error/handler-threw
+                               :time 600 :dispatch-id 2}))
+        (let [tree-2 (trace/trace-view)
+              keys-2 {1 (:key (second (row-li-by-id tree-2 1)))
+                      2 (:key (second (row-li-by-id tree-2 2)))
+                      3 (:key (second (row-li-by-id tree-2 3)))
+                      4 (:key (second (row-li-by-id tree-2 4)))
+                      5 (:key (second (row-li-by-id tree-2 5)))
+                      6 (:key (second (row-li-by-id tree-2 6)))}]
+          (doseq [id [1 2 3]]
+            (is (= (get keys-1 id) (get keys-2 id))
+                (str "row id " id ": React :key must be identical before "
+                     "and after the burst push (pre=" (pr-str (get keys-1 id))
+                     " post=" (pr-str (get keys-2 id)) "). "
+                     "If this fails, the trace ribbon is re-mounting the "
+                     "viewport on every push — the rf2-z4fza regression.")))
+          (is (every? some? (vals keys-2))
+              "every row in the post-push tree carries a React :key")
+          (is (= 6 (count (distinct (vals keys-2))))
+              "all six row keys remain distinct after the burst push"))))))
+
+(deftest trace-row-react-keys-have-no-positional-component
+  (testing "rf2-z4fza acceptance: the rendered <li> :key contains only
+            the stable trace id, NOT a positional row-index. Pins the
+            key shape so a future regression that re-introduces a
+            positional component would fail loudly here."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 11 :op-type :event :operation :event/dispatched
+                             :time 100 :dispatch-id 1}))
+      (sync-push! (mk-trace {:id 22 :op-type :fx    :operation :rf.fx/handled
+                             :time 200 :dispatch-id 1}))
+      (let [tree (trace/trace-view)
+            k11  (:key (second (row-li-by-id tree 11)))
+            k22  (:key (second (row-li-by-id tree 22)))]
+        (is (= "t:11" k11)
+            "row 11 keyed on stable trace id alone (no positional prefix)")
+        (is (= "t:22" k22)
+            "row 22 keyed on stable trace id alone (no positional prefix)")
+        (is (string? k11)
+            "key is a string (not the positional-tuple from the
+             pre-rf2-z4fza shape)")))))
