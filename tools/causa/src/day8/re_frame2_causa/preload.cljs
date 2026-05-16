@@ -64,6 +64,14 @@
             ;; preload is dev-only and is excluded from production
             ;; bundles by the `:devtools/preloads` shadow-cljs gate.
             [re-frame.epoch]
+            ;; rf2-qwm0a — the public-tooling listener surface
+            ;; (`register-trace-cb!` etc.) lives in
+            ;; `re-frame.trace.tooling` for production-DCE reasons.
+            ;; Causa's trace-collector registration below targets the
+            ;; tooling sibling directly. The preload is dev-only
+            ;; (gated by shadow-cljs `:devtools/preloads`) so this
+            ;; require is excluded from production bundles.
+            [re-frame.trace.tooling :as trace-tooling]
             [day8.re-frame2-causa.keybinding :as keybinding]
             [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.registry :as registry]
@@ -106,8 +114,8 @@
   it directly without `#'`-piercing into private vars."
   []
   (when (compare-and-set! trace-cb-registered? false true)
-    (rf/register-trace-cb! :rf.causa/trace-collector
-                           trace-bus/collect-trace!))
+    (trace-tooling/register-trace-cb! :rf.causa/trace-collector
+                                      trace-bus/collect-trace!))
   nil)
 
 (defn register-epoch-collector!

@@ -19,7 +19,11 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace]
+            ;; rf2-qwm0a — load the tooling sibling so the late-bind
+            ;; hooks behind `trace/clear-trace-cbs!` / `rf/trace-buffer`
+            ;; / `rf/configure :trace-buffer` / etc. are registered.
+            [re-frame.trace.tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
 
@@ -134,7 +138,13 @@
     ;; the flag is false at compile time. We assert the source contains
     ;; the gate at the right call sites; combined with the existing
     ;; trace-test envelope coverage, this protects the elision contract.
-    (let [src (slurp "src/re_frame/trace.cljc")]
+    ;;
+    ;; Per rf2-qwm0a the buffer + filter-predicate body live in
+    ;; re-frame.trace.tooling (the sibling ns split off so production
+    ;; counter bundles DCE them); the `re-frame.trace/trace-buffer` etc.
+    ;; wrappers delegate through late-bind hooks and return [] when the
+    ;; tooling ns is absent. The gate check lives in the tooling source.
+    (let [src (slurp "src/re_frame/trace/tooling.cljc")]
       (is (re-find #"\(defn-? push-to-buffer![\s\S]*?interop/debug-enabled\?" src)
           "push-to-buffer! is gated on interop/debug-enabled?")
       (is (re-find #"\(defn-? trace-buffer[\s\S]*?interop/debug-enabled\?" src)

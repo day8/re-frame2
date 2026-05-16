@@ -30,6 +30,8 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -42,9 +44,9 @@
 (defn- collect-traces! []
   (let [traces (atom [])
         cb-id  (keyword (gensym "rf-wad-cb-"))]
-    (rf/register-trace-cb! cb-id (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-trace-cb! cb-id (fn [ev] (swap! traces conj ev)))
     {:traces traces
-     :stop!  (fn [] (rf/remove-trace-cb! cb-id))}))
+     :stop!  (fn [] (trace-tooling/remove-trace-cb! cb-id))}))
 
 (defn- write-after-destroy-warnings [traces]
   (filterv (fn [ev]

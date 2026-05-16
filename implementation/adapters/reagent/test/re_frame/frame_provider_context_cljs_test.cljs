@@ -73,6 +73,8 @@
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -206,7 +208,7 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (rf/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- corruption-traces [traces]
@@ -290,7 +292,7 @@
           (is (= :empty-string (-> errs first :tags :type))
               ":tags :type identifies empty-string distinctly from string")))
       (finally
-        (rf/remove-trace-cb! ::scenario-3)
+        (trace-tooling/remove-trace-cb! ::scenario-3)
         (set! (.-_currentValue ^js adapter-context/frame-context) original)))))
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------

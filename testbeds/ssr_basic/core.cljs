@@ -45,7 +45,9 @@
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.ssr :as ssr]
-            [re-frame.trace :as trace]
+            ;; rf2-qwm0a — listener surface lives in
+            ;; `re-frame.trace.tooling` (production-DCE split).
+            [re-frame.trace.tooling :as trace-tooling]
             [cljs.reader])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -79,7 +81,7 @@
   ;; HOT PATH — wire the trace bus to a window-side mirror so a
   ;; Playwright assertion can inspect the hydration trace stream
   ;; without poking at internal cljs vars.
-  (trace/register-trace-cb! ::ssr-basic-listener
+  (trace-tooling/register-trace-cb! ::ssr-basic-listener
     (fn [ev]
       (let [op (:operation ev)]
         (when (and op

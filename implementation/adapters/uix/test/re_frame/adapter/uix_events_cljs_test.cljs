@@ -15,6 +15,8 @@
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -27,7 +29,7 @@
   events and return the recording atom."
   [k]
   (let [a (atom [])]
-    (rf/register-trace-cb! k
+    (trace-tooling/register-trace-cb! k
       (fn [ev]
         (when (and (= :warning (:op-type ev))
                    (= :rf.warning/interceptors-in-metadata-map (:operation ev)))
@@ -43,7 +45,7 @@
       (rf/reg-event-db :test.bbea.uix/db-bad
         {:doc "Wrongly-shaped." :interceptors [noop-icpt]}
         (fn [db _] db))
-      (rf/remove-trace-cb! ::db-warn)
+      (trace-tooling/remove-trace-cb! ::db-warn)
       (is (= 1 (count @warns)))
       (let [t (:tags (first @warns))]
         (is (= "reg-event-db" (:reg-fn t)))
@@ -54,7 +56,7 @@
     (rf/reg-event-fx :test.bbea.uix/fx-bad
       {:interceptors [noop-icpt]}
       (fn [_ _] {:db {}}))
-    (rf/remove-trace-cb! ::fx-warn)
+    (trace-tooling/remove-trace-cb! ::fx-warn)
     (is (= 1 (count @warns)))
     (is (= "reg-event-fx" (:reg-fn (:tags (first @warns)))))))
 
@@ -63,7 +65,7 @@
     (rf/reg-event-ctx :test.bbea.uix/ctx-bad
       {:interceptors [noop-icpt]}
       (fn [ctx] ctx))
-    (rf/remove-trace-cb! ::ctx-warn)
+    (trace-tooling/remove-trace-cb! ::ctx-warn)
     (is (= 1 (count @warns)))
     (is (= "reg-event-ctx" (:reg-fn (:tags (first @warns)))))))
 
@@ -80,5 +82,5 @@
       (rf/reg-event-db :test.bbea.uix/quiet-3
         {:doc "metadata only, no positional interceptors"}
         (fn [db _] db))
-      (rf/remove-trace-cb! ::quiet)
+      (trace-tooling/remove-trace-cb! ::quiet)
       (is (zero? (count @warns))))))

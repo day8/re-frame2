@@ -7,33 +7,47 @@
   is event-at-a-time (not span-shaped); cascade correlation rides on
   `:dispatch-id`. Production builds elide trace emission entirely via
   `re-frame.interop/debug-enabled?` — see `emit!` below. See Spec 009
-  §Core fields, §Dispatch correlation, and §Handler-scope."
+  §Core fields, §Dispatch correlation, and §Handler-scope.
+
+  Topology (rf2-qwm0a): this ns carries the always-loaded hot fast
+  path — `emit!` / `emit-error!` / `*handler-scope*` and the bracket
+  macros. The public-tooling surface (`register-trace-cb!` /
+  `remove-trace-cb!` / `clear-trace-cbs!` / `trace-buffer` /
+  `clear-trace-buffer!` / `configure-trace-buffer!` / `configure`) and
+  the buffer + listener state live in the sibling
+  `re-frame.trace.tooling`, which is loaded only when a test fixture,
+  tool, or dev preload requires it.
+
+  CLJS consumers call `re-frame.trace.tooling/<name>` directly so the
+  CLJS build of this ns intentionally holds NO references to the
+  tooling sibling — production counter bundles DCE the buffer +
+  listener machinery, including the per-fn late-bind keyword interns
+  that would otherwise survive as top-level allocations even when the
+  wrapper body is dead.
+
+  JVM consumers (the production-DCE benefit doesn't apply to the JVM
+  side; the tooling sibling has zero artefact-bundle cost there) keep
+  the legacy `re-frame.trace/<name>` call shape via the convenience
+  aliases at the bottom of this file (loaded only under `#?(:clj ...)`
+  so they don't leak into the CLJS bundle). 47 JVM test files and a
+  handful of `.cljc` sources reference the legacy shape; the JVM
+  aliases preserve their call sites unchanged.
+
+  `deliver!` reaches the tooling fan-out through the single
+  `:trace.tooling/deliver!` late-bind hook (mirroring the existing
+  `:epoch/capture-event` shape)."
   (:require [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind])
+            [re-frame.late-bind :as late-bind]
+            ;; JVM autoload (see ns docstring): the JVM has no Closure
+            ;; DCE bundle to protect, and we keep the legacy
+            ;; `re-frame.trace/<name>` shape working for JVM test
+            ;; fixtures + SSR via the alias block at the bottom of the
+            ;; file. CLJS deliberately omits this require so the
+            ;; tooling sibling stays out of production bundles.
+            #?@(:clj [[re-frame.trace.tooling :as trace-tooling]]))
   #?(:cljs (:require-macros [re-frame.trace])))
 
 #?(:clj (set! *warn-on-reflection* true))
-
-;; ---- listener registry ----------------------------------------------------
-
-(defonce ^:private listeners (atom {}))    ;; id → fn (or nil for cleared)
-
-(defn register-trace-cb!
-  "Register a listener that receives every trace event. The id can be any
-  comparable value; passing the same id twice replaces. Returns the id."
-  [id f]
-  (swap! listeners assoc id f)
-  id)
-
-(defn remove-trace-cb!
-  [id]
-  (swap! listeners dissoc id)
-  nil)
-
-(defn clear-trace-cbs!
-  []
-  (reset! listeners {})
-  nil)
 
 ;; ---- event id counter (cheap, monotonic per process) ----------------------
 
@@ -146,169 +160,6 @@
                                     (->HandlerScope nil cs# did# false false))]
           ~@body))))
 
-;; ---- retain-N trace ring buffer (dev-only) -------------------------------
-
-(def ^:private default-buffer-depth
-  "Per Spec 009 §Retain-N trace ring buffer: default 200 events —
-  enough for one drained cascade plus prior history without per-frame
-  memory pressure."
-  200)
-
-(defonce ^:private buffer-depth (atom default-buffer-depth))
-
-(defonce ^:private trace-buffer-state
-  ;; The buffer is a plain vector held under an atom. Append is conj+slice;
-  ;; the slot count caps memory. depth=0 disables the buffer entirely (the
-  ;; delivery path still works — see configure-trace-buffer!).
-  (atom []))
-
-(defn- push-to-buffer!
-  "Append ev to the ring buffer, evicting the oldest entry when the slot
-  count is exceeded. No-op when the configured depth is 0."
-  [ev]
-  (when interop/debug-enabled?
-    (let [depth @buffer-depth]
-      (when (pos? depth)
-        (swap! trace-buffer-state
-               (fn [v]
-                 (let [v' (conj v ev)
-                       n  (count v')]
-                   (if (> n depth)
-                     (subvec v' (- n depth))
-                     v'))))))))
-
-(defn trace-buffer
-  "Return the trace ring buffer's current contents, oldest first.
-
-  With opts, filters the result. Recognised keys (all compose AND-wise;
-  an absent key means \"no constraint on that axis\"):
-
-    :operation     — keep only events with this :operation value.
-    :op-type       — keep only events with this :op-type value.
-    :since         — keep only events whose :id is strictly greater than
-                     this. Useful for cursor-based polling.
-    :frame         — keep only events whose `:tags :frame` (or top-level
-                     :frame fallback) matches.
-    :severity      — keep only events whose :op-type matches one of
-                     `:error` / `:warning` / `:info`. Synonym for
-                     `:op-type` restricted to the three severity tiers.
-    :event-id      — keep only events whose `:tags :event-id` matches.
-                     The event-id is the first element of the dispatched
-                     event vector (e.g. `:user/login`).
-    :handler-id    — keep only events whose `:tags :handler-id` matches.
-                     Carried on `:rf.error/handler-exception` and other
-                     handler-scoped emits.
-    :source        — keep only events whose :source (top-level, hoisted
-                     from `:tags :source` by `emit!`) matches. Source
-                     identifies the trigger origin — one of `:ui` /
-                     `:timer` / `:http` / `:repl` / `:machine` /
-                     `:ssr-hydration`. Matched against the top-level slot.
-    :origin        — keep only events whose `:tags :origin` matches.
-                     Origin tags the actor that issued the dispatch
-                     (`:app` / `:pair` / `:story` / `:test` / ...) per
-                     Spec 002 §Dispatch origin tagging.
-    :dispatch-id   — keep only events whose `:tags :dispatch-id` matches.
-                     Cascade-wide post rf2-g6ih4 — every emit inside a
-                     drain carries the in-flight cascade's dispatch-id.
-    :since-ms      — keep only events whose :time is strictly greater
-                     than this numeric host-clock timestamp.
-    :between       — `[t0 t1]` two-element vector — keep only events
-                     whose :time falls in [t0, t1] inclusive.
-    :sensitive?    — boolean. Match the top-level `:sensitive?` field
-                     (per Spec 009 §Privacy filter-vocab row, rf2-isdwf).
-                     Pass `false` to exclude sensitive events; pass
-                     `true` to select only sensitive events. Absent ⇒
-                     no constraint.
-    :pred          — `(fn [ev] -> truthy)` arbitrary predicate. Receives
-                     the full event map. Returning truthy keeps the event.
-
-  Filters compose: every supplied key must match. Returns an empty vector
-  in production (the buffer never receives events when interop/debug-enabled?
-  is false at compile time).
-
-  Per Spec 009 §Retain-N trace ring buffer."
-  ([] (trace-buffer {}))
-  ([opts]
-   (if-not interop/debug-enabled?
-     []
-     (let [{:keys [operation op-type since frame
-                   severity event-id handler-id source origin
-                   dispatch-id since-ms between pred]} opts
-           sensitive-filter (:sensitive? opts)
-           [between-t0 between-t1] (when (and (sequential? between)
-                                              (= 2 (count between)))
-                                     between)
-           predicate
-           (fn [ev]
-             (and (or (nil? operation) (= operation (:operation ev)))
-                  (or (nil? op-type)   (= op-type   (:op-type ev)))
-                  (or (nil? since)     (and (number? (:id ev))
-                                            (> (:id ev) since)))
-                  (or (nil? frame)
-                      (= frame (or (:frame ev)
-                                   (get-in ev [:tags :frame]))))
-                  (or (nil? severity) (= severity (:op-type ev)))
-                  (or (nil? event-id)
-                      (= event-id (get-in ev [:tags :event-id])))
-                  (or (nil? handler-id)
-                      (= handler-id (get-in ev [:tags :handler-id])))
-                  (or (nil? source)
-                      (= source (or (:source ev)
-                                    (get-in ev [:tags :source]))))
-                  (or (nil? origin)
-                      (= origin (get-in ev [:tags :origin])))
-                  (or (nil? dispatch-id)
-                      (= dispatch-id (get-in ev [:tags :dispatch-id])))
-                  (or (nil? since-ms)
-                      (and (number? (:time ev))
-                           (> (:time ev) since-ms)))
-                  (or (nil? between-t0)
-                      (and (number? (:time ev))
-                           (<= between-t0 (:time ev) between-t1)))
-                  ;; Top-level `:sensitive?` is hoisted (NOT nested
-                  ;; under `:tags`). Match against the top-level slot
-                  ;; only; absent reads as false.
-                  (or (nil? sensitive-filter)
-                      (= (true? sensitive-filter)
-                         (true? (:sensitive? ev))))
-                  (or (nil? pred) (pred ev))))]
-       (filterv predicate @trace-buffer-state)))))
-
-(defn clear-trace-buffer!
-  "Empty the ring buffer. Tooling uses this between sessions. No-op in
-  production. Per Spec 009 §Retain-N trace ring buffer."
-  []
-  (when interop/debug-enabled?
-    (reset! trace-buffer-state []))
-  nil)
-
-(defn configure-trace-buffer!
-  "Set the ring buffer's depth. depth=0 disables the buffer (the delivery
-  path still works). The new depth applies on the next append; existing
-  entries are trimmed to fit immediately. No-op in production.
-
-  Per Spec 009 §Retain-N trace ring buffer."
-  [{:keys [depth]}]
-  (when (and interop/debug-enabled? (number? depth) (not (neg? depth)))
-    (reset! buffer-depth depth)
-    (swap! trace-buffer-state
-           (fn [v]
-             (let [n (count v)]
-               (cond
-                 (zero? depth) []
-                 (> n depth)   (subvec v (- n depth))
-                 :else         v)))))
-  nil)
-
-(defn configure
-  "Generic config dispatch. Recognises :trace-buffer; future config knobs
-  add cases here. Per Spec 009 §Retain-N trace ring buffer
-  (`(rf/configure :trace-buffer {:depth N})`)."
-  [k opts]
-  (case k
-    :trace-buffer (configure-trace-buffer! opts)
-    nil))
-
 ;; ---- emission -------------------------------------------------------------
 
 (defn- deliver-to-epoch-capture!
@@ -400,17 +251,16 @@
       sensitive?           (assoc :sensitive? true))))
 
 (defn- deliver!
-  "Side-effect dispatch for an assembled trace envelope: ring-buffer
-  push, epoch-capture fan-out, and listener fan-out. Synchronous;
-  throwing listeners are isolated. Per Spec 009 §Listener invocation
-  rules."
+  "Side-effect dispatch for an assembled trace envelope: epoch-capture
+  fan-out, then ring-buffer push + listener fan-out via the
+  `:trace.tooling/deliver!` hook published by `re-frame.trace.tooling`.
+  The tooling hook is unregistered in production (the tooling sibling
+  ns is not loaded) — the lookup returns nil and the fan-out is
+  skipped. Per Spec 009 §Listener invocation rules and rf2-qwm0a."
   [event]
-  (push-to-buffer! event)
   (deliver-to-epoch-capture! event)
-  (doseq [[_ f] @listeners]
-    (try
-      (f event)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
+  (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
+    (deliver-tooling event)))
 
 (defn emit!
   "Emit a trace event. Production builds elide the body entirely
@@ -456,3 +306,23 @@
 
 (late-bind/set-fn! :trace/emit!       emit!)
 (late-bind/set-fn! :trace/emit-error! emit-error!)
+
+;; ---- JVM-side convenience aliases (rf2-qwm0a) ----------------------------
+;;
+;; Per the ns docstring: on the JVM we preserve the legacy
+;; `re-frame.trace/<name>` shape for the public-tooling surface so the
+;; cascade of `.clj` test fixtures + `.cljc` SSR / story / causa
+;; sources stays unchanged. The aliases are gated under `#?(:clj ...)`
+;; so they never appear in CLJS compilation — production counter
+;; bundles still DCE the tooling sibling wholesale because
+;; `re-frame.trace` on CLJS has no static reference to it.
+
+#?(:clj
+   (do
+     (def register-trace-cb!     trace-tooling/register-trace-cb!)
+     (def remove-trace-cb!       trace-tooling/remove-trace-cb!)
+     (def clear-trace-cbs!       trace-tooling/clear-trace-cbs!)
+     (def trace-buffer           trace-tooling/trace-buffer)
+     (def clear-trace-buffer!    trace-tooling/clear-trace-buffer!)
+     (def configure-trace-buffer! trace-tooling/configure-trace-buffer!)
+     (def configure              trace-tooling/configure)))

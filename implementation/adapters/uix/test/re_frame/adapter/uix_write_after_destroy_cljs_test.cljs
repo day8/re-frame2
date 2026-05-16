@@ -16,6 +16,8 @@
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.frame :as frame]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -34,7 +36,7 @@
             under plain-atom (the JVM-tier reproducer in
             frame-lifecycle-test)."
     (let [recorded (atom [])]
-      (rf/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
+      (trace-tooling/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
       (is (nil? (substrate-adapter/replace-container! nil {:any :value}))
           "nil container is a documented no-op, not an exception")
       (let [warns (filterv (fn [ev]
@@ -44,7 +46,7 @@
                            @recorded)]
         (is (= 1 (count warns))
             "exactly one :rf.warning/write-after-destroy trace fired"))
-      (rf/remove-trace-cb! ::rec))))
+      (trace-tooling/remove-trace-cb! ::rec))))
 
 (deftest write-after-destroy-emits-warning-uix
   (testing "rf2-4tzyq: a write through a destroyed frame's nil container
@@ -53,7 +55,7 @@
             (frame-lifecycle-test) but with the UIx adapter installed —
             the contract is substrate-agnostic."
     (let [recorded (atom [])]
-      (rf/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
+      (trace-tooling/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
       (rf/reg-frame :uix-rf2-4tzyq/race-frame
                     {:doc "rf2-4tzyq UIx-side reproducer frame"})
       ;; Tear the frame down; subsequent frame/get-frame-db returns nil.
@@ -72,4 +74,4 @@
                            @recorded)]
         (is (pos? (count warns))
             ":rf.warning/write-after-destroy fired for the post-destroy write"))
-      (rf/remove-trace-cb! ::rec))))
+      (trace-tooling/remove-trace-cb! ::rec))))

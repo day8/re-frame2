@@ -49,7 +49,12 @@
             [re-frame.story.play      :as play]
             [re-frame.story.registrar :as registrar]
             [re-frame.interop         :as interop]
-            [re-frame.trace           :as trace]))
+            [re-frame.trace           :as trace]
+            ;; rf2-qwm0a — listener API lives in
+            ;; `re-frame.trace.tooling` (production-DCE split). The
+            ;; hot-path emit fast-path (`trace/emit!`) stays in
+            ;; `re-frame.trace`.
+            [re-frame.trace.tooling   :as trace-tooling]))
 
 ;; ---- empty / disabled result ---------------------------------------------
 
@@ -94,9 +99,9 @@
   [listener body-fn]
   (let [cb-id (keyword "re-frame.story.runtime"
                        (str "capture-" (swap! capture-counter inc)))]
-    (trace/register-trace-cb! cb-id listener)
+    (trace-tooling/register-trace-cb! cb-id listener)
     (try (body-fn)
-      (finally (trace/remove-trace-cb! cb-id)))))
+      (finally (trace-tooling/remove-trace-cb! cb-id)))))
 
 (defn- capture-phase-errors
   "Run `body-fn` (a 0-arg thunk) with a registered trace listener that

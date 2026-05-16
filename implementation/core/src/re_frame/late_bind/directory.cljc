@@ -328,6 +328,25 @@
     :design-bead "rf2-4dra9"
     :description "Clear the per-frame head-snapshot entry on destroy. `re-frame.ssr/on-frame-destroyed!` invokes this hook by key after clearing its own side-channel atoms."}
 
+   ;; ---- re-frame.ssr.streaming (rf2-ojakd / rf2-olb64 — chunked SSR) ---------
+   ;; Three keys host adapters (e.g. ssr-ring/streaming) call to drive
+   ;; the chunked-rendering pipeline. The drift scan picked these up
+   ;; only after the rf2-qwm0a regex fix added `.` to the namespace
+   ;; character class — they were always published but the original
+   ;; regex `[a-zA-Z0-9!?*+\-]+` excluded the `.` in `ssr.streaming/`.
+   {:key         :ssr.streaming/render-shell!
+    :producer-ns 're-frame.ssr.streaming
+    :design-bead "rf2-ojakd"
+    :description "Render the initial SSR shell HTML chunk for a frame and stash the in-flight render context."}
+   {:key         :ssr.streaming/render-continuation!
+    :producer-ns 're-frame.ssr.streaming
+    :design-bead "rf2-ojakd"
+    :description "Render a continuation chunk (resolved-suspense fragment) for an in-flight streaming render."}
+   {:key         :ssr.streaming/build-final-payload
+    :producer-ns 're-frame.ssr.streaming
+    :design-bead "rf2-ojakd"
+    :description "Build the final hydration payload after every streaming chunk has been emitted."}
+
    ;; ---- re-frame.adapter.reagent (rf2-0hxm) ---------------------------------
    {:key         :reagent/set-hiccup-emitter!
     :producer-ns '[re-frame.adapter.reagent
@@ -474,6 +493,27 @@
    {:key         :trace/emit-error!
     :producer-ns 're-frame.trace
     :description "Emit a trace error event (registrar replace-warning seam)."}
+
+   ;; ---- re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
+   ;; surface split off for production DCE; trace.cljc reaches the buffer
+   ;; push + listener fan-out through this single hook). The public
+   ;; surface fns (`register-trace-cb!` / `remove-trace-cb!` /
+   ;; `clear-trace-cbs!` / `trace-buffer` / `clear-trace-buffer!` /
+   ;; `configure-trace-buffer!` / `configure`) are exposed directly from
+   ;; `re-frame.trace.tooling`; consumers (tests, tools, SSR's listener
+   ;; registration) call them through `re-frame.trace.tooling/<name>`
+   ;; rather than going through a wrapper in `re-frame.trace`. Keeping
+   ;; the seam at exactly one hook key avoids paying for N keyword
+   ;; interns at module-init time in every consumer that loads
+   ;; `re-frame.trace` (which is everyone).
+   {:key         :trace.tooling/deliver!
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-qwm0a"
+    :description "Per-event buffer-push + listener fan-out invoked by trace.cljc's `deliver!`."}
+   {:key         :trace.tooling/configure-trace-buffer!
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-qwm0a"
+    :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure :trace-buffer` so a no-tooling production build silently no-ops."}
 
    ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
    {:key         :event-emit/dispatch-on-event

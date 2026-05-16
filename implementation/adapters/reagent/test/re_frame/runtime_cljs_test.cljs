@@ -5,6 +5,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
@@ -285,11 +287,11 @@
         (count (.something items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
-      (rf/remove-trace-cb! ::sub-err)
+      (trace-tooling/remove-trace-cb! ::sub-err)
       (is (some (fn [ev]
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)
@@ -447,14 +449,14 @@
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::dsih (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::dsih (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
       (rf/reg-event-fx :nested
         (fn [_ _]
           (rf/dispatch-sync [:outer])
           {}))
       (rf/dispatch-sync [:nested])
-      (rf/remove-trace-cb! ::dsih)
+      (trace-tooling/remove-trace-cb! ::dsih)
       (is (some (fn [ev]
                   (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                        (= :error (:op-type ev))))

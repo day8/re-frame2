@@ -22,6 +22,8 @@
   API.md `route-link` row's click-rules paragraph."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.routing :as routing]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
@@ -70,7 +72,7 @@
   [props event]
   (let [dispatched (atom nil)
         cb-key     (keyword (gensym "click-capture-"))]
-    (rf/register-trace-cb!
+    (trace-tooling/register-trace-cb!
       cb-key
       (fn [ev]
         (when (and (= :event/dispatched (:operation ev))
@@ -85,7 +87,7 @@
          :prevented? (.-defaultPrevented event)
          :href       (:href attrs)})
       (finally
-        (rf/remove-trace-cb! cb-key)))))
+        (trace-tooling/remove-trace-cb! cb-key)))))
 
 ;; ---- href synthesis (CLJS sanity) --------------------------------------
 

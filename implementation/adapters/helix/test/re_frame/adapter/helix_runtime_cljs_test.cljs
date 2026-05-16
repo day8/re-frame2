@@ -25,6 +25,8 @@
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.machines :as machines]
             [re-frame.adapter.helix :as helix-adapter]
             [re-frame.test-support :as test-support])
@@ -157,11 +159,11 @@
         (count (.something items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
-      (rf/remove-trace-cb! ::sub-err)
+      (trace-tooling/remove-trace-cb! ::sub-err)
       (is (some (fn [ev]
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)

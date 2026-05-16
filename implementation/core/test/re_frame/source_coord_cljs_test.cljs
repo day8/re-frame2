@@ -8,6 +8,8 @@
   regression."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -17,9 +19,9 @@
 (defn- record-traces
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
+    (trace-tooling/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (rf/remove-trace-cb! ::rec)))
+         (finally (trace-tooling/remove-trace-cb! ::rec)))
     @seen))
 
 (defn- errors-of [evs op]

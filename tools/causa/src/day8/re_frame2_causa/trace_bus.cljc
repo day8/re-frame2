@@ -83,7 +83,8 @@
 
 (defonce ^:private buffer-state
   ;; A plain vector under an atom; same shape as the framework's
-  ;; `re-frame.trace/trace-buffer-state`. Oldest entries at the head
+  ;; `re-frame.trace.tooling/trace-buffer-state` (sibling ns split per
+  ;; rf2-qwm0a). Oldest entries at the head
   ;; of the vector; conj appends and subvec evicts the head.
   (atom []))
 

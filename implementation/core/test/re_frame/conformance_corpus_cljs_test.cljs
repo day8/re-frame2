@@ -222,14 +222,16 @@
 ;; registrations survive because we captured them late.
 
 (def ^:private baseline-trace-listeners
-  ;; `re-frame.trace/listeners` is `^:private` but CLJS treats
-  ;; private metadata as advisory — the symbol resolves through the
-  ;; namespace and the atom is reachable for tests that need to
-  ;; snapshot framework listeners (the SSR error-projection listener
-  ;; in particular). The JVM runner achieves the same effect
-  ;; implicitly via `(require :reload)` of `re-frame.ssr`; CLJS has
-  ;; no analogue, so this access is the bridge.
-  @re-frame.trace/listeners)
+  ;; Per rf2-qwm0a the listener registry atom moved from
+  ;; `re-frame.trace/listeners` to `re-frame.trace.tooling/listeners`
+  ;; (the production-DCE split). CLJS treats `^:private` metadata as
+  ;; advisory — the symbol resolves through the namespace and the
+  ;; atom is reachable for tests that need to snapshot framework
+  ;; listeners (the SSR error-projection listener in particular). The
+  ;; JVM runner achieves the same effect implicitly via
+  ;; `(require :reload)` of `re-frame.ssr`; CLJS has no analogue, so
+  ;; this access is the bridge.
+  @re-frame.trace.tooling/listeners)
 
 (def ^:private pretest-registrar
   ;; Mutable cell, set on deftest entry.
@@ -280,7 +282,7 @@
   ;;    runner achieves the equivalent via `clear-trace-cbs!` +
   ;;    `(require 're-frame.ssr :reload)`; CLJS has no `:reload`,
   ;;    so the snapshot-restore path is the only correct one.
-  (reset! re-frame.trace/listeners baseline-trace-listeners)
+  (reset! re-frame.trace.tooling/listeners baseline-trace-listeners)
   ;; 7. rf2-wxe9t — drop every corpus-wide error-emit listener so
   ;;    a recorder installed by `collect-error-emit-records!` for
   ;;    one fixture cannot fire against the next fixture's drains.
@@ -518,7 +520,7 @@
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
-    (trace/register-trace-cb! [fixture-id] (fn [ev] (swap! traces conj ev)))
+    (re-frame.trace.tooling/register-trace-cb! [fixture-id] (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- collect-error-emit-records!
@@ -997,7 +999,7 @@
         ;; listener snapshot at the next fixture's start, so this is
         ;; mostly belt-and-braces — but it keeps the in-fixture-end
         ;; state from leaking error traces against a missing :rf/route.
-        (trace/remove-trace-cb! fid)
+        (re-frame.trace.tooling/remove-trace-cb! fid)
         ;; rf2-wxe9t — drop just this fixture's error-emit recorder so
         ;; it does not leak into the next fixture's drains. The
         ;; reset-runtime! call also clears the registry on next entry;

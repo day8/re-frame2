@@ -40,6 +40,8 @@
   `:ns-regexp \"cljs-test$\"`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch :as epoch]
             [re-frame.interop :as interop]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -150,7 +152,7 @@
     (let [cb-seen    (atom [])
           trace-seen (atom [])]
       (rf/register-epoch-cb! ::watcher (fn [r] (swap! cb-seen conj r)))
-      (rf/register-trace-cb! ::recorder
+      (trace-tooling/register-trace-cb! ::recorder
                              (fn [ev]
                                (when (= :rf.epoch/snapshotted (:operation ev))
                                  (swap! trace-seen conj ev))))
@@ -160,7 +162,7 @@
       (rf/dispatch-sync [:n/inc])
 
       (rf/remove-epoch-cb! ::watcher)
-      (rf/remove-trace-cb! ::recorder)
+      (trace-tooling/remove-trace-cb! ::recorder)
 
       (is (= 3 (count @cb-seen))
           "register-epoch-cb! fired once per dispatch")
