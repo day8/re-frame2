@@ -87,13 +87,48 @@
 ;; by =. The derived container itself does not memoise; per the same
 ;; spec section that's the cache's job, not the substrate's.
 
+(defn build-recompute-fn
+  "Arity-specialised recompute-closure factory for a derived value.
+
+  Returns a 0-arg thunk that derefs `source-containers` and calls
+  `compute-fn` with the deref'd values. The hottest path in the
+  artefact is `derived-recompute × dispatch × subscriber`; subs
+  typically chain off 1 input (layer-1 always; layer-n usually 1–2).
+  Specialising 0/1/2 sidesteps the `apply` + lazy-`map` cost on the
+  dominant arities; ≥3 falls back to `mapv` (eager, vector-backed)
+  + `apply`.
+
+  `count` is captured once at construction (per Spec 006 §CLJS reference
+  + `re-frame.subs`, `source-containers` is a vector) so the recompute
+  closure pays no per-tick `count`.
+
+  Single source of truth (rf2-eoy63 lockstep): the Reagent,
+  reagent-slim, UIx, and Helix adapters all build their recompute
+  closure through this fn — pre-rf2-eoy63 the arity-spec lived only in
+  the Reagent adapter and the spine + reagent-slim had naive
+  `(apply compute-fn (map deref ...))` shapes that paid the apply +
+  lazy-seq cost on every sub recompute × every dispatch. Lifting the
+  arity-spec into the spine matches the rf2-jcjul `make-dispose-adapter!`
+  shape: one implementation, four adapters, zero drift. Sourced from
+  the rf2-fzrav perf-sweep findings."
+  [source-containers compute-fn]
+  (let [n (count source-containers)]
+    (case n
+      0 (fn recompute-0 [] (compute-fn))
+      1 (let [s0 (nth source-containers 0)]
+          (fn recompute-1 [] (compute-fn @s0)))
+      2 (let [s0 (nth source-containers 0)
+              s1 (nth source-containers 1)]
+          (fn recompute-2 [] (compute-fn @s0 @s1)))
+      (fn recompute-n [] (apply compute-fn (mapv deref source-containers))))))
+
 (defn make-derived-value-fn
   "Return a `make-derived-value` fn that tags per-source watch keys with
   the given `gensym-prefix`. The fn signature matches the substrate
   contract: `(sources compute-fn) -> derived-container`."
   [gensym-prefix]
   (fn make-derived-value [source-containers compute-fn]
-    (let [recompute      (fn [] (apply compute-fn (map deref source-containers)))
+    (let [recompute      (build-recompute-fn source-containers compute-fn)
           watchers       (atom {})           ;; user-key → wrapper-fn
           on-dispose-fns (atom [])
           ;; Per-source wrapper keys we own so dispose can unwire them.
