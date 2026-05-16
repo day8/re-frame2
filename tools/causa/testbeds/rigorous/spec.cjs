@@ -370,10 +370,18 @@ module.exports = {
       5000,
     );
 
+    // Wait for the chip row to render at least one op-type chip before
+    // asserting. The trace panel's projection sub fires asynchronously
+    // after the buffer-clear / repopulate cascade, so a synchronous
+    // count() can race the render and read zero. Gate on `>= 1`
+    // deterministically rather than gambling on render timing.
     const opTypeChips = page.locator('[data-testid^="rf-causa-trace-axis-chip-op-type-"]');
-    if ((await opTypeChips.count()) === 0) {
-      throw new Error('Expected at least one trace op-type filter chip.');
-    }
+    await waitForCondition(
+      () => opTypeChips.count(),
+      (count) => count >= 1,
+      'at least one trace op-type filter chip to render',
+      5000,
+    );
     await opTypeChips.first().click();
     await expectVisible(page.locator('[data-testid="rf-causa-trace-clear-filters"]'), 5000);
     const filteredCounts = await waitForCondition(
