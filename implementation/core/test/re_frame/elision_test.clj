@@ -130,6 +130,51 @@
     (is (= :schema (:reason marker)))
     (is (string? (:digest marker)))))
 
+(deftest walker-is-idempotent-on-large-marker
+  ;; rf2-fq8ep — the walker recognises its own `:rf.size/large-elided`
+  ;; marker shape at a `:large?`-declared path and passes it through
+  ;; unchanged on a re-projection pass. Without the guard, the marker
+  ;; map itself satisfies `(map? v)` at the same declared path on the
+  ;; next walk, and the walker substituted a fresh marker whose
+  ;; `:bytes` reflected the printed length of the previous marker —
+  ;; not the original payload — which broke fingerprint-based dedup
+  ;; for forwarder pipelines that double-projected.
+  (rf/reg-app-schema [:doc]
+                     [:map [:body {:large? true :hint "upload"} :string]])
+  (rf/populate-elision-from-schemas!)
+  (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
+        once   (rf/elide-wire-value input)
+        twice  (rf/elide-wire-value once)
+        thrice (rf/elide-wire-value twice)]
+    (is (elision/marker? (get-in once [:doc :body]))
+        "first pass substitutes a marker at the large slot")
+    (is (= once twice)
+        "second pass is byte-identical — the walker passed the marker
+         through unchanged rather than re-marking it")
+    (is (= once thrice)
+        "third pass remains byte-identical — large-marker substitution
+         is irreversible across passes")))
+
+(deftest walker-idempotence-respects-include-large
+  ;; The marker passthrough is gated on the same `:include-large?`
+  ;; branch that produces the marker. With `:include-large? true`, the
+  ;; walker descends through the marker map (because the substitution
+  ;; branch is bypassed) — caller opted in to see the raw payload, so
+  ;; the marker is just an opaque map at that point. Pinning so a
+  ;; future refactor does not move the guard outside the gate.
+  (rf/reg-app-schema [:doc]
+                     [:map [:body {:large? true :hint "upload"} :string]])
+  (rf/populate-elision-from-schemas!)
+  (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
+        once   (rf/elide-wire-value input)
+        opened (rf/elide-wire-value once {:rf.size/include-large? true})]
+    (is (elision/marker? (get-in once [:doc :body])))
+    (is (= once opened)
+        ":include-large? true descends into the marker map but the
+         marker's structure is unchanged — the walker recurses through
+         a map whose only key (`:rf.size/large-elided`) sits at a path
+         that is not itself `:large?`-declared")))
+
 (deftest nested-schema-population
   (rf/reg-app-schema [:root]
                      [:map
