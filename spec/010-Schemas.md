@@ -180,8 +180,8 @@ Production builds in this configuration: 99% of code has zero validation overhea
 Schemas registered against handlers and `app-db` paths are queryable via the public registrar query API ([002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api)):
 
 ```clojure
-(rf/handler-meta :event-fx :auth/login)
-;; → {:doc "..." :spec [:cat ...] :ns ... :line ... :file ...}
+(rf/handler-meta :event :auth/login)
+;; → {:doc "..." :spec [:cat ...] :event/kind :fx :ns ... :line ... :file ...}
 
 (rf/app-schema-at [:user])
 ;; → UserSchema (the registered schema value, in whatever language the
