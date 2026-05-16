@@ -220,6 +220,14 @@
   ;;                  :on-error :rf.error/server-projection (server-side
   ;;                  exception projection per Spec 011).
   ;; User-supplied keys win on conflict; see expand-preset.
+  ;;
+  ;; rf2-cdmle — the :test / :story redirect targets
+  ;; `:rf.http/managed-canned-success`, which registers from the test-
+  ;; support namespace `re-frame.http-test-support`. Apps that use these
+  ;; presets must `:require [re-frame.http-test-support]` (alongside
+  ;; `re-frame.http-managed`) so the redirect target resolves. Production
+  ;; / SSR code paths use `:default` / `:ssr-server` and never reach this
+  ;; branch.
   (case preset
     :default    {}
     :test       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}

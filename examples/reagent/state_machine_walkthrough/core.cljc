@@ -27,6 +27,10 @@
             ;; Loading the ns here registers the `:rf.http/managed` fx
             ;; family so the override mechanism can target a real fx-id.
             [re-frame.http-managed]
+            ;; rf2-cdmle — :fx-overrides into :rf.http/managed-canned-*
+            ;; relies on those fx ids being registered. Per the gate
+            ;; change, registration moved to re-frame.http-test-support.
+            [re-frame.http-test-support]
             [re-frame.registrar :as registrar]))
 
 ;; ============================================================================

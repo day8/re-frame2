@@ -2,8 +2,7 @@
 ;; fifth per-feature split per rf2-5vjj Strategy B).
 ;;
 ;; Per Spec 014 the managed-HTTP surface (`:rf.http/managed`,
-;; `:rf.http/managed-abort`, `:rf.http/managed-canned-success`,
-;; `:rf.http/managed-canned-failure`, `with-managed-request-stubs` /
+;; `:rf.http/managed-abort`, `with-managed-request-stubs` /
 ;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`,
 ;; the in-flight request registry, the Fetch / `java.net.http.HttpClient`
 ;; transport adapters, the encode / decode pipeline, the
@@ -13,18 +12,26 @@
 ;; transport adapters, or any of the `:rf.http/*` trace strings onto
 ;; the classpath.
 ;;
+;; The two canned-stub fxs (`:rf.http/managed-canned-success`,
+;; `:rf.http/managed-canned-failure`) ship in this same artefact under
+;; the sibling `re-frame.http-test-support` namespace per rf2-cdmle.
+;; Production / SSR code paths MUST NOT `:require` that namespace; tests
+;; opt in. See Spec 014 §Test-support require for the gate rationale.
+;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
 ;;   {:deps {day8/re-frame2      {:mvn/version "..."}
 ;;           day8/re-frame2-http {:mvn/version "..."}}}
 ;;
 ;; And require `re-frame.http-managed` in any namespace that issues
-;; `:rf.http/managed` requests or relies on the `:rf.http/managed-*`
-;; canned stubs / `with-managed-request-stubs` helper — loading the
-;; namespace registers the four `:rf.http/*` fxs and publishes the
-;; late-bind hooks (`:http/install-managed-request-stubs!`,
+;; `:rf.http/managed` requests or relies on the production-eligible
+;; `:rf.http/managed-*` family / `with-managed-request-stubs` helper —
+;; loading registers the production-eligible `:rf.http/*` fxs and
+;; publishes the late-bind hooks (`:http/install-managed-request-stubs!`,
 ;; `:http/uninstall-managed-request-stubs!`,
 ;; `:http/with-managed-request-stubs*`, `:http/clear-all-in-flight!`).
+;; Tests / dev demos that need the canned-stub fx ids additionally
+;; require `re-frame.http-test-support`.
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on

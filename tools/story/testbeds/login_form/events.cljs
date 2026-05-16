@@ -33,6 +33,11 @@
             ;; the login flow's request fx would throw
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
+            ;; rf2-cdmle — this testbed resolves
+            ;; :rf.http/managed-canned-success/failure via registrar lookup.
+            ;; Per the gate change, the canned-stub fx ids register from
+            ;; re-frame.http-test-support, NOT re-frame.http-managed.
+            [re-frame.http-test-support]
             [re-frame.registrar :as registrar]))
 
 ;; ============================================================================

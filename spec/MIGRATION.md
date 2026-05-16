@@ -1186,6 +1186,38 @@ Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs 
 
 **Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-5kpd](#).
 
+#### M-31a. Managed-HTTP canned-stub fxs require `re-frame.http-test-support` (rf2-cdmle)
+
+**Type B** (touch test-namespace requires).
+
+Per [rf2-cdmle](#) (follow-up to the [rf2-zk08x](#) security audit), the two canonical canned-stub fxs `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` no longer register at `re-frame.http-managed` namespace load. They register from a sibling test-support namespace, `re-frame.http-test-support`, that ships in the same `day8/re-frame2-http` Maven artefact. Production / SSR application code MUST NOT `:require` that namespace; tests opt in.
+
+The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself. On CLJS `:advanced + goog.DEBUG=false` that gate folded to `false` and the registrations elided as intended; on the JVM `debug-enabled?` is unconditionally true, so the canned-stub fx ids stayed registered as production-default API on JVM/SSR builds — discoverable via `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` from any handler. The require-boundary gate makes the absence load-bearing on every host.
+
+**What to look for** in your codebase:
+
+- Any test namespace that uses `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (or `…canned-failure`) on `dispatch-sync`.
+- Any test namespace that resolves the stub via `(registrar/handler :fx :rf.http/managed-canned-success)` for direct invocation.
+- Any test namespace that uses the `:test` or `:story` frame preset (per Spec 002 §Frame presets — both presets expand into `{:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}`).
+- Any conformance-fixture runner that drives Spec 014 fixtures (the corpus references the canned-stub fx ids by id).
+- Any dev-only example / testbed / story that wires its own per-URL stub fx that delegates to the canned-stub fxs (e.g. realworld, boot, login, ssr, nine-states, managed-http-counter, the http-toggle testbed).
+
+**What to do.** Add `re-frame.http-test-support` alongside `re-frame.http-managed` in the require closure of every test / dev-only namespace from the list above:
+
+```clojure
+(ns my-app.tests
+  (:require [re-frame.http-managed]        ;; production fx surface
+            [re-frame.http-test-support])) ;; canned-stub fx registrations (rf2-cdmle)
+```
+
+Test fixtures that `(registrar/clear-all!)` between tests and `(require 're-frame.http-managed :reload)` to re-seat the production-eligible fxs SHOULD also `(require 're-frame.http-test-support :reload)` to re-seat the canned-stub registrations — without the reload, only one test sees the stubs registered and subsequent tests fail with `:rf.error/no-such-fx` for `:rf.http/managed-canned-*`.
+
+Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` does NOT need the test-support require — those helpers register their own `:rf.http/managed-test-stub` fx at user invocation time, independent of the canned-stub fx ids.
+
+**Public API** is unchanged. The fx ids `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` retain their args contract per Spec 014 §Testing; only the registration site moved.
+
+**Why:** rf2-zk08x's security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [rf2-cdmle](#) and [Spec 014 §Test-support require](014-HTTPRequests.md#test-support-require--the-canned-stub-gate-rf2-cdmle).
+
 ---
 
 ### M-32. SSR & hydration (Spec 011) ships in a separate artefact — `day8/re-frame2-ssr`

@@ -7,7 +7,12 @@
    per-test wrappers that delegate to these stubs while supplying the
    test-specific `:value` (success) or `:kind` + `:tags` (failure)."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            ;; rf2-cdmle — these helpers resolve
+            ;; :rf.http/managed-canned-success/failure via registrar lookup.
+            ;; Per the gate change, those fx ids register from
+            ;; re-frame.http-test-support, NOT re-frame.http-managed.
+            [re-frame.http-test-support]))
 
 (defn reg-canned-success!
   "Register an fx-id that delegates to :rf.http/managed-canned-success

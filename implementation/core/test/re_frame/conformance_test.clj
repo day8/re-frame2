@@ -38,6 +38,13 @@
             ;; runner access to the fx without each fixture re-registering
             ;; it itself.
             [re-frame.http-managed]
+            ;; rf2-cdmle — the canned-stub fxs (`:rf.http/managed-canned-success`,
+            ;; `:rf.http/managed-canned-failure`) moved out of
+            ;; `re-frame.http-managed`'s load-time side effects to the
+            ;; sibling `re-frame.http-test-support` namespace. The
+            ;; conformance fixtures reference them by id; opt in here
+            ;; so the fxs register before any fixture runs.
+            [re-frame.http-test-support]
             ;; rf2-v0jwt — the epoch artefact publishes the late-bind
             ;; hooks (`:epoch/settle!`, `:epoch/epoch-history`, …) the
             ;; router calls to commit drain-boundary records. Without
@@ -229,6 +236,11 @@
   (require 're-frame.ssr :reload)
   ;; Spec 014 — re-register :rf.http/managed and friends after clear-all!.
   (require 're-frame.http-managed :reload)
+  ;; rf2-cdmle — also re-fire re-frame.http-test-support's load body so
+  ;; its canned-stub fx registrations re-seat (clear-all! above wiped
+  ;; them; http-managed reload doesn't reintroduce them under the new
+  ;; gate).
+  (require 're-frame.http-test-support :reload)
   ;; Spec 005 — re-register :rf.machine/spawn / :rf.machine/destroy fx and the :rf/machine
   ;; sub after clear-all!. Per rf2-suue the spawn/destroy fx now wire the
   ;; live actor handler + snapshot, so the runtime side of the spawn must

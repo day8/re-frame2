@@ -67,7 +67,13 @@
             ;; redirecting to its canned stubs); requiring here gives the
             ;; runner access to the fx without each fixture re-registering
             ;; it itself.
-            [re-frame.http-managed :as http-managed])
+            [re-frame.http-managed :as http-managed]
+            ;; rf2-cdmle — canned-stub fxs (`:rf.http/managed-canned-success`,
+            ;; `:rf.http/managed-canned-failure`) gate on explicit
+            ;; test-support require. Fixtures use them by id via
+            ;; :fx-overrides; opt in here so they register before any
+            ;; fixture runs.
+            [re-frame.http-test-support])
   ;; Compile-time fixture inlining (see conformance_fixtures.clj). The
   ;; macro ns is .clj — shadow-cljs picks it up via :require-macros
   ;; (a CLJS-only form; cannot live in the top-level :require above).

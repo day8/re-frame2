@@ -34,6 +34,11 @@
             ;; it, dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
+            ;; rf2-cdmle — this counter demo wires :fx-overrides into
+            ;; :rf.http/managed-canned-success (the canned-success stub).
+            ;; Per the gate change, the canned-stub fx ids register
+            ;; from re-frame.http-test-support, not re-frame.http-managed.
+            [re-frame.http-test-support]
             ;; Call-site helpers (rf.http/get / post / put / delete /
             ;; patch / head / options) that synthesise the canonical
             ;; [:rf.http/managed args-map] envelope.

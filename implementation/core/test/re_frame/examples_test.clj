@@ -27,6 +27,13 @@
   ;; routinely route :rf.http/managed via :fx-overrides to those stubs
   ;; (Spec 014 §Testing).
   (require 're-frame.http-managed :reload)
+  ;; rf2-cdmle — the canned-stub fxs (`:rf.http/managed-canned-success`,
+  ;; `:rf.http/managed-canned-failure`) register from
+  ;; re-frame.http-test-support, NOT re-frame.http-managed. Reload to
+  ;; re-fire the registration body after clear-all!. The transitive
+  ;; require from each example ns wouldn't re-evaluate the body (Clojure
+  ;; require is idempotent without :reload-all), so reload here.
+  (require 're-frame.http-test-support :reload)
   ;; Drop any cached require of example namespaces so each test re-evaluates
   ;; their namespace-level handlers against a fresh registrar.
   (remove-ns 'ssr.core)

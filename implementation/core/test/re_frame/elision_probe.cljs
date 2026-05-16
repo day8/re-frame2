@@ -103,19 +103,24 @@
   ;; string sentinels (e.g. "rf.http/retry-attempt") should NOT appear
   ;; in the production bundle.
   ;;
-  ;; rf2-omsae — the canned-stub fxs (`:rf.http/managed-canned-success`,
-  ;; `:rf.http/managed-canned-failure`) are themselves registered inside
-  ;; the same `(when interop/debug-enabled? ...)` gate. Their fx-id
-  ;; keyword string fragments must NOT appear in the production bundle
-  ;; either. The probe must NOT reference those fx-ids as literal
-  ;; keywords in its own (non-gated) dispatch path — that would smuggle
-  ;; the literals into the prod bundle from probe code and the elision
-  ;; assertion would false-fail.
+  ;; rf2-cdmle (supersedes rf2-omsae) — the canned-stub fxs
+  ;; (`:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`)
+  ;; moved out of `re-frame.http-managed`'s load-time side effects to a
+  ;; sibling test-support namespace, `re-frame.http-test-support`. The
+  ;; gate is no longer `(when interop/debug-enabled? ...)` but instead
+  ;; the require boundary: production code paths must not require
+  ;; `re-frame.http-test-support`. The elision-probe namespace MUST NOT
+  ;; require it either — under :advanced + goog.DEBUG=false the
+  ;; canned-stub fx-id string fragments must not appear in the
+  ;; production bundle, and the gate that pins that absence is now
+  ;; classpath / require-closure absence rather than DCE of a `(when
+  ;; ...)` block. The same `scripts/check-elision.cjs` sentinels apply
+  ;; — what changed is the source-of-truth for absence.
   ;;
   ;; The probe roots the dependency graph by:
   ;;   1. requiring re-frame.http-managed (forces its ns body to be
-  ;;      compiled into the bundle, which is where the gated branches
-  ;;      AND the gated canned-stub fx registrations live);
+  ;;      compiled into the bundle, which is where the gated trace-emit
+  ;;      branches live);
   ;;   2. touching `dispatch-reply!`, `build-reply-event`, and the
   ;;      surrounding retry / decode ctx through the public `:rf.http/
   ;;      managed-abort` fx (which is dev+prod) and the abort-on-actor-
@@ -124,9 +129,9 @@
   ;;      reachability comes from the require + the dispatch path).
   ;;
   ;; The canned-stub fx-id keywords are NEVER referenced from probe code;
-  ;; their only source of reachability is the gated registration body in
-  ;; re-frame.http-managed itself, which is exactly what we want to
-  ;; assert lives only in the control bundle.
+  ;; the test-support namespace that registers them is NEVER required by
+  ;; the probe. That is exactly what we want to assert lives only in the
+  ;; control bundle.
   (rf/reg-event-fx :probe/http-abort-touch
     (fn [_ _]
       {:fx [[:rf.http/managed-abort :probe/never-issued-request]]}))

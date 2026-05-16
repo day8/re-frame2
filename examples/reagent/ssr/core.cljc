@@ -43,6 +43,15 @@
             ;; stub during render. Without the require, the override
             ;; would target an unregistered fx-id.
             [re-frame.http-managed]
+            ;; rf2-cdmle — the canned-stub fx ids
+            ;; (`:rf.http/managed-canned-success`,
+            ;; `:rf.http/managed-canned-failure`) register from
+            ;; re-frame.http-test-support, NOT re-frame.http-managed.
+            ;; The SSR demo drives the canned stubs via :fx-overrides
+            ;; and is a test/demo affordance (no Conduit backend ships
+            ;; with the example), so the test-support require is the
+            ;; explicit opt-in.
+            [re-frame.http-test-support]
             ;; SSR ships in day8/re-frame2-ssr. Loading
             ;; the ns here registers the six `:rf.server/*` server-only
             ;; fxs, the `:rf/hydrate` event, and the

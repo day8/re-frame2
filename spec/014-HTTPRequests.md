@@ -842,6 +842,25 @@ The fx vectors the helpers synthesise are exactly the same shape as the hand-wri
 
 The stubs reuse the same dispatch shape the real fx produces so the test handler's reply branch sees the canonical envelope. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
 
+### Test-support require — the canned-stub gate (rf2-cdmle)
+
+The two canned-stub fxs above are **test-only**; production / SSR code paths must not be able to reach them via `:fx-overrides`. The framework gates registration behind an explicit require:
+
+```clojure
+(ns my-app.tests
+  (:require [re-frame.http-managed]        ;; production fx surface
+            [re-frame.http-test-support])) ;; canned-stub fx registrations
+```
+
+Loading `re-frame.http-test-support` registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` against the same handler bodies the higher-level `with-managed-request-stubs` helper uses. Without the require:
+
+- on JVM / SSR the fx ids are unregistered (classpath absence through the normal artefact require boundary), so any handler that tries `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` will surface the framework's no-such-fx error;
+- on CLJS `:advanced + goog.DEBUG=false` the test-support module is unreferenced from any production module, so the compiler trims it wholesale (the canned-stub fx-id keyword string fragments do not appear in the production bundle — pinned by `scripts/check-elision.cjs`).
+
+Earlier the gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself; on the JVM that gate folded to `true`, leaving the canned-stub fx ids reachable as production-default API. Per [rf2-zk08x](#)'s audit and the [rf2-cdmle](#) remediation, the gate moved to the require boundary so the absence is enforced on every host.
+
+Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` does **not** need the test-support require — those helpers register their own `:rf.http/managed-test-stub` fx at user invocation time, independent of the canned-stub fx ids.
+
 For test suites that exercise many requests, a higher-level helper ships:
 
 ```clojure

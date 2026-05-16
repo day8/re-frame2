@@ -39,6 +39,14 @@
             ;; :rf.error/no-such-fx. RealWorld is the canonical Spec 014
             ;; demo so the require is mandatory here.
             [re-frame.http-managed]
+            ;; rf2-cdmle — RealWorld ships without a backend; the demo
+            ;; routes :rf.http/managed through a per-URL stub that
+            ;; delegates to :rf.http/managed-canned-success. Per the
+            ;; gate change, the canned-stub fx ids register from
+            ;; re-frame.http-test-support, which the demo opts in to
+            ;; here. A real Conduit backend deployment would drop this
+            ;; require alongside the demo override.
+            [re-frame.http-test-support]
             ;; SSR ships in day8/re-frame2-ssr. Requiring
             ;; re-frame.ssr at app boot publishes the late-bind hooks
             ;; (`:ssr/render-tree-hash` etc.) and registers the

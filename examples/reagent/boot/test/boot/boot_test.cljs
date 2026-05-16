@@ -20,6 +20,15 @@
        :data."
   (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
+            ;; rf2-cdmle — the helpers below resolve
+            ;; :rf.http/managed-canned-success/failure via registrar lookup.
+            ;; Per the gate change, those fx ids register from
+            ;; re-frame.http-test-support, NOT re-frame.http-managed.
+            ;; boot.core (which the boot.boot ns chains in via boot.schema
+            ;; / boot.boot graph) already requires re-frame.http-test-support;
+            ;; require explicitly here too so this test ns is self-sufficient
+            ;; if a future refactor unhooks the transitive load.
+            [re-frame.http-test-support]
             [boot.boot])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
