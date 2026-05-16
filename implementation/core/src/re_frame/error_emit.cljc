@@ -9,16 +9,24 @@
     1. Corpus-wide listener registry — every fn registered through
        [[register-error-emit-listener!]] receives a tight error-record:
 
-         {:error      <kw>       ;; e.g. :rf.error/handler-exception
-          :event      <vector>    ;; dispatched event vector (elided)
-          :event-id   <kw>
-          :frame      <kw>
-          :time       <millis>
-          :exception  <ex>
-          :elapsed-ms <int>}
+         {:error        <kw>     ;; e.g. :rf.error/handler-exception
+          :event        <vector> ;; dispatched event vector (elided)
+          :event-id     <kw>
+          :frame        <kw>
+          :time         <millis>
+          :exception    <ex>
+          :elapsed-ms   <int>
+          :source-coord {:ns :file :line}  ;; rf2-3un2g; absent if
+                                           ;; the failing handler was
+                                           ;; registered programmatically
+                                           ;; (no macro capture)
+          }
 
        For off-box observability shippers (Sentry, Honeybadger,
-       Rollbar).
+       Rollbar). Per rf2-3un2g the `:source-coord` slot rides the
+       always-on parallel `error-coords-by-id` registry so it survives
+       CLJS `:advanced` + `goog.DEBUG=false` builds where public
+       registry-meta has been stripped of coord-keys.
 
     2. Per-frame `:on-error` policy fn — the frame's `:on-error` slot,
        when present, receives a structured error event (`:operation` /
@@ -40,12 +48,13 @@
   unchanged (operators need them for triage); the event payload —
   which may carry credentials / PII — is scrubbed at the substrate
   boundary."
-  (:require [re-frame.elision       :as elision]
+  (:require [re-frame.elision        :as elision]
             [re-frame.emit-substrate :as emit]
-            [re-frame.frame         :as frame]
-            [re-frame.late-bind     :as late-bind]
-            [re-frame.privacy       :as privacy]
-            [re-frame.registrar     :as registrar]))
+            [re-frame.frame          :as frame]
+            [re-frame.late-bind      :as late-bind]
+            [re-frame.privacy        :as privacy]
+            [re-frame.registrar      :as registrar]
+            [re-frame.source-coords  :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -131,6 +140,16 @@
   [error-kw event event-id frame-id exception elapsed-ms time error-event]
   (let [handler-meta (when event-id (registrar/lookup :event event-id))
         sensitive?   (privacy/sensitive?-from-meta handler-meta)
+        ;; Per rf2-3un2g §Always-on error-coord registry: source-coords
+        ;; for the failing handler ride the always-on parallel registry
+        ;; (NOT the public registry-meta — which is stripped of coord-
+        ;; keys under CLJS `:advanced + goog.DEBUG=false`). The lookup
+        ;; here surfaces `{:ns :file :line}` for Sentry-style shippers
+        ;; and the per-frame `:on-error` policy fn in BOTH dev AND
+        ;; production. Returns nil for programmatic registrations that
+        ;; bypassed the macro path — that's fine; the slot is absent
+        ;; from the record / tags rather than nil.
+        source-coord (when event-id (source-coords/error-coords-for :event event-id))
         ;; Redact the event slot at the substrate boundary when the
         ;; failing handler is declared sensitive. Otherwise run the
         ;; wire-walker as before (paths flagged `:sensitive?` /
@@ -139,16 +158,27 @@
         elided-event (if sensitive?
                        privacy/redacted-sentinel
                        (elision/elide-wire-value event {:frame frame-id}))
-        record       {:error      error-kw
-                      :event      elided-event
-                      :event-id   event-id
-                      :frame      frame-id
-                      :time       time
-                      :exception  exception
-                      :elapsed-ms elapsed-ms}
-        policy-event (if sensitive?
-                       (redact-tags-event error-event)
-                       error-event)]
+        record       (cond-> {:error      error-kw
+                              :event      elided-event
+                              :event-id   event-id
+                              :frame      frame-id
+                              :time       time
+                              :exception  exception
+                              :elapsed-ms elapsed-ms}
+                       source-coord (assoc :source-coord source-coord))
+        ;; The structured policy-event's `:tags` get the same
+        ;; `:source-coord` slot (innermost-wins: caller-supplied
+        ;; `:source-coord` already on `:tags` would survive
+        ;; intentionally; we only `assoc-when-missing`).
+        policy-event (let [pe (if sensitive?
+                                (redact-tags-event error-event)
+                                error-event)]
+                       (if (and source-coord
+                                (map? pe)
+                                (map? (:tags pe))
+                                (not (contains? (:tags pe) :source-coord)))
+                         (update pe :tags assoc :source-coord source-coord)
+                         pe))]
     ((:fan-out registry) record)
     (fire-on-error-policy! frame-id policy-event))
   nil)

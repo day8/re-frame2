@@ -181,6 +181,86 @@
 
 ;; ---- rf2-vnjfg :sensitive? redaction enforcement under prod -------------
 
+;; ---- rf2-3un2g :source-coord rides the prod error-emit substrate --------
+
+(deftest source-coord-rides-error-record-under-prod
+  (testing "Per rf2-3un2g Policy B: under `:advanced` + `goog.DEBUG=false`,
+            the tight error-record passed to corpus-wide listeners MUST
+            include `:source-coord` for handlers registered via the
+            public macro path. The coord rides the always-on parallel
+            `error-coords-by-id` registry — it survives prod elision so
+            Sentry-style shippers see source-line info even when the
+            trace surface is gone and registry-meta has been stripped
+            of coord-keys."
+    (let [listener-saw (atom nil)]
+      (rf/register-error-emit-listener!
+        :rf2-3un2g/sentry-recorder
+        (fn [record] (reset! listener-saw record)))
+      (rf/reg-event-db :rf2-3un2g/prod-coord-throw
+                       (fn [_db _]
+                         (throw (ex-info "boom" {}))))
+      (rf/dispatch-sync [:rf2-3un2g/prod-coord-throw])
+      (is (some? @listener-saw)
+          "listener fired under :advanced + goog.DEBUG=false")
+      (let [sc (:source-coord @listener-saw)]
+        (is (some? sc)
+            ":source-coord present on the prod-mode error-record")
+        ;; :ns is a symbol; :line is an integer; :file is a string.
+        ;; :column is absent under prod (the prod-coords-form omits it).
+        (is (symbol?  (:ns sc))
+            ":source-coord :ns is a symbol in prod")
+        (is (integer? (:line sc))
+            ":source-coord :line is an integer in prod")
+        (is (string?  (:file sc))
+            ":source-coord :file is a string in prod")
+        (is (not (contains? sc :column))
+            ":source-coord :column is ABSENT in prod (DCE'd from the
+             coords-form literal under :advanced + goog.DEBUG=false)")))))
+
+(deftest source-coord-rides-policy-event-tags-under-prod
+  (testing "Per rf2-3un2g Policy B: under `:advanced` + `goog.DEBUG=false`,
+            the structured `error-event` passed to the per-frame
+            `:on-error` policy fn MUST include `:source-coord` under
+            `:tags` for handlers registered via the public macro path.
+            In-app recovery surfaces get the same observability signal
+            as Sentry shippers."
+    (let [policy-saw (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
+      (rf/reg-event-db :rf2-3un2g/prod-policy-coord-throw
+                       (fn [_db _]
+                         (throw (ex-info "boom" {}))))
+      (rf/dispatch-sync [:rf2-3un2g/prod-policy-coord-throw])
+      (is (some? @policy-saw)
+          ":on-error policy fired under :advanced + goog.DEBUG=false")
+      (let [sc (get-in @policy-saw [:tags :source-coord])]
+        (is (some? sc)
+            ":source-coord rides :tags on the structured error-event in prod")
+        (is (symbol?  (:ns sc)))
+        (is (integer? (:line sc)))
+        (is (string?  (:file sc)))))))
+
+(deftest registry-meta-stripped-of-coord-keys-under-prod
+  (testing "Per rf2-3un2g Policy A: under `:advanced` + `goog.DEBUG=false`
+            the public `rf/handler-meta` MUST NOT carry `:ns` / `:file`
+            / `:line` / `:column` coord-keys. Causa Open-in-editor and
+            re-frame-pair are dev-only — production bundles strip the
+            coord-keys from the registry-meta surface; coords for
+            error-emit ride the always-on parallel registry instead."
+    (rf/reg-event-db :rf2-3un2g/prod-meta-strip
+                     {:doc "stripped"}
+                     (fn [db _] db))
+    (let [meta (rf/handler-meta :event :rf2-3un2g/prod-meta-strip)]
+      (is (some? meta))
+      (is (= "stripped" (:doc meta))
+          "user-supplied :doc is preserved — only coord-keys strip")
+      (is (not (contains? meta :ns))     ":ns absent in prod meta")
+      (is (not (contains? meta :file))   ":file absent in prod meta")
+      (is (not (contains? meta :line))   ":line absent in prod meta")
+      (is (not (contains? meta :column)) ":column absent in prod meta"))))
+
+;; ---- end rf2-3un2g block -------------------------------------------------
+
 (deftest sensitive-handler-error-record-redacted-under-prod
   (testing "Per rf2-vnjfg: under `:advanced` + `goog.DEBUG=false` the
             always-on error-emit substrate MUST still enforce

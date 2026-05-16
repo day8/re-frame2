@@ -305,9 +305,12 @@
              leak from CLJS performance.now())")
         (is (not (neg? (:elapsed-ms r)))
             ":elapsed-ms is non-negative")
-        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms}
+        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
+                 :source-coord}
                (set (keys r)))
-            "record carries ONLY the tight rf2-bacs4 keys")))))
+            "record carries the tight rf2-bacs4 keys plus rf2-3un2g
+             :source-coord (always-on parallel error-coord registry —
+             the failing handler was macro-registered above)")))))
 
 (deftest flow-eval-exception-fires-per-frame-on-error-policy
   (testing "Per rf2-hrt5c: a flow whose :output throws ALSO fires the
