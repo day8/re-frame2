@@ -64,8 +64,10 @@
       (is (empty? missing)
           (str "Reagent adapter is missing hook registrations for: " missing
                " — every key in this test's expected-set MUST be wired by"
-               " (late-bind/set-fn! ...) at the bottom of"
-               " re-frame.adapter.reagent.cljs")))))
+               " (late-bind/set-fn! ...) or (late-bind/chain-fn! ...) at the"
+               " bottom of re-frame.adapter.reagent.cljs"
+               " (`:reagent/set-hiccup-emitter!` is chained per rf2-cl1qv —"
+               " see the directory entry's `:chained? true`)")))))
 
 (deftest reagent-adapter-hooks-match-directory-listing
   (testing "every Reagent-adapter hook this test pins is also listed in
