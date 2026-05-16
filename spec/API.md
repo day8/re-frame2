@@ -13,7 +13,21 @@
 - **Macro/Fn:** marked `M` (macro) or `Fn`.
 - **Spec column** — names exactly the **canonical owning Spec** (the per-Spec doc whose contract this API implements). Migration rules and other cross-references are NOT in the Spec column; they appear in the Notes column when relevant.
 - **Configure keys** — runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every `<key>` is enumerated in [§Configure keys](#configure-keys) below; per-area tables call out which keys their APIs read but do not redefine the key's vocabulary.
-- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test-support`).
+- **Per-artefact public namespaces.** The core surfaces live in `re-frame.core`. Per-feature artefacts ship their own public namespace; consumers `:require` the namespace directly (with the documented exception of the epoch surface, which late-binds re-exports through `re-frame.core`):
+
+  | Namespace | Artefact | Surfaces |
+  |---|---|---|
+  | `re-frame.core` | core | the registration / dispatch / subscribe / interceptor / lifecycle / configure surfaces; **late-binds re-exports for `re-frame.epoch`** (`epoch-history`, `restore-epoch`, `reset-frame-db!`, `register-epoch-cb!`, `remove-epoch-cb!`) when the epoch artefact is on the classpath. |
+  | `re-frame.test-support` | core | `dispatch-sequence`, `assert-state`, fixture machinery (per [§Testing](#testing)). |
+  | `re-frame.ssr` | `day8/re-frame2-ssr` | `render-to-string`, `render-tree-hash`, `streaming-render-*`, `render-head`, `active-head`, `head-model->html`, `project-error` (per [§SSR](#ssr-spec-011)). |
+  | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | the Ring host-adapter (default-html-shell, streaming-prefix/suffix, trusted-shell hooks per Spec 011). |
+  | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!, `validate-at-boundary` (per [§Schemas](#schemas)). |
+  | `re-frame.http` | `day8/re-frame2-http` | the verb helpers `get` / `post` / `put` / `delete` / `patch` / `head` / `options` (per [§HTTP requests](#http-requests-spec-014)). |
+  | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `create-machine-handler`, `machine-transition`, `sub-machine`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
+  | `re-frame.epoch` | `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch`, `reset-frame-db!`, `register-epoch-cb!`, `remove-epoch-cb!`, `(rf/configure :epoch-history ...)`. Re-exported through `re-frame.core` via late-bind hooks — `(:require [re-frame.epoch])` at boot before consuming the surfaces through `re-frame.core` (per [Tool-Pair §Time-travel — Artefact home](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). |
+  | `re-frame.adapter.uix` / `re-frame.adapter.helix` | `day8/re-frame2-uix` / `day8/re-frame2-helix` | UIx- and Helix-specific surfaces (per [§UIx adapter](#uix-adapter-spec-006-rf2-3yij) / [§Helix adapter](#helix-adapter-spec-006-rf2-2qit)). |
+
+- **Projection-maintenance rule (rf2-w0n68).** This doc is a **non-canonical projection** — the canonical contract lives in the per-Spec docs cited in each row's Spec column. The projection MUST stay in sync with shipped artefacts. Every row carries: **owner** (Spec column) — the canonical spec doc; **artefact / namespace** — where the public-var lives (table above); **public-var status** — `v1` / `v1 (preserved)` / `post-v1 lib` / `post-v1 (planned, rf2-<id>)` for surfaces specced normatively but not yet shipped (the spec contract holds; the impl is tracked by the named bead); **verification pointer** — the conformance fixture, the per-artefact test, or the AI-Audit row that asserts the row holds. Rows that document a surface neither shipped nor on a tracking bead MUST be cut from this projection — the design's normative claim then lives only in the owner spec.
 
 ---
 
@@ -186,6 +200,8 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 
 ## SSR (Spec 011)
 
+> **Namespace:** the surfaces below live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); consumers `(:require [re-frame.ssr :as ssr])`. The Ring host-adapter lives in `re-frame.ssr.ring` (artefact `day8/re-frame2-ssr-ring`). Neither is re-exported from `re-frame.core` — apps targeting SSR add the artefacts to their deps and require the namespace directly. Per the §Conventions per-artefact namespace table.
+
 `reg-head` and `reg-error-projector` are rowed canonically in [§Registration](#registration). The head-fn signature is `(fn [db route] head-model)`; the projector-fn signature is `(fn [trace-event] :rf/public-error)`.
 
 | API | M/Fn | Signature | Status | Spec |
@@ -351,6 +367,8 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 
 ## Schemas
 
+> **Namespace:** the introspection surfaces below live in `re-frame.schemas` (artefact `day8/re-frame2-schemas`); consumers `(:require [re-frame.schemas :as schemas])`. They are not re-exported from `re-frame.core` — apps targeting schemas add the artefact and require the namespace directly. The registration macros (`reg-app-schema` / `reg-app-schemas`) live in `re-frame.core` and route through the schemas artefact at registration time. Per the §Conventions per-artefact namespace table.
+
 `reg-app-schema` is rowed canonically in [§Registration](#registration).
 
 | API | M/Fn | Signature | Status | Spec |
@@ -456,14 +474,11 @@ The framework primitive that walks tree-shaped values at the wire boundary and s
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `elide-wire-value` | Fn | `(elide-wire-value v opts)` → `v` or an elision-marker substitution. `opts` is a map: `{:rf.size/include-large? <bool> :rf.size/include-sensitive? <bool> :rf.size/include-digests? <bool> :rf.size/threshold-bytes <int> :path [...] :frame <frame-id>}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`. Walks `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :runtime-flagged]` of the named frame's `app-db`; substitutes `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. Composition rule (normative): when both predicates match the **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker). | v1 | 009 |
-| `declare-large-path!` | Fn | `(declare-large-path! path)` / `(declare-large-path! path hint)` → nil. REPL / boot-time convenience wrapper that dispatches `[:rf.size/declare-large {:path path :hint hint}]` against the current frame. Writes `{:large? true :hint <hint-or-nil> :source :declared}` into `[:rf/elision :declarations <path>]`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
-| `clear-large-path!` | Fn | `(clear-large-path! path)` → nil. REPL / boot-time convenience wrapper that dispatches `[:rf.size/clear {:path path}]`. Clears both the `:declarations` and `:runtime-flagged` slots for the path. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
-| `elision-declarations` | Fn | `(elision-declarations)` / `(elision-declarations frame-id)` → the current `[:rf/elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader for paths nominated for elision (declared- or schema-sourced). Default frame is `:rf/default`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
-| `elision-runtime-flagged` | Fn | `(elision-runtime-flagged)` / `(elision-runtime-flagged frame-id)` → the current `[:rf/elision :runtime-flagged]` map for the frame (or `{}`). Pair-tool / introspection reader for paths the runtime walker auto-flagged on observed size. Default frame is `:rf/default`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
-| `populate-elision-from-schemas!` | Fn | `(populate-elision-from-schemas!)` / `(populate-elision-from-schemas! frame-id)` → vector of paths populated (possibly empty). Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent; preserves `:source :declared` entries. No-op when the schemas artefact (day8/re-frame2-schemas) is not on the classpath. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) nomination 1 (Schema-driven). | v1 | 009 |
+| `elide-wire-value` | Fn | `(elide-wire-value v opts)` → `v` or an elision-marker substitution. `opts` is a map: `{:rf.size/include-large? <bool> :rf.size/include-sensitive? <bool> :rf.size/include-digests? <bool> :rf.size/threshold-bytes <int> :path [...] :frame <frame-id>}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`. Walks `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :sensitive-declarations]` of the named frame's `app-db`; substitutes `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. Composition rule (normative): when both predicates match the **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker). | v1 | 009 |
+| `elision-declarations` | Fn | `(elision-declarations)` / `(elision-declarations frame-id)` → the current `[:rf/elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader for paths nominated for elision (schema-sourced). Default frame is `:rf/default`. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
+| `populate-elision-from-schemas!` | Fn | `(populate-elision-from-schemas!)` / `(populate-elision-from-schemas! frame-id)` → vector of paths populated (possibly empty). Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent. No-op when the schemas artefact (day8/re-frame2-schemas) is not on the classpath. Per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). | v1 | 009 |
 
-The fx-form ids `:rf.size/declare-large` and `:rf.size/clear` are the canonical app-time path (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)); the schema-driven path (per [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta) — `:large? true` on a Malli slot) is the AI-discoverable boot-time path. The `!`-suffix on the convenience wrappers per [Conventions §Naming](Conventions.md#naming-when-does-a-surface-carry-) bucket 3 (process-level mutation outside the registrar — they synthesise a dispatch against the current frame's elision registry).
+**Schema-only declaration path (rf2-w0n68).** The `[:rf/elision]` registry has exactly two slots: `:declarations` (schema-derived `:large?` paths, populated by `populate-elision-from-schemas!`) and `:sensitive-declarations` (schema-derived `:sensitive?` paths). There is no runtime declaration API — apps declare `:large?` / `:sensitive?` on the Malli schema and `rf/reg-app-schema` it; the boot-time hydrator does the rest. Per [docs/guide/23b-large-blobs.md](../docs/guide/23b-large-blobs.md) — the canonical statement of "schemas are the only path" — and `implementation/core/src/re_frame/elision.cljc` L4-6.
 
 ### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 
@@ -486,7 +501,7 @@ Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive?
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `sensitive?` | Fn | `(sensitive? trace-event)` → `boolean`. True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check (rf2-sqxjn). | v1 | 009 |
-| `with-redacted` | Fn | `(with-redacted paths)` → interceptor. Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map. | v1 | 009 |
+| `with-redacted` | Fn | `(with-redacted paths)` → interceptor. Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map. | post-v1 (planned, rf2-461sp) | 009 |
 
 ---
 
