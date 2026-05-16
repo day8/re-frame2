@@ -47,6 +47,8 @@
             [day8.re-frame2-causa-mcp.tools.dispatch]
             [day8.re-frame2-causa-mcp.tools.restore-epoch]
             [day8.re-frame2-causa-mcp.tools.reset-frame-db]
+            ;; T-Stream tranche (rf2-8xzoe.26..28) — per-drain-batch streaming.
+            [day8.re-frame2-causa-mcp.tools.subscribe]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------

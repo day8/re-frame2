@@ -545,3 +545,84 @@ bead #25.
 envelope is small).
 
 Implementation: [`tools/causa-mcp/src/.../tools/reset_frame_db.cljs`](../src/day8/re_frame2_causa_mcp/tools/reset_frame_db.cljs).
+
+## Streaming band
+
+Streaming-band tools surface push-mode data over an MCP `tools/call`
+that stays open across many polling ticks. The contract surface is
+**per-drain-batch port-pinning** (the cross-MCP wire-batching idiom):
+one `tools/call` ↔ one `progressToken` ↔ one stream of
+`notifications/progress` ticks ↔ one terminal summary on close. The
+agent reads ticks correlated by `progressToken` and pattern-matches
+on the terminal envelope's `:reason` slot to discover why the stream
+closed.
+
+### subscribe (T-Stream-1, rf2-8xzoe.26)
+
+Open a per-drain-batch streaming subscription on topic `:trace`,
+`:epoch`, `:fx`, or `:error`. The `tools/call` stays open until the
+client aborts, `:max-events` / `:max-ms` is reached, or `unsubscribe`
+is called. Each non-empty polling tick emits one
+`notifications/progress` notification carrying the batch's events;
+the terminal `tools/call` result is a summary with cumulative
+`:delivered` + `:ticks` + `:reason`. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #26.
+
+**Topic → trace-bus projection:**
+
+| Topic | Source |
+|---|---|
+| `:trace` | full trace buffer; `:op-type` filter optional |
+| `:epoch` | trace events with `:op-type :epoch/closed` |
+| `:fx` | trace events with `:op-type :fx/run` |
+| `:error` | issue-tier events (`:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`) |
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:topic` | keyword | **required** | one of `:trace :epoch :fx :error` |
+| `:filter` | map | nil | per-topic Spec 009 filter |
+| `:frame` | keyword | nil | scope to one frame |
+| `:poll-ms` | int | 100 | polling cadence |
+| `:max-events` | int | 0 | terminate after N events (0 = unbounded) |
+| `:max-ms` | int | 0 | terminate after N ms (0 = unbounded) |
+| `:include-sensitive?` | bool | false | opt back in to `:sensitive? true` |
+| `:include-large?` | bool | false | passes to runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Per-tick `notifications/progress` payload:**
+
+```clojure
+;; progressToken correlated to the originating tools/call
+{:progressToken <token>
+ :progress      <tick-int>
+ :message       (pr-str {:sub-id <uuid>
+                         :events [<event> ...]
+                         :dropped-sensitive <int?>
+                         :elided-large <int?>})}
+```
+
+**Terminal `tools/call` result:**
+
+```clojure
+{:ok? true
+ :sub-id <uuid>
+ :topic <kw>
+ :delivered <int>
+ :ticks <int>
+ :reason <:aborted|:max-events-reached|:max-ms-reached|:unsubscribed>
+ :dropped-sensitive <int?>
+ :elided-large <int?>}
+```
+
+**Failure envelopes:**
+
+- `{:ok? false :reason :unknown-topic :given <s> :hint ...}` — topic
+  not in `{:trace :epoch :fx :error}`.
+- `{:ok? false :reason :runtime-not-preloaded :hint <setup>}` —
+  Causa-the-panel preload isn't loaded.
+
+**Cap-reached hint:** `:paginate` (default fallback `:narrow-filter`)
+— shorten the stream via `:max-events` / `:max-ms`, or narrow the
+`:filter`.
+
+Implementation: [`tools/causa-mcp/src/.../tools/subscribe.cljs`](../src/day8/re_frame2_causa_mcp/tools/subscribe.cljs).
