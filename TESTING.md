@@ -169,136 +169,60 @@ always-on PR jobs; for the conditional surfaces, run the targeted
 commands from the [Local commands](#local-commands) tables matching
 whichever classifier outputs your diff trips.
 
-### Dependency diagram
+### Dependency matrices
 
-Two views of the same surface → output → jobs graph. The diagrams are
+Two views of the same surface → output → jobs graph. The tables are
 hand-maintained against [`.github/scripts/report-changed-surfaces.sh`](.github/scripts/report-changed-surfaces.sh)
 (classifier rules) and [`.github/workflows/test.yml`](.github/workflows/test.yml)
 (`if:` gates); update both halves whenever a classifier rule or job-`if:`
 condition changes (per the **Adding a new artefact directory** rule above).
 
 **Surface → output** — read this to verify "did my PR fire the right
-classifier outputs?" Note the four hard-coded `mark_all` triggers in
-the top row light every output (defensive: a change to the matrix
-shape must re-run the matrix).
+classifier outputs?" Rows are surface groups; columns are the 13
+classifier outputs (exact names from the script). A `✓` means a change
+under that surface sets that output to `true`. The **blast-trigger row
+(S1)** is bold: any change to those four files calls `mark_all` and
+lights every output (defensive — anything that re-tiers the matrix
+must re-run the matrix).
 
-```mermaid
-graph LR
-  classDef blast fill:#fdd,stroke:#a33;
-  classDef core fill:#fde,stroke:#a39;
-
-  S1[".github/workflows/test.yml<br/>.github/workflows/expensive-tests.yml<br/>report-changed-surfaces.sh<br/>TESTING.md"]:::blast --> ALL["(every output)"]:::blast
-
-  S2["implementation/core/*"]:::core --> impl_jvm
-  S2 --> adapter_diag
-  S2 --> cljs_br
-  S2 --> cljs_prod
-  S2 --> bundle_iso
-  S2 --> ex_br
-  S2 --> tools_jvm
-  S2 --> tpl_exp
-  S2 --> mcp_conf
-  S2 --> mcp_live
-  S2 --> story_causa_br
-
-  S3["implementation/adapters/reagent-slim/*<br/>examples/reagent/counter_slim_and_fast/*<br/>check-reagent-slim-bundle-isolation.cjs"] --> impl_jvm
-  S3 --> adapter_diag
-  S3 --> cljs_br
-  S3 --> cljs_prod
-  S3 --> reagent_slim
-  S3 --> ex_br
-
-  S4["implementation/adapters/* (other)"] --> impl_jvm
-  S4 --> adapter_diag
-  S4 --> cljs_br
-  S4 --> cljs_prod
-  S4 --> bundle_iso
-  S4 --> ex_br
-  S4 --> tools_jvm
-  S4 --> tpl_exp
-  S4 --> mcp_conf
-  S4 --> mcp_live
-
-  S5["implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*<br/>implementation/deps.edn"] --> impl_jvm
-  S5 --> cljs_br
-  S5 --> cljs_prod
-  S5 --> bundle_iso
-  S5 --> ex_br
-
-  S6["spec/conformance/fixtures/*"] --> impl_jvm
-  S6 --> cljs_br
-  S6 --> cljs_prod
-
-  S7["implementation/shadow-cljs.edn<br/>implementation/package.json<br/>implementation/package-lock.json<br/>implementation/scripts/*"] --> cljs_br
-  S7 --> cljs_prod
-  S7 --> bundle_iso
-  S7 --> reagent_slim
-  S7 --> ex_br
-  S7 --> story_causa_br
-
-  S8["examples/*"] --> cljs_br
-  S8 --> ex_br
-
-  S9["testbeds/*"] --> cljs_br
-  S9 --> ex_br
-
-  S10["tools/template/*"] --> tpl_exp
-
-  S11["tools/story/*<br/>tools/causa/*"] --> tools_jvm
-  S11 --> mcp_conf
-  S11 --> story_causa_br
-
-  S12["tools/story-mcp/*<br/>tools/causa-mcp/*"] --> tools_jvm
-  S12 --> mcp_conf
-
-  S13["tools/pair2-mcp/*<br/>tools/mcp-base/*"] --> tools_jvm
-  S13 --> mcp_conf
-  S13 --> mcp_live
-
-  S14["tools/mcp-conformance/*"] --> mcp_conf
-  S14 --> mcp_live
-
-  S15["skills/re-frame-pair2/tests/fixture/*"] --> skills_str
-  S15 --> mcp_conf
-  S15 --> mcp_live
-
-  S16["skills/re-frame-pair2/* (other)<br/>skills/shared/*"] --> skills_str
-
-  impl_jvm[implementation_jvm]
-  adapter_diag[adapter_diagnostic]
-  cljs_br[cljs_browser]
-  cljs_prod[cljs_prod]
-  bundle_iso[bundle_isolation]
-  reagent_slim[reagent_slim_bundle]
-  ex_br[examples_browser]
-  tools_jvm[tools_jvm]
-  tpl_exp[template_expensive]
-  mcp_conf[mcp_conformance]
-  mcp_live[mcp_live]
-  story_causa_br[story_causa_browser]
-  skills_str[skills_structural]
-```
+| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `examples_browser` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   |
+| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |
+| S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |
+| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |
+| S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
+| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |   | ✓ |   |
+| S8 | `examples/*` |   |   | ✓ |   |   |   | ✓ |   |   |   |   |   |   |
+| S9 | `testbeds/*` |   |   | ✓ |   |   |   | ✓ |   |   |   |   |   |   |
+| S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
+| S11 | `tools/story/*`, `tools/causa/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |
+| S12 | `tools/story-mcp/*`, `tools/causa-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
+| S13 | `tools/pair2-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |
+| S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |
+| S15 | `skills/re-frame-pair2/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |
+| S16 | `skills/re-frame-pair2/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
 
 **Output → jobs** — read this to answer "if this output is `true`, what
 runs?" Job counts are grouped (the matrix expands to 30+ leaf jobs at
-PR time; one count per output here so the graph stays scannable).
+PR time; one row per output here so the table stays scannable).
 
-```mermaid
-graph LR
-  O1[implementation_jvm] --> J1["JVM artefact unit suites x9<br/>(jvm-core, jvm-flows, jvm-schemas,<br/> jvm-machines, jvm-routing, jvm-http,<br/> jvm-ssr, jvm-ssr-ring, jvm-epoch)"]
-  O2[adapter_diagnostic] --> J2["Adapter classpath probes x4<br/>(jvm-reagent, jvm-reagent-slim,<br/> jvm-uix, jvm-helix)"]
-  O3[cljs_browser] --> J3["node-test (consolidated CLJS<br/>unit + browser-test)"]
-  O4[cljs_prod] --> J4["Release-mode probes x3<br/>(browser-test-prod-elision,<br/> schemas boundary prod, etc.)"]
-  O5[bundle_isolation] --> J5["bundle-isolation"]
-  O6[reagent_slim_bundle] --> J6["reagent-slim-bundle-isolation"]
-  O7[examples_browser] --> J7["examples-browser (Playwright,<br/>testbeds + examples)"]
-  O8[story_causa_browser] --> J8["story-causa-browser<br/>(feature gates, Playwright)"]
-  O9[tools_jvm] --> J9["Per-tool JVM probes x4<br/>(jvm-tools-causa, jvm-tools-story,<br/> jvm-tools-story-mcp, jvm-tools-mcp-base)"]
-  O10[template_expensive] --> J10["jvm-tools-template<br/>(emitted-app smoke)"]
-  O11[mcp_conformance] --> J11["MCP conformance x5<br/>(mcp-conformance-{story,causa,<br/> pair2,wire-vocab,...})"]
-  O12[mcp_live] --> J12["mcp-conformance-pair2<br/>(live + hermetic)"]
-  O13[skills_structural] --> J13["skills-structural"]
-```
+| Output | Jobs |
+|---|---|
+| `implementation_jvm` | JVM artefact unit suites ×9 (`jvm-core`, `jvm-flows`, `jvm-schemas`, `jvm-machines`, `jvm-routing`, `jvm-http`, `jvm-ssr`, `jvm-ssr-ring`, `jvm-epoch`) |
+| `adapter_diagnostic` | Adapter classpath probes ×4 (`jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix`) |
+| `cljs_browser` | `node-test` (consolidated CLJS unit + browser-test) |
+| `cljs_prod` | Release-mode probes ×3 (`browser-test-prod-elision`, schemas boundary prod, etc.) |
+| `bundle_isolation` | `bundle-isolation` |
+| `reagent_slim_bundle` | `reagent-slim-bundle-isolation` |
+| `examples_browser` | `examples-browser` (Playwright, testbeds + examples) |
+| `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-causa`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
+| `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
+| `mcp_conformance` | MCP conformance ×5 (`mcp-conformance-{story,causa,pair2,wire-vocab,...}`) |
+| `mcp_live` | `mcp-conformance-pair2` (live + hermetic) |
+| `story_causa_browser` | `story-causa-browser` (feature gates, Playwright) |
+| `skills_structural` | `skills-structural` |
 
 
 ## Diagnostic / skip-ok gates
