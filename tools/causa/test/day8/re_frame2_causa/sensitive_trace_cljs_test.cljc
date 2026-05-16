@@ -219,3 +219,109 @@
        (trace-bus/clear-buffer!)
        (is (= 0 (config/suppressed-count))
            "clearing the buffer also drops the indicator state"))))
+
+;; ---- (6) retroactive scrub on toggle-off (rf2-lqmje) --------------------
+;;
+;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
+;; false: when the flag transitions true → false, the trace buffer is
+;; cleared. The flag is NOT a one-way trapdoor — flipping it false
+;; MUST restore the privacy guarantee for events already buffered
+;; while the flag was true. The trade-off (non-sensitive history also
+;; lost) is intentional and documented in Spec 009.
+
+(deftest set-show-sensitive!-false-runs-toggle-off-callbacks
+  (testing "true → false transition invokes registered callbacks"
+    (let [called?  (atom false)
+          token-id ::scrub-callback-test]
+      (config/register-toggle-off-callback! token-id #(reset! called? true))
+      (try
+        (config/set-show-sensitive! true)
+        (is (false? @called?)
+            "false → true must NOT invoke callbacks (no buffered sensitive risk)")
+        (config/set-show-sensitive! false)
+        (is (true? @called?)
+            "true → false must invoke every registered callback")
+        (finally
+          (config/unregister-toggle-off-callback! token-id))))))
+
+(deftest set-show-sensitive!-no-transition-no-callback
+  (testing "true → true and false → false are no-ops for the callbacks"
+    (let [calls    (atom 0)
+          token-id ::scrub-callback-no-transition]
+      (config/register-toggle-off-callback! token-id #(swap! calls inc))
+      (try
+        (config/set-show-sensitive! false) ; default → false, no transition
+        (is (= 0 @calls))
+        (config/set-show-sensitive! true)
+        (config/set-show-sensitive! true)  ; true → true
+        (is (= 0 @calls))
+        (config/set-show-sensitive! false) ; true → false, the only transition
+        (is (= 1 @calls))
+        (config/set-show-sensitive! false) ; false → false
+        (is (= 1 @calls))
+        (finally
+          (config/unregister-toggle-off-callback! token-id))))))
+
+(deftest set-show-sensitive!-callback-failure-isolated
+  (testing "one buggy callback does not prevent others from running"
+    (let [other-called? (atom false)
+          token-bad     ::scrub-callback-bad
+          token-good    ::scrub-callback-good]
+      (config/register-toggle-off-callback!
+        token-bad (fn [] (throw (ex-info "boom" {}))))
+      (config/register-toggle-off-callback!
+        token-good (fn [] (reset! other-called? true)))
+      (try
+        (config/set-show-sensitive! true)
+        (config/set-show-sensitive! false)
+        (is (true? @other-called?)
+            "the good callback must still run after the bad one throws")
+        (finally
+          (config/unregister-toggle-off-callback! token-bad)
+          (config/unregister-toggle-off-callback! token-good))))))
+
+#?(:cljs
+   (deftest toggle-off-clears-trace-buffer
+     (testing "true → false clears the trace buffer in lockstep with the flag"
+       ;; Scenario: flag on, sensitive cascade lands, flag flipped off.
+       (config/set-show-sensitive! true)
+       (trace-bus/collect-trace! (sensitive-event))
+       (trace-bus/collect-trace! (non-sensitive-event))
+       (trace-bus/collect-trace! (sensitive-event))
+       (is (= 3 (count (trace-bus/buffer)))
+           "all three events landed while the flag was true")
+       ;; User flips off expecting privacy restored.
+       (config/set-show-sensitive! false)
+       (is (= 0 (count (trace-bus/buffer)))
+           "buffer must be empty — sensitive payloads cannot survive the toggle")
+       (is (= 0 (config/suppressed-count))
+           "suppressed counter also drops in lockstep with the buffer"))))
+
+#?(:cljs
+   (deftest toggle-off-also-drops-non-sensitive-history
+     (testing "the simplest correct semantic — clear EVERYTHING, not just sensitive"
+       ;; The Spec 009 §Retroactive-scrub trade-off: selective scrubbing
+       ;; is unsafe because non-sensitive events can structurally reveal
+       ;; the redacted value (sub recomputes, render args, etc). Document
+       ;; the intentional loss so a future refactor doesn't try to
+       ;; "improve" by filtering instead of clearing.
+       (config/set-show-sensitive! true)
+       (trace-bus/collect-trace! (non-sensitive-event))
+       (trace-bus/collect-trace! (non-sensitive-event))
+       (is (= 2 (count (trace-bus/buffer))))
+       (config/set-show-sensitive! false)
+       (is (= 0 (count (trace-bus/buffer)))
+           "non-sensitive history is intentionally lost — see Spec 009 §Retroactive-scrub"))))
+
+#?(:cljs
+   (deftest toggle-off-no-clear-when-flag-was-already-false
+     (testing "false → false transition leaves the buffer alone"
+       ;; The flag started false, so no sensitive events ever landed.
+       ;; A redundant set-show-sensitive! false call must NOT throw away
+       ;; the buffered non-sensitive history.
+       (trace-bus/collect-trace! (non-sensitive-event))
+       (trace-bus/collect-trace! (non-sensitive-event))
+       (is (= 2 (count (trace-bus/buffer))))
+       (config/set-show-sensitive! false) ; redundant; default is false
+       (is (= 2 (count (trace-bus/buffer)))
+           "redundant set-show-sensitive! false must not clear the buffer"))))

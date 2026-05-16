@@ -21,6 +21,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
+            [re-frame.story.config :as story-config]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.command-palette :as command-palette]
@@ -799,6 +800,89 @@
         (is (nil? (scrubber/selected-epoch-id vid)))
         (finally
           (scrubber/drop-selection! vid))))))
+
+;; ---- privacy: retroactive scrub on set-show-sensitive! false (rf2-lqmje)
+;;
+;; Per Spec 009 §Privacy §Retroactive-scrub: toggling
+;; `:trace/show-sensitive?` from true → false MUST clear every
+;; per-variant trace buffer. The Story trace listener only gates at
+;; ingest time, so without this scrub a sensitive cascade emitted
+;; while the flag was true would remain visible in every variant's
+;; trace + actions panels after the user expected privacy to be
+;; restored. The trade-off (non-sensitive history also lost) is the
+;; simplest correct semantic — see Spec 009 for the rationale.
+
+(deftest set-show-sensitive!-false-clears-every-variant-buffer-rf2-lqmje
+  (testing "true → false toggle clears every per-variant Story trace buffer"
+    (let [v-a       :story.priv-scrub/a
+          v-b       :story.priv-scrub/b
+          buf-a     (trace/ensure-buffer! v-a)
+          buf-b     (trace/ensure-buffer! v-b)
+          mk-ev     (fn [vid sensitive?]
+                      (cond-> {:op-type   :event
+                               :operation :event/dispatched
+                               :id        1
+                               :time      1700000000000
+                               :tags      {:dispatch-id 1
+                                           :frame       vid
+                                           :event-id    :foo
+                                           :event       [:foo]}}
+                        sensitive? (assoc :sensitive? true)))]
+      (try
+        ;; Engineer flips the flag on to investigate.
+        (story-config/set-show-sensitive! true)
+        ;; Simulate the per-variant listener body: with the flag on, the
+        ;; listener appends every event (no suppression).
+        (reset! buf-a [(mk-ev v-a true) (mk-ev v-a false)])
+        (reset! buf-b [(mk-ev v-b true)])
+        (story-config/note-suppressed! v-a) ; previously bumped before opt-in
+        (is (= 2 (count @buf-a)))
+        (is (= 1 (count @buf-b)))
+        (is (pos? (story-config/suppressed-count v-a)))
+
+        ;; Engineer flips the flag back off expecting privacy restored.
+        (story-config/set-show-sensitive! false)
+
+        (is (= 0 (count @buf-a))
+            "variant A's buffer must be empty — sensitive payloads cannot survive the toggle")
+        (is (= 0 (count @buf-b))
+            "variant B's buffer must be empty too — the clear is global")
+        (is (zero? (story-config/suppressed-count v-a))
+            "per-variant suppressed counter drops in lockstep with the buffer")
+        (finally
+          (trace/drop-buffer! v-a)
+          (trace/drop-buffer! v-b)
+          (story-config/set-show-sensitive! false)
+          (story-config/reset-suppressed-count!))))))
+
+(deftest set-show-sensitive!-no-clear-when-already-false-rf2-lqmje
+  (testing "false → false toggle leaves the buffers alone"
+    (let [vid :story.priv-scrub/idempotent
+          buf (trace/ensure-buffer! vid)]
+      (try
+        ;; The flag started false, so no sensitive events ever landed.
+        ;; A redundant set-show-sensitive! false call must NOT throw away
+        ;; the buffered non-sensitive history.
+        (reset! buf [{:op-type :event :tags {:frame vid}}])
+        (story-config/set-show-sensitive! false) ; redundant; default is false
+        (is (= 1 (count @buf))
+            "redundant set-show-sensitive! false must not clear the buffer")
+        (finally
+          (trace/drop-buffer! vid)
+          (story-config/set-show-sensitive! false))))))
+
+(deftest set-show-sensitive!-true-does-not-clear-rf2-lqmje
+  (testing "false → true toggle leaves the buffers alone (no buffered sensitive risk)"
+    (let [vid :story.priv-scrub/opt-in
+          buf (trace/ensure-buffer! vid)]
+      (try
+        (reset! buf [{:op-type :event :tags {:frame vid}}])
+        (story-config/set-show-sensitive! true)
+        (is (= 1 (count @buf))
+            "opting in must not clear pre-existing non-sensitive history")
+        (finally
+          (trace/drop-buffer! vid)
+          (story-config/set-show-sensitive! false))))))
 
 ;; ---- shell render smoke -------------------------------------------------
 ;;

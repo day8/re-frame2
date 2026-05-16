@@ -97,6 +97,28 @@
    (config/reset-suppressed-count! variant-id)
    nil))
 
+;; ---- retroactive scrub on set-show-sensitive! false (rf2-lqmje) ---------
+;;
+;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
+;; false: toggling the flag from true → false clears every per-variant
+;; trace buffer. Each Story trace listener only gates at ingest via
+;; `config/suppress-sensitive?`, so without this hook a sensitive
+;; cascade emitted while the flag was true would remain visible in
+;; every variant's trace + actions panels after the user expected
+;; privacy to be restored.
+;;
+;; The clear cascades through `clear-buffer!` (zero-arg form):
+;;   - resets every per-variant ratom to `[]` (panels re-render empty),
+;;   - calls `config/reset-suppressed-count!` so each variant's
+;;     `[● REDACTED]` hint drops in lockstep with the buffer.
+;;
+;; The hook registers at load time, gated on `config/enabled?` —
+;; production builds (`enabled?` false via `:closure-defines`) elide
+;; Story entirely, including the registration form.
+
+(when config/enabled?
+  (config/register-toggle-off-callback! ::clear-on-toggle-off clear-buffer!))
+
 (defn drop-buffer!
   "Remove the buffer entry entirely. Called from shell unmount.
   Per rf2-bclgj: also clears the per-variant suppressed-events

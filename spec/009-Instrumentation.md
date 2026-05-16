@@ -1400,6 +1400,27 @@ User-side listeners (in-app recorders, dev panels, custom forwarders) have no fr
 
 The **user-controllable config knob** each consumer exposes for the default-suppress policy follows a fixed verb convention per [Conventions §Privacy config-knob naming](Conventions.md#privacy-config-knob-naming-on-box-ui-vs-off-box-wire-egress): on-box devtools UI consumers use the `show-sensitive?` verb under the `:trace/*` ns (e.g. `:trace/show-sensitive?` — UI visibility), while off-box wire-egress consumers (the MCP triplet, the pair2 preload) use the **unqualified** `include-sensitive?` verb (e.g. `{:rf.size/include-sensitive? false}` on the elision policy map — wire egress). Both default to suppress; the verb choice tells the reader which trust boundary the knob governs without re-deriving from context.
 
+#### Retroactive-scrub on `set-show-sensitive!` false
+
+Resolved per **rf2-lqmje**.
+
+The on-box `show-sensitive?` knob is **not a one-way trapdoor**. Each consumer's `(set-show-sensitive! v)` is gated at ingest time only — it decides whether the next emit lands in the consumer's ring buffer, not whether buffer reads see existing payloads. Without an explicit retroactive-scrub rule the toggle has a privacy hole:
+
+```text
+1. show-sensitive? = true     (engineer flips on to debug redaction policy)
+2. sensitive cascade emitted  (auth/login event lands in every consumer's buffer)
+3. show-sensitive? = false    (engineer flips back off, expecting privacy restored)
+4. panels keep showing the buffered :sensitive? payloads forever
+```
+
+The normative rule: every on-box `:trace/show-sensitive?` consumer (Causa's `trace-bus`, Story's per-variant `ui.trace` buffer, future devtools that hold a buffer downstream of the on-box flag) MUST clear its trace buffer on the `true → false` transition. `false → false`, `false → true`, and `true → true` MUST NOT clear (no buffered sensitive risk exists for those transitions, and clearing would discard legitimate non-sensitive history without cause).
+
+The clear MUST be **whole-buffer**, not selective. Non-sensitive history buffered alongside the sensitive cascade is intentionally lost. Selective scrubbing is unsafe because a single sensitive event can have caused later non-sensitive cascades — sub recomputes, render args, dispatched-from-fx events — whose payloads structurally reveal the redacted value via the shape of what they consumed. Clearing the whole buffer is the simplest correct semantic; any "smarter" filter risks reintroducing the leak through a derived event.
+
+The clear MUST also reset the per-consumer `[● REDACTED N]` suppressed-events counter so the indicator drops in lockstep with the buffer (the counter is conceptually "since last clear", not "since process start"). Per Causa's `trace-bus/clear-buffer!` and Story's `ui.trace/clear-buffer!` — both already cascade through to the suppressed-counter reset.
+
+Implementation note (non-normative): the reference implementation uses a callback-registry pattern (`config/register-toggle-off-callback!`) so the config layer can invoke the consumer's clear-buffer fn without taking a require dependency on it (the consumer requires the config; not vice versa). Callbacks run on every `true → false` transition; one callback's exception MUST NOT block the others (privacy is the load-bearing concern, and a partial clear is strictly better than no clear). Off-box wire-egress consumers (`include-sensitive?` knobs on the MCP triplet, pair2 preload) are out of scope for this rule — their flag governs wire emission, not a persistent buffer, so the transitions are stateless.
+
 #### Production-elision behaviour
 
 The `:sensitive?` mechanism is **dev-time only** — both pieces of it ride the trace surface and elide with it:

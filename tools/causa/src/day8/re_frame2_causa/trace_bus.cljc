@@ -344,3 +344,26 @@
     ;; the reactive slot reflects the same eviction the atom just took.
     #?(:cljs (mirror-into-causa! [:rf.causa/sync-trace-buffer @buffer-state])))
   nil)
+
+;; ---- retroactive scrub on set-show-sensitive! false (rf2-lqmje) ---------
+;;
+;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
+;; false: toggling the flag from true → false clears the trace buffer.
+;; The collector only gates at ingest (`collect-trace!` consults
+;; `config/suppress-sensitive?`), so without this hook a sensitive
+;; cascade emitted while the flag was true would remain visible in
+;; every panel after the user expected privacy to be restored.
+;;
+;; The clear cascades through `clear-buffer!`:
+;;   - empties the atom + mirrors `:rf.causa/clear-trace-buffer` into
+;;     `:rf/causa` so the reactive `:trace-buffer` sub drops in lockstep,
+;;   - calls `config/reset-suppressed-count!` so the `[● REDACTED N]`
+;;     hint resets (the bottom rail's counter is conceptually
+;;     "since-last-clear", not "since-process-start").
+;;
+;; The hook registers at load time via a top-level form (guarded by
+;; `interop/debug-enabled?` — production builds keep the registration
+;; out of the bundle alongside the rest of the trace-bus surface).
+
+(when interop/debug-enabled?
+  (config/register-toggle-off-callback! ::clear-on-toggle-off clear-buffer!))

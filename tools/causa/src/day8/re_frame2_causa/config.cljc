@@ -248,11 +248,91 @@
   show-sensitive?
   (atom false))
 
+;; ---- toggle-off callbacks (rf2-lqmje — retroactive scrub) ----------------
+;;
+;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
+;; false (rf2-lqmje), toggling the flag from true → false MUST clear
+;; the trace buffer — the flag is NOT a one-way trapdoor. The collector
+;; only gates at ingest time (`suppress-sensitive?`), so without this
+;; scrub a sensitive cascade emitted while the flag was true would
+;; remain visible in every panel after the user flipped the flag back
+;; to false expecting privacy to be restored.
+;;
+;; The cost: non-sensitive history that was buffered alongside the
+;; sensitive cascade is also lost. This is the documented trade-off —
+;; selective scrubbing is unsafe because a single sensitive event can
+;; have caused later non-sensitive cascades (subs, renders, fx) whose
+;; payloads structurally reveal the redacted value (per the Spec 009
+;; rationale block). Clearing the whole buffer is the simplest correct
+;; semantic.
+;;
+;; The hook design avoids a circular require — `trace-bus.cljc`
+;; depends on `config.cljc` to read the flag and bump the counter, so
+;; `config.cljc` cannot directly invoke `trace-bus/clear-buffer!`.
+;; Instead, `trace-bus.cljc` registers its clear-buffer fn into this
+;; atom at load time; `set-show-sensitive!` walks the atom on every
+;; true → false transition. CLJC-pure so the registration shape is
+;; testable under the JVM target.
+
+(defonce
+  ^{:doc "Atom holding `{id → (fn [] ...)}` callbacks invoked when
+         `set-show-sensitive!` transitions the flag from true → false.
+         `trace-bus.cljc` registers its `clear-buffer!` at load time.
+         Internal — host applications should not register here."}
+  toggle-off-callbacks
+  (atom {}))
+
+(defn register-toggle-off-callback!
+  "Register `f` (a zero-arg fn) under `id` to be invoked when
+  `set-show-sensitive!` transitions the flag from `true` → `false`.
+  Replaces any existing entry under the same id. Internal API — Causa
+  modules use it to wire their buffer-clear hooks; host applications
+  should NOT register here.
+
+  Returns `id`."
+  [id f]
+  (swap! toggle-off-callbacks assoc id f)
+  id)
+
+(defn unregister-toggle-off-callback!
+  "Remove the toggle-off callback registered under `id`. Idempotent."
+  [id]
+  (swap! toggle-off-callbacks dissoc id)
+  nil)
+
+(defn- run-toggle-off-callbacks!
+  "Invoke every registered toggle-off callback. Each callback's
+  exception is swallowed (logged via `tap>`) so one buggy hook does
+  not prevent the others from running — privacy is the load-bearing
+  concern, and a partial clear is strictly better than no clear."
+  []
+  (doseq [[id f] @toggle-off-callbacks]
+    (try
+      (f)
+      (catch #?(:clj Throwable :cljs :default) e
+        (tap> {:tag ::toggle-off-callback-failed :id id :error e})))))
+
 (defn set-show-sensitive!
   "Replace the `:trace/show-sensitive?` flag. Causa's `configure!`
-  calls this. `nil` resets to the default (`false`)."
+  calls this. `nil` resets to the default (`false`).
+
+  Per rf2-lqmje (Spec 009 §Privacy §Retroactive-scrub): when the call
+  transitions the flag from `true` → `false`, the trace buffer is
+  cleared by invoking every registered `toggle-off-callbacks` entry.
+  The trade-off — non-sensitive history buffered alongside the
+  sensitive cascade is also lost — is intentional: clearing the whole
+  buffer is the simplest correct semantic because a sensitive event
+  emitted while the flag was true can have caused later cascades whose
+  payloads structurally reveal the redacted value. The flag is NOT a
+  one-way trapdoor; toggling it false MUST restore privacy fully.
+  true → true and false → ANY transitions do NOT invoke the
+  callbacks."
   [v]
-  (reset! show-sensitive? (boolean v))
+  (let [prev @show-sensitive?
+        next (boolean v)]
+    (reset! show-sensitive? next)
+    (when (and prev (not next))
+      (run-toggle-off-callbacks!)))
   nil)
 
 (defn get-show-sensitive
