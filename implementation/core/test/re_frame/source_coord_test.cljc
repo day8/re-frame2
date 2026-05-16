@@ -126,6 +126,11 @@
 
 ;; ---- inject-cofx / inject-cofx* -------------------------------------------
 
+(deftest inject-cofx-public-var-is-macro
+  #?(:clj
+     (testing "rf/inject-cofx in CLJ is a macro var (not clobbered by runtime alias)"
+       (is (true? (:macro (meta #'re-frame.core/inject-cofx)))))))
+
 (deftest inject-cofx-macro-stamps-call-site
   (testing ":rf.error/no-such-cofx carries the call site of inject-cofx (macro form)"
     (rf/reg-event-fx :rf2-ts1a/uses-missing-cofx
