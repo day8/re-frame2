@@ -988,11 +988,25 @@ The story / devcard / SSR cases all benefit:
 
 > **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all five items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
 
-- Native nested layouts (true `<Outlet/>`-style render slots, parent-loader cascades, partial revalidation on child-only navigations) — the current v1 surface is `:parent` + `:rf.route/chain` sub. Deferred to rf2-ohupw.
-- Data-form path patterns (a vector-of-segments alternative to the string grammar), formally specified — the string grammar is the canonical v1 wire form. Deferred to rf2-r6049.
-- Custom scroll-strategy registry — current v1 contract is the three enums (`:top`, `:restore`, `:preserve`). Deferred to rf2-3tjl8.
-- URL-state-as-source-of-truth (URL canonical, `app-db` derives) — v1 is the inverse: `app-db` canonical, URL derives. Deferred to rf2-kbozz.
-- Declarative redirect rules in route metadata — v1 redirects are interceptors. Deferred to rf2-lpjzj.
+### Native nested layouts (post-v1, rf2-ohupw)
+
+Per [§Nested layouts](#nested-layouts) the v1 surface is `:parent` + the `:rf.route/chain` sub — the rendering side reads the layout chain as data and composes shells top-down. A richer mechanism — true `<Outlet/>`-style render slots, parent-loader cascades, and partial revalidation on child-only navigations (parent doesn't re-run when only the leaf changes) — is a substrate-shaped addition rather than a data convention. Deferred to rf2-ohupw until apps surface a real cost the chain-sub pattern can't carry; the `:parent` convention does not preclude a richer slot mechanism later.
+
+### Data-form path patterns (post-v1, rf2-r6049)
+
+Per [§The route table is data](#the-route-table-is-data) the v1 canonical wire form for `:path` is the string grammar (`"/account/:id/orders/*rest"`). A formally-specified vector-of-segments alternative (e.g. `[:account [:id :int] "orders" [:rest :catchall]]`) would carry per-segment schema inline and survive copy-paste better than embedded sigils. Deferred to rf2-r6049 — the string grammar is the v1 wire form and tools, conformance fixtures, and `match-url` all key off it; the data form would be an additive parser front-end.
+
+### Custom scroll-strategy registry (post-v1, rf2-3tjl8)
+
+Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed three-enum set (`:top`, `:restore`, `:preserve`) plus the map-form opt-in for host-specific shapes. A first-class registry (apps `register-scroll-strategy!` named entries; routes / nav opts name them by keyword) is an additive composition surface that keeps strategy registration enumerable for tools. Deferred to rf2-3tjl8 — the three enums cover the documented cases and locking them keeps tools' enumeration of scroll behaviour decidable.
+
+### URL-state-as-source-of-truth (post-v1, rf2-kbozz)
+
+Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is `app-db`-canonical, URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, `app-db` derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred to rf2-kbozz; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
+
+### Declarative redirect rules in route metadata (post-v1, rf2-lpjzj)
+
+Per [§Redirects and guards](#redirects-and-guards) v1 redirects compose as interceptors — guards are ordinary middleware over `:rf.route/navigate`, with full access to `app-db` and the event vector. A declarative metadata key (e.g. `:redirect-to :route/login`, optionally a fn of the route map) would let the simple "always redirect this route" cases skip interceptor boilerplate. Deferred to rf2-lpjzj — the interceptor form is the universal carry; the declarative key is sugar over it once the common shapes have settled in real apps.
 
 ## Resolved decisions
 
