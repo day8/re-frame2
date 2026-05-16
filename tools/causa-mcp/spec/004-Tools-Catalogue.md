@@ -296,3 +296,52 @@ in the epoch ring (evicted), the tool surfaces:
 multi-page.
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_epoch_history.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs).
+
+### get-app-db (T-Insp-3, rf2-8xzoe.16)
+
+Direct-read app-db at a frame, optionally scoped by `:path` (`get-in`
+semantics). Per the MUST inventory in
+[`spec/004-Wire-Pipeline.md`](004-Wire-Pipeline.md) §Direct-read:
+**MUST 8** (path slicing is the default), **MUST 9** (summary mode is
+the default), **MUST 19** (both `:include-sensitive?` and
+`:include-large?` default `false`). Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #16.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:frame` | keyword | nil | scope to one frame |
+| `:path` | EDN-vec str | `nil` | slice into app-db |
+| `:mode` | keyword | `:summary` | `:summary` or `:full` |
+| `:include-sensitive?` | bool | false | passes to runtime walker |
+| `:include-large?` | bool | false | passes to runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :frame <kw>
+ :path <vec>
+ :mode <:summary|:full>
+ :value <edn>
+ :elided-large <int?>}
+```
+
+**Summary marker (`:mode :summary` default):**
+
+```clojure
+;; for a map :value
+{:rf.mcp/summary {:type :map :top-keys [:cart :user :nav] :count 3}}
+;; truncated when count > 64
+{:rf.mcp/summary {:type :map :top-keys [...64...] :count 5000
+                  :keys-truncated? true}}
+;; scalars ride through unchanged in summary mode
+:home
+```
+
+**Cap-reached hint:** `:slice` (drill via `:path`) when `:mode
+:full`; `:switch-mode` (downshift to `:summary`) when `:full` was
+explicitly requested without a path. Default fallback
+`:narrow-filter`.
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_app_db.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs).
