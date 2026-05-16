@@ -87,6 +87,13 @@
   ;;     `resize: horizontal` + `overflow: auto` on the host
   ;;   - app content to the left stays in normal flex flow
   ;;     (no overlay, no body padding).
+  ;;
+  ;; `box-sizing: border-box` is required so the documented width
+  ;; (the `var(--rf-causa-inline-width, 420px)` value) is the actual
+  ;; rendered width INCLUDING the 1px `border-left` separator. Without
+  ;; it, the host renders one pixel wider than the documented value —
+  ;; an off-by-one that surfaces in any pixel-exact contract (see
+  ;; tools/causa/testbeds/inline_resize/spec.cjs).
   "<div class=\"app-shell\">
   <main id=\"app\"></main>
   <aside data-rf-causa-host></aside>
@@ -98,6 +105,7 @@
   [data-rf-causa-host] {
     flex: 0 0 var(--rf-causa-inline-width, 420px);
     min-width: 320px;
+    box-sizing: border-box;
     border-left: 1px solid #2a2a2a;
     resize: horizontal;
     overflow: auto;

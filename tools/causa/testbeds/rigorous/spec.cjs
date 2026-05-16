@@ -702,7 +702,14 @@ module.exports = {
     // cascade we just fired.
     const lastNode = graphNodes.last();
     const lastNodeTestid = await lastNode.getAttribute('data-testid');
-    const nodeDispatchId = lastNodeTestid.replace('rf-causa-graph-node-', '');
+    // `let` (not `const`) because section 10d's redaction probe flips
+    // `:trace/show-sensitive?` true → false, which (per rf2-lqmje /
+    // PR #1308) clears the trace buffer as an intentional privacy
+    // contract — the dispatch-id captured here is no longer present
+    // after that toggle. Section 10e re-selects a fresh node and
+    // overwrites this binding so the cross-panel selection invariant
+    // is still meaningful against a node that actually exists.
+    let nodeDispatchId = lastNodeTestid.replace('rf-causa-graph-node-', '');
     await lastNode.click();
     // Pivot to event-detail — the selection rides on Causa's app-db
     // so the cascade-detail mounts straight away with the matching
@@ -1178,6 +1185,57 @@ module.exports = {
       async () => page.locator(`[data-testid="${REDACTED_TESTID}"]`).count(),
       (count) => count === 0,
       'bottom-rail redacted indicator to disappear after explicit reset_suppressed_count',
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // Re-establish the cascade selection invariant for section 10e.
+    //
+    // Section 10d's redaction probe toggled `:trace/show-sensitive?`
+    // true → false (via `set_show_sensitive_BANG_(null)`). Per the
+    // intentional rf2-lqmje contract (PR #1308), that transition
+    // CLEARS the trace buffer — already-buffered sensitive payloads
+    // must not survive a "flip back off" that the user expects to
+    // restore privacy. The clear is whole-buffer, so the dispatch-id
+    // captured in section 9d is no longer present, and the cascade
+    // detail panel cannot mount it.
+    //
+    // The section 10e cross-panel-selection invariant only makes
+    // sense against a cascade that actually exists in the current
+    // buffer, so we dispatch a fresh `+` click, snapshot the new
+    // last-graph-node dispatch-id, and rebind `nodeDispatchId`.
+    // ----------------------------------------------------------------
+    const counterBeforeReseed = parseInt(
+      ((await counterValue.textContent()) || '0').trim(),
+      10,
+    );
+    // Two `+` clicks: (a) the immediate section 10e invariant just
+    // needs one cascade for the cross-panel selection check, but
+    // (b) section 11e-1 later asserts a multi-node invariant
+    // (>= 2 graph nodes). Restoring two cascades here keeps both
+    // sections self-contained against the rf2-lqmje buffer-clear.
+    await clickHostButtonByLabel(page, '+');
+    await expectTextEquals(counterValue, String(counterBeforeReseed + 1), 5000);
+    await clickHostButtonByLabel(page, '+');
+    await expectTextEquals(counterValue, String(counterBeforeReseed + 2), 5000);
+    await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
+    await waitForCondition(
+      async () => graphNodes.count(),
+      (count) => count >= 2,
+      'causality graph to re-render at least two nodes after redaction-probe buffer-clear',
+      5000,
+    );
+    const refreshedLastNode = graphNodes.last();
+    const refreshedLastNodeTestid = await refreshedLastNode.getAttribute('data-testid');
+    nodeDispatchId = refreshedLastNodeTestid.replace('rf-causa-graph-node-', '');
+    await refreshedLastNode.click();
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const reseededCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => reseededCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade re-seeded after redaction-probe buffer-clear (=${nodeDispatchId})`,
       5000,
     );
 
@@ -2774,6 +2832,21 @@ module.exports = {
     if ((await page.locator('[data-testid="rf-causa-hydration-mismatch-list"]').count()) !== 0) {
       throw new Error('Expected hydration-mismatch-list to unmount after clear-buffer.');
     }
+
+    // Re-seed the trace buffer with host cascades so 11e-4 (Performance)
+    // has rows to inspect. Sidebar clicks alone won't populate the
+    // buffer — per rf2-xs8vu (PR #1314) Causa's collector filters
+    // `:frame :rf/causa` events at ingest. The Performance walk needs
+    // real host cascades; two `+` clicks give the panel a populated
+    // branch without changing any source contract.
+    const counterBeforePerf = parseInt(
+      ((await counterValue.textContent()) || '0').trim(),
+      10,
+    );
+    await clickHostButtonByLabel(page, '+');
+    await expectTextEquals(counterValue, String(counterBeforePerf + 1), 5000);
+    await clickHostButtonByLabel(page, '+');
+    await expectTextEquals(counterValue, String(counterBeforePerf + 2), 5000);
 
     // ----------------------------------------------------------------
     // 11e-4. Performance panel (matrix row 78).
