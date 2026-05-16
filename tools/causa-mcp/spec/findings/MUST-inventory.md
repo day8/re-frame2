@@ -23,11 +23,24 @@ as a named test (or named test cluster) once
 `tools/causa-mcp/test/` exists. New MUSTs added to the spec MUST
 land alongside an inventory row.
 
-The inventory is intentionally **pre-impl**: test names are
-sketched, not authoritative. When impl ships, the column
-"Planned test" gets sharpened against the actual deftest names
-and any inventory rows that didn't translate cleanly get
-audited.
+The inventory has now graduated from **pre-impl** to **post-impl**:
+the eighteen-tool catalogue is complete (post-rf2-8xzoe.31, the W-
+and T- tranches landed), and the **binding registry** sits at
+[`tools/causa-mcp/test/day8/re_frame2_causa_mcp/must_inventory_test.cljs`](../../test/day8/re_frame2_causa_mcp/must_inventory_test.cljs)
+(rf2-8xzoe.33 / C-1) — the `MUST-INVENTORY` map there maps each
+MUST id to one-or-more concrete `[ns sym]` pairs naming the
+landed deftest(s) that pin the contract. The
+`inventory-cardinality-matches-spec` and per-row
+`mXX` / `iX` deftests in that file are the load-bearing scaffold
+guards that catch drift between this doc and the test corpus.
+
+The "Planned test" column below carries the **planned-name slug**
+(used as the documentation cite for what each binding test is
+checking); the **actual landed test ns/var** lives in the binding
+registry. Cross-server rows (MUSTs 1, 7, 15, 17, 18) bind to
+`tools/mcp-conformance/` and are flagged `:cross-server` in the
+registry; the canonical owner is `tools/mcp-conformance/test/`,
+not this artefact.
 
 ## Cross-server MUSTs (separate substrate)
 
@@ -110,11 +123,21 @@ When a new MUST lands in this folder's spec docs:
    pair2-mcp/story-mcp/causa-mcp), tag the row "Cross-server
    (rf2-zvv65)" and file/cross-reference into
    [`tools/mcp-conformance/`](../../../mcp-conformance/).
-3. When `tools/causa-mcp/test/` exists, replace the "Planned
-   test" sketch with the actual `deftest` name.
-4. When a MUST is removed/relaxed, strike through the row but
-   keep it in place — the inventory is also an audit trail.
+3. Add a corresponding entry in `MUST-INVENTORY` at
+   [`tools/causa-mcp/test/day8/re_frame2_causa_mcp/must_inventory_test.cljs`](../../test/day8/re_frame2_causa_mcp/must_inventory_test.cljs)
+   AND a per-row `deftest` named `mXX-<slug>` (explicit) or
+   `iX-<slug>` (implicit). Bump the corresponding
+   `expected-explicit-musts` / `expected-implicit-musts` constant
+   so the `inventory-cardinality-matches-spec` test passes.
+4. When the per-tool deftest that pins the contract lands, add
+   the `[ns sym]` pair to the row's `:bound-via` set.
+5. When a MUST is removed/relaxed, strike through the row but
+   keep it in place — the inventory is also an audit trail. Also
+   strike through the corresponding `MUST-INVENTORY` entry and
+   decrement the expected-cardinality constant.
 
 This file is **not** normative; the normative spec docs are.
 This file is a forcing function so the impl-pass test corpus
-covers every MUST without organic drift.
+covers every MUST without organic drift; the binding registry +
+per-row deftests in `must_inventory_test.cljs` are the runtime
+guard that surfaces drift as a failing assertion.

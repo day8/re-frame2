@@ -12,9 +12,46 @@ The catalogue is grouped by band (per
 - **Streaming band** (push-mode, T-Stream tranche) — rf2-8xzoe.26..28
 - **Meta band** (discover-app, eval-cljs, tail-build, get-causa-instructions) — rf2-8xzoe.29..32
 
-This file grows as each tranche lands; entries are append-only and
-follow a uniform shape so an agent reading the catalogue can pattern-
-match across tools.
+Every entry below follows a uniform shape so an agent reading the
+catalogue can pattern-match across tools. Each entry declares its
+**wire-pipeline contract** — the subset of the six mechanisms in
+[`004-Wire-Pipeline.md`](004-Wire-Pipeline.md) §"Tight token budget
+per response" that apply, a `:typical-tokens` ballpark with the
+regime-appropriate compression factor citation (MUST 14 of the
+MUST-inventory — ~1.4× for trace bursts, ~10× for recurring-cascade
+replays, 5-10× for epoch slices), the `:cap-reached` hint
+keyword, and the default `:mode` / `:limit` / `:dedup?` values where
+each applies. The contract block sits beside each tool's arg /
+return / failure sections; together they satisfy MUSTs 4 + 16 of the
+MUST-inventory (every entry declares the mechanism set, the
+`:typical-tokens` slot, the `:cap-reached` slot, and the default
+`:mode` / `:limit` / `:dedup?` values).
+
+## Mechanism shorthand
+
+The six mechanisms enumerated in
+[`004-Wire-Pipeline.md`](004-Wire-Pipeline.md) plus the privacy
+default-drop from §"Privacy" are referenced compactly throughout this
+file. The shorthand is single-source-of-truth here:
+
+| Shorthand | Mechanism | Pipeline phase |
+|---|---|---|
+| **B-1** | Privacy default-drop on `:sensitive?` events | pre-walk, at the MCP boundary (per §"Privacy") |
+| **W-1** | Token-budget cap (5,000 default, `[500, 50000]` clamp) | post-encoding measurement |
+| **W-2** | Path slicing (`:path` arg, `get-in` semantics) | pre-walk on the runtime side |
+| **W-3** | Cursor pagination (`:cursor` + `:limit`, `:next-cursor` in response) | post-projection |
+| **W-4** | Lazy summary (`:mode :summary` default, `:full` opt-in) | post-walk projection |
+| **W-5** | Structural dedup (`day8/de-dupe`, `:dedup?` knob) | pre-cap wire wrap |
+| **W-6** | Size elision (`re-frame.core/elide-wire-value`, `:rf.size/large-elided` marker, `:include-large?` opt-out) | first — substitutes at the elided slot, mechanisms 1-5 see the post-elision shape |
+
+The "`:cap-reached`" slot per tool is the **hint keyword** the
+runtime stamps onto the `:rf.mcp/overflow` envelope when W-1 trips;
+the four-value vocabulary `:slice` / `:switch-mode` / `:paginate` /
+`:narrow-filter` is exhaustive (per
+[`004-Wire-Pipeline.md`](004-Wire-Pipeline.md) §"Token budget cap").
+Tools document the **regime-appropriate first-choice hint**; the
+default fallback when none of the more-specific hints fits is
+`:narrow-filter`.
 
 ## Inspection band
 
@@ -34,6 +71,15 @@ boundary:
 Read a slice of the re-frame2 trace bus filtered by op-type / frame /
 since-ms / event-id / origin. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #14.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **B-1**, **W-1**, **W-3** (`:limit` + `:offset`), **W-5** (trace-burst dedup), **W-6** |
+| `:typical-tokens` | ~2,000 (trace-burst regime; ~1.4× dedup compression per [`004-Wire-Pipeline.md` §Structural dedup](004-Wire-Pipeline.md#5-structural-dedup-trace-burst-compaction)) |
+| `:cap-reached` | `:paginate` (first-choice — re-call with smaller `:limit` or paginate via `:offset`) |
+| Defaults | `:limit 50` · `:offset 0` · `:dedup? true` (trace-burst shape) · `:mode` n/a (sequence, not tree) |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
@@ -89,6 +135,15 @@ the per-frame machine count which is typically single-digit. Source-
 coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
 bead #19.
 
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1**, **W-6** |
+| `:typical-tokens` | ~800 (small registry enumeration; no dedup regime applies — single-digit machine counts dominate the wire) |
+| `:cap-reached` | `:narrow-filter` (default fallback — the registry is small; overflow only happens with pathological metadata) |
+| Defaults | `:dedup?` n/a (registry enumeration, not burst) · `:mode` n/a (no tree-summary slot; full registry rides) · `:limit` n/a (no pagination) |
+
 | Arg | Type | Default | Notes |
 |---|---|---|---|
 | `:include-sensitive?` | bool | false | passes to the runtime walker |
@@ -117,6 +172,15 @@ Registrar surface — enumerate registered handlers grouped by `:kind`
 reg-machine). Default mode returns a kind-keyed map; pass
 `:group-by-kind? false` for the flat vector. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #21.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1**, **W-6** |
+| `:typical-tokens` | ~1,500 (registry enumeration; size scales with the number of registered handlers — typically dozens-to-hundreds of entries with small metadata maps) |
+| `:cap-reached` | `:narrow-filter` (re-call with `:kind` to slice to one registrar kind) |
+| Defaults | `:group-by-kind? true` · `:dedup?` n/a · `:mode` n/a · `:limit` n/a |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
@@ -153,6 +217,15 @@ handler. Aligns with editor-URI substitution so an agent host can
 render a jump-to-definition link off the response. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #22.
 
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1** |
+| `:typical-tokens` | ~50 (single source-coord map — `:ns`/`:line`/`:column`/`:file` only) |
+| `:cap-reached` | `:narrow-filter` (default fallback — source-coord is small; overflow only happens with pathological metadata) |
+| Defaults | `:dedup?` n/a · `:mode` n/a · `:limit` n/a |
+
 | Arg | Type | Default | Notes |
 |---|---|---|---|
 | `:kind` | keyword | **required** | registrar kind |
@@ -187,6 +260,15 @@ inspection call ships a small payload; `:mode :full` returns the
 entire metadata map. Path slicing via `:path` drills into a subtree
 like `get-in`. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #18.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1**, **W-2** (`:path`), **W-4** (`:mode :summary` / `:full`), **W-6** |
+| `:typical-tokens` | ~600 in `:summary` mode (state-names + tags only); `~3,000+` in `:full` mode bounded by W-1 cap — single-value tree, no dedup regime applies |
+| `:cap-reached` | `:slice` (drill via `:path`) when `:mode :full` overflowed; `:switch-mode` (downshift to `:summary`) otherwise. Default fallback `:narrow-filter`. |
+| Defaults | `:mode :summary` · `:dedup?` n/a · `:limit` n/a |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
@@ -224,6 +306,15 @@ warnings, schema violations, hydration mismatches. Severity filter
 default). Pagination via `:limit` / `:offset`. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #20.
 
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **B-1**, **W-1**, **W-3** (`:limit` + `:offset`), **W-6** |
+| `:typical-tokens` | ~1,200 (issue-tier trace events with structured exception slots; trace-burst regime applies — ~1.4× when bursts share `:source-coord` backbone but issues fire less often than ordinary traces so dedup is opt-in) |
+| `:cap-reached` | `:paginate` (re-call with smaller `:limit`); fallback `:narrow-filter` via `:severity` or `:frame` |
+| Defaults | `:limit 50` · `:offset 0` · `:severity :all` · `:dedup? false` (issues are sparse; bursts are atypical) · `:mode` n/a |
+
 | Arg | Type | Default | Notes |
 |---|---|---|---|
 | `:severity` | keyword | `:all` | `:error`, `:warning`, or `:all` |
@@ -260,6 +351,15 @@ history; this tool slices it cursor-relative on the MCP-server side
 so multi-page walks don't roundtrip the full epoch ring twice.
 Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
 §Part 1 bead #15.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **B-1**, **W-1**, **W-3** (`:cursor` + `:limit` with `:next-cursor` continuation), **W-5** (epoch-slice dedup — `:db-before` shared across records), **W-6** |
+| `:typical-tokens` | ~3,500 (epoch-slice regime; **5-10×** dedup compression per [`004-Wire-Pipeline.md` §Structural dedup](004-Wire-Pipeline.md#5-structural-dedup-trace-burst-compaction) — pinned at 89.5% on the pair2-mcp 10-epoch / 256-key corpus) |
+| `:cap-reached` | `:paginate` (re-call with smaller `:limit` or use `:next-cursor` for multi-page); fallback `:narrow-filter` |
+| Defaults | `:limit 50` (Tool-Pair depth-50 default) · `:dedup? true` (epoch-slice shape) · `:mode` n/a (per-record shape is fixed) |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
@@ -306,6 +406,15 @@ semantics). Per the MUST inventory in
 the default), **MUST 19** (both `:include-sensitive?` and
 `:include-large?` default `false`). Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #16.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1**, **W-2** (`:path`), **W-4** (`:mode :summary` / `:full`), **W-6** |
+| `:typical-tokens` | ~400 in `:summary` mode (shape declaration with `:top-keys` / `:count` only); `~3,000+` in `:full` mode bounded by W-1 cap — single-value tree, no dedup regime applies |
+| `:cap-reached` | `:slice` (drill via `:path`) when `:mode :full` overflowed without a path; `:switch-mode` (downshift to `:summary`) when `:full` was explicitly requested. Default fallback `:narrow-filter`. |
+| Defaults | `:mode :summary` · `:include-sensitive? false` (MUST 19) · `:include-large? false` (MUST 19) · `:dedup?` n/a · `:limit` n/a |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
@@ -355,6 +464,15 @@ before/after diff** — a token-cheap envelope from which the agent
 drills via `get-app-db` for any single changed path. Source-coord
 pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
 bead #17.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1**, **W-4** (`:mode :changed-paths` default per MUST 13 — token-cheap path projection), **W-6** (applies in `:mode :nested`) |
+| `:typical-tokens` | ~300 in `:changed-paths` mode (path vectors + cardinality counts); `~4,000+` in `:nested` mode bounded by W-1 cap — epoch-slice regime applies in `:nested` mode (5-10× dedup when the run-up to the epoch shared subtrees, opt-in via per-call wrapping) |
+| `:cap-reached` | `:switch-mode` (downshift `:nested` → `:changed-paths`) or `:slice` (drill into a single changed path via `get-app-db`). Default fallback `:narrow-filter`. |
+| Defaults | `:mode :changed-paths` (MUST 13) · `:include-sensitive? false` · `:include-large? false` · `:dedup?` n/a (default mode has no dedupable subtrees) · `:limit` n/a |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
@@ -420,6 +538,15 @@ Fire a re-frame event through the frame's normal dispatch cascade.
 Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
 §Part 1 bead #23.
 
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1** |
+| `:typical-tokens` | ~100 (acknowledgement envelope — `:event-id` + `:frame` + `:origin` + `:mode`) |
+| `:cap-reached` | `:narrow-filter` (default fallback — the mutation envelope is small; overflow only happens with pathological runtime auxiliary metadata) |
+| Defaults | `:sync? false` (queued cascade) · `:dedup?` n/a · `:mode :queued` (the runtime-level dispatch mode, orthogonal to W-4 tree-summary) · `:limit` n/a |
+
 | Arg | Type | Default | Notes |
 |---|---|---|---|
 | `:event` | EDN-vec str | **required** | event vector, e.g. `"[:cart/add 42]"` |
@@ -464,6 +591,15 @@ on the trace bus (read via `get-trace-buffer` or `subscribe :trace`)
 framework wrapper returns a plain boolean; the row already lives
 on the bus). Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #24.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1** |
+| `:typical-tokens` | ~120 (ack envelope — `:frame` + `:epoch-id` + `:origin` plus optional `:reason` on failure) |
+| `:cap-reached` | `:narrow-filter` (default fallback — ack envelope is small) |
+| Defaults | `:dedup?` n/a · `:mode` n/a · `:limit` n/a |
 
 **Six-row failure table** (read off the trace bus by `:op-type`):
 
@@ -512,6 +648,15 @@ cascade. Schema-validates against registered app-db schemas via
 the restore-audit ring tagged `:origin :causa-mcp`. Source-coord
 pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
 bead #25.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1** |
+| `:typical-tokens` | ~80 (ack envelope — `:frame` + `:origin` plus optional `:reason` on failure) |
+| `:cap-reached` | `:narrow-filter` (default fallback — ack envelope is small) |
+| Defaults | `:dedup?` n/a · `:mode` n/a · `:limit` n/a |
 
 **Three-row failure table** (read off the trace bus):
 
@@ -567,6 +712,15 @@ is called. Each non-empty polling tick emits one
 the terminal `tools/call` result is a summary with cumulative
 `:delivered` + `:ticks` + `:reason`. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #26.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **B-1**, **W-1** (per-tick AND terminal envelope), **W-5** (per-tick dedup table; recurring-cascade regime), **W-6** |
+| `:typical-tokens` | ~1,800 per tick on the `:trace` topic (trace-burst regime, ~1.4× dedup); spikes to **~10×** compression on recurring-cascade topics (`:fx` with repeating handlers, `:epoch` with shared `:db-before` subtrees) — per [`004-Wire-Pipeline.md` §Structural dedup](004-Wire-Pipeline.md#5-structural-dedup-trace-burst-compaction). Terminal summary envelope ~200. |
+| `:cap-reached` | `:paginate` (shorten the stream via `:max-events` / `:max-ms` or narrow the `:filter`); fallback `:narrow-filter` |
+| Defaults | `:poll-ms 100` · `:max-events 0` (unbounded) · `:max-ms 0` (unbounded) · `:dedup? true` (per-tick table, no cross-tick refs — per MUST 21) · `:mode` n/a · `:limit` n/a (use `:max-events` instead) |
 
 **Topic → trace-bus projection:**
 
@@ -636,6 +790,15 @@ polling tick and resolves with `:reason :unsubscribed`. Source-coord
 pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
 bead #27.
 
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1** |
+| `:typical-tokens` | ~60 (ack envelope — `:sub-id` + `:existed?`) |
+| `:cap-reached` | `:narrow-filter` (default fallback — ack envelope is small) |
+| Defaults | `:dedup?` n/a · `:mode` n/a · `:limit` n/a |
+
 | Arg | Type | Default | Notes |
 |---|---|---|---|
 | `:sub-id` | string | **required** | sub-id from a prior `subscribe` |
@@ -667,6 +830,15 @@ Useful when a streaming probe seems quiet (confirm the sub is still
 registered) or when pruning leaked subs across crashed `subscribe`
 calls. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #28.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1**, **W-6** |
+| `:typical-tokens` | ~400 (subscription enumeration; size scales with the number of open streams — typically single-digit to low-dozens) |
+| `:cap-reached` | `:narrow-filter` (pass `:topic` to scope the enumeration to one topic) |
+| Defaults | `:dedup?` n/a (no shared subtrees across distinct subs) · `:mode` n/a · `:limit` n/a (no pagination; enumeration is naturally bounded) |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
@@ -726,6 +898,15 @@ The result routes through `re-frame.core/elide-wire-value`; privacy
  :elided-large <int?>}
 ```
 
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1**, **W-6** (when enabled) |
+| `:typical-tokens` | highly variable — bounded by W-1 cap (5,000 default, `[500, 50000]` clamp). When the gate is OFF, ~80 (refusal envelope). No dedup regime applies — `eval-cljs` is single-shot, not burst. |
+| `:cap-reached` | `:narrow-filter` (narrow the form to return less data); fallback when the agent has genuine need for the full payload is bumping `:max-tokens` |
+| Defaults | `:include-sensitive? false` · `:include-large? false` · `:dedup?` n/a · `:mode` n/a · `:limit` n/a · gate default **OFF** at server launch (per MUST 20) |
+
 **Refusal shape (default — gate OFF):**
 
 ```clojure
@@ -747,6 +928,15 @@ source-coord annotation status, `--allow-eval` gate state. Use as
 the first call of every session to confirm the environment is
 healthy. Source-coord pin:
 `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #30.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1** |
+| `:typical-tokens` | ~250 (health envelope — `:session-id` + `:debug-enabled?` + `:frames` + `:ambiguous-frame?` + `:coord-annotation-enabled?` + `:origin` + `:eval-cljs-enabled?` + `:build-id`) |
+| `:cap-reached` | `:narrow-filter` (default fallback — health envelope is small; overflow only happens with pathological registry metadata) |
+| Defaults | `:dedup?` n/a · `:mode` n/a · `:limit` n/a |
 
 **Warning ladder** (fail-loud-but-useful):
 
@@ -794,6 +984,15 @@ Wait for a shadow-cljs hot-reload to land. Two modes:
 
 Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
 §Part 1 bead #31.
+
+**Wire-pipeline contract.**
+
+| Slot | Value |
+|---|---|
+| Mechanisms applied | **W-1** |
+| `:typical-tokens` | ~40 (tiny ack — `:t` + `:soft?` plus optional `:reason`/`:message` on failure) |
+| `:cap-reached` | `:narrow-filter` (default fallback — ack envelope is tiny scalars) |
+| Defaults | `:wait-ms 5000` · `:dedup?` n/a · `:mode :probe` when `:probe` supplied, `:mode :soft-delay` otherwise · `:limit` n/a |
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|

@@ -11,11 +11,17 @@ without opening Causa's UI.
 > [`Principles.md`](../../causa-mcp/spec/Principles.md), and
 > [`DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md).
 > The design locks accumulated in this file have been lifted there;
-> citations point to their canonical homes. This file remains the
-> **catalogue prose** (the eighteen tools enumerated with signatures
-> and return shapes); when implementation lands and
-> `tools/causa-mcp/spec/003-Tool-Catalogue.md` is authored, the
-> catalogue prose migrates there and this file shrinks to a pointer.
+> citations point to their canonical homes. The **per-tool catalogue
+> prose** (the eighteen tools enumerated with signatures, return
+> shapes, and the per-tool wire-pipeline contract — applied
+> mechanism set, `:typical-tokens` hint, `:cap-reached` keyword,
+> defaults) now lives at
+> [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../../causa-mcp/spec/004-Tools-Catalogue.md).
+> This file remains the **panel-to-tool contract** (the Causa-side
+> view of the same eighteen tools — which Causa panel each tool
+> mirrors, the `:origin :causa-mcp` audit posture, the per-tool
+> comparison with Chrome DevTools MCP, the MCP-Server panel
+> contract).
 
 The architecture mirrors `tools/pair2-mcp/` (per
 [`tools/pair2-mcp/spec/`](../../pair2-mcp/spec/)): a Node-based stdio
@@ -132,32 +138,45 @@ Lock #5 (as amended by Lock #12 on 2026-05-14, which added
 `subscription-info` impl); the closed-set discipline and
 `eval-cljs` escape valve posture live at
 [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
-§Closed-set tool catalogue, deliberate escape valve. The
-**catalogue prose itself** (the tables below) remains here until
-implementation lands and migrates it to
-`tools/causa-mcp/spec/003-Tool-Catalogue.md`.
+§Closed-set tool catalogue, deliberate escape valve.
 
-### Inspection (read-only)
+> **Per-tool prose has moved.** Signatures, return envelopes,
+> failure shapes, and the per-tool wire-pipeline contract
+> (mechanism set, `:typical-tokens`, `:cap-reached` hint, defaults)
+> are now authored at
+> [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../../causa-mcp/spec/004-Tools-Catalogue.md).
+> This file keeps the Causa-the-panel-side view: which Causa panel
+> each tool mirrors (the table below), the `:origin :causa-mcp`
+> audit posture, the per-tool comparison with Chrome DevTools MCP
+> (§"Per-tool comparison" below), and the MCP-Server panel contract.
 
-| Tool | Mirrors Causa panel | Returns |
+### Panel-to-tool map
+
+The eighteen tools and the Causa surface each one mirrors.
+Cross-reference into
+[`004-Tools-Catalogue.md`](../../causa-mcp/spec/004-Tools-Catalogue.md)
+for signatures and return shapes.
+
+| Band | Tool | Mirrors Causa surface |
 |---|---|---|
-| `get-trace-buffer` | Trace timeline | A slice of the trace stream by filter. Forwards directly to `(rf/trace-buffer opts)`; recognised filter keys are the canonical [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary) — `:operation`, `:op-type`, `:since`, `:frame`, `:severity`, `:event-id`, `:handler-id`, `:source`, `:origin`, `:dispatch-id`, `:since-ms`, `:between`, `:pred`. |
-| `get-epoch-history` | Time-travel scrubber | Per-frame epoch history (vector of `:rf/epoch-record`). |
-| `get-app-db` | App-db inspector | Current value at a frame, optionally at a path. |
-| `get-app-db-diff` | App-db inspector (slice view) | The slice diff for a named epoch (`{:added [...] :modified [...] :removed [...]}`). |
-| `get-machine-state` | Machine inspector | Current snapshot for a named machine. |
-| `get-machine-list` | Machine inspector | List of registered machines per frame, with current state. |
-| `get-issues` | Issues ribbon | Recent errors / warnings / schema violations / hydration mismatches. |
-| `get-handlers` | (Settings → registry browser) | Registered handlers' metadata (`:doc`, source coords). |
-| `get-source-coord` | Click-to-source | Source coord for a given id (handler, view, machine state, sub). |
-
-### Mutation (user-confirmed equivalents in the UI)
-
-| Tool | Mirrors Causa surface | Behaviour |
-|---|---|---|
-| `restore-epoch` | Bottom-rail Rewind button | Rewinds a frame's `app-db` to the named epoch's `:db-after`. Returns the six failure modes structurally. |
-| `reset-frame-db` | "Try anyway" affordance on schema mismatch | Injects state, bypassing cascade; schema-validates against current schemas. |
-| `dispatch` | Right-click → Re-dispatch | Fires an event tagged `:origin :causa-mcp` (so a separate trace tag distinguishes MCP-issued from in-panel-issued mutations). |
+| Inspection | `get-trace-buffer` | Trace timeline |
+| Inspection | `get-epoch-history` | Time-travel scrubber |
+| Inspection | `get-app-db` | App-db inspector |
+| Inspection | `get-app-db-diff` | App-db inspector (slice view) |
+| Inspection | `get-machine-state` | Machine inspector |
+| Inspection | `get-machine-list` | Machine inspector |
+| Inspection | `get-issues` | Issues ribbon |
+| Inspection | `get-handlers` | Settings → registry browser |
+| Inspection | `get-source-coord` | Click-to-source |
+| Mutation | `restore-epoch` | Bottom-rail Rewind button |
+| Mutation | `reset-frame-db` | "Try anyway" affordance on schema mismatch |
+| Mutation | `dispatch` | Right-click → Re-dispatch |
+| Streaming | `subscribe` | (no static panel — push-mode over `notifications/progress`) |
+| Streaming | `unsubscribe` | (idempotent close) |
+| Streaming | `list-subscriptions` | Subscriptions diagnostic (mirrors pair2-mcp's `subscription-info` per Lock #12) |
+| Escape hatch | `eval-cljs` | (no panel — deliberate escape valve, gated by `--allow-eval` per MUST 20) |
+| Meta | `discover-app` | (no panel — first-call session-health probe) |
+| Meta | `tail-build` | (no panel — hot-reload-await for shadow-cljs workflows) |
 
 ### Why `dispatch` is in the catalogue
 
@@ -173,7 +192,7 @@ event log shows them in a distinct colour (per
 [`007-UX-IA.md`](./007-UX-IA.md) §Colour system), and post-session
 filters surface them as a group.
 
-### Streaming (push-mode)
+### Streaming posture
 
 Request-response is the wrong shape for "tell me when the next
 `:cart/checkout` event fires." Causa-MCP mirrors `tools/pair2-mcp/`'s
@@ -186,61 +205,45 @@ matching events is emitted as a `notifications/progress` notification**
 across `tools/pair2-mcp/` + `tools/causa-mcp/`; decided in rf2-h95hl
 and pinned normatively at
 [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §Streaming over batch](../../causa-mcp/spec/004-Wire-Pipeline.md#streaming-over-batch-cross-cut))
-correlated to the original call via `extra._meta.progressToken`. The
-final `tools/call` result is a summary
-`{:ok? true :sub-id <uuid> :delivered N :overflow N :ticks K :reason
-<terminated-reason>}`.
-
-| Tool | Topics / Args | Returns |
-|---|---|---|
-| `subscribe` | `:trace`, `:epoch`, `:fx`, `:error` | Stream of events matching `filter`; topic-mediated base filter overlaid by user filter (user wins on conflict). Filter vocabulary mirrors [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary) for `:trace` / `:fx` / `:error`; mirrors `watch-epochs` for `:epoch`. |
-| `unsubscribe` | (n/a) | Idempotent close. Returns `{:ok? true :sub-id <id> :existed? <bool>}`. Useful when the agent host can't propagate `tools/call` cancellation cleanly. |
-| `list-subscriptions` | `:topic` (keyword, optional), `:sub-id` (uuid string, optional) | Request-response (NOT streaming) diagnostic enumerating active subscriptions. Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at} ...]}`. Empty `:subs` when no streams are open / the filter matches nothing. Useful when a streaming probe seems to have gone quiet (confirm the sub is still registered; read `:queue-depth` / `:overflow-reason` for evidence of a dead consumer). Mirrors pair2-mcp's `subscription-info` workflow (rf2-zjz9q) under a NAMING.md-conformant verb (per [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` Lock #12](../../causa-mcp/spec/DESIGN-RATIONALE.md)). |
-
-Termination paths (for `subscribe`): client cancel → `:reason
-:aborted`; out-of-band `unsubscribe` → `:reason :sub-gone`; cap
-reached → `:reason :max-ms-reached` or `:reason
-:max-events-reached`. Per-event matches inherit the same
-`:origin :causa-mcp` filter axis as the rest of the catalogue —
-an agent can subscribe to *just* its own mutation footprint via
+correlated to the original call via `extra._meta.progressToken`.
+Per-event matches inherit the same `:origin :causa-mcp` filter axis
+as the rest of the catalogue — an agent can subscribe to *just* its
+own mutation footprint via
 `subscribe {:topic :trace :filter {:origin :causa-mcp}}`.
 
-### Escape hatch
+Termination paths (for `subscribe`): client cancel → `:reason
+:aborted`; out-of-band `unsubscribe` → `:reason :unsubscribed`; cap
+reached → `:reason :max-ms-reached` or `:reason
+:max-events-reached`. Full per-tick envelope and terminal summary
+shape are catalogued at
+[`004-Tools-Catalogue.md` §subscribe](../../causa-mcp/spec/004-Tools-Catalogue.md#subscribe-t-stream-1-rf2-8xzoe26).
 
-| Tool | Purpose | Returns |
-|---|---|---|
-| `eval-cljs` | Send an arbitrary CLJS form for evaluation in the connected browser runtime via `shadow.cljs.devtools.api/cljs-eval`. The escape hatch when the agent needs to peek somewhere the catalogue doesn't cover. Any side-effect the form triggers (a `dispatch`, a `reg-event-db`, etc.) is tagged `:origin :causa-mcp` on the trace bus, the same way the catalogue tools tag their effects. Mirrors `tools/pair2-mcp/`'s `eval-cljs`. | `{:ok? true :value <edn-value>}` on success; `{:ok? false :reason :eval-error :message "..."}` on failure; `:reason :runtime-not-preloaded` if the preload hasn't run. |
-
-Args: `form` (string, required — EDN-encoded CLJS form), `frame`
-(string, optional — operating frame for any dispatches the form
-triggers), `build` (string, optional).
+### Escape hatch posture
 
 `eval-cljs` is the **deliberate escape valve**: the catalogue is
 closed-set on purpose (seventeen named surfaces alongside this one
 escape hatch), but agents occasionally need to reach for something
-not yet catalogued. Rather than refuse them and force a workaround through
-Chrome MCP's `evaluate_script` (which loses the `:origin` tag), we
-ship the escape hatch first-class. If a particular `eval-cljs` call
-becomes recurrent, that's the signal to promote it to its own
-catalogue entry.
+not yet catalogued. Rather than refuse them and force a workaround
+through Chrome MCP's `evaluate_script` (which loses the `:origin`
+tag), we ship the escape hatch first-class. If a particular
+`eval-cljs` call becomes recurrent, that's the signal to promote it
+to its own catalogue entry.
 
-### Meta (session lifecycle)
+Per MUST 20 of the
+[MUST-inventory](../../causa-mcp/spec/findings/MUST-inventory.md),
+the `eval-cljs` surface is **disabled by default** in published
+builds — the server requires an explicit `--allow-eval` launch flag
+to enable it. Named-mutation tools (`dispatch`, `restore-epoch`,
+`reset-frame-db`) are a separate authority class and require **no**
+extra gate beyond MCP enablement. Full refusal envelope shape at
+[`004-Tools-Catalogue.md` §eval-cljs](../../causa-mcp/spec/004-Tools-Catalogue.md#eval-cljs-t-eval-1-rf2-8xzoe29).
 
-| Tool | Purpose | Returns |
-|---|---|---|
-| `discover-app` | First-call sanity check. Verify the shadow-cljs nREPL is reachable, confirm the `re-frame2-causa-mcp.runtime` namespace was loaded by the consumer's `:preloads`, return a health summary. Run first every session — replaces the ad-hoc `get-trace-buffer {limit: 10}` probe documented in earlier drafts. Mirrors `tools/pair2-mcp/`'s `discover-app`. | `{:ok? true :debug-enabled? <bool> :frames [<frame-id>...] :coord-annotation-enabled? <bool> :build-id <string>}` or `{:ok? false :reason :runtime-not-preloaded}` (most common precondition failure on a fresh app) / `:reason :nrepl-port-not-found`. |
-| `tail-build` | Wait for a hot-reload to land. Polls a probe form until its value changes from its pre-call value, then returns. Times out after `wait-ms`. Necessary for "I just edited a file; wait for the new code to be live before dispatching." Mirrors `tools/pair2-mcp/`'s `tail-build`. | `{:ok? true :t <ms> :soft? false}` on a real change; `{:ok? false :reason :timed-out}` on timeout. If `probe` is omitted, falls back to a 300ms soft delay. |
-
-Args for `discover-app`: `build` (string, optional, default `"app"`).
-
-Args for `tail-build`: `probe` (string, optional — a CLJS form whose
-value should change after the reload), `wait-ms` (integer, default
-`5000`), `build` (string, optional).
-
-## Args and return shapes
+## Wire-shape envelope
 
 Each tool's args / returns follow the same EDN-encoded JSON pattern
-as `tools/pair2-mcp/`:
+as `tools/pair2-mcp/` — args are JSON values whose strings are EDN
+literals (`":app/main"`, `"[:cart :items]"`), returns are EDN maps
+inside the SDK's `content[0].text` slot:
 
 ```jsonc
 // Example: get-app-db
@@ -259,12 +262,13 @@ as `tools/pair2-mcp/`:
 ```
 
 Tool-execution errors use `isError: true` with a structured EDN
-error map in `content[0].text` — never a protocol-level error.
-
-The full schema of each tool's args is bundled in
-`tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools.cljs` (matching
-the layout in `tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`)
-and surfaced via `tools/list` in MCP-standard JSONSchema form.
+error map in `content[0].text` — never a protocol-level error. The
+full per-tool arg / return / failure shapes (and per-tool
+wire-pipeline contract) live at
+[`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../../causa-mcp/spec/004-Tools-Catalogue.md);
+the runtime JSONSchema is bundled in
+`tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools.cljs` and
+surfaced via `tools/list` in MCP-standard form.
 
 ## Lifecycle and reconnect
 
