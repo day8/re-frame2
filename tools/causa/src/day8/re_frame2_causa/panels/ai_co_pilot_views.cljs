@@ -1,12 +1,17 @@
 (ns day8.re-frame2-causa.panels.ai-co-pilot-views
-  "Top-level AI Co-Pilot view shells."
+  "Top-level AI Co-Pilot view shells.
+
+  Plain Reagent fns per the canonical facade convention — the panel's
+  three public `reg-view` names (`ai-co-pilot-rail`,
+  `ai-co-pilot-cue`, `ai-co-pilot-view`) live in the facade
+  `ai-co-pilot.cljs`; this leaf supplies the implementation bodies."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.ai-co-pilot-chrome :as chrome]
             [day8.re-frame2-causa.panels.ai-co-pilot-conversation :as conversation]
             [day8.re-frame2-causa.panels.ai-co-pilot-input :as input]
             [day8.re-frame2-causa.theme.tokens :refer [tokens sans-stack]]))
 
-(rf/reg-view ai-co-pilot-rail
+(defn ai-co-pilot-rail
   "Open right-rail form: title bar, scrollable conversation, input row."
   []
   (let [conversation (or @(rf/subscribe [:rf.causa/copilot-conversation]) [])]
@@ -25,13 +30,13 @@
       [conversation/conversation-view conversation]]
      [input/input-row]]))
 
-(rf/reg-view ai-co-pilot-cue
+(defn ai-co-pilot-cue
   "Collapsed `◇` cue glyph. The pulse stops after first use."
   []
   (let [cue-active? (boolean @(rf/subscribe [:rf.causa/copilot-cue-active?]))]
     [chrome/cue-glyph cue-active?]))
 
-(rf/reg-view ai-co-pilot-view
+(defn ai-co-pilot-view
   "Canvas panel form for the sidebar Co-pilot row."
   []
   (let [conversation (or @(rf/subscribe [:rf.causa/copilot-conversation]) [])]

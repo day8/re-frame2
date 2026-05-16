@@ -42,9 +42,14 @@
                                :margin-top "2px"}}
                  doc]]))])))
 
-(rf/reg-view input-row
+(defn input-row
   "Question input. `/clear` is handled locally; all other non-empty
-  submissions dispatch the pull-only LLM submit event."
+  submissions dispatch the pull-only LLM submit event.
+
+  Plain Reagent fn (not a reg-view) per the canonical facade
+  convention — only the panel's three public view names
+  (`ai-co-pilot-rail`/`-cue`/`-view`) live as `reg-view`s in the
+  facade `ai-co-pilot.cljs`."
   []
   (let [input  (or @(rf/subscribe [:rf.causa/copilot-input-text]) "")
         parsed (h/parse-slash-command input)

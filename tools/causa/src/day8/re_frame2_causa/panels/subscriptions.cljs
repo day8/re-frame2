@@ -1,5 +1,11 @@
 (ns day8.re-frame2-causa.panels.subscriptions
-  "Subscriptions panel shell."
+  "Subscriptions panel shell.
+
+  Follows the canonical panel facade pattern documented in
+  `tools/causa/spec/Conventions.md` — facade owns the public
+  `reg-view`; the body delegates to a plain Reagent fn in
+  `subscriptions-views` because the body is too large to inline
+  cohesively."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.subscriptions-events
              :as events]
@@ -13,7 +19,9 @@
   [views/subscriptions-panel])
 
 (defn install!
-  "Install the Subscriptions panel's Causa-side registrations."
+  "Idempotent install for the Subscriptions panel's Causa-side
+  registrations. Returns nil per the facade convention."
   []
   (subs/install!)
-  (events/install!))
+  (events/install!)
+  nil)
