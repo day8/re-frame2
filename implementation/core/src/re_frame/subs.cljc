@@ -295,6 +295,16 @@
 ;; replaces the seq-vs-seq `=` walk with a direct value compare. Every
 ;; layer-1 sub × every dispatch that touches it pays this — the hottest
 ;; allocation in the artefact.
+;;
+;; Layer-2 with a single `:<-` input gets the same fixed-arity-1
+;; treatment (rf2-0y2bp). The adapter's `make-derived-value` already
+;; specialises its recompute closure to `(compute-fn @s0)` for the
+;; 1-source case (rf2-v1nu0) — but the layer-N memo wrapper was
+;; varargs (`(fn [& in-vals])`), which forces a one-element ArraySeq
+;; allocation on every recompute. The dominant layer-2 shape is
+;; 1-input, so we mirror the layer-1 specialisation here: fixed-arity-1
+;; wrapper, direct scalar compare against the last-seen input value.
+;; The ≥2-input path keeps the original varargs shape.
 
 (defn- make-layer-1-memoised-body
   "Specialised memo wrapper for layer-1 subs (which read app-db
@@ -322,16 +332,51 @@
             (vreset! last-result computed)
             computed))))))
 
+(defn- make-layer-n-1-memoised-body
+  "Specialised memo wrapper for layer-2 subs with a single `:<-` input
+  (the dominant layer-2 shape — see rf2-v1nu0 perf-sweep finding).
+  Fixed-arity-1 — avoids the varargs-seq allocation that a
+  `(fn [& in-vals])` form would force on every reaction recompute, and
+  compares the upstream value to the last-seen scalar (no seq-vs-seq
+  walk). Parity with `make-layer-1-memoised-body`.
+
+  Returns a `(fn [v0])`. When `body-fn` is nil (the unknown-sub path
+  — see `compute-and-cache!`) the wrapper yields nil on every call
+  without touching the memo cells.
+
+  The `::unset` sentinel guarantees the first invocation always
+  recomputes (the sentinel is never `=` to any input value).
+
+  `validate-and-trace` receives `in-vals` as a singleton list — the
+  same shape the varargs wrapper would have produced for arity-1 —
+  preserving the `(body-fn (first in-vals) query-v)` invocation path
+  inside the validate/trace bracket (rf2-0y2bp)."
+  [body-fn query-id query-v frame-id input-signals sub-meta]
+  (let [last-v0     (volatile! ::unset)
+        last-result (volatile! nil)]
+    (fn [v0]
+      (when body-fn
+        (if (= @last-v0 v0)
+          @last-result
+          (let [computed (validate-and-trace
+                           body-fn (list v0) query-id query-v
+                           frame-id input-signals sub-meta)]
+            (vreset! last-v0 v0)
+            (vreset! last-result computed)
+            computed))))))
+
 (defn- make-layer-n-memoised-body
-  "Memo wrapper for layer-2+ subs (which chain off one or more upstream
-  subs). Varargs — the input arity matches the count of `:<-` entries
-  on the registration, and the wrapper compares the seq of input
-  values against the last-seen seq.
+  "Memo wrapper for layer-2+ subs with two or more `:<-` inputs.
+  Varargs — the input arity matches the count of `:<-` entries on the
+  registration, and the wrapper compares the seq of input values
+  against the last-seen seq.
 
   Returns a `(fn [& in-vals])`. When `body-fn` is nil the wrapper
   yields nil on every call without touching the memo cells.
 
-  See `make-layer-1-memoised-body` for the layer-1 specialisation."
+  See `make-layer-1-memoised-body` for the layer-1 specialisation and
+  `make-layer-n-1-memoised-body` for the layer-2 single-input
+  specialisation (rf2-0y2bp)."
   [body-fn query-id query-v frame-id input-signals sub-meta]
   (let [last-in-vals (volatile! ::unset)
         last-result  (volatile! nil)]
@@ -354,11 +399,15 @@
   The compute fn handed to the substrate adapter is built in two
   layers, each named:
 
-    - `make-layer-1-memoised-body` / `make-layer-n-memoised-body` —
-      Spec 006 §No-op via value equality (rf2-719e). Wraps the user's
-      body in a `=`-skipping memo. The layer-1 form is fixed-arity-1
-      and compares the db scalar directly (avoids per-recompute
-      varargs-seq allocation); layer-2+ keeps the vec-of-inputs shape.
+    - `make-layer-1-memoised-body` / `make-layer-n-1-memoised-body` /
+      `make-layer-n-memoised-body` — Spec 006 §No-op via value
+      equality (rf2-719e). Wraps the user's body in a `=`-skipping
+      memo. The layer-1 form is fixed-arity-1 and compares the db
+      scalar directly (avoids per-recompute varargs-seq allocation).
+      Layer-2 with a single `:<-` input gets the same fixed-arity-1
+      treatment (rf2-0y2bp — the dominant layer-2 shape per
+      rf2-v1nu0). Layer-2+ with ≥2 inputs keeps the vec-of-inputs
+      varargs shape.
     - `validate-and-trace`  — Spec 009 :sub/run trace emit, perf bracket,
       Spec 010 step 6 validation, error contract
       (`:replaced-with-default` on throw).
@@ -382,9 +431,17 @@
         inputs        (if layer-1?
                         [(frame/get-frame-db frame-id)]
                         (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
-        memoised-body (if layer-1?
+        memoised-body (cond
+                        layer-1?
                         (make-layer-1-memoised-body
                           body-fn query-id query-v frame-id sub-meta)
+                        ;; Layer-2 with a single `:<-` input — dominant
+                        ;; shape per rf2-v1nu0; specialise to fixed-arity-1
+                        ;; for parity with layer-1 (rf2-0y2bp).
+                        (= 1 (count input-signals))
+                        (make-layer-n-1-memoised-body
+                          body-fn query-id query-v frame-id input-signals sub-meta)
+                        :else
                         (make-layer-n-memoised-body
                           body-fn query-id query-v frame-id input-signals sub-meta))
         reaction      (adapter/make-derived-value inputs memoised-body)
