@@ -323,8 +323,47 @@
       body]))
 
 #?(:cljs
+   (defn- cell-key
+     "React key for a workspace cell. Variant cells key on the variant
+     id so distinct variants get distinct React identities — non-variant
+     cells (prose, custom) fall back to a positional key prefixed by
+     their type so they don't collide with variant keys.
+
+     Per rf2-kgn0c — position-only keys (`(str \"v-\" i)`) caused
+     React's reconciler to reuse the prior workspace's `variant-cell`
+     components when the user clicked from one `:variants-grid`
+     workspace to another (same layout, same cell positions, same
+     component type → reconciler diffs props in place rather than
+     unmounting). The cell's `r/with-let` initialiser ran only once
+     with the OLD variant id, so the NEW variant's frame was never
+     allocated by `run-variant-with-shell-opts!`. Subscribes against
+     the un-allocated frame returned `nil`, and `@nil` threw
+     `No protocol method IDeref.-deref defined for type null` —
+     surfacing as the ~22 pageerrors on the second workspace's
+     `app-db-diff` / `subscriptions` variants observed in PR #1254's
+     Phase 1b smoke run.
+
+     Variant-id-keyed cells force React to unmount the stale cells and
+     mount fresh ones whenever the variant set differs across the
+     swap, so each new cell's `with-let` initialiser fires once
+     against the correct variant id."
+     [i cell]
+     (case (:type cell)
+       :variant (str "v:" (pr-str (:variant-id cell)))
+       :prose   (str "p-" i)
+       :custom  (str "c-" i)
+       (str "?-" i))))
+
+#?(:cljs
    (defn workspace-view
-     "Render a workspace. Resolves the cells and dispatches per layout."
+     "Render a workspace. Resolves the cells and dispatches per layout.
+
+     The root `<section>` is keyed on `workspace-id` (via Reagent meta)
+     so switching workspaces unmounts the whole subtree rather than
+     diffing cells in place. Belt-and-braces alongside the variant-id-
+     keyed cell strategy below — if a future refactor narrows the cell
+     keys, the workspace-level remount still guarantees frame setup
+     re-fires on swap. Per rf2-kgn0c."
      [workspace-id]
      (let [body (registrar/handler-meta :workspace workspace-id)]
        (cond
@@ -333,6 +372,7 @@
          ;; `tab-index "0"` + aria-label make it focusable and named so
          ;; axe-core's scrollable-region-focusable rule passes. The
          ;; `<section>` lives inside the shell's <main> landmark.
+         ^{:key (str "ws:" (pr-str workspace-id))}
          [:section {:style      (:wrap styles)
                     :aria-label "Workspace"
                     :tab-index  "0"}
@@ -341,6 +381,7 @@
 
          :else
          (let [cells (resolve-layout workspace-id body)]
+           ^{:key (str "ws:" (pr-str workspace-id))}
            [:section {:style      (:wrap styles)
                       :aria-label (str "Workspace " (pr-str workspace-id))
                       :tab-index  "0"}
@@ -357,10 +398,10 @@
                (for [[i cell] (map-indexed vector cells)]
                  (case (:type cell)
                    :prose
-                   ^{:key (str "p-" i)}
+                   ^{:key (cell-key i cell)}
                    [prose-block (:body cell)]
                    :variant
-                   ^{:key (str "v-" i)}
+                   ^{:key (cell-key i cell)}
                    [variant-cell (:variant-id cell)]))]
 
               :else
@@ -368,13 +409,13 @@
                (for [[i cell] (map-indexed vector cells)]
                  (case (:type cell)
                    :variant
-                   ^{:key (str "v-" i)}
+                   ^{:key (cell-key i cell)}
                    [variant-cell (:variant-id cell)]
                    :prose
-                   ^{:key (str "p-" i)}
+                   ^{:key (cell-key i cell)}
                    [prose-block (:body cell)]
                    :custom
-                   ^{:key (str "c-" i)}
+                   ^{:key (cell-key i cell)}
                    [:div {:style (:cell styles)}
                     "custom render: " (pr-str (:render cell))]
                    nil))])])))))

@@ -547,5 +547,57 @@ module.exports = {
         );
       }
     });
+
+    await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
+      /*
+       * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
+       * workspace to another within the same browser session let
+       * React's reconciler reuse the prior workspace's variant-cell
+       * components when keys collided (`(str "v-" i)` was position-
+       * only); the cell's `r/with-let` initialiser ran once with the
+       * OLD variant id, the NEW variant's frame was never allocated
+       * by `run-variant-with-shell-opts!`, and the rendered view's
+       * subscribe returned nil — `@nil` then threw
+       * `No protocol method IDeref.-deref defined for type null`.
+       *
+       * The fix keys variant cells on the variant id. This walkthrough
+       * clicks through every workspace in the counter testbed in a
+       * single browser session — NO fresh page per workspace. Any
+       * stale-subscribe-deref would surface as a pageerror, and the
+       * spec-level pageerror gate would fail the run.
+       *
+       * Last scenario in the file so the post-walk shell state (a
+       * selected workspace, no selected variant) does not bleed into
+       * the next scenario's preconditions.
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      const workspaceNames = [
+        'Workspace.counter/all-states',
+        'Workspace.counter/auto-grid',
+        'Workspace.counter/tabs',
+        'Workspace.counter/all-states', // round-trip
+        'Workspace.counter/auto-grid',  // round-trip
+      ];
+
+      for (const name of workspaceNames) {
+        const row = page.getByRole('navigation').getByText(name, { exact: false }).first();
+        await row.waitFor({ state: 'visible', timeout: 10000 });
+        await row.click();
+        // Wait for the workspace's <section> landmark to land — its
+        // aria-label embeds the workspace id, so we anchor on that.
+        const ws = page.locator(`main section[aria-label="Workspace :${name}"]`);
+        await ws.waitFor({ state: 'visible', timeout: 10000 });
+        // Workspace MUST render at least one variant root after the
+        // swap. The bug pre-fix left the new workspace blank /
+        // partially rendered around the throw.
+        await waitForValue(
+          () => ws.locator('[data-rf-story-variant-root]').count(),
+          (count) => count >= 1,
+          { timeoutMs: 10000, description: `${name} mounts at least one variant root` },
+        );
+      }
+    });
   },
 };

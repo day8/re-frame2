@@ -15,6 +15,7 @@
   the browser-test target (Stage 4 ships the smoke layer; Stage 8's
   examples integration covers end-to-end Playwright)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.set :as set]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -306,6 +307,111 @@
       (is (boolean (some #(and (string? %)
                                (re-find #"not registered" %))
                          (tree-seq coll? seq tree)))))))
+
+;; ---- workspace cell keys are variant-id-derived (rf2-kgn0c) -------------
+;;
+;; Position-only React keys (`(str "v-" i)`) let React reconcile the prior
+;; workspace's `variant-cell` components in place when the user switched
+;; to a different `:variants-grid` workspace — same layout / same cell
+;; positions / same component type. The cell's `r/with-let` initialiser
+;; only runs once per mount, so the NEW variant's frame was never
+;; allocated by `run-variant-with-shell-opts!`. Subscribes against the
+;; un-allocated frame returned nil and `@nil` threw
+;; `No protocol method IDeref.-deref defined for type null` —
+;; ~22 pageerrors on the second workspace's app-db-diff variants
+;; observed in PR #1254's Phase 1b smoke.
+;;
+;; Fix: cell keys derive from variant-id, and the workspace root carries
+;; a workspace-id key. Two distinct workspaces with overlapping cell
+;; positions therefore produce disjoint React keys and React unmounts
+;; the old cells / mounts fresh ones — `r/with-let` re-fires against
+;; the correct variant id.
+
+(defn- collect-cell-keys
+  "Walk the rendered workspace tree and return the set of React keys
+  carried by variant-cell child vectors `[variant-cell-fn variant-id]`.
+  Reagent stores `^{:key ...}` metadata directly on the hiccup vector.
+
+  We match the shape `[fn namespaced-keyword]` — variant-cell is a
+  private fn-value (no Var in CLJS), so we match structurally rather
+  than by symbol. Variant ids are always namespaced keywords."
+  [tree]
+  (->> (tree-seq coll? seq tree)
+       (filter (fn [node]
+                 (and (vector? node)
+                      (= 2 (count node))
+                      (fn? (first node))
+                      (keyword? (second node))
+                      (some? (namespace (second node))))))
+       (map (comp :key meta))
+       (remove nil?)
+       set))
+
+(deftest workspace-grid-cells-key-on-variant-id-rf2-kgn0c
+  (testing ":grid layout cells use variant-id-derived React keys so
+            React mounts fresh cells when a workspace swap changes the
+            variant set (per rf2-kgn0c)"
+    (story/reg-variant :story.rf2-kgn0c.a/x {:events []})
+    (story/reg-variant :story.rf2-kgn0c.a/y {:events []})
+    (story/reg-variant :story.rf2-kgn0c.b/p {:events []})
+    (story/reg-variant :story.rf2-kgn0c.b/q {:events []})
+    (story/reg-workspace :Workspace.rf2-kgn0c.a/grid
+      {:layout   :grid
+       :variants [:story.rf2-kgn0c.a/x :story.rf2-kgn0c.a/y]})
+    (story/reg-workspace :Workspace.rf2-kgn0c.b/grid
+      {:layout   :grid
+       :variants [:story.rf2-kgn0c.b/p :story.rf2-kgn0c.b/q]})
+    (let [keys-a (collect-cell-keys
+                   (workspace/workspace-view :Workspace.rf2-kgn0c.a/grid))
+          keys-b (collect-cell-keys
+                   (workspace/workspace-view :Workspace.rf2-kgn0c.b/grid))]
+      (is (= 2 (count keys-a)) "workspace-a yields one key per cell")
+      (is (= 2 (count keys-b)) "workspace-b yields one key per cell")
+      (is (empty? (set/intersection keys-a keys-b))
+          (str "two workspaces with disjoint variant sets MUST have "
+               "disjoint cell-key sets — overlap means React would "
+               "reconcile cells in place on workspace switch and the "
+               "new variant's frame would never be allocated. "
+               "keys-a=" (pr-str keys-a) " keys-b=" (pr-str keys-b)))
+      (is (every? #(re-find #"rf2-kgn0c" %) keys-a)
+          (str "cell keys MUST embed the variant id so distinct "
+               "variants produce distinct keys; got " (pr-str keys-a))))))
+
+(deftest workspace-variants-grid-cells-key-on-variant-id-rf2-kgn0c
+  (testing ":variants-grid layout cells use variant-id-derived React
+            keys (the layout the Phase 1b smoke triggered the bug on)"
+    (story/reg-variant :story.rf2-kgn0c-vg.a/x {:events []})
+    (story/reg-variant :story.rf2-kgn0c-vg.a/y {:events []})
+    (story/reg-variant :story.rf2-kgn0c-vg.b/p {:events []})
+    (story/reg-workspace :Workspace.rf2-kgn0c-vg.a/all
+      {:layout :variants-grid})
+    (story/reg-workspace :Workspace.rf2-kgn0c-vg.b/all
+      {:layout :variants-grid})
+    (let [keys-a (collect-cell-keys
+                   (workspace/workspace-view :Workspace.rf2-kgn0c-vg.a/all))
+          keys-b (collect-cell-keys
+                   (workspace/workspace-view :Workspace.rf2-kgn0c-vg.b/all))]
+      (is (seq keys-a))
+      (is (seq keys-b))
+      (is (empty? (set/intersection keys-a keys-b))
+          (str "variants-grid cell keys MUST be disjoint across "
+               "workspaces with disjoint anchor stories. "
+               "keys-a=" (pr-str keys-a) " keys-b=" (pr-str keys-b))))))
+
+(deftest workspace-root-section-keys-on-workspace-id-rf2-kgn0c
+  (testing "the workspace's root <section> carries a workspace-id-derived
+            React key so any swap unmounts the whole subtree as a
+            belt-and-braces guard alongside per-cell keys"
+    (story/reg-variant :story.rf2-kgn0c-root/v {:events []})
+    (story/reg-workspace :Workspace.rf2-kgn0c-root/g
+      {:layout   :grid
+       :variants [:story.rf2-kgn0c-root/v]})
+    (let [tree (workspace/workspace-view :Workspace.rf2-kgn0c-root/g)
+          k    (:key (meta tree))]
+      (is (string? k))
+      (is (re-find #"rf2-kgn0c-root" k)
+          (str "workspace-root key MUST embed the workspace id; got "
+               (pr-str k))))))
 
 ;; ---- trace six-domino projection ----------------------------------------
 
