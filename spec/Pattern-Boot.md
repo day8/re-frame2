@@ -46,6 +46,8 @@ For trivial boots (one or two steps, no error states, no progress UI), a state m
   (fn [db _] (assoc db :app/booted? true)))
 ```
 
+(`:http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md).)
+
 Each step is a Pattern-AsyncEffect interaction. The frame's `:on-create` fires `:app/init` (per [002 §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), the chain runs to completion, the UI renders.
 
 Use this form when the boot graph is **3 steps or fewer**, has **no error states**, and the UI does **not** show per-phase progress.
