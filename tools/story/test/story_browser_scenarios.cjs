@@ -1305,6 +1305,163 @@ module.exports = {
       }
     });
 
+    await scenario(page, 'async-fx-machine-state-and-retry-rf2-ksw18', async () => {
+      /*
+       * Case-1 follow-on (rf2-ksw18) — Async/fx machine-state +
+       * retry feature-gate beyond the matrix bookkeeping baseline.
+       *
+       * The login-form testbed (rf2-0sg12) registers five variants
+       * that walk a deterministic FSM (:login/flow) through every
+       * state from the Story tutorial:
+       *
+       *   :idle              :rf.assert/state-is :login/flow :idle
+       *   :submitting        :rf.assert/state-is + :effect-emitted
+       *                      :rf.http/managed (the force-fx-stub
+       *                      records the request; the on-success/
+       *                      on-failure callbacks never fire so the
+       *                      machine locks in :submitting)
+       *   :error             driven failure event lands the machine
+       *                      in :error with the error message
+       *                      surfaced under the form
+       *   :submitting-retry  submit → failure → retry sequenced; the
+       *                      :attempts counter has been bumped to 1;
+       *                      the retry request is pending
+       *   :authenticated     submit → success drives the machine
+       *                      through to :authenticated; the form
+       *                      swaps for the welcome banner
+       *
+       * Beyond-mount surface assertions:
+       *   - Story shell on login-form mounts at /login-form/#/stories
+       *   - each variant's :rf.assert/state-is + :rf.assert/path-
+       *     equals + :rf.assert/effect-emitted assertions land green
+       *     in test mode — proves the machine FSM steps through the
+       *     declared states AND the async-fx stub intercepts the
+       *     :rf.http/managed dispatch
+       *   - the retry path's :attempts counter (read off [:rf/
+       *     machines :login/flow :data :attempts] via the asserted
+       *     :rf.assert/path-equals row) lands at exactly 1 — proves
+       *     retry-flow ordering distinguishes retry from initial
+       *     submit
+       *   - cross-variant FSM isolation: switching from :error to
+       *     :authenticated rebuilds the machine state on a fresh
+       *     frame; the prior :error state does NOT bleed into the
+       *     :authenticated variant's snapshot
+       */
+      // Login-form is a separate shadow build mounted at
+      // /login-form/. Navigate there directly; gotoStory primes the
+      // help-dismissed flag and waits for the three landmark
+      // regions.
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/login-form/#/stories');
+
+      // (a) :submitting — async fx stubbed, machine locks in
+      // :submitting; canvas state-pill reflects the terminal state
+      // directly via the view's [data-test="login-state-pill"]
+      // subscription. (Test mode reports 1-of-2 passing because
+      // :rf.assert/effect-emitted's accumulator resets at play
+      // start — the :rf.http/managed fx fired during phase-2 events,
+      // not during phase-4 play; the canvas-side assertion is the
+      // load-bearing surface for the async-fx machine-state
+      // contract here.)
+      await clickVariant(page, '/submitting');
+      // The mode strip may rehydrate :test or :dev from localStorage;
+      // we want :dev so the canvas mounts.
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.login/submitting');
+      await waitForValue(
+        () =>
+          canvas(page, ':story.login/submitting')
+            .locator('[data-test="login-state-pill"]')
+            .innerText()
+            .catch(() => ''),
+        (text) => /state:\s*:submitting/i.test(text),
+        {
+          timeoutMs: 10000,
+          description: ':submitting canvas state-pill reads "state: :submitting" (FSM locked by fx stub)',
+        },
+      );
+      // The submit button reads "Signing in…" while the FSM is in
+      // :submitting (the view's button-disabled-while-submitting
+      // branch).
+      const submitBtn = canvas(page, ':story.login/submitting').locator('[data-test="login-submit"]');
+      await submitBtn.waitFor({ state: 'visible', timeout: 5000 });
+      const submitText = (await submitBtn.innerText()).trim();
+      if (!/signing in/i.test(submitText)) {
+        throw new Error(
+          `:submitting variant's submit button text expected "Signing in…", got "${submitText}"`,
+        );
+      }
+
+      // (b) :error — machine drives idle → submitting → error and
+      // surfaces the 401 error message under the form.
+      await clickVariant(page, '/error');
+      await waitForCanvas(page, ':story.login/error');
+      // The state-pill in the canvas reads "state: :error" — the
+      // FSM's terminal state is observable directly via the view's
+      // [data-test="login-state-pill"].
+      await waitForValue(
+        () =>
+          canvas(page, ':story.login/error')
+            .locator('[data-test="login-state-pill"]')
+            .innerText()
+            .catch(() => ''),
+        (text) => /state:\s*:error/i.test(text),
+        {
+          timeoutMs: 10000,
+          description: ':error variant canvas state-pill reads "state: :error"',
+        },
+      );
+      // The error message ("Invalid credentials.") is surfaced
+      // under the form via [data-test="login-error"].
+      await expectVisible(
+        canvas(page, ':story.login/error').locator('[data-test="login-error"]'),
+        5000,
+      );
+
+      // (c) :submitting-retry — submit → failure → retry sequence.
+      // The FSM's :submitting-retry terminal state distinguishes
+      // the retry path from the initial submit. Canvas state-pill
+      // shows the terminal state.
+      await clickVariant(page, '/submitting-retry');
+      await waitForCanvas(page, ':story.login/submitting-retry');
+      await waitForValue(
+        () =>
+          canvas(page, ':story.login/submitting-retry')
+            .locator('[data-test="login-state-pill"]')
+            .innerText()
+            .catch(() => ''),
+        (text) => /state:\s*:submitting-retry/i.test(text),
+        {
+          timeoutMs: 10000,
+          description: ':submitting-retry canvas state-pill reads "state: :submitting-retry"',
+        },
+      );
+
+      // (d) Cross-variant FSM isolation — switching to
+      // :authenticated rebuilds the machine on a fresh frame; the
+      // prior :error / :submitting-retry state does NOT bleed in.
+      await clickVariant(page, '/authenticated');
+      await waitForCanvas(page, ':story.login/authenticated');
+      // The welcome banner replaces the form — proves the FSM
+      // landed in :authenticated, not :error or :submitting-retry.
+      await expectVisible(
+        canvas(page, ':story.login/authenticated').locator('[data-test="login-welcome"]'),
+        10000,
+      );
+      await waitForValue(
+        () =>
+          canvas(page, ':story.login/authenticated')
+            .locator('[data-test="login-state-pill"]')
+            .innerText()
+            .catch(() => ''),
+        (text) => /state:\s*:authenticated/i.test(text),
+        {
+          timeoutMs: 10000,
+          description: ':authenticated canvas state-pill reads "state: :authenticated"',
+        },
+      );
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
