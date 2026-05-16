@@ -332,6 +332,34 @@ swallow-errors guard — substrate adapters MAY throw on a
 double-unmount and `teardown!` is the test fixture's last-chance
 cleanup, not a contract-checking call site.
 
+Per `rf2-yudol` the teardown contract covers **all three** mount
+singletons, not just the in-app shell:
+
+- `mount-state` — the in-app shell (above).
+- `popout-state` — the optional second-window shell. `teardown!`
+  MUST invoke the popout's substrate unmount, attempt to close the
+  popout window (silently tolerating "already closed"), and reset
+  the singleton to `nil`. A leaked `popout-state` would short-
+  circuit the next `popout!` and return a stale state map whose
+  `:window` is already closed.
+- `inline-mounts` — every embedded panel registered via
+  `mount-inline-panel!`. `teardown!` MUST iterate the registry,
+  invoke each unmount inside an independent swallow-errors guard
+  (so one failing unmount cannot strand the rest), and reset the
+  registry to `{}`.
+
+**Popout external-close cleanup.** Per `rf2-yudol` `popout!` MUST
+register `pagehide` / `unload` listeners on the popout window so
+that when the user closes the popout externally, the opener-side
+`popout-state` singleton is cleared. Without this, a subsequent
+`popout!` would short-circuit on the stale singleton whose
+`:window` has `.closed = true` and Causa would never re-render
+into a new window. The handler MUST verify the identity of the
+window it was registered for (compared to the current
+`popout-state.:window`) before clearing — a stale handler that
+fires after a fresh `popout!` has replaced the singleton MUST NOT
+nuke the new state.
+
 **Production posture.** The whole foundation block MUST be gated
 on a single dev-only sentinel (the framework's
 `interop/debug-enabled?` flag, per

@@ -321,10 +321,54 @@
   []
   (if (visible?) (close!) (open!)))
 
+(defn- teardown-popout-state!
+  "Internal: tear down the popout singleton if present. Invokes the
+  substrate unmount, attempts to close the popout window, and clears
+  the singleton. All steps run inside swallow-errors guards — this is
+  a last-chance cleanup (test fixture, opener-side unload), not a
+  contract-checking call site."
+  []
+  (when-let [{:keys [window unmount]} @popout-state]
+    (when unmount
+      (try (unmount) (catch :default _ nil)))
+    (when window
+      (try
+        (when-not (.-closed window)
+          (.close window))
+        (catch :default _ nil)))
+    (reset! popout-state nil))
+  nil)
+
+(defn- teardown-inline-mounts!
+  "Internal: iterate every registered inline-panel mount, invoke its
+  unmount fn, and clear the registry. Each unmount is wrapped in a
+  swallow-errors guard so a single failed unmount cannot strand the
+  remaining entries (per the teardown contract in tools/causa/spec/
+  011-Launch-Modes.md §Mount lifecycle)."
+  []
+  (doseq [[node {:keys [unmount]}] @inline-mounts]
+    (when unmount
+      (try (unmount) (catch :default _ nil)))
+    (when (and node (.-removeAttribute node))
+      (try (.removeAttribute node "data-rf-causa-mode")
+           (catch :default _ nil))))
+  (reset! inline-mounts {})
+  nil)
+
 (defn teardown!
-  "Tear the shell down completely — unmount from React, remove the DOM
-  node, clear the singleton. Intended for tests; production sessions
-  keep the shell across the page's lifetime."
+  "Tear the shell down completely — unmount every Causa mount surface,
+  remove DOM nodes, clear every mount singleton. Intended for tests;
+  production sessions keep the shell across the page's lifetime.
+
+  Three singletons are cleared per rf2-yudol (audit rf2-a6tvr Q1-1+Q1-2):
+
+  - `mount-state` — the default in-app shell.
+  - `popout-state` — the optional second-window shell (also closed).
+  - `inline-mounts` — every embedded panel registered via
+    `mount-inline-panel!`.
+
+  All unmount calls run inside swallow-errors guards so a single
+  failed unmount cannot strand the remaining singletons."
   []
   (when-let [{:keys [node unmount]} @mount-state]
     (when unmount
@@ -333,6 +377,8 @@
       (.removeChild (.-parentNode node) node))
     (set-body-docked! false)
     (reset! mount-state nil))
+  (teardown-popout-state!)
+  (teardown-inline-mounts!)
   (clear-diagnostic!)
   (reset! auto-open-state {:started? false :attempts 0})
   nil)
@@ -370,11 +416,41 @@
       (tick!)))
   nil)
 
+(defn- register-popout-unload-cleanup!
+  "Per rf2-yudol: when the user closes the popout window externally
+  (or the page unloads for any other reason), the opener-side
+  `popout-state` singleton must clear so a subsequent `popout!` is
+  treated as a fresh first-mount rather than short-circuiting on the
+  stale `:window` whose `.closed` is now true.
+
+  We register the listener on the popout window and use both
+  `pagehide` and `unload` for cross-browser coverage. The handler is
+  idempotent (it inspects the current `popout-state` and ignores
+  events fired after a fresh popout has already replaced the
+  singleton — guard via identity comparison on the `:window` slot)."
+  [win]
+  (let [handler (fn popout-unload-handler [_event]
+                  ;; Only clear if this very window is still the
+                  ;; registered popout — a stale handler that fires
+                  ;; AFTER a fresh popout! has replaced the singleton
+                  ;; must not nuke the new state.
+                  (when (some-> @popout-state :window (identical? win))
+                    (teardown-popout-state!)))]
+    (when (.-addEventListener win)
+      (try (.addEventListener win "pagehide" handler) (catch :default _ nil))
+      (try (.addEventListener win "unload"   handler) (catch :default _ nil)))))
+
 (defn popout!
   "Open a same-origin Causa pop-out window and render the shell into it.
   The pop-out shares the opener runtime and Causa frame; no
   serialisation layer is introduced. Returns a state map, or
-  `{:ok? false :reason :popup-blocked}` when `window.open` fails."
+  `{:ok? false :reason :popup-blocked}` when `window.open` fails.
+
+  Per rf2-yudol the popout window registers a `pagehide`/`unload`
+  listener that clears `popout-state` when the user closes the
+  window externally, so the next `popout!` is a fresh first-mount
+  rather than returning a stale state map whose `:window` is
+  already closed."
   []
   (if-let [state @popout-state]
     state
@@ -397,6 +473,7 @@
               (let [unmount (substrate-adapter/render [shell/shell-view {:mode :popout}] node nil)
                     state   {:ok? true :window win :node node :unmount unmount :mode :popout}]
                 (reset! popout-state state)
+                (register-popout-unload-cleanup! win)
                 state))))))))
 
 (defn mount-inline-panel!
