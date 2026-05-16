@@ -16,11 +16,16 @@ There are four. Each is a plain-data setting that applies to the framework runti
 (rf/configure :epoch-history {:depth 50})        ;; the default
 (rf/configure :epoch-history {:depth 200})       ;; deeper history; more memory
 (rf/configure :epoch-history {:depth 0})         ;; disable
+(rf/configure :epoch-history
+  {:redact-fn (fn [record]                       ;; scrub secrets before
+     (update record :db-after dissoc :auth))})   ;; the ring stores the record
 ```
 
 Every dispatched event's full cascade is recorded as an *epoch record* — `:db-before`, `:db-after`, `:sub-runs`, `:renders`, `:effects`, `:trace-events` — and stored in a ring buffer. That buffer is what powers [chapter 15](../../causa/)'s time-travel debugging, `restore-epoch`, `reset-frame-db!`, and the Tool-Pair surface.
 
 50 epochs is enough for a typical debug session (you almost never want to rewind further than 50 user actions). 200 is reasonable for long-running stress tests. 0 disables history entirely — useful in SSR production where you have no replayer attached and the per-cascade allocation is wasted work.
+
+`:redact-fn` is the build-time hook for apps that record sensitive material into `app-db`. The framework invokes it **once per assembled record** — between `build-record` and ring-append / listener fan-out — so the ring buffer, every `register-epoch-cb!` listener, and every off-box egressor (Causa, pair2-mcp) see the **same** redacted shape. The fn returns the record (potentially rewritten); any slot it overwrites can ride as the `:rf/redacted` sentinel or any app-chosen shape. A throwing fn does not break the drain — the framework catches the throw, emits `:rf.warning/epoch-redact-fn-exception`, and falls back to the raw record for that drain only. One caveat: `restore-epoch` rewinds `app-db` *to the recorded `:db-after`*, so if your fn redacted `:db-after`, the rewind lands `app-db` in the redacted state. Apps that need restore fidelity should leave `:db-before` / `:db-after` alone and redact only `:trace-events` / `:trigger-event`. The full posture lives at [Tool-Pair §Time-travel](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress).
 
 The setting is **dev-only** by status. Under `:advanced` + `goog.DEBUG=false`, the recording site DCEs and the buffer never allocates, regardless of what you configured.
 

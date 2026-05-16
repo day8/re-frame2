@@ -101,6 +101,36 @@ vocabulary `[:rf.elision/at <path>]` are reserved per
 and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md);
 the shape is shared across pair2-mcp, story-mcp, and causa-mcp.
 
+## Universal: app-installed `:redact-fn` on epoch consumers
+
+Every tool that ships `:rf/epoch-record` values — `dispatch`
+(trace mode), `trace-window`, `watch-epochs`, `snapshot` (the
+`:epochs` slot of each frame), and `subscribe` (the `epoch`
+event-kind) — delivers whatever shape the framework's
+app-installed `:redact-fn` produced (per [Tool-Pair §Time-travel
+§Redaction hook](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
+and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)).
+When the consuming app has called `(rf/configure :epoch-history
+{:redact-fn (fn [record] …)})`, the runtime invokes the fn
+**once per assembled record at build-time** (between
+`build-record` and ring-append / listener fan-out) — so the
+per-frame ring buffer, every `register-epoch-cb!` listener, and
+the records pair2-mcp egresses all see the same redacted shape.
+Tools cannot recover raw shapes from the wire: any slot the fn
+rewrote ships as `:rf/redacted` (the reserved sentinel, per
+[Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record))
+or whatever app-chosen shape the fn substituted. Agents that
+pattern-match on `:db-before` / `:db-after` / `:trigger-event` /
+`:trace-events` MUST tolerate `:rf/redacted` (and arbitrary
+app-supplied shapes) at every leaf.
+
+The `:rf.epoch/sensitive?` rollup is computed from the raw
+record's schema-declared sensitive leaves **before** the
+`:redact-fn` runs, so it remains an accurate signal even when
+the fn erases the leaves it keyed on — `--allow-raw-state OFF`
+strips records that carry the rollup regardless of what the fn
+did to the underlying slots.
+
 ## Universal: `:typicalTokens` on every tool descriptor
 
 Every MCP tool descriptor emitted by `tools/list` carries a
