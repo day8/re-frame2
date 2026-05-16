@@ -224,6 +224,40 @@ may `:require` from Causa. The preload pulls only when shadow-cljs's
 `:devtools` config asks for it; production builds (`goog.DEBUG=false`)
 elide every surface Causa consumes (per Spec 009 §Production builds).
 
+## Publishing
+
+Causa publishes to Clojars as `day8/re-frame2-causa` on a tag push
+of the form **`causa-v<VERSION>`** (e.g. `causa-v0.0.1.alpha`). The
+workflow lives at
+[`.github/workflows/release-causa.yml`](../../.github/workflows/release-causa.yml)
+and is triggered automatically — no manual deploy step.
+
+The tag's version segment must equal the repo-root
+[`VERSION`](../../VERSION) file (lockstep convention per
+[`spec/Conventions.md`](../../spec/Conventions.md) §Packaging
+conventions); a mismatched tag is refused before any deploy step
+runs. The dep on `day8/re-frame2` + `day8/reagent-slim` is pinned
+to the same lockstep version on the throwaway runner checkout
+immediately before `clein deploy`.
+
+To cut a release (Mike-only):
+
+```bash
+# 1. Ensure VERSION reads the target (e.g. 0.0.1.alpha)
+# 2. Tag and push:
+git tag causa-v$(cat VERSION)
+git push origin causa-v$(cat VERSION)
+```
+
+The framework release (the matching `v<VERSION>` tag on
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml))
+must precede the Causa release: Causa's published pom depends on
+`day8/re-frame2 {:mvn/version <VERSION>}` and that artefact must
+already be discoverable on Clojars when `clein deploy` runs.
+
+Required GitHub secrets (configured at the repository level):
+`CLOJARS_USERNAME`, `CLOJARS_PASSWORD` (Clojars deploy token).
+
 ## Status
 
 Pre-alpha. Running shell with the full 16-panel layout, two wired

@@ -1,0 +1,219 @@
+# Release workflow for tools/causa/ (rf2-5aw5v.13).
+#
+# Publishes `day8/re-frame2-causa` to Clojars on a tag push of the
+# form `causa-v[0-9]+.[0-9]+.[0-9]+*` (e.g. `causa-v0.0.1.alpha`).
+#
+# # Why a separate workflow from .github/workflows/release.yml
+#
+# The framework release workflow (release.yml) ships every artefact
+# under implementation/* in one topologically-ordered deploy DAG.
+# Causa is a *consumer* of the framework — published from tools/ — so
+# it ships on its own cadence: a Causa-only fix doesn't warrant
+# republishing twelve framework artefacts, and vice versa. The
+# separate tag prefix (`causa-v…` vs `v…`) keeps the trigger paths
+# disjoint so a framework release does not accidentally republish
+# Causa and a Causa release does not accidentally republish core.
+#
+# # Lockstep versioning with the framework
+#
+# Per spec/Conventions.md §Packaging conventions (rf2-w05l), every
+# published artefact ships at the same version, sourced from the
+# repo-root VERSION file. tools/causa/deps.edn already declares
+# `:clein/build :version "../../VERSION"` so clein picks up the
+# lockstep version automatically. The version-check step below
+# enforces that the pushed tag's version segment (everything after
+# `causa-v`) matches the repo-root VERSION — a mismatched tag is
+# refused before any deploy step runs.
+#
+# # :local/root → :mvn/version rewrite
+#
+# tools/causa/deps.edn references core + reagent-slim via
+# `:local/root` for in-tree development. The release workflow
+# rewrites both to `:mvn/version "${VERSION}"` on the throwaway
+# runner checkout before invoking clein — same pattern as the
+# framework release workflow's deploy-leaf jobs. The rewrite is
+# never committed.
+#
+# # Failure recovery
+#
+# Clojars does not support yanking. If `deploy-causa` fails after
+# the artefact is published (e.g. network glitch on the upload
+# acknowledgement), DO NOT re-run with the same tag — Clojars will
+# 409. Bump VERSION (e.g. 0.0.1.alpha → 0.0.1.alpha-1), retag with
+# the bumped value (`causa-v0.0.1.alpha-1`), and rerun. The new
+# version supersedes the partial-state predecessor.
+#
+# # Secrets
+#
+# CLOJARS_USERNAME and CLOJARS_PASSWORD are configured at the
+# repository level (per the framework release.yml convention).
+# CLOJARS_PASSWORD is a Clojars deploy token; neither value is
+# committed. Mike configures the secrets out-of-band — this
+# workflow only references them.
+#
+# # First publish protocol
+#
+# Mike triggers the first deploy manually by pushing the tag once
+# the secrets are wired. Subsequent releases run automatically on
+# tag push.
+
+name: release-causa
+
+on:
+  push:
+    tags:
+      - "causa-v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 1. Lockstep version contract gate. Fails fast on a mismatched tag
+  #    or a hand-edited deps.edn that breaks the framework-wide
+  #    lockstep (the shared script covers tools/causa/ per rf2-lwtke).
+  # ─────────────────────────────────────────────────────────────────
+  verify-version:
+    name: Verify Causa tag matches lockstep VERSION
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Verify tag matches VERSION
+        id: version
+        # Tag form: `causa-v<VERSION>`. The version segment must equal
+        # the repo-root VERSION file content. Catches accidental tags
+        # (e.g. someone tagging `causa-v0.0.2` while VERSION still
+        # reads 0.0.1.alpha) before any deploy step runs.
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          expected="causa-v${version}"
+          if [ "$tag" != "$expected" ]; then
+            echo "::error::tag '$tag' does not match repo-root VERSION '$expected' (refusing publish — bump VERSION or fix the tag)"
+            exit 1
+          fi
+          echo "tag $tag matches VERSION $expected — proceeding"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify framework-wide lockstep contract
+        # Same script the framework release.yml + tests.yml run. Per
+        # rf2-lwtke its `tools/` loop covers tools/causa/deps.edn, so
+        # a hand-edited :mvn/version literal or a broken :version
+        # reference fails the gate here before clein touches Clojars.
+        run: ./.github/scripts/verify-version-lockstep.sh
+
+  # ─────────────────────────────────────────────────────────────────
+  # 2. Pre-release test gate for the Causa artefact. Runs the
+  #    artefact's JVM tests; CLJS/browser tests for Causa already run
+  #    in the regular tests workflow (the changed-surfaces classifier
+  #    routes them through `story_causa_browser`).
+  # ─────────────────────────────────────────────────────────────────
+  test-causa:
+    name: Causa pre-release test gate
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-causa-${{ hashFiles('tools/causa/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-causa-
+            ${{ runner.os }}-clj-
+
+      - name: JVM tests (causa artefact)
+        working-directory: tools/causa
+        run: clojure -M:test
+
+  # ─────────────────────────────────────────────────────────────────
+  # 3. Deploy Causa. The lockstep root (day8/re-frame2 core) is NOT
+  #    deployed here — Causa pins the framework version via the
+  #    rewrite step, which assumes core is already on Clojars at the
+  #    same lockstep VERSION (cut by the framework release.yml on
+  #    the matching `v<VERSION>` tag).
+  # ─────────────────────────────────────────────────────────────────
+  deploy-causa:
+    name: Deploy day8/re-frame2-causa
+    needs: [verify-version, test-causa]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-causa-${{ hashFiles('tools/causa/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-causa-
+            ${{ runner.os }}-clj-
+
+      # ─────────────────────────────────────────────────────────────
+      # Rewrite :local/root → :mvn/version on the throwaway runner
+      # checkout (never committed). Causa's deps.edn references two
+      # framework artefacts; both pivot to the same lockstep VERSION.
+      # The literal substring match + python single-occurrence
+      # assertion is the same shape used by the framework release.yml
+      # deploy-leaf job — fails loudly if the source ever drifts.
+      # ─────────────────────────────────────────────────────────────
+      - name: Rewrite Causa :local/root → :mvn/version
+        working-directory: tools/causa
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          rewrite() {
+            local before="$1"
+            local after="$2"
+            if ! grep -qF "${before}" deps.edn; then
+              echo "::error::expected '${before}' substring not found in tools/causa/deps.edn"
+              exit 1
+            fi
+            BEFORE="${before}" AFTER="${after}" \
+              python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
+            echo "Rewrote ${before} → ${after}"
+          }
+          rewrite ':local/root "../../implementation/core"'              ":mvn/version \"${VERSION}\""
+          rewrite ':local/root "../../implementation/adapters/reagent-slim"' ":mvn/version \"${VERSION}\""
+          echo "--- Rewritten dep coords:"
+          grep -E "day8/(re-frame2|reagent-slim)" deps.edn
+
+      - name: Deploy day8/re-frame2-causa
+        working-directory: tools/causa
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
