@@ -53,6 +53,8 @@
             [day8.re-frame2-causa-mcp.tools.list-subscriptions]
             ;; T-Eval tranche (rf2-8xzoe.29) — --allow-eval-gated escape hatch.
             [day8.re-frame2-causa-mcp.tools.eval-cljs]
+            ;; T-Meta tranche (rf2-8xzoe.30..31) — health + build-tail.
+            [day8.re-frame2-causa-mcp.tools.discover-app]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------

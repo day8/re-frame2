@@ -738,3 +738,43 @@ The result routes through `re-frame.core/elide-wire-value`; privacy
 less data.
 
 Implementation: [`tools/causa-mcp/src/.../tools/eval_cljs.cljs`](../src/day8/re_frame2_causa_mcp/tools/eval_cljs.cljs).
+
+### discover-app (T-Meta-1, rf2-8xzoe.30)
+
+One-call summary of the runtime's view of the world — preload status,
+debug-enabled flag, registered frames (and ambiguity flag),
+source-coord annotation status, `--allow-eval` gate state. Use as
+the first call of every session to confirm the environment is
+healthy. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #30.
+
+**Warning ladder** (fail-loud-but-useful):
+
+1. `:debug-disabled` (production build; trace/epoch elided) — `:ok? false`.
+2. `:no-frames-registered` (call `rf/init!`) — `:ok? false`.
+3. `:ambiguous-frame` (multi-frame; mutating ops need `:frame`) — `:ok? true` with `:warning`.
+4. `:no-source-coord-annotation` (DOM coord annotation not enabled) — `:ok? true` with `:warning`.
+5. otherwise `:ok? true` with no warning.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (healthy):**
+
+```clojure
+{:ok? true
+ :session-id <uuid>
+ :debug-enabled? <bool>
+ :frames <vec>
+ :ambiguous-frame? <bool>
+ :coord-annotation-enabled? <bool>
+ :origin :causa-mcp
+ :eval-cljs-enabled? <bool>
+ :build-id <kw>}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — health
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/discover_app.cljs`](../src/day8/re_frame2_causa_mcp/tools/discover_app.cljs).

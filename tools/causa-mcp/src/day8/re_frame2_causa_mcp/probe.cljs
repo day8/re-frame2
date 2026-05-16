@@ -30,7 +30,8 @@
   Negative results are NOT cached: a missing preload usually surfaces
   on the very first call, and re-probing on each subsequent call lets
   a freshly-added preload land without a server restart."
-  (:require [day8.re-frame2-causa-mcp.nrepl :as nrepl]
+  (:require [day8.re-frame2-causa-mcp.eval-form :as ef]
+            [day8.re-frame2-causa-mcp.nrepl :as nrepl]
             [day8.re-frame2-causa-mcp.wire :as wire]))
 
 ;; ---------------------------------------------------------------------------
@@ -86,6 +87,19 @@
                    (when ok? (mark-conn-probed! conn build-id))
                    ok?)))
         (.catch (fn [_] false)))))
+
+(defn runtime-health!
+  "Call `(day8.re-frame2-causa.runtime/health)`. Caller must have
+  already confirmed the preload landed via `runtime-preloaded?` (or
+  `ensure-runtime!`). Returns a Promise resolving to the runtime's
+  health envelope (per the runtime ns docstring).
+
+  Sibling to pair2-mcp's `runtime-health!` — same one-call summary
+  surface so `discover-app` reads identically across the MCP triplet
+  (with the small caveat that causa's `:origin` slot is `:causa-mcp`
+  by default whereas pair2's is `:pair2-mcp`)."
+  [conn build-id]
+  (nrepl/cljs-eval-value conn build-id (ef/emit (ef/rt-call 'health))))
 
 (defn ensure-runtime!
   "Confirm the causa runtime is preloaded. Resolves to nil on success,
