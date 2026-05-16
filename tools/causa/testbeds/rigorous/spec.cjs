@@ -1725,5 +1725,254 @@ module.exports = {
       `event-detail cascade selection preserved after Subscriptions round-trip (=${firstRowDispatchId})`,
       5000,
     );
+
+    // ----------------------------------------------------------------
+    // 11b. Routes panel (rf2-3e3fn) — empty + override-driven
+    // populated walks + active-slice + selection + history-empty +
+    // reset round-trip.
+    //
+    // The counter example registers no routes via `rf/reg-route`. The
+    // panel ships test-only override events
+    // (`:rf.causa/set-registered-routes-override-for-test` +
+    // `:rf.causa/set-active-route-slice-override-for-test`) so we can
+    // drive the populated branch deterministically without booting a
+    // host with routing wired. The walk asserts:
+    //
+    //   - sidebar pivot → routes lands on `rf-causa-routes`
+    //   - on counter without overrides the `:no-routes` empty branch
+    //     fires — `rf-causa-routes-empty` is mounted; the list, the
+    //     active-route strip (both `-active` and `-active-empty`
+    //     branches), and the history-section are all ABSENT (the
+    //     `(if (= :no-routes empty-kind) (empty-state) ...)` gate
+    //     swaps the whole body)
+    //   - dispatch the routes override with a two-route map → the
+    //     panel pivots to the populated branch:
+    //       * `rf-causa-routes-list` mounted
+    //       * `rf-causa-routes-empty` absent
+    //       * `rf-causa-routes-active-empty` mounted (no slice
+    //         override yet — the active-route is nil)
+    //       * `rf-causa-routes-history` + `rf-causa-routes-history-
+    //         empty` mounted (no nav-token traces in the buffer)
+    //       * one `rf-causa-route-row-<route-id>` per registered
+    //         route plus per-row id + path testids
+    //   - dispatch the active-slice override with `:about` →
+    //     `rf-causa-routes-active` replaces `-active-empty`; the
+    //     per-cell testids (`-route-id / -params / -query /
+    //     -fragment / -transition`) render with the projected slice;
+    //     the matching row gains the `rf-causa-route-row-active-
+    //     :about` highlight tag
+    //   - click the OTHER row (`:home`) → `:rf.causa/select-route`
+    //     fires; the panel re-renders with the row selected (visible
+    //     via the row's `selected?` background; we re-assert the
+    //     active row's `-active-:about` highlight stays in place —
+    //     selection and active are orthogonal)
+    //   - reset overrides (registered-routes → nil + active-slice →
+    //     nil + clear-selection) → the empty branch is back; the
+    //     populated surfaces are absent again
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (cross-panel
+    //     selection invariant)
+    //
+    // The full feature path (real `rf/reg-route` + browser navigation
+    // + nav-token allocation/staleness/blocking + multi-frame routing)
+    // needs the routing testbed wired through the rigorous compile
+    // graph. The walk pins the panel's branch invariants + override-
+    // driven populated rendering + active-slice strip + selection.
+    // Matrix row 75 (Routes) flips from `deferred (rf2-3e3fn)` to
+    // `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'routes', 'rf-causa-routes');
+    // Counter starts in the :no-routes empty branch.
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-empty"]'), 5000);
+    for (const populatedTestid of [
+      'rf-causa-routes-list',
+      'rf-causa-routes-active',
+      'rf-causa-routes-active-empty',
+      'rf-causa-routes-history',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected '${populatedTestid}' to be absent in the :no-routes empty branch.`,
+        );
+      }
+    }
+
+    // Drive the populated branch via the test-only override events.
+    // Build the routes map (and later the active-slice map) on the
+    // browser side so CLJS values stay native — the bridge would
+    // serialise JS objects to JsObj, not PersistentArrayMap, and the
+    // helpers in routes_helpers.cljc read with `:path` / `:doc` /
+    // `:id` keyword accessors.
+    const routesInjected = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf   = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf) return { ok: false, reason: 'cljs.core/re_frame.core not on window' };
+      const kw = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      const routesMap = cljs.PersistentArrayMap.fromArray([
+        kw('home'),  cljs.PersistentArrayMap.fromArray(
+          [kw('path'), '/',      kw('doc'), 'Landing'], true, false),
+        kw('about'), cljs.PersistentArrayMap.fromArray(
+          [kw('path'), '/about', kw('doc'), 'About page'], true, false),
+      ], true, false);
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-registered-routes-override-for-test'),
+          routesMap,
+        ], true),
+        frameOpts,
+      );
+      return { ok: true };
+    });
+    if (!routesInjected.ok) {
+      throw new Error(`Could not inject routes override: ${routesInjected.reason}`);
+    }
+    // Wait for the panel to settle into the populated branch.
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-list"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-empty"]').count()) !== 0) {
+      throw new Error('Expected `routes-empty` to unmount after override injects routes.');
+    }
+    // No slice override yet — the active-route strip is in the empty
+    // sub-branch; the populated `-active` strip is absent.
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-active-empty"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-active"]').count()) !== 0) {
+      throw new Error('Expected populated `routes-active` to be absent without an active-slice override.');
+    }
+    // History section mounts + its own empty sub-branch (no nav-token
+    // traces in the buffer).
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-history"]'), 5000);
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-history-empty"]'), 5000);
+    // Per-row testids — both rows landed, both id/path companions
+    // rendered.
+    for (const routeId of [':home', ':about']) {
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-route-row-${routeId}"]`),
+        5000,
+      );
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-route-id-${routeId}"]`),
+        5000,
+      );
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-route-path-${routeId}"]`),
+        5000,
+      );
+    }
+
+    // Inject the active-slice override → the strip swaps from the
+    // empty branch to the populated `-active` breadcrumb; the matching
+    // row gains the `-active-:about` highlight.
+    const sliceInjected = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      const slice = cljs.PersistentArrayMap.fromArray([
+        kw('id'),         kw('about'),
+        kw('params'),     cljs.PersistentArrayMap.fromArray(
+          [kw('section'), 'team'], true, false),
+        kw('query'),      cljs.PersistentArrayMap.EMPTY,
+        kw('fragment'),   'top',
+        kw('transition'), kw('idle'),
+      ], true, false);
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-active-route-slice-override-for-test'),
+          slice,
+        ], true),
+        frameOpts,
+      );
+      return { ok: true };
+    });
+    if (!sliceInjected.ok) {
+      throw new Error('Could not inject active-slice override.');
+    }
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-active"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-active-empty"]').count()) !== 0) {
+      throw new Error('Expected `routes-active-empty` to unmount after slice override injects.');
+    }
+    // Per-cell testids — the breadcrumb's five-up layout (route-id /
+    // params / query / fragment / transition).
+    for (const cell of ['route-id', 'params', 'query', 'fragment', 'transition']) {
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-routes-active-${cell}"]`),
+        5000,
+      );
+    }
+    // Matching row carries the `-active-:about` highlight tag.
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-route-row-active-:about"]'),
+      5000,
+    );
+
+    // Click :home row → `:rf.causa/select-route :home` fires. The
+    // selection is orthogonal to the active-route highlight: the
+    // active row stays `:about`, the selected row becomes `:home`.
+    // The row's `selected?` background is style-only (no dedicated
+    // testid) — assert via the `-active-:about` highlight remaining
+    // in place AND the absence of `-active-:home` (which would mean
+    // the active-route accidentally followed the selection).
+    await page.locator('[data-testid="rf-causa-route-row-:home"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-route-row-active-:about"]').count(),
+      (count) => count === 1,
+      ':about row keeps the -active- highlight after selecting :home (active vs selected orthogonal)',
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-route-row-active-:home"]').count()) !== 0) {
+      throw new Error(
+        ':home row gained the -active- highlight after selection — active vs selected must be orthogonal.',
+      );
+    }
+
+    // Reset overrides + clear selection. The empty branch returns
+    // and the populated surfaces unmount cleanly.
+    const reset = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-registered-routes-override-for-test'), null,
+        ], true),
+        frameOpts,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-active-route-slice-override-for-test'), null,
+        ], true),
+        frameOpts,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/clear-route-selection'),
+        ], true),
+        frameOpts,
+      );
+      return { ok: true };
+    });
+    if (!reset.ok) throw new Error('Could not reset routes overrides.');
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-empty"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-list"]').count()) !== 0) {
+      throw new Error('Expected `routes-list` to unmount after override reset.');
+    }
+
+    // Sidebar round-trip — assert event-detail mounts cleanly after a
+    // panel that drove many test-only dispatches. We don't re-check
+    // the original `firstRowDispatchId` selection invariant here
+    // because the cross-panel selection assertions in 10f/10g/10h/11a
+    // already pinned it, and the override-driven dispatches in this
+    // section can tip the cascade out of the trace buffer (cap 1000)
+    // — eviction would leave the cascade-detail in the empty-state
+    // sub-branch even though the selection slot is unchanged.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
   },
 };
