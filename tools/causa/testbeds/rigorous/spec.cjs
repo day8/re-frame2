@@ -1974,5 +1974,178 @@ module.exports = {
     // sub-branch even though the selection slot is unchanged.
     await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
     await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
+
+    // ----------------------------------------------------------------
+    // 11c. MCP Server panel (rf2-39a1l) — empty-no-activity branch +
+    // always-rendered chrome controls + filter chrome round-trip.
+    //
+    // The counter example emits no `:origin :causa-mcp` events (no
+    // agent connects via the causa-mcp jar to drive tool calls)
+    // — `:rf.causa/mcp-server` projects empty-kind = `:no-activity`
+    // on every counter testbed boot. The matrix row 82 enumerates the
+    // populated branch (origin-filter cyan rows + tool chip + source
+    // chip + dispatch-id pivot); those need a live MCP client wired
+    // through the rigorous compile graph. The walk here pins what IS
+    // deterministically observable on counter:
+    //
+    //   - sidebar pivot → mcp-server lands on `rf-causa-mcp-server`
+    //   - `rf-causa-mcp-empty-no-activity` is the active body;
+    //     `rf-causa-mcp-empty-no-matches` and `rf-causa-mcp-feed` are
+    //     ABSENT (the panel's `case empty-kind` swaps the body)
+    //   - **always-rendered chrome contract** — the inline Settings
+    //     sub-pane + the panel header chrome render regardless of
+    //     activity. Asserts:
+    //       * `rf-causa-mcp-settings` (settings sub-pane shell)
+    //       * `rf-causa-mcp-origin-swatch` (cyan swatch with the
+    //         spec/007 origin colour token)
+    //       * `rf-causa-mcp-origin-filter-toggle` (cross-panel
+    //         highlight enable checkbox)
+    //       * `rf-causa-mcp-attached-badge` with the "no activity"
+    //         text on counter (no `causa-mcp` events ever landed)
+    //       * `rf-causa-mcp-counts` showing the canonical "0 / 0 in
+    //         view" zero baseline
+    //       * `rf-causa-mcp-since-input` (since-ms filter input)
+    //       * `rf-causa-mcp-op-type-chips` ABSENT (no distinct
+    //         op-types in the buffer; the chip row only renders
+    //         when at least one op-type has been seen)
+    //       * `rf-causa-mcp-clear-filters` ABSENT (no filter is
+    //         active yet)
+    //   - **origin filter toggle round-trip** — clicking the
+    //     `-mcp-origin-filter-toggle` input checkbox flips the
+    //     boolean on `:rf.causa/mcp-origin-filter-enabled?`; the
+    //     `<input>`'s `checked` reflects the new state. A second
+    //     click flips it back.
+    //   - **since-input filter activation** — typing a numeric value
+    //     into the since-input dispatches `:rf.causa/set-mcp-since-
+    //     seconds`; the `any-filter?` predicate flips true → the
+    //     header `rf-causa-mcp-clear-filters` button appears. The
+    //     `-empty-no-matches` body branch does NOT fire on counter
+    //     (the helper's empty-kind discriminator only flips to
+    //     `:no-matches` when `total > 0` and `filtered = 0`; with
+    //     zero MCP events total the `:no-activity` branch holds).
+    //   - clicking `rf-causa-mcp-clear-filters` dispatches `:rf.causa/
+    //     clear-mcp-filters` → button unmounts (any-filter? back to
+    //     false). The empty-no-activity body stays consistent.
+    //
+    // The full feature path (live `:origin :causa-mcp` rows + cyan
+    // styling parity + tool chip + source chip + row-click → event-
+    // detail pivot + per-op-type chip filtering + empty-no-matches
+    // branch + origin-filter cross-panel highlight) needs the
+    // causa-mcp client harness wired through the rigorous compile
+    // graph. The walk pins the empty branch + always-rendered chrome
+    // + filter-chrome round-trip; matrix row 82 (MCP Server) flips
+    // from `deferred (rf2-39a1l)` to `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'mcp-server', 'rf-causa-mcp-server');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'),
+      5000,
+    );
+    for (const populatedTestid of [
+      'rf-causa-mcp-empty-no-matches',
+      'rf-causa-mcp-feed',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected '${populatedTestid}' to be absent on the :no-activity branch.`,
+        );
+      }
+    }
+    // Always-rendered chrome — settings sub-pane + header chips.
+    for (const chromeTestid of [
+      'rf-causa-mcp-settings',
+      'rf-causa-mcp-origin-swatch',
+      'rf-causa-mcp-origin-filter-toggle',
+      'rf-causa-mcp-attached-badge',
+      'rf-causa-mcp-counts',
+      'rf-causa-mcp-since-input',
+    ]) {
+      await expectVisible(page.locator(`[data-testid="${chromeTestid}"]`), 5000);
+    }
+    // Counter has no MCP events; attached-badge reads "no activity",
+    // counts surface the zero baseline "0 / 0 in view".
+    const attachedText = (await page.locator('[data-testid="rf-causa-mcp-attached-badge"]').textContent()) || '';
+    if (!attachedText.toLowerCase().includes('no activity')) {
+      throw new Error(
+        `Expected attached-badge to read "no activity"; got ${JSON.stringify(attachedText.trim())}.`,
+      );
+    }
+    const countsText = (await page.locator('[data-testid="rf-causa-mcp-counts"]').textContent()) || '';
+    const countsMatch = /(\d+)\s*\/\s*(\d+)\s+in view/.exec(countsText.trim());
+    if (!countsMatch || Number(countsMatch[1]) !== 0 || Number(countsMatch[2]) !== 0) {
+      throw new Error(
+        `Expected mcp-counts to read "0 / 0 in view"; got ${JSON.stringify(countsText.trim())}.`,
+      );
+    }
+    // Op-type chips + clear-filters button are absent (no distinct
+    // op-types, no filter active).
+    if ((await page.locator('[data-testid="rf-causa-mcp-op-type-chips"]').count()) !== 0) {
+      throw new Error(
+        'Expected `mcp-op-type-chips` to be absent when no distinct op-types exist in the buffer.',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-mcp-clear-filters"]').count()) !== 0) {
+      throw new Error(
+        'Expected `mcp-clear-filters` header button to be absent before any filter is active.',
+      );
+    }
+
+    // Origin-filter toggle round-trip.
+    const originToggleInput = page.locator('[data-testid="rf-causa-mcp-origin-filter-toggle"] input');
+    const initialChecked = await originToggleInput.isChecked();
+    if (initialChecked !== false) {
+      throw new Error(`Expected origin-filter toggle to default to unchecked; got ${initialChecked}.`);
+    }
+    await originToggleInput.click();
+    await waitForCondition(
+      async () => originToggleInput.isChecked(),
+      (checked) => checked === true,
+      'origin-filter toggle to read checked=true after click',
+      5000,
+    );
+    await originToggleInput.click();
+    await waitForCondition(
+      async () => originToggleInput.isChecked(),
+      (checked) => checked === false,
+      'origin-filter toggle to read checked=false after second click',
+      5000,
+    );
+
+    // Since-input filter activation — dispatches a non-nil since-ms
+    // → `any-filter?` flips true → header `-clear-filters` button
+    // mounts. The `-empty-no-matches` branch does NOT fire on counter
+    // (helper requires `total > 0` and `filtered = 0`; we have 0/0).
+    const sinceInput = page.locator('[data-testid="rf-causa-mcp-since-input"] input');
+    await sinceInput.fill('60');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-clear-filters"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-mcp-empty-no-matches"]').count()) !== 0) {
+      throw new Error(
+        'Expected `-mcp-empty-no-matches` to be absent on counter (total=0; the discriminator stays on :no-activity).',
+      );
+    }
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'),
+      5000,
+    );
+
+    // Clear filters → button unmounts; empty-no-activity body remains.
+    await page.locator('[data-testid="rf-causa-mcp-clear-filters"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-mcp-clear-filters"]').count(),
+      (count) => count === 0,
+      'mcp-clear-filters to unmount after click',
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'),
+      5000,
+    );
+
+    // Sidebar round-trip — assert event-detail mounts cleanly.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
   },
 };
