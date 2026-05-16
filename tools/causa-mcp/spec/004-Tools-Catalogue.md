@@ -658,3 +658,33 @@ bead #27.
 envelope is small).
 
 Implementation: [`tools/causa-mcp/src/.../tools/unsubscribe.cljs`](../src/day8/re_frame2_causa_mcp/tools/unsubscribe.cljs).
+
+### list-subscriptions (T-Stream-3, rf2-8xzoe.28)
+
+Diagnostic enumerating active streaming subscriptions. The
+**eighteenth** tool added by DESIGN-RATIONALE Lock #12 (rf2-3we2k).
+Useful when a streaming probe seems quiet (confirm the sub is still
+registered) or when pruning leaked subs across crashed `subscribe`
+calls. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #28.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:topic` | keyword | nil | filter to one topic |
+| `:sub-id` | string | nil | filter to one sub-id |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :subs [{:id <uuid> :topic <kw> :filter <map>
+         :origin <kw> :created-at <ms>} ...]
+ :count <int>
+ :elided-large <int?>}
+```
+
+**Cap-reached hint:** `:narrow-filter` — pass `:topic` to scope the
+enumeration to one topic.
+
+Implementation: [`tools/causa-mcp/src/.../tools/list_subscriptions.cljs`](../src/day8/re_frame2_causa_mcp/tools/list_subscriptions.cljs).

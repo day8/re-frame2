@@ -50,6 +50,7 @@
             ;; T-Stream tranche (rf2-8xzoe.26..28) — per-drain-batch streaming.
             [day8.re-frame2-causa-mcp.tools.subscribe]
             [day8.re-frame2-causa-mcp.tools.unsubscribe]
+            [day8.re-frame2-causa-mcp.tools.list-subscriptions]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------
