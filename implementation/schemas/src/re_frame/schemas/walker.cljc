@@ -193,7 +193,7 @@
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 
-(defn extract-sensitive-paths-from-schema
+(def extract-sensitive-paths-from-schema
   "Walk a registered Malli schema form at `base-path` and return a
   `{path {:sensitive? true ...}}` map for every `:sensitive? true` slot
   found. Per Spec 010 §`:sensitive?` — privacy in schema-validation
@@ -202,9 +202,17 @@
   Used by the validation emit-sites (`validate-app-db!` and the
   per-step `validate-event!` / `validate-cofx!` / `validate-sub-return!`
   helpers) to decide whether the failing slot's value MUST be redacted
-  before the trace event ships."
-  [schema base-path]
-  (walk-flagged-schema :sensitive? schema base-path {}))
+  before the trace event ships.
+
+  Memoised by `(schema, base-path)` (rf2-y29nf): the failure-branch
+  call site (`schema-sensitive-at?`) re-walks the same registered
+  schema on every consecutive failure, and the walk is pure over
+  immutable schema values. The cache is bounded by the (registered-
+  schema, base-path) cardinality — schemas are registered once at
+  app-boot, so steady-state cache size equals the registry size."
+  (memoize
+    (fn [schema base-path]
+      (walk-flagged-schema :sensitive? schema base-path {}))))
 
 (defn schema-has-sensitive?
   "True when the registered schema declares ANY slot sensitive —
