@@ -177,3 +177,40 @@ render a jump-to-definition link off the response. Source-coord pin:
 small, overflow only happens with pathological metadata).
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_source_coord.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_source_coord.cljs).
+
+### get-machine-state (T-Insp-5, rf2-8xzoe.18)
+
+Per-machine snapshot — the registered FSM spec for the named machine.
+Default `:mode :summary` returns the initial-state + tags +
+state-names (the keys of the transitions table) so a top-level
+inspection call ships a small payload; `:mode :full` returns the
+entire metadata map. Path slicing via `:path` drills into a subtree
+like `get-in`. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #18.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:machine-id` | keyword | **required** | the registered machine id |
+| `:frame` | keyword | nil | scope to one frame; nil → resolve sole frame |
+| `:path` | EDN-vec str | nil | slice into the spec, like `get-in` |
+| `:mode` | keyword | `:summary` | `:summary` or `:full` |
+| `:include-sensitive?` | bool | false | passes to the runtime walker |
+| `:include-large?` | bool | false | passes to the runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :frame <kw> :machine-id <kw>
+ :mode <:summary|:full>
+ :state <map>
+ :path <vec?>            ; only when :path supplied
+ :elided-large <int?>}
+```
+
+**Cap-reached hint:** `:slice` (drill in via `:path`) when `:mode
+:full` overflowed; `:switch-mode` (downshift to `:summary`)
+otherwise. Default fallback `:narrow-filter`.
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_machine_state.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs).
