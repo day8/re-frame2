@@ -778,3 +778,46 @@ healthy. Source-coord pin:
 envelope is small).
 
 Implementation: [`tools/causa-mcp/src/.../tools/discover_app.cljs`](../src/day8/re_frame2_causa_mcp/tools/discover_app.cljs).
+
+### tail-build (T-Meta-2, rf2-8xzoe.31)
+
+Wait for a shadow-cljs hot-reload to land. Two modes:
+
+- **Probe mode** (default when `:probe` supplied) — poll the user's
+  `:probe` form's value; resolve when it changes (signaling the
+  reload completed) or `:reason :timed-out` after `:wait-ms`. A
+  timeout typically means a compile error (the operator can look at
+  the shadow-cljs build log).
+- **Soft-delay mode** (no `:probe`) — resolve after a fixed 300ms
+  delay; gives the bundle-swap cycle a chance to complete without
+  instrumenting a probe.
+
+Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
+§Part 1 bead #31.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:probe` | string | nil | CLJS source whose value-change signals reload |
+| `:wait-ms` | int | 5000 | timeout for probe-mode |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+;; probe mode — change detected
+{:ok? true :t <ms> :soft? false}
+
+;; probe mode — timeout
+{:ok? false :reason :timed-out :timed-out? true :note <s>}
+
+;; soft-delay mode
+{:ok? true :t <ms> :soft? true :note <s>}
+
+;; probe eval threw
+{:ok? false :reason :probe-failed :message <s>}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is tiny scalars).
+
+Implementation: [`tools/causa-mcp/src/.../tools/tail_build.cljs`](../src/day8/re_frame2_causa_mcp/tools/tail_build.cljs).

@@ -55,6 +55,7 @@
             [day8.re-frame2-causa-mcp.tools.eval-cljs]
             ;; T-Meta tranche (rf2-8xzoe.30..31) — health + build-tail.
             [day8.re-frame2-causa-mcp.tools.discover-app]
+            [day8.re-frame2-causa-mcp.tools.tail-build]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------
