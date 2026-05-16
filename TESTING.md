@@ -99,3 +99,38 @@ The default placement rule is:
 | Fast nice-to-have signal | Usually every PR unless noisy or duplicative. |
 | Slow essential signal | Agent pre-checkin for relevant changes, changed-surface PR CI, nightly/manual, and release. |
 | Slow nice-to-have signal | Local, nightly/manual, or release; keep off the PR critical path unless the changed surface directly needs it. |
+
+## Spec-impl-pair convention (rf2-4zqn7)
+
+Top-level `spec/*.md` files have **no rule** in
+`.github/scripts/report-changed-surfaces.sh`. A spec-only PR runs only the
+always-on jobs (jvm-core, cljs, js-harness-self-tests, lockstep + skill/MCP
+drift, and — for `docs/**` PRs — the MkDocs build). Per-feature JVM artefact
+gates and the broad CLJS browser matrix do NOT fire.
+
+This is intentional. `spec/*` is the normative artefact; not every spec edit
+needs the full impl test matrix, and a blanket `spec/* → mark_all` rule would
+be a sledgehammer that re-runs the rigorous matrix on every typo fix.
+
+The expected pattern is the **spec-impl-pair convention**: a spec change
+ships in the same PR as the impl/test change that realises it, so the impl
+edit fires the relevant classifier rule and the spec edit rides along. The
+2026-05-16 routing audit confirmed every spec edit in a 16-PR sample was
+paired this way.
+
+Rules for spec-only PRs:
+
+- A spec-only PR is acceptable for pure normative refinements (clarifications,
+  prose-only fixes, cross-reference updates) where the spec text is the only
+  thing changing and no implementation behaviour is in scope.
+- If a spec change implies an implementation change — even a test — pair the
+  two in the same PR so the classifier picks the right surface.
+- If a spec-only PR is genuinely needed and reviewers want the rigorous
+  matrix run against it, push it through the nightly/manual
+  `expensive-tests.yml` workflow before merge.
+
+This is policy-by-convention, not by classifier. The audit's
+recommendation is to revisit only if a real spec-only PR slips through and
+causes a regression; first incident triggers a surgical per-spec-file rule
+(e.g. `spec/011-SSR.md → fire jvm-ssr + jvm-ssr-ring`) rather than a blanket
+rule.

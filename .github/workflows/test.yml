@@ -561,6 +561,61 @@ jobs:
       - name: Run JVM tests (ssr artefact)
         run: clojure -M:test
 
+  jvm-ssr-ring:
+    name: JVM ssr-ring (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/ssr-ring
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-ssr-ring-${{ hashFiles('implementation/ssr-ring/deps.edn', 'implementation/ssr/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-ssr-ring-
+            ${{ runner.os }}-clj-
+
+      # rf2-mvugr — Closes the gap surfaced by the 2026-05-16 routing
+      # audit: PR #1243 (rf2-gtgf9) added 5 JVM-only test namespaces
+      # under implementation/ssr-ring/test/ (ring_test, ring_streaming_test,
+      # ring_e2e_validator_test, ring/concurrency_stress_test,
+      # ring/streaming_robustness_test) and none ran in CI on that PR.
+      # The PR was rescued only because it also touched
+      # implementation/ssr/* (which fired jvm-ssr) — but jvm-ssr does
+      # not cover ssr-ring's distinct surface.
+      #
+      # The ssr-ring artefact is the Ring/Pedestal host adapter (Spec
+      # 011 §HTTP response contract). It materialises :response into a
+      # Ring map, including cookies (RFC 6265), redirects, and the
+      # per-request frame lifecycle. The JVM e2e validator spins up a
+      # real Jetty host on an ephemeral port and hits it with
+      # java.net.http to observe bytes on the wire. The cognitect
+      # test-runner returns non-zero on any failure; this gate
+      # surfaces an ssr-ring regression at the ssr-ring artefact's CI
+      # step rather than leaving it uncovered.
+      - name: Run JVM tests (ssr-ring artefact)
+        run: clojure -M:test
+
   jvm-epoch:
     name: JVM epoch (clojure -M:test)
     needs: detect_changed_surfaces

@@ -15,6 +15,7 @@ artefacts=(
   implementation/flows
   implementation/http
   implementation/ssr
+  implementation/ssr-ring
   implementation/epoch
 )
 
