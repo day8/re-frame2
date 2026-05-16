@@ -129,13 +129,27 @@
            / :body-end / :script-src / :app-element-id / :lang
            / :csp-script-src-allowlist influence the envelope.
 
-  Safety — `:body-end` is concatenated as RAW HTML; no escaping is
-  applied. The shell is caller-controlled config (app boot decides what
-  scripts/analytics tags to inject), so the trust-the-caller model is
-  load-bearing here. Hosts that route user-controlled content through
-  `:body-end` (e.g. config-driven analytics blocks sourced from a
-  customer settings UI) MUST escape upstream — the shell will not.
-  Audit rf2-asmj1 R12 / cluster rf2-sljs1.
+  Trusted-string contract — per Spec 011 §Trusted shell hook contract
+  (rf2-o6ndb), the four shell opts `:head`, `:body-end`, `:script-src`,
+  and `:app-element-id` are TRUSTED STRINGS injected RAW into the
+  rendered HTML envelope. No escaping, no validation, no sandbox.
+  The shell is caller-controlled config (app boot decides what
+  scripts/analytics tags / asset URLs / head fragments to inject), so
+  the trust-the-caller model is load-bearing here. Hosts that route
+  user-controlled content through any of the four (e.g. config-driven
+  analytics blocks sourced from a customer settings UI, a tenant-
+  admin-editable head fragment, an asset URL composed from a query-
+  string parameter) MUST escape upstream — the shell will not. The
+  structured alternative for untrusted-customization use cases is
+  `reg-head` (for head fragments per Spec 011 §Head/meta) +
+  `reg-view*` + `:rf.server/*` fx (for body content), both of which
+  run through the standard SSR emitter and apply position-appropriate
+  escaping at every leaf. Construction-time structural validation
+  lives in `re-frame.ssr.ring.trust/validate-trusted-shell-opts!`
+  (rejects non-string non-nil values with
+  `:rf.error/ssr-trusted-shell-opt-invalid`); the content trust
+  itself is the caller's. Audit rf2-asmj1 R12 / cluster rf2-sljs1 /
+  rf2-o6ndb.
 
   Defence-in-depth — when `:csp-script-src-allowlist` is supplied (set
   of allowed script-src hostnames), the shell scans `:body-end` for
