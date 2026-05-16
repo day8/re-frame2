@@ -459,20 +459,24 @@
 ;; ---------------------------------------------------------------------------
 ;; Gate 6 — causa-mcp impl-not-landed tripwire. Same posture as
 ;; `causa-mcp-impl-still-absent` in `indicator_field_test.clj`: when
-;; causa-mcp's `src/` lands, the reviewer must extend the per-server
-;; source-file coverage for every slot in `canonical-slots`.
+;; causa-mcp lands real tool source files under `src/.../tools/`,
+;; the reviewer must extend the per-server source-file coverage for
+;; every slot in `canonical-slots`. The F-1 scaffold (rf2-8xzoe.1)
+;; ships a banner-only `server.cljs` that doesn't consume the slot
+;; vocabulary; the per-tool subdir is the meaningful tripwire boundary.
 ;; ---------------------------------------------------------------------------
 
 (deftest causa-mcp-impl-still-absent
-  (let [src-dir (io/file fx/repo-root "tools/causa-mcp/src")]
-    (is (or (not (.exists src-dir))
-            (empty? (filter #(.isFile ^java.io.File %) (file-seq src-dir))))
-        (str "tools/causa-mcp/src/ now contains source files. "
-             "Extend the `:causa-mcp` entry in `:sources` on every "
-             "row of `canonical-slots` to grep causa-mcp's tool "
-             "source instead of just its spec. Same posture as the "
-             "indicator-field tripwire — the spec-side grep is a "
-             "stand-in until impl lands."))))
+  (let [tools-dir (io/file fx/repo-root
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools")]
+    (is (or (not (.exists tools-dir))
+            (empty? (filter #(.isFile ^java.io.File %) (file-seq tools-dir))))
+        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ now "
+             "contains source files. Extend the `:causa-mcp` entry in "
+             "`:sources` on every row of `canonical-slots` to grep "
+             "causa-mcp's tool source instead of just its spec. Same "
+             "posture as the indicator-field tripwire — the spec-side "
+             "grep is a stand-in until impl lands."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate 7 — server-coverage sanity. Every server referenced in

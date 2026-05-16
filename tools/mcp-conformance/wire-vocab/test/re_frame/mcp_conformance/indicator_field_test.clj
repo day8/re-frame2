@@ -399,22 +399,29 @@
 ;;
 ;; This file adds the symmetric pin for causa-mcp: its spec text
 ;; cross-references the slot vocabulary (per Principles.md), but its
-;; implementation hasn't landed yet — the spec mentions don't count as
-;; emit-sites. The day causa-mcp's `src/` lands a tree-typed-payload
-;; walker, the reviewer extends `tree-walking-tool-sources` (a new
-;; entry routed through causa's own helper, which must also be added
-;; to `inline-emit-whitelist` analogue for causa).
+;; tool implementations haven't landed yet — the spec mentions and the
+;; F-1 banner-only `server.cljs` scaffold don't count as emit-sites.
+;; The day causa-mcp's `src/.../tools/` directory lands tree-typed-
+;; payload walkers, the reviewer extends `tree-walking-tool-sources`
+;; (a new entry routed through causa's own helper, which must also be
+;; added to `inline-emit-whitelist` analogue for causa).
 ;; ---------------------------------------------------------------------------
 
 (deftest causa-mcp-impl-still-absent
-  ;; Sanity tripwire. causa-mcp's `src/` is empty today (spec-only).
-  ;; When it lands, this test fails and the reviewer extends the
+  ;; Tripwire — fires when causa-mcp lands real tool source files
+  ;; (per-tool tree-walkers under `src/.../tools/`). The F-1 scaffold
+  ;; (rf2-8xzoe.1) shipped a banner-only `server.cljs` that's not a
+  ;; tree-walking emit-site, so the directory probe targets the
+  ;; per-tool subdirectory both pair2-mcp and story-mcp use to host
+  ;; their tree-walking tools. When `src/day8/re_frame2_causa_mcp/tools/`
+  ;; appears with files, this test fails and the reviewer extends the
   ;; tree-walking-tool catalogue with causa entries.
-  (let [src-dir (io/file fx/repo-root "tools/causa-mcp/src")]
-    (is (or (not (.exists src-dir))
-            (empty? (filter #(.isFile ^java.io.File %) (file-seq src-dir))))
-        (str "tools/causa-mcp/src/ now contains source files. "
-             "Extend `tree-walking-tool-sources` and "
-             "`inline-emit-whitelist` (or their causa-mcp equivalents) "
-             "to cover causa-mcp's tree-walking tools per Conventions:154 "
-             "/ Spec 009:1411 MUST-level parity."))))
+  (let [tools-dir (io/file fx/repo-root
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools")]
+    (is (or (not (.exists tools-dir))
+            (empty? (filter #(.isFile ^java.io.File %) (file-seq tools-dir))))
+        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ now "
+             "contains source files. Extend `tree-walking-tool-sources` "
+             "and `inline-emit-whitelist` (or their causa-mcp "
+             "equivalents) to cover causa-mcp's tree-walking tools "
+             "per Conventions:154 / Spec 009:1411 MUST-level parity."))))
