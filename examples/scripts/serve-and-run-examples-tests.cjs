@@ -28,12 +28,23 @@ const {
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 const PORT = 8030;
+// rf2-j3dlc — live-SSR JVM Ring server (Jetty) for the
+// `ssr-live.spec.cjs` smoke. Side-port so it lives alongside the static
+// http-server on PORT without contention. Launched by `main()` below
+// via `clojure -X:live-ssr-server` against
+// `examples/reagent/ssr/deps.edn`.
+const LIVE_SSR_PORT = 8031;
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
 // (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const RUNNER = path.resolve(__dirname, 'run-examples-tests.cjs');
+// Live-SSR harness dir — deps.edn + server.clj. The `:examples/ssr`
+// build's `:output-dir` (under OUT_ROOT) supplies the `main.js` the
+// JVM server serves for browser hydration.
+const LIVE_SSR_DIR = path.join(REPO_ROOT, 'examples', 'reagent', 'ssr');
+const LIVE_SSR_STATIC_ROOT = path.join(OUT_ROOT, 'ssr');
 // http-server is a devDependency of implementation/package.json. Resolve
 // it from there explicitly so this script can be invoked from any cwd.
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
@@ -415,6 +426,33 @@ function stageHtml() {
   }
 }
 
+// rf2-j3dlc — launch the live-SSR JVM Ring server. The Clojure CLI
+// ships as `clojure` (POSIX) or `clojure.exe` / `deps.clj` (Windows).
+// `shell: true` on Windows lets the OS resolve the right one against
+// %PATHEXT% (.EXE, .CMD, .BAT) without us hard-coding the suffix.
+//
+// We DO NOT pass `:static-root` on the command line — Clojure `-X`
+// args go through `read-string` once and then through the platform
+// shell once, and Windows backslash-bearing paths survive neither
+// cleanly. Instead we rely on the alias's `:exec-args :static-root`
+// default (relative path baked into examples/reagent/ssr/deps.edn,
+// resolved against the LIVE_SSR_DIR cwd). Port stays on the CLI
+// because it's a plain integer with no shell-meaningful characters.
+//
+// The server stays alive until the orchestrator's cleanup kills it.
+function spawnLiveSsrServer() {
+  const isWin = process.platform === 'win32';
+  const args = [
+    '-X:live-ssr-server',
+    ':port', String(LIVE_SSR_PORT),
+  ];
+  return cleanup.trackProcess(spawnHarnessProcess('clojure', args, {
+    cwd:   LIVE_SSR_DIR,
+    stdio: ['ignore', 'inherit', 'inherit'],
+    shell: isWin,
+  }));
+}
+
 async function main() {
   compileAll();
   stageHtml();
@@ -440,9 +478,41 @@ async function main() {
     return 1;
   }
 
+  // rf2-j3dlc — bring up the live-SSR JVM server before the spec runner
+  // starts. The :examples/ssr build was just compiled by `compileAll`
+  // (above), so `LIVE_SSR_STATIC_ROOT/main.js` is on disk and the
+  // server's static handler can serve it on the same origin as the
+  // SSR-rendered HTML. The browser-driven `ssr-live.spec.cjs` reaches
+  // it via http://127.0.0.1:LIVE_SSR_PORT/.
+  const liveSsr = spawnLiveSsrServer();
+  let liveSsrDown = false;
+  liveSsr.on('exit', (code, signal) => {
+    liveSsrDown = true;
+    if (code !== 0 && code !== null) {
+      console.error(`live-ssr server exited unexpectedly (code=${code}, signal=${signal}).`);
+    }
+  });
+  // JVM cold-start (Clojure + shadow-cljs's transitive deps + Jetty
+  // bind) — well within READY_TIMEOUT_MS in CI but can take ~10-20s
+  // on a cold local cache.
+  const liveSsrReady = await waitForHttpReady(LIVE_SSR_PORT, Date.now() + READY_TIMEOUT_MS, {
+    isAborted: () => liveSsrDown,
+  });
+  if (!liveSsrReady || liveSsrDown) {
+    console.error(`live-ssr server did not become reachable on :${LIVE_SSR_PORT} within ${READY_TIMEOUT_MS}ms.`);
+    return 1;
+  }
+
   const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
-    env: { ...process.env, EXAMPLES_BASE_URL: `http://127.0.0.1:${PORT}` },
+    env: {
+      ...process.env,
+      EXAMPLES_BASE_URL:    `http://127.0.0.1:${PORT}`,
+      // rf2-j3dlc — exposed to `ssr-live.spec.cjs` so the spec can
+      // build its `spec.url` against the JVM server's port without
+      // hard-coding it in the spec module.
+      EXAMPLES_LIVE_SSR_URL: `http://127.0.0.1:${LIVE_SSR_PORT}`,
+    },
   }));
 
   const code = await new Promise((resolve) => runner.on('exit', resolve));

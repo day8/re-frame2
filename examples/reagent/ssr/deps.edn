@@ -1,0 +1,34 @@
+;; rf2-j3dlc — live-SSR browser smoke test harness.
+;;
+;; This deps.edn is consumed ONLY by examples/scripts/serve-and-run-examples-tests.cjs
+;; via `clojure -X:live-ssr-server` to spin up a real Jetty + ssr-handler
+;; for the browser-driven live-SSR Playwright spec (ssr-live.spec.cjs).
+;;
+;; Pulls in the SSR + ssr-ring artefacts via :local/root so the published-
+;; artefact coordinate graph (implementation/deps.edn) is untouched (that
+;; file is hot-zone per the dispatch rules). The example's ssr.core
+;; namespace is on the classpath via the `examples/reagent` :extra-path.
+;;
+;; Test-only — this file is NOT part of any published artefact.
+;; `:paths` carries just the server.clj source (this directory). The
+;; `ssr.core` namespace under `examples/reagent/` is brought in via the
+;; alias `:extra-paths` (Clojure deprecates externals in `:paths` but
+;; allows them in `:extra-paths`).
+{:paths   ["."]
+ :deps    {day8/re-frame2           {:local/root "../../../implementation/core"}
+           day8/re-frame2-schemas   {:local/root "../../../implementation/schemas"}
+           day8/re-frame2-http      {:local/root "../../../implementation/http"}
+           day8/re-frame2-ssr       {:local/root "../../../implementation/ssr"}
+           day8/re-frame2-ssr-ring  {:local/root "../../../implementation/ssr-ring"}
+           ;; ssr-ring's :test alias pins this version; reuse it so the
+           ;; live-SSR harness rides on a known-good combination.
+           ring/ring-jetty-adapter  {:mvn/version "1.12.1"}}
+
+ :aliases
+ {:live-ssr-server
+  {:extra-paths ["../../../examples/reagent"]
+   :exec-fn     ssr.server/-main
+   ;; Defaults; the orchestrator overrides on the CLI via
+   ;;   clojure -X:live-ssr-server :port 8031 :static-root "..."
+   :exec-args   {:port        8031
+                 :static-root "../../../implementation/out/examples/ssr"}}}}
