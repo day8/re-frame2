@@ -7,9 +7,11 @@
 (defn reset-editor [test-fn]
   (config/set-editor! :vscode)
   (config/set-auto-open! true)
+  (config/set-project-root! nil)
   (test-fn)
   (config/set-editor! :vscode)
-  (config/set-auto-open! true))
+  (config/set-auto-open! true)
+  (config/set-project-root! nil))
 
 (use-fixtures :each reset-editor)
 
@@ -98,3 +100,87 @@
   (testing "config/editor-uri returns nil when coord has no :file"
     (is (nil? (config/editor-uri {:line 10})))
     (is (nil? (config/editor-uri nil)))))
+
+;; ---- project-root (rf2-5m5n2) -------------------------------------------
+;;
+;; Mirror of Story's rf2-zfy1e test matrix. Source-coords stamped at
+;; registration time are classpath-relative; editor schemes resolve
+;; against the filesystem and reject relative paths. The host plumbs an
+;; on-disk root via `configure! :project-root`; the Causa-side helpers
+;; prepend it before the URI ships.
+
+(deftest default-project-root-is-nil
+  (testing "Causa's default project-root is nil (preserves v1 behaviour
+            for hosts that haven't plumbed the knob yet)"
+    (is (nil? (config/get-project-root)))))
+
+(deftest set-project-root-round-trips
+  (testing "set-project-root! writes and get-project-root reads"
+    (config/set-project-root! "/abs/code")
+    (is (= "/abs/code" (config/get-project-root)))
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
+    (config/set-project-root! nil)
+    (is (nil? (config/get-project-root)))))
+
+(deftest set-project-root-normalises-blank-string-to-nil
+  (testing "blank strings normalise to nil so the helper behaves as if
+            unset (mirrors Story's rf2-zfy1e normalisation)"
+    (config/set-project-root! "")
+    (is (nil? (config/get-project-root)))
+    (config/set-project-root! "/abs/code")
+    (is (= "/abs/code" (config/get-project-root)))
+    (config/set-project-root! "")
+    (is (nil? (config/get-project-root)))))
+
+(deftest configure-passes-project-root-through
+  (testing "configure! routes :project-root through set-project-root!"
+    (config/configure! {:project-root "C:/Users/me/code/my-app"})
+    (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
+    (config/configure! {:project-root "/abs/code"})
+    (is (= "/abs/code" (config/get-project-root)))
+    (testing "explicit nil clears the slot"
+      (config/configure! {:project-root nil})
+      (is (nil? (config/get-project-root))))))
+
+(deftest configure-without-project-root-leaves-slot-untouched
+  (testing "configure! with no :project-root key leaves the slot unchanged
+            (lets hosts call configure! multiple times for unrelated
+            keys without clobbering the project-root)"
+    (config/set-project-root! "/abs/code")
+    (config/configure! {:editor :cursor})
+    (is (= "/abs/code" (config/get-project-root)))))
+
+(deftest editor-uri-prepends-project-root
+  (testing "config/editor-uri threads :project-root through the helper's
+            3-arg form so a relative coord resolves to an absolute on-
+            disk URI"
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
+           (config/editor-uri {:file "src/app/views.cljs"
+                               :line 42
+                               :column 7})))))
+
+(deftest editor-uri-without-project-root-ships-file-verbatim
+  (testing "config/editor-uri preserves v1 behaviour when project-root
+            is unset — the file string ships verbatim"
+    (is (nil? (config/get-project-root)))
+    (is (= "vscode://file/src/app/views.cljs:1:1"
+           (config/editor-uri {:file "src/app/views.cljs"
+                               :line 1
+                               :column 1})))))
+
+(deftest editor-uri-project-root-regression-rf2-5m5n2
+  (testing "regression: the relative source-coord case the editor's
+            OS handler used to reject ('Path does not exist') now
+            resolves to an absolute on-disk URI when :project-root is
+            plumbed (mirror of Story's rf2-zfy1e regression)"
+    (config/set-project-root!
+      "C:/Users/miket/code/re-frame2/tools/causa/testbeds")
+    (is (= (str "vscode://file/"
+                "C:/Users/miket/code/re-frame2/tools/causa/testbeds/"
+                "panel_gallery/event_detail_stories.cljs:115:3")
+           (config/editor-uri
+             {:file "panel_gallery/event_detail_stories.cljs"
+              :line 115
+              :column 3})))))

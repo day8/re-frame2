@@ -172,6 +172,55 @@
   []
   @editor)
 
+;; ---- *project-root* (rf2-5m5n2 — 'Open in editor' path prefix) ----------
+;;
+;; Per rf2-zfy1e (Story) / rf2-5m5n2 (Causa): source-coords stamped at
+;; registration time are classpath-relative (the form-meta `:file` slot,
+;; e.g. `"panel_gallery/event_detail_stories.cljs"`). Editor URI handlers
+;; (`vscode://file/<path>...`, `cursor://...`, `idea://...`, etc.) resolve
+;; `<path>` against the filesystem; a relative path fails with "Path does
+;; not exist". Causa's 'Open' chip + the `:rf.editor/open` reg-fx
+;; therefore need to know the on-disk root to prepend before the URI
+;; ships.
+;;
+;; The host application sets this once at boot via
+;; `(causa-config/configure! {:project-root "C:/Users/me/code/my-app/src"})`.
+;; Default is nil — when unset, the source-coord file ships verbatim and
+;; the Open chip behaves exactly as it did pre-rf2-5m5n2 (useful for hosts
+;; whose source-paths are already absolute, and for tests).
+;;
+;; Causa's project-root is **independent** of Story's. Hosts that run
+;; both tools may want different roots (e.g. an app-source root for
+;; Causa, a stories root for Story); two atoms, two `configure!` surfaces.
+;;
+;; The atom is plain data; production builds DCE the Causa shell that
+;; reads it, so the value is harmless if it survives into a release
+;; bundle.
+
+(defonce
+  ^{:doc "Atom holding the project-root prefix for Causa's 'Open in
+         editor'. Default `nil` (no prefix; ship the source-coord file
+         verbatim). Set by `day8.re-frame2-causa.config/configure!` via
+         the `:project-root` key. Read by `open-in-editor/resolve-uri`
+         — prepended to the source-coord's `:file` slot when building
+         the editor URI."}
+  project-root
+  (atom nil))
+
+(defn set-project-root!
+  "Replace the project-root prefix. Accepts a string (the on-disk root,
+  typically the directory above the classpath source-paths, joined to
+  source-coords via `/`), or `nil` (clears the prefix). Causa's
+  `configure!` calls this. Blank strings normalise to nil."
+  [p]
+  (reset! project-root (when (and (string? p) (seq p)) p))
+  nil)
+
+(defn get-project-root
+  "Return the current project-root string, or nil when unset."
+  []
+  @project-root)
+
 ;; ---- *show-sensitive?* (rf2-azls9 — :sensitive? trace-event policy) ------
 ;;
 ;; Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published
@@ -340,6 +389,11 @@
   "Top-level Causa configuration. Accepts:
 
     `{:editor <kw>}` — Causa's 'Open in editor' preference (rf2-evgf5).
+    `{:project-root <string>}` — on-disk root prepended to the source-
+       coord's classpath-relative `:file` slot before the editor URI
+       ships (rf2-5m5n2). Default `nil`. Nil / blank clears the slot;
+       an absent key leaves the current value untouched. Hosts whose
+       source-paths are already absolute can leave this unset.
     `{:layout/host-selector <css-selector>}` — app-provided true-inline
        layout host for the default shell. Defaults to
        `[data-rf-causa-host]`.
@@ -360,18 +414,21 @@
   Hosts typically call this once at boot:
 
       (require '[day8.re-frame2-causa.config :as causa-config])
-      (causa-config/configure! {:editor :cursor
+      (causa-config/configure! {:editor       :cursor
+                                :project-root \"C:/Users/me/code/my-app\"
                                 :layout/host-selector \"#causa\"
                                 :launch/auto-open? true})
 
   Returns nothing."
-  [{:keys [editor]
+  [{:keys [editor project-root]
     host-selector-opt :layout/host-selector
     auto-open-opt :launch/auto-open?
     show-sensitive-opt :trace/show-sensitive?
     :as opts}]
   (when (some? editor)
     (set-editor! editor))
+  (when (contains? opts :project-root)
+    (set-project-root! project-root))
   (when (contains? opts :layout/host-selector)
     (set-layout-host-selector! host-selector-opt))
   (when (contains? opts :launch/auto-open?)
@@ -384,9 +441,11 @@
 
 (defn editor-uri
   "Build an 'Open in editor' URI for `source-coord` using Causa's
-  configured editor. Thin wrapper around
-  `re-frame.source-coords.editor-uri/editor-uri` that reads the current
-  preference from the atom. Returns a string URI, or nil when the
-  source-coord has no `:file`."
+  configured editor + configured project-root (rf2-5m5n2). Thin
+  wrapper around `re-frame.source-coords.editor-uri/editor-uri` that
+  reads the current preference from the atom AND threads the
+  configured project-root through the helper's 3-arg form. Returns a
+  string URI, or nil when the source-coord has no `:file`."
   [source-coord]
-  (editor-uri/editor-uri (get-editor) source-coord))
+  (editor-uri/editor-uri (get-editor) source-coord
+                         {:project-root (get-project-root)}))
