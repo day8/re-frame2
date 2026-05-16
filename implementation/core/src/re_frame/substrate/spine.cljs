@@ -34,6 +34,7 @@
   (:require ["react"             :as React]
             ["react-dom/client"  :as react-dom-client]
             [re-frame.disposable :as rf-disposable]
+            [re-frame.frame      :as frame]
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
             [re-frame.subs       :as subs]
@@ -201,22 +202,85 @@
         (swap! active-roots-cell disj root)
         (.unmount root)))))
 
+(defn dispose-frame-sub-caches!
+  "Walk every live frame's per-frame sub-cache and dispose each cached
+  Reaction (Spec 006 §Adapter disposal lifecycle MUST 1; rf2-9fdkb,
+  rf2-a47kq, rf2-jcjul).
+
+  Why the walk exists at all. Component-unmount-driven disposal handles
+  the mounted case — the reactive substrate reaps a derived value once
+  its last watcher drops. This walk covers the test-fixture / headless
+  path where no component unmount fires before the adapter goes away,
+  AND the SSR / server-render path where the rendered tree was string-
+  serialised without ever being mounted. Without the walk, a long-lived
+  process driving sequential `init! → dispose-adapter!` cycles (test
+  bundles, hot-reload, multi-adapter integration tests) accumulates
+  cached Reactions closed over stale frames forever.
+
+  Per-entry contract. For every `[k entry]` in every live frame's
+  `:sub-cache` atom:
+
+    1. If `entry` carries a `:pending-dispose` timer handle (the
+       sub-cache's grace-period reaper), cancel it via
+       `interop/clear-timeout!` — otherwise a fired timer would
+       attempt to touch a torn-down adapter slot.
+    2. Dispose the cached `:reaction` via `interop/dispose!`. This
+       routes through `:adapter/dispose!`, which is still wired at
+       this point in the teardown sequence (the substrate-adapter
+       clears the install slot AFTER calling the adapter's
+       `dispose-adapter!`).
+    3. After draining each frame's entries, `reset!` its sub-cache
+       atom to `{}`.
+
+  The walk is best-effort: a throwing per-entry dispose (e.g. a
+  misbehaving user `:on-dispose` hook, or a poison entry inserted by
+  tests) does NOT abort the rest of the walk — every other cached
+  Reaction in the same cache AND every cache in subsequent frames
+  still gets disposed and cleared. Per-entry throws are swallowed.
+
+  Used by every React-shaped adapter's `dispose-adapter!` — wired into
+  the `make-dispose-adapter!` factory for UIx / Helix and called
+  directly from the Reagent / reagent-slim adapters' dispose paths.
+  Centralising the walk here is the rf2-jcjul lockstep: one
+  implementation, three adapters, zero drift."
+  []
+  (doseq [[_ frame-record] @frame/frames]
+    (when-let [cache (:sub-cache frame-record)]
+      (doseq [[_k entry] @cache]
+        (when-let [h (:pending-dispose entry)]
+          (try (interop/clear-timeout! h)
+               (catch :default _ nil)))
+        (when-let [r (:reaction entry)]
+          (try (interop/dispose! r)
+               (catch :default _ nil))))
+      (reset! cache {}))))
+
 (defn make-dispose-adapter!
-  "Build a `dispose-adapter!` fn that drains `active-roots-cell` by
-  calling `.unmount` on every tracked React root and clears the
-  spine's per-adapter caches:
+  "Build a `dispose-adapter!` fn satisfying Spec 006 §Adapter disposal
+  lifecycle (rf2-9fdkb). The returned fn:
 
-    * the active-roots set is emptied (post-unmount),
-    * the warn-once cache is emptied (so a subsequent install does not
-      inherit stale warn-once state from a prior lifecycle),
-    * the hiccup-emitter cell is cleared.
+    1. Walks every live frame's per-frame sub-cache and disposes each
+       cached Reaction (`dispose-frame-sub-caches!`), satisfying MUST
+       (1): cancel all in-flight reactive subscriptions.
+    2. Drains `active-roots-cell` by calling `.unmount` on every
+       tracked React root, satisfying MUST (2): release host-specific
+       resources.
+    3. Clears the spine's per-adapter caches — `active-roots-cell`,
+       `warn-cache`, `emitter-cell` — satisfying MUST (3): discard
+       internal caches.
 
-  Per Spec 006 §Adapter disposal lifecycle (rf2-9fdkb). React's
-  `.unmount` is idempotent / no-op on already-unmounted roots; we
-  swallow any unmount throw so one misbehaving root does not strand
-  the rest of the drain."
+  MUST (4) (subsequent calls return `:rf.error/adapter-disposed`) is
+  enforced one level up by `substrate-adapter/dispose-adapter!` via
+  the `disposed?` breadcrumb (rf2-6wxys).
+
+  Best-effort drains. React's `.unmount` is idempotent / no-op on
+  already-unmounted roots; we swallow any unmount throw so one
+  misbehaving root does not strand the rest of the drain. The
+  sub-cache walk has its own per-entry try/catch (see
+  `dispose-frame-sub-caches!`)."
   [{:keys [active-roots-cell warn-cache emitter-cell]}]
   (fn dispose-adapter! []
+    (dispose-frame-sub-caches!)
     (doseq [root @active-roots-cell]
       (try (.unmount root)
            (catch :default _ nil)))
