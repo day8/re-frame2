@@ -1,4 +1,4 @@
-# MkDocs build-time hooks (rf2-qvlf, rf2-jtkc).
+# MkDocs build-time hooks (rf2-qvlf, rf2-jtkc, rf2-wjfzn).
 #
 # The narrative guide lives at docs/guide/*.md. Many guide pages cross-link
 # to the normative spec under spec/*.md using the path ../../spec/ — that
@@ -17,7 +17,7 @@
 # rewrite the markdown at build time. Source on disk remains correct for
 # both contexts.
 #
-# Two rewrite cases (rf2-jtkc):
+# Rewrite cases:
 #
 #   1. guide -> spec      ../../spec/       -> ../spec/
 #                         (spec is staged into docs/spec/, so it IS in the
@@ -25,10 +25,27 @@
 #
 #   2. cross-tree refs to trees that are NOT staged into the site:
 #        - examples/   (CLJS apps; not docs to render)
-#        - root README.md
+#        - root README.md, CHANGELOG.md, VERSION, TESTING.md
+#        - .github/    (CI workflows; not docs)
+#        - implementation/   (CLJS source; not docs)
+#        - tools/      (tool source + per-tool spec; not staged into docs/)
+#        - skills/X/Y  (skill internals — references/, SKILL.md, etc; not
+#                       staged. Only the single-page summary docs/skills/X.md
+#                       is staged via the Skills nav section.)
 #      These are rewritten to absolute GitHub blob URLs so the published
 #      site links to the source-tree view on github.com. Source files
 #      keep their GitHub-friendly relative paths.
+#
+#   3. directory-style links to in-tree pages:
+#        - guide pages link to ../../skills/X/ (the source-tree directory)
+#          where docs/skills/X.md exists as the published summary — rewrite
+#          to ../skills/X.md so the published site lands on the summary.
+#        - guide sub-chapter pages link to ../../causa/ where the published
+#          site's causa section opens at causa/index.md — rewrite the bare
+#          directory link to ../../causa/index.md.
+#        - spec/SPEC-AUTHORING.md links to conformance/ (sibling directory
+#          of spec/, staged into docs/spec/conformance/) — rewrite the bare
+#          directory link to conformance/README.md.
 
 import re
 
@@ -62,6 +79,24 @@ _DOCSROOT_TO_SPEC = re.compile(r'\]\(\.\./spec/')
 # relative path from spec/ is ../release-process.md, i.e. ../ (no docs/
 # segment).
 _SPEC_TO_DOCSROOT = re.compile(r'\]\(\.\./docs/')
+
+# Case 3a: directory-style ../../skills/X/ from guide pages — rewrite to the
+# in-tree summary page ../skills/X.md (one level up from docs/guide/X.md is
+# docs/, and docs/skills/X.md is the published nav entry). Only the bare
+# directory form is matched; sub-paths fall through to the GitHub-URL rewrite.
+_GUIDE_SKILL_DIR = re.compile(r'\]\(\.\./\.\./skills/([A-Za-z0-9._-]+)/\)')
+
+# Case 3b: directory-style ../../causa/ from guide sub-chapter pages — the
+# published causa section opens at docs/causa/index.md. Rewrite the bare
+# directory link to the explicit index file. Source path is unchanged on
+# GitHub (where a directory link opens the directory listing as the user
+# expects).
+_GUIDE_CAUSA_DIR = re.compile(r'\]\(\.\./\.\./causa/\)')
+
+# Case 3c: directory-style conformance/ from spec/SPEC-AUTHORING.md — the
+# conformance corpus is staged at docs/spec/conformance/, with README.md as
+# its index. MkDocs needs the explicit .md target.
+_SPEC_CONFORMANCE_DIR = re.compile(r'\]\(conformance/\)')
 
 # Case 2: cross-tree refs that don't exist in the staged docs tree.
 # These rewrites apply to ALL pages (guide/, spec/, and docs/-root pages
@@ -109,17 +144,39 @@ _REWRITES = (
      rf']({GH_BLOB_BASE}/implementation/\1)'),
     (re.compile(r'\]\(\.\./implementation/([^)\s]*)\)'),
      rf']({GH_BLOB_BASE}/implementation/\1)'),
+    # tools/ tree (per-tool source + per-tool spec/; not staged into docs/).
+    # The per-tool spec/* lives with its artefact (lockstep contract) per
+    # spec/Ownership.md §"Canonical homes outside /spec"; rewriting to a
+    # GitHub URL preserves both the in-source and on-site link targets.
+    (re.compile(r'\]\(\.\./\.\./tools/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/tools/\1)'),
+    (re.compile(r'\]\(\.\./tools/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/tools/\1)'),
+    # skills/X/Y (skill internals — references/, SKILL.md, etc.). The single
+    # per-skill summary page docs/skills/X.md is staged via the Skills nav;
+    # everything else under skills/ is repo-only. NOTE: this MUST run after
+    # the case-3a rewrite that turns guide-page ../../skills/X/ (bare dir)
+    # into ../skills/X.md (in-tree summary).
+    (re.compile(r'\]\(\.\./\.\./skills/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/skills/\1)'),
+    (re.compile(r'\]\(\.\./skills/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/skills/\1)'),
+    # root TESTING.md (canonical test-matrix; not staged into docs/).
+    (re.compile(r'\]\(\.\./\.\./TESTING\.md(#[^)\s]*)?\)'),
+     rf']({GH_BLOB_BASE}/TESTING.md\1)'),
+    (re.compile(r'\]\(\.\./TESTING\.md(#[^)\s]*)?\)'),
+     rf']({GH_BLOB_BASE}/TESTING.md\1)'),
 )
 
 
 def on_page_markdown(markdown, page, config, files):
     """Rewrite cross-tree links in guide/*, skills/*, and spec/* pages.
 
-    1. ../../spec/ -> ../spec/   (on guide/* and skills/* pages; spec IS
-                                  staged into docs/spec/, and both trees
-                                  share the same docs/<tree>/X.md depth)
-    2. ../../examples/ and ../examples/  -> https://github.com/.../examples/
-    3. ../../README.md and ../README.md  -> https://github.com/.../README.md
+    See the module docstring for the full rewrite catalogue. Order matters:
+    the in-tree directory-style rewrites (case 3) MUST run before the
+    GitHub-URL rewrites (case 2), so that e.g. ../../skills/X/ collapses to
+    ../skills/X.md (in-tree summary) instead of expanding to a GitHub URL
+    for the directory listing.
     """
     src = page.file.src_path.replace('\\', '/')
 
@@ -134,13 +191,26 @@ def on_page_markdown(markdown, page, config, files):
         if src.count('/') >= 2:
             # depth-3 (or deeper) — sub-chapter pages
             markdown = _GUIDE_DEEP_TO_SPEC.sub('](../../spec/', markdown)
+            # Bare ../../causa/ -> ../../causa/index.md (chapter overview).
+            # Only sub-chapter pages emit this shape; depth-2 guide pages
+            # would use ../causa/ and don't appear in the warning set.
+            markdown = _GUIDE_CAUSA_DIR.sub('](../../causa/index.md)', markdown)
         else:
             markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
+            # Bare ../../skills/X/ -> ../skills/X.md (in-tree summary page).
+            # Only depth-2 guide pages emit this shape today; skills/ sub-
+            # paths (e.g. ../../skills/X/SKILL.md) fall through to the
+            # GitHub-URL rewrite below since the published site only carries
+            # the per-skill summary page, not the skill internals.
+            markdown = _GUIDE_SKILL_DIR.sub(r'](../skills/\1.md)', markdown)
     elif src.startswith('spec/'):
         # Spec pages link to docs-root pages via ../docs/ — collapse the
         # docs/ segment so the staged-tree path is ../release-process.md
         # (sibling of docs/spec/ in the docs_dir).
         markdown = _SPEC_TO_DOCSROOT.sub('](../', markdown)
+        # Bare conformance/ -> conformance/README.md. The conformance corpus
+        # is staged at docs/spec/conformance/; MkDocs needs the explicit .md.
+        markdown = _SPEC_CONFORMANCE_DIR.sub('](conformance/README.md)', markdown)
     elif '/' not in src:
         # Docs-root page (e.g. release-process.md). Rewrite ../spec/ -> spec/.
         markdown = _DOCSROOT_TO_SPEC.sub('](spec/', markdown)
