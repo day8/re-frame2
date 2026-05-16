@@ -43,12 +43,17 @@ Minimal host markup:
 </div>
 ```
 
-Minimal layout:
+Minimal layout (the `var(...)` reading of `--rf-causa-inline-width`
+is the supported host-resize knob — see §Resizing the inline host
+below):
 
 ```css
 body { margin: 0; }
 .app-shell { display: flex; min-height: 100vh; }
-[data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+[data-rf-causa-host] {
+  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  min-width: 320px;
+}
 #app { flex: 1; min-width: 0; }
 ```
 
@@ -59,6 +64,70 @@ the host. Hosts may override the selector before Causa opens:
 (require '[day8.re-frame2-causa.config :as causa-config])
 (causa-config/configure! {:layout/host-selector "#devtools-causa"})
 ```
+
+### Resizing the inline host
+
+Per `rf2-um813`, the recommended host snippet reads a single CSS
+custom property — `--rf-causa-inline-width` — for its `flex-basis`,
+so developers can resize the inline Causa panel without forking the
+host rule or falling back to overlay / body-padding dock modes.
+
+The contract is **JS-free** and **host-owned**: Causa itself does not
+read the property; the host's stylesheet does. The host's
+`[data-rf-causa-host]` rule uses the variable with a default fallback
+identical to the historical fixed-pixel default (420px):
+
+```css
+[data-rf-causa-host] {
+  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  min-width: 320px;
+}
+```
+
+To resize, override the property anywhere up the cascade — the closest
+declaration wins as usual:
+
+```css
+/* Global default — every page in the app */
+:root { --rf-causa-inline-width: 560px; }
+
+/* Per-route override (e.g. a debugging route that wants more room) */
+.debug-route { --rf-causa-inline-width: 720px; }
+
+/* Per-user override via a developer stylesheet */
+[data-rf-causa-host] { --rf-causa-inline-width: 380px; }
+```
+
+Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`,
+…) — the variable is plugged straight into `flex-basis`. The
+`min-width: 320px` floor in the recommended rule prevents the panel
+from collapsing past readability when the developer specifies a small
+value; remove the floor if you want truly unbounded shrink.
+
+App content to the right (`#app { flex: 1; min-width: 0 }`) stays in
+normal flow regardless of the inline width — Causa never overlays the
+app, never claims a hit-test region outside its host, and never
+mutates `body` padding in the default true-inline mode. This holds
+during resize as well: changing the property triggers a flex reflow,
+the host shrinks/grows, the app reflows to fill the remainder, and
+nothing in the page becomes unclickable.
+
+The property name and default are published as
+`day8.re-frame2-causa.config/default-layout-host-css-var` and
+`default-layout-host-width` so tooling, story-mode chrome, and the AI
+co-pilot's snippet helper can refer to them without forking the
+string. Causa MUST NOT introduce a runtime API that sets the property
+from CLJS — the host's stylesheet is the single source of truth for
+sizing; introducing a CLJS setter would split that source.
+
+A JS-driven draggable separator was considered and rejected at this
+phase (rf2-um813): the CSS-variable contract covers the "developers
+need to tweak the width" requirement at zero runtime surface, zero
+new failure modes, and a one-line override path. A draggable handle
+adds pointer-capture, hit-test priority, ARIA semantics, and reduced-
+motion handling for marginal benefit; if the user need surfaces, a
+later bead may add it ON TOP of the CSS contract (the handle would
+write the same property).
 
 If the selector cannot be found after the substrate adapter is ready,
 Causa MUST fail loudly but safely: `console.error` with the selector
