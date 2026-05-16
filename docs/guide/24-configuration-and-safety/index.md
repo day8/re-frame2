@@ -34,7 +34,7 @@ The framework does not strip-and-warn. It does not silently normalise. It does n
 
 ## What this chapter covers
 
-Six pages. Each page answers one concrete question:
+Seven pages. Each page answers one concrete question:
 
 - [01 — Framework configuration](01-framework-config.md). What `configure` lets you tune (and when to bother). The four keys, what they default to, and how to know your value is doing anything.
 - [02 — HTTP safety primitives](02-http-safety.md). The CRLF fail-fast on server-side responses, the JSON keyword-interning cap, and the slow-loris timeout that makes the network give up on unresponsive partners before they exhaust your pool.
@@ -42,5 +42,6 @@ Six pages. Each page answers one concrete question:
 - [04 — Drain depth and error recovery](04-drain-depth-and-error-recovery.md). What the run-to-completion drain's depth ceiling protects you from, why the rollback is atomic, and how to tune it per frame.
 - [05 — Reserved namespaces](05-reserved-namespaces.md). The single catalogue of every `:rf.*/*` prefix the framework owns. Tools check; the linter checks; this is the human-readable copy.
 - [06 — Machine substrate features](06-state-machine-substrate-features.md). The four advanced state-node keys ([chapter 09](../09-state-machines.md) names them in passing) — `:always`, `:after`, `:invoke`, `:invoke-all` — with worked examples and the rules they enforce. Plus `:final?` / `:on-done` / `:output-key` and how parallel regions compose.
+- [07 — Privacy and elision in practice](07-privacy-and-elision.md). The tutorial layered on top of [ch.23a](../23a-privacy-secrets.md) and [ch.23b](../23b-large-blobs.md): a single running example (payments, GDPR export, photo upload, server-side imports) walking through the four progressive tiers of declaration that keep sensitive and oversized values off the wire.
 
 Read in order if you're new. Skim individual pages when something specific bites.

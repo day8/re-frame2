@@ -94,6 +94,7 @@ nav:
       - "24.04 — Drain depth and error recovery": guide/24-configuration-and-safety/04-drain-depth-and-error-recovery.md
       - "24.05 — Reserved namespaces": guide/24-configuration-and-safety/05-reserved-namespaces.md
       - "24.06 — State-machine substrate features": guide/24-configuration-and-safety/06-state-machine-substrate-features.md
+      - "24.07 — Privacy and elision in practice": guide/24-configuration-and-safety/07-privacy-and-elision.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md
