@@ -34,11 +34,11 @@
   each emit a structured trace under `:rf.epoch/*` and leave the
   frame's app-db unchanged."
   (:require [re-frame.elision :as elision]
+            [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.state :as state]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
@@ -114,49 +114,9 @@
   []
   (state/current-config))
 
-(defn- maybe-redact
-  "Run the installed `:redact-fn` against `record` and return its
-  result. nil `record` and nil `redact` are pass-throughs (no
-  invocation, no try/catch overhead). A throwing fn emits
-  `:rf.warning/epoch-redact-fn-exception` carrying `:frame` and
-  `:ex-msg`, then falls back to the raw record so the drain itself
-  is not broken.
-
-  Per Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
-  privacy posture (rf2-wp70d): the fn runs ONCE at build-time,
-  BETWEEN `build-record` and ring-append / listener fan-out — the
-  ring buffer, every `register-epoch-cb!` listener, and any off-box
-  projection through `projected-record` all see the SAME redacted
-  shape. The `:rf.epoch/sensitive?` rollup is computed inside
-  `build-record` (which runs first) so the rollup reflects the RAW
-  signal even when the fn erases the leaves it keyed on.
-
-  Caller MUST wrap invocations in `(when interop/debug-enabled? ...)`
-  — the whole epoch surface shares that gate; this helper carries no
-  separate production gate.
-
-  HOT PATH: fires once per drain-settle. Hot-path cost when no fn is
-  installed is a single keyword lookup on the config map and an
-  identity return."
-  [record]
-  (if-let [f (state/redact-fn)]
-    (if (some? record)
-      (try
-        (f record)
-        (catch #?(:clj Throwable :cljs :default) e
-          ;; Failure isolation: emit the warning, fall back to the
-          ;; raw record. The keyword literal sits inside an
-          ;; `(when interop/debug-enabled? ...)` gate at the call
-          ;; site (every consumer of `maybe-redact` is itself gated),
-          ;; so Closure DCE elides the warning emit + literals
-          ;; under :advanced + goog.DEBUG=false.
-          (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
-                       {:frame  (:frame record)
-                        :ex-msg #?(:clj (.getMessage ^Throwable e)
-                                   :cljs (.-message e))})
-          record))
-      record)
-    record))
+;; The record-assembly helpers — `maybe-redact`, `current-schema-digest`,
+;; the sensitive-rollup family, and `build-record` itself — live in
+;; `re-frame.epoch.assembly` (Phase-2 seam D, rf2-0wi86).
 
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
@@ -261,13 +221,6 @@
                                            :cljs (.-message ex))
                               :recovery :no-recovery}))))))
 
-;; Forward-declare `build-record` for `on-frame-destroyed!` below;
-;; the `defn-` lands in the record-assembly section. Per rf2-v0jwt
-;; the destroy hook must commit a `:halted-destroy` partial record
-;; before clearing the in-flight capture buffer, so it needs visibility
-;; into the record builder.
-(declare build-record)
-
 (defn on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
   and rf2-v0jwt §Outcomes (`:halted-destroy`):
@@ -328,10 +281,10 @@
         ;; commit, `maybe-redact` runs once between `build-record`
         ;; and listener fan-out so listener consumers see the SAME
         ;; redacted shape they would see for an :ok cascade record.
-        (let [record (maybe-redact
-                       (build-record frame-id nil nil buffered-events
-                                     :halted-destroy
-                                     {:operation :rf.frame/destroyed-mid-drain}))]
+        (let [record (assembly/maybe-redact
+                       (assembly/build-record frame-id nil nil buffered-events
+                                              :halted-destroy
+                                              {:operation :rf.frame/destroyed-mid-drain}))]
           (trace/emit! :rf.epoch :rf.epoch/snapshotted
                        {:frame    frame-id
                         :epoch-id (:epoch-id record)
@@ -378,147 +331,6 @@
 ;; point, and the two read-only walks (`project-all`,
 ;; `find-trigger-event`) live in `re-frame.epoch.capture` (Phase-2
 ;; seam B, rf2-0wi86).
-
-;; ---- record assembly ------------------------------------------------------
-;;
-;; The monotonic `:epoch-id` counter lives in `re-frame.epoch.state`
-;; (Phase-2 seam A, rf2-0wi86) alongside the other shared atoms.
-
-(defn- current-schema-digest
-  "Return the live digest of the named frame's registered app-schema set,
-  or nil when the schemas namespace has not registered its late-bind
-  hook (e.g. an embedding host that ships no schema layer). Per Spec 010
-  §Per-frame schemas the digest is frame-scoped — restore-mismatch
-  reasoning runs against the frame the epoch belongs to."
-  [frame-id]
-  (when-let [digest (late-bind/get-fn :schemas/app-schemas-digest)]
-    (try (digest frame-id)
-         (catch #?(:clj Throwable :cljs :default) _ nil))))
-
-;; ---- sensitive rollup -----------------------------------------------------
-;;
-;; Per Security.md §Epoch privacy posture and rf2-mrsck: every assembled
-;; record carries a top-level boolean `:rf.epoch/sensitive?` rollup so
-;; listener fan-out, off-box egress, and recorder consumers can branch
-;; on one slot per record (parallel to the trace-event-level
-;; `:sensitive?` stamp per rf2-isdwf). Two cheap signals:
-;;
-;;   1. The captured trace stream already stamps `:sensitive?` per
-;;      handler-meta scope — if any event in `:trace-events` carries the
-;;      stamp, the record's cascade involved sensitive material.
-;;   2. The frame's schema-declared `[:rf/elision :sensitive-declarations]`
-;;      registry names paths that hold sensitive data; if any such path
-;;      resolves to a non-nil leaf in `:db-before` or `:db-after`, the
-;;      record's app-db state carries sensitive material.
-;;
-;; Either signal is sufficient. The check runs once at record-assembly
-;; time so listeners and the projected-record helper read the rollup
-;; without re-walking the record. Production builds elide the entire
-;; record-assembly path — the rollup is dev-only by construction.
-
-(defn- any-sensitive-event?
-  "True when any captured trace event carries a top-level `:sensitive?
-  true` stamp. Per privacy/sensitive? — the trace surface hoists the
-  boolean from handler-scope-meta to the event top level (rf2-isdwf)."
-  [events]
-  (boolean (some privacy/sensitive? events)))
-
-(defn- sensitive-paths-for
-  "Return the schema-declared sensitive paths for `frame-id`. Empty when
-  no schema layer is registered or when no slot carries
-  `{:sensitive? true}`."
-  [frame-id]
-  (try (keys (elision/sensitive-declarations frame-id))
-       (catch #?(:clj Throwable :cljs :default) _ nil)))
-
-(defn- any-sensitive-leaf?
-  "True when any sensitive-declared path resolves to a non-nil leaf in
-  `db`. nil-leaf paths do NOT count — the path is declared sensitive
-  but the slot is empty, so the record carries no actual sensitive
-  material from this signal. `db` is `:db-before` or `:db-after`; both
-  may be nil on halted paths (rf2-v0jwt :halted-destroy)."
-  [db sensitive-paths]
-  (and (some? db)
-       (boolean
-         (some (fn [path]
-                 (some? (get-in db path)))
-               sensitive-paths))))
-
-(defn- sensitive-rollup
-  "Compute the record-level `:rf.epoch/sensitive?` rollup for the
-  assembled record. Returns `true` when the record's content overlaps
-  a sensitive area — either via a stamped trace event or via a
-  schema-declared sensitive path that holds a non-nil leaf in the
-  recorded db. Returns `false` otherwise (always a strict boolean —
-  consumers branch on `(true? ...)` / `(false? ...)`).
-
-  HOT PATH: fires once per drain-settle. `sensitive-paths-for` derefs
-  the elision registry once; the leaf check short-circuits at the
-  first non-nil hit; the trace-event check short-circuits at the first
-  stamped event. For the common case (no schema-declared sensitive
-  paths, no sensitive handlers in scope) the cost is one keys-of-empty
-  call plus two sequence-with-no-work walks."
-  [frame-id db-before db-after events]
-  (boolean
-    (or (any-sensitive-event? events)
-        (let [sensitive-paths (sensitive-paths-for frame-id)]
-          (and (seq sensitive-paths)
-               (or (any-sensitive-leaf? db-before sensitive-paths)
-                   (any-sensitive-leaf? db-after  sensitive-paths)))))))
-
-(defn- build-record
-  ([frame-id db-before db-after events]
-   (build-record frame-id db-before db-after events :ok nil))
-  ([frame-id db-before db-after events outcome halt-reason]
-   ;; Per rf2-v0jwt §Outcomes — :outcome is required and pins the
-   ;; drain-boundary outcome (:ok / :halted-depth / :halted-destroy /
-   ;; :halted-handler-exception); :halt-reason is a structured
-   ;; descriptor populated on halt paths, absent on :ok. The schema
-   ;; in Spec-Schemas §:rf/epoch-record is the canonical pin.
-   ;;
-   ;; Per rf2-kl5p1 (audit r3 §F1): `:event-id` and `:trigger-event`
-   ;; are emitted only when `find-trigger-event` resolves them. The
-   ;; schema declares `:event-id :keyword` (required, non-maybe) per
-   ;; Spec-Schemas §`:rf/epoch-record` — emitting `:event-id nil` on a
-   ;; halt path where no `:event/run-start` trace was buffered would
-   ;; violate the schema; the open-map admits the slot's absence but
-   ;; rejects a nil value. The live router halt paths already short-
-   ;; circuit on an empty buffer via `(when (seq events) ...)` in
-   ;; `settle!`, so the only path that can reach this branch with a
-   ;; trigger-less buffer is `on-frame-destroyed!`'s `:halted-destroy`
-   ;; commit; the conditional `cond->` slots make that record valid
-   ;; against the schema.
-   (let [{:keys [event-id event]}     (capture/find-trigger-event events)
-         ;; Per rf2-ecu37: one fused walk producing all three
-         ;; projections, replacing three independent transducer
-         ;; passes over the same buffer. Mirrors `find-trigger-event`'s
-         ;; rf2-txrq9 single-walk pattern.
-         {:keys [sub-runs renders effects]} (capture/project-all events)
-         ;; Per rf2-mrsck and Security.md §Epoch privacy posture:
-         ;; the record-level boolean rollup mirrors the trace-event
-         ;; `:sensitive?` stamp (rf2-isdwf) so listener consumers and
-         ;; the projected-record helper branch on one slot per record.
-         sensitive? (sensitive-rollup frame-id db-before db-after events)]
-     (cond-> {:epoch-id           (state/next-epoch-id)
-              :frame              frame-id
-              :committed-at       (interop/now-ms)
-              :db-before          db-before
-              :db-after           db-after
-              :outcome            outcome
-              ;; Per Spec 010 §Schema digest — pinned at record time so a later
-              ;; restore can compare 'recorded vs current' digests in the
-              ;; :rf.epoch/restore-schema-mismatch trace tags. Optional per
-              ;; Spec-Schemas §:rf/epoch-record (a host without a schema layer
-              ;; produces nil; consumers tolerate the absent slot).
-              :schema-digest      (current-schema-digest frame-id)
-              :rf.epoch/sensitive? sensitive?
-              :trace-events       events
-              :sub-runs           sub-runs
-              :renders            renders
-              :effects            effects}
-       event-id    (assoc :event-id event-id)
-       event       (assoc :trigger-event event)
-       halt-reason (assoc :halt-reason halt-reason)))))
 
 ;; ---- drain-settle hook ----------------------------------------------------
 
@@ -575,9 +387,9 @@
          ;; `:rf.epoch/sensitive?` rollup inside `build-record` runs
          ;; FIRST — the rollup reflects raw signals even when the
          ;; redact-fn erases the leaves it keyed on.
-         (let [record (maybe-redact
-                        (build-record frame-id db-before db-after
-                                      events outcome halt-reason))]
+         (let [record (assembly/maybe-redact
+                        (assembly/build-record frame-id db-before db-after
+                                               events outcome halt-reason))]
            (state/record! record)
            (trace/emit! :rf.epoch :rf.epoch/snapshotted
                         {:frame    frame-id
@@ -863,7 +675,7 @@
                :tags    {:frame                  frame-id
                          :epoch-id               epoch-id
                          :schema-digest-recorded (:schema-digest epoch)
-                         :schema-digest-current  (current-schema-digest frame-id)
+                         :schema-digest-current  (assembly/current-schema-digest frame-id)
                          :failing-paths          (vec failing-paths)}}
 
               (if-let [missing (seq (missing-references db-target))]
@@ -1000,8 +812,8 @@
     ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
     ;; the record!/notify-listeners! split so ring + listeners see
     ;; the SAME redacted shape on this synthetic record too.
-    (let [record (maybe-redact
-                   (assoc (build-record frame-id db-before new-db [])
+    (let [record (assembly/maybe-redact
+                   (assoc (assembly/build-record frame-id db-before new-db [])
                           :event-id      :rf.epoch/db-replaced
                           :trigger-event [:rf.epoch/db-replaced]))]
       (state/record! record)

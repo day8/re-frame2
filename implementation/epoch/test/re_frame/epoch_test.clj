@@ -26,6 +26,7 @@
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.state :as state]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
@@ -2070,7 +2071,7 @@
                             :operation :event
                             :tags      {:frame :test/main
                                         :phase :run-start}}]
-          record          (#'epoch/build-record
+          record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
@@ -2100,7 +2101,7 @@
                                :phase    :run-start
                                :event-id :seed
                                :event    [:seed 1 2 3]}}]
-          record (#'epoch/build-record :test/main {} {:n 0} events)]
+          record (#'assembly/build-record :test/main {} {:n 0} events)]
       (is (= :seed (:event-id record))
           ":event-id is the resolved event keyword")
       (is (= [:seed 1 2 3] (:trigger-event record))
@@ -2142,7 +2143,7 @@
                             :operation :event
                             :tags      {:frame    :test/main
                                         :event-id :foo}}]
-          record          (#'epoch/build-record
+          record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
