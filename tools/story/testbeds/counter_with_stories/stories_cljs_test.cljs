@@ -18,6 +18,7 @@
             [re-frame.core      :as rf]
             [re-frame.frame     :as frame]
             [re-frame.machines  :as machines]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
             [re-frame.story.async      :as async-lib]
@@ -81,6 +82,20 @@
 (deftest example-panel-registered
   (testing "the project's story-panel registered"
     (is (story/registered? :story-panel :Panel.counter-with-stories/notes))))
+
+(deftest example-broken-render-panel-registered
+  (testing "rf2-76wo5 testbed — the broken-render panel registered, and
+            its :render id is NOT registered as a view. Together those
+            two facts drive the panel-host into the broken-render
+            fallback branch (asserted live in story_browser_scenarios.cjs)."
+    (is (story/registered? :story-panel
+                           :Panel.counter-with-stories/broken-render)
+        "the testbed panel is registered")
+    (is (not (registrar/handler
+               :view :counter-with-stories.views/not-registered))
+        "the panel's :render view id is NOT registered — the panel-host
+         will hit the 'no registered :render view' fallback when it tries
+         to resolve it")))
 
 (deftest example-story-registered
   (testing "the parent story registered"

@@ -19,7 +19,11 @@
                         hiccup decorator alongside Story's canonical
                         `:rf.story/layout-debug.*` set).
   - `reg-story-panel` — `:Panel.counter-with-stories/notes` (a small
-                        project-custom panel in the right pane).
+                        project-custom panel in the right pane), and
+                        `:Panel.counter-with-stories/broken-render`
+                        (rf2-76wo5 testbed — :render points at an
+                        unregistered view to exercise the panel-host's
+                        broken-render fallback branch).
   - `reg-story`       — `:story.counter` parent (the four variants
                         below all inherit its decorators + args).
   - `reg-variant`     — four variants exercising every authoring shape.
@@ -179,6 +183,31 @@
      :title     "Notes"
      :placement :right
      :render    :counter-with-stories.views/parity-badge
+     :for       #{:story.counter}})
+
+  ;; -------------------------------------------------------------------------
+  ;; rf2-76wo5 — broken-render testbed panel
+  ;;
+  ;; A panel pointing at an :render view id that is NEVER registered.
+  ;; Exercises the panel-host's broken-render fallback branch in
+  ;; tools/story/src/re_frame/story/ui/panels.cljs:330-333:
+  ;;
+  ;;   "panel <pid> has no registered :render view (<view-id>)"
+  ;;
+  ;; The :for filter scopes the panel to :story.counter so test runs
+  ;; against /loaded surface the fallback without leaking it into
+  ;; every variant. Pure testbed — no source-side fix; the broken-
+  ;; render path is documented dev-time UX, not a defect.
+  ;; -------------------------------------------------------------------------
+
+  (story/reg-story-panel :Panel.counter-with-stories/broken-render
+    {:doc       "Testbed panel for rf2-76wo5 — :render points at an
+                unregistered view so the panel-host renders its
+                'no registered :render view' fallback. Asserted by
+                story_browser_scenarios.cjs."
+     :title     "Broken render (testbed)"
+     :placement :right
+     :render    :counter-with-stories.views/not-registered
      :for       #{:story.counter}})
 
   ;; -------------------------------------------------------------------------
