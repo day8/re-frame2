@@ -118,7 +118,18 @@ else
       examples/*)
         cljs_browser=true
         examples_browser=true
-      ;;
+        ;;
+      testbeds/*)
+        # rf2-7vsfm — Top-level testbeds/* is mounted by
+        # examples/scripts/serve-and-run-examples-tests.cjs (ssr_basic,
+        # ssr_hydration_mismatch, ssr_multi_frame, deliberate_throw,
+        # http_toggle, deep_machine, non_trivial_app_db,
+        # long_flow_w_failure, drain_depth_trigger, …) and consumed by
+        # `npm run test:examples` -> the examples-browser job. A
+        # testbed-only PR must trigger both surfaces.
+        cljs_browser=true
+        examples_browser=true
+        ;;
       tools/template/*)
         tools_jvm=true
         template_expensive=true
