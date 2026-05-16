@@ -175,6 +175,50 @@
   []
   @editor)
 
+;; ---- *project-root* (rf2-zfy1e — 'Open in editor' path prefix) ----------
+;;
+;; Per rf2-zfy1e: source-coords stamped at registration time are
+;; classpath-relative (the form-meta `:file` slot, e.g.
+;; `"panel_gallery/event_detail_stories.cljs"`). Editor URI handlers
+;; (`vscode://file/<path>...`, `cursor://...`, `idea://...`, etc.)
+;; resolve `<path>` against the filesystem; a relative path fails with
+;; "Path does not exist". Story's 'Open' chip therefore needs to know
+;; the on-disk root to prepend before the URI ships.
+;;
+;; The host application sets this once at boot via
+;; `(story/configure! {:project-root "C:/Users/me/code/my-app/src"})`.
+;; Default is nil — when unset, the source-coord file ships verbatim
+;; and the Open chip behaves exactly as it did pre-rf2-zfy1e (useful
+;; for hosts whose source-paths are already absolute, and for tests).
+;;
+;; The atom is plain data; production builds with `enabled?` false DCE
+;; the UI shell that reads it, so the value is harmless if it survives
+;; into a release bundle.
+
+(defonce
+  ^{:doc "Atom holding the project-root prefix for 'Open in editor'.
+         Default `nil` (no prefix; ship the source-coord file
+         verbatim). Set by `re-frame.story/configure!` via the
+         `:project-root` key. Read by the UI shell's open-in-editor
+         chip — prepended to the source-coord's `:file` slot when
+         building the editor URI."}
+  project-root
+  (atom nil))
+
+(defn set-project-root!
+  "Replace the project-root prefix. Accepts a string (the on-disk root,
+  typically the directory above the classpath source-paths, joined to
+  source-coords via `/`), or `nil` (clears the prefix). Story's
+  `configure!` calls this."
+  [p]
+  (reset! project-root (when (and (string? p) (seq p)) p))
+  nil)
+
+(defn get-project-root
+  "Return the current project-root string, or nil when unset."
+  []
+  @project-root)
+
 ;; ---- *show-sensitive?* (rf2-bclgj — :sensitive? trace-event policy) ------
 ;;
 ;; Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published

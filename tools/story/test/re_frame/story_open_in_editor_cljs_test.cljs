@@ -17,7 +17,8 @@
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-editor! []
-  (config/set-editor! :vscode))
+  (config/set-editor! :vscode)
+  (config/set-project-root! nil))
 
 (use-fixtures :each {:before reset-editor!
                      :after  reset-editor!})
@@ -134,3 +135,68 @@
     (config/set-editor! {:custom "http://evil.example/{path}"})
     (is (nil? (open-in-editor/open-chip-for-variant
                 {:source {:file "src/x.cljs" :line 1}})))))
+
+;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
+;;
+;; The bead: clicking the Open chip launched an OS-side editor with a
+;; classpath-relative path ("\panel_gallery\event_detail_stories.cljs:115:3")
+;; that the editor's filesystem resolver could not find. The Story config
+;; now exposes `:project-root` — set once at boot via `story/configure!` —
+;; and the chip prepends it before the URI ships.
+
+(deftest open-chip-default-no-project-root
+  (testing "with no project-root configured, the chip ships the file slot
+            verbatim — preserves v1 behaviour for hosts that haven't
+            plumbed the knob yet"
+    (is (nil? (config/get-project-root)))
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/app/views.cljs" :line 1 :column 1})]
+      (is (= "vscode://file/src/app/views.cljs:1:1"
+             (:href (second hiccup)))))))
+
+(deftest open-chip-prefixes-with-project-root
+  (testing "set-project-root! plumbs the on-disk root through the chip"
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/app/views.cljs" :line 42 :column 7})]
+      (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
+             (:href (second hiccup)))))))
+
+(deftest open-chip-project-root-regression-rf2-zfy1e
+  (testing "regression: the panel-gallery testbed's failure case now
+            resolves to an absolute on-disk URI when the host has
+            plumbed :project-root through Story's configure!"
+    (config/set-project-root!
+      "C:/Users/miket/code/re-frame2/tools/causa/testbeds")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "panel_gallery/event_detail_stories.cljs"
+                    :line 115
+                    :column 3})]
+      (is (= (str "vscode://file/"
+                  "C:/Users/miket/code/re-frame2/tools/causa/testbeds/"
+                  "panel_gallery/event_detail_stories.cljs:115:3")
+             (:href (second hiccup)))))))
+
+(deftest open-chip-project-root-roundtrip
+  (testing "config/set-project-root! + get-project-root round-trip"
+    (config/set-project-root! "/abs/code")
+    (is (= "/abs/code" (config/get-project-root)))
+    (config/set-project-root! nil)
+    (is (nil? (config/get-project-root)))
+    ;; blank strings normalise to nil so the chip behaves as if unset.
+    (config/set-project-root! "")
+    (is (nil? (config/get-project-root)))))
+
+(deftest open-chip-project-root-survives-editor-change
+  (testing "switching editor keeps project-root applied to the new scheme"
+    (config/set-project-root! "/abs/code")
+    (config/set-editor! :cursor)
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/x.cljs" :line 1 :column 1})]
+      (is (= "cursor://file//abs/code/src/x.cljs:1:1"
+             (:href (second hiccup)))))
+    (config/set-editor! :idea)
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/x.cljs" :line 1 :column 1})]
+      (is (= "idea://open?file=/abs/code/src/x.cljs&line=1&column=1"
+             (:href (second hiccup)))))))
