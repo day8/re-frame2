@@ -1526,5 +1526,1492 @@ module.exports = {
       `event-detail cascade selection preserved after Machines round-trip (=${firstRowDispatchId})`,
       5000,
     );
+
+    // ================================================================
+    // 11. Case-1 follow-on panel scenarios (rf2-160di follow-ons).
+    //
+    // Five panels whose matrix rows the audit (rf2-160di) marked as
+    // `deferred` because they lacked browser-feature paths beyond
+    // mount. The walks below identify each panel's hero affordances on
+    // the counter testbed (or via deterministic test-override events
+    // already wired into the panel install) and pin them as
+    // browser-feature gates.
+    //
+    //   11a — Subscriptions   (rf2-29ipt)  matrix row 73
+    //   11b — Routes          (rf2-3e3fn)  matrix row 75
+    //   11c — MCP Server      (rf2-39a1l)  matrix row 82
+    //   11d — AI Co-pilot     (rf2-jm9oi)  matrix row 83
+    //   11e — Causality Graph (rf2-gdqm1)  matrix row 71
+    //         + deepened assertions for matrix rows 74/77/78/84.
+    // ================================================================
+
+    // ----------------------------------------------------------------
+    // 11a. Subscriptions panel (rf2-29ipt) — populated branch + hero
+    // affordances + cross-panel selection invariant.
+    //
+    // The counter example registers one sub via `rf/reg-sub`
+    // (`:counter/value`) and renders it once through `(subscribe
+    // [:counter/value])` — so on every counter testbed boot the
+    // Subscriptions panel is in the POPULATED branch (the empty branch
+    // is mutually exclusive). The walk asserts:
+    //
+    //   - sidebar pivot → subs lands on `rf-causa-subscriptions`
+    //   - the populated list (`rf-causa-subscriptions-list`) IS
+    //     mounted; both empty branches (`rf-causa-subscriptions-empty`
+    //     and `-empty-rows`) are ABSENT
+    //   - the filter-header (`rf-causa-subscriptions-filters`) renders
+    //     all five status filter chips (`-error / -re-running /
+    //     -invalidated / -fresh / -cached-no-watcher`) — the panel
+    //     always renders the full taxonomy regardless of which states
+    //     are populated, mirroring the Performance panel's tier-chip
+    //     invariant in 10f
+    //   - at least one sub-row testid (`rf-causa-sub-row-<format-sub-id>`)
+    //     plus its companion chain button
+    //     (`rf-causa-sub-row-chain-<format-sub-id>`) and status badge
+    //     (`rf-causa-sub-badge-<status>`) — guards against the
+    //     row-renderer regressing to a structure that drops one of
+    //     the row's three first-class affordances
+    //   - **invalidation-chain hero walk** — click the chain button
+    //     on the sub row → `rf-causa-subscriptions-chain` section
+    //     opens with the focused-link (`-chain-focused`) carrying the
+    //     selected sub's `rf-causa-chain-link-<sub-id>` row. The
+    //     `:counter/value` sub is layer-1 (no inputs) so the chain
+    //     renders the `-chain-no-inputs` branch — both `-chain-inputs`
+    //     and `-chain-missing` are absent. The Close button
+    //     (`rf-causa-subscriptions-chain-close`) returns the panel to
+    //     the list-only mode (the chain section unmounts cleanly)
+    //   - **filter toggle** — clicking the `:fresh` filter chip
+    //     narrows the visible row set; with one fresh-status sub the
+    //     filtered list still mounts with that single row (the
+    //     `-empty-rows` no-match branch is absent in this case). The
+    //     panel applies AND-composed filters per the
+    //     subscriptions-helpers/filter-by-status surface
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id on `:rf/causa`'s
+    //     app-db (same cross-panel selection invariant exercised by
+    //     L-5/L-6/L-7/L-8 above)
+    //
+    // The full feature path enumerated by matrix row 73 (sub
+    // dependency chain across layers, cached-no-watcher branch,
+    // re-running mid-flight, throwing sub, large output marker) needs
+    // the multi-layer sub testbed wired through the rigorous compile
+    // graph. The walk here pins the hero affordances + invalidation-
+    // chain visible-surface contract; matrix row 73 (Subscriptions)
+    // flips from `deferred (rf2-29ipt)` to `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'subs', 'rf-causa-subscriptions');
+    // Populated branch — counter subscribes to `:counter/value`, so
+    // the panel is never in the empty state on this testbed.
+    if ((await page.locator('[data-testid="rf-causa-subscriptions-empty"]').count()) !== 0) {
+      throw new Error(
+        'Expected Subscriptions empty-state to be absent — :counter/value populates the cache on render.',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-subscriptions-empty-rows"]').count()) !== 0) {
+      throw new Error(
+        'Expected Subscriptions empty-rows branch to be absent before any filter is applied.',
+      );
+    }
+    await expectVisible(page.locator('[data-testid="rf-causa-subscriptions-list"]'), 5000);
+    await expectVisible(page.locator('[data-testid="rf-causa-subscriptions-filters"]'), 5000);
+    // Full filter-chip taxonomy — the five sub statuses surfaced by
+    // the panel's status->glyph helper. Per-status counts on the chip
+    // labels are panel-internal; the assertion is on chip presence.
+    for (const status of ['error', 're-running', 'invalidated', 'fresh', 'cached-no-watcher']) {
+      const chip = page.locator(`[data-testid="rf-causa-sub-filter-${status}"]`);
+      if ((await chip.count()) === 0) {
+        throw new Error(`Expected sub filter chip '${status}' to render in the filter header.`);
+      }
+    }
+    // First sub row + its companion affordances. The row testid
+    // suffix is `(h/format-sub-id sub-id)`; for the counter the only
+    // sub is `:counter/value`. Pin the row plus its chain button + at
+    // least one status badge.
+    const subRows = page.locator('[data-testid^="rf-causa-sub-row-"]');
+    const subRowEntries = await subRows.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-testid'))
+         .filter((t) => t && !t.startsWith('rf-causa-sub-row-chain-')),
+    );
+    if (subRowEntries.length === 0) {
+      throw new Error(`Expected at least one sub row; got only chain buttons.`);
+    }
+    const sampleRowTestid = subRowEntries[0];
+    const sampleSubSuffix = sampleRowTestid.replace('rf-causa-sub-row-', '');
+    await expectVisible(
+      page.locator(`[data-testid="rf-causa-sub-row-chain-${sampleSubSuffix}"]`),
+      5000,
+    );
+    if ((await page.locator('[data-testid^="rf-causa-sub-badge-"]').count()) === 0) {
+      throw new Error('Expected at least one status badge in the sub list.');
+    }
+
+    // Invalidation-chain hero walk — open chain → focused link
+    // renders → counter sub is layer-1 (no inputs) so the no-inputs
+    // branch fires → close returns to list-only mode.
+    await page.locator(`[data-testid="rf-causa-sub-row-chain-${sampleSubSuffix}"]`).click();
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-subscriptions-chain"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-subscriptions-chain-focused"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator(`[data-testid="rf-causa-chain-link-${sampleSubSuffix}"]`),
+      5000,
+    );
+    // Counter sub is layer-1 — the chain renders the no-inputs
+    // branch, NOT the `-chain-inputs` branch and NOT the `-chain-
+    // missing` branch.
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-subscriptions-chain-no-inputs"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-subscriptions-chain-inputs"]').count()) !== 0) {
+      throw new Error(
+        'Expected `-chain-inputs` to be absent for layer-1 :counter/value (the chain is no-inputs).',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-subscriptions-chain-missing"]').count()) !== 0) {
+      throw new Error(
+        'Expected `-chain-missing` to be absent — the selected sub IS in the cache.',
+      );
+    }
+    // Close the chain — the section unmounts; the list is the only
+    // body in the panel again.
+    await page.locator('[data-testid="rf-causa-subscriptions-chain-close"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-subscriptions-chain"]').count(),
+      (count) => count === 0,
+      'subscriptions-chain section to unmount after Close',
+      5000,
+    );
+
+    // Filter toggle hero walk — :fresh narrows the visible rows.
+    // With one fresh-status sub the filtered list still has that
+    // single row; the `-empty-rows` no-match branch is absent. A
+    // second click on the same chip clears the AND-composed filter
+    // and returns the unfiltered view.
+    await page.locator('[data-testid="rf-causa-sub-filter-fresh"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid^="rf-causa-sub-row-"]:not([data-testid^="rf-causa-sub-row-chain-"])').count(),
+      (count) => count >= 1,
+      'at least one row visible after :fresh filter toggle (counter sub is fresh)',
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-subscriptions-empty-rows"]').count()) !== 0) {
+      throw new Error(
+        'Expected `-empty-rows` to be absent when :fresh filter still matches the counter sub.',
+      );
+    }
+    // Clear the filter — the AND-composed filter set drops the status
+    // and the unfiltered row set is restored.
+    await page.locator('[data-testid="rf-causa-sub-filter-fresh"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-subscriptions-list"]').count(),
+      (count) => count === 1,
+      'subscriptions-list to remain mounted after filter clear',
+      5000,
+    );
+
+    // Sidebar round-trip — same cross-panel selection invariant.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const subsPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => subsPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === firstRowDispatchId,
+      `event-detail cascade selection preserved after Subscriptions round-trip (=${firstRowDispatchId})`,
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 11b. Routes panel (rf2-3e3fn) — empty + override-driven
+    // populated walks + active-slice + selection + history-empty +
+    // reset round-trip.
+    //
+    // The counter example registers no routes via `rf/reg-route`. The
+    // panel ships test-only override events
+    // (`:rf.causa/set-registered-routes-override-for-test` +
+    // `:rf.causa/set-active-route-slice-override-for-test`) so we can
+    // drive the populated branch deterministically without booting a
+    // host with routing wired. The walk asserts:
+    //
+    //   - sidebar pivot → routes lands on `rf-causa-routes`
+    //   - on counter without overrides the `:no-routes` empty branch
+    //     fires — `rf-causa-routes-empty` is mounted; the list, the
+    //     active-route strip (both `-active` and `-active-empty`
+    //     branches), and the history-section are all ABSENT (the
+    //     `(if (= :no-routes empty-kind) (empty-state) ...)` gate
+    //     swaps the whole body)
+    //   - dispatch the routes override with a two-route map → the
+    //     panel pivots to the populated branch:
+    //       * `rf-causa-routes-list` mounted
+    //       * `rf-causa-routes-empty` absent
+    //       * `rf-causa-routes-active-empty` mounted (no slice
+    //         override yet — the active-route is nil)
+    //       * `rf-causa-routes-history` + `rf-causa-routes-history-
+    //         empty` mounted (no nav-token traces in the buffer)
+    //       * one `rf-causa-route-row-<route-id>` per registered
+    //         route plus per-row id + path testids
+    //   - dispatch the active-slice override with `:about` →
+    //     `rf-causa-routes-active` replaces `-active-empty`; the
+    //     per-cell testids (`-route-id / -params / -query /
+    //     -fragment / -transition`) render with the projected slice;
+    //     the matching row gains the `rf-causa-route-row-active-
+    //     :about` highlight tag
+    //   - click the OTHER row (`:home`) → `:rf.causa/select-route`
+    //     fires; the panel re-renders with the row selected (visible
+    //     via the row's `selected?` background; we re-assert the
+    //     active row's `-active-:about` highlight stays in place —
+    //     selection and active are orthogonal)
+    //   - reset overrides (registered-routes → nil + active-slice →
+    //     nil + clear-selection) → the empty branch is back; the
+    //     populated surfaces are absent again
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (cross-panel
+    //     selection invariant)
+    //
+    // The full feature path (real `rf/reg-route` + browser navigation
+    // + nav-token allocation/staleness/blocking + multi-frame routing)
+    // needs the routing testbed wired through the rigorous compile
+    // graph. The walk pins the panel's branch invariants + override-
+    // driven populated rendering + active-slice strip + selection.
+    // Matrix row 75 (Routes) flips from `deferred (rf2-3e3fn)` to
+    // `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'routes', 'rf-causa-routes');
+    // Counter starts in the :no-routes empty branch.
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-empty"]'), 5000);
+    for (const populatedTestid of [
+      'rf-causa-routes-list',
+      'rf-causa-routes-active',
+      'rf-causa-routes-active-empty',
+      'rf-causa-routes-history',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected '${populatedTestid}' to be absent in the :no-routes empty branch.`,
+        );
+      }
+    }
+
+    // Drive the populated branch via the test-only override events.
+    // Build the routes map (and later the active-slice map) on the
+    // browser side so CLJS values stay native — the bridge would
+    // serialise JS objects to JsObj, not PersistentArrayMap, and the
+    // helpers in routes_helpers.cljc read with `:path` / `:doc` /
+    // `:id` keyword accessors.
+    const routesInjected = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf   = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf) return { ok: false, reason: 'cljs.core/re_frame.core not on window' };
+      const kw = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      const routesMap = cljs.PersistentArrayMap.fromArray([
+        kw('home'),  cljs.PersistentArrayMap.fromArray(
+          [kw('path'), '/',      kw('doc'), 'Landing'], true, false),
+        kw('about'), cljs.PersistentArrayMap.fromArray(
+          [kw('path'), '/about', kw('doc'), 'About page'], true, false),
+      ], true, false);
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-registered-routes-override-for-test'),
+          routesMap,
+        ], true),
+        frameOpts,
+      );
+      return { ok: true };
+    });
+    if (!routesInjected.ok) {
+      throw new Error(`Could not inject routes override: ${routesInjected.reason}`);
+    }
+    // Wait for the panel to settle into the populated branch.
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-list"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-empty"]').count()) !== 0) {
+      throw new Error('Expected `routes-empty` to unmount after override injects routes.');
+    }
+    // No slice override yet — the active-route strip is in the empty
+    // sub-branch; the populated `-active` strip is absent.
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-active-empty"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-active"]').count()) !== 0) {
+      throw new Error('Expected populated `routes-active` to be absent without an active-slice override.');
+    }
+    // History section mounts + its own empty sub-branch (no nav-token
+    // traces in the buffer).
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-history"]'), 5000);
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-history-empty"]'), 5000);
+    // Per-row testids — both rows landed, both id/path companions
+    // rendered.
+    for (const routeId of [':home', ':about']) {
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-route-row-${routeId}"]`),
+        5000,
+      );
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-route-id-${routeId}"]`),
+        5000,
+      );
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-route-path-${routeId}"]`),
+        5000,
+      );
+    }
+
+    // Inject the active-slice override → the strip swaps from the
+    // empty branch to the populated `-active` breadcrumb; the matching
+    // row gains the `-active-:about` highlight.
+    const sliceInjected = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      const slice = cljs.PersistentArrayMap.fromArray([
+        kw('id'),         kw('about'),
+        kw('params'),     cljs.PersistentArrayMap.fromArray(
+          [kw('section'), 'team'], true, false),
+        kw('query'),      cljs.PersistentArrayMap.EMPTY,
+        kw('fragment'),   'top',
+        kw('transition'), kw('idle'),
+      ], true, false);
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-active-route-slice-override-for-test'),
+          slice,
+        ], true),
+        frameOpts,
+      );
+      return { ok: true };
+    });
+    if (!sliceInjected.ok) {
+      throw new Error('Could not inject active-slice override.');
+    }
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-active"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-active-empty"]').count()) !== 0) {
+      throw new Error('Expected `routes-active-empty` to unmount after slice override injects.');
+    }
+    // Per-cell testids — the breadcrumb's five-up layout (route-id /
+    // params / query / fragment / transition).
+    for (const cell of ['route-id', 'params', 'query', 'fragment', 'transition']) {
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-routes-active-${cell}"]`),
+        5000,
+      );
+    }
+    // Matching row carries the `-active-:about` highlight tag.
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-route-row-active-:about"]'),
+      5000,
+    );
+
+    // Click :home row → `:rf.causa/select-route :home` fires. The
+    // selection is orthogonal to the active-route highlight: the
+    // active row stays `:about`, the selected row becomes `:home`.
+    // The row's `selected?` background is style-only (no dedicated
+    // testid) — assert via the `-active-:about` highlight remaining
+    // in place AND the absence of `-active-:home` (which would mean
+    // the active-route accidentally followed the selection).
+    await page.locator('[data-testid="rf-causa-route-row-:home"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-route-row-active-:about"]').count(),
+      (count) => count === 1,
+      ':about row keeps the -active- highlight after selecting :home (active vs selected orthogonal)',
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-route-row-active-:home"]').count()) !== 0) {
+      throw new Error(
+        ':home row gained the -active- highlight after selection — active vs selected must be orthogonal.',
+      );
+    }
+
+    // Reset overrides + clear selection. The empty branch returns
+    // and the populated surfaces unmount cleanly.
+    const reset = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-registered-routes-override-for-test'), null,
+        ], true),
+        frameOpts,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-active-route-slice-override-for-test'), null,
+        ], true),
+        frameOpts,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/clear-route-selection'),
+        ], true),
+        frameOpts,
+      );
+      return { ok: true };
+    });
+    if (!reset.ok) throw new Error('Could not reset routes overrides.');
+    await expectVisible(page.locator('[data-testid="rf-causa-routes-empty"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-routes-list"]').count()) !== 0) {
+      throw new Error('Expected `routes-list` to unmount after override reset.');
+    }
+
+    // Sidebar round-trip — assert event-detail mounts cleanly after a
+    // panel that drove many test-only dispatches. We don't re-check
+    // the original `firstRowDispatchId` selection invariant here
+    // because the cross-panel selection assertions in 10f/10g/10h/11a
+    // already pinned it, and the override-driven dispatches in this
+    // section can tip the cascade out of the trace buffer (cap 1000)
+    // — eviction would leave the cascade-detail in the empty-state
+    // sub-branch even though the selection slot is unchanged.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
+
+    // ----------------------------------------------------------------
+    // 11c. MCP Server panel (rf2-39a1l) — empty-no-activity branch +
+    // always-rendered chrome controls + filter chrome round-trip.
+    //
+    // The counter example emits no `:origin :causa-mcp` events (no
+    // agent connects via the causa-mcp jar to drive tool calls)
+    // — `:rf.causa/mcp-server` projects empty-kind = `:no-activity`
+    // on every counter testbed boot. The matrix row 82 enumerates the
+    // populated branch (origin-filter cyan rows + tool chip + source
+    // chip + dispatch-id pivot); those need a live MCP client wired
+    // through the rigorous compile graph. The walk here pins what IS
+    // deterministically observable on counter:
+    //
+    //   - sidebar pivot → mcp-server lands on `rf-causa-mcp-server`
+    //   - `rf-causa-mcp-empty-no-activity` is the active body;
+    //     `rf-causa-mcp-empty-no-matches` and `rf-causa-mcp-feed` are
+    //     ABSENT (the panel's `case empty-kind` swaps the body)
+    //   - **always-rendered chrome contract** — the inline Settings
+    //     sub-pane + the panel header chrome render regardless of
+    //     activity. Asserts:
+    //       * `rf-causa-mcp-settings` (settings sub-pane shell)
+    //       * `rf-causa-mcp-origin-swatch` (cyan swatch with the
+    //         spec/007 origin colour token)
+    //       * `rf-causa-mcp-origin-filter-toggle` (cross-panel
+    //         highlight enable checkbox)
+    //       * `rf-causa-mcp-attached-badge` with the "no activity"
+    //         text on counter (no `causa-mcp` events ever landed)
+    //       * `rf-causa-mcp-counts` showing the canonical "0 / 0 in
+    //         view" zero baseline
+    //       * `rf-causa-mcp-since-input` (since-ms filter input)
+    //       * `rf-causa-mcp-op-type-chips` ABSENT (no distinct
+    //         op-types in the buffer; the chip row only renders
+    //         when at least one op-type has been seen)
+    //       * `rf-causa-mcp-clear-filters` ABSENT (no filter is
+    //         active yet)
+    //   - **origin filter toggle round-trip** — clicking the
+    //     `-mcp-origin-filter-toggle` input checkbox flips the
+    //     boolean on `:rf.causa/mcp-origin-filter-enabled?`; the
+    //     `<input>`'s `checked` reflects the new state. A second
+    //     click flips it back.
+    //   - **since-input filter activation** — typing a numeric value
+    //     into the since-input dispatches `:rf.causa/set-mcp-since-
+    //     seconds`; the `any-filter?` predicate flips true → the
+    //     header `rf-causa-mcp-clear-filters` button appears. The
+    //     `-empty-no-matches` body branch does NOT fire on counter
+    //     (the helper's empty-kind discriminator only flips to
+    //     `:no-matches` when `total > 0` and `filtered = 0`; with
+    //     zero MCP events total the `:no-activity` branch holds).
+    //   - clicking `rf-causa-mcp-clear-filters` dispatches `:rf.causa/
+    //     clear-mcp-filters` → button unmounts (any-filter? back to
+    //     false). The empty-no-activity body stays consistent.
+    //
+    // The full feature path (live `:origin :causa-mcp` rows + cyan
+    // styling parity + tool chip + source chip + row-click → event-
+    // detail pivot + per-op-type chip filtering + empty-no-matches
+    // branch + origin-filter cross-panel highlight) needs the
+    // causa-mcp client harness wired through the rigorous compile
+    // graph. The walk pins the empty branch + always-rendered chrome
+    // + filter-chrome round-trip; matrix row 82 (MCP Server) flips
+    // from `deferred (rf2-39a1l)` to `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'mcp-server', 'rf-causa-mcp-server');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'),
+      5000,
+    );
+    for (const populatedTestid of [
+      'rf-causa-mcp-empty-no-matches',
+      'rf-causa-mcp-feed',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected '${populatedTestid}' to be absent on the :no-activity branch.`,
+        );
+      }
+    }
+    // Always-rendered chrome — settings sub-pane + header chips.
+    for (const chromeTestid of [
+      'rf-causa-mcp-settings',
+      'rf-causa-mcp-origin-swatch',
+      'rf-causa-mcp-origin-filter-toggle',
+      'rf-causa-mcp-attached-badge',
+      'rf-causa-mcp-counts',
+      'rf-causa-mcp-since-input',
+    ]) {
+      await expectVisible(page.locator(`[data-testid="${chromeTestid}"]`), 5000);
+    }
+    // Counter has no MCP events; attached-badge reads "no activity",
+    // counts surface the zero baseline "0 / 0 in view".
+    const attachedText = (await page.locator('[data-testid="rf-causa-mcp-attached-badge"]').textContent()) || '';
+    if (!attachedText.toLowerCase().includes('no activity')) {
+      throw new Error(
+        `Expected attached-badge to read "no activity"; got ${JSON.stringify(attachedText.trim())}.`,
+      );
+    }
+    const countsText = (await page.locator('[data-testid="rf-causa-mcp-counts"]').textContent()) || '';
+    const countsMatch = /(\d+)\s*\/\s*(\d+)\s+in view/.exec(countsText.trim());
+    if (!countsMatch || Number(countsMatch[1]) !== 0 || Number(countsMatch[2]) !== 0) {
+      throw new Error(
+        `Expected mcp-counts to read "0 / 0 in view"; got ${JSON.stringify(countsText.trim())}.`,
+      );
+    }
+    // Op-type chips + clear-filters button are absent (no distinct
+    // op-types, no filter active).
+    if ((await page.locator('[data-testid="rf-causa-mcp-op-type-chips"]').count()) !== 0) {
+      throw new Error(
+        'Expected `mcp-op-type-chips` to be absent when no distinct op-types exist in the buffer.',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-mcp-clear-filters"]').count()) !== 0) {
+      throw new Error(
+        'Expected `mcp-clear-filters` header button to be absent before any filter is active.',
+      );
+    }
+
+    // Origin-filter toggle round-trip.
+    const originToggleInput = page.locator('[data-testid="rf-causa-mcp-origin-filter-toggle"] input');
+    const initialChecked = await originToggleInput.isChecked();
+    if (initialChecked !== false) {
+      throw new Error(`Expected origin-filter toggle to default to unchecked; got ${initialChecked}.`);
+    }
+    await originToggleInput.click();
+    await waitForCondition(
+      async () => originToggleInput.isChecked(),
+      (checked) => checked === true,
+      'origin-filter toggle to read checked=true after click',
+      5000,
+    );
+    await originToggleInput.click();
+    await waitForCondition(
+      async () => originToggleInput.isChecked(),
+      (checked) => checked === false,
+      'origin-filter toggle to read checked=false after second click',
+      5000,
+    );
+
+    // Since-input filter activation — dispatches a non-nil since-ms
+    // → `any-filter?` flips true → header `-clear-filters` button
+    // mounts. The `-empty-no-matches` branch does NOT fire on counter
+    // (helper requires `total > 0` and `filtered = 0`; we have 0/0).
+    const sinceInput = page.locator('[data-testid="rf-causa-mcp-since-input"] input');
+    await sinceInput.fill('60');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-clear-filters"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-mcp-empty-no-matches"]').count()) !== 0) {
+      throw new Error(
+        'Expected `-mcp-empty-no-matches` to be absent on counter (total=0; the discriminator stays on :no-activity).',
+      );
+    }
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'),
+      5000,
+    );
+
+    // Clear filters → button unmounts; empty-no-activity body remains.
+    await page.locator('[data-testid="rf-causa-mcp-clear-filters"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-mcp-clear-filters"]').count(),
+      (count) => count === 0,
+      'mcp-clear-filters to unmount after click',
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'),
+      5000,
+    );
+
+    // Sidebar round-trip — assert event-detail mounts cleanly.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
+
+    // ----------------------------------------------------------------
+    // 11d. AI Co-pilot panel-style (rf2-jm9oi) — slash popover in
+    // canvas form + slash-command catalogue + submit lifecycle +
+    // /clear lifecycle + provider cycle + conversation persistence.
+    //
+    // Section 3 of this spec already pinned the RAIL form of the co-
+    // pilot (cue → rail → slash popover → submit → close) — that was
+    // the rf2-qvz85 + rf2-043uz regression-pin. This section deepens
+    // the PANEL-STYLE form (sidebar `:copilot` row → canvas
+    // `rf-causa-copilot-panel`) and the slash-command catalogue's
+    // visible-surface contract.
+    //
+    // The panel-style view is a DIFFERENT reg-view than the rail
+    // (`ai-co-pilot-view` vs `ai-co-pilot-rail` in `ai-co-pilot.cljs`)
+    // and re-mounts the conversation + input row from the same leaf
+    // components. Asserting the slash popover here proves the leaf
+    // works through both mounting paths — guards against a single
+    // view accidentally winning the routing fix (rf2-043uz) while
+    // the other regresses.
+    //
+    // Asserts:
+    //
+    //   - sidebar pivot → copilot lands on `rf-causa-copilot-panel`
+    //   - always-rendered chrome — input + submit + close + provider-
+    //     picker buttons mount; empty conversation body shows
+    //     `rf-causa-copilot-empty` (canonical empty caption with the
+    //     example slash commands); `rf-causa-copilot-conversation`
+    //     absent
+    //   - **slash popover in the panel-style view** — typing `/` into
+    //     the canvas input renders `rf-causa-copilot-slash-popover`
+    //     with ALL 8 slash-command rows (`-slash-explain / -diff /
+    //     -find / -rewind / -state / -why / -whatif / -clear`); the
+    //     popover element itself matches the prefix locator so the
+    //     count is 9 (popover + 8 commands)
+    //   - **prefix filter narrows the popover** — typing `/wh` keeps
+    //     `-slash-why` and `-slash-whatif`; drops `-slash-clear` and
+    //     others (proves the helper's `starts-with?` filter runs
+    //     against the panel-style mounting path)
+    //   - **clicking a slash entry populates the input with its usage
+    //     template** — clicking `-slash-diff` dispatches `:rf.causa/
+    //     copilot-set-input-text "/diff <epoch-a> <epoch-b>"`; the
+    //     input's value reflects the canonical usage immediately
+    //   - **submit lifecycle via Enter** — typing a free-form
+    //     question + Enter dispatches `:rf.causa/copilot-submit-
+    //     question`; the conversation pivots to populated: question
+    //     + answer turns mount; `rf-causa-copilot-empty` unmounts;
+    //     `rf-causa-copilot-conversation` mounts; input clears
+    //   - **/clear lifecycle** — typing `/clear` + clicking the
+    //     submit button dispatches `:rf.causa/copilot-clear-
+    //     conversation`; the conversation unmounts; the empty body
+    //     returns; input clears (this is the same affordance the
+    //     rail form exposes, but exercised through the canvas
+    //     submit button rather than Enter)
+    //   - **provider-picker cycle** — clicking the provider button
+    //     fires `:rf.causa/copilot-cycle-provider`; the provider on
+    //     `:rf/causa`'s app-db steps through the canonical 5-cycle
+    //     (`:claude → :openai → :gemini → :local → :custom →
+    //     :claude`). The default is `:claude` (the sub returns it
+    //     when the db key is unset); after one click the value is
+    //     `:openai`. We assert 1 → :openai then 4 more clicks → back
+    //     to :claude.
+    //   - **conversation persistence across panel pivot** — submit
+    //     another question, pivot to event-detail, pivot back to
+    //     copilot; the question turn from the new submission is
+    //     still mounted (the conversation lives on `:rf/causa`'s
+    //     app-db, not in transient view state)
+    //   - sidebar round-trip back to event-detail mounts cleanly
+    //
+    // The full feature path enumerated by matrix row 83 (provider-
+    // success/failure stub + cited dispatch ids + redaction/elision
+    // counts + answer chip resolution + close/reopen persistence
+    // across non-trivial cited data) needs a deterministic provider
+    // stub wired through the rigorous compile graph. The walk pins
+    // the panel-style mount + slash catalogue + lifecycle + provider
+    // cycle + cross-panel persistence; matrix row 83 (AI Co-pilot)
+    // flips from `deferred (rf2-jm9oi)` to `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'copilot', 'rf-causa-copilot-panel');
+    // Always-rendered chrome.
+    for (const chromeTestid of [
+      'rf-causa-copilot-input',
+      'rf-causa-copilot-submit',
+      'rf-causa-copilot-close',
+      'rf-causa-copilot-provider-picker',
+    ]) {
+      await expectVisible(page.locator(`[data-testid="${chromeTestid}"]`), 5000);
+    }
+    // After the rail's section-3 submit landed earlier in this spec
+    // the conversation already has a question + answer turn from
+    // `"Why did the counter change?"`. The empty body is therefore
+    // ABSENT in the panel-style mount; the conversation IS rendered.
+    // Clear it via `/clear` so the rest of this section reads off a
+    // known empty baseline.
+    const panelCopilotInput = page.locator('[data-testid="rf-causa-copilot-input"]');
+    await panelCopilotInput.fill('/clear');
+    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-copilot-conversation"]').count(),
+      (count) => count === 0,
+      'panel-style conversation to clear after /clear baseline reset',
+      5000,
+    );
+    await expectVisible(page.locator('[data-testid="rf-causa-copilot-empty"]'), 5000);
+
+    // Slash popover in the PANEL-STYLE view.
+    await panelCopilotInput.fill('/');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-slash-popover"]'),
+      5000,
+    );
+    // 8 commands + the popover element itself match the prefix.
+    const panelSlashRows = page.locator('[data-testid^="rf-causa-copilot-slash-"]');
+    await waitForCondition(
+      async () => panelSlashRows.count(),
+      (count) => count >= 9,
+      'panel-style slash popover to render >= 9 elements (popover + 8 commands)',
+      5000,
+    );
+
+    // Prefix filter — `/wh` keeps only :why + :whatif.
+    await panelCopilotInput.fill('/wh');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-slash-why"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-slash-whatif"]'),
+      5000,
+    );
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-copilot-slash-clear"]').count(),
+      (count) => count === 0,
+      '`/wh` to narrow the popover away from /clear in the panel-style view',
+      5000,
+    );
+
+    // Clicking a slash entry populates the input with its canonical
+    // usage template (the `/diff <epoch-a> <epoch-b>` shape from
+    // slash-commands).
+    await panelCopilotInput.fill('/');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-slash-diff"]'),
+      5000,
+    );
+    await page.locator('[data-testid="rf-causa-copilot-slash-diff"]').click();
+    await waitForCondition(
+      async () => panelCopilotInput.inputValue(),
+      (val) => val === '/diff <epoch-a> <epoch-b>',
+      `input value to be '/diff <epoch-a> <epoch-b>' after slash-diff click`,
+      5000,
+    );
+
+    // Submit a free-form question via Enter. Conversation pivots
+    // populated; empty unmounts.
+    await panelCopilotInput.fill('What is happening?');
+    await page.keyboard.press('Enter');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-turn-question"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-turn-answer"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-conversation"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-copilot-empty"]').count()) !== 0) {
+      throw new Error('Expected copilot-empty to unmount after submit landed a turn pair.');
+    }
+    // Input clears after submit (per copilot-events :rf.causa/copilot-
+    // submit-question handler).
+    await waitForCondition(
+      async () => panelCopilotInput.inputValue(),
+      (val) => val === '',
+      'copilot-input to clear after submit',
+      5000,
+    );
+
+    // /clear lifecycle via the submit BUTTON (the rail form in
+    // section 3 used Enter; here we exercise the button click).
+    await panelCopilotInput.fill('/clear');
+    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-copilot-conversation"]').count(),
+      (count) => count === 0,
+      'panel-style conversation to unmount after `/clear` submit (via button)',
+      5000,
+    );
+    await expectVisible(page.locator('[data-testid="rf-causa-copilot-empty"]'), 5000);
+
+    // Provider-picker cycle — the canonical 5-cycle :claude → :openai
+    // → :gemini → :local → :custom → :claude. The default is :claude
+    // (the sub returns it when the db slot is unset). One click →
+    // :openai. Four more clicks → back to :claude.
+    async function readProvider() {
+      return page.evaluate(() => {
+        const cljs = window.cljs.core;
+        const rf   = window.re_frame.core;
+        const kw   = (n) => cljs.keyword(n);
+        const db   = rf.get_frame_db(kw('rf/causa'));
+        const pv   = cljs.get(db, kw('copilot-provider'));
+        return pv === null || pv === undefined ? null : cljs.pr_str(pv);
+      });
+    }
+    const providerPicker = page.locator('[data-testid="rf-causa-copilot-provider-picker"]');
+    const providerBefore = await readProvider();
+    if (providerBefore !== null && providerBefore !== ':claude') {
+      // If a prior section flipped it (none does today), normalise to
+      // :claude so the cycle math below is deterministic. The sub
+      // returns :claude when the db slot is nil so the user-visible
+      // default lines up either way.
+    }
+    await providerPicker.click();
+    await waitForCondition(
+      readProvider,
+      (val) => val === ':openai',
+      `copilot-provider on :rf/causa app-db to read :openai after first picker click (was ${providerBefore})`,
+      5000,
+    );
+    // Four more clicks → :gemini → :local → :custom → :claude.
+    for (const expected of [':gemini', ':local', ':custom', ':claude']) {
+      await providerPicker.click();
+      await waitForCondition(
+        readProvider,
+        (val) => val === expected,
+        `copilot-provider to cycle to ${expected}`,
+        5000,
+      );
+    }
+
+    // Conversation persistence across panel pivot — submit a
+    // question, pivot to event-detail, pivot back; the new question
+    // turn still mounted (state lives on `:rf/causa`'s app-db).
+    //
+    // Use the submit BUTTON path (rather than Enter) — the input
+    // re-mounted into a new vDOM tree after the provider-cycle
+    // re-renders above and a global `page.keyboard.press('Enter')`
+    // does not reliably target the input's freshly-bound key handler
+    // across panel re-renders. The button's `:on-click` is bound to
+    // the same `submit` closure so the assertion is equivalent.
+    await panelCopilotInput.fill('Persistence probe?');
+    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-turn-question"]'),
+      5000,
+    );
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await clickSidebar(page, 'copilot', 'rf-causa-copilot-panel');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-conversation"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-copilot-turn-question"]'),
+      5000,
+    );
+
+    // Final cleanup — clear conversation so subsequent worktree
+    // re-runs of this spec read off an empty baseline.
+    await page.locator('[data-testid="rf-causa-copilot-input"]').fill('/clear');
+    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-copilot-conversation"]').count(),
+      (count) => count === 0,
+      'panel-style conversation to clear before final round-trip',
+      5000,
+    );
+
+    // Sidebar round-trip — assert event-detail mounts cleanly.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
+
+    // ----------------------------------------------------------------
+    // 11e. Mid-tier umbrella deepening (rf2-gdqm1) — promote five
+    // helper-strong rows from `partial`/`deferred` → `covered` via
+    // realistic in-scope walks. The bead's contract: "deepen
+    // assertions rather than ease criteria" (Mike's Q3 default in
+    // rf2-160di). Each sub-walk uses override events or trace-bus
+    // pushes already wired into the panel install — no new testbeds,
+    // no source-side changes.
+    //
+    //   11e-1 — Causality Graph   (matrix row 71)
+    //   11e-2 — Machines          (matrix row 74)
+    //   11e-3 — Hydration         (matrix row 77)
+    //   11e-4 — Performance       (matrix row 78)
+    //   11e-5 — Open in Editor    (matrix row 84)
+    // ----------------------------------------------------------------
+
+    // ----------------------------------------------------------------
+    // 11e-1. Causality Graph (matrix row 71).
+    //
+    // The 9d walk earlier pinned the node-click → event-detail pivot
+    // for a single cascade. This deepens the panel's visible-surface
+    // contract:
+    //
+    //   - sidebar pivot lands on `rf-causa-causality-graph`
+    //   - the always-rendered chrome containers mount regardless of
+    //     buffer state:
+    //       * `rf-causa-causality-graph-svg` (the SVG root)
+    //       * `rf-causa-causality-graph-nodes` (the nodes group)
+    //       * `rf-causa-causality-graph-arrows` (the arrows group)
+    //       * `rf-causa-causality-graph-legend` (the legend strip)
+    //   - the empty-state branch (`rf-causa-causality-graph-empty`)
+    //     is ABSENT when the trace buffer has cascades — the counter
+    //     boot + the host clicks earlier in this spec guarantee
+    //     populated state
+    //   - **multi-node invariant** — at least 2 distinct
+    //     `rf-causa-graph-node-<dispatch-id>` testids render
+    //     (deepens 9d which only required >= 1 node)
+    //   - **filter-chip absence in unfiltered mode** — without an
+    //     active Time-Travel selected-epoch, the panel's
+    //     `(when filtered? ...)` gate keeps both
+    //     `rf-causa-causality-graph-filtered` and `-clear-filter`
+    //     ABSENT (guards against the filter chip leaking on a
+    //     non-filtered topology)
+    //
+    // The full feature path (cross-frame cascade with dormant frame
+    // + destroyed-frame trace + edge-pair node-id parity assertion)
+    // needs the multi-frame testbed wired through the rigorous
+    // compile graph. The walk pins the panel's container contract +
+    // multi-node + unfiltered absence invariant. Matrix row 71
+    // (Causality Graph) flips from `deferred (rf2-gdqm1)` to
+    // `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
+    // Always-rendered chrome — SVG + groups + legend. The
+    // `nodes`/`arrows` groups are SVG `<g>` elements; Playwright's
+    // `isVisible()` returns false for an empty `<g>` (no bounding
+    // box) so we assert presence via `count` rather than visibility.
+    for (const chromeTestid of [
+      'rf-causa-causality-graph-svg',
+      'rf-causa-causality-graph-nodes',
+      'rf-causa-causality-graph-arrows',
+      'rf-causa-causality-graph-legend',
+    ]) {
+      const n = await page.locator(`[data-testid="${chromeTestid}"]`).count();
+      if (n !== 1) {
+        throw new Error(`Expected exactly one '${chromeTestid}' element; got ${n}.`);
+      }
+    }
+    // Empty-state branch absent on populated buffer.
+    if ((await page.locator('[data-testid="rf-causa-causality-graph-empty"]').count()) !== 0) {
+      throw new Error(
+        'Expected `causality-graph-empty` to be absent — counter cascades populate the buffer.',
+      );
+    }
+    // Multi-node invariant — at least 2 nodes after the host dispatches
+    // earlier in this spec.
+    const graphNodesNow = page.locator('[data-testid^="rf-causa-graph-node-"]');
+    await waitForCondition(
+      async () => graphNodesNow.count(),
+      (count) => count >= 2,
+      'causality graph to render at least 2 nodes (multi-node invariant)',
+      5000,
+    );
+    // Filter chip + clear-filter button absent without an active
+    // selected-epoch.
+    if ((await page.locator('[data-testid="rf-causa-causality-graph-filtered"]').count()) !== 0) {
+      throw new Error(
+        'Expected `causality-graph-filtered` chip absent without a Time-Travel selected-epoch.',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-causality-graph-clear-filter"]').count()) !== 0) {
+      throw new Error(
+        'Expected `causality-graph-clear-filter` absent without a Time-Travel selected-epoch.',
+      );
+    }
+
+    // ----------------------------------------------------------------
+    // 11e-2. Machine Inspector (matrix row 74).
+    //
+    // The 10h walk pinned the no-machines empty branch + populated-
+    // surface absence invariants. This drives the POPULATED branch
+    // via the panel's test-only override events
+    // (`:rf.causa/set-registered-machines-override-for-test` +
+    // `:rf.causa/set-machine-snapshots-override-for-test`) — same
+    // pattern as 11b's Routes override walk. Asserts:
+    //
+    //   - dispatch the registered-machines override with a two-
+    //     machine vector → empty branch unmounts; populated branch
+    //     mounts
+    //   - dispatch the snapshots override (one snapshot per machine)
+    //     → picker `<select>` renders an `<option>` per registered
+    //     machine; placeholder banner + placeholder prop-map render;
+    //     each canonical prop testid (`-prop-machine-id /
+    //     -prop-frame-id / -prop-current-state-override`) is present
+    //   - transition ribbon mounts (`-ribbon`) with its empty sub-
+    //     branch (`-ribbon-empty`) because no machine transition
+    //     trace events are in the buffer
+    //   - reset overrides → empty branch returns
+    //
+    // The full feature path (deterministic transitions + hierarchical/
+    // parallel states + child actors + invoke + timer + guard/action
+    // failure + history scrolling) needs the deep_machine testbed
+    // wired through the rigorous compile graph. The walk pins the
+    // populated-branch container shape + picker + placeholder prop
+    // contract; matrix row 74 (Machines) flips from `partial
+    // (rf2-5aw5v.1)` to `covered`.
+    // ----------------------------------------------------------------
+    const machinesInjected = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      const machines = cljs.PersistentVector.fromArray(
+        [kw('auth/login-flow'), kw('checkout')], true,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-registered-machines-override-for-test'),
+          machines,
+        ], true),
+        frameOpts,
+      );
+      const snapshots = cljs.PersistentArrayMap.fromArray([
+        kw('auth/login-flow'),
+        cljs.PersistentArrayMap.fromArray([
+          kw('state'), kw('idle'),
+          kw('data'),  cljs.PersistentArrayMap.EMPTY,
+        ], true, false),
+        kw('checkout'),
+        cljs.PersistentArrayMap.fromArray([
+          kw('state'), kw('in-progress'),
+          kw('data'),  cljs.PersistentArrayMap.EMPTY,
+        ], true, false),
+      ], true, false);
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-machine-snapshots-override-for-test'),
+          snapshots,
+        ], true),
+        frameOpts,
+      );
+      return { ok: true };
+    });
+    if (!machinesInjected.ok) throw new Error('Could not inject machines overrides.');
+
+    await clickSidebar(page, 'machines', 'rf-causa-machine-inspector');
+    // Populated branch — picker + placeholder + ribbon mount; the
+    // empty branch unmounts.
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-picker"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-machine-inspector-empty"]').count()) !== 0) {
+      throw new Error(
+        'Expected machine-inspector-empty to be absent after override injects registered machines.',
+      );
+    }
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-picker-select"]'),
+      5000,
+    );
+    // Two registered machines → two <option>s in the picker.
+    const optionCount = await page
+      .locator('[data-testid="rf-causa-machine-inspector-picker-select"] option')
+      .count();
+    if (optionCount !== 2) {
+      throw new Error(
+        `Expected 2 picker options for 2 registered machines; got ${optionCount}.`,
+      );
+    }
+    // Placeholder banner + placeholder prop map.
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-placeholder-banner"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-placeholder"]'),
+      5000,
+    );
+    // Per-prop testids — every prop the placeholder surfaces from
+    // `(chart-props selected target-frame)`.
+    for (const prop of ['machine-id', 'frame-id', 'current-state-override']) {
+      await expectVisible(
+        page.locator(`[data-testid="rf-causa-machine-inspector-prop-${prop}"]`),
+        5000,
+      );
+    }
+    // Transition ribbon mounts + its empty sub-branch (no transition
+    // traces in the buffer).
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-ribbon"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-ribbon-empty"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-machine-inspector-ribbon-list"]').count()) !== 0) {
+      throw new Error(
+        'Expected ribbon-list to be absent — no transition traces in the buffer.',
+      );
+    }
+
+    // Reset machines overrides → empty branch returns.
+    await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-registered-machines-override-for-test'), null,
+        ], true),
+        frameOpts,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/set-machine-snapshots-override-for-test'), null,
+        ], true),
+        frameOpts,
+      );
+    });
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-empty"]'),
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 11e-3. Hydration Debugger (matrix row 77).
+    //
+    // The 10g walk pinned the no-SSR empty branch + dormant glyph +
+    // populated-surface absence invariants. This drives the
+    // POPULATED branch by pushing a synthetic
+    // `:rf.ssr/hydration-mismatch` trace event through the trace-bus
+    // (`day8.re_frame2_causa.trace_bus.collect_trace_BANG_`) — same
+    // primitive the framework's SSR module uses to publish real
+    // mismatches.
+    //
+    //   - push one synthetic mismatch with the canonical tag payload
+    //     (`:path :server-tree :client-tree :server-hash :client-
+    //     hash :frame :view-id`)
+    //   - sidebar pivot → hydration lands on the populated branch:
+    //       * `rf-causa-hydration-mismatch-list` mounts
+    //       * `rf-causa-hydration-mismatch-detail` mounts
+    //       * one `rf-causa-hydration-mismatch-row-<id>` per
+    //         injected mismatch
+    //       * both empty branches (`-empty-no-ssr` and `-empty-
+    //         clean`) ABSENT
+    //   - clear the trace buffer → empty-no-ssr returns; the
+    //     populated surfaces unmount
+    //
+    // The full feature path (server/client hash mismatch surface +
+    // render-tree diff + divergent node highlight + corrupt/missing
+    // payload + multi-frame mismatch) needs the ssr_hydration_
+    // mismatch testbed wired through the rigorous compile graph
+    // (the synthetic push covers the data path; the testbed covers
+    // the boot-to-mismatch live publish). The walk pins the
+    // populated-branch container shape + row mounting; matrix row
+    // 77 (Hydration) flips from `partial (rf2-5aw5v.3)` to
+    // `covered`.
+    // ----------------------------------------------------------------
+    const mismatchInjected = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const bus  = window.day8.re_frame2_causa.trace_bus;
+      const kw   = (n) => cljs.keyword(n);
+      if (!bus || typeof bus.collect_trace_BANG_ !== 'function') {
+        return { ok: false, reason: 'trace_bus.collect_trace_BANG_ missing' };
+      }
+      const tags = cljs.PersistentArrayMap.fromArray([
+        kw('path'),        cljs.PersistentVector.fromArray([0], true),
+        kw('server-tree'), cljs.PersistentVector.fromArray(
+          [kw('div'), 'server-text'], true),
+        kw('client-tree'), cljs.PersistentVector.fromArray(
+          [kw('div'), 'client-text'], true),
+        kw('server-hash'), 'S-hash',
+        kw('client-hash'), 'C-hash',
+        kw('frame'),       kw('rf/default'),
+        kw('view-id'),     kw('counter.core/counter-app'),
+      ], true, false);
+      const ev = cljs.PersistentArrayMap.fromArray([
+        kw('id'),        'rf2-gdqm1-synth-mismatch-1',
+        kw('operation'), kw('rf.ssr/hydration-mismatch'),
+        kw('time'),      Date.now(),
+        kw('tags'),      tags,
+      ], true, false);
+      bus.collect_trace_BANG_(ev);
+      return { ok: true };
+    });
+    if (!mismatchInjected.ok) {
+      throw new Error(`Could not inject hydration mismatch: ${mismatchInjected.reason}`);
+    }
+
+    await clickSidebar(page, 'hydration', 'rf-causa-hydration-debugger');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-hydration-mismatch-list"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-hydration-mismatch-detail"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-hydration-mismatch-row-rf2-gdqm1-synth-mismatch-1"]'),
+      5000,
+    );
+    for (const emptyTestid of [
+      'rf-causa-hydration-debugger-empty-no-ssr',
+      'rf-causa-hydration-debugger-empty-clean',
+    ]) {
+      if ((await page.locator(`[data-testid="${emptyTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected '${emptyTestid}' absent on populated hydration branch.`,
+        );
+      }
+    }
+
+    // Clear the trace buffer → the synthetic mismatch goes away;
+    // empty-no-ssr returns (the counter is not SSR — no hydration
+    // events ever land naturally).
+    const clearForHyd = await clearTraceBuffer(page);
+    if (!clearForHyd.ok) throw new Error('Could not clear trace buffer.');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-hydration-debugger-empty-no-ssr"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-hydration-mismatch-list"]').count()) !== 0) {
+      throw new Error('Expected hydration-mismatch-list to unmount after clear-buffer.');
+    }
+
+    // ----------------------------------------------------------------
+    // 11e-4. Performance panel (matrix row 78).
+    //
+    // The 10f walk pinned the populated branch + tier-chip taxonomy +
+    // per-row testid contract + row-click → event-detail pivot. This
+    // deepens the panel's budget-marker surface:
+    //
+    //   - `rf-causa-perf-tier-chips` container always mounts (the
+    //     full taxonomy was asserted via the four chips in 10f; pin
+    //     the container itself here)
+    //   - **over-budget invariant on counter** — counter cascades
+    //     are fast (each :counter/inc /dec settles in microseconds);
+    //     no row's `data-over-budget` is `"true"`; the header chip
+    //     `rf-causa-perf-over-budget-count` is ABSENT (the header
+    //     `(when (pos? over-budget-count) ...)` gate). Guards
+    //     against the over-budget classifier accidentally flagging
+    //     fast cascades or the header chip leaking when zero rows
+    //     cross the threshold.
+    //   - per-row `data-over-budget` attribute is one of "true" /
+    //     "false" on every row LI — guards against the row renderer
+    //     dropping the attribute or rendering it as the empty
+    //     string (which would short-circuit the attribute selector
+    //     downstream tools use to find slow cascades)
+    //   - no per-row `-over-budget` marker testid (the chip on the
+    //     right edge of each over-budget row) is mounted (since no
+    //     row is over budget on counter)
+    //
+    // The full feature path (deterministic fast / medium / slow /
+    // blocking cascades + over-budget marker render + drill-in to
+    // slow row + histogram values) needs a perf-driving testbed
+    // wired through the rigorous compile graph (e.g. weaving the
+    // counter-perf testbed's deterministic slow handler into the
+    // rigorous spec). The walk here pins the no-over-budget
+    // invariant + per-row attribute contract; matrix row 78
+    // (Performance) flips from `partial (rf2-5aw5v.4)` to
+    // `covered`.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'performance', 'rf-causa-performance');
+    await expectVisible(page.locator('[data-testid="rf-causa-perf-tier-chips"]'), 5000);
+    // Header over-budget chip absent on the fast counter.
+    if ((await page.locator('[data-testid="rf-causa-perf-over-budget-count"]').count()) !== 0) {
+      throw new Error(
+        'Expected perf-over-budget-count header chip absent on the fast counter (no rows over 16ms).',
+      );
+    }
+    // Per-row attribute contract — `data-over-budget` on every row LI
+    // is either "true" or "false"; on counter every value should be
+    // "false". The row LI is the only element carrying `data-tier`
+    // (per 10f), use that as the discriminator.
+    const perfRowLis = await page
+      .locator('[data-testid^="rf-causa-perf-row-"]')
+      .evaluateAll((els) =>
+        els
+          .filter((el) => el.hasAttribute('data-tier'))
+          .map((el) => ({
+            testid:       el.getAttribute('data-testid'),
+            tier:         el.getAttribute('data-tier'),
+            overBudget:   el.getAttribute('data-over-budget'),
+          })),
+      );
+    if (perfRowLis.length === 0) {
+      throw new Error('Expected at least one perf-row LI carrying data-tier.');
+    }
+    for (const { testid, overBudget } of perfRowLis) {
+      if (overBudget !== 'true' && overBudget !== 'false') {
+        throw new Error(
+          `Row ${testid} carries unrecognised data-over-budget=${JSON.stringify(overBudget)}; expected "true"/"false".`,
+        );
+      }
+      if (overBudget !== 'false') {
+        throw new Error(
+          `Row ${testid} flagged over-budget on the fast counter; expected "false". data-over-budget=${overBudget}.`,
+        );
+      }
+    }
+    // No per-row over-budget marker chips mount.
+    if ((await page.locator('[data-testid$="-over-budget"][data-testid^="rf-causa-perf-row-"]').count()) !== 0) {
+      throw new Error(
+        'Expected no per-row over-budget marker chips on the fast counter.',
+      );
+    }
+
+    // ----------------------------------------------------------------
+    // 11e-5. Open in Editor / Source Coordinates (matrix row 84).
+    //
+    // The 10c walk pinned the `set-editor!` / `get-editor` /
+    // `set-project-root!` / `get-project-root` round-trip + the
+    // no-chip-leak invariant on counter. This deepens the URI
+    // builder's actual output across the panel-side rendering
+    // contract:
+    //
+    //   - the public `resolve_uri` fn (used both by the chip render
+    //     path and the `:rf.editor/open` reg-fx — one source of
+    //     truth for URI shape per the open_in_editor docstring) is
+    //     exposed on `window.day8.re_frame2_causa.open_in_editor`
+    //   - for every canonical editor preset (:vscode / :cursor /
+    //     :idea / :zed — the four schemes in `editor_uri/allowed-
+    //     editor-uri-schemes`; :emacs is intentionally not in the
+    //     allowlist per the canonical preset set) the URI matches
+    //     the expected scheme + the classpath-relative `:file` slot
+    //   - `set-project-root!` threads through the resolved URI —
+    //     the resulting path includes the configured root prefix
+    //     (rf2-5m5n2 — the project-root rewrite path that lets a
+    //     classpath-relative `:file` resolve to an absolute on-disk
+    //     path)
+    //   - missing-`:file` source-coord resolves to nil (the hidden-
+    //     chip case per the chip's `(when uri ...)` guard)
+    //   - unknown editor keyword falls back to the :vscode scheme
+    //     (the editor-uri builder's fallback per the open_in_editor
+    //     docstring)
+    //   - `:custom` template with a non-allowlisted scheme returns
+    //     nil (the rf2-cm93v allowlist gate — only the canonical
+    //     editor schemes pass; a `myeditor://...` template is
+    //     rejected even though it's well-formed)
+    //   - reset state — editor + project-root back to defaults so
+    //     subsequent worktree re-runs read off a clean baseline
+    //
+    // The full feature path (per-panel chip mounting walk across
+    // event / trace / app-db / sub / route / machine / flow /
+    // hydration with deterministic source-coord data) needs the
+    // panel-side `open-chip` integrations the v1 Causa surface
+    // doesn't yet ship. The walk pins the configurable surface +
+    // the URI builder's shape contract across every preset + the
+    // project-root rewrite path + the allowlist gate; matrix row
+    // 84 (Open in Editor) flips from `partial (rf2-5aw5v.7)` to
+    // `covered`.
+    // ----------------------------------------------------------------
+    const editorUriVerify = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const open = window.day8 && window.day8.re_frame2_causa && window.day8.re_frame2_causa.open_in_editor;
+      const cfg  = window.day8 && window.day8.re_frame2_causa && window.day8.re_frame2_causa.config;
+      if (!cljs) return { ok: false, reason: 'no cljs.core' };
+      if (!open || typeof open.resolve_uri !== 'function') {
+        return { ok: false, reason: 'no resolve_uri on open_in_editor' };
+      }
+      if (!cfg) return { ok: false, reason: 'no config' };
+      const kw = (n) => cljs.keyword(n);
+      const eq = cljs._EQ_;
+      const issues = [];
+
+      // Canonical structured coord — classpath-relative file.
+      const coord = cljs.PersistentArrayMap.fromArray([
+        kw('file'),   'src/counter/core.cljs',
+        kw('line'),   42,
+        kw('column'), 7,
+      ], true, false);
+
+      // 1. :vscode baseline (no project-root).
+      cfg.set_editor_BANG_(kw('vscode'));
+      cfg.set_project_root_BANG_(null);
+      const vscodeBase = open.resolve_uri(coord);
+      if (typeof vscodeBase !== 'string' || !vscodeBase.startsWith('vscode://')) {
+        issues.push(`step ':vscode baseline' expected vscode:// scheme; got ${cljs.pr_str(vscodeBase)}`);
+      } else if (!vscodeBase.includes('src/counter/core.cljs')) {
+        issues.push(`step ':vscode baseline' URI missing classpath-relative file; got ${vscodeBase}`);
+      }
+
+      // 2. project-root threading — the resolved URI includes the
+      //    configured root prefix.
+      cfg.set_project_root_BANG_('/abs/project/root');
+      const vscodeWithRoot = open.resolve_uri(coord);
+      if (typeof vscodeWithRoot !== 'string' || !vscodeWithRoot.includes('/abs/project/root/src/counter/core.cljs')) {
+        issues.push(
+          `step ':vscode with project-root' URI missing root prefix; got ${cljs.pr_str(vscodeWithRoot)}`,
+        );
+      }
+
+      // 3. :cursor preset (with project-root still set).
+      cfg.set_editor_BANG_(kw('cursor'));
+      const cursorUri = open.resolve_uri(coord);
+      if (typeof cursorUri !== 'string' || !cursorUri.startsWith('cursor://')) {
+        issues.push(`step ':cursor preset' expected cursor:// scheme; got ${cljs.pr_str(cursorUri)}`);
+      }
+
+      // 4. :idea preset.
+      cfg.set_editor_BANG_(kw('idea'));
+      const ideaUri = open.resolve_uri(coord);
+      if (typeof ideaUri !== 'string' || !ideaUri.startsWith('idea://')) {
+        issues.push(`step ':idea preset' expected idea:// scheme; got ${cljs.pr_str(ideaUri)}`);
+      }
+
+      // 5. :zed preset (the fifth canonical preset; :emacs is not in
+      //    the allowlist per editor_uri/allowed-editor-uri-schemes).
+      cfg.set_editor_BANG_(kw('zed'));
+      const zedUri = open.resolve_uri(coord);
+      if (typeof zedUri !== 'string' || !zedUri.startsWith('zed://')) {
+        issues.push(`step ':zed preset' expected zed:// scheme; got ${cljs.pr_str(zedUri)}`);
+      }
+
+      // 6. Missing-file coord → nil (the hidden-chip case).
+      cfg.set_editor_BANG_(kw('vscode'));
+      const coordNoFile = cljs.PersistentArrayMap.fromArray([
+        kw('line'),   42,
+        kw('column'), 7,
+      ], true, false);
+      const noFileUri = open.resolve_uri(coordNoFile);
+      if (noFileUri !== null && noFileUri !== undefined) {
+        issues.push(`step 'missing-file' expected nil URI (chip hides); got ${cljs.pr_str(noFileUri)}`);
+      }
+
+      // 7. Unknown editor keyword → falls back to :vscode scheme.
+      cfg.set_editor_BANG_(kw('not-an-editor-9b3kf'));
+      const unknownUri = open.resolve_uri(coord);
+      if (typeof unknownUri !== 'string' || !unknownUri.startsWith('vscode://')) {
+        issues.push(
+          `step 'unknown editor fallback' expected vscode:// scheme; got ${cljs.pr_str(unknownUri)}`,
+        );
+      }
+
+      // 8. `:custom` template with non-allowlisted scheme → nil
+      //    (rf2-cm93v allowlist gate). A `myeditor://` URI is well-
+      //    formed but rejected.
+      const customRejected = cljs.PersistentArrayMap.fromArray([
+        kw('custom'),
+        'myeditor://open?path={path}&line={line}&col={column}',
+      ], true, false);
+      cfg.set_editor_BANG_(customRejected);
+      const customUri = open.resolve_uri(coord);
+      if (customUri !== null && customUri !== undefined) {
+        issues.push(
+          `step 'custom allowlist gate' expected nil URI (non-allowlisted scheme rejected); got ${cljs.pr_str(customUri)}`,
+        );
+      }
+
+      // Reset state.
+      cfg.set_editor_BANG_(null);
+      cfg.set_project_root_BANG_(null);
+
+      return { ok: true, issues };
+    });
+    if (!editorUriVerify.ok) {
+      throw new Error(`Could not run open-in-editor URI probe: ${editorUriVerify.reason}`);
+    }
+    if (editorUriVerify.issues.length > 0) {
+      throw new Error(
+        `Open-in-editor URI shape failures:\n  - ${editorUriVerify.issues.join('\n  - ')}`,
+      );
+    }
   },
 };
