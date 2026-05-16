@@ -19,9 +19,8 @@ principles for Causa-MCP (origin tagging, EDN canonical, closed-set
 catalogue, two-namespace split, etc.); the wire-pipeline rules
 below were split out into this file (rf2-erimb) because the section
 grew large enough to deserve its own scaffold — mirroring the
-pair2-mcp-shape capability files (`001-Wire-Protocol.md`,
-`002-nREPL-Transport.md`, `003-Tool-Catalogue.md` — the latter
-three land at impl-pass time).
+pair2-mcp-shape capability files. The tool catalogue itself ships
+in [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md).
 
 ## Privacy: default-drop `:sensitive?` events at the MCP boundary
 
@@ -95,7 +94,7 @@ need fine-grained app-db privacy continue to use `with-redacted`
 on writing handlers alongside the walker — neither displaces the
 other.
 
-The wiring pattern (when implementation lands) mirrors
+The wiring pattern mirrors
 [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)'s
 `strip-sensitive` helper + `:include-sensitive?` arg + descriptor
 slot on each affected tool — per the cross-server symmetry posture
@@ -215,9 +214,9 @@ the `subscribe` stream, all of which return payloads whose
 size scales with runtime state.
 
 The discipline rests on **six normative mechanisms**, each
-catalogued below. Every catalogue entry (when
-`003-Tool-Catalogue.md` lands) MUST declare which of the six
-apply to that tool, with a **typical-token** hint
+catalogued below. Every catalogue entry in
+[`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) MUST declare
+which of the six apply to that tool, with a **typical-token** hint
 (`~1.2k`, `~3k under :sample`) and a **cap-reached** behaviour
 note. The hints surface in `list-tools` so the agent can plan
 ahead. The cap is enforced at the runtime boundary, not just
@@ -342,7 +341,7 @@ matches the call-site shape:
 
 The earlier "3-5×" range in this section was vibes; the measured
 numbers above supersede it. Catalogue entries in
-`003-Tool-Catalogue.md` (when it lands) MUST cite the
+[`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) MUST cite the
 regime-appropriate factor when declaring `:typical-tokens` —
 trace-bus-shaped tools use **~1.4×**, recurring-cascade tools
 use **~10×**, epoch-slice tools use **5-10×**.
@@ -437,7 +436,7 @@ declared-large slot itself, or a session running with a
 purpose-built large-context model). The argument slot is
 cross-server identical (`:include-large?` is the same key on
 pair2-mcp's `snapshot` / `get-path` tools, on story-mcp, and
-on causa-mcp's catalogue when impl lands).
+on causa-mcp's catalogue).
 
 **Per-call digest opt-in**. The `:rf.size/include-digests?`
 slot defaults `false`; setting `true` computes a `sha256:<hex>`
@@ -458,13 +457,12 @@ marker through its `snapshot` and `get-path` tools (rf2-urjnc,
 per
 [pair2-mcp Principles §"Size-elision wire markers"](../../pair2-mcp/spec/Principles.md#size-elision-wire-markers-rf2-urjnc));
 the marker shape is identical on the wire. Causa-MCP's
-catalogue (`003-Tool-Catalogue.md`, when it lands) MUST declare
-the `:include-large?` slot, the `:elided-large` indicator
-field, and the default elision-policy on every tool emitting
-tree-typed payloads. Impl alignment is tracked separately —
-this section is the spec-side normative pin; the
-implementation pass lands against the catalogue once
-`tools/causa-mcp/src/` exists.
+catalogue ([`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md))
+MUST declare the `:include-large?` slot, the `:elided-large`
+indicator field, and the default elision-policy on every tool
+emitting tree-typed payloads. Impl alignment lives in
+[`tools/causa-mcp/src/`](../src/) — the spec-side normative pin
+binds the catalogue and the implementation jointly.
 
 The six mechanisms together are the load-bearing budget
 posture for Causa-MCP's agent-host workflow: keep the per-op
@@ -475,9 +473,9 @@ value over a generalist surface (Chrome DevTools MCP's
 the tools.
 
 The **catalogue-entry contract** (binding on
-`003-Tool-Catalogue.md` when it lands): every tool entry MUST
-declare which mechanisms apply, the **typical-token** hint, the
-**cap-reached** behaviour, and the default `:mode` /
+[`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md)): every tool
+entry MUST declare which mechanisms apply, the **typical-token**
+hint, the **cap-reached** behaviour, and the default `:mode` /
 `:limit` / `:dedup?` values. No tool ships without these slots.
 
 ## Streaming over batch (cross-cut)

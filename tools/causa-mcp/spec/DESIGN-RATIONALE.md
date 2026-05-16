@@ -340,14 +340,14 @@ additions are deliberate (a Lock entry here, a discussion).
 
 When a tool is promoted from `eval-cljs` recurrence (or from any
 other recurrent-workflow signal) to a named tool, the addition
-lands in `003-Tool-Catalogue.md` (once impl ships it) and a
-Lock-N entry pins the rationale. The canonical band-and-count
+lands in [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) and
+a Lock-N entry pins the rationale. The canonical band-and-count
 fact is [`README.md` §Canonical counts](./README.md#canonical-counts);
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
-and the future `003-Tool-Catalogue.md` cite that subsection
-rather than restating the totals. Lock #12 is the worked
-example: catalogue grew by one, README's counts table moved,
-Lock entry landed.
+and [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) cite
+that subsection rather than restating the totals. Lock #12 is
+the worked example: catalogue grew by one, README's counts
+table moved, Lock entry landed.
 
 ### Date locked
 
@@ -468,8 +468,8 @@ maven coord shape?
 
 2026-05-12 (Mike). The coord was used in the
 [`010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
-§Install + configure section on 2026-05-12; this lock pins it
-so the npm coord doesn't drift when implementation lands.
+§Install + configure section on 2026-05-12; this lock pins
+the npm coord against drift.
 
 ### Trail-of-thought citations
 
@@ -649,8 +649,8 @@ the same drift?
 response" section enumerates each mechanism with normative MUST
 wording, a reserved `:rf.mcp/overflow` / `:rf.mcp/summary` /
 `:rf.mcp/dedup-table` payload shape, and a catalogue-entry
-contract binding `003-Tool-Catalogue.md` when it lands. No tool
-ships without declaring which mechanisms apply, its
+contract binding [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md).
+No tool ships without declaring which mechanisms apply, its
 typical-token hint, its cap-reached behaviour, and its default
 `:mode` / `:limit` / `:dedup?` values.
 
@@ -696,7 +696,7 @@ typical-token hint, its cap-reached behaviour, and its default
   compress **~10×** (~90% reduction), epoch slices compress
   **5-10×** (already pinned at 89.5% by `dedup_test.cljs` for
   rf2-obpa9). The catalogue-entry contract in
-  `003-Tool-Catalogue.md` (when it lands) cites the
+  [`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md) cites the
   regime-appropriate factor per tool. Dedup is opt-out, not
   opt-in, so the default agent experience is the compressed
   wire.
@@ -807,8 +807,8 @@ pipeline order ("elision runs first") into the spec before
   §`:rf/elision-marker` are the source-of-truth normative
   catalogue. Lock #10 promotes that normative shape into the
   Causa-MCP Principles.md so the catalogue contract
-  (`003-Tool-Catalogue.md`, when it lands) has a per-mechanism
-  slot to bind every tool to.
+  ([`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md)) has a
+  per-mechanism slot to bind every tool to.
 - **The composition rule is load-bearing.** "Sensitive wins"
   isn't an obvious default — naively, a value matching both
   predicates could emit a marker carrying a `:path` /
@@ -1013,7 +1013,7 @@ and Causa-MCP picks the catalogued verb first.
 
 ### Question
 
-Causa-MCP's pre-impl catalogue was unified to seventeen tools
+Causa-MCP's catalogue was unified to seventeen tools
 (rf2-22my5, 2026-05-13). The rf2-m9yoi audit subsequently
 surfaced a parity gap: pair2-mcp's impl ships
 `subscription-info` (rf2-zjz9q) as a request-response diagnostic
@@ -1127,8 +1127,9 @@ The band split becomes **9 inspection + 3 mutation + 3 stream +
 
 ### Tool sketch
 
-The full signature lands in `003-Tool-Catalogue.md` when impl
-ships; the spec-level contract is:
+The full signature lives in
+[`004-Tools-Catalogue.md`](./004-Tools-Catalogue.md); the
+spec-level contract is:
 
 - **Name**: `list-subscriptions`.
 - **Band**: Streaming (band cardinality 3 — sibling to
@@ -1210,11 +1211,10 @@ this lock picks 18 with the conformant-verb name
 | 11 | Namespace split | **MCP-server-side at `day8.re-frame2-causa-mcp.*` (Node); injected-runtime-side at `day8.re-frame2-causa.runtime` (browser, rides Causa-the-panel's preload). Mirrors pair2-mcp's `re-frame-pair2-mcp.*` / `re-frame-pair2.runtime` split.** | 2026-05-14 |
 | 12 | subscription-info parity | **`list-subscriptions` is the eighteenth tool; lives in the Streaming band (3 tools: `subscribe` / `unsubscribe` / `list-subscriptions`); NAMING.md-conformant verb picked over pair2-mcp's `subscription-info` shape.** | 2026-05-14 |
 
-These twelve locks define Causa-MCP's pre-implementation surface.
+These twelve locks define Causa-MCP's foundational surface.
 They were extracted from
 [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
 and [Causa's own DESIGN-RATIONALE](../../causa/spec/DESIGN-RATIONALE.md)
 [Lock #6 — MCP timing](../../causa/spec/DESIGN-RATIONALE.md#lock-6--mcp-timing)
-when this spec folder was stood up. When implementation work
-begins, additional locks (e.g. specific test-runner choice,
-specific deps-vendor choice, etc.) will land here.
+when this spec folder was stood up. Additional locks accrete
+here as implementation surfaces new direction-setting choices.
