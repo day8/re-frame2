@@ -41,7 +41,18 @@
             ;; `goog.DEBUG=false`.
             [re-frame.routing-trace-emit-elision-prod-test]
             [re-frame.http-trace-emit-elision-prod-test]
-            [re-frame.flows-trace-emit-elision-prod-test]))
+            [re-frame.flows-trace-emit-elision-prod-test]
+            ;; Per rf2-l7hlm — `:advanced` prod-elision pins replicated
+            ;; for the trace-bus (ring buffer), epoch (Tool-Pair
+            ;; §Time-travel surface), and frame-provider / render-key
+            ;; (Spec 004 §Render-tree primitives) machinery. Sibling
+            ;; to the existing rf2-2zdu (trace listener),
+            ;; rf2-hqbeh (`:on-error`) and rf2-uwg5 (source-coord DOM)
+            ;; pins; together they cover every dev-only sub-surface
+            ;; under `:advanced` + `goog.DEBUG=false`.
+            [re-frame.trace-bus-elision-prod-test]
+            [re-frame.epoch-elision-prod-test]
+            [re-frame.frame-provider-render-key-elision-prod-test]))
 
 (defn ^:export init []
   (-> (env/get-test-data)
