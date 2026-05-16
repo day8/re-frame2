@@ -305,7 +305,11 @@
     (rf/reg-event-db :ping (fn [db _] db))
     (rf/dispatch-sync [:ping])
     (let [pre-time (-> (rf/trace-buffer) last :time)]
-      ;; Force a small delay so subsequent events have :time strictly >.
+      ;; Timer-semantics sleep (rf2-ka3n6): we are asserting :since-ms
+      ;; filtering against the host clock — the test contract requires
+      ;; that the next event's :time is strictly greater. NOT replaceable
+      ;; by a deterministic-gate helper; the clock advancement IS the
+      ;; thing under test.
       (Thread/sleep 5)
       (rf/dispatch-sync [:ping])
       (let [after (rf/trace-buffer {:since-ms pre-time})]

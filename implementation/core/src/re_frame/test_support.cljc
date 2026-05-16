@@ -49,7 +49,14 @@
   - [[dispatch-sequence]] — fire a vector of events synchronously,
     optionally observing intermediate state via `:after-each`.
   - [[assert-state]] — assert against the current frame's app-db (full
-    db or `path` form); failure is reported via `clojure.test/is`."
+    db or `path` form); failure is reported via `clojure.test/is`.
+
+  ### Deterministic-wait helpers (rf2-ka3n6)
+  - [[poll-until]] — bounded-deadline poll for `(pred)` to return
+    truthy. Replaces incidental fixed `Thread/sleep N` for waits that
+    are observable in state (router drain, event-cascade settle, sub
+    re-fire). NOT for timer-semantics tests — those should keep their
+    sleep and annotate that intent locally."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             ;; The flows / schemas / machines / routing / http-managed /
@@ -430,3 +437,44 @@
         :expected expected-val
         :actual   actual})
      pass?)))
+
+;; ---- deterministic wait helper (rf2-ka3n6) -------------------------------
+;;
+;; Replaces incidental fixed `Thread/sleep N` waits that exist to let an
+;; *observable* event (router drain, cascade settle, sub re-fire) complete.
+;; NOT for timer-semantics tests — those should keep their sleep and
+;; annotate that intent locally (the sleep IS the contract under test).
+
+#?(:clj
+   (defn poll-until
+     "Bounded-deadline poll for `(pred)` to return truthy. Returns the
+     truthy value on success; throws `ex-info` on timeout with
+     `:rf.test/poll-timeout` `true`, the elapsed ms, and the supplied
+     `:label` (when given) to identify the assertion site.
+
+     `opts` (all optional):
+       :timeout-ms   default 2000 — overall deadline.
+       :interval-ms  default 5    — sleep between probes.
+       :label        string/keyword used in the timeout message.
+
+     Use this in JVM tests that previously called `(Thread/sleep N)` to
+     wait for the async router to drain, an event cascade to settle, or
+     a sub to re-fire. The deadline is generous; tests fail fast on a
+     truly stuck condition, not on CI scheduler jitter."
+     ([pred] (poll-until pred nil))
+     ([pred opts]
+      (let [{:keys [timeout-ms interval-ms label]
+             :or   {timeout-ms 2000 interval-ms 5}} opts
+            start    (System/currentTimeMillis)
+            deadline (+ start timeout-ms)]
+        (loop []
+          (let [v (pred)]
+            (cond
+              v v
+              (>= (System/currentTimeMillis) deadline)
+              (throw (ex-info (str "poll-until timed out"
+                                   (when label (str " — " label)))
+                              {:rf.test/poll-timeout true
+                               :elapsed-ms (- (System/currentTimeMillis) start)
+                               :label label}))
+              :else (do (Thread/sleep ^long interval-ms) (recur)))))))))
