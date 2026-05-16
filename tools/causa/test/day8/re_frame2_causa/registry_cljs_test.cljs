@@ -3,12 +3,16 @@
 
   ## Scope
 
-  `registry.cljs` (1818 LoC) is the central registrar for Causa's
-  framework surface — 65 reg-subs + 67 reg-event-(db|fx) + 4 reg-fx,
-  all under the `:rf.causa/*` namespace, targeting the `:rf/causa`
-  frame. Prior to this file the only coverage was *transitive* through
-  per-panel view tests (each panel test calls `(registry/reset-for-test!)`
-  then drives the panel-specific subset via subscribe/dispatch).
+  `registry.cljs` is now a thin orchestrator that owns only the
+  cross-panel primitives (trace-buffer sub, panel-selection slot,
+  shared cascades projection, suppression-counter handlers) plus the
+  per-panel `install!` fan-out (rf2-d4xda). Per-panel reg-subs /
+  reg-events / reg-fxs live colocated with the panel ns that reads
+  them. All registrations sit under the `:rf.causa/*` namespace and
+  target the `:rf/causa` frame. Prior to this file the only coverage
+  was *transitive* through per-panel view tests (each panel test
+  calls `(registry/reset-for-test!)` then drives the panel-specific
+  subset via subscribe/dispatch).
 
   Per the bead description (rf2-5zl7l) and the test-coverage audit
   (rf2-otcbz) the transitive route does NOT isolate:
@@ -23,13 +27,14 @@
 
   ## Trade-off: smoke + high-value, not 1-per-registration
 
-  136 registrations is too many to exhaustively unit-test without
-  duplicating the per-panel suite. The strategy below is:
+  The full registered surface is too many to exhaustively unit-test
+  without duplicating the per-panel suite. The strategy below is:
 
     (1) **Smoke registration block** — one assertion per registered
-        name that the registrar resolves it (proves the
-        `register-causa-handlers!` block reached every form without
-        an early throw — the failure mode the audit named).
+        name that the registrar resolves it (proves the orchestrator
+        `register-causa-handlers!` plus each panel `install!` reached
+        every form without an early throw — the failure mode the
+        audit named).
     (2) **High-value sub contracts** — defaults, composite shapes,
         override-aware readers (sub-cache, registered-flows, etc.),
         the panel-suppression / dormant-frame signal slots, and the

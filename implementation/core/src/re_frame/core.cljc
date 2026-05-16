@@ -13,12 +13,16 @@
       the late-bind hook table so requiring this ns does NOT pull
       the feature artefacts.
     - Macro-helper code is factored into three siblings —
-      `core-reg-macros`, `core-call-site-macros`, `core-reg-view-macro`
-      — keeping each leaf under the 250-LoC ceiling. The user-facing
-      `defmacro`s themselves stay in THIS ns (so `rf/reg-event-db`
-      etc. resolve alias-qualified per Clojure's standard
-      `ns-alias/Var` lookup); each is a one-line shell that delegates
-      to the sibling-ns expansion helper.
+      `core-reg-macros` (reg-event-db/fx, reg-sub, reg-fx, reg-cofx
+      expansion), `core-call-site-macros` (dispatch / dispatch-sync /
+      subscribe call-site expansion), `core-reg-view-macro`
+      (reg-view + view-component expansion). The boundary is the
+      *responsibility* — call-site vs registration vs view-registration
+      — so each helper ns owns one cohesive expansion family. The
+      user-facing `defmacro`s themselves stay in THIS ns (so
+      `rf/reg-event-db` etc. resolve alias-qualified per Clojure's
+      standard `ns-alias/Var` lookup); each is a one-line shell that
+      delegates to the sibling-ns expansion helper.
 
   File-naming uses the flat dash-form (`core_X.cljc`) because CLJS
   `goog.provide` for `re-frame.core` overwrites its parent object,

@@ -27,7 +27,20 @@
   ...)` wrapper. Production CLJS builds set
   `:closure-defines {re-frame.story.config/enabled? false}` and every
   registration form elides to `nil`. The public query helpers are plain
-  fns; production code calling them sees an empty side-table."
+  fns; production code calling them sees an empty side-table.
+
+  ## Test-driver runtime — boundary
+
+  Story is a deterministic fixture / test-driver runtime. Its internal
+  helpers (`re-frame.story.runtime`, `re-frame.story.frames`,
+  `re-frame.story.async`) use `rf/dispatch-sync` and direct
+  `get-frame-db` reads so a variant settles to a stable result before
+  the assertions / render-snapshot stage runs. That posture is
+  appropriate for Story's role and IS NOT a pattern to copy into normal
+  interactive application code — UI event handlers should use
+  `rf/dispatch` and subscribe via Reactions, not synchronous reads.
+  Per IMPL-SPEC §5 the boundary is: synchronous drain belongs to the
+  test driver; the queue belongs to the application."
   (:require [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             [re-frame.story.schemas     :as schemas]
@@ -327,8 +340,8 @@
 
 (defn variants-with-tags
   "Per IMPL-SPEC §3.2 — return the set of variant ids whose `:tags`
-  intersects `query-tags`. Stage 5 (assertions/play) leans on this; Stage
-  4 (render shell) leans on this to compose the sidebar tree."
+  intersects `query-tags`. The assertions/play surface leans on this;
+  the render shell leans on this to compose the sidebar tree."
   [query-tags]
   (registrar/variants-with-tags query-tags))
 
@@ -426,9 +439,9 @@
 
 (def ^:private canonical-installers
   "Ordered vector of installer fns invoked by `install-canonical-vocabulary!`.
-  Each takes zero args and is idempotent. The CLJS-only Stage 6 surfaces
-  (multi-substrate Reagent default + the v1.0 panel set) gate on the
-  reader so the JVM classpath stays Reagent-free."
+  Each takes zero args and is idempotent. The CLJS-only SOTA-feature
+  surfaces (multi-substrate Reagent default + the v1.0 panel set) gate
+  on the reader so the JVM classpath stays Reagent-free."
   [registrar/install-canonical-tags!
    loaders/install!
    loaders/install-mirror-writer!
@@ -526,18 +539,18 @@
   [kind id]
   (registrar/unregister! kind id))
 
-;; ---- Stage 3 stubs (run-variant family) ---------------------------------
+;; ---- variant → EDN serialisation ----------------------------------------
 ;;
-;; These are deliberately stubbed at Stage 2 — the bead is the authoring
-;; surface only. Stage 3 (rf2-von3) replaces these bodies with the
-;; four-phase lifecycle. The signatures are locked at IMPL-SPEC §3.2 so
-;; downstream code can be written against them today.
+;; Per IMPL-SPEC §3.2 the variant body is round-trippable through the
+;; registrar side-table; `variant->edn` returns the registered body
+;; verbatim (canonicalisation for snapshot-identity is handled inside
+;; `re-frame.story.identity`).
 
 (defn variant->edn
-  "Per IMPL-SPEC §3.2 — return the canonical-form serialised body of
-  the registered variant. At Stage 2 this is the side-table body
-  verbatim; the canonicalisation (sorted keys, deterministic vector
-  order) for snapshot-identity is Stage 3's call.
+  "Per IMPL-SPEC §3.2 — return the registered body of the variant as
+  serialisable EDN. The body is the side-table value verbatim;
+  canonicalisation (sorted keys, deterministic vector order) for
+  snapshot-identity lives in `re-frame.story.identity`.
 
   Returns nil when the variant is unregistered."
   [variant-id]
@@ -550,9 +563,10 @@
 
 ;; ---- run-variant / reset-variant / snapshot-identity --------------------
 ;;
-;; STAGE 3 (rf2-von3): the four-phase lifecycle. These call into
-;; `re-frame.story.runtime`. Each returns a promise (CLJS) or
-;; CompletableFuture (JVM); see `re-frame.story.async` for the shape.
+;; The four-phase variant lifecycle (loaders → events → render → play).
+;; These call into `re-frame.story.runtime`. Each returns a promise
+;; (CLJS) or CompletableFuture (JVM); see `re-frame.story.async` for
+;; the result shape.
 
 (defn run-variant
   "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
@@ -563,17 +577,16 @@
     :active-modes    coll of registered mode ids; deep-merged into args
     :cell-overrides  runtime arg overrides (controls panel)
     :substrate       active substrate (`:reagent`, `:uix`, ...)
-    :render?         when truthy, Stage 4's UI shell renders into
-                     `:rendered-hiccup`. Stage 3 leaves the slot nil.
-    :assertions      Stage 5's hook. Stage 3 accepts the slot but
-                     leaves the runtime semantics to Stage 5.
+    :render?         when truthy, the UI shell renders into
+                     `:rendered-hiccup`. Defaults to nil.
+    :assertions      assertions hook (see `re-frame.story.assertions`).
 
   Result map:
 
       {:frame           <variant-id>
        :app-db          {...}
        :assertions      [...]
-       :rendered-hiccup nil           ; Stage 4
+       :rendered-hiccup nil
        :elapsed-ms      <ms>
        :snapshot        {:variant-id ... :content-hash \"...\"}
        :decorators      {:hiccup [...] :frame-setup [...] :fx-override [...]
@@ -613,8 +626,8 @@
   (frames/destroy! variant-id))
 
 (defn variant-frames
-  "Return every registered variant frame id. Stage 4's UI shell uses
-  this to lay out the active variant pane."
+  "Return every registered variant frame id. The UI shell uses this
+  to lay out the active variant pane."
   []
   (frames/variant-frames))
 
@@ -630,7 +643,7 @@
   [variant-id]
   (loaders/current-state variant-id))
 
-;; ---- Stage 5 (rf2-h8et) public assertion + play helpers ------------------
+;; ---- public assertion + play helpers ------------------------------------
 
 (defn assertions-passing?
   "Per IMPL-SPEC §3.5 + spec/007 §Story-as-test duality — true iff
@@ -687,7 +700,7 @@
                       [:rf.assert/effect-emitted :http]]})"
   fx-stubs/force-fx-stub-id)
 
-;; ---- Stage 6 (rf2-zhwd) public SOTA-feature surface ---------------------
+;; ---- public SOTA-feature surface ----------------------------------------
 
 (def layout-debug-measure-id
   "Per IMPL-SPEC §2.8.6 — the registered decorator id for the
@@ -785,7 +798,7 @@
   assertions+play + sota-features) is present."
   :sota-features)
 
-;; ---- Stage 4 (rf2-ekai) UI shell mount / unmount surface ----------------
+;; ---- UI shell mount / unmount surface -----------------------------------
 ;;
 ;; Per IMPL-SPEC §4 + §8.4 the shell entry points are CLJS-only —
 ;; mounting a Reagent shell at a DOM node has no JVM equivalent. The
@@ -808,9 +821,7 @@
 
      Production CLJS builds (`re-frame.story.config/enabled?` false)
      short-circuit before any DOM call and return nil. See IMPL-SPEC
-     §6.3 for the elision contract.
-
-     Stage 4 (rf2-ekai)."
+     §6.3 for the elision contract."
      [dom-node]
      (ui-shell/mount-shell! dom-node)))
 

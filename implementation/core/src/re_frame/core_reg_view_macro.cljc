@@ -5,12 +5,14 @@
   Spec 005 §Source-coord stamping, Spec 002 §with-frame / §bound-fn /
   §`:fx-overrides`, Spec 014 §Testing.
 
-  Carved out of `re-frame.core` so the public namespace stays under
-  the 250-LoC leaf ceiling. The user-facing `defmacro reg-view` /
-  `with-frame` / etc. shells live in `re-frame.core` itself (they MUST,
-  so `rf/reg-view` resolves alias-qualified per Clojure's
-  `ns-alias/Var` lookup); each shell is a one-line call into the
-  matching `expand-…` plain fn here.
+  Carved out of `re-frame.core` so the public namespace stays a thin
+  facade focused on user-visible Var resolution rather than macro
+  expansion bulk; this ns owns the cohesive responsibility of
+  view-registration and frame-scope lexical expansion. The user-facing
+  `defmacro reg-view` / `with-frame` / etc. shells live in
+  `re-frame.core` itself (they MUST, so `rf/reg-view` resolves
+  alias-qualified per Clojure's `ns-alias/Var` lookup); each shell is
+  a one-line call into the matching `expand-…` plain fn here.
 
   The expander helpers stay plain CLJ fns so CLJS test files can also
   exercise them JVM-side."

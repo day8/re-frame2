@@ -25,7 +25,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -55,7 +56,11 @@
       ;; still route to :bound/A.
       (captured [:bound/inc])
       (captured [:bound/inc])
-      (Thread/sleep 50) ;; let the async router drain
+      ;; Wait on the observable drain — :bound/A's app-db must reach 2
+      ;; before the assertion fires. Deterministic vs the prior fixed
+      ;; sleep (rf2-ka3n6).
+      (test-support/poll-until #(= 2 (:n (rf/get-frame-db :bound/A)))
+                               {:label "captured dispatcher drains to :bound/A"})
       (is (= 2 (:n (rf/get-frame-db :bound/A)))
           "the captured dispatcher routed events to :bound/A after the scope unwound")
       (is (nil? (:n (rf/get-frame-db :rf/default)))
@@ -88,6 +93,9 @@
     (let [d (rf/dispatcher)]
       ;; No with-frame scope — capture should land on :rf/default.
       (d [:default/touch])
-      (Thread/sleep 50)
+      ;; Wait on the observable drain — :rf/default's app-db must
+      ;; carry :touched? before the assertion fires (rf2-ka3n6).
+      (test-support/poll-until #(:touched? (rf/get-frame-db :rf/default))
+                               {:label "default dispatcher drains to :rf/default"})
       (is (true? (:touched? (rf/get-frame-db :rf/default)))
           "dispatcher outside any with-frame routes to :rf/default"))))

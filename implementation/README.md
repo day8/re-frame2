@@ -253,6 +253,37 @@ the harness logs a warning and falls back to a free OS-chosen port.
 Set `BROWSER_TEST_PORT` to pin a specific port (CI determinism); the
 harness still falls back if that port is busy too.
 
+## Vocabulary — commonly confused public concepts
+
+When in doubt, the canonical reference is [`../spec/Conventions.md`](../spec/Conventions.md)
+and [`../spec/Ownership.md`](../spec/Ownership.md). The notes below
+disambiguate names that look interchangeable at a glance.
+
+- **`rf/handler-ids` vs `rf/registrations`** — `handler-ids` returns
+  ids only (`(rf/handler-ids :event) → #{...}`); use it for id-only
+  enumeration. `registrations` returns the full id→metadata map;
+  use it when the caller needs the per-handler value
+  (`:doc`, source coords, route template, fx fn, flow def).
+  Devtool panels that render only ids should prefer `handler-ids`.
+- **adapter vs substrate vs artefact** — *substrate* is the
+  reactive runtime (Reagent, UIx, Helix). *Adapter* is the
+  `re-frame.adapter.*` ns that bridges core to that substrate
+  (canonical naming per rf2-0imy; not "substrate adapter" or
+  "renderer"). *Artefact* is a Maven coordinate the adapter ships
+  as (e.g. `day8/re-frame2-reagent`, `day8/reagent-slim`).
+- **`story/ids` vs `rf/handler-ids`** — both return registered id
+  sets for a kind. `story/ids` is Story's re-export of
+  `registrar/ids` colocated with the Story facade so test-driver
+  code does not pull `re-frame.core`; `rf/handler-ids` is the
+  public surface for application code. They return the same data
+  for the same kind.
+- **projected epoch record vs raw `:db-after`** — `epoch/projected-
+  record` returns the elision-safe view of an epoch (the structured
+  `:sub-runs` / `:renders` / `:effects` projections) and is safe
+  for off-box surfaces (Causa, Story-MCP, Pair2-MCP). The raw
+  `:db-before` / `:db-after` snapshots on a record are devtools-local
+  and must not cross the elision boundary.
+
 ## What's not in scope
 
 - The migration agent (re-frame v1 → v2). That's a separate

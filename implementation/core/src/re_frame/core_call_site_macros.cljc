@@ -3,12 +3,14 @@
   `dispatch-sync`, `subscribe`, `inject-cofx`. Each user-facing surface
   ships as a macro + `*`-fn pair (Conventions §`*`-suffix naming).
 
-  Carved out of `re-frame.core` so the public namespace stays under the
-  250-LoC leaf ceiling. The user-facing `defmacro dispatch` /
-  `subscribe` / etc. shells live in `re-frame.core` itself (they MUST,
-  so `rf/dispatch` resolves alias-qualified per Clojure's standard
-  `ns-alias/Var` lookup); each shell is a one-line call into a
-  `build-…-form` plain fn here.
+  Carved out of `re-frame.core` so the public namespace stays a thin
+  facade focused on user-visible Var resolution rather than macro
+  expansion bulk; this ns owns the cohesive responsibility of every
+  call-site-capturing macro's debug-gated stamping branch. The user-
+  facing `defmacro dispatch` / `subscribe` / etc. shells live in
+  `re-frame.core` itself (they MUST, so `rf/dispatch` resolves alias-
+  qualified per Clojure's standard `ns-alias/Var` lookup); each shell
+  is a one-line call into a `build-…-form` plain fn here.
 
   Each shell emits an `(if interop/debug-enabled? <stamping> <plain>)`
   branch around the matching `*`-fn call. Under `:advanced` +
