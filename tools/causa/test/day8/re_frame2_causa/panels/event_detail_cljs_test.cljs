@@ -186,8 +186,8 @@
             "cascade-detail container present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
             "empty-state container absent once a selection is set")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-clear"))
-            "clear button is rendered alongside the cascade")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-back"))
+            "back-to-events button is rendered in the panel header")))))
 
 (deftest selecting-non-existent-dispatch-id-shows-orphaned-state
   (testing "selecting a dispatch-id that's not in the buffer surfaces

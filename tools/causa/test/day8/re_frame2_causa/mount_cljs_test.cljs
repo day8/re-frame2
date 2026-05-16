@@ -70,7 +70,13 @@
 
 (defn- reset-mount-state! []
   (reset! @#'mount/mount-state nil)
-  (reset! @#'mount/popout-state nil))
+  (reset! @#'mount/popout-state nil)
+  ;; Per rf2-4itwg the layout host's `display` is snapshotted on mount
+  ;; so toggle-off can collapse the host slot and restore it on toggle-
+  ;; on. Tests cycling open!/close! across distinct stub documents must
+  ;; clear the snapshot too or the next test's host comparison will
+  ;; spuriously match the previous test's stale element reference.
+  (reset! @#'mount/host-display-snapshot nil))
 
 ;; ---- js/document stub ---------------------------------------------------
 ;;
@@ -394,6 +400,36 @@
                     "close! must NOT trigger a second render")
                 (is (= 1 (.-length (.-children (.-body doc))))
                     "the node stays attached to document.body")))))))))
+
+(deftest close!-collapses-layout-host-slot-and-open!-restores-it
+  (testing "rf2-4itwg — toggle-off must collapse the layout host's
+            flex/grid slot (display:none on the host), not just the
+            mount root. Otherwise the host's reserved width + its own
+            chrome (border-left, padding) remains as visible residue.
+            toggle-on (open!) must restore the host's original inline
+            display value so the host stylesheet's intent is honoured."
+    (with-stub-document
+      (fn [doc]
+        ;; Seed a non-empty inline display on the host so we can
+        ;; verify it's restored verbatim — not over-written with "".
+        (let [host (.-body doc)]
+          (set! (.-display (.-style host)) "flex"))
+        (let [host (.-body doc)
+              {:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (is (= "flex" (.-display (.-style host)))
+                "open! preserves the host's pre-Causa inline display")
+            (mount/close!)
+            (is (= "none" (.-display (.-style host)))
+                "close! collapses the host's flex/grid slot — no
+                 residue chrome from the host's reserved width or
+                 border styling leaks through")
+            (mount/open!)
+            (is (= "flex" (.-display (.-style host)))
+                "subsequent open! restores the snapshotted display
+                 value verbatim — the user's stylesheet intent is
+                 honoured across toggle cycles")))))))
 
 (deftest close!-on-clean-state-is-safe
   (testing "calling close! before any open! is a no-op — does not

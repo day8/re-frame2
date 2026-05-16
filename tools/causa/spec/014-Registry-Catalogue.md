@@ -132,7 +132,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 |---|---|---|
 | `:rf.causa/select-epoch` | `[_ epoch-id]` | Passive scrub — does NOT call `restore-epoch`. |
 | `:rf.causa/clear-selected-epoch` | `[_]` | Drops view selection. |
-| `:rf.causa/pin-current` | `[_ epoch-id label]` | Eager-copies `:db-after` off the live history record. Enforces the 32-pin cap; surfaces `:pin-overflow-toast` when reached. |
+| `:rf.causa/pin-current` | `[_ {:eid epoch-id :label label}]` | Map payload per Conventions §multi-value events. Eager-copies `:db-after` off the live history record. Enforces the 32-pin cap; surfaces `:pin-overflow-toast` when reached. |
 | `:rf.causa/unpin` | `[_ epoch-id]` | Drops a pin. |
 | `:rf.causa/rename-pin` | `[_ epoch-id new-label]` | Rewrites a pin's `:label`; other 4-tuple slots are immutable. |
 | `:rf.causa/dismiss-pin-overflow-toast` | `[_]` | Dismisses the cap-reached toast. |

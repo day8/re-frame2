@@ -60,12 +60,17 @@
     (fn [db _event]
       (dissoc db :selected-epoch-id)))
 
+  ;; Per rf2-q4rvx the payload is a single map: `{:eid <epoch-id> :label
+  ;; <string>}`. The map shape composes cleanly with optional keys we
+  ;; may add later (e.g. `:source`, `:auto?`) without churning every
+  ;; call site — the positional `[epoch-id label]` form was the v0
+  ;; shape and is gone (pre-alpha; no back-compat shim).
   (rf/reg-event-db :rf.causa/pin-current
-    (fn [db [_ epoch-id label]]
+    (fn [db [_ {:keys [eid label]}]]
       (let [target  (get db :target-frame defaults/default-target-frame)
             history (vec (or (get db :epoch-history)
                              (rf/epoch-history target)))
-            record  (h/find-epoch-in-history history epoch-id)
+            record  (h/find-epoch-in-history history eid)
             pin     (h/pin-from-epoch record label)]
         (if (some? pin)
           (let [{:keys [store overflow? dropped-pin]}

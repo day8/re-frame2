@@ -27,13 +27,22 @@
       (when selected-id
         (tt-helpers/find-epoch-in-history history selected-id))))
 
+  ;; Per rf2-drf32 — the diff sub falls back to `(peek history)` when
+  ;; the selected epoch is absent from history. The selection slot is
+  ;; shared with the Time Travel panel (so a scrub from there is
+  ;; visible here too), but a stale selection (e.g. an epoch that has
+  ;; aged out of the ring buffer, or persisted from a prior session)
+  ;; previously stranded this panel showing "no slice changes" for
+  ;; every subsequent dispatch. Always picking the latest record when
+  ;; the selection can't be located restores the user's expectation
+  ;; that "the diff panel shows whatever just happened".
   (rf/reg-sub :rf.causa/selected-epoch-diff
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/selected-epoch-id]
     (fn [[history selected-id] _query]
-      (let [record (if selected-id
-                     (tt-helpers/find-epoch-in-history history selected-id)
-                     (peek history))]
+      (let [record (or (when selected-id
+                         (tt-helpers/find-epoch-in-history history selected-id))
+                       (peek history))]
         (when record
           (let [epoch-id (:epoch-id record)
                 cached   (get @diff-cache epoch-id ::miss)]

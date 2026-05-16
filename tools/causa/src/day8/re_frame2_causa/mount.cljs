@@ -174,10 +174,44 @@
   (reset! diagnostic-state {:ok? true :reason :auto-open-disabled})
   nil)
 
+;; ---- layout-host display snapshot (rf2-4itwg) ----------------------------
+;;
+;; Toggle-off must collapse the layout host's flex/grid slot too, not just
+;; hide the mount root. The previous `display:none` on `#rf-causa-root`
+;; left the surrounding `[data-rf-causa-host]` aside still occupying its
+;; `flex-basis` slot (and rendering its `border-left` chrome), so the user
+;; perceived a sliver of Causa chrome residue on toggle-off. Recording the
+;; host's pre-Causa `display` value lets us restore it on toggle-on without
+;; guessing what the host's CSS intended.
+(defonce ^:private host-display-snapshot
+  ;; `{:host <element> :original-inline-display <string>}` once Causa
+  ;; has captured the host's inline `display` (empty string when no
+  ;; inline `display` was set — restoration writes "" so the host
+  ;; stylesheet takes over again). Nil before first capture.
+  (atom nil))
+
+(defn- snapshot-host-display! [host]
+  (when (and (some? host)
+             (not= host (:host @host-display-snapshot)))
+    (reset! host-display-snapshot
+            {:host                    host
+             :original-inline-display (or (some-> host .-style .-display) "")})))
+
+(defn- restore-host-display! []
+  (when-let [{:keys [host original-inline-display]} @host-display-snapshot]
+    (when (some? host)
+      (set! (-> host .-style .-display) original-inline-display))))
+
+(defn- collapse-host! []
+  (when-let [{:keys [host]} @host-display-snapshot]
+    (when (some? host)
+      (set! (-> host .-style .-display) "none"))))
+
 (defn- create-inline-mount-node! []
   (if-let [host (layout-host)]
     (do
       (remove-stale-root!)
+      (snapshot-host-display! host)
       (let [node (.createElement js/document "div")]
         (set! (.-id node) "rf-causa-root")
         (.setAttribute node "data-rf-causa-mode" "inline")
@@ -198,7 +232,10 @@
 (defn- set-visible! [node visible?]
   (when (some? node)
     (set! (-> node .-style .-display)
-          (if visible? "block" "none"))))
+          (if visible? "block" "none"))
+    (if visible?
+      (restore-host-display!)
+      (collapse-host!))))
 
 (defn- set-mode-attrs!
   "Write the canonical `data-rf-causa-mode` attribute on both the
@@ -379,6 +416,12 @@
   exposure is test-only — the convention is pinned in
   `tools/causa/spec/Conventions.md` §Mount conventions."
   []
+  ;; Restore the host's inline `display` before clearing the snapshot —
+  ;; teardown is the cleanest exit and must leave the host element in
+  ;; the exact state it was in pre-Causa (no lingering `display:none`
+  ;; from a prior toggle-off).
+  (restore-host-display!)
+  (reset! host-display-snapshot nil)
   (when-let [{:keys [node unmount]} @mount-state]
     (when unmount
       (try (unmount) (catch :default _ nil)))

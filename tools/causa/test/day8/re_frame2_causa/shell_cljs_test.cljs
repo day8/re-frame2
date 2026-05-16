@@ -198,6 +198,15 @@
     (is (= 16 (count expected-panel-fn))
         "16 sidebar entries -> 16 case arms in canvas")))
 
+(defn- canvas-panel-child
+  "The canvas wrapper is `[:div {...style...} <panel-or-unknown-hiccup>]`
+  (rf2-q8154 — the wrapping div paints the dark canvas surface as a
+  contrast safety net). Extract the panel child for the case-table
+  assertions so each test can keep stating `(= expected-fn (first
+  panel))` without re-stating the wrapper shape per arm."
+  [rendered]
+  (last rendered))
+
 (deftest canvas-routes-each-panel-id-to-its-view-fn
   (testing "every sidebar entry's :id routes to the matching view fn
             in shell/canvas's case-switch — guards against arm typos
@@ -206,10 +215,11 @@
     (rf/with-frame :rf/causa
       (doseq [[panel-id expected-fn] expected-panel-fn]
         (select-panel! panel-id)
-        (let [rendered (#'shell/canvas)]
+        (let [rendered (#'shell/canvas)
+              panel    (canvas-panel-child rendered)]
           (is (vector? rendered)
               (str "panel " panel-id " — canvas returned a hiccup vector"))
-          (is (= expected-fn (first rendered))
+          (is (= expected-fn (first panel))
               (str "panel " panel-id " — first element is the expected view fn")))))))
 
 (deftest canvas-routes-unknown-panel-id-to-fallback
@@ -232,8 +242,9 @@
             registry/default-panel-id"
     (causa-setup!)
     (rf/with-frame :rf/causa
-      (let [rendered (#'shell/canvas)]
-        (is (= event-detail/Panel (first rendered))
+      (let [rendered (#'shell/canvas)
+            panel    (canvas-panel-child rendered)]
+        (is (= event-detail/Panel (first panel))
             "canvas mounts :event-detail when :selected-panel is unset")))))
 
 ;; -------------------------------------------------------------------------

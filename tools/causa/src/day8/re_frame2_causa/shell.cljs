@@ -262,36 +262,52 @@
   `:rf.causa/select-panel <id>` the registry sets `:selected-panel`
   on the `:rf/causa` frame's app-db and this canvas recomputes.
 
+  ## Contrast safety net (rf2-q8154)
+
+  The wrapping `<div>` owns `flex: 1`, fills the row slot, and paints
+  the dark canvas surface (`bg-2`) so any panel whose root section
+  fails to fill or fails to set its own background still renders text
+  on a dark surface — never on the host body's default white. Every
+  Panel still sets its own `:background (:bg-2 tokens)` for parity
+  with the rest of the shell; the canvas paint is a defence-in-depth
+  layer, not a license to omit the panel-level styling.
+
   Per rf2-in6l2 `reg-view`-registered so the subscribe routes
   through React context to `:rf/causa`."
   []
   (let [selected (or @(rf/subscribe [:rf.causa/selected-panel])
                      registry/default-panel-id)]
-    (case selected
-      :event-detail [event-detail/Panel]
-      :time-travel  [time-travel/Panel]
-      :app-db       [app-db-diff/Panel]
-      :causality    [causality-graph/Panel]
-      ;; ── effects panel begin ──
-      :fx           [effects/Panel]
-      ;; ── effects panel end ──
-      :flows        [flows/Panel]
-      :routes       [routes/Panel]
-      :schemas      [schema-violation-timeline/Panel]
-      :subs         [subscriptions/Panel]
-      :machines     [machine-inspector/Panel]
-      :hydration    [hydration-debugger/Panel]
-      :issues       [issues-ribbon/Panel]
-      :trace        [trace/Panel]
-      :performance  [performance/Panel]
-      ;; ── mcp-server panel begin ──
-      :mcp-server   [mcp-server/Panel]
-      ;; ── mcp-server panel end ──
-      ;; Sidebar Co-pilot row renders the panel-style view in the
-      ;; canvas; the rail still lives in the shell's right margin per
-      ;; spec/007-UX-IA.md §The five regions item 4.
-      :copilot      [ai-co-pilot/Panel]
-      [unknown-panel selected])))
+    [:div {:style {:flex        1
+                   :min-width   0
+                   :display     "flex"
+                   :flex-direction "column"
+                   :background  (:bg-2 tokens)
+                   :color       (:text-primary tokens)}}
+     (case selected
+       :event-detail [event-detail/Panel]
+       :time-travel  [time-travel/Panel]
+       :app-db       [app-db-diff/Panel]
+       :causality    [causality-graph/Panel]
+       ;; ── effects panel begin ──
+       :fx           [effects/Panel]
+       ;; ── effects panel end ──
+       :flows        [flows/Panel]
+       :routes       [routes/Panel]
+       :schemas      [schema-violation-timeline/Panel]
+       :subs         [subscriptions/Panel]
+       :machines     [machine-inspector/Panel]
+       :hydration    [hydration-debugger/Panel]
+       :issues       [issues-ribbon/Panel]
+       :trace        [trace/Panel]
+       :performance  [performance/Panel]
+       ;; ── mcp-server panel begin ──
+       :mcp-server   [mcp-server/Panel]
+       ;; ── mcp-server panel end ──
+       ;; Sidebar Co-pilot row renders the panel-style view in the
+       ;; canvas; the rail still lives in the shell's right margin per
+       ;; spec/007-UX-IA.md §The five regions item 4.
+       :copilot      [ai-co-pilot/Panel]
+       [unknown-panel selected])]))
 
 (rf/reg-view bottom-rail
   "Bottom rail (40px) — time-travel scrubber + frame info + issues
