@@ -8,9 +8,9 @@
             [reagent.dom.client :as rdc]
             [re-frame.disposable :as rf-disposable]
             [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.spine :as spine]
             [re-frame.views :as views]))
 
 ;; ---- container ------------------------------------------------------------
@@ -108,18 +108,23 @@
 ;; ---- disposal -------------------------------------------------------------
 
 (defn- dispose-adapter! []
-  ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq). The
-  ;; four-MUST list:
+  ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
+  ;; rf2-jcjul). The four-MUST list:
   ;;
   ;;   1. Cancel all in-flight reactive subscriptions — walk every live
   ;;      frame's per-frame sub-cache and dispose each cached Reaction.
+  ;;      Delegated to `spine/dispose-frame-sub-caches!` (rf2-jcjul):
+  ;;      the same helper backs reagent-slim and the spine-built UIx /
+  ;;      Helix adapters so all three substrates share one
+  ;;      implementation — no three-way drift on the lifecycle MUST.
   ;;      Component-unmount-driven disposal handles the mounted case
   ;;      (Reagent reaps Reactions when their last watcher drops); the
   ;;      explicit walk covers the test-fixture / headless path where
   ;;      no component unmount fires before the adapter goes away.
-  ;;      `interop/dispose!` routes through `:adapter/dispose!` which is
-  ;;      still wired for this adapter at this point in the teardown
-  ;;      (substrate-adapter clears the install slot AFTER calling us).
+  ;;      `interop/dispose!` inside the walk routes through
+  ;;      `:adapter/dispose!` which is still wired for this adapter at
+  ;;      this point in the teardown (substrate-adapter clears the
+  ;;      install slot AFTER calling us).
   ;;
   ;;   2. Release host-specific resources — drain the active-roots set
   ;;      (React 18+ Roots; mounted-but-not-unmounted at process exit /
@@ -133,16 +138,7 @@
   ;;   4. Make subsequent calls return `:rf.error/adapter-disposed` —
   ;;      handled one level up by `substrate-adapter/dispose-adapter!`
   ;;      via the `disposed?` breadcrumb (rf2-6wxys).
-  (doseq [[_ frame-record] @frame/frames]
-    (when-let [cache (:sub-cache frame-record)]
-      (doseq [[_k entry] @cache]
-        (when-let [h (:pending-dispose entry)]
-          (try (interop/clear-timeout! h)
-               (catch :default _ nil)))
-        (when-let [r (:reaction entry)]
-          (try (interop/dispose! r)
-               (catch :default _ nil))))
-      (reset! cache {})))
+  (spine/dispose-frame-sub-caches!)
   (doseq [root @active-roots]
     (try (rdc/unmount root)
          (catch :default _ nil)))

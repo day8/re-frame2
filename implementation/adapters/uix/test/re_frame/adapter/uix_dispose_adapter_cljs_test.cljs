@@ -21,6 +21,9 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.core :as rf]
+            [re-frame.disposable :as rf-disposable]
+            [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -97,3 +100,49 @@
         "dispose-adapter! returns nil even when no roots are tracked")
     (is (nil? ((:dispose-adapter! uix-adapter/adapter)))
         "second dispose is idempotent — active-roots set was already drained")))
+
+;; ---- MUST (1) — cancel all in-flight reactive subscriptions ---------------
+;;
+;; rf2-jcjul pinned this MUST at every React-shaped adapter. The spine's
+;; `dispose-frame-sub-caches!` is the single implementation behind
+;; Reagent / reagent-slim / UIx / Helix dispose paths; pinning the
+;; user-facing slot here guards against a future refactor that
+;; accidentally drops the walk from the spine factory.
+
+(deftest dispose-clears-sub-caches-across-live-frames
+  (testing "Spec 006 §Adapter disposal lifecycle MUST (1) (rf2-jcjul):
+            dispose-adapter! cancels in-flight reactive subscriptions by
+            walking every live frame's per-frame sub-cache and disposing
+            each cached Reaction. The spine derived-value is an
+            re-frame-owned IDisposable; the UIx adapter routes
+            `:adapter/dispose!` to rf-disposable's protocol fn (lines
+            172-173 of re-frame.adapter.uix). Materialise a sub through
+            `rf/subscribe`, then drive the adapter's dispose-adapter! and
+            assert the underlying IDisposable fired."
+    (rf/reg-frame :uix-walk/a {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed] {:frame :uix-walk/a})
+
+    (let [r-a (rf/subscribe :uix-walk/a [:n])]
+      (is (= 7 @r-a) "precondition: subscription is live and deref-able")
+
+      (let [cache (:sub-cache (frame/frame :uix-walk/a))
+            entries-before @cache]
+        (is (>= (count entries-before) 1)
+            "precondition: sub-cache holds at least the [:n] entry")
+        (let [disposed (atom #{})
+              reactions (for [[_ entry] entries-before
+                              :let [r (:reaction entry)]
+                              :when r]
+                          r)]
+          (doseq [r reactions]
+            (rf-disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
+
+          ((:dispose-adapter! uix-adapter/adapter))
+
+          (doseq [r reactions]
+            (is (contains? @disposed r)
+                "every cached reaction fired its dispose hook"))
+          (is (= {} @cache)
+              "the frame's sub-cache atom was reset to {} by the walk"))))))

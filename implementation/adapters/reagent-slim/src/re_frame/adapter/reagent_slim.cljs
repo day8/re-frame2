@@ -16,6 +16,7 @@
             [re-frame.frame            :as frame]
             [re-frame.late-bind        :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.spine   :as spine]
             [re-frame.views            :as views]))
 
 ;; ---- container ------------------------------------------------------------
@@ -87,9 +88,22 @@
 ;; ---- disposal -------------------------------------------------------------
 
 (defn- dispose-adapter! []
-  ;; Reactions GC themselves when their owners (componentWillUnmount-
-  ;; disposed render Reactions) go away. Nothing per-adapter to do.
-  nil)
+  ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
+  ;; rf2-jcjul). The component-unmount-driven path handles the
+  ;; mounted case (reagent2 reaps Reactions once their last watcher
+  ;; drops) — but `dispose-adapter!` MUST cover the headless /
+  ;; test-fixture path where no component unmount fires before the
+  ;; adapter goes away, and the SSR path where the rendered tree was
+  ;; string-serialised without ever being mounted. Without the walk,
+  ;; sequential `init! → dispose-adapter!` cycles in a long-lived
+  ;; process accumulate per-frame sub-cache entries closed over stale
+  ;; Reactions forever.
+  ;;
+  ;; Delegated to `spine/dispose-frame-sub-caches!` (rf2-jcjul): the
+  ;; same helper backs the Reagent adapter and the spine-built UIx /
+  ;; Helix adapters so all three substrates share one implementation
+  ;; — no three-way drift on the lifecycle MUST.
+  (spine/dispose-frame-sub-caches!))
 
 (def adapter
   "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install:
