@@ -433,27 +433,65 @@
     :tuple    (mapv default-element-value (:positions widget-spec))
     nil))
 
+(defn- row-keys-for-entries
+  "Return the React-key vector for `entries` at `[variant-id path]`.
+  Reads the row-id vector from the shell-state, syncing it to the
+  current entry count (append fresh ids when short; truncate when
+  long). The sync mutation is done inside `swap-state!` so concurrent
+  renders observe a single authoritative state.
+
+  Per rf2-c8kfy — row keys MUST be a stable per-entry identity so
+  React reconciles surviving rows in place across a mid-list delete
+  (no focus / cursor leakage onto neighbouring rows). The previous
+  positional-key shape (`^{:key i}`) caused the focused input's DOM
+  node to be reused with the next entry's value after a delete; for
+  `:set`-kind repeaters every keystroke triggered a re-sort and the
+  bug fired on every keystroke. Same class of fix as rf2-kgn0c /
+  rf2-z4fza / rf2-c56hr."
+  [variant-id path n]
+  (let [path-v (vec path)
+        ids    (state/repeater-row-ids (state/get-state) variant-id path-v)]
+    (if (= n (count ids))
+      (mapv (fn [id] (str "r:" id)) ids)
+      (do
+        (state/swap-state! state/ensure-repeater-row-ids variant-id path-v n)
+        (mapv (fn [id] (str "r:" id))
+              (state/repeater-row-ids (state/get-state) variant-id path-v))))))
+
 (defn- repeater-widget
   "Render a `:vector` (or `:set`) repeater. Each entry gets a nested row
   + an inline `[-]` button. A trailing `[+]` button appends a fresh
-  default-valued entry."
+  default-valued entry.
+
+  Per rf2-c8kfy each row is keyed on a stable monotonic id from the
+  shell-state's `:rf.story/repeater-row-ids` slot — NOT on its index.
+  Add allocates a fresh id; delete drops the id at position i in
+  lockstep with the entry. This pins React-key stability across a
+  mid-list delete so focus / cursor on surviving rows is preserved
+  (the focused input visually moves with its edit intact)."
   [variant-id path value {:keys [element kind] :as widget-spec}]
-  (let [entries (vector-coerce value)
-        on-add  (fn []
-                  (on-change-at-path
-                    variant-id path
-                    (let [next-v (conj entries (default-element-value element))]
-                      (case kind
-                        :set (set next-v)
-                        next-v))))
-        on-del  (fn [i]
-                  (on-change-at-path
-                    variant-id path
-                    (let [v (vec (concat (subvec entries 0 i)
-                                         (subvec entries (inc i))))]
-                      (case kind
-                        :set (set v)
-                        v))))]
+  (let [entries  (vector-coerce value)
+        path-v   (vec path)
+        row-keys (row-keys-for-entries variant-id path-v (count entries))
+        on-add   (fn []
+                   (state/swap-state!
+                     state/append-repeater-row-id variant-id path-v)
+                   (on-change-at-path
+                     variant-id path
+                     (let [next-v (conj entries (default-element-value element))]
+                       (case kind
+                         :set (set next-v)
+                         next-v))))
+        on-del   (fn [i]
+                   (state/swap-state!
+                     state/remove-repeater-row-id variant-id path-v i)
+                   (on-change-at-path
+                     variant-id path
+                     (let [v (vec (concat (subvec entries 0 i)
+                                          (subvec entries (inc i))))]
+                       (case kind
+                         :set (set v)
+                         v))))]
     [:div
      [:div {:style (:group-h styles)
             :data-controls-group (str kind)}
@@ -464,10 +502,12 @@
        "[+]"]]
      (into [:div]
            (for [[i entry-value] (map-indexed vector entries)
-                 :let [child-path (conj (vec path) i)]]
-             ^{:key i}
+                 :let [child-path (conj (vec path) i)
+                       row-key    (nth row-keys i (str "r:?-" i))]]
+             ^{:key row-key}
              [:div {:style (:nested-row styles)
-                    :data-controls-index i}
+                    :data-controls-index i
+                    :data-controls-row-key row-key}
               [:span {:style (:sublabel styles)} (str "[" i "]")]
               [:div
                [arg-widget variant-id child-path entry-value element]
@@ -479,7 +519,13 @@
 (defn- tuple-widget
   "Render a `:tuple` — one row per positional element. The arity is
   fixed; no `[+]` / `[-]` affordance. Each position's path is
-  `[... i]`."
+  `[... i]`.
+
+  Per rf2-c8kfy each row is keyed `t:<i>`. Tuple arity is fixed
+  (no add / delete affordance) so positional identity IS stable
+  identity — the namespacing prefix is for discipline-consistency
+  with the repeater fix and the rf2-kgn0c sibling family, not to
+  fix a focus-leak (tuple slots can't reshuffle)."
   [variant-id path value {:keys [positions]}]
   (let [entries (vector-coerce value)]
     [:div
@@ -489,10 +535,12 @@
      (into [:div]
            (for [[i pos-widget] (map-indexed vector positions)
                  :let [child-path  (conj (vec path) i)
-                       child-value (get entries i)]]
-             ^{:key i}
+                       child-value (get entries i)
+                       row-key     (str "t:" i)]]
+             ^{:key row-key}
              [:div {:style (:nested-row styles)
-                    :data-controls-index i}
+                    :data-controls-index i
+                    :data-controls-row-key row-key}
               [:span {:style (:sublabel styles)} (str "[" i "]")]
               [arg-widget variant-id child-path child-value pos-widget]]))]))
 

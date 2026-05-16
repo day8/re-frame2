@@ -133,9 +133,110 @@
   (set-cell-override state variant-id [arg-key] value))
 
 (defn clear-cell-overrides
-  "Drop every override for `variant-id`."
+  "Drop every override for `variant-id`. Also drops any repeater row-id
+  bookkeeping under the same variant (rf2-c8kfy) so the next render
+  re-syncs from scratch against the resolved entry count.
+
+  Row-id storage is keyed on `[variant-id path]` tuples (one entry per
+  repeater path within the variant), so the cleanup walks the row-ids
+  map and drops every entry whose first tuple element matches."
   [state variant-id]
-  (update state :cell-overrides dissoc variant-id))
+  (-> state
+      (update :cell-overrides dissoc variant-id)
+      (update :rf.story/repeater-row-ids
+              (fn [m]
+                (if (seq m)
+                  (into {}
+                        (remove (fn [[[v _path] _ids]]
+                                  (= v variant-id)))
+                        m)
+                  m)))))
+
+;; ---- repeater stable row-ids (rf2-c8kfy) ---------------------------------
+;;
+;; The controls-panel `repeater-widget` (vector / set) renders one DOM row
+;; per entry. Pre-fix it keyed rows positionally (`^{:key i}`), so a
+;; mid-list delete shifted every surviving row's key up by one. React's
+;; reconciler matched by key + component type and reused the DOM node at
+;; each position with the next entry's value — an input that had focus /
+;; selection at index i+1 displayed index i's value with the SAME focus
+;; state. For `:set`-kind repeaters `vector-coerce` re-sorts on every
+;; render, so editing any entry shuffled keys against values and the
+;; bug fired on every keystroke. Same focus-leak class as rf2-kgn0c
+;; (workspace cells) / rf2-z4fza (causa trace ribbon) / rf2-c56hr
+;; (story workspace cell re-init).
+;;
+;; The fix carries a parallel vector of monotonically-allocated ids
+;; alongside the entries vector, keyed by `[variant-id path]`. The
+;; renderer keys each row on `(str "r:" id)`; add appends a fresh id,
+;; delete drops the id at position i in lockstep with the entry. The
+;; counter is a single int held on the shell-state — pure data → data,
+;; JVM-testable. The ids are render-internal and never persisted to a
+;; variant or args slot.
+
+(defn- next-repeater-id
+  "Allocate the next monotonic repeater row id and return
+  `[state' id]`. The counter lives on `:rf.story/repeater-id-counter`."
+  [state]
+  (let [id (or (:rf.story/repeater-id-counter state) 0)]
+    [(assoc state :rf.story/repeater-id-counter (inc id)) id]))
+
+(defn- alloc-repeater-ids
+  "Allocate `n` fresh repeater row ids. Returns `[state' ids]`."
+  [state n]
+  (loop [state state ids (transient []) remaining n]
+    (if (zero? remaining)
+      [state (persistent! ids)]
+      (let [[s id] (next-repeater-id state)]
+        (recur s (conj! ids id) (dec remaining))))))
+
+(defn ensure-repeater-row-ids
+  "Ensure the row-id vector at `[variant-id path]` has exactly `n`
+  entries — append fresh ids when short; truncate when long. Used by
+  `repeater-widget` on render to keep ids in lockstep with the
+  resolved entries vector (e.g. on first render, after `:reset
+  overrides`, or when the underlying args change shape).
+
+  Returns the updated state. Pure data → data."
+  [state variant-id path n]
+  (let [k       [variant-id (vec path)]
+        current (get-in state [:rf.story/repeater-row-ids k] [])
+        have    (count current)]
+    (cond
+      (= have n) state
+      (< have n) (let [[s ids] (alloc-repeater-ids state (- n have))]
+                   (assoc-in s [:rf.story/repeater-row-ids k]
+                             (into current ids)))
+      :else      (assoc-in state [:rf.story/repeater-row-ids k]
+                           (subvec current 0 n)))))
+
+(defn repeater-row-ids
+  "Read the row-id vector at `[variant-id path]`. Returns `[]` when
+  unset. Pure data → data."
+  [state variant-id path]
+  (get-in state [:rf.story/repeater-row-ids [variant-id (vec path)]] []))
+
+(defn append-repeater-row-id
+  "Allocate a fresh id and append it to the row-id vector at
+  `[variant-id path]`. Called when the repeater's `[+]` button adds a
+  new entry. Returns the updated state."
+  [state variant-id path]
+  (let [[s id] (next-repeater-id state)
+        k      [variant-id (vec path)]]
+    (update-in s [:rf.story/repeater-row-ids k] (fnil conj []) id)))
+
+(defn remove-repeater-row-id
+  "Drop the row id at position `i` in the row-id vector at
+  `[variant-id path]`. Called when the repeater's `[-]` button deletes
+  entry `i`. Returns the updated state. Out-of-range `i` is a no-op."
+  [state variant-id path i]
+  (let [k       [variant-id (vec path)]
+        current (get-in state [:rf.story/repeater-row-ids k] [])]
+    (if (and (nat-int? i) (< i (count current)))
+      (assoc-in state [:rf.story/repeater-row-ids k]
+                (into (subvec current 0 i)
+                      (subvec current (inc i))))
+      state)))
 
 ;; ---- hot-reload + fingerprints + snapshots + panels ---------------------
 

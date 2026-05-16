@@ -95,6 +95,133 @@
       (is (= 42 (get-in s1 [:cell-overrides :story.a/x :n])))
       (is (nil? (get-in s2 [:cell-overrides :story.a/x]))))))
 
+;; ---- repeater stable row-ids (rf2-c8kfy) --------------------------------
+;;
+;; Per rf2-c8kfy the controls-panel repeater MUST key each row on a
+;; stable per-entry id (not on its positional index). The shell-state
+;; carries a parallel `[id0 id1 ...]` vector at
+;; `[:rf.story/repeater-row-ids [variant-id path]]` synced in lockstep
+;; with the entries vector. JVM-side we test the pure transitions
+;; (`ensure-repeater-row-ids`, `append-repeater-row-id`,
+;; `remove-repeater-row-id`); the CLJS suite exercises the rendered
+;; hiccup keys end-to-end. Same fix-class as rf2-kgn0c / rf2-z4fza /
+;; rf2-c56hr.
+
+(deftest repeater-row-ids-default-empty-rf2-c8kfy
+  (testing "default state carries the counter + the empty row-ids map"
+    (let [s state/default-shell-state]
+      (is (= 0 (:rf.story/repeater-id-counter s)))
+      (is (= {} (:rf.story/repeater-row-ids s))))))
+
+(deftest repeater-row-ids-ensure-allocates-fresh-ids-rf2-c8kfy
+  (testing "ensure-repeater-row-ids appends fresh monotonic ids when the
+            stored vector is shorter than the entries count"
+    (let [s  state/default-shell-state
+          s1 (state/ensure-repeater-row-ids s :story.x/v [:items] 3)
+          ids (state/repeater-row-ids s1 :story.x/v [:items])]
+      (is (= 3 (count ids)))
+      (is (apply distinct? ids))
+      (is (= 3 (:rf.story/repeater-id-counter s1))))))
+
+(deftest repeater-row-ids-ensure-truncates-when-long-rf2-c8kfy
+  (testing "ensure-repeater-row-ids truncates from the right when the
+            stored vector is longer than the entries count — keeps the
+            surviving prefix's ids intact (no churn for visible rows)"
+    (let [s  state/default-shell-state
+          s1 (state/ensure-repeater-row-ids s :story.x/v [:items] 4)
+          before (state/repeater-row-ids s1 :story.x/v [:items])
+          s2 (state/ensure-repeater-row-ids s1 :story.x/v [:items] 2)
+          after  (state/repeater-row-ids s2 :story.x/v [:items])]
+      (is (= 2 (count after)))
+      (is (= (subvec before 0 2) after)
+          "the surviving prefix's ids are unchanged after truncation"))))
+
+(deftest repeater-row-ids-ensure-noop-when-equal-rf2-c8kfy
+  (testing "ensure-repeater-row-ids is a no-op when the count already
+            matches — no counter churn, no id reallocation"
+    (let [s  state/default-shell-state
+          s1 (state/ensure-repeater-row-ids s :story.x/v [:items] 3)
+          counter-after-init (:rf.story/repeater-id-counter s1)
+          s2 (state/ensure-repeater-row-ids s1 :story.x/v [:items] 3)]
+      (is (= counter-after-init (:rf.story/repeater-id-counter s2)))
+      (is (= (state/repeater-row-ids s1 :story.x/v [:items])
+             (state/repeater-row-ids s2 :story.x/v [:items]))))))
+
+(deftest repeater-row-ids-append-allocates-rf2-c8kfy
+  (testing "append-repeater-row-id allocates a fresh id and appends"
+    (let [s  state/default-shell-state
+          s1 (state/ensure-repeater-row-ids s :story.x/v [:items] 2)
+          s2 (state/append-repeater-row-id s1 :story.x/v [:items])
+          ids (state/repeater-row-ids s2 :story.x/v [:items])]
+      (is (= 3 (count ids)))
+      (is (apply distinct? ids))
+      (is (= 3 (:rf.story/repeater-id-counter s2))))))
+
+(deftest repeater-row-ids-remove-mid-list-rf2-c8kfy
+  (testing "remove-repeater-row-id drops the id at position i — surviving
+            ids retain their original identity. THIS is the regression
+            pinned by rf2-c8kfy: pre-fix the renderer keyed rows on
+            their index so the surviving ids' React keys shifted up by
+            one and React reused the original DOM nodes (focus + cursor
+            leakage onto neighbouring rows). Post-fix the row ids ARE
+            stable across the delete."
+    (let [s     state/default-shell-state
+          s1    (state/ensure-repeater-row-ids s :story.x/v [:items] 4)
+          before (state/repeater-row-ids s1 :story.x/v [:items])
+          ;; Delete the middle entry at i=1.
+          s2    (state/remove-repeater-row-id s1 :story.x/v [:items] 1)
+          after (state/repeater-row-ids s2 :story.x/v [:items])]
+      (is (= 4 (count before)))
+      (is (= 3 (count after)))
+      ;; The surviving ids are exactly before[0], before[2], before[3]
+      ;; — same identity, just shifted to fill the gap. No reallocation.
+      (is (= [(nth before 0) (nth before 2) (nth before 3)] after)))))
+
+(deftest repeater-row-ids-remove-out-of-range-noop-rf2-c8kfy
+  (testing "remove-repeater-row-id is a no-op for out-of-range / nil i —
+            the storage is unchanged"
+    (let [s   state/default-shell-state
+          s1  (state/ensure-repeater-row-ids s :story.x/v [:items] 2)
+          ids (state/repeater-row-ids s1 :story.x/v [:items])
+          s2  (state/remove-repeater-row-id s1 :story.x/v [:items] 5)
+          s3  (state/remove-repeater-row-id s1 :story.x/v [:items] -1)]
+      (is (= ids (state/repeater-row-ids s2 :story.x/v [:items])))
+      (is (= ids (state/repeater-row-ids s3 :story.x/v [:items]))))))
+
+(deftest repeater-row-ids-cleared-with-overrides-rf2-c8kfy
+  (testing "clear-cell-overrides drops the variant's repeater row-ids
+            too — the next render re-syncs from scratch against the
+            default entries"
+    (let [s  state/default-shell-state
+          s1 (-> s
+                 (state/set-cell-override :story.x/v [:items] [1 2 3])
+                 (state/ensure-repeater-row-ids :story.x/v [:items] 3))
+          s2 (state/clear-cell-overrides s1 :story.x/v)]
+      (is (seq (state/repeater-row-ids s1 :story.x/v [:items])))
+      (is (empty? (state/repeater-row-ids s2 :story.x/v [:items])))
+      (is (nil? (get-in s2 [:cell-overrides :story.x/v]))))))
+
+(deftest repeater-row-ids-isolated-by-variant-and-path-rf2-c8kfy
+  (testing "row-ids are keyed on [variant-id path] — two repeaters with
+            the same arg-key on different variants (or the same variant
+            with different paths) get independent id namespaces"
+    (let [s  state/default-shell-state
+          s1 (-> s
+                 (state/ensure-repeater-row-ids :story.a/v [:items] 2)
+                 (state/ensure-repeater-row-ids :story.b/v [:items] 2)
+                 (state/ensure-repeater-row-ids :story.a/v [:other] 2))]
+      ;; Three independent id vectors of length 2 each — 6 ids total.
+      (is (= 6 (:rf.story/repeater-id-counter s1)))
+      (is (= 2 (count (state/repeater-row-ids s1 :story.a/v [:items]))))
+      (is (= 2 (count (state/repeater-row-ids s1 :story.b/v [:items]))))
+      (is (= 2 (count (state/repeater-row-ids s1 :story.a/v [:other]))))
+      ;; The id vectors are disjoint (no shared id across keys).
+      (let [all-ids (concat
+                      (state/repeater-row-ids s1 :story.a/v [:items])
+                      (state/repeater-row-ids s1 :story.b/v [:items])
+                      (state/repeater-row-ids s1 :story.a/v [:other]))]
+        (is (apply distinct? all-ids))))))
+
 (deftest hot-reload-tick-monotonic
   (testing "bump-hot-reload-tick increments each call"
     (let [s state/default-shell-state]

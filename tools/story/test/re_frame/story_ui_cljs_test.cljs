@@ -504,6 +504,225 @@
           k0      (canvas/run-key shell-0 vid)
           k1      (canvas/run-key shell-1 vid)]
       (is (not= k0 k1)))))
+;; ---- controls repeater stable React keys (rf2-c8kfy) --------------------
+;;
+;; Pre-fix, `controls/repeater-widget` keyed each row positionally
+;; (`^{:key i}`). Deleting a middle entry shifted every surviving row's
+;; key up by one — React reused the original DOM node at each position
+;; with the next entry's value, so an input that had focus / cursor at
+;; index i+1 displayed index i's value with the SAME focus. For
+;; `:set`-kind repeaters `vector-coerce` re-sorts on every render so
+;; the bug fired on every keystroke.
+;;
+;; Fix (post-rf2-c8kfy): the shell-state carries a parallel
+;; `[id0 id1 ...]` vector at `[:rf.story/repeater-row-ids
+;; [variant-id path]]` synced in lockstep with the entries vector.
+;; `repeater-widget` keys each row on `(str "r:" id)`; add appends a
+;; fresh id, delete drops the id at position i. Surviving rows retain
+;; their original id → React reconciles them in place across a
+;; mid-list delete → focus + cursor are preserved.
+;;
+;; Same fix-class as rf2-kgn0c (workspace cells) / rf2-z4fza (causa
+;; trace ribbon) / rf2-c56hr (story workspace cell re-init). The
+;; namespacing-prefix discipline (`r:` for repeater, `t:` for tuple,
+;; `v:` for variant cells) is consistent across the family.
+
+(defn- expand-hiccup
+  "Materialize a Reagent hiccup form by invoking any vector whose head
+  is a fn — Reagent does this at render-time. The controls' top-level
+  `arg-widget` dispatches to a private fn (`repeater-widget`,
+  `tuple-widget`, etc.) by returning `[<fn> & args]`; tests need the
+  materialized hiccup to inspect the per-row `^{:key ...}` metadata
+  and the `:data-controls-row-key` slot we stamp alongside it."
+  [tree]
+  (cond
+    (vector? tree)
+    (if (fn? (first tree))
+      (let [expanded (apply (first tree) (rest tree))
+            meta'    (meta tree)]
+        ;; Preserve the outer ^{:key ...} meta (Reagent threads it onto
+        ;; the materialized child).
+        (with-meta (expand-hiccup expanded) (or (meta expanded) meta')))
+      (with-meta (mapv expand-hiccup tree) (meta tree)))
+
+    (seq? tree)
+    (map expand-hiccup tree)
+
+    :else
+    tree))
+
+(defn- collect-repeater-row-keys
+  "Materialize the controls hiccup tree and return the React-key vector
+  for every `:div` child marked `:data-controls-row-key`. Keys live in
+  `^{:key ...}` metadata on each row vector AND in the
+  `:data-controls-row-key` slot — we read the meta so we mirror what
+  React would actually observe."
+  [tree]
+  (->> (expand-hiccup tree)
+       (tree-seq coll? seq)
+       (filter (fn [node]
+                 (and (vector? node)
+                      (map?  (second node))
+                      (= :div (first node))
+                      (contains? (second node) :data-controls-row-key))))
+       (mapv (comp :key meta))))
+
+(deftest controls-repeater-rows-key-on-stable-id-rf2-c8kfy
+  (testing "repeater-widget keys each row on a stable monotonic id
+            (`r:<id>`) — NOT on its positional index. The keys MUST be
+            namespaced with the `r:` prefix to consistently shape with
+            rf2-kgn0c / rf2-z4fza / rf2-c56hr."
+    (state/swap-state! state/set-cell-override
+                       :story.c8kfy/v [:items] ["a" "b" "c"])
+    (let [tree (controls/arg-widget
+                 :story.c8kfy/v [:items]
+                 ["a" "b" "c"]
+                 {:widget :repeater :kind :vector
+                  :element {:widget :text}})
+          keys (collect-repeater-row-keys tree)]
+      (is (= 3 (count keys)))
+      (is (every? string? keys))
+      (is (every? #(re-matches #"r:\d+" %) keys)
+          (str "row keys MUST match the `r:<int>` shape; got " (pr-str keys)))
+      (is (apply distinct? keys)
+          "row keys MUST be distinct across the row set"))))
+
+(deftest controls-repeater-mid-list-delete-preserves-surviving-keys-rf2-c8kfy
+  (testing "the regression pinned by rf2-c8kfy: after deleting the
+            middle row of a 4-row repeater, the surviving rows MUST
+            carry the SAME React keys they had pre-delete. Position
+            shifts by one — identity does not. React then reconciles
+            the surviving inputs in place and focus / cursor are
+            preserved (rather than leaking from row [i+1] onto row [i]
+            with the old DOM node)."
+    ;; Initial render against a 4-entry repeater.
+    (state/swap-state! state/set-cell-override
+                       :story.c8kfy/v [:items] ["a" "b" "c" "d"])
+    (let [tree-before (controls/arg-widget
+                        :story.c8kfy/v [:items]
+                        ["a" "b" "c" "d"]
+                        {:widget :repeater :kind :vector
+                         :element {:widget :text}})
+          keys-before (collect-repeater-row-keys tree-before)]
+      (is (= 4 (count keys-before)))
+      ;; Simulate the user clicking [-] on row index 1 (the second
+      ;; entry). The widget calls `remove-repeater-row-id` then
+      ;; updates the entries vector via `on-change-at-path`.
+      (state/swap-state! state/remove-repeater-row-id
+                         :story.c8kfy/v [:items] 1)
+      (state/swap-state! state/set-cell-override
+                         :story.c8kfy/v [:items] ["a" "c" "d"])
+      (let [tree-after (controls/arg-widget
+                        :story.c8kfy/v [:items]
+                        ["a" "c" "d"]
+                        {:widget :repeater :kind :vector
+                         :element {:widget :text}})
+            keys-after (collect-repeater-row-keys tree-after)]
+        (is (= 3 (count keys-after)))
+        ;; The CRITICAL invariant. Surviving rows keep their ids.
+        (is (= [(nth keys-before 0)
+                (nth keys-before 2)
+                (nth keys-before 3)]
+               keys-after)
+            (str "post-delete surviving row keys MUST match the "
+                 "pre-delete keys at positions 0, 2, 3 (the survivors). "
+                 "before=" (pr-str keys-before)
+                 " after="  (pr-str keys-after)))))))
+
+(deftest controls-repeater-add-allocates-fresh-id-rf2-c8kfy
+  (testing "after appending an entry the new row carries a FRESH id
+            not seen on any pre-existing row — React mounts a fresh
+            DOM node rather than reusing a stale one"
+    (state/swap-state! state/set-cell-override
+                       :story.c8kfy.add/v [:items] ["a" "b"])
+    (let [tree-before (controls/arg-widget
+                        :story.c8kfy.add/v [:items]
+                        ["a" "b"]
+                        {:widget :repeater :kind :vector
+                         :element {:widget :text}})
+          keys-before (collect-repeater-row-keys tree-before)]
+      (is (= 2 (count keys-before)))
+      ;; Simulate [+]: append id + extend entries vector.
+      (state/swap-state! state/append-repeater-row-id
+                         :story.c8kfy.add/v [:items])
+      (state/swap-state! state/set-cell-override
+                         :story.c8kfy.add/v [:items] ["a" "b" ""])
+      (let [tree-after (controls/arg-widget
+                        :story.c8kfy.add/v [:items]
+                        ["a" "b" ""]
+                        {:widget :repeater :kind :vector
+                         :element {:widget :text}})
+            keys-after (collect-repeater-row-keys tree-after)]
+        (is (= 3 (count keys-after)))
+        (is (= (subvec keys-after 0 2) keys-before)
+            "the surviving prefix's keys are unchanged after append")
+        (is (not (contains? (set keys-before) (nth keys-after 2)))
+            (str "the new row's key MUST be fresh; before="
+                 (pr-str keys-before) " after=" (pr-str keys-after)))))))
+
+(deftest controls-repeater-set-edit-preserves-keys-rf2-c8kfy
+  (testing ":set-kind repeaters re-sort entries on every render via
+            `vector-coerce`. Pre-fix every keystroke shuffled
+            positional keys against values. Post-fix the row keys are
+            tied to the stored id vector — NOT to the visible sort
+            order — so the keys are stable across edits regardless of
+            re-sort."
+    ;; First render syncs 3 ids for a 3-element set.
+    (let [tree-1 (controls/arg-widget
+                   :story.c8kfy.set/v [:tags]
+                   #{"alpha" "beta" "gamma"}
+                   {:widget :repeater :kind :set
+                    :element {:widget :text}})
+          keys-1 (collect-repeater-row-keys tree-1)
+          ;; Second render against the same set — keys MUST match
+          ;; exactly (same count, same ids).
+          tree-2 (controls/arg-widget
+                   :story.c8kfy.set/v [:tags]
+                   #{"alpha" "beta" "gamma"}
+                   {:widget :repeater :kind :set
+                    :element {:widget :text}})
+          keys-2 (collect-repeater-row-keys tree-2)]
+      (is (= 3 (count keys-1)))
+      (is (= keys-1 keys-2)
+          "set repeater keys MUST be stable across re-renders"))))
+
+(deftest controls-tuple-rows-key-on-positional-prefix-rf2-c8kfy
+  (testing "tuple-widget rows key on `t:<i>` — tuple arity is fixed so
+            position IS stable identity; the namespacing-prefix is for
+            discipline-consistency with the repeater + sibling fixes.
+            (Tuple positions don't reshuffle — the focus-leak class
+            doesn't fire — but uniform key shape across the file pins
+            the convention.)"
+    (let [tree (controls/arg-widget
+                 :story.c8kfy.tup/v [:pair]
+                 ["x" 42]
+                 {:widget :tuple :kind :tuple
+                  :positions [{:widget :text} {:widget :number}]})
+          keys (collect-repeater-row-keys tree)]
+      (is (= 2 (count keys)))
+      (is (= ["t:0" "t:1"] keys)
+          (str "tuple row keys MUST be `t:<i>`; got " (pr-str keys))))))
+
+(deftest controls-repeater-keys-not-bare-ints-rf2-c8kfy
+  (testing "regression-guard: row keys MUST NOT be bare integers. The
+            pre-fix shape used `^{:key i}` which serialises to a raw
+            int in React's reconciler; the rf2-c8kfy fix requires the
+            `r:` / `t:` namespacing prefix so distinct UI surfaces
+            with the same int positions never collide."
+    (state/swap-state! state/set-cell-override
+                       :story.c8kfy.guard/v [:items] ["a" "b" "c"])
+    (let [tree (controls/arg-widget
+                 :story.c8kfy.guard/v [:items]
+                 ["a" "b" "c"]
+                 {:widget :repeater :kind :vector
+                  :element {:widget :text}})
+          keys (collect-repeater-row-keys tree)]
+      (is (every? string? keys)
+          (str "post-rf2-c8kfy row keys MUST be strings, never bare "
+               "ints; got " (pr-str (map type keys))))
+      (is (every? #(.startsWith % "r:") keys)
+          (str "row keys MUST carry the `r:` namespacing prefix; got "
+               (pr-str keys))))))
 
 ;; ---- trace six-domino projection ----------------------------------------
 
