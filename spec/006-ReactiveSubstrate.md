@@ -1028,9 +1028,23 @@ Per-host adapters for non-CLJS implementations ship as separate packages, implem
 
 A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle. Deferred to rf2-8fyig.
 
+#### Post-v1 Tracking — rf2-8fyig
+
+- **Foundation in v1.** The adapter contract (per [§The adapter API contract](#the-adapter-api-contract)) is the substrate-decoupling primitive — any cooperative variant ships as another adapter, no core change required.
+- **Scope deferred.** The evaluation itself: identifying the cooperation primitives a native substrate could expose (e.g., scheduler-aware re-render coalescing, subscription-graph-driven scheduling, batched view updates aligned to drain boundaries), and the benefits-vs-cost ledger against staying with Reagent / UIx / Helix adapters.
+- **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (causa / pair2 / story) needs scheduling hooks the React substrates can't surface.
+- **Out of scope for the bead.** Building the cooperative substrate itself — the bead tracks the *decision*, not the implementation. A separate bead is filed if the evaluation lands "yes".
+
 ### Multi-adapter coexistence (post-v1, rf2-uipko)
 
 The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to rf2-uipko.
+
+#### Post-v1 Tracking — rf2-uipko
+
+- **Foundation in v1.** The single-adapter contract (per [§Single adapter per process](#single-adapter-per-process)) is locked; per-frame adapter selection is an extension, not a replacement — the install slot becomes a map keyed by frame-id rather than a singleton.
+- **Scope deferred.** The lifting itself: dispatch envelope carrying the in-scope adapter, registrar / tool branching on which adapter a frame uses, error categories for cross-frame view mounts that span adapters.
+- **Reconsideration trigger.** A concrete app use case — e.g., a single process embedding a Reagent host alongside a UIx subtree, both backed by re-frame, where running them as separate processes is infeasible.
+- **Out of scope for the bead.** Multi-adapter *within a single frame* (one view tree mixing adapters) — that path is rejected per [§Single adapter per process](#single-adapter-per-process)'s reasoning and is not on the post-v1 ledger.
 
 ## Resolved decisions
 
