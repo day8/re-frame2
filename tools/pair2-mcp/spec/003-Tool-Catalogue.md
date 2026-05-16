@@ -176,12 +176,14 @@ the hit:
   hash matched the stored entry for `(tool, args)`. The MCP
   server saved the **wire bytes** but paid the full nREPL
   round-trip and the local transform pipeline.
-- **`:precheck`** (rf2-36xod) — the pre-eval short-circuit. One
-  cheap bencode round-trip asked the runtime for
-  `(hash (re-frame-pair2.runtime/snapshot frame))`; the hash
-  matched the stored `:precheck-hash`. The MCP server saved
-  **both** the wire bytes AND the full tool eval + transform
-  pipeline. The tool body was never invoked.
+- **`:precheck`** (rf2-36xod, rf2-9pe31) — the pre-eval
+  short-circuit. One cheap bencode round-trip asked the runtime
+  for `(re-frame-pair2.runtime/app-db-hash frame)` — an O(1)
+  accessor over the runtime's per-frame cached hash, kept
+  current by its epoch listener (rf2-9pe31); the hash matched
+  the stored `:precheck-hash`. The MCP server saved **both** the
+  wire bytes AND the full tool eval + transform pipeline. The
+  tool body was never invoked.
 
 Same wire vocabulary, different cost saved. Agent hosts that
 diagnose latency / token usage can branch on `:via` — a

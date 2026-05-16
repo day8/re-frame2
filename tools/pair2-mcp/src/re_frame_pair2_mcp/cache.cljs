@@ -42,12 +42,15 @@
   The original (rf2-3rt1f) shape paid the full nREPL round-trip and
   local transform pipeline; the cache only saved the *wire bytes*.
   rf2-36xod added a **precheck** path on top: an entry can carry a
-  cheap `:precheck-hash` (e.g. `(hash (re-frame-pair2.runtime/snapshot
-  frame))`). Before running the tool, the MCP server fetches the
-  current precheck-hash via one bencode round-trip; if it matches
-  the stored `:precheck-hash` for `(tool, args)`, the server emits
-  the `:rf.mcp/cache-hit` marker WITHOUT running the tool. Saves
-  both wire bytes AND the heavyweight tool eval + transform pipeline.
+  cheap `:precheck-hash` fetched via one bencode round-trip. rf2-9pe31
+  collapsed the precheck eval to `(re-frame-pair2.runtime/app-db-hash
+  frame)` — an O(1) accessor over a per-frame integer cache the
+  runtime keeps current via its epoch listener (every settled
+  mutation updates the cached hash). Before running the tool, the MCP
+  server fetches the current precheck-hash; if it matches the stored
+  `:precheck-hash` for `(tool, args)`, the server emits the
+  `:rf.mcp/cache-hit` marker WITHOUT running the tool. Saves both
+  wire bytes AND the heavyweight tool eval + transform pipeline.
 
   See `precheck` (decide before running the tool) vs `apply-cache`
   (decide after running the tool — the original behaviour, used as
@@ -326,10 +329,12 @@
   `current-precheck-hash` argument matches it.
 
   `current-precheck-hash` is the value the MCP server fetched in a
-  single bencode round-trip (e.g.
-  `(hash (re-frame-pair2.runtime/snapshot frame))`). When the caller
-  has no precheck wiring for this tool (yet), it passes `nil` and
-  this fn returns `nil`, leaving the legacy post-eval path in charge.
+  single bencode round-trip (today: `(re-frame-pair2.runtime/app-db-hash
+  frame)` — an O(1) accessor over the runtime's per-frame cached
+  hash, kept current by its epoch listener — see rf2-9pe31). When
+  the caller has no precheck wiring for this tool (yet), it passes
+  `nil` and this fn returns `nil`, leaving the legacy post-eval path
+  in charge.
 
   This fn does NOT mutate the cache on a miss — the subsequent
   `apply-cache` call records the new result+precheck-hash together

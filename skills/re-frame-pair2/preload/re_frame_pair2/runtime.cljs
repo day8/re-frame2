@@ -414,6 +414,67 @@
   ;; last-pair-epoch). Populated by the dispatch helpers below.
   (atom #{}))
 
+;; ---- O(1) per-frame app-db hash cache (rf2-9pe31) ------------------------
+;;
+;; The pair2-mcp precheck (rf2-36xod) issues `(hash app-db)` to decide a
+;; cache hit before running the tool eval. `(hash <persistent-map>)` is
+;; cached on the map node itself in CLJS — the first call walks; every
+;; subsequent call returns the cached integer in O(1) (per
+;; `cljs.core/-hash` on `PersistentArrayMap` / `PersistentHashMap`). So
+;; the wire saving from a precheck-side cache here is small for the
+;; precheck hot path itself.
+;;
+;; What *is* expensive is the route through `(re-frame-pair2.runtime/
+;; snapshot frame)` → `(rf/get-frame-db frame-id)` → dereferences and
+;; map lookups, which the precheck eval form has to thread on every
+;; call. With the per-frame cached integer here, the precheck form
+;; resolves to a single atom deref + map lookup, completely independent
+;; of app-db size or structure.
+;;
+;; The cache is updated whenever an epoch settles — every mutation path
+;; (dispatch via the router, `rf/reset-frame-db!` synthetic `:rf.epoch/
+;; db-replaced`, `rf/restore-epoch`) produces an assembled-epoch record
+;; that arrives at `on-epoch-streaming`. We update the cache there from
+;; `(:db-after record)`. On the first read for a frame, if the slot is
+;; absent (no epoch has fired yet for this frame), we compute it lazily
+;; from `(rf/get-frame-db frame-id)` and stash it.
+;;
+;; Pre-alpha: no back-compat surface to keep — `app-db-hash` is the
+;; only accessor; callers needing a path-scoped hash hash the slice
+;; themselves until a sub-tree accessor is filed.
+
+(defonce ^:private frame-db-hashes
+  ;; frame-id -> cached `(hash app-db)` integer
+  (atom {}))
+
+(defn- update-frame-db-hash!
+  "Update the cached hash for `frame-id` from the epoch record's
+   `:db-after` slot. Called from the epoch listener."
+  [frame-id db-after]
+  (swap! frame-db-hashes assoc frame-id (hash db-after)))
+
+(defn app-db-hash
+  "Cheap O(1) accessor for the current `(hash app-db)` of `frame-id`.
+
+   Cached by the epoch listener at every settled mutation. On the first
+   read for a frame whose hash hasn't been observed yet (no epoch
+   fired since session start), the value is computed lazily from
+   `(rf/get-frame-db frame-id)` and stashed.
+
+   Returns an integer hash, or `nil` if the frame doesn't exist.
+
+   Per rf2-9pe31 (follow-on to rf2-36xod). The pair2-mcp precheck form
+   threads through this accessor so the cache-hit decision is a single
+   integer compare rather than a full app-db walk."
+  ([] (app-db-hash (current-frame)))
+  ([frame-id]
+   (when frame-id
+     (or (get @frame-db-hashes frame-id)
+         (let [db (rf/get-frame-db frame-id)
+               h  (hash db)]
+           (swap! frame-db-hashes assoc frame-id h)
+           h)))))
+
 ;; The per-frame `observed-epochs` stash and the streaming dispatch both
 ;; ride the same `register-epoch-cb!` slot — combined into
 ;; `on-epoch-streaming` below to keep listener ordering deterministic
@@ -881,16 +942,19 @@
     (dispatch-trace-to-subs! ev)))
 
 (defn- on-epoch-streaming
-  "Replacement assembled-epoch listener that drives both the observed
-   stash (legacy) and the streaming subs dispatch."
+  "Replacement assembled-epoch listener that drives the observed stash
+   (legacy), the per-frame app-db-hash cache (rf2-9pe31), and the
+   streaming subs dispatch."
   [record]
-  (swap! observed-epochs
-         (fn [m]
-           (let [frame-id (:frame record)
-                 v        (or (get m frame-id) [])
-                 v+       (conj v record)
-                 n        (count v+)]
-             (assoc m frame-id (if (> n 500) (subvec v+ (- n 500)) v+)))))
+  (let [frame-id (:frame record)]
+    (swap! observed-epochs
+           (fn [m]
+             (let [v        (or (get m frame-id) [])
+                   v+       (conj v record)
+                   n        (count v+)]
+               (assoc m frame-id (if (> n 500) (subvec v+ (- n 500)) v+)))))
+    (when frame-id
+      (update-frame-db-hash! frame-id (:db-after record))))
   (dispatch-epoch-to-subs! record))
 
 (defn subscribe!

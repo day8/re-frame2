@@ -133,14 +133,14 @@
          (ef/emit (ef/rt-call 'drain-subscription! "sub-xyz")))))
 
 (deftest precheck-form-shape-no-frame
-  (is (= "(hash (re-frame-pair2.runtime/snapshot))"
-         (ef/emit
-           (ef/rt-call* 'hash (ef/rt-call 'snapshot))))))
+  ;; rf2-9pe31 — precheck routes through the O(1) cached accessor.
+  (is (= "(re-frame-pair2.runtime/app-db-hash)"
+         (ef/emit (ef/rt-call 'app-db-hash)))))
 
 (deftest precheck-form-shape-with-frame
-  (is (= "(hash (re-frame-pair2.runtime/snapshot :rf/default))"
-         (ef/emit
-           (ef/rt-call* 'hash (ef/rt-call 'snapshot :rf/default))))))
+  ;; rf2-9pe31 — explicit-frame arm names the frame on the cheap accessor.
+  (is (= "(re-frame-pair2.runtime/app-db-hash :rf/default)"
+         (ef/emit (ef/rt-call 'app-db-hash :rf/default)))))
 
 (deftest snapshot-state-form-is-edn-readable
   ;; Migrated from snapshot.cljs:62. The non-elision arm.
@@ -162,8 +162,11 @@
          (ef/emit (ef/rt-call* 're-frame.core/elide-wire-value)))))
 
 (deftest rt-call*-bare-symbol-emits-verbatim
-  ;; A bare symbol (no namespace) emits as just the name. The
-  ;; precheck-form's `(rt-call* 'hash ...)` relies on this.
+  ;; A bare symbol (no namespace) emits as just the name. Pre-rf2-9pe31
+  ;; the precheck-form built `(hash ...)` via this path; post-rf2-9pe31
+  ;; the precheck routes through `app-db-hash` (the cached O(1)
+  ;; accessor), but the bare-symbol arm remains useful for other
+  ;; future call sites that need an unqualified host fn.
   (is (= "(hash)" (ef/emit (ef/rt-call* 'hash)))))
 
 (deftest rt-call*-string-qsym-emits-verbatim
