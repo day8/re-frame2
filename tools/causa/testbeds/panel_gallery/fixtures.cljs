@@ -231,7 +231,7 @@
     [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
       :tags (assoc tag :event [:report/upload
                                {:rf.size/large-elided
-                                {:source :runtime-flagged
+                                {:source :schema
                                  :handle :report/payload-1234
                                  :original-size 4218543
                                  :truncated-preview "{\"rows\": [{...} ...]"}}])}

@@ -157,7 +157,7 @@
   (let [marker (fn [path]
                  {:rf.size/large-elided
                   {:path path :bytes 102400 :type :string
-                   :reason :declared :handle [:rf.elision/at path]}})
+                   :reason :schema :handle [:rf.elision/at path]}})
         with-markers (reduce (fn [m i]
                                (assoc m
                                       (keyword (str "elided-" i))

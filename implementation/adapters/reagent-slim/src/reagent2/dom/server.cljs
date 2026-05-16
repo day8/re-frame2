@@ -98,6 +98,13 @@
 ;; Per §8.4 + rf2-6phn: bundle isolation forbids `:require` of the SSR
 ;; artefact (re-frame.ssr lives in day8/re-frame2-ssr), so we don't
 ;; share with that — only with the in-artefact template path.
+;;
+;; **Lockstep**: the void-tag set above (in template.cljs) duplicates
+;; `re-frame.ssr.emit/void-elements` (keyword form vs string form,
+;; same membership). If HTML5 extends the void-element list, both
+;; copies update. Boolean-attrs is local to this artefact (re-frame.ssr
+;; takes value-driven booleans through `html-helpers/attr-string`
+;; instead of carrying its own name set).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private boolean-attrs

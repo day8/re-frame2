@@ -284,9 +284,9 @@
       knobs flipped on the walker yields `v` at every node (per
       `elide-wire-value`'s composition rule: `sensitive?` and `large?`
       both return `v` when their inclusion flag is true; no marker
-      emit, no `write-runtime-flagged!`, no warning). The walk is a
-      pure no-op — full traversal, zero edits — so we skip it. The
-      escape hatch should be free."
+      emit, no schema-driven elision, no warning). The walk is a pure
+      no-op — full traversal, zero edits — so we skip it. The escape
+      hatch should be free."
   [app-db variant-id include?]
   (cond
     (nil? app-db) app-db

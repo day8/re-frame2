@@ -83,18 +83,19 @@
   the tag in `target` (`[:explicit <kw>]` / `[:operating-frame nil]`)
   — the keyword sentinel of the prior shape is gone.
 
-  We hash the full per-frame snapshot — `(hash db)` is O(n) on the
-  persistent map but the wire payload is a single integer, and the
-  alternative (running the full tool + transform pipeline) is strictly
-  more expensive. A cheaper O(1) hash kept at mutation time is the
-  follow-on optimisation (filed separately)."
+  Threads through `re-frame-pair2.runtime/app-db-hash` (rf2-9pe31),
+  which returns the per-frame cached `(hash app-db)` integer in O(1).
+  The cache is maintained by the runtime's epoch listener at every
+  settled mutation; lazy-computed on the first read for a frame whose
+  hash hasn't been observed yet. The wire payload is a single integer
+  regardless of app-db size."
   [[tag frame :as _target]]
   (case tag
     :explicit
-    (ef/emit (ef/rt-call* 'hash (ef/rt-call 'snapshot frame)))
+    (ef/emit (ef/rt-call 'app-db-hash frame))
 
     :operating-frame
-    (ef/emit (ef/rt-call* 'hash (ef/rt-call 'snapshot)))
+    (ef/emit (ef/rt-call 'app-db-hash))
 
     nil))
 

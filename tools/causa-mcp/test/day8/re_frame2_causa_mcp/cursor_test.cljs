@@ -34,7 +34,7 @@
    {:path   [:trace 0 :coeffect :db]
     :bytes  102400
     :type   :map
-    :reason :declared
+    :reason :schema
     :handle [:rf.elision/at [:trace 0 :coeffect :db]]}})
 
 ;; ---------------------------------------------------------------------------

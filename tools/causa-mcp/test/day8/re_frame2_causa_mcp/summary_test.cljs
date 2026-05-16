@@ -35,7 +35,7 @@
    {:path   [:user :uploaded-pdf]
     :bytes  102400
     :type   :string
-    :reason :declared
+    :reason :schema
     :handle [:rf.elision/at [:user :uploaded-pdf]]}})
 
 ;; ---------------------------------------------------------------------------

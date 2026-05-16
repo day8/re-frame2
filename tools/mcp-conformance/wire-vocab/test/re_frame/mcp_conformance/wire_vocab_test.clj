@@ -241,7 +241,7 @@
    [:path    [:vector :any]]
    [:bytes   :int]
    [:type    [:enum :map :vector :set :scalar :string]]
-   [:reason  [:enum :declared :schema :runtime-flagged]]
+   [:reason  [:enum :schema]]
    [:hint    [:maybe :string]]
    [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]
    [:digest  {:optional true} :string]])
@@ -470,23 +470,24 @@
     ;; Reserved by Conventions / spec; pair2-mcp emits today and
     ;; causa-mcp's Principles cross-links the canonical shape from
     ;; its §"Streaming over batch" trimmer. Two fixtures below
-    ;; represent two distinct emission shapes — declared/string vs
-    ;; runtime-flagged/map-with-digest.
+    ;; represent two distinct emission shapes — schema/string vs
+    ;; schema/map-with-digest (the schema-driven nomination path is
+    ;; the only nomination path post Path-D / rf2-w3n5u).
     :servers  #{:pair2-mcp :causa-mcp}
-    :fixtures {:pair2-mcp-declared
+    :fixtures {:pair2-mcp-schema-string
                {:rf.size/large-elided
                 {:path   [:user :uploaded-pdf]
                  :bytes  102400
                  :type   :string
-                 :reason :declared
+                 :reason :schema
                  :hint   "User-uploaded PDF; fetch via get-path."
                  :handle [:rf.elision/at [:user :uploaded-pdf]]}}
-               :pair2-mcp-runtime-with-digest
+               :pair2-mcp-schema-with-digest
                {:rf.size/large-elided
                 {:path   [:cofx :db]
                  :bytes  524288
                  :type   :map
-                 :reason :runtime-flagged
+                 :reason :schema
                  :hint   nil
                  :handle [:rf.elision/at [:cofx :db]]
                  :digest "sha256:deadbeefcafef00d"}}}}
@@ -985,7 +986,7 @@
                  {:path [:user :pdf]
                   :bytes 102400
                   :type :string
-                  :reason :declared
+                  :reason :schema
                   :hint "User PDF; fetch via get-path."
                   :handle [:rf.elision/at [:user :pdf]]}}
                 :elided-large 1}}}])

@@ -464,7 +464,13 @@
   children passed to these; the SSR walker emits bare `<br>` etc. and
   skips the close tag. The list is fixed in HTML5 — no maintenance
   burden. Shared between template (React) and server (HTML string)
-  paths to keep one source of truth across the artefact."
+  paths to keep one source of truth across the artefact.
+
+  Lockstep with `re-frame.ssr.emit/void-elements` (keyword form, same
+  membership). Bundle isolation forbids `:require` across artefacts
+  (per rf2-6phn + IMPL-SPEC §14.3), so the set is duplicated by
+  intent. If HTML5 ever extends the void element list (extraordinarily
+  unlikely), update both copies."
   #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link"
     "meta" "param" "source" "track" "wbr"})
 
