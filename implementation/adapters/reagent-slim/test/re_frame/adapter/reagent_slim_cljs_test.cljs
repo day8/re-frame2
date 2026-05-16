@@ -66,7 +66,7 @@
               :dispose-adapter!}
              k)
           "every slot named in re-frame.substrate.adapter is present plus :kind")
-      (is (= :reagent-slim (:kind reagent-slim/adapter))
+      (is (= :rf.adapter/reagent-slim (:kind reagent-slim/adapter))
           ":kind matches the canonical reagent-slim discriminator"))))
 
 (deftest adapter-slot-fns-callable

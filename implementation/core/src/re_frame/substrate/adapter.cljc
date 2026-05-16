@@ -17,8 +17,11 @@
     dispose-adapter!
 
   An adapter is a Clojure map with these keys plus a `:kind` discriminator
-  keyword (`:reagent` / `:reagent-slim` / `:uix` / `:helix` / `:plain-atom`
-  / `:ssr` / `:custom`); it is installed into the process via
+  keyword. Canonical framework members live under the reserved
+  `:rf.adapter/*` namespace (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim`
+  / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` /
+  `:rf.adapter/ssr`); user-supplied adapters report as `:custom` when they
+  don't pick a canonical kind. It is installed into the process via
   install-adapter! and introspected via current-adapter (keyword) and
   current-adapter-spec (the full map).
 
@@ -70,9 +73,10 @@
 
 (defn current-adapter
   "Return the discriminator keyword identifying the installed adapter, or
-  nil if none. Per Spec 006 §Adapter introspection: one of `:reagent`,
-  `:reagent-slim`, `:uix`, `:helix`, `:plain-atom`, `:ssr`, or `:custom`
-  for user-supplied adapters that didn't pick a canonical kind.
+  nil if none. Per Spec 006 §Adapter introspection: one of
+  `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`,
+  `:rf.adapter/helix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
+  `:custom` for user-supplied adapters that didn't pick a canonical kind.
 
   This answers \"what substrate am I on?\" — predicate / branch code.
   For \"give me the adapter spec map\" (fn handles, hot-swap, identity

@@ -259,12 +259,12 @@
     (is (nil? (adapter/current-adapter))
         "no adapter installed → current-adapter is nil")
     (rf/init! plain-atom/adapter)
-    (is (= :plain-atom (adapter/current-adapter))
+    (is (= :rf.adapter/plain-atom (adapter/current-adapter))
         "current-adapter projects the :kind slot of the installed adapter")
     (is (keyword? (adapter/current-adapter))
         "current-adapter returns a keyword, NOT the adapter spec map")
-    (is (= :plain-atom (:kind plain-atom/adapter))
-        "the plain-atom adapter spec map carries :kind :plain-atom directly")))
+    (is (= :rf.adapter/plain-atom (:kind plain-atom/adapter))
+        "the plain-atom adapter spec map carries :kind :rf.adapter/plain-atom directly")))
 
 (deftest current-adapter-spec-returns-the-installed-map
   (testing "current-adapter-spec returns the spec map passed to install"

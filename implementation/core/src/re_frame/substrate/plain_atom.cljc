@@ -78,7 +78,7 @@
       (rf/init! plain-atom/adapter)
 
   See Spec 006 §The adapter API contract for the nine-fn shape."
-  {:kind                      :plain-atom
+  {:kind                      :rf.adapter/plain-atom
    :make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
