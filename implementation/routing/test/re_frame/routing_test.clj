@@ -706,21 +706,23 @@
 (deftest match-url-repeated-query-key-last-wins
   (testing "repeated query keys — last value wins (the parser's array-map
             reduce assoc's left-to-right, so a later key replaces an
-            earlier one)"
+            earlier one). rf2-5ifai: the route declares no :query
+            vocabulary, so the key stays a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [m (routing/match-url "/search?x=1&x=2")]
       (is (some? m) "the route matches")
-      (is (= "2" (get-in m [:query :x]))
+      (is (= "2" (get-in m [:query "x"]))
           "repeated key — last value wins (left-to-right reduce)"))))
 
 (deftest match-url-unterminated-query
-  (testing "a query pair without an '=' value parses as an empty string
-            (per routing.cljc:347)"
+  (testing "a query pair without an '=' value parses as an empty string.
+            rf/2-5ifai: the route declares no :query vocabulary, so the
+            key stays a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [m (routing/match-url "/search?foo=")]
       (is (some? m) "the route still matches")
-      (is (= "" (get-in m [:query :foo]))
-          "an unterminated `?foo=` parses to :foo \"\""))))
+      (is (= "" (get-in m [:query "foo"]))
+          "an unterminated `?foo=` parses to (get :query \"foo\") \"\""))))
 
 (deftest match-url-trailing-slash-normalizes
   (testing "trailing-slash equivalence is implicit — /foo and /foo/
@@ -879,11 +881,12 @@
           "absent #fragment → :fragment nil"))))
 
 (deftest match-url-fragment-with-query
-  (testing ":fragment is independent of the query string"
+  (testing ":fragment is independent of the query string. rf2-5ifai: no
+            :query vocabulary declared, so the key stays a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [m (routing/match-url "/search?q=clojure#results")]
       (is (some? m))
-      (is (= {:q "clojure"} (:query m))
+      (is (= {"q" "clojure"} (:query m))
           "query parsed without the fragment polluting it")
       (is (= "results" (:fragment m))
           "fragment captured after the query string"))))
@@ -938,7 +941,9 @@
 
 (deftest match-url-route-url-round-trip-with-fragment
   (testing "URL → match-url → route-url 4-arity → URL recovers the original
-            (the full bidirectional contract including #fragment)"
+            (the full bidirectional contract including #fragment). rf2-5ifai:
+            unknown query keys stay as strings; route-url accepts both
+            keyword + string keys via `(name k)` so the round-trip holds."
     (rf/reg-route :route/docs {:path "/docs/:page"})
     (let [original "/docs/routing?lang=en#scroll-restoration"
           parsed   (routing/match-url original)
@@ -948,7 +953,7 @@
                                       (:fragment parsed))]
       (is (= :route/docs (:route-id parsed)))
       (is (= {:page "routing"} (:params parsed)))
-      (is (= {:lang "en"}      (:query parsed)))
+      (is (= {"lang" "en"}     (:query parsed)))
       (is (= "scroll-restoration" (:fragment parsed)))
       (is (= original rebuilt)
           "the rebuilt URL equals the original — fragment round-trips"))))
@@ -1812,13 +1817,15 @@
         (is (>= (:count data) routing/default-max-decoded-keys))))))
 
 (deftest rf2-3k3o7-repeated-query-key-counts-once
-  (testing "the cap follows unique-key semantics, not raw pair count"
+  (testing "the cap follows unique-key semantics, not raw pair count.
+            rf2-5ifai: no :query vocabulary declared, so the key stays
+            a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [n   (inc routing/default-max-decoded-keys)
           q   (clojure.string/join "&" (repeat n "q=v"))
           m   (routing/match-url (str "/search?" q))]
       (is (= :route/search (:route-id m)))
-      (is (= {:q "v"} (:query m))
+      (is (= {"q" "v"} (:query m))
           "many repeated pairs for one key stay under the unique-key cap"))))
 
 (deftest rf2-3k3o7-under-cap-succeeds
@@ -1852,6 +1859,41 @@
           "no `:unknown1` keyword in the result map")
       (is (not (contains? (:query m) :unknown2))
           "no `:unknown2` keyword in the result map"))))
+
+;; ---- rf2-5ifai: no :query vocabulary -> all string keys ------------------
+;;
+;; Per Spec 012 §Query strings and fragments and the rf2-tfgdv security
+;; review. Pre-rf2-5ifai a route declaring NO query vocabulary at all
+;; (no `:query` / `:query-defaults` / `:query-retain`) received the
+;; legacy "keyword-all" shortcut — every URL key was promoted to a
+;; permanent JVM keyword. That symmetrical-to-rf2-3k3o7 leak was the
+;; same DoS surface seen on the value side: hostile URLs composed of
+;; N-unique keys burn N permanent JVM keyword slots, and a bare
+;; `(reg-route :route/x {:path "/x"})` is precisely the high-cardinality
+;; public-surface case where this hits hardest. Post-rf2-5ifai routes
+;; that declare no vocabulary keep every URL key as a string. Authors
+;; who want keyword keys declare them via `:query` / `:query-defaults`
+;; / `:query-retain` — author-named intent is the trust boundary.
+
+(deftest rf2-5ifai-no-vocabulary-route-keeps-all-keys-as-strings
+  (testing "rf2-5ifai: a route declaring NO :query vocabulary keeps
+            every URL query key as a string. The legacy keyword-all
+            fallback is gone (pre-alpha — no back-compat shim)."
+    (rf/reg-route :route/bare {:path "/bare"})
+    (let [m (routing/match-url "/bare?foo=1&bar=2&baz=3")]
+      (is (some? m))
+      (is (= {"foo" "1" "bar" "2" "baz" "3"} (:query m))
+          "all URL keys remain strings — no keyword promotion at all")
+      (doseq [k [:foo :bar :baz]]
+        (is (not (contains? (:query m) k))
+            (str "no `" k "` keyword in the result map")))))
+  (testing "rf2-5ifai: even single-key URLs do not get a keyword promotion"
+    (rf/reg-route :route/single {:path "/single"})
+    (let [m (routing/match-url "/single?x=1")]
+      (is (some? m))
+      (is (= {"x" "1"} (:query m)))
+      (is (not (contains? (:query m) :x))
+          "single :x key stays a string — no special case for cardinality 1"))))
 
 (deftest rf2-3k3o7-defaults-extend-declared-universe
   (testing "keys declared via `:query-defaults` (without a `:query`

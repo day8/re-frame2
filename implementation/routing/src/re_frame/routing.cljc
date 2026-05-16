@@ -655,49 +655,45 @@
   `query-coerce` table (`{:keyword-key type-form}`). Returns an
   array-map to preserve URL key order.
 
-  Per rf2-3k3o7:
+  Per rf2-3k3o7 + rf2-5ifai: only query keys named by the route's
+  `:query` schema (encoded as `query-coerce`), `:query-defaults`, or
+  `:query-retain` are promoted to keyword keys; unknown keys retain
+  their **string** form. The route's declared vocabulary defines the
+  keyword universe; the framework refuses to extend the process-global
+  keyword table on behalf of URL keys the route did not name. The cap
+  on `default-max-decoded-keys` is a second-line defence that bounds
+  the raw-query map size before this fn even sees it.
 
-  - When the route declares **no** `:query` schema (and `query-coerce`
-    is therefore nil), every query key is promoted to a keyword key
-    (the legacy ergonomic shape). The URL-level cap on unique keys
-    (`default-max-decoded-keys`) is the DoS defense for this branch.
-
-  - When the route declares a `:query` schema, only keys named by the
-    schema (or by `:query-defaults`) are promoted to keyword keys;
-    unknown keys retain their **string** form. The route's declared
-    vocabulary defines the keyword universe; the framework refuses to
-    extend the process-global keyword table on behalf of URL keys the
-    route did not name.
+  Pre-rf2-5ifai a route declaring NO vocabulary at all received the
+  legacy `keyword-all` shortcut — every URL key was promoted to a
+  keyword. That was the symmetrical version of the rf2-3k3o7 enum gap
+  on the value side and was closed for the same reason: hostile URLs
+  composed of N-unique keys burn N permanent JVM keyword slots, and a
+  bare `(reg-route :route/x {:path \"/x\"})` is precisely the high-
+  cardinality public-surface case where this hits hardest. Authors who
+  want keyword keys declare them via `:query` / `:query-defaults` /
+  `:query-retain` — author-named intent is the trust boundary.
 
   `:query-defaults` and `:query-retain` slots widen the declared
   universe (they are author-named intent, identical trust class to
   the `:query` schema itself)."
   [query-coerce defaults retain raw-query]
-  (cond
-    ;; No declared vocabulary at all → legacy keyword-all behaviour.
-    ;; The URL-level cap is the DoS defense for this branch.
-    (and (nil? query-coerce) (empty? defaults) (empty? retain))
-    (reduce-kv (fn [m k v] (assoc m (keyword k) v))
-               (array-map)
-               raw-query)
-
-    :else
-    (let [declared-names (cond-> #{}
-                           query-coerce (into (map name) (keys query-coerce))
-                           (seq defaults) (into (map name) (keys defaults))
-                           (seq retain) (into (map name) retain))]
-      (reduce-kv
-        (fn [m k v]
-          (if (contains? declared-names k)
-            ;; Declared key: promote to keyword + apply type coercion.
-            (let [kk (keyword k)]
-              (assoc m kk (coerce-by-type-form (get query-coerce kk) v)))
-            ;; Undeclared key: pass through with the **string** key,
-            ;; no type coercion. The framework does not burn a keyword
-            ;; slot per unique URL key the route did not declare.
-            (assoc m k v)))
-        (array-map)
-        raw-query))))
+  (let [declared-names (cond-> #{}
+                         query-coerce   (into (map name) (keys query-coerce))
+                         (seq defaults) (into (map name) (keys defaults))
+                         (seq retain)   (into (map name) retain))]
+    (reduce-kv
+      (fn [m k v]
+        (if (contains? declared-names k)
+          ;; Declared key: promote to keyword + apply type coercion.
+          (let [kk (keyword k)]
+            (assoc m kk (coerce-by-type-form (get query-coerce kk) v)))
+          ;; Undeclared key: pass through with the **string** key, no
+          ;; type coercion. The framework does not burn a keyword slot
+          ;; per unique URL key the route did not declare (rf2-5ifai).
+          (assoc m k v)))
+      (array-map)
+      raw-query)))
 
 (defn- split-fragment
   "Split a URL into [url-without-fragment fragment]. Returns

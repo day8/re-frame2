@@ -75,13 +75,18 @@
   ;; --- Bare `:keyword` type-form: value stays a string ----------------
   ;; rf2-3k3o7 -- `:keyword` without an enum allowlist is the unbounded
   ;; intern site; the framework refuses to widen the keyword table on
-  ;; behalf of arbitrary URL values.
+  ;; behalf of arbitrary URL values. Layered Malli validation then
+  ;; catches the type mismatch (`"arbitrary-value"` is a string, not a
+  ;; keyword) and surfaces `:validation-failed? true` (rf2-ug2m1).
+  ;; The keyword-discipline contract pinned here is the SHAPE -- the
+  ;; framework keeps the value as a string regardless of what the
+  ;; declared type says; layered validation handles the type mismatch.
   {:call :match-url :url "/bare-kw?tag=arbitrary-value"
    :expect {:route-id :route/bare-kw
             :params   {}
             :query    {:tag "arbitrary-value"}
             :fragment nil
-            :validation-failed? false}}
+            :validation-failed? true}}
 
   ;; --- `[:enum ...]` allowlist gates the intern ----------------------
   ;; Declared choice -> keyword'd.
