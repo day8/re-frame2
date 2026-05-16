@@ -255,7 +255,7 @@ The two listener APIs are independent: tools may register either, both, or neith
 
 ### Cascade projection (`group-cascades` / `domino-bucket`)
 
-The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the planned Causa event-detail panel, re-frame-pair2's `cascade-of`) all want the **six-domino slice** of the stream — one record per cascade with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. The framework ships that projection as a pure-data function in `re-frame.trace.projection`, re-exported from `re-frame.core`:
+The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the Causa event-detail panel, re-frame-pair2's `cascade-of`) all want the **six-domino slice** of the stream — one record per cascade with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. The framework ships that projection as a pure-data function in `re-frame.trace.projection`, re-exported from `re-frame.core`:
 
 ```clojure
 (rf/group-cascades trace-events)

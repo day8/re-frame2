@@ -300,11 +300,11 @@
   `:max-buffered-bytes` per rf2-ho4ve) or null when no overflow tripped
   this tick.
 
-  Pinned cross-server today as a pair2-mcp-only shape: causa-mcp's spec
-  reserves the same streaming pair (`subscribe`/`unsubscribe`) under
-  NAMING.md but has no impl. When causa-mcp's `subscribe` lands, the
-  emit MUST satisfy this schema or extend it as a `[:or ...]` (same
-  posture as OverflowBody)."
+  Pinned cross-server today as a pair2-mcp-only shape: causa-mcp ships
+  the same streaming pair (`subscribe`/`unsubscribe`) under NAMING.md
+  via `tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/subscribe.cljs`.
+  causa-mcp's `subscribe` emit MUST satisfy this schema or extend it as
+  a `[:or ...]` (same posture as OverflowBody)."
   [:map
    {:closed false}
    [:progressToken :any]                          ;; opaque per MCP spec

@@ -1,6 +1,6 @@
 # 11. MCP-server panel
 
-re-frame2 ships three Model Context Protocol servers — [`pair2-mcp`](https://github.com/day8/re-frame2/tree/main/tools/pair2-mcp), [`story-mcp`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp), and the **planned** `causa-mcp`. Each exposes one tool's surface as an MCP tool catalogue an AI agent host (Claude Code, Cursor, Copilot) can call.
+re-frame2 ships three Model Context Protocol servers — [`pair2-mcp`](https://github.com/day8/re-frame2/tree/main/tools/pair2-mcp), [`story-mcp`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp), and [`causa-mcp`](https://github.com/day8/re-frame2/tree/main/tools/causa-mcp). Each exposes one tool's surface as an MCP tool catalogue an AI agent host (Claude Code, Cursor, Copilot) can call.
 
 The MCP panel inside Causa is the discovery surface: an inventory of what's wired, which tools are connected, and what they can do from there. It's the panel you'd open before pointing an external agent at the running app.
 
@@ -8,13 +8,13 @@ The MCP panel inside Causa is the discovery surface: an inventory of what's wire
 
 - **`pair2-mcp`** — ships. The Causa panel shows its connection status and the running session, if any.
 - **`story-mcp`** — ships. Its sister tool [Story](../story/index.md) has its own MCP panel (covered there); from Causa's MCP panel you can see whether story-mcp is up.
-- **`causa-mcp`** — *planned*. The contract is being designed in [`tools/causa/spec/010-MCP-Server.md`](https://github.com/day8/re-frame2/blob/main/tools/causa/spec/010-MCP-Server.md). When the artefact lands, this panel will host its read-surface inventory and the write-gate UI.
+- **`causa-mcp`** — ships. Eighteen tools across five bands (Inspection, Mutation, Streaming, Meta, Escape hatch); catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](https://github.com/day8/re-frame2/blob/main/tools/causa-mcp/spec/004-Tools-Catalogue.md). This panel hosts the read-surface inventory and the write-gate UI.
 
-The panel renders the planned tool catalogue today as a *coming soon* row — useful as a reference for what shapes will be reachable. It also surfaces the *shared wire vocabulary* under `:rf.mcp/*`: the three servers commit to a common envelope shape, error taxonomy, and id grammar so cross-server agent flows (open Causa, read an epoch, drive a Story variant, capture an assertion) can compose.
+The panel renders the tool catalogue as a per-band inventory. It also surfaces the *shared wire vocabulary* under `:rf.mcp/*`: the three servers commit to a common envelope shape, error taxonomy, and id grammar so cross-server agent flows (open Causa, read an epoch, drive a Story variant, capture an assertion) can compose.
 
 ## What an MCP-driven Causa session looks like
 
-When `causa-mcp` lands, an external agent host calls a tool catalogue rather than driving the UI directly. The shape:
+With `causa-mcp` running, an external agent host calls a tool catalogue rather than driving the UI directly. The shape:
 
 ```text
 Agent → list-panels → returns: ["event-detail", "time-travel", "trace", ...]

@@ -1177,9 +1177,8 @@ this lock picks 18 with the conformant-verb name
   pair2-mcp's side is separately tracked by rf2-m9yoi.
 - [`tools/mcp-conformance/NAMING.md` §The verb table](../../mcp-conformance/NAMING.md#the-verb-table)
   — the `list-<things>` row catalogues the shape Causa-MCP
-  picks; the same file's "Causa-mcp (planned, ~17 tools)"
-  alignment table is updated by this revision to reflect the
-  eighteenth row.
+  picks; the same file's Causa-mcp alignment table carries the
+  eighteenth row landed by this revision.
 - Lock #5 (this doc) — the closed-set policy under which
   this addition is admitted via a deliberate Lock entry.
 - Lock #9 mechanism #1 (this doc) — the per-tool

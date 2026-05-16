@@ -113,7 +113,9 @@ Every catalogue entry (per pair2-mcp's
 [`003-Tool-Catalogue.md`](../pair2-mcp/spec/003-Tool-Catalogue.md),
 story-mcp's
 [`002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md), and
-causa-mcp's planned `003-Tool-Catalogue.md`) carries:
+causa-mcp's
+[`004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md))
+carries:
 
 - A **typical-token** hint (`~1.2k`, `~3k under :sample`,
   `~0.8k`) — surfaces in `list-tools` so the agent plans before
@@ -273,12 +275,10 @@ contract** are identical today; only the slot vocabulary differs.
 
 pair2-mcp ships an **upstream-queue budget** (`:max-buffered-events`
 + `:max-buffered-bytes`, OR-combined) per subscription, with
-`:overflow-reason` reported per drain. causa-mcp's spec defers the
-upstream-queue model to impl. story-mcp doesn't ship streaming.
-
-When causa-mcp's streaming impl lands, it absorbs pair2-mcp's posture
-(the chatty-filter case and the large-payload-storm case both apply
-to causa-mcp's trace stream).
+`:overflow-reason` reported per drain. causa-mcp's streaming band
+absorbs the same posture — the chatty-filter case and the
+large-payload-storm case both apply to causa-mcp's trace stream.
+story-mcp doesn't ship streaming.
 
 ### Enforcement surface
 
@@ -286,7 +286,7 @@ to causa-mcp's trace stream).
 |---|---|---|
 | `pair2-mcp` | Runtime — `apply-cap` at `invoke` boundary | Live in `tools.cljs`. |
 | `story-mcp` | Spec-only — pagination + summary modes are normative but no wire-boundary check yet | Cap-violating tools would currently ship. Pending wiring. |
-| `causa-mcp` | Spec-only — six mechanisms catalogued, impl pending | `tools/causa-mcp/src/` does not exist yet. |
+| `causa-mcp` | Runtime — six mechanisms enforced at the tool egress | Live in `tools/causa-mcp/src/day8/re_frame2_causa_mcp/token_cap.cljs` and per-tool wrappers. |
 
 The shared **default cap (5,000)**, the **shared override slot name
 (`max-tokens`)**, and the **shared overflow keyword

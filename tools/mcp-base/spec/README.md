@@ -6,7 +6,7 @@ the re-frame2 tool triplet:
 
 - `tools/pair2-mcp/` (CLJS / Node — runs over nREPL to a browser app)
 - `tools/story-mcp/` (JVM / Clojure — bridges to `tools/story/`)
-- `tools/causa-mcp/` (planned; spec lives at `tools/causa-mcp/spec/`)
+- `tools/causa-mcp/` (CLJS / Node — runs over nREPL to a browser app; eighteen-tool catalogue at `tools/causa-mcp/spec/004-Tools-Catalogue.md`)
 
 The factoring landed under [rf2-vw4sq][bead]. The per-namespace
 contract expansion (rf2-643ia / rf2-0hs5t.5) splits each shipped
@@ -66,8 +66,9 @@ Three categories stay consumer-side:
    :ms ... :until-ms ... :frame ...}`) is conventional — but
    pair2-mcp uses `js/Buffer.from … "base64"` and a JVM consumer
    would use `java.util.Base64`. Factoring the codec means a
-   protocol-shaped helper per platform; not worth the indirection
-   until causa-mcp lands and demonstrates the third call site.
+   protocol-shaped helper per platform; pair2-mcp and causa-mcp
+   both run on Node and share `js/Buffer`, so a single codec helper
+   here is not yet warranted.
 
 3. **Tool registries.** Each MCP server's tool catalogue is domain-
    specific. The base provides building blocks; it does NOT
