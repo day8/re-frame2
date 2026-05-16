@@ -11,6 +11,16 @@
   `snapshot-identity`), and the shell mount/unmount surface
   (`mount-shell!` / `unmount-shell!` / `active-shell`, CLJS-only).
 
+  Per the rf2-l8eso Phase-2 facade thinning, the implementation weight
+  for three cohesive surfaces lives in dedicated internal namespaces:
+
+  - `re-frame.story.query` — the registry query API
+  - `re-frame.story.canonical` — canonical-vocabulary boot
+  - `re-frame.story.lifecycle` — Stage-3 variant lifecycle
+
+  Every public symbol on the facade still resolves under its existing
+  name; the bodies are thin re-exports / delegators.
+
   ## Boot
 
   Call `(re-frame.story/install-canonical-vocabulary!)` once at app
@@ -43,36 +53,28 @@
   test driver; the queue belongs to the application."
   (:require [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
-            [re-frame.story.schemas     :as schemas]
-            ;; Runtime modules — args resolution, decorators, snapshot
-            ;; identity, lifecycle / loader / frame helpers.
+            ;; Phase-2 cohesive internal nss — own the implementation
+            ;; weight for query / canonical-boot / lifecycle surfaces.
+            [re-frame.story.canonical   :as canonical]
+            [re-frame.story.lifecycle   :as lifecycle]
+            [re-frame.story.query       :as query]
+            ;; Runtime modules — args resolution, decorators.
             [re-frame.story.args        :as args]
             [re-frame.story.decorators  :as decorators]
-            [re-frame.story.identity    :as identity]
-            [re-frame.story.late-bind   :as late-bind]
-            [re-frame.story.loaders     :as loaders]
-            [re-frame.story.frames      :as frames]
-            [re-frame.story.runtime     :as runtime]
             ;; Assertions + play + force-fx-stub.
             [re-frame.story.assertions  :as assertions]
             [re-frame.story.fx-stubs    :as fx-stubs]
             [re-frame.story.play        :as play]
             ;; Test Codegen recorder (pure-data state + snippet generator).
             [re-frame.story.recorder    :as recorder]
-            ;; save-current-canvas-state-as-variant (pure-data snapshot
-            ;; + EDN-form code-gen).
-            [re-frame.story.save-variant :as save-variant]
             ;; SOTA features — layout-debug + share live in .cljc;
             ;; multi-substrate / a11y / panels are CLJS-only so the
             ;; JVM classpath stays Reagent-free.
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.share        :as share]
-            ;; Chrome-level toolbar's cofx + subs.
-            [re-frame.story.ui.cofx      :as ui-cofx]
             ;; UI shell — CLJS-only require so JVM consumers don't pull
             ;; Reagent / reagent.dom.client into their classpath.
             #?(:cljs [re-frame.story.ui.shell :as ui-shell])
-            #?(:cljs [re-frame.story.ui.panels :as ui-panels])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
             #?(:clj [re-frame.story.macros :as macros]))
   ;; The seven reg-* macros are defined in the #?(:clj ...) blocks
@@ -287,7 +289,11 @@
                           `re-frame.story.registrar/reg-tag*
                           id metadata)))
 
-;; ---- query API (public) --------------------------------------------------
+;; ---- query API (public) -------------------------------------------------
+;;
+;; Bodies live in `re-frame.story.query`. The facade re-exports each
+;; public symbol so callers see them under `re-frame.story/...` per the
+;; rf2-l8eso acceptance contract.
 
 (defn registrations
   "Return the `{id → body}` map for `kind`, or `{}`. Stable shape across
@@ -298,34 +304,32 @@
   side-table. The Story registry is logically a peer of the framework
   registrar — see IMPL-SPEC §1.1 + bd rf2-7ho2 for the design rationale."
   [kind]
-  (registrar/registrations kind))
+  (query/registrations kind))
 
 (defn handler-meta
   "Return the body for `(kind, id)`, or nil."
   [kind id]
-  (registrar/handler-meta kind id))
+  (query/handler-meta kind id))
 
 (defn ids
   "Return the id set for `kind`."
   [kind]
-  (registrar/ids kind))
+  (query/ids kind))
 
 (defn registered?
   "True iff `(kind, id)` is registered."
   [kind id]
-  (registrar/registered? kind id))
+  (query/registered? kind id))
 
 (defn all-kinds-with-counts
   "{kind → count} — dev tooling overlay."
   []
-  (registrar/all-kinds-with-counts))
-
-;; ---- convenience lookups -------------------------------------------------
+  (query/all-kinds-with-counts))
 
 (defn variants-of
   "Return the set of variant ids whose parent is `story-id`."
   [story-id]
-  (registrar/variants-of story-id))
+  (query/variants-of story-id))
 
 (defn variants-by-story
   "Return a `{story-id #{variant-id ...}}` index built in one pass over
@@ -336,25 +340,25 @@
   introspection tool); the single-pass index replaces the O(S × V)
   walk of calling `variants-of` per story (rf2-d3iso)."
   []
-  (registrar/variants-by-story))
+  (query/variants-by-story))
 
 (defn variants-with-tags
   "Per IMPL-SPEC §3.2 — return the set of variant ids whose `:tags`
   intersects `query-tags`. The assertions/play surface leans on this;
   the render shell leans on this to compose the sidebar tree."
   [query-tags]
-  (registrar/variants-with-tags query-tags))
+  (query/variants-with-tags query-tags))
 
 (defn list-tags
   "Per IMPL-SPEC §7.4 — return the set of registered tag ids. Tools
   enumerate this set before assigning tags to a variant."
   []
-  (ids :tag))
+  (query/list-tags))
 
 (defn list-modes
   "Per IMPL-SPEC §7.4 — return the set of registered mode ids."
   []
-  (ids :mode))
+  (query/list-modes))
 
 (defn tags-by-axis
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
@@ -363,14 +367,14 @@
   tags into collapsible facet rows (rf2-v05qb SB9 parity). Returns the
   empty set if no tag carries that axis."
   [axis-kw]
-  (registrar/tags-by-axis axis-kw))
+  (query/tags-by-axis axis-kw))
 
 (defn tags-without-axis
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
   body carries no `:axis`. The sidebar renders these in a trailing
   un-grouped facet row."
   []
-  (registrar/tags-without-axis))
+  (query/tags-without-axis))
 
 (defn tags-default-excluded
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
@@ -378,26 +382,26 @@
   pre-excludes variants carrying any of these at boot (e.g.
   `:internal` / `:experimental`)."
   []
-  (registrar/tags-default-excluded))
+  (query/tags-default-excluded))
 
 (def canonical-tags
   "Re-export of the seven canonical tag ids from spec/007 §Inclusion
   tags. Stable across hosts."
-  schemas/canonical-tags)
+  query/canonical-tags)
 
 (def canonical-axes
   "Re-export of the four canonical facet axes documented in spec/001
   §reg-tag — `:status`, `:role`, `:team`, `:feature` (rf2-7ncf9 SB9
   facet taxonomy). Stable across hosts."
-  schemas/canonical-axes)
+  query/canonical-axes)
 
 (def canonical-status-values
   "Re-export of the recommended `:status` axis vocabulary."
-  schemas/canonical-status-values)
+  query/canonical-status-values)
 
 (def canonical-role-values
   "Re-export of the recommended `:role` axis vocabulary."
-  schemas/canonical-role-values)
+  query/canonical-role-values)
 
 (defn tag->axis-index
   "Per spec/001 §reg-tag — return a `{tag-id → axis-kw}` map across
@@ -406,7 +410,7 @@
   filter row + the `:tag-filter` AND-across-axes predicate (rf2-7ncf9)
   consume this."
   []
-  (registrar/tag->axis-index))
+  (query/tag->axis-index))
 
 ;; ---- programmatic registration surface -----------------------------------
 ;;
@@ -425,36 +429,9 @@
 (def reg-tag*         registrar/reg-tag*)
 
 ;; ---- canonical vocabulary boot ------------------------------------------
-
-(defn- install-late-bind-shims!
-  "Wire the late-bound shims so the frames runtime can tap into the
-  assertion + play modules without a circular require. The hub lives in
-  `re-frame.story.late-bind` (mirroring the framework's pattern)."
-  []
-  (late-bind/set-fn! :tap-stub-event fx-stubs/tap-stub-event!)
-  (late-bind/set-fn! :drop-assertion-accumulators
-    (fn [frame-id]
-      (assertions/drop-trace-accumulators! frame-id)
-      (play/drop-pending-exceptions! frame-id))))
-
-(def ^:private canonical-installers
-  "Ordered vector of installer fns invoked by `install-canonical-vocabulary!`.
-  Each takes zero args and is idempotent. The CLJS-only SOTA-feature
-  surfaces (multi-substrate Reagent default + the v1.0 panel set) gate
-  on the reader so the JVM classpath stays Reagent-free."
-  [registrar/install-canonical-tags!
-   loaders/install!
-   loaders/install-mirror-writer!
-   frames/install-helpers!
-   runtime/install-helpers!
-   assertions/install-canonical-assertions!
-   fx-stubs/install-canonical-fx-stubs!
-   save-variant/install-canonical-event-handlers!
-   install-late-bind-shims!
-   layout-debug/install-canonical-layout-debug!
-   ui-cofx/install-canonical-cofx!
-   #?@(:cljs [ui-multi-substrate/install-reagent-substrate!
-              ui-panels/install-canonical-panels!])])
+;;
+;; Body lives in `re-frame.story.canonical` (installer chain + late-bind
+;; shim wiring). The facade keeps the user-facing entry name stable.
 
 (defn install-canonical-vocabulary!
   "Install the canonical Story tags, runtime helpers, lifecycle machine,
@@ -471,8 +448,7 @@
   *before* use; an unregistered tag on a variant's `:tags` set raises
   `:rf.error/unknown-tag`."
   []
-  (doseq [install! canonical-installers]
-    (install!)))
+  (canonical/install!))
 
 ;; ---- configure! ---------------------------------------------------------
 
@@ -539,12 +515,12 @@
   [kind id]
   (registrar/unregister! kind id))
 
-;; ---- variant → EDN serialisation ----------------------------------------
+;; ---- Stage-3 variant lifecycle surface ----------------------------------
 ;;
-;; Per IMPL-SPEC §3.2 the variant body is round-trippable through the
-;; registrar side-table; `variant->edn` returns the registered body
-;; verbatim (canonicalisation for snapshot-identity is handled inside
-;; `re-frame.story.identity`).
+;; Bodies live in `re-frame.story.lifecycle` — variant→EDN serialisation,
+;; the four-phase variant lifecycle (loaders → events → render → play),
+;; snapshot-identity, frame teardown / enumeration, and lifecycle-state
+;; probe. The facade re-exports each public symbol.
 
 (defn variant->edn
   "Per IMPL-SPEC §3.2 — return the registered body of the variant as
@@ -554,19 +530,12 @@
 
   Returns nil when the variant is unregistered."
   [variant-id]
-  (handler-meta :variant variant-id))
+  (lifecycle/variant->edn variant-id))
 
 (defn workspace->edn
   "Per IMPL-SPEC §3.2 — same for workspaces."
   [workspace-id]
-  (handler-meta :workspace workspace-id))
-
-;; ---- run-variant / reset-variant / snapshot-identity --------------------
-;;
-;; The four-phase variant lifecycle (loaders → events → render → play).
-;; These call into `re-frame.story.runtime`. Each returns a promise
-;; (CLJS) or CompletableFuture (JVM); see `re-frame.story.async` for
-;; the result shape.
+  (lifecycle/workspace->edn workspace-id))
 
 (defn run-variant
   "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
@@ -593,13 +562,13 @@
                          :errors [...]}
        :effective-args  {...}
        :lifecycle       :ready | :error}"
-  ([variant-id]       (runtime/run-variant variant-id nil))
-  ([variant-id opts]  (runtime/run-variant variant-id opts)))
+  ([variant-id]       (lifecycle/run-variant variant-id))
+  ([variant-id opts]  (lifecycle/run-variant variant-id opts)))
 
 (defn reset-variant
   "Tear down + re-run `variant-id`. Per IMPL-SPEC §3.2."
-  ([variant-id]       (runtime/reset-variant variant-id nil))
-  ([variant-id opts]  (runtime/reset-variant variant-id opts)))
+  ([variant-id]       (lifecycle/reset-variant variant-id))
+  ([variant-id opts]  (lifecycle/reset-variant variant-id opts)))
 
 (defn watch-variant
   "Subscribe to lifecycle transitions for `variant-id`'s frame. Per
@@ -607,7 +576,7 @@
   `{:frame-id <id> :from <state> :to <state> :event <inner-event>}`
   on every transition. Returns a 0-arity unsubscribe fn."
   [variant-id callback]
-  (runtime/watch-variant variant-id callback))
+  (lifecycle/watch-variant variant-id callback))
 
 (defn snapshot-identity
   "Per IMPL-SPEC §3.2 + §5.6. Content-hash over the canonicalised
@@ -616,32 +585,32 @@
 
   Returns `{:variant-id ... :active-modes [...] :substrate ...
   :content-hash \"<8-char hex>\"}`."
-  ([variant-id]       (runtime/snapshot-identity variant-id))
-  ([variant-id opts]  (runtime/snapshot-identity variant-id opts)))
+  ([variant-id]       (lifecycle/snapshot-identity variant-id))
+  ([variant-id opts]  (lifecycle/snapshot-identity variant-id opts)))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-
   SPEC §5.1 — the caller (UI shell / test fixture) owns teardown."
   [variant-id]
-  (frames/destroy! variant-id))
+  (lifecycle/destroy-variant! variant-id))
 
 (defn variant-frames
   "Return every registered variant frame id. The UI shell uses this
   to lay out the active variant pane."
   []
-  (frames/variant-frames))
+  (lifecycle/variant-frames))
 
 (defn variant-frame?
   "True iff `frame-id` is a variant frame."
   [frame-id]
-  (frames/variant-frame? frame-id))
+  (lifecycle/variant-frame? frame-id))
 
 (defn lifecycle-state
   "Return the lifecycle's current discrete state for the variant's
   frame (`:pre-mount`, `:mounting`, `:loading`, `:ready`, `:error`).
   Returns `:pre-mount` if the variant hasn't been run yet."
   [variant-id]
-  (loaders/current-state variant-id))
+  (lifecycle/lifecycle-state variant-id))
 
 ;; ---- public assertion + play helpers ------------------------------------
 
