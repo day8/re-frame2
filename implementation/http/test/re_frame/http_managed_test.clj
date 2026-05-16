@@ -11,13 +11,21 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.http-decode :as http-decode]
             [re-frame.http-encoding :as http-encoding]
             [re-frame.http-managed :as http-managed]
+            ;; rf2-cdmle — the canned-stub fxs no longer register at
+            ;; `re-frame.http-managed` load time. This test file uses
+            ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
+            ;; throughout, so it opts in by requiring the test-support ns.
+            ;; Loading registers `:rf.http/managed-canned-success` and
+            ;; `:rf.http/managed-canned-failure` against the same handler
+            ;; bodies the earlier `(when interop/debug-enabled? ...)` gate
+            ;; wired up.
+            [re-frame.http-test-support]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
@@ -36,6 +44,11 @@
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
   (require 're-frame.http-managed :reload)
+  ;; rf2-cdmle — clear-all! above wipes the canned-stub fx registrations
+  ;; that re-frame.http-test-support put into the registrar at first
+  ;; load. Reload the test-support ns so its registration body fires
+  ;; again for the next test (mirrors the http-managed reload above).
+  (require 're-frame.http-test-support :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   (t))
@@ -621,77 +634,50 @@
         (is (= :success (get-in db [:result :kind])))
         (is (= [:hello :world] (get-in db [:result :value])))))))
 
-;; ---- 11b. canned-stub fxs gate on interop/debug-enabled? (rf2-ga3pv) ------
+;; ---- 11b. canned-stub fxs gated on explicit test-support require (rf2-cdmle)
 ;;
-;; Round-2 audit finding 5.4: http_managed.cljc:154 gates the canned-stub
-;; fx registrations on `interop/debug-enabled?`. On CLJS+advanced+
-;; goog.DEBUG=false the entire (when ...) body DCEs — fx-id keyword
-;; string fragments, doc strings, and handler var references all elide.
-;; The CLJS elision contract is already pinned by sentinels in
-;; scripts/check-elision.cjs (lines 102-116) which grep the production
-;; bundle for `rf.http/managed-canned-success` /
-;; `rf.http/managed-canned-failure`.
+;; Per rf2-cdmle (follow-up to rf2-zk08x): the gate that decides whether
+;; the canned-stub fxs (`:rf.http/managed-canned-success` /
+;; `:rf.http/managed-canned-failure`) register moved from
+;; `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` to
+;; the require boundary itself. The fxs now register under
+;; `re-frame.http-test-support`; production code paths must not require
+;; that namespace.
 ;;
-;; This JVM-side test pins the GATE BEHAVIOUR directly — the
-;; complementary assertion to the bundle grep. It flips
-;; `interop/debug-enabled?` to false, clears + reloads
-;; `re-frame.http-managed`, and asserts the canned-stub fxs are NOT
-;; registered while the production-eligible `:rf.http/managed` and
-;; `:rf.http/managed-abort` ARE registered. A regression that moved the
-;; canned stubs outside the gate (or registered an additional dev-only
-;; fx without gating it) would fail here long before a CLJS bundle build
-;; could surface it.
+;; Why the change: `interop/debug-enabled?` is unconditionally true on the
+;; JVM, so the prior gate left the canned-stub fx ids registered as
+;; production-default API on JVM/SSR builds — discoverable via
+;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
+;; from any handler in production code. The require-boundary gate makes
+;; the absence load-bearing on every host: JVM/SSR sees classpath
+;; absence; CLJS `:advanced` sees module-graph DCE (the existing
+;; `scripts/check-elision.cjs` sentinels still pin the bundle absence).
 ;;
-;; The fixture's `(require 're-frame.http-managed :reload)` restores
-;; the standard registrations between tests, so this test is hermetic.
+;; This file's reset-runtime fixture re-requires
+;; `re-frame.http-test-support :reload` between tests, so the canned
+;; stubs ARE registered for the bulk of the suite (the methodology
+;; check below pins that). The standalone negative-assertion test that
+;; exercises the absence path (test-support absent → canned stubs
+;; absent) lives in `re-frame.http-test-support-absent-test` so a
+;; sibling `:require` in this ns can't reintroduce the fxs and false-
+;; pass the absence assertion.
 
-(deftest canned-stub-fxs-elide-when-debug-disabled
-  (testing "rf2-ga3pv — gate behaviour: under (binding [debug-enabled? false])
-            the canned-stub fx registrations do NOT happen. Production-
-            eligible :rf.http/managed and :rf.http/managed-abort still do."
-    (try
-      ;; Clear the registry so we're observing a fresh load.
-      (registrar/clear-all!)
-      ;; Flip the gate. interop/debug-enabled? is a plain `def`, so we
-      ;; alter-var-root to rebind for the duration of the namespace load.
-      (alter-var-root #'interop/debug-enabled? (constantly false))
-      ;; Force the http-managed ns body to re-evaluate so its load-time
-      ;; (when interop/debug-enabled? ...) gate reads the new value.
-      (require 're-frame.http-managed :reload)
-      ;; The two production-eligible fxs MUST be registered regardless of
-      ;; the gate — they are user-facing per Spec 014.
-      (is (some? (registrar/lookup :fx :rf.http/managed))
-          ":rf.http/managed is dev+prod — registered regardless of debug-enabled?")
-      (is (some? (registrar/lookup :fx :rf.http/managed-abort))
-          ":rf.http/managed-abort is dev+prod — registered regardless of debug-enabled?")
-      ;; The canned-stub fxs MUST NOT be registered when the gate is false
-      ;; — this is the load-bearing assertion for prod-bundle isolation.
-      (is (nil? (registrar/lookup :fx :rf.http/managed-canned-success))
-          ":rf.http/managed-canned-success MUST NOT be registered under debug-enabled? false")
-      (is (nil? (registrar/lookup :fx :rf.http/managed-canned-failure))
-          ":rf.http/managed-canned-failure MUST NOT be registered under debug-enabled? false")
-      (finally
-        ;; Restore the gate so the fixture's subsequent reload re-registers
-        ;; the canned stubs for the rest of the suite.
-        (alter-var-root #'interop/debug-enabled? (constantly true))
-        (require 're-frame.http-managed :reload)))))
-
-(deftest canned-stub-fxs-registered-under-debug-true
-  (testing "rf2-ga3pv companion — under debug-enabled? true (the default,
-            and the only value on JVM in production use) BOTH canned-stub
-            fxs are registered. This is the methodology check: the
-            negative assertion above would be vacuous if the gate-true
-            case didn't actually register the stubs."
-    ;; The standard fixture has just (require ...:reload)'d so debug-
-    ;; enabled? is true and the canned stubs are registered. Assert both
-    ;; are present so a refactor that mistakenly dropped a registration
-    ;; couldn't silently turn the elision assertion into a vacuous pass.
-    (is (true? interop/debug-enabled?)
-        "JVM baseline — debug-enabled? is true")
+(deftest canned-stub-fxs-registered-when-test-support-required
+  (testing "rf2-cdmle methodology check — with re-frame.http-test-support
+            in the require closure (this ns requires it at the top), the
+            two canonical canned-stub fxs MUST be registered. The
+            absence test in re-frame.http-test-support-absent-test would
+            be vacuous if this side did not actually register the stubs."
+    ;; The fixture has just reloaded http-test-support, so the canned
+    ;; stubs are present. The production-eligible fxs are present too.
+    (is (some? (registrar/lookup :fx :rf.http/managed))
+        ":rf.http/managed is dev+prod — always registered by re-frame.http-managed")
+    (is (some? (registrar/lookup :fx :rf.http/managed-abort))
+        ":rf.http/managed-abort is dev+prod — always registered by re-frame.http-managed")
     (is (some? (registrar/lookup :fx :rf.http/managed-canned-success))
-        ":rf.http/managed-canned-success registered under debug-enabled? true")
+        ":rf.http/managed-canned-success registered when re-frame.http-test-support is required")
     (is (some? (registrar/lookup :fx :rf.http/managed-canned-failure))
-        ":rf.http/managed-canned-failure registered under debug-enabled? true")))
+        ":rf.http/managed-canned-failure registered when re-frame.http-test-support is required")))
 
 ;; ---- 12. decode reflection metadata ---------------------------------------
 

@@ -31,10 +31,15 @@
             [re-frame.trace :as trace]
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at
             ;; app boot triggers its load-time fx registrations
-            ;; (`:rf.http/managed`, the canned-* stubs); without it,
+            ;; (`:rf.http/managed` / `:rf.http/managed-abort`); without it,
             ;; dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
+            ;; rf2-cdmle — this testbed drives :rf.http/managed-canned-failure
+            ;; directly via :fx (see below). Per the gate change, the
+            ;; canned-stub fx ids register from re-frame.http-test-support.
+            ;; A testbed IS a test affordance, so requiring it is correct.
+            [re-frame.http-test-support]
             [re-frame.http :as rf.http]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])

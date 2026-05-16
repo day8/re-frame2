@@ -29,6 +29,15 @@
             ;; family) at app boot; without it, the child loaders'
             ;; managed-HTTP dispatches would raise :rf.error/no-such-fx.
             [re-frame.http-managed]
+            ;; rf2-cdmle — this example overrides :rf.http/managed with a
+            ;; per-URL stub that delegates to :rf.http/managed-canned-success
+            ;; (the same reply shape a live server would produce). Per the
+            ;; gate change, the canned-stub fx ids register from
+            ;; re-frame.http-test-support, NOT from re-frame.http-managed.
+            ;; This example IS a test/demo affordance (no real backend
+            ;; ships with it), so requiring the test-support ns is
+            ;; correct — it's the explicit opt-in for the canned stubs.
+            [re-frame.http-test-support]
             [boot.schema]
             [boot.boot]
             [boot.views]))

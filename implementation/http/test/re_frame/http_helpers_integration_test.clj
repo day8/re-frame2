@@ -15,6 +15,10 @@
             [re-frame.registrar :as registrar]
             [re-frame.http :as rf.http]
             [re-frame.http-managed :as http-managed]
+            ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
+            ;; require. This file uses :fx-overrides {:rf.http/managed
+            ;; :rf.http/managed-canned-success/failure} below.
+            [re-frame.http-test-support]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ---- per-test reset (mirrors http-managed-test) ---------------------------
@@ -29,6 +33,10 @@
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
   (require 're-frame.http-managed :reload)
+  ;; rf2-cdmle — re-fire the test-support load-time registrations after
+  ;; clear-all! / http-managed reload so the canned-stub fx ids are
+  ;; available for the next test.
+  (require 're-frame.http-test-support :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   (t))

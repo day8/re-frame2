@@ -9,10 +9,14 @@
 
   - `:rf.http/managed`                  — issue a managed request
   - `:rf.http/managed-abort`            — abort by `:request-id`
-  - `:rf.http/managed-canned-success`   — test stub
-  - `:rf.http/managed-canned-failure`   — test stub
 
   Plus `(with-managed-request-stubs stubs body)` helper for test ergonomics.
+
+  The two canonical canned-stub fxs (`:rf.http/managed-canned-success` /
+  `:rf.http/managed-canned-failure`) register under
+  `re-frame.http-test-support`, NOT here. Production code paths (JVM, SSR,
+  CLJS `:advanced`) MUST NOT `:require` that namespace; tests opt in. See
+  the §Canned-stub fxs note below.
 
   ## Hosts
 
@@ -24,9 +28,30 @@
   ## Production elision
 
   Trace events (`:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`,
-  the `:rf.error/*` from failures) gate on `interop/debug-enabled?`.
-  The `:rf.http/managed` fx itself is dev+prod (user-facing). The canned
-  stub fxs gate on `interop/debug-enabled?` so they elide in production.
+  the `:rf.error/*` from failures) gate on `interop/debug-enabled?`. The
+  `:rf.http/managed` fx itself is dev+prod (user-facing).
+
+  ## Canned-stub fxs — separate test-support namespace (rf2-cdmle)
+
+  Per rf2-zk08x's audit and the rf2-cdmle remediation, the canned-stub
+  fx registrations moved out of this namespace. Earlier they sat inside
+  `(when interop/debug-enabled? ...)` here, which DCE'd correctly on
+  CLJS `:advanced + goog.DEBUG=false` but stayed live on the JVM (where
+  `debug-enabled?` is unconditionally true) — leaving the canned-stub
+  fx ids as production-default API on JVM/SSR builds.
+
+  The new gate is **explicit `:require [re-frame.http-test-support]`**:
+  loading that namespace registers `:rf.http/managed-canned-success` and
+  `:rf.http/managed-canned-failure` against the same handler bodies in
+  `re-frame.http-machine-wrapper`. Production application code must not
+  require it — under that constraint:
+
+  - On JVM/SSR the fx ids are unregistered, classpath-absent through the
+    normal artefact require boundary.
+  - On CLJS `:advanced` the test-support module is unreferenced from any
+    production module, so the compiler trims it wholesale (the existing
+    `scripts/check-elision.cjs` sentinels for the canned-stub fx ids
+    continue to enforce absence in the production bundle).
 
   ## Artefact (rf2-5kpd, fifth per-feature split per rf2-5vjj Strategy B)
 
@@ -36,12 +61,13 @@
   `uninstall-managed-request-stubs!` / `with-managed-request-stubs*` /
   `with-managed-request-stubs` look this namespace's entry points up via
   the `re-frame.late-bind` hook table — loading this namespace publishes
-  the hooks AND registers the `:rf.http/managed`,
-  `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, and
-  `:rf.http/managed-canned-failure` fxs. Apps that don't issue any
-  managed-HTTP requests don't drag the in-flight request registry, the
-  Fetch / HttpClient transport adapters, the encode / decode pipeline,
-  the retry-with-backoff machinery, the eight-category `:rf.http/*`
+  the hooks AND registers the `:rf.http/managed` and
+  `:rf.http/managed-abort` fxs. The two canned-stub fxs ship in the
+  sibling `re-frame.http-test-support` namespace per rf2-cdmle and are
+  not registered here. Apps that don't issue any managed-HTTP requests
+  don't drag the in-flight request registry, the Fetch / HttpClient
+  transport adapters, the encode / decode pipeline, the
+  retry-with-backoff machinery, the eight-category `:rf.http/*`
   failure taxonomy, or any of the `:rf.http/*` keyword strings onto the
   classpath.
 
@@ -94,7 +120,6 @@
             [re-frame.http-middleware      :as middleware]
             [re-frame.http-privacy-headers :as privacy-headers]
             [re-frame.http-registry        :as registry]
-            [re-frame.interop              :as interop]
             [re-frame.late-bind            :as late-bind]))
 
 ;; ---- public-surface re-exports --------------------------------------------
@@ -135,10 +160,12 @@
 ;;
 ;; The `:rf.http/managed` and `:rf.http/managed-abort` fx handler bodies
 ;; live in `re-frame.http-handlers` (per rf2-0eyp2). The façade only
-;; performs the `(fx/reg-fx ...)` registrations and the canned-stub
-;; registrations gated on `interop/debug-enabled?`. Apps that don't
-;; load `re-frame.http-managed` don't carry the handlers either —
-;; the registration site is the load-time anchor.
+;; performs the `(fx/reg-fx ...)` registrations for the production-eligible
+;; managed-HTTP fxs. Apps that don't load `re-frame.http-managed` don't
+;; carry the handlers either — the registration site is the load-time
+;; anchor. The two canned-stub fxs register from
+;; `re-frame.http-test-support` per rf2-cdmle (see this namespace's
+;; docstring §Canned-stub fxs).
 
 (fx/reg-fx :rf.http/managed
            {:doc "Spec 014 — managed HTTP request."}
@@ -189,20 +216,14 @@
            (fn [_ctx {:keys [frame id]}]
              (middleware/clear-http-interceptor (or frame :rf/default) id)))
 
-;; The two canned-stub fxs are gated on `interop/debug-enabled?` so they
-;; elide in production. Per Spec 014 §Testing — "Don't ship the canned-
-;; stub fxs as production-eligible". The gate applies on BOTH hosts: on
-;; JVM `debug-enabled?` is `true` so the registrations run; on CLJS the
-;; gate folds to `(when goog/DEBUG ...)` and `:advanced + goog.DEBUG=
-;; false` DCEs the entire body — fx-id keywords, doc string, handler
-;; var references and all (rf2-omsae).
-(when interop/debug-enabled?
-  (fx/reg-fx :rf.http/managed-canned-success
-             {:doc "Spec 014 — synthesised success reply (test stub)."}
-             machine-wrapper/canned-success-handler)
-  (fx/reg-fx :rf.http/managed-canned-failure
-             {:doc "Spec 014 — synthesised failure reply (test stub)."}
-             machine-wrapper/canned-failure-handler))
+;; The two canned-stub fxs (`:rf.http/managed-canned-success` /
+;; `:rf.http/managed-canned-failure`) used to register here inside a
+;; `(when interop/debug-enabled? ...)` gate. Per rf2-cdmle (follow-up to
+;; rf2-zk08x) they moved to the sibling `re-frame.http-test-support`
+;; namespace because the prior gate was JVM-permissive: `debug-enabled?`
+;; is unconditionally true on the JVM, so canned-stub fx ids stayed
+;; registered as production-default API on JVM/SSR. The gate is now the
+;; require boundary — see this namespace's docstring §Canned-stub fxs.
 
 ;; ---- with-managed-request-stubs (macro form) -----------------------------
 ;;

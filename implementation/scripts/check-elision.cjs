@@ -102,21 +102,38 @@ const DEV_ONLY_SENTINELS = [
   // fragment must elide in production.
   { source: 're-frame.http-managed/abort-on-actor-destroy (rf.http/aborted-on-actor-destroy)',
     sentinel: 'rf.http/aborted-on-actor-destroy' },
-  // re-frame.http-managed — :rf.http/managed-canned-success canned-stub
-  // fx (Spec 014 §Testing, rf2-omsae). The fx registration sits inside
-  // `(when interop/debug-enabled? ...)` so the fx-id keyword's string
-  // fragment, the doc string, and the handler-var reference must all
-  // elide in `:advanced + goog.DEBUG=false` bundles. The probe does NOT
-  // reference this fx-id as a literal keyword in its own code path —
-  // the gated registration body is the only source of reachability for
-  // the literal, which is what the elision assertion turns on.
-  { source: 're-frame.http-managed (rf.http/managed-canned-success registration)',
-    sentinel: 'rf.http/managed-canned-success' },
-  // re-frame.http-managed — :rf.http/managed-canned-failure canned-stub
-  // fx (Spec 014 §Testing, rf2-omsae). Same elision gate and same
-  // probe contract as `:rf.http/managed-canned-success` above.
-  { source: 're-frame.http-managed (rf.http/managed-canned-failure registration)',
-    sentinel: 'rf.http/managed-canned-failure' },
+  //
+  // NOTE — rf2-cdmle removed the canned-stub fx-id sentinels
+  // (`rf.http/managed-canned-success`, `rf.http/managed-canned-failure`)
+  // that used to live here. Earlier the gate was
+  // `(when interop/debug-enabled? ...)` inside re-frame.http-managed,
+  // and the probe rooted both branches via `:require [re-frame.http-managed]`
+  // — the `goog.DEBUG=true` control build saw the literals, the
+  // `goog.DEBUG=false` counter build saw them DCE'd.
+  //
+  // The new gate is the require boundary: the canned-stub fxs register
+  // from the sibling `re-frame.http-test-support` namespace. The
+  // elision probe MUST NOT require that namespace (doing so would
+  // smuggle the canned-stub fx-id keyword literals into BOTH
+  // bundles unconditionally). With the require absent, the
+  // test-support module is unreferenced from any production module —
+  // the `:advanced + goog.DEBUG=false` counter build trims it
+  // wholesale, but the control build trims it too because nothing
+  // references it. The elision check's positive-presence methodology
+  // assertion no longer applies.
+  //
+  // The replacement contract:
+  //   - JVM/SSR absence: pinned by re-frame.http-test-support-absent-test
+  //     (negative assertion: requiring re-frame.http-managed alone does
+  //     NOT register the canned-stub fxs).
+  //   - JVM/SSR presence: pinned by re-frame.http-test-support-test
+  //     (smoke: requiring re-frame.http-test-support DOES register them).
+  //   - CLJS counter-bundle absence: pinned by check-bundle-isolation.cjs
+  //     (the `rf.http/managed-canned-failure` sentinel must not appear
+  //     in the no-feature counter bundle).
+  //
+  // Together these subsume what the two removed sentinels here used to
+  // assert.
   // re-frame.epoch — :rf.epoch/snapshotted trace op (Tool-Pair §Time-
   // travel, Spec 009 §register-epoch-cb). Emitted by settle! after a
   // drain-settle commits a record. The whole settle! body sits inside

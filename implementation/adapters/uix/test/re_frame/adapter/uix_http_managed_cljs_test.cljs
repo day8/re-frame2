@@ -16,6 +16,9 @@
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
             [re-frame.http-managed :as http-managed]
+            ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
+            ;; require; this file uses :fx-overrides into both fx ids.
+            [re-frame.http-test-support]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]))
 

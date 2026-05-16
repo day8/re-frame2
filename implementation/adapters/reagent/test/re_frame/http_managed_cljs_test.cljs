@@ -35,6 +35,11 @@
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
             [re-frame.http-managed :as http-managed]
+            ;; rf2-cdmle — canned-stub fxs (`:rf.http/managed-canned-success`,
+            ;; `:rf.http/managed-canned-failure`) gate on explicit
+            ;; test-support require. This file uses :fx-overrides into
+            ;; both fx ids throughout, so we opt in here.
+            [re-frame.http-test-support]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
