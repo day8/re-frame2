@@ -259,6 +259,15 @@
   (reset! explainer-fn default-malli-explain)
   (reset! printer-fn   default-edn-print))
 
+(defn using-default-validator?
+  "True when `validator-fn` is still the framework-default
+  `default-malli-validate`. Used by the
+  `:rf.warning/schema-validator-unavailable` registration-time check
+  (rf2-fq7d2) to distinguish 'app hasn't opted out of Malli' from
+  'app installed its own validator and knows what it's doing'."
+  []
+  (identical? @validator-fn default-malli-validate))
+
 (defn run-validator
   "Hot-path entry — invoke the registered validator fn against a
   `(schema, value)` pair. Returns true (pass) when no validator is
