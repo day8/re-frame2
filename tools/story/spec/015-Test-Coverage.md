@@ -37,6 +37,18 @@ default every-CI requirement until it proves stable.
 | Partial | Current `main` checks some of the contract, or PR #1198 adds likely browser coverage, but at least one required path, diagnostic, or 20-event re-check is still missing. |
 | Missing | No direct automated check exists yet. |
 
+A row is **never** Covered "because a different probe runs on the same
+shell". The feature-load gate (`tools/story/test/story_feature_load.cjs`)
+makes this an explicit, code-level commitment via its `COVERAGE_MATRIX`
+table: every row is either `kind: 'probe'` (the gate exercises the
+named feature) or `kind: 'owned-by'` (the gate declares the row
+out-of-scope and names the gate that does cover it). Re-using one probe
+for two rows is allowed only when the probe genuinely exercises both
+features it is registered against; using a tangentially-related probe
+to claim coverage — the aliasing pattern this section warns about — is
+forbidden. The header comment on `COVERAGE_MATRIX` is the authoritative
+rule.
+
 ## Required Testbed Affordances
 
 The existing testbeds stay the baseline:
@@ -111,7 +123,7 @@ follow-up implementation bead, not here:
 | Production elision | Story authoring and shell code are DCE'd from production app bundles when disabled. | Counter production probe and Story-on control. | Build production app and grep sentinel strings. | Story-on build retains expected sentinels for control. | 20-event browser re-check is not applicable to disabled bundle; instead load production app and assert no Story route/chrome after repeated app events. | Bundle path, sentinel list, sizes, closure define. | `npm run test:bundle-isolation`; `node ../tools/story/bench/bundle-size.cjs` | Covered |
 | Bundle size comparison | Story-on/static bundles stay within reviewed size budget relative to baseline. | Counter baseline, Story-on, static build. | Run bundle-size benchmark and compare raw/gzip. | Missing output or excessive delta fails with threshold and artifact path. | After optional browser burst, no new chunk/assets are generated at runtime. | Raw/gzip sizes, deltas, threshold, output files. | `node ../tools/story/bench/bundle-size.cjs` | Partial |
 | Third-party egress | Story does not make third-party network calls except explicit opt-in surfaces; QR is local. | Counter shell with network recorder; share/QR path; a11y no-consent path. | `story_feature_load.cjs` captures browser requests while opening shell and share/QR surfaces. | The gate fails on unexpected cross-origin requests, QR-service URLs, or axe/CDN URLs when a11y opt-in has not been set. | Full feature-load gate checks the network log after the 20-event burst as part of the matrix rerun. | Request URL and whether it matched unexpected cross-origin, QR service, or non-opt-in a11y CDN patterns. | `test:story-feature-load` | Covered |
-| Hot reload / fingerprint drift | Decorator/content fingerprint changes trigger the documented refresh path without losing unrelated shell state. | Dev-only editable counter variant/decorator. | Mutate registration under watch and assert refresh tick/fingerprint. | Static mode disables detector. | After burst, apply one drift and assert only affected variant refreshes. | Old/new fingerprints, hot-reload tick, affected ids, preserved state. | `npm run test:cljs`; `test:story-feature-load` | Partial |
+| Hot reload / fingerprint drift | Decorator/content fingerprint changes trigger the documented refresh path without losing unrelated shell state. | Dev-only editable counter variant/decorator. | Mutate registration under watch and assert refresh tick/fingerprint. | Static mode disables detector. | After burst, apply one drift and assert only affected variant refreshes. | Old/new fingerprints, hot-reload tick, affected ids, preserved state. | `npm run test:cljs` | Partial |
 
 ## PR #1198 Alignment
 
