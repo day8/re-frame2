@@ -267,7 +267,7 @@
 
 #?(:clj
    (defn- jvm-headers->map
-     "Flatten Java HttpHeaders into a plain Clojure map of string->string.
+     "Flatten Java HttpHeaders into a plain Clojure map.
 
      Header names are lower-cased at the boundary, matching the CLJS
      Fetch path (`fetch-headers->map` consumes Fetch's `Headers` object,
@@ -276,11 +276,30 @@
      casing at the transport boundary keeps every downstream consumer
      (decode sniffer, failure-map headers ridden by `:on-failure` reply
      payloads, privacy redactor) on a single canonical shape across
-     hosts."
+     hosts.
+
+     Per rf2-0xvm1 — per-header value shape is `string` for the
+     single-value case and `vector-of-strings` for the multi-valued
+     case (the spec's `string → string (or string → vector of strings
+     for multi-valued)` branch). The previous comma-join
+     (`(str/join \",\" vs)`) was wrong for `Set-Cookie`: cookie values
+     legally embed commas (e.g. `Expires=Wed, 21 Oct 2026 ...`), so
+     comma-joining N `Set-Cookie:` lines produced a single unparseable
+     string. RFC 6265 §3 forbids comma-folding `Set-Cookie` for exactly
+     this reason; RFC 7230 §3.2.2 generalises the rule (header values
+     containing literal commas must not be folded into a single field).
+     Vector-on-multi preserves the original lines verbatim — every
+     `Set-Cookie:` line is its own element and downstream consumers can
+     parse each independently. Single-valued headers (the 99% case)
+     keep the string shape so the common path doesn't pay a vector
+     allocation or destructuring tax."
      [^java.net.http.HttpHeaders hh]
      (into {}
            (for [[k vs] (.map hh)]
-             [(str/lower-case k) (str/join "," vs)]))))
+             [(str/lower-case k)
+              (if (= 1 (count vs))
+                (first vs)
+                (vec vs))]))))
 
 #?(:clj
    (defn- jvm-fetch
