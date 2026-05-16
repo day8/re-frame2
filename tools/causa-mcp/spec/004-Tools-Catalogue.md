@@ -250,3 +250,49 @@ default). Pagination via `:limit` / `:offset`. Source-coord pin:
 **Cap-reached hint:** `:paginate` (default fallback `:narrow-filter`).
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_issues.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_issues.cljs).
+
+### get-epoch-history (T-Insp-2, rf2-8xzoe.15)
+
+Per-frame epoch history (vector of `:rf/epoch-record` per Tool-Pair
+§Time-travel). Oldest-first; depth-50 default page size with opaque
+cursor pagination via `:next-cursor`. The runtime returns the full
+history; this tool slices it cursor-relative on the MCP-server side
+so multi-page walks don't roundtrip the full epoch ring twice.
+Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
+§Part 1 bead #15.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:frame` | keyword | nil | scope to one frame; nil → resolve sole frame |
+| `:limit` | int | 50 | page size (Tool-Pair depth-50 default) |
+| `:cursor` | string | nil | opaque resume cursor from prior `:next-cursor` |
+| `:include-sensitive?` | bool | false | opt back in to `:sensitive? true` items |
+| `:include-large?` | bool | false | passes to the runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :frame <kw>
+ :epochs <vec of :rf/epoch-record>
+ :count <int> :total <int>
+ :limit <int>
+ :next-cursor <string?>      ; only when more pages remain
+ :dropped-sensitive <int?>
+ :elided-large <int?>}
+```
+
+**Cursor staleness:** if the cursor's `:after-id` no longer appears
+in the epoch ring (evicted), the tool surfaces:
+
+```clojure
+{:ok? false :reason :cursor-stale :frame <kw>
+ :requested-id <id> :hint "...re-call without :cursor..."}
+```
+
+**Cap-reached hint:** `:paginate` (default fallback `:narrow-filter`)
+— re-call with a smaller `:limit` or use the `:next-cursor` to walk
+multi-page.
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_epoch_history.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs).
