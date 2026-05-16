@@ -33,6 +33,7 @@
   `reg-view` registration that carries `:contextType` through
   React."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
@@ -173,6 +174,25 @@
          :data-testid "panel-gallery-causality-graph-card"}
    [causality-graph/causality-graph-view]])
 
+(defn- ai-co-pilot-panel
+  "Embedded mount of the Causa AI Co-Pilot canvas-form panel for one
+  Story variant. The variant-frame provider above this tree routes
+  the seven `:rf.causa/copilot-*` reads to the variant frame's
+  app-db, where the seed event has written `:copilot-conversation`,
+  `:copilot-input-text`, `:copilot-provider`, etc.
+
+  `ai-co-pilot/ai-co-pilot-view` is a `reg-view` registration whose
+  body calls `(views/ai-co-pilot-view)` as a plain function per the
+  rf2-043uz facade discipline — that internal call keeps the leaf's
+  subscribes / dispatches inside the facade reg-view wrapper's
+  render so the variant frame's context propagates. The gallery
+  wrapper mounts the facade view as a Reagent vector — safe because
+  reg-view threads `:contextType` through React."
+  [_args]
+  [:div {:style       card-style
+         :data-testid "panel-gallery-ai-co-pilot-card"}
+   [ai-co-pilot/ai-co-pilot-view]])
+
 (defn register!
   "Register every gallery view-id referenced by a variant `:component`.
   Uses `reg-view*` (the runtime-registration surface, per Spec 004)
@@ -190,4 +210,5 @@
   (rf/reg-view* :panel-gallery.trace/Panel         trace-panel)
   (rf/reg-view* :panel-gallery.issues-ribbon/Panel issues-ribbon-panel)
   (rf/reg-view* :panel-gallery.causality-graph/Panel causality-graph-panel)
+  (rf/reg-view* :panel-gallery.ai-co-pilot/Panel    ai-co-pilot-panel)
   nil)

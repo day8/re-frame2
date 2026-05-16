@@ -124,6 +124,12 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-causality-graph-card',
         expectedAtLeast: 10,
       },
+      {
+        id:          'ai-co-pilot',
+        workspaceRe: /Workspace\.causa\.ai-co-pilot\/all/,
+        cardTestid:  'panel-gallery-ai-co-pilot-card',
+        expectedAtLeast: 12,
+      },
     ];
 
     const results = [];
