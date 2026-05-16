@@ -140,6 +140,7 @@ The framework stamps the dispatch envelope with the frame's id automatically —
 - Disposes the sub-cache (each cached reactive is torn down so nothing leaks listeners).
 - Stops the router.
 - Fires `:on-destroy` events before teardown if specified.
+- **Releases every per-feature artefact's frame-scoped state.** `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR side-channels, epoch history, …) MUST hang its frame-scoped cleanup off. Each artefact publishes a teardown hook the core invokes during destroy; an artefact that holds frame-scoped state without publishing such a hook leaks definitions and cached state on every `destroy-frame!`. Per-artefact contracts: flows tear down per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown); machines tear down per [005 §Cross-Spec Interactions §1](005-StateMachines.md); schemas, SSR, and epoch tear down per their respective specs.
 - Subsequent `(dispatch [...] {:frame :todo})` / `(subscribe [...] {:frame :todo})` to a destroyed frame throws a clear, machine-readable error: `{:reason :frame-destroyed :frame :todo}`.
 - Tool-Pair surfaces against the destroyed frame route off their own contract (read returns empty / `nil`; mutate raises `:rf.error/no-such-handler` (kind `:frame`); listener silencing emits a one-shot trace) — see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 
@@ -1278,3 +1279,4 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Plain Reagent fns under a non-default frame fire a one-shot warning per `(component-id, frame-id)`, elided in production | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-with-a-loud-footgun-warning) |
 | Per-instance frames via anonymous `make-frame` for per-mount lifecycles | [§Per-instance frames — anonymous `make-frame`](#per-instance-frames--anonymous-make-frame) |
 | Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`, `:interceptors` | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
+| `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR, epoch) hangs its frame-scoped cleanup off; each artefact publishes a teardown hook the core invokes during destroy | [§Destroy](#destroy), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |
