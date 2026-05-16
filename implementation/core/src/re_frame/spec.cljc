@@ -1,14 +1,14 @@
 (ns re-frame.spec
   "Schema-related interceptors. Per Spec 010 §Production builds (rf2-r2uh).
 
-  The headline export is `validate-at-boundary` — the production-side
+  The headline export is `at-boundary` — the production-side
   validation interceptor users attach to event handlers that ingest
   data from untrusted sources (HTTP responses, websocket messages,
   postMessage, query-string values). Per Spec 010 §Production builds
   the canonical CLJS reference elides every dev-time `validate-*!`
   call site at `:advanced` + `goog.DEBUG=false`; system-boundary
   handlers that still want shape enforcement opt back in by adding
-  `validate-at-boundary` to their interceptor chain.
+  `at-boundary` to their interceptor chain.
 
   Usage:
 
@@ -19,13 +19,13 @@
 
   (rf/reg-event-fx :api/response-received
     {:spec ApiResponseSchema}
-    [spec/validate-at-boundary]
+    [spec/at-boundary]
     (fn [_ [_ payload]] ...))
   ```
 
-  Re-frame.core re-exports the same value as `rf/validate-at-boundary`
+  Re-frame.core re-exports the same value as `rf/at-boundary`
   so apps that don't want a separate alias can write
-  `[rf/validate-at-boundary]` instead.
+  `[rf/at-boundary]` instead.
 
   The interceptor reuses the handler's existing `:spec` metadata —
   it does NOT introduce a parallel schema. Per Spec 010 L143:
@@ -114,7 +114,7 @@
   []
   interop/debug-enabled?)
 
-;; ---- :spec/validate-at-boundary -------------------------------------------
+;; ---- :spec/at-boundary ----------------------------------------------------
 ;;
 ;; Per Spec 010 §Production builds. The interceptor runs in the
 ;; :before slot — pre-handler, alongside the dev-mode step-1
@@ -122,7 +122,7 @@
 ;; handler (set `:rf/skip-handler?` on the context); downstream queue
 ;; continues.
 
-(def validate-at-boundary
+(def at-boundary
   "Production-side schema validation interceptor. Per Spec 010 §Production
   builds. Add to a `reg-event-*` handler's positional interceptor vector
   to force `:spec` validation against the dispatched event vector even
@@ -135,7 +135,7 @@
   (and emits `:rf.warning/boundary-without-spec` once to flag the
   misconfiguration)."
   (interceptor/->interceptor
-    :id :spec/validate-at-boundary
+    :id :spec/at-boundary
     :before
     (fn [ctx]
       ;; In dev builds, step-1 validation already ran in the router's
@@ -177,7 +177,7 @@
                                  {:event-id event-id
                                   :event    event
                                   :reason
-                                  (str ":spec/validate-at-boundary is attached "
+                                  (str ":spec/at-boundary is attached "
                                        "to event handler `" event-id "` but the "
                                        "handler carries no `:spec` metadata. The "
                                        "boundary interceptor cannot validate "

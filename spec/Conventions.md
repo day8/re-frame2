@@ -269,7 +269,7 @@ For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the **interceptor chain l
 ;; correct — metadata-map for reflection, interceptors in the third positional slot
 (rf/reg-event-db :cart.item/add
   {:doc "Add an item to the cart." :spec CartItemAddEvent}
-  [undoable spec/validate-at-boundary]
+  [undoable spec/at-boundary]
   (fn [db [_ item]] (update db :items conj item)))
 
 ;; correct — no metadata, just the legacy 2-arg `[interceptors] handler` form

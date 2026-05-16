@@ -267,7 +267,7 @@
       (finally
         (schemas/reset-schema-validator!)))))
 
-;; ---- rf2-r2uh — :spec/validate-at-boundary dev-mode no-op (rf2-84e9) ------
+;; ---- rf2-r2uh — :spec/at-boundary dev-mode no-op (rf2-84e9) --------------
 ;;
 ;; The :node-test build compiles with `goog.DEBUG=true` (cljs default,
 ;; no closure-define override) — the runtime-equivalent of a dev build.
@@ -293,14 +293,14 @@
             in dev; the boundary interceptor's prod-mode body never runs."
     (rf/reg-event-fx :api/strict
       {:spec [:cat [:= :api/strict] :int]}
-      [rf/validate-at-boundary]
+      [rf/at-boundary]
       (fn [_ _] {}))
     (let [traces (atom [])]
       (trace-tooling/register-trace-cb! ::boundary-dev (fn [ev] (swap! traces conj ev)))
       ;; Direct :before invocation isolates the boundary's behaviour
       ;; from the surrounding router/step-1 path so we observe the
       ;; boundary's own dev-mode contract.
-      (let [before    (:before rf/validate-at-boundary)
+      (let [before    (:before rf/at-boundary)
             valid-ctx (before {:coeffects {:event [:api/strict 42]}})
             bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
         (trace-tooling/remove-trace-cb! ::boundary-dev)
@@ -325,7 +325,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:spec [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (trace-tooling/register-trace-cb! ::dev-dispatch (fn [ev] (swap! traces conj ev)))

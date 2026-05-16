@@ -1,5 +1,5 @@
 (ns re-frame.schemas-boundary-prod-test
-  "Production-mode CLJS smoke for `:spec/validate-at-boundary` (rf2-r2uh,
+  "Production-mode CLJS smoke for `:spec/at-boundary` (rf2-r2uh,
   rf2-84e9).
 
   The JVM smoke (`re-frame.schemas-test`) exercises the dev/prod gate by
@@ -70,7 +70,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:spec [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       ;; Malformed payload: handler MUST be skipped.
       (rf/dispatch-sync [:api/strict "not-an-int"])
@@ -85,7 +85,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:spec [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (rf/dispatch-sync [:api/strict 42])
       (is (= 1 @calls)
@@ -106,7 +106,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:spec [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (trace-tooling/register-trace-cb! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
@@ -130,9 +130,9 @@
             `:rf/skip-handler?` on the context when the schema fails."
     (rf/reg-event-fx :api/strict
       {:spec [:cat [:= :api/strict] :int]}
-      [rf/validate-at-boundary]
+      [rf/at-boundary]
       (fn [_ _] {}))
-    (let [before    (:before rf/validate-at-boundary)
+    (let [before    (:before rf/at-boundary)
           valid-ctx (before {:coeffects {:event [:api/strict 42]}})
           bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
       (is (not (:rf/skip-handler? valid-ctx))
@@ -151,7 +151,7 @@
       (let [calls (atom 0)]
         (rf/reg-event-fx :api/disabled
           {:spec [:cat [:= :api/disabled] :int]}
-          [rf/validate-at-boundary]
+          [rf/at-boundary]
           (fn [_ _] (swap! calls inc) {}))
         (rf/dispatch-sync [:api/disabled "wildly-malformed"])
         (is (= 1 @calls)

@@ -144,12 +144,12 @@ In **production builds**, every validation site is **elided at compile time**. T
 
 Schemas stay **registered** in production — tooling can still introspect them — but they're not *checked*. The implication is the one you'd hope for: write schemas freely, in volume, without thinking about hot-path cost.
 
-If you want validation at **system boundaries** in production — incoming HTTP responses, websocket messages, postMessage payloads — re-frame2 ships a `:rf/validate-at-boundary` interceptor:
+If you want validation at **system boundaries** in production — incoming HTTP responses, websocket messages, postMessage payloads — re-frame2 ships a `:spec/at-boundary` interceptor:
 
 ```clojure
 (rf/reg-event-fx :api/response-received
   {:spec ApiResponseSchema}
-  [rf/validate-at-boundary]
+  [rf/at-boundary]
   (fn [{:keys [db]} [_ response]] ...))
 ```
 

@@ -519,7 +519,7 @@
 
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
 ;;
-;; The boundary-validation interceptor (`re-frame.spec/validate-at-boundary`,
+;; The boundary-validation interceptor (`re-frame.spec/at-boundary`,
 ;; rf2-r2uh) runs `:spec` validation on a handler at production-build
 ;; time — outside the `interop/debug-enabled?` gate that guards the
 ;; hot-path validate-*! fns above. Per Spec 010 §Production builds the

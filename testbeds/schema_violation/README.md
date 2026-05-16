@@ -40,7 +40,7 @@ suffix). Consumers that want the registration anchor reach
 
 - No `:on-error` policy fn — the default per-`:where` recovery is what
   consumers verify against.
-- No `:rf/validate-at-boundary` interceptor — that interceptor is for
+- No `:spec/at-boundary` interceptor — that interceptor is for
   production-mode schema enforcement on untrusted-input handlers, not
   for the dev-mode validation surfaces this testbed exercises.
 - No `:sensitive?` slots in the schemas. The privacy/redaction surface
