@@ -38,10 +38,10 @@
   flags lands by extension rather than rewrite."
   (:require [applied-science.js-interop :as j]
             [clojure.string :as str]
+            [day8.re-frame2-causa-mcp.nrepl :as nrepl]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
-            ["@modelcontextprotocol/sdk/types.js" :as mcp-types]
-            ["fs" :as fs]))
+            ["@modelcontextprotocol/sdk/types.js" :as mcp-types]))
 
 (def ^:const server-name    "re-frame2-causa-mcp")
 (def ^:const server-version "0.1.0")
@@ -54,33 +54,20 @@
 ;; ---------------------------------------------------------------------------
 ;; nREPL port discovery.
 ;;
-;; Inlined here at F-2 to keep the server entry-point self-contained;
-;; lifts into `day8.re-frame2-causa-mcp.nrepl` (with its socket + bencode
-;; surface) in a later F-tranche, mirroring pair2-mcp's split.
+;; Lifted in F-3 (rf2-8xzoe.3) to `day8.re-frame2-causa-mcp.nrepl`
+;; alongside the socket + bencode surface. The local `read-port-from-fs`
+;; alias keeps the server-public contract (the server-test resolves
+;; `server/read-port-from-fs`) stable across the lift.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private port-file-candidates
-  ["target/shadow-cljs/nrepl.port"
-   ".shadow-cljs/nrepl.port"
-   ".nrepl-port"])
-
-(defn read-port-from-fs
+(def read-port-from-fs
   "Read the nREPL port from `SHADOW_CLJS_NREPL_PORT` or the standard
   shadow-cljs / nrepl port-file locations. Returns an integer or nil.
 
-  Mirrors `re-frame-pair2-mcp.nrepl/read-port-from-fs`. Public so the
-  server test can pin the contract."
-  []
-  (or (when-let [env (j/get-in js/process [:env :SHADOW_CLJS_NREPL_PORT])]
-        (let [n (js/parseInt env 10)]
-          (when-not (js/isNaN n) n)))
-      (some (fn [path]
-              (try
-                (let [content (str/trim (.toString (.readFileSync fs path)))
-                      n       (js/parseInt content 10)]
-                  (when-not (js/isNaN n) n))
-                (catch :default _ nil)))
-            port-file-candidates)))
+  Thin alias to `nrepl/read-port-from-fs` — the real implementation
+  now lives with the transport. Public so the server test can pin the
+  contract; downstream code can call either ns equivalently."
+  nrepl/read-port-from-fs)
 
 (defn- resolve-port
   "Look up the nREPL port. Returns an integer or throws with a hint."
