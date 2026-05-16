@@ -258,30 +258,46 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
     });
   }
 
+  // Per rf2-xs8vu: the chip-click handler dispatches
+  // `:rf.causa/open-in-editor` under the `:rf/causa` frame, which then
+  // fires `:rf.editor/open` as an fx (also `:rf/causa`-framed). The
+  // trace-bus ingest filter (`causa-internal-event?`) correctly drops
+  // those self-emitted events before they reach Causa's buffer — they
+  // are Causa machinery, not host activity. The bridge round-trip
+  // therefore CANNOT be verified by reading Causa's trace feed
+  // (pre-rf2-xs8vu the test exploited the absence of that filter as
+  // a convenient probe; it was incidental observability, not the
+  // bridge's contract).
+  //
+  // The contract is: clicking a chip writes `window.location.href`
+  // to the resolved `vscode://...` URI (via `open-in-editor/open!`).
+  // The browser cannot resolve a custom scheme, so it raises a
+  // `requestfailed` event — Playwright captures that in
+  // `browserState.requestFailures`. That capture is the
+  // filter-immune observable proof the click → location bridge
+  // fired with the expected URI.
   const expectedUri = click.sourceCoord
     ? `vscode://file/${click.sourceCoord}:1`
     : null;
-  const events = await waitForValue(
-    async () => readTrace(page),
-    (traceEvents) => {
-      const hasOpenEvent = traceEvents.some((event) =>
-        event.includes(':rf.causa/open-in-editor') &&
-        event.includes(click.sourceCoord));
-      const hasBridgeFx = traceEvents.some((event) =>
-        event.includes(':rf.editor/open') &&
-        (!expectedUri || event.includes(expectedUri) || event.includes('vscode://file/')));
-      return hasOpenEvent && hasBridgeFx;
-    },
+  if (!ctx || !ctx.browserState) {
+    failWithDetails('assertSourceCoordBridge requires ctx.browserState (request-failure capture)', {
+      panel: opts.panel,
+      sourceCoord: click.sourceCoord,
+      expectedUri,
+    });
+  }
+  const newFailures = await waitForValue(
+    async () => ctx.browserState.requestFailures.slice(requestStart),
+    (failures) => failures.some((line) =>
+      line.includes(expectedUri || 'vscode://file/')),
     {
       timeoutMs: 10000,
-      description: `open-in-editor bridge for ${opts.panel} ${click.sourceCoord}`,
+      description: `open-in-editor request for ${opts.panel} ${click.sourceCoord} (expected ${expectedUri})`,
     },
   );
-  await sleep(150);
-  const requestFailures = ctx && ctx.browserState
-    ? ctx.browserState.requestFailures.slice(requestStart)
-    : [];
   const afterUrl = page.url();
+  const matchedFailure = newFailures.find((line) =>
+    line.includes(expectedUri || 'vscode://file/'));
   const record = {
     panel: opts.panel,
     sourceCoord: click.sourceCoord,
@@ -289,12 +305,9 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
     expectedUri,
     beforeUrl,
     afterUrl,
-    requestFailures,
-    observedOpenDispatch: events.some((event) =>
-      event.includes(':rf.causa/open-in-editor') && event.includes(click.sourceCoord)),
-    observedBridgeFx: events.some((event) =>
-      event.includes(':rf.editor/open') &&
-      (!expectedUri || event.includes(expectedUri) || event.includes('vscode://file/'))),
+    requestFailures: newFailures,
+    observedBridgeRequest: Boolean(matchedFailure),
+    matchedFailure: matchedFailure || null,
   };
   ensureStateList(state, 'sourceClicks').push(record);
   if (afterUrl !== beforeUrl) {
