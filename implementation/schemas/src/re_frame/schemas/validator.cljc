@@ -102,7 +102,7 @@
     (seq? form)    (doall (map canonicalise-schema-form form))
     :else          form))
 
-(defn default-edn-print
+(def default-edn-print
   "The default schema-print companion (rf2-wla45). Per Spec 010 §Schema
   digest line 491 — serialise a schema value to the stable UTF-8
   byte-source string the digest pipeline hashes. The default uses
@@ -114,13 +114,22 @@
   Ports that ship a non-EDN schema language register their own printer
   via `set-schema-printer!`; the digest then reflects the registered
   validator's serialisation contract rather than the framework's
-  Malli-EDN default."
-  [schema-value]
-  (binding [*print-meta*           false
-            *print-readably*       true
-            *print-dup*            false
-            *print-namespace-maps* false]
-    (pr-str (canonicalise-schema-form schema-value))))
+  Malli-EDN default.
+
+  Memoised by `schema-value` (rf2-y29nf): the digest pipeline
+  (`re-frame.schemas.digest/compute-digest`) calls this once per
+  registered schema per digest call, and the digest is invoked on the
+  SSR hydrate handshake, the epoch-restore schema-mismatch trace, and
+  pair-tool drift detection — repeat calls against the same registered
+  schema values dominate. Pure over immutable schema values, so the
+  cache is bounded by the registered-schema cardinality."
+  (memoize
+    (fn [schema-value]
+      (binding [*print-meta*           false
+                *print-readably*       true
+                *print-dup*            false
+                *print-namespace-maps* false]
+        (pr-str (canonicalise-schema-form schema-value))))))
 
 (defonce
   ^{:doc "The currently-registered validator fn — `(fn [schema value]
@@ -249,6 +258,15 @@
   (reset! validator-fn default-malli-validate)
   (reset! explainer-fn default-malli-explain)
   (reset! printer-fn   default-edn-print))
+
+(defn using-default-validator?
+  "True when `validator-fn` is still the framework-default
+  `default-malli-validate`. Used by the
+  `:rf.warning/schema-validator-unavailable` registration-time check
+  (rf2-fq7d2) to distinguish 'app hasn't opted out of Malli' from
+  'app installed its own validator and knows what it's doing'."
+  []
+  (identical? @validator-fn default-malli-validate))
 
 (defn run-validator
   "Hot-path entry — invoke the registered validator fn against a

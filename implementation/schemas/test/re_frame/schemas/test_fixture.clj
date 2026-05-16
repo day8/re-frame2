@@ -28,6 +28,10 @@
   - `(spec/clear-boundary-warned-handler-ids!)` — clears the
     rf2-r2uh boundary-interceptor warn-once cache so each test
     sees a clean suppression slate.
+  - `(schemas/clear-validator-unavailable-warned!)` — clears the
+    rf2-fq7d2 `:rf.warning/schema-validator-unavailable` one-shot
+    so test cases that exercise the unbound-validator path each
+    start from a clean slate.
   - `(rf/init! plain-atom/adapter)` — installs the schemas-artefact
     JVM tests' standard substrate."
   (:require [re-frame.core :as rf]
@@ -47,5 +51,6 @@
   (reset! schemas/schemas-by-frame {})
   (schemas/reset-schema-validator!)
   (spec/clear-boundary-warned-handler-ids!)
+  (schemas/clear-validator-unavailable-warned!)
   (rf/init! plain-atom/adapter)
   (test-fn))

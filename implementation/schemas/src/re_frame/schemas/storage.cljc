@@ -22,6 +22,9 @@
       `clear-schemas-by-frame!` — test-support hooks consumed by
       `re-frame.test-support`'s reset-runtime fixture."
   (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.schemas.validator :as validator]
             [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -53,6 +56,63 @@
                     {:received opts-or-frame-id
                      :expected "keyword frame-id or opts map"}))))
 
+;; ---- validator-unavailable warning (rf2-fq7d2) ----------------------------
+;;
+;; Per Spec 010 §Recommended soft-pass, the schemas artefact ships with a
+;; Malli-delegating default validator that returns true ("pass") when the
+;; `:schemas/malli-validate` late-bind hook is unbound — i.e. when the
+;; `re-frame.schemas.malli` adapter ns hasn't been required at app boot.
+;; This is intentional (apps that swap in a non-Malli validator must work),
+;; but it has a footgun: a `reg-app-schema` call WITH the default validator
+;; AND no Malli adapter loaded validates nothing. Boundary-validated
+;; handlers silently accept untrusted input.
+;;
+;; The warning fires once per process from `reg-app-schema` /
+;; `reg-app-schemas` when:
+;;   1. `:schemas/malli-validate` late-bind hook is unbound, AND
+;;   2. `validator-fn` is still the framework default.
+;;
+;; Apps that registered a non-default validator (a Zod port, clojure.spec
+;; bridge, etc.) opted out of Malli explicitly — no warning.
+
+(defonce ^:private validator-unavailable-warned
+  ;; Process-lifecycle one-shot. Reset by `clear-validator-unavailable-warned!`
+  ;; (used by the schemas test-fixture's `reset-runtime`).
+  (atom false))
+
+(defn clear-validator-unavailable-warned!
+  "Reset the one-shot `:rf.warning/schema-validator-unavailable` cache.
+  Used by test fixtures so each case starts from a clean diagnostic slate."
+  []
+  (reset! validator-unavailable-warned false))
+
+(defn- maybe-warn-validator-unavailable!
+  "Emit `:rf.warning/schema-validator-unavailable` once per process when
+  `reg-app-schema` / `reg-app-schemas` is invoked AND the Malli adapter
+  is unloaded AND the framework-default validator is still installed.
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  so the production bundle DCEs the consult+emit branch (Spec 009
+  §Production builds). The keyword `:rf.warning/schema-validator-
+  unavailable` is a literal arg at the call site — moving the gate
+  inside this helper would leave the literal reachable from the
+  unconditional helper call and defeat the elision sentinel."
+  []
+  (when (and (not @validator-unavailable-warned)
+             (nil? (late-bind/get-fn :schemas/malli-validate))
+             (validator/using-default-validator?))
+    (when (compare-and-set! validator-unavailable-warned false true)
+      (when-let [emit! (late-bind/get-fn :trace/emit!)]
+        (emit! :warning :rf.warning/schema-validator-unavailable
+               {:reason
+                (str "reg-app-schema was called but :schemas/malli-validate"
+                     " is unbound and the framework-default validator is"
+                     " still installed — every validation site soft-passes."
+                     " Require `re-frame.schemas.malli` at app boot to"
+                     " activate Malli validation, or call"
+                     " `set-schema-validator!` with a non-default fn"
+                     " to suppress this warning.")})))))
+
 ;; ---- app-db schema registration -------------------------------------------
 
 (defn reg-app-schema
@@ -76,6 +136,14 @@
          meta     (source-coords/merge-coords
                     {:schema schema :path path :frame frame-id})]
      (swap! schemas-by-frame assoc-in [frame-id path] meta)
+     ;; Per rf2-fq7d2: dev-time nudge when the Malli adapter is unloaded
+     ;; AND the framework-default validator is still installed — the
+     ;; default soft-passes per Spec 010 §Recommended soft-pass, so a
+     ;; reg-app-schema with no validator wired up validates nothing.
+     ;; Production elides via the outer `interop/debug-enabled?` gate
+     ;; (Spec 009 §Production builds).
+     (when interop/debug-enabled?
+       (maybe-warn-validator-unavailable!))
      path)))
 
 (defn reg-app-schemas

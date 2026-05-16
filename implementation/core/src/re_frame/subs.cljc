@@ -505,6 +505,14 @@
   the JVM build never loads it; production (`:advanced` +
   `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
 
+  The 2-arity `(subscribe frame-id query-v)` form **deliberately
+  skips** the plain-fn detection check (rf2-r0zf2). Supplying an
+  explicit `frame-id` IS the opt-out — the caller has told the runtime
+  exactly which frame to target, so a fall-through-to-`:rf/default`
+  diagnostic doesn't apply. Use the 2-arity form from a plain
+  Reagent fn body when you want to subscribe against a known frame
+  without triggering the warning surface.
+
   This is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and delegates here
   through `re-frame.core/subscribe*`, wrapping the call in
@@ -592,7 +600,23 @@
   Per Spec 008 §Testing — pure compute-sub form. Per Spec 010 §step 6
   (rf2-wcam): the return value is validated against any :spec on the
   sub's meta — failures emit :rf.error/schema-validation-failure and
-  yield nil (default :replaced-with-default recovery)."
+  yield nil (default :replaced-with-default recovery).
+
+  ## Cost — N^2 on deep `:<-` chains (rf2-r0zf2)
+
+  Each `:<-` input is resolved by RE-CALLING `compute-sub` against the
+  shared `db` — there is no memoisation across the recurse. A diamond
+  dependency (`:c` depends on `:a` and `:b`; both depend on `:root`)
+  computes `:root` twice; a longer reused-leaf chain compounds the
+  cost. The reactive `subscribe` path is immune (the per-frame
+  sub-cache deduplicates layer-2+ inputs across the dependency graph),
+  but `compute-sub` consciously bypasses that cache to stay pure.
+
+  Consumers that walk deep chains in tests / SSR / Story expecting
+  'fast pure compute' should pin the sub-result by hand and pass it
+  in instead of re-resolving the same input multiple times. The
+  shallow case (a sub with no `:<-` inputs, or a chain of distinct
+  intermediates) carries no quadratic risk."
   [query-v db]
   (let [query-id (first query-v)
         meta     (registrar/lookup :sub query-id)]

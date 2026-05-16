@@ -61,6 +61,8 @@
 (def restore-schemas-by-frame! storage/restore-schemas-by-frame!)
 (def clear-schemas-by-frame!   storage/clear-schemas-by-frame!)
 (def on-frame-destroyed!       storage/on-frame-destroyed!)
+(def clear-validator-unavailable-warned!
+  storage/clear-validator-unavailable-warned!)
 
 ;; Per-slot flag walker (rf2-nwv63 / rf2-kj51z / rf2-oghml).
 (def walk-flagged-schema              walker/walk-flagged-schema)
