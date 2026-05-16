@@ -25,7 +25,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - `tools/pair2-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
 - `tools/causa/` — on-box trace listener panels default `:rf.size/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
 - `tools/story/` — variant snapshots and trace scrubbers consume the same walker.
-- `implementation/schemas/` — the `frame-sensitive-declarations` / `populate-sensitive-declarations` feeder ships per-slot props through the late-bind hook table into the unified registry.
+- `implementation/schemas/` — publishes `extract-large-paths-from-schema` / `extract-sensitive-paths-from-schema` through the late-bind hook table; `re-frame.elision` consumes them to populate the unified registry (Option A per rf2-ynnq0 — schemas owns the deep walker, elision owns the app-db write).
 
 **The result.** One walker, one marker vocabulary, one composition order (`sensitive? > redacted > large? > pass-through`). A consumer that wants to elide a value of either kind picks `rf/elide-wire-value` and never reinvents the predicate or the marker shape. Production builds elide the walker's wire surface along with the rest of the trace surface; the underlying declaration registry survives.
 
