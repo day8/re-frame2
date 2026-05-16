@@ -79,6 +79,24 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.registrar — handler-cleared trace op.
   { source: 're-frame.registrar/unregister! / clear-kind! (handler-cleared)',
     sentinel: 'rf.registry/handler-cleared' },
+  // re-frame.registrar — :rf.warning/missing-doc trace op (Spec 001
+  // §`:doc` is dev-warned when absent, rf2-45kaz). Emitted from
+  // maybe-emit-missing-doc! when a public macro-path reg-* call
+  // carries no usable :doc. The emit call sits inside the outermost
+  // `(when interop/debug-enabled? ...)` gate in register!; under
+  // :advanced + goog.DEBUG=false the consult+emit branch and the
+  // operation keyword's string literal must elide.
+  { source: 're-frame.registrar/register! (rf.warning/missing-doc)',
+    sentinel: 'rf.warning/missing-doc' },
+  // re-frame.registrar — :rf.warning/registration-collision trace op
+  // (Spec 001 §Re-registration of a different function — collision
+  // warning, rf2-45kaz). Emitted from maybe-emit-collision! when a
+  // re-registration swaps in a different :handler-fn. Sits inside
+  // the same gated branch as handler-replaced; the operation
+  // keyword's string fragment must elide under :advanced +
+  // goog.DEBUG=false.
+  { source: 're-frame.registrar/register! (rf.warning/registration-collision)',
+    sentinel: 'rf.warning/registration-collision' },
   // re-frame.router — :event/dispatched trace op (rf2-smee dispatch-id
   // correlation).  Emitted via trace/emit! whose body is gated; the
   // operation keyword should not survive.

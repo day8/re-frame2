@@ -113,6 +113,122 @@
   (when-let [f (late-bind/get-fn-cached :trace/emit!)]
     (f :registry operation tags)))
 
+(defn- emit-warning!
+  "Invoke `:trace/emit!` with the `:warning` op-type. Sibling to
+  `emit!` (which uses `:registry`). Callers MUST wrap invocations in
+  `(when interop/debug-enabled? ...)` so Closure DCE elides the call
+  and its literal args under `:advanced + goog.DEBUG=false`."
+  [operation tags]
+  (when-let [f (late-bind/get-fn-cached :trace/emit!)]
+    (f :warning operation tags)))
+
+;; ---- warn-once caches (Spec 001 §`:doc` is dev-warned when absent,
+;;                        Spec 001 §Re-registration of a different
+;;                        function — collision warning) ---------------------
+;;
+;; `:rf.warning/missing-doc` fires at most once per `(kind, id)` pair
+;; within a runtime process. `:rf.warning/registration-collision`
+;; uses the same suppression discipline. Mirrors the warn-once cache
+;; pattern from re-frame.spec (boundary-without-spec) and
+;; re-frame.views (plain-fn-under-non-default-frame-once).
+;;
+;; Caches sit alongside the registry; production elision (Spec 009
+;; §Production builds) elides the consult+emit branches, but the
+;; atom allocation itself is process-load-time and harmless.
+
+(defonce ^:private missing-doc-warned
+  (atom #{}))
+
+(defonce ^:private collision-warned
+  (atom #{}))
+
+(defn clear-warning-caches!
+  "Reset the warn-once caches for `:rf.warning/missing-doc` and
+  `:rf.warning/registration-collision`. Tests use this between cases
+  so each case starts from a clean slate.
+
+  Per Spec 001 §`:doc` is dev-warned when absent: suppression is
+  per-process; the cache is process-local state, not registry state."
+  []
+  (reset! missing-doc-warned #{})
+  (reset! collision-warned   #{})
+  nil)
+
+(defn- source-coords
+  "Extract the source-coord subset of a registration metadata map.
+  Returns nil when no coord slot is present (programmatic / non-macro
+  path). Mirrors the `{:ns :line :file :column}` envelope per Spec 001
+  §Source-coordinate capture (CLJS reference)."
+  [meta]
+  (let [coords (select-keys meta [:ns :line :file :column])]
+    (when (seq coords) coords)))
+
+(defn- macro-path?
+  "Truthy when the metadata map carries the macro-path signature —
+  source coords merged in via `source-coords/merge-coords` (Spec 001
+  §Source-coordinate capture). Per Spec 001 §`:doc` is dev-warned
+  obligation 4, programmatic re-registrations through internal
+  helpers that bypass the public macro path are out of scope for
+  `:rf.warning/missing-doc`. The `:ns` slot is the canonical signal
+  the macro layer reached `register!`."
+  [meta]
+  (contains? meta :ns))
+
+(defn- missing-doc?
+  "True when `meta` has no usable `:doc` slot: absent, nil, or an
+  empty string (per Spec 001 §`:doc` obligation 1)."
+  [meta]
+  (let [d (:doc meta)]
+    (or (nil? d)
+        (and (string? d) (= "" d)))))
+
+(defn- maybe-emit-missing-doc!
+  "Emit `:rf.warning/missing-doc` once per `(kind, id)` when `meta`
+  came from the public macro path and carries no usable `:doc`.
+  Per Spec 001 §`:doc` is dev-warned when absent.
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  so the production bundle DCEs the consult+emit branch (Spec 009
+  §Production builds). The keyword `:rf.warning/missing-doc` is a
+  literal arg at the call site — moving the gate inside this helper
+  would leave the literal reachable from the unconditional helper
+  call and defeat the elision sentinel."
+  [kind id meta]
+  (when (and (macro-path? meta) (missing-doc? meta))
+    (let [k [kind id]]
+      (when-not (contains? @missing-doc-warned k)
+        (swap! missing-doc-warned conj k)
+        (emit-warning! :rf.warning/missing-doc
+                       (cond-> {:kind kind :id id}
+                         (source-coords meta) (assoc :source-coords
+                                                     (source-coords meta))))))))
+
+(defn- maybe-emit-collision!
+  "Emit `:rf.warning/registration-collision` once per `(kind, id)`
+  when a re-registration swaps in a different handler-fn (different
+  in fn identity).
+
+  Per Spec 001 §Re-registration of a different function — collision
+  warning. The existing `:rf.registry/handler-replaced` trace stays
+  intact (with `:different-fn?` tag); this warning surface is the
+  separate dev-nudge that single-source-of-truth tools surface to
+  the developer. Same suppression discipline as missing-doc — fires
+  once per `(kind, id)` to keep the dev stream readable.
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  for production elision (Spec 009 §Production builds)."
+  [kind id previous new-meta]
+  (when (not= (:handler-fn previous) (:handler-fn new-meta))
+    (let [k [kind id]]
+      (when-not (contains? @collision-warned k)
+        (swap! collision-warned conj k)
+        (emit-warning! :rf.warning/registration-collision
+                       (cond-> {:kind            kind
+                                :id              id
+                                :previous-coords (source-coords previous)}
+                         (source-coords new-meta) (assoc :source-coords
+                                                         (source-coords new-meta))))))))
+
 (defn register!
   "Register an id under kind with the given metadata. Re-registering the
   same id replaces the slot atomically (per Spec 001 §Hot-reload semantics
@@ -160,13 +276,29 @@
         ;; branch (per Spec 009 §Production builds).
         (when interop/debug-enabled?
           (emit! :rf.registry/handler-replaced
-                 {:kind kind :id id :different-fn? different?})))
+                 {:kind kind :id id :different-fn? different?})
+          ;; Per Spec 001 §Re-registration of a different function —
+          ;; collision warning (rf2-45kaz). Fires alongside
+          ;; handler-replaced when the fn-identity actually changed,
+          ;; with the same per-(kind, id) suppression discipline so
+          ;; the dev stream stays readable across hot-reload churn.
+          (maybe-emit-collision! kind id previous metadata)))
       ;; First-time registration — emit handler-registered per Spec 009
       ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
       ;; this to track when fresh ids appear in the registry.
       :else
       (when interop/debug-enabled?
         (emit! :rf.registry/handler-registered {:kind kind :id id})))
+    ;; Per Spec 001 §`:doc` is dev-warned when absent (rf2-45kaz). Fires
+    ;; on every reg-* call whose final metadata-map carries no usable
+    ;; `:doc`, once per (kind, id) within the runtime process. Production
+    ;; elides via the outer `interop/debug-enabled?` gate (Spec 009
+    ;; §Production builds). Fires on BOTH first-time and re-registration
+    ;; — the consult+emit body is suppressed by the per-(kind, id) cache
+    ;; on subsequent calls; obligation 2 says re-registering the same id
+    ;; without `:doc` does NOT re-fire the warning.
+    (when interop/debug-enabled?
+      (maybe-emit-missing-doc! kind id metadata))
     ;; Always-on registration hooks (rf2-w50qm): fire on BOTH first-time
     ;; and re-registration so cross-id invariants (e.g. routing's
     ;; `:url-bound?` exclusivity per Spec 012 §Multi-frame routing) can
@@ -206,9 +338,17 @@
   nil)
 
 (defn clear-all!
-  "Remove every registration for every kind. Test fixtures use this."
+  "Remove every registration for every kind. Test fixtures use this.
+
+  Also resets the per-process warn-once caches for
+  `:rf.warning/missing-doc` and `:rf.warning/registration-collision`
+  so each test case starts from a clean diagnostic state — without
+  this, a test that re-registers an already-warned (kind, id) pair
+  would silently miss the warning under suppression."
   []
   (reset! kind->id->metadata {})
+  (reset! missing-doc-warned #{})
+  (reset! collision-warned   #{})
   nil)
 
 ;; ---- lookup ---------------------------------------------------------------
