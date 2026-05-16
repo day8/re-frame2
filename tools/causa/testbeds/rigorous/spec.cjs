@@ -1355,5 +1355,96 @@ module.exports = {
       `event-detail cascade data-dispatch-id=${firstRowDispatchId} (parity with perf-row click)`,
       5000,
     );
+
+    // ----------------------------------------------------------------
+    // 10g. Hydration Debugger (rf2-5aw5v.3 — L-3).
+    //
+    // The counter example does not use SSR; no `:rf.ssr/hydration-
+    // mismatch` traces land in the buffer. Per Spec 006 §Visibility
+    // the sidebar entry stays DORMANT (the `◌` marker) until the
+    // first mismatch; the canvas mounts the `no-ssr-empty-state`
+    // branch. The walk asserts:
+    //
+    //   - the sidebar item glyph is `◌` (not `◉`/`○`) BEFORE the
+    //     user clicks into the panel — guards against the dormant
+    //     gate accidentally waking on dispatch traces unrelated to
+    //     hydration
+    //   - clicking the dormant entry still navigates — dormant is
+    //     a visibility cue, not a disabled state
+    //   - the canvas mounts on the `no-ssr-empty-state` branch
+    //     (`rf-causa-hydration-debugger-empty-no-ssr`); the clean-
+    //     hydration branch (`rf-causa-hydration-debugger-empty-clean`)
+    //     is mutually exclusive and NOT mounted
+    //   - the mismatch-list, mismatch-detail, hash-chip, tree-pane,
+    //     divergent-marker, and hypothesis surfaces are all absent —
+    //     they belong to the populated branch
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (same cross-panel
+    //     selection invariant exercised throughout this section)
+    //
+    // The full feature path (server/client hash mismatch + render-
+    // tree diff + divergent node + corrupt/missing payload + multi-
+    // frame mismatch) needs the testbeds/ssr_hydration_mismatch
+    // testbed wired through the rigorous compile graph. Matrix row
+    // 77 (Hydration) flips from `deferred (rf2-gdqm1)` to `partial`
+    // — the dormant-gate + empty-branch shape are now pinned; the
+    // populated-branch walks remain follow-on under rf2-gdqm1.
+    // ----------------------------------------------------------------
+    // 9d landed us on event-detail. Before clicking into Hydration,
+    // assert the sidebar glyph is dormant. We read the leading
+    // child-span's textContent — the sidebar-item template puts the
+    // glyph in the first `<span>` child.
+    const hydrationGlyph = await page.evaluate(() => {
+      const li = document.querySelector('[data-testid="rf-causa-sidebar-item-hydration"]');
+      if (!li) return null;
+      const glyph = li.querySelector('span');
+      return glyph ? (glyph.textContent || '').trim() : null;
+    });
+    // The dormant marker is `◌`. Active rows use `◉` (the panel is not
+    // active yet — event-detail is) and non-dormant inactive rows use
+    // `○`. The hydration row must be `◌` (dormant) on counter.
+    if (hydrationGlyph !== '◌') {
+      throw new Error(
+        `Expected hydration sidebar glyph '◌' (dormant) before click; got ${JSON.stringify(hydrationGlyph)}. ` +
+        `If this fires after a non-hydration trace woke the row, the dormant gate has regressed.`,
+      );
+    }
+    // Click the dormant entry — it should still navigate.
+    await clickSidebar(page, 'hydration', 'rf-causa-hydration-debugger');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-hydration-debugger-empty-no-ssr"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-hydration-debugger-empty-clean"]').count()) !== 0) {
+      throw new Error('Expected `empty-clean` branch to be absent on no-SSR counter.');
+    }
+    for (const populatedTestid of [
+      'rf-causa-hydration-mismatch-list',
+      'rf-causa-hydration-mismatch-detail',
+      'rf-causa-hydration-divergent-marker',
+      'rf-causa-hydration-hypothesis',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected populated-branch surface '${populatedTestid}' to be absent on no-SSR counter.`,
+        );
+      }
+    }
+    if ((await page.locator('[data-testid^="rf-causa-hydration-hash-chip-"]').count()) !== 0) {
+      throw new Error('Expected no hash chips on no-SSR counter (populated branch only).');
+    }
+    if ((await page.locator('[data-testid^="rf-causa-hydration-tree-pane-"]').count()) !== 0) {
+      throw new Error('Expected no tree panes on no-SSR counter (populated branch only).');
+    }
+    // Sidebar round-trip — same cross-panel selection invariant.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const hydrationPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => hydrationPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === firstRowDispatchId,
+      `event-detail cascade selection preserved after Hydration round-trip (=${firstRowDispatchId})`,
+      5000,
+    );
   },
 };
