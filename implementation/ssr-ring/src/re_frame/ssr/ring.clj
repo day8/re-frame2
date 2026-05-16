@@ -100,6 +100,7 @@
     - Async Ring handler (3-arity) — synchronous-only in v1;
       extension is additive."
   (:require [re-frame.ssr :as ssr]
+            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.ring.cookie :as cookie]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
@@ -169,14 +170,23 @@
   caller omits a required `ssr-handler` opt. Extracted from the
   handler body per audit rf2-asmj1 R3 / cluster rf2-sljs1 so the body
   of `ssr-handler` reads as the lifecycle wiring rather than a
-  validation-then-wire two-step."
-  [{:keys [on-create root-view]}]
+  validation-then-wire two-step.
+
+  Per rf2-gtgf9 the hydration-payload policy is also validated here so
+  misconfigured deployments fail at handler-construction time (boot)
+  rather than at first request — the canonical fail-closed pattern.
+  Delegates to `re-frame.ssr.payload-policy/validate-policy-opts!`,
+  which throws `:rf.error/ssr-missing-payload-policy` (or
+  `:rf.error/ssr-unknown-payload-policy` on a typo'd
+  `:payload-policy`)."
+  [{:keys [on-create root-view] :as opts}]
   (when-not on-create
     (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
                     {:reason "ssr-handler requires :on-create (an event vector)"})))
   (when-not root-view
     (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
-                    {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"}))))
+                    {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"})))
+  (payload-policy/validate-policy-opts! opts))
 
 ;; ---- ssr-handler ----------------------------------------------------------
 
@@ -208,10 +218,25 @@
     :version        — hydration payload's `:rf/version` (default 1).
     :schema-digest  — hydration payload's `:rf/schema-digest`, when
                       the app participates in the digest check.
-    :payload-keys   — coll of top-level app-db keys to ship in the
-                      payload's `:rf/app-db`. Default: ship the whole
-                      app-db. Use to slice large per-request state
-                      down to what the client genuinely needs.
+    :payload-keys   — Allowlist (recommended): a non-empty sequential
+                      coll of top-level app-db keys to ship in the
+                      payload's `:rf/app-db`. Other keys are dropped,
+                      including any keys added later as the app evolves.
+                      The recommended primary mechanism per the
+                      explicit fail-closed policy contract (rf2-gtgf9).
+    :payload-policy — Explicit policy keyword. The only currently-
+                      recognised value is
+                      `:rf.ssr.payload/whole-app-db`, which opts into
+                      shipping the whole `app-db`. Use only when the
+                      app's `app-db` is structurally safe to expose
+                      end-to-end. Mutually exclusive with
+                      `:payload-keys` (allowlist wins when both are
+                      passed; that's not a contradiction since the
+                      allowlist is a more-restrictive policy choice).
+                      One of `:payload-keys` or `:payload-policy`
+                      MUST be passed; absence of both throws
+                      `:rf.error/ssr-missing-payload-policy` at
+                      handler-construction time.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       to `default-html-shell`. Replace to inject custom
                       <head>, scripts, JSON-LD, etc.

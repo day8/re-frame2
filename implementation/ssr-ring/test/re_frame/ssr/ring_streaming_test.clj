@@ -62,7 +62,8 @@
   (testing "chunk order: shell prefix → shell-html → resolved templates → final __rf_payload → close"
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
-                      :root-view [:test/root]})
+                      :root-view [:test/root]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))
           ;; Indices into the body string — the wire-order invariant
@@ -98,7 +99,8 @@
        [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C done"]]])
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
-                      :root-view [:test/multi-root]})
+                      :root-view [:test/multi-root]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))
           ;; Extract the order of resolved chunks by finding each id's
@@ -128,7 +130,8 @@
        [:footer "End"]])
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
-                      :root-view [:test/fragile-root]})
+                      :root-view [:test/fragile-root]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))]
       (is (= 200 (:status response)) "stream still 200 — failure is partial-render-safe")
@@ -144,7 +147,8 @@
       [:main [:h1 "Just static"]])
     (let [handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.server/init]
-                      :root-view [:test/static-root]})
+                      :root-view [:test/static-root]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (drain-stream (:body response))]
       (is (str/includes? body "<h1>Just static</h1>") "static content emitted")

@@ -133,10 +133,16 @@
   ;; required keys' presence and the version stamp; the actual
   ;; render-hash value is pinned by `:ssr/render-to-string` and the
   ;; hash-parity fixture corpus.
+  ;;
+  ;; rf2-gtgf9: payload policy is explicit + fail-closed. The
+  ;; conformance fixture opts in to whole-app-db so the payload-keys
+  ;; expectation below covers the full canonical shape rather than a
+  ;; sliced subset.
   {:call   :ssr/streaming/build-final-payload
-   :input  {:render-hash "00000000"          ;; placeholder; the implementation
-                                             ;; supplies the real FNV-1a hex here
-            :version 1}
+   :input  {:render-hash    "00000000"          ;; placeholder; the implementation
+                                                ;; supplies the real FNV-1a hex here
+            :version        1
+            :payload-policy :rf.ssr.payload/whole-app-db}
    :expect {:payload-keys #{:rf/version :rf/frame-id :rf/app-db :rf/render-hash}
             :rf/version   1}}]
 

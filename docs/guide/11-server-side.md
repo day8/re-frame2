@@ -143,14 +143,23 @@ The SSR runtime owns the request lifecycle (frame create → drain → response 
 
 (def handler
   (ssr-ring/ssr-handler
-    {:on-create  [:rf/server-init]      ;; the Ring request is conj'd as the last arg
-     :root-view  [(rf/view :app/root)]
-     :html-shell my-app/html-shell}))   ;; optional; a sensible default ships
+    {:on-create    [:rf/server-init]      ;; the Ring request is conj'd as the last arg
+     :root-view    [(rf/view :app/root)]
+     :html-shell   my-app/html-shell      ;; optional; a sensible default ships
+     :payload-keys [:public/articles      ;; allowlist of top-level app-db keys
+                    :public/user]}))      ;; to ship in the hydration payload
 
 (jetty/run-jetty handler {:port 3000 :join? false})
 ```
 
 `ssr-handler` gensyms a per-request frame-id, populates the per-frame request slot via `ssr/set-request!` (so the `:rf.server/request` cofx can read the Ring request map during the drain), registers the frame with `:platform :server` via `reg-frame`, lets the drain settle synchronously, then reads the response accumulator, renders the root view, materialises structured cookies and headers to wire shape, and destroys the per-request frame in a `finally` block. The per-frame teardown hook (`:ssr/on-frame-destroyed`) drops the request slot — no leak across requests. A redirect short-circuits the body render. The adapter is also available as Ring middleware (`ssr-middleware`) when SSR is one of several handlers in a stack.
+
+The hydration-payload policy is **explicit and fail-closed** (rf2-gtgf9). Every handler MUST declare one of two opts:
+
+- `:payload-keys [<top-level-app-db-keys>]` — an **allowlist**. Other keys are dropped, including any keys added later as the app evolves. The recommended primary mechanism: a denylist would silently leak each new server-only key as the app evolves; an allowlist forces a deliberate edit per new wire-bound key.
+- `:payload-policy :rf.ssr.payload/whole-app-db` — explicit opt-in to ship the whole `app-db`. Use only when the app's `app-db` is structurally safe to expose end-to-end (e.g. small SPAs where every server-set key is intended for the client).
+
+Absence of both throws `:rf.error/ssr-missing-payload-policy` at handler-construction time, so a misconfigured deployment fails at boot rather than at first request.
 
 Non-Ring hosts (Pedestal-direct, HttpKit native, custom JVM transports) implement the same contract: populate the per-frame request slot via `re-frame.ssr/set-request!` before the drain, drive the runtime through `make-frame` / `get-response` / `render-to-string`, materialise the resolved response, and rely on per-frame teardown to clear the slot (or call `clear-request!` explicitly). A dynamic `Var` / thread-local binding is explicitly forbidden — frame-id-keyed storage is the canonical mechanism, so per-request state never leaks across concurrent requests under any scheduler.
 
