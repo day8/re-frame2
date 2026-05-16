@@ -27,6 +27,8 @@
   Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -71,7 +73,7 @@
       ;; Entering :authenticating: :rf.machine/spawn fx fires
       ;; (→ :rf.machine/spawned trace), :on-spawn callback records the
       ;; deterministic actor id into :data.:pending.
-      (rf/register-trace-cb! ::inv (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::inv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth3/flow [:submit]])
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
@@ -86,7 +88,7 @@
       ;; fires targeting the recorded actor id.
       (reset! traces [])
       (rf/dispatch-sync [:auth3/flow [:auth/failed]])
-      (rf/remove-trace-cb! ::inv)
+      (trace-tooling/remove-trace-cb! ::inv)
       (is (= :idle (:state (snapshot :auth3/flow))))
       (is (some (fn [ev]
                   (and (= :rf.machine/destroyed (:operation ev))
@@ -169,7 +171,7 @@
           traces (atom [])]
       (rf/reg-machine :child/auth-after child)
       (rf/reg-machine :sup/auth-after  parent)
-      (rf/register-trace-cb! ::ato (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::ato (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:sup/auth-after [:go]])
       (is (= :authenticating (:state (snapshot :sup/auth-after)))
           "parent transitioned :idle → :authenticating")
@@ -192,7 +194,7 @@
         (is (nil? (get-in (rf/get-frame-db :rf/default)
                           [:rf/machines child-id]))
             "child machine snapshot torn down by the standard exit cascade"))
-      (rf/remove-trace-cb! ::ato))))
+      (trace-tooling/remove-trace-cb! ::ato))))
 
 ;; ---- :timeout-ms on :invoke / :invoke-all is rejected (rf2-3y3y) ---------
 

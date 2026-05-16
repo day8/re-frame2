@@ -40,6 +40,12 @@
             [re-frame.registrar    :as registrar]
             [re-frame.schemas      :as schemas]
             [re-frame.trace        :as trace]
+            ;; rf2-qwm0a — listener + buffer surface lives in
+            ;; `re-frame.trace.tooling` (production-DCE split). The
+            ;; probe touches it to keep both surfaces reachable so
+            ;; their `interop/debug-enabled?` gates are tested in the
+            ;; closure DCE pass, not surface-pruned before DCE runs.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch        :as epoch]
             [re-frame.http-managed :as http-managed]
             [re-frame.views        :as views]
@@ -50,15 +56,15 @@
 (defn ^:export touch-trace! []
   ;; Reach into every documented trace API so :advanced keeps the surface
   ;; alive and we're testing the *body* gates, not surface-pruning.
-  (rf/register-trace-cb! ::probe (fn [_ev] nil))
+  (trace-tooling/register-trace-cb! ::probe (fn [_ev] nil))
   (rf/emit-trace-event! :event :rf.probe/touched {:source :probe})
-  (rf/remove-trace-cb! ::probe)
+  (trace-tooling/remove-trace-cb! ::probe)
   ;; rf2-smee — trace ring buffer (Spec 009 §Retain-N).  These public
   ;; entry points must elide their bodies in production.
-  (trace/configure-trace-buffer! {:depth 50})
-  (let [_buf (trace/trace-buffer {:op-type :event})]
+  (trace-tooling/configure-trace-buffer! {:depth 50})
+  (let [_buf (trace-tooling/trace-buffer {:op-type :event})]
     nil)
-  (trace/clear-trace-buffer!))
+  (trace-tooling/clear-trace-buffer!))
 
 ;; ---- schemas surface ------------------------------------------------------
 

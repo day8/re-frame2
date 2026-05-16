@@ -24,6 +24,8 @@
             ;; §Recommended soft-pass) and no failure trace fires.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.late-bind :as late-bind]
             [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -56,10 +58,10 @@
     (rf/reg-event-db :n/init  (fn [_ _] {:n 0}))
     (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::cljs-live (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::cljs-live (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/init])
       (rf/dispatch-sync [:n/break])
-      (rf/remove-trace-cb! ::cljs-live)
+      (trace-tooling/remove-trace-cb! ::cljs-live)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -81,11 +83,11 @@
     (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
     (rf/reg-event-db :n/inc  (fn [db _] (update db :n inc)))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::cljs-ok (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::cljs-ok (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/init])
       (rf/dispatch-sync [:n/inc])
       (rf/dispatch-sync [:n/inc])
-      (rf/remove-trace-cb! ::cljs-ok)
+      (trace-tooling/remove-trace-cb! ::cljs-ok)
       (is (empty? (filter #(= :rf.error/schema-validation-failure
                               (:operation %))
                           @traces))
@@ -119,9 +121,9 @@
     (rf/reg-event-db :user/set-age-bad
       (fn [db _] (assoc-in db [:user :age] "twenty-three")))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::t0hq (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::t0hq (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:user/set-age-bad])
-      (rf/remove-trace-cb! ::t0hq)
+      (trace-tooling/remove-trace-cb! ::t0hq)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -148,9 +150,9 @@
         (rf/reg-app-schema [:n] :int)
         (rf/reg-event-db :n/break (fn [db _] (assoc db :n "definitely-not-an-int")))
         (let [traces (atom [])]
-          (rf/register-trace-cb! ::no-adapter (fn [ev] (swap! traces conj ev)))
+          (trace-tooling/register-trace-cb! ::no-adapter (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:n/break])
-          (rf/remove-trace-cb! ::no-adapter)
+          (trace-tooling/remove-trace-cb! ::no-adapter)
           (is (empty? (filter #(= :rf.error/schema-validation-failure
                                   (:operation %))
                               @traces))
@@ -178,12 +180,12 @@
           (swap! calls inc)
           db))
       (let [traces (atom [])]
-        (rf/register-trace-cb! ::cljs-ev (fn [ev] (swap! traces conj ev)))
+        (trace-tooling/register-trace-cb! ::cljs-ev (fn [ev] (swap! traces conj ev)))
         ;; Well-typed payload — handler runs.
         (rf/dispatch-sync [:user/register {:email "a@b.com" :age 30}])
         ;; Malformed — handler must NOT run.
         (rf/dispatch-sync [:user/register {:email "c@d.com" :age "no"}])
-        (rf/remove-trace-cb! ::cljs-ev)
+        (trace-tooling/remove-trace-cb! ::cljs-ev)
         (is (= 1 @calls)
             "handler ran exactly once — the bad payload was rejected pre-handler")
         (let [violations (filter #(= :rf.error/schema-validation-failure
@@ -231,10 +233,10 @@
         (rf/reg-event-db :n/init  (fn [_ _] {:n 42}))
         (rf/reg-event-db :n/break (fn [db _] (assoc db :n 99)))
         (let [traces (atom [])]
-          (rf/register-trace-cb! ::cv (fn [ev] (swap! traces conj ev)))
+          (trace-tooling/register-trace-cb! ::cv (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:n/init])
           (rf/dispatch-sync [:n/break])
-          (rf/remove-trace-cb! ::cv)
+          (trace-tooling/remove-trace-cb! ::cv)
           (is (pos? @calls)
               "the custom validator was invoked through the live dispatch path")
           (let [violations (filter #(= :rf.error/schema-validation-failure
@@ -255,9 +257,9 @@
       (rf/reg-app-schema [:n] :int)
       (rf/reg-event-db :n/break (fn [db _] (assoc db :n "definitely-not-an-int")))
       (let [traces (atom [])]
-        (rf/register-trace-cb! ::nv (fn [ev] (swap! traces conj ev)))
+        (trace-tooling/register-trace-cb! ::nv (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:n/break])
-        (rf/remove-trace-cb! ::nv)
+        (trace-tooling/remove-trace-cb! ::nv)
         (is (empty? (filter #(= :rf.error/schema-validation-failure
                                 (:operation %))
                             @traces))
@@ -294,14 +296,14 @@
       [rf/validate-at-boundary]
       (fn [_ _] {}))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::boundary-dev (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::boundary-dev (fn [ev] (swap! traces conj ev)))
       ;; Direct :before invocation isolates the boundary's behaviour
       ;; from the surrounding router/step-1 path so we observe the
       ;; boundary's own dev-mode contract.
       (let [before    (:before rf/validate-at-boundary)
             valid-ctx (before {:coeffects {:event [:api/strict 42]}})
             bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
-        (rf/remove-trace-cb! ::boundary-dev)
+        (trace-tooling/remove-trace-cb! ::boundary-dev)
         (is (not (:rf/skip-handler? valid-ctx))
             "valid event: boundary did not set :rf/skip-handler? (no-op)")
         (is (not (:rf/skip-handler? bad-ctx))
@@ -326,9 +328,9 @@
         [rf/validate-at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
-        (rf/register-trace-cb! ::dev-dispatch (fn [ev] (swap! traces conj ev)))
+        (trace-tooling/register-trace-cb! ::dev-dispatch (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:api/strict "not-an-int"])
-        (rf/remove-trace-cb! ::dev-dispatch)
+        (trace-tooling/remove-trace-cb! ::dev-dispatch)
         (is (= 0 @calls)
             "handler was skipped — router's step-1 validation fired in dev")
         (let [boundary-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))

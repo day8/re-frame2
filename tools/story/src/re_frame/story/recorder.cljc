@@ -111,7 +111,9 @@
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]
-            [re-frame.trace :as trace]))
+            ;; rf2-qwm0a — listener surface lives in
+            ;; `re-frame.trace.tooling` (production-DCE split).
+            [re-frame.trace.tooling :as trace-tooling]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: recordable event predicate
@@ -631,12 +633,12 @@
   tests directly."
   []
   (when config/enabled?
-    (trace/register-trace-cb! listener-id trace-listener)
+    (trace-tooling/register-trace-cb! listener-id trace-listener)
     nil))
 
 (defn remove-trace-listener!
   "Tear down the recorder's trace-bus listener. Idempotent."
   []
   (when config/enabled?
-    (trace/remove-trace-cb! listener-id)
+    (trace-tooling/remove-trace-cb! listener-id)
     nil))

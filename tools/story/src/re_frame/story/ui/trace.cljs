@@ -53,7 +53,9 @@
   (`filter-cascades-up-to` / `cascade-row-style`) so the same predicate
   runs under the JVM unit tests AND inside the CLJS render path."
   (:require [reagent.core :as r]
-            [re-frame.trace :as trace]
+            ;; rf2-qwm0a — listener API lives in
+            ;; `re-frame.trace.tooling` (production-DCE split).
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.trace.projection :as projection]
             [re-frame.story.config :as config]
             [re-frame.story.ui.scrubber :as scrubber]
@@ -171,7 +173,7 @@
   [variant-id]
   (when config/enabled?
     (let [id (listener-id variant-id)]
-      (trace/register-trace-cb! id
+      (trace-tooling/register-trace-cb! id
         (fn [ev]
           (when (variant-event? variant-id ev)
             (if (config/suppress-sensitive? ev)
@@ -183,7 +185,7 @@
   "Tear down the trace listener for `variant-id`. Idempotent."
   [variant-id]
   (when config/enabled?
-    (trace/remove-trace-cb! (listener-id variant-id))
+    (trace-tooling/remove-trace-cb! (listener-id variant-id))
     nil))
 
 ;; ---- six-domino projection -----------------------------------------------

@@ -35,7 +35,10 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace]
+            ;; rf2-qwm0a — load the tooling sibling so the late-bind
+            ;; hooks behind the listener API resolve.
+            [re-frame.trace.tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
 

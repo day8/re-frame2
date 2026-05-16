@@ -5,6 +5,10 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
+            ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling.
+            [re-frame.subs.tooling :as subs-tooling]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
@@ -285,11 +289,11 @@
         (count (.something items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
-      (rf/remove-trace-cb! ::sub-err)
+      (trace-tooling/remove-trace-cb! ::sub-err)
       (is (some (fn [ev]
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)
@@ -447,14 +451,14 @@
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::dsih (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::dsih (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
       (rf/reg-event-fx :nested
         (fn [_ _]
           (rf/dispatch-sync [:outer])
           {}))
       (rf/dispatch-sync [:nested])
-      (rf/remove-trace-cb! ::dsih)
+      (trace-tooling/remove-trace-cb! ::dsih)
       (is (some (fn [ev]
                   (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                        (= :error (:op-type ev))))
@@ -471,12 +475,12 @@
     (rf/reg-sub :name* (fn [db _] (:name db)))
     (rf/dispatch-sync [:seed])
     ;; Empty cache is the {} baseline.
-    (is (= {} (rf/sub-cache :rf/default))
+    (is (= {} (subs-tooling/sub-cache-snapshot :rf/default))
         "no subs materialised yet → empty map")
     (let [r1 (rf/subscribe [:n])
           r2 (rf/subscribe [:n])
           r3 (rf/subscribe [:name*])
-          snapshot (rf/sub-cache :rf/default)]
+          snapshot (subs-tooling/sub-cache-snapshot :rf/default)]
       (is (= 2 (count snapshot))
           "snapshot contains one entry per materialised query-v")
       (is (= 7     (get-in snapshot [[:n]     :value])))
@@ -485,13 +489,13 @@
           "ref-count reflects two outstanding subscribes for [:n]")
       (is (= 1     (get-in snapshot [[:name*] :ref-count])))
       ;; Default no-arg form uses the active frame.
-      (is (= snapshot (rf/sub-cache))
+      (is (= snapshot (subs-tooling/sub-cache-snapshot (rf/current-frame)))
           "no-arg form returns the active frame's snapshot")
       (rf/unsubscribe [:n])
       (rf/unsubscribe [:n])
       (rf/unsubscribe [:name*]))
     ;; Missing frame yields nil rather than throwing.
-    (is (nil? (rf/sub-cache :no-such-frame))
+    (is (nil? (subs-tooling/sub-cache-snapshot :no-such-frame))
         "missing frame returns nil")))
 
 ;; ---- epoch history (Tool-Pair §Time-travel, rf2-shjf) ---------------------

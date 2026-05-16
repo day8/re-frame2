@@ -25,6 +25,8 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.frame :as frame]
             [re-frame.late-bind]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
@@ -76,11 +78,11 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (rf/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- stop-traces [k]
-  (rf/remove-trace-cb! k))
+  (trace-tooling/remove-trace-cb! k))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 1 — Frame disposal with active machine instances

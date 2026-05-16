@@ -31,6 +31,8 @@
   restoration."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.routing :as routing]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
@@ -192,7 +194,7 @@
   [thunk]
   (let [captured (atom [])
         cb-key   (keyword (gensym "route-trace-"))]
-    (rf/register-trace-cb!
+    (trace-tooling/register-trace-cb!
       cb-key
       (fn [ev]
         (when (= :rf.route.nav-token/allocated (:operation ev))
@@ -201,7 +203,7 @@
       (let [r (thunk)]
         [r @captured])
       (finally
-        (rf/remove-trace-cb! cb-key)))))
+        (trace-tooling/remove-trace-cb! cb-key)))))
 
 ;; ---- routes used across the suite ---------------------------------------
 
@@ -396,7 +398,7 @@
       (let [fragment-changed (atom [])
             allocations      (atom [])
             cb-key           (keyword (gensym "hashchange-"))]
-        (rf/register-trace-cb!
+        (trace-tooling/register-trace-cb!
           cb-key
           (fn [ev]
             (case (:operation ev)
@@ -408,7 +410,7 @@
         (try
           (rf/dispatch-sync [:rf/url-changed "/articles/intro#section-2"])
           (finally
-            (rf/remove-trace-cb! cb-key)))
+            (trace-tooling/remove-trace-cb! cb-key)))
 
         (is (= 1 (count @fragment-changed))
             "fragment-only nav emits :rf.route/url-changed exactly once")

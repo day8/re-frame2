@@ -333,6 +333,8 @@ Semantics:
 
 Why this is a framework primitive (not a Causa-specific concern): pair-shaped tools, REPL companions, and any non-Causa consumer needs recent-history access. Locating the buffer in the framework means external tools depend on a stable framework primitive rather than on Causa's internal data structures. See [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) for the full consumption pattern.
 
+**Topology note (rf2-qwm0a).** The public-tooling surface — `register-trace-cb!` / `remove-trace-cb!` / `clear-trace-cbs!` / `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!` / `configure` — and the buffer + listener state live in the sibling `re-frame.trace.tooling` namespace, not `re-frame.trace` itself. `re-frame.trace` carries the always-loaded hot fast path (`emit!` / `emit-error!` / `*handler-scope*`); the tooling sibling is loaded only when a test fixture, tool (Causa / Story / pair2-mcp), or dev preload `:require`s it. The `rf/...` public Vars and the `re-frame.trace/<surface>` wrappers delegate via the `:trace.tooling/*` late-bind hooks so existing consumer call sites are unchanged. On the JVM the tooling sibling is autoloaded by `re-frame.trace` (zero bundle cost off-bundle). On CLJS the tooling sibling is omitted from production counter bundles — the hook lookups return nil and the wrappers no-op (DCE drops the body wholesale, ~2 KB raw / ~600 B gzipped saved).
+
 ## Emitting trace events
 
 The framework emits trace events through one entry point: `re-frame.trace/emit!`. User code may also call it (re-exported as `rf/emit-trace-event!`) to add custom events to the stream.

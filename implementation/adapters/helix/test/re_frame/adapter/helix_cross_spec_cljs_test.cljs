@@ -18,6 +18,8 @@
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.frame :as frame]
             [re-frame.late-bind]
             [re-frame.routing]
@@ -33,11 +35,11 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (rf/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- stop-traces [k]
-  (rf/remove-trace-cb! k))
+  (trace-tooling/remove-trace-cb! k))
 
 ;; --- Interaction 1 — Frame disposal with active machine instances ---------
 

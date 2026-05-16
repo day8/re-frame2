@@ -27,6 +27,8 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.helix :as helix-adapter]
             [re-frame.test-support :as test-support]))
@@ -39,7 +41,7 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (rf/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- corruption-traces [traces]
@@ -84,7 +86,7 @@
             (is (= 42 (-> errs first :tags :received))
                 ":tags :received echoes the offending value")))
         (finally
-          (rf/remove-trace-cb! ::direct-helix)
+          (trace-tooling/remove-trace-cb! ::direct-helix)
           (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
 
 ;; ---- adapter-routed parity -------------------------------------------------
@@ -111,5 +113,5 @@
           (is (= :empty-string (-> errs first :tags :type))
               ":tags :type distinguishes empty-string from a populated string"))
         (finally
-          (rf/remove-trace-cb! ::routed-helix)
+          (trace-tooling/remove-trace-cb! ::routed-helix)
           (set! (.-_currentValue ^js adapter-context/frame-context) original))))))

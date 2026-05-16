@@ -42,6 +42,8 @@
             ;; at the boundary is to require the adapter ns at boot.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
@@ -107,9 +109,9 @@
         [rf/validate-at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
-        (rf/register-trace-cb! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
+        (trace-tooling/register-trace-cb! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:api/strict "not-an-int"])
-        (rf/remove-trace-cb! ::prod-no-trace)
+        (trace-tooling/remove-trace-cb! ::prod-no-trace)
         (is (= 0 @calls)
             "handler skipped (boundary did its job)")
         ;; Under `:advanced` + `goog.DEBUG=false` the trace surface is

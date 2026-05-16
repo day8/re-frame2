@@ -18,6 +18,8 @@
     - The instance-counter monotonically increases."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
@@ -31,7 +33,7 @@
 
 (defn- record-render-traces! []
   (let [recorded (atom [])]
-    (rf/register-trace-cb! ::recorder
+    (trace-tooling/register-trace-cb! ::recorder
       (fn [ev]
         (when (= :view/render (:operation ev))
           (swap! recorded conj ev))))
@@ -108,7 +110,7 @@
           (is (= :rf.test/traced (first k1) (first k2)))
           (is (not= (second k1) (second k2))
               "tokens differ across instances")))
-      (rf/remove-trace-cb! ::recorder))))
+      (trace-tooling/remove-trace-cb! ::recorder))))
 
 ;; ---- monotonicity ---------------------------------------------------------
 
@@ -152,4 +154,4 @@
           (is (keyword? (first k)) "view-id slot is a keyword")
           (is (or (int? (second k)) (nil? (second k)))
               "instance-token slot is an int (or nil for anonymous)")))
-      (rf/remove-trace-cb! ::recorder))))
+      (trace-tooling/remove-trace-cb! ::recorder))))

@@ -551,16 +551,27 @@
    (let [frame-id (or (:frame opts) (current-frame))]
      (get-in (frame/frame-app-db-value frame-id) path))))
 
-(defn sub-cache
-  "Inspect a frame's runtime sub-cache — CLJS-only, returns
-  `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
-  reaction values). No-arg form uses the active frame. Per Spec 002
-  §The public registrar query API."
-  ([] (sub-cache (current-frame)))
-  ([frame-id]
-   (subs/sub-cache-snapshot frame-id)))
+;; Per rf2-bmzq0: `sub-topology` and `sub-cache-snapshot` live in
+;; `re-frame.subs.tooling` (production-DCE split). On JVM the
+;; convenience aliases in `re-frame.subs` keep the legacy
+;; `subs/<name>` shape working; this ns mirrors them so the
+;; `rf/sub-topology` / `rf/sub-cache` public API is unchanged. CLJS
+;; consumers needing the surface (Causa, pair2-mcp, re-frame-10x,
+;; conformance tests) call `re-frame.subs.tooling/<name>` directly so
+;; production counter bundles DCE the bodies.
 
-(def sub-topology subs/sub-topology)
+#?(:clj
+   (do
+     (defn sub-cache
+       "Inspect a frame's runtime sub-cache — CLJS-only, returns
+       `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
+       reaction values). No-arg form uses the active frame. Per Spec 002
+       §The public registrar query API."
+       ([] (sub-cache (current-frame)))
+       ([frame-id]
+        (subs/sub-cache-snapshot frame-id)))
+
+     (def sub-topology subs/sub-topology)))
 
 ;; ---- interceptors --------------------------------------------------------
 
@@ -577,11 +588,31 @@
 (def sensitive?           privacy/sensitive?)
 (def validate-at-boundary spec/validate-at-boundary)
 
-(def register-trace-cb!  trace/register-trace-cb!)
-(def remove-trace-cb!    trace/remove-trace-cb!)
 (def emit-trace-event!         trace/emit!)
-(def trace-buffer        trace/trace-buffer)
-(def clear-trace-buffer! trace/clear-trace-buffer!)
+
+;; Per rf2-qwm0a the public-tooling listener + buffer surface
+;; (`register-trace-cb!` / `remove-trace-cb!` / `clear-trace-cbs!` /
+;; `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!`)
+;; lives in `re-frame.trace.tooling`, not `re-frame.trace`. On the JVM
+;; we preserve the legacy `rf/<name>` shape via the convenience aliases
+;; below — the JVM has no Closure DCE bundle to protect, and re-frame.
+;; trace ships JVM-only `re-frame.trace/<name>` aliases that the
+;; aliases here mirror. CLJS deliberately omits the aliases so
+;; production counter bundles DCE the tooling sibling wholesale; CLJS
+;; consumers that need the listener / buffer surface (test fixtures,
+;; dev preloads, Causa / Story / pair2-mcp / re-frame-10x, SSR error-
+;; projection) call `re-frame.trace.tooling/<name>` directly. Listener
+;; observability in a production CLJS build is meaningless anyway:
+;; `trace/emit!` is gated on `interop/debug-enabled?` and elides at
+;; `:advanced` + `goog.DEBUG=false`, so even a registered listener
+;; would observe nothing.
+
+#?(:clj
+   (do
+     (def register-trace-cb!     trace/register-trace-cb!)
+     (def remove-trace-cb!       trace/remove-trace-cb!)
+     (def trace-buffer           trace/trace-buffer)
+     (def clear-trace-buffer!    trace/clear-trace-buffer!)))
 
 (def register-event-emit-listener!   event-emit/register-event-emit-listener!)
 (def unregister-event-emit-listener! event-emit/unregister-event-emit-listener!)
@@ -629,12 +660,18 @@
     :trace-buffer  {:depth N}                       ring depth (default 200; 0 disables)
     :sub-cache     {:grace-period-ms N}             dispose grace (default 50ms)
   Unknown keys silently no-op. Per-frame settings live on frame metadata.
-  Per Tool-Pair §How AI tools attach."
+  Per Tool-Pair §How AI tools attach.
+
+  `:trace-buffer` routes through the `re-frame.trace.tooling` sibling
+  ns (per rf2-qwm0a). Production builds that never load the tooling
+  sibling silently no-op on this key — the buffer + listener
+  machinery is DCE'd anyway."
   [knob opts]
   (case knob
     :epoch-history (when-let [f (late-bind/get-fn :epoch/configure!)]
                      (f opts))
-    :trace-buffer  (trace/configure-trace-buffer! opts)
+    :trace-buffer  (when-let [f (late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
+                     (f opts))
     :sub-cache     (subs/configure! opts)
     nil))
 

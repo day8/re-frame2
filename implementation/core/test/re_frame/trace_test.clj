@@ -30,7 +30,16 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace]
+            ;; rf2-qwm0a: the public-tooling surface
+            ;; (`register-trace-cb!` / `clear-trace-cbs!` / `trace-buffer`
+            ;; / …) lives in `re-frame.trace.tooling`. `re-frame.trace`
+            ;; ships thin wrappers delegating via late-bind so production
+            ;; bundles DCE the buffer/listener machinery — but the hooks
+            ;; only publish once `trace.tooling` loads. This test does
+            ;; not use `re-frame.test-support` (which transitively loads
+            ;; the tooling ns), so we require it directly here.
+            [re-frame.trace.tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
 

@@ -62,9 +62,10 @@
   "Match `(late-bind/set-fn! :namespace/key ...`.
 
   The keyword grammar follows the late-bind convention of namespaced
-  keywords with `/` separator. The regex is intentionally loose on
-  whitespace so multi-line forms match."
-  #"\(late-bind/set-fn!\s+(:[a-zA-Z][a-zA-Z0-9!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+  keywords with `/` separator. Namespace portion may contain `.`
+  (e.g. `:trace.tooling/deliver!`, rf2-qwm0a). The regex is
+  intentionally loose on whitespace so multi-line forms match."
+  #"\(late-bind/set-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private route-hook-call-re
   "Match `(substrate-adapter/route-hook! adapter :namespace/key ...`.
@@ -75,7 +76,7 @@
   registered handler). The wrapper invokes `late-bind/set-fn!`
   internally — the drift scan must treat both call shapes as
   equivalent publications."
-  #"\(substrate-adapter/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+  #"\(substrate-adapter/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private chain-fn-call-re
   "Match `(late-bind/chain-fn! :namespace/key ...`.
@@ -84,7 +85,7 @@
   (which calls `set-fn!` internally, wrapping the step-fn in a
   chain-into-previous closure). Drift scan treats this call shape as
   equivalent to direct `set-fn!` publication."
-  #"\(late-bind/chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+  #"\(late-bind/chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (defn- match-keys
   [re content]

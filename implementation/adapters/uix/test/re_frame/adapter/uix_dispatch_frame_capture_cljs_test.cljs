@@ -25,7 +25,9 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace]
+            ;; rf2-qwm0a — listener surface lives in
+            ;; `re-frame.trace.tooling` (production-DCE split).
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]))
@@ -45,7 +47,7 @@
   (when-let [clear! (late-bind/get-fn :schemas/clear-by-frame!)]
     (clear!))
   (substrate-adapter/dispose-adapter!)
-  (trace/clear-trace-cbs!)
+  (trace-tooling/clear-trace-cbs!)
   (substrate-adapter/install-adapter! uix-adapter/adapter)
   (frame/ensure-default-frame!))
 

@@ -10,6 +10,8 @@
   Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -85,9 +87,9 @@
             :b     {:always [{:guard :p? :target :a}]}}}
           traces (atom [])]
       (rf/reg-machine :osc/flow machine)
-      (rf/register-trace-cb! ::osc (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-cb! ::osc (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:osc/flow [:go]])
-      (rf/remove-trace-cb! ::osc)
+      (trace-tooling/remove-trace-cb! ::osc)
       ;; Atomic rollback: external snapshot stays at :start.
       (is (= :start (:state (snapshot :osc/flow)))
           "macrostep is atomic; cycle aborts; snapshot rolls back to input")

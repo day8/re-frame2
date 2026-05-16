@@ -60,7 +60,12 @@
             ;; rf2-5kpd / rf2-lt4e). This ns must not statically require
             ;; any of them.
             [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace]
+            ;; Per rf2-qwm0a: the public-tooling listener + buffer
+            ;; surface lives in `re-frame.trace.tooling` (split off
+            ;; from `re-frame.trace` for production CLJS bundle DCE).
+            ;; Test fixtures need `clear-trace-cbs!` between scenarios;
+            ;; we reach it through the tooling sibling directly.
+            [re-frame.trace.tooling :as trace-tooling]
             ;; Clear the always-on event-emit listener registry on each
             ;; reset so a forwarder registered in one test doesn't see
             ;; events fired by a sibling test.
@@ -280,7 +285,7 @@
          (run-reset-hooks! :pre-dispose)
          (adapter/dispose-adapter!)
          (run-reset-hooks! :post-dispose)
-         (trace/clear-trace-cbs!)
+         (trace-tooling/clear-trace-cbs!)
          (event-emit/clear-event-emit-listeners!)
          (when adapter
            (adapter/install-adapter! adapter)

@@ -28,6 +28,11 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`
+   ;; (production-DCE split). On JVM the convenience aliases in
+   ;; re-frame.core preserve the `rf/<name>` shape, but on CLJS the
+   ;; tooling sibling must be referenced directly.
+   [re-frame.trace.tooling :as trace-tooling]
    [re-frame.machines :as machines]
    [re-frame.registrar :as registrar]
    [re-frame.test-support :as test-support]
@@ -50,7 +55,7 @@
 (defn- record-traces!
   [k]
   (let [a (atom [])]
-    (rf/register-trace-cb! k (fn [ev] (swap! a conj ev)))
+    (trace-tooling/register-trace-cb! k (fn [ev] (swap! a conj ev)))
     a))
 
 ;; ---- (a) entering :final? triggers :on-done with the right output ---------

@@ -61,7 +61,11 @@
             ;; :ssr.streaming/build-final-payload) land at ns-load time
             ;; before any host adapter calls them.
             re-frame.ssr.streaming
-            [re-frame.trace :as trace]))
+            ;; Per rf2-qwm0a SSR's error-projection trace listener
+            ;; targets the tooling sibling directly. The framework's
+            ;; `re-frame.trace` no longer re-exports the listener
+            ;; surface (production-DCE split).
+            [re-frame.trace.tooling :as trace-tooling]))
 
 ;; ---- public-surface re-exports --------------------------------------------
 ;;
@@ -252,8 +256,8 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
                      {:doc "Built-in default projector. Spec 011 §Default projector mapping."}
                      default-error-projector-fn)
 
-(trace/register-trace-cb! ::error-projection
-                          error-listener/error-projection-listener)
+(trace-tooling/register-trace-cb! ::error-projection
+                                  error-listener/error-projection-listener)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

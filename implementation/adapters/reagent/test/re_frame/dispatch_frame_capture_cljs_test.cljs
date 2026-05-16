@@ -33,7 +33,9 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace]
+            ;; rf2-qwm0a — listener surface lives in
+            ;; `re-frame.trace.tooling` (production-DCE split).
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]))
@@ -50,7 +52,7 @@
   (reset! registrar-snapshot (test-support/snapshot-registrar))
   (reset! frame/frames {})
   (substrate-adapter/dispose-adapter!)
-  (trace/clear-trace-cbs!)
+  (trace-tooling/clear-trace-cbs!)
   (substrate-adapter/install-adapter! reagent-adapter/adapter)
   (frame/ensure-default-frame!))
 
