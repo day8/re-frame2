@@ -1,6 +1,12 @@
 (ns day8.re-frame2-causa.panels.subscriptions-subs
   "Subscriptions/read-model registrations for the Subscriptions panel."
   (:require [re-frame.core :as rf]
+            ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling
+            ;; (production-DCE split). Causa is dev-tier — loading the
+            ;; tooling sibling here is bundle-isolation-safe (Causa's
+            ;; preload already excluded from production via shadow-cljs
+            ;; `:devtools/preloads`).
+            [re-frame.subs.tooling :as subs-tooling]
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.panels.subscriptions-helpers :as h]))
 
@@ -10,7 +16,7 @@
     (fn [db _query]
       (let [target (get db :target-frame defaults/default-target-frame)
             ov     (get db :sub-cache-override)]
-        (or ov (rf/sub-cache target)))))
+        (or ov (subs-tooling/sub-cache-snapshot target)))))
 
   (rf/reg-sub :rf.causa/sub-error-cache
     (fn [db _query]

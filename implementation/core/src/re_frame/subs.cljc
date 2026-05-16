@@ -35,7 +35,18 @@
              #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace
-             #?@(:cljs [:include-macros true])]))
+             #?@(:cljs [:include-macros true])]
+            ;; JVM autoload (rf2-bmzq0): the tooling sibling has zero
+            ;; artefact cost on JVM and we keep the legacy
+            ;; `re-frame.subs/<name>` shape working for JVM test
+            ;; fixtures via the alias block at the bottom of the
+            ;; file. CLJS deliberately omits this require so the
+            ;; tooling sibling stays out of production bundles. The
+            ;; reciprocal — `subs.tooling` requires `subs` to drive
+            ;; the alias chain — is avoided because subs.tooling
+            ;; only needs `registrar` / `frame` / `interop` and a
+            ;; cyclic require would break the JVM autoload.
+            #?@(:clj [[re-frame.subs.tooling :as subs-tooling]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -814,86 +825,15 @@
               (catch #?(:clj Throwable :cljs :default) _ nil))))
      (reset! cache {}))))
 
-;; ---- static topology ------------------------------------------------------
+;; ---- tooling sibling --------------------------------------------------
 ;;
-;; Per Spec 002 §The public registrar query API and Spec 006 §Subscription
-;; topology vs subscription tracking. `sub-topology` is the static ":<- chain"
-;; you can derive from registrations alone — pure data over the registrar,
-;; no app-db, no reactive runtime, no per-frame cache. JVM-runnable.
-;;
-;; Shape (per Spec 002 §The public registrar query API row): a map of
-;;   sub-id → {:inputs [<input-sub-ids>] :doc <str?> :ns sym :line int :file str}
-;; with :inputs always present (empty vector for layer-1 / direct-app-db subs)
-;; and the source-coord / :doc keys included only when the registration
-;; carries them.
-
-(defn sub-topology
-  "Return the static dependency graph of every registered subscription.
-
-  Pure data over the registrar — no app-db, no per-frame cache, no
-  reactive runtime. Per Spec 002 §The public registrar query API and
-  Spec 006 §Subscription topology vs subscription tracking.
-
-  Shape: `{sub-id {:inputs [<input-sub-ids>] :doc ... :ns ... :line ... :file ...}}`.
-
-  - `:inputs` is the vector of upstream sub-ids declared via `:<-` at
-    registration time. It is always present; layer-1 subs (which read
-    `app-db` directly) report `:inputs []`. The order matches the
-    declaration order so that downstream tools can reconstruct the
-    chain shape the body fn expects.
-  - `:doc`, `:ns`, `:line`, `:file` are present when the registration
-    carried them (`:ns` / `:line` / `:file` are auto-captured by the
-    `reg-sub` macro per Spec 001 §Source-coordinate capture; `:doc`
-    is user-supplied via the meta-map first arg).
-
-  Returns `{}` when no subs are registered.
-
-  JVM-runnable. The runtime cache state (`sub-cache`) is the dynamic
-  counterpart and is CLJS-only."
-  []
-  (let [subs-meta (registrar/registrations :sub)]
-    (reduce-kv
-      (fn [acc sub-id meta]
-        (let [inputs (mapv first (:input-signals meta))
-              entry  (cond-> {:inputs inputs}
-                       (contains? meta :doc)  (assoc :doc  (:doc  meta))
-                       (contains? meta :ns)   (assoc :ns   (:ns   meta))
-                       (contains? meta :line) (assoc :line (:line meta))
-                       (contains? meta :file) (assoc :file (:file meta)))]
-          (assoc acc sub-id entry)))
-      {}
-      subs-meta)))
-
-(defn sub-cache-snapshot
-  "Public read-only snapshot of a frame's sub-cache, projected to a
-  Tool-Pair-friendly shape: `{query-v {:value v :ref-count n}}`.
-
-  CLJS-only — on the JVM the cache exists for ref-counting purposes but
-  the cached reactions are not deref-able, so this fn returns `nil`. Per
-  Spec 002 §The public registrar query API and Tool-Pair §How AI tools
-  attach.
-
-  Dev-only on CLJS too — the body is gated on `interop/debug-enabled?`
-  (the `goog.DEBUG` mirror) so production builds elide both the cache
-  walk and the deref-and-collect machinery. Pair tools that attach in
-  production explicitly opt in by toggling the gate.
-
-  Returns `nil` for missing or destroyed frames, and `nil` in
-  production builds."
-  [frame-id]
-  #?(:cljs
-     (when interop/debug-enabled?
-       (when-let [cache (:sub-cache (frame/frame frame-id))]
-         (reduce-kv
-           (fn [acc query-v entry]
-             (assoc acc query-v
-                    {:value     (when-let [r (:reaction entry)]
-                                  (try @r (catch :default _ nil)))
-                     :ref-count (or (:ref-count entry) 0)}))
-           {}
-           @cache)))
-     :clj
-     nil))
+;; Per rf2-bmzq0: the static-topology query (`sub-topology`) and the
+;; reactive-cache snapshot (`sub-cache-snapshot`) moved to
+;; `re-frame.subs.tooling` so production counter bundles DCE their
+;; bodies. CLJS consumers needing the introspection surface load the
+;; tooling sibling explicitly; JVM consumers reach the legacy
+;; `re-frame.subs/<name>` shape via the convenience aliases in the
+;; JVM-only block at the bottom of this file.
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -902,3 +842,18 @@
 ;; through the late-bind hook registry. See re-frame.late-bind.
 
 (late-bind/set-fn! :subs/subscribe-once subscribe-once)
+
+;; ---- JVM-side convenience aliases (rf2-bmzq0) ----------------------------
+;;
+;; On the JVM we preserve the legacy `re-frame.subs/<name>` shape for
+;; the tooling surface so the cascade of `.clj` test fixtures stays
+;; unchanged. The aliases are gated under `#?(:clj ...)` so they never
+;; appear in CLJS compilation — production counter bundles still DCE
+;; the tooling sibling wholesale because `re-frame.subs` on CLJS has
+;; no static reference to it. Mirror of the trace/tooling pattern
+;; per rf2-qwm0a.
+
+#?(:clj
+   (do
+     (def sub-topology       subs-tooling/sub-topology)
+     (def sub-cache-snapshot subs-tooling/sub-cache-snapshot)))

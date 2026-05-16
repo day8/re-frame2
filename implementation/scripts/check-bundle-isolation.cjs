@@ -287,6 +287,28 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // re-frame.subs.tooling (rf2-bmzq0 — `sub-topology` and
+  // `sub-cache-snapshot` split off from re-frame.subs for production
+  // DCE). Counter never `:require`s `re-frame.subs.tooling` (Causa /
+  // pair2-mcp / re-frame-10x do, but counter is the no-feature
+  // reference app). When this contract holds, the tooling sibling's
+  // body is absent from the bundle entirely — the JVM-side aliases in
+  // `re-frame.subs` and `re-frame.core` are `#?(:clj ...)`-gated so
+  // they never appear in CLJS compilation. Sentinel mirrors the
+  // trace-tooling shape (rf2-qwm0a): a unique string planted at the
+  // bottom of the namespace body.
+  {
+    name: 'subs-tooling',
+    internalSentinels: [
+      // subs/tooling.cljc — explicit sentinel planted at the bottom
+      // of the namespace body (`bundle-isolation-sentinel`).
+      { source: 're-frame.subs.tooling (bundle-isolation-sentinel)',
+        sentinel: 'rf.subs.tooling/sentinel:rf2-bmzq0-2026-05-16:do-not-rename' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // Story Stage 8 (rf2-c9mm) per IMPL-SPEC §6.5. The plain
   // examples/counter bundle imports zero Story symbols — the
   // tools/story/ jar must DCE entirely when the consuming app

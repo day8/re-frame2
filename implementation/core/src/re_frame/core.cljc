@@ -551,16 +551,27 @@
    (let [frame-id (or (:frame opts) (current-frame))]
      (get-in (frame/frame-app-db-value frame-id) path))))
 
-(defn sub-cache
-  "Inspect a frame's runtime sub-cache — CLJS-only, returns
-  `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
-  reaction values). No-arg form uses the active frame. Per Spec 002
-  §The public registrar query API."
-  ([] (sub-cache (current-frame)))
-  ([frame-id]
-   (subs/sub-cache-snapshot frame-id)))
+;; Per rf2-bmzq0: `sub-topology` and `sub-cache-snapshot` live in
+;; `re-frame.subs.tooling` (production-DCE split). On JVM the
+;; convenience aliases in `re-frame.subs` keep the legacy
+;; `subs/<name>` shape working; this ns mirrors them so the
+;; `rf/sub-topology` / `rf/sub-cache` public API is unchanged. CLJS
+;; consumers needing the surface (Causa, pair2-mcp, re-frame-10x,
+;; conformance tests) call `re-frame.subs.tooling/<name>` directly so
+;; production counter bundles DCE the bodies.
 
-(def sub-topology subs/sub-topology)
+#?(:clj
+   (do
+     (defn sub-cache
+       "Inspect a frame's runtime sub-cache — CLJS-only, returns
+       `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
+       reaction values). No-arg form uses the active frame. Per Spec 002
+       §The public registrar query API."
+       ([] (sub-cache (current-frame)))
+       ([frame-id]
+        (subs/sub-cache-snapshot frame-id)))
+
+     (def sub-topology subs/sub-topology)))
 
 ;; ---- interceptors --------------------------------------------------------
 

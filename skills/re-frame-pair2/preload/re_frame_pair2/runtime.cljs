@@ -30,6 +30,11 @@
 
 (ns re-frame-pair2.runtime
   (:require [re-frame.core :as rf]
+            ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling
+            ;; (production-DCE split). pair2 is dev-tier — loading the
+            ;; tooling sibling here is bundle-isolation-safe (the
+            ;; preload is dev-only).
+            [re-frame.subs.tooling :as subs-tooling]
             [re-frame.interop :as interop]
             [clojure.data :as data]
             [clojure.string :as str]))
@@ -327,7 +332,7 @@
    subscription in the operating frame. CLJS-only; nil on JVM."
   ([] (sub-cache (current-frame)))
   ([frame-id]
-   (rf/sub-cache frame-id)))
+   (subs-tooling/sub-cache-snapshot frame-id)))
 
 (defn subs-sample
   "Subscribe to query-v in the operating frame and deref once. Goes
@@ -1520,7 +1525,7 @@
   [frame-id slice]
   (case slice
     :app-db     (rf/get-frame-db frame-id)
-    :sub-cache  (rf/sub-cache frame-id)
+    :sub-cache  (subs-tooling/sub-cache-snapshot frame-id)
     ;; The global machine-id list is registrar-level (not per-frame).
     ;; Per Spec 005 each frame holds its own machine snapshots at
     ;; [:rf/machines machine-id] in app-db, so the per-frame slice
