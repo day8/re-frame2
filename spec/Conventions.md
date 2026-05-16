@@ -476,6 +476,49 @@ Render trees use Vars; runtime lookups use ids. `reg-view` bridges them — auto
 
 A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier).
 
+## React keys: stable per-row identity, never positional, when rows can mutate
+
+When a re-frame2 view renders a collection of sibling rows whose membership or ordering can mutate at runtime (rows added, removed, reordered, filtered, or replaced), each sibling MUST be keyed on a value that follows row identity, not row position.
+
+This is a re-frame2 discipline because re-frame2 makes the mutable-collection case routine: a workspace lists every variant, a trace ribbon lists every captured trace, a controls repeater lists every entry the user has added. Whichever React substrate is mounted under the adapter port, React's reconciler uses `:key` to decide which DOM nodes (and which component instances, and which `r/with-let` brackets, and which `use-effect` cleanups) survive a re-render. A positional key (`(map-indexed (fn [i row] ^{:key i} [row-view row]))`) silently tells the reconciler that row `i` after the mutation IS row `i` before the mutation — even when the underlying row identity differs. The result is a class of bugs where a deletion leaks the deleted row's component state into the row that took its slot, an insertion mounts at the wrong index, and a `with-let` init body that should re-fire on identity change is silently retained.
+
+### Key naming
+
+Namespace the key value with a single-letter source prefix so a 10x / Causa inspector can read what "kind of row" a duplicate-key warning came from at a glance:
+
+| Prefix | Source                                                              | Example                       |
+|--------|---------------------------------------------------------------------|-------------------------------|
+| `v:`   | Variant cells (one row per registered variant)                      | `(str "v:" variant-id)`       |
+| `t:`   | Trace rows (one row per captured trace)                             | `(str "t:" trace-id)`         |
+| `r:`   | Mutable repeater rows (rows the user adds / removes / reorders)     | `(str "r:" row-id)`           |
+| `<i>`  | Bare positional, integer only                                        | `^{:key i} [field-view ...]`  |
+
+Bare positional `^{:key i}` is acceptable **only when the row collection has fixed arity** — a destructured 2-tuple, a 3-row form layout where the row count is a compile-time constant. The moment a row collection can grow, shrink, or reorder, the prefix-namespaced identity scheme above is required.
+
+### `r/with-let` init keys
+
+`r/with-let` (and any substrate equivalent that brackets first-render initialisation) re-fires its init body when the surrounding component remounts. When `:key` is the only signal that triggers a remount, the init body re-fires on key change but NOT on input change inside a single mounted instance. View bodies that read external inputs (variant id, run-key tuple, hot-reload tick) MUST include every relevant input in the `:key` tuple — otherwise the init body captures the first render's value and silently goes stale.
+
+```clojure
+;; WRONG — init captures the first run-key seen; subsequent changes to
+;; (run-key) are ignored inside the surviving with-let bracket.
+[^{:key (str "v:" variant-id)} [cell variant-id (run-key)]]
+
+;; RIGHT — every input that should re-init the cell rides the key tuple.
+[^{:key [(str "v:" variant-id) (run-key)]} [cell variant-id (run-key)]]
+```
+
+### Reference cases
+
+Four siblings of this discipline landed in one session and informed the rule above:
+
+- **Workspace cells**: PR [#1259](https://github.com/day8/re-frame2/pull/1259) (rf2-kgn0c) — variant cells switched from `^{:key i}` to `^{:key (str "v:" variant-id)}`.
+- **Causa trace ribbon**: PR [#1281](https://github.com/day8/re-frame2/pull/1281) (rf2-z4fza) — trace rows switched from `^{:key i}` to `^{:key (str "t:" trace-id)}`.
+- **Workspace cell re-init**: PR [#1283](https://github.com/day8/re-frame2/pull/1283) (rf2-c56hr) — `with-let` init keyed on the full run-key tuple, not just the hot-reload tick.
+- **Controls repeater**: PR [#1286](https://github.com/day8/re-frame2/pull/1286) (rf2-c8kfy) — repeater rows switched from `^{:key i}` to `^{:key (str "r:" row-id)}`; the inner tuple inside each row stayed `^{:key (str "t:" i)}` (fixed-arity tuple — positional legit).
+
+The discipline gap was surfaced by audit bead **rf2-yb5xx** (which found three siblings of rf2-kgn0c after the first fix landed).
+
 ## Packaging conventions
 
 re-frame2 ships as **multiple Maven artefacts**. A user picks the artefacts their app needs; bundle isolation is structural, not vigilance-based — the wrong feature or the wrong substrate is *absent from the classpath*, not eliminated by a hopeful pass of dead-code analysis.

@@ -155,10 +155,15 @@
   fell-through-to-default` warning is suppressed when this is false:
   single-frame apps cannot hit the footgun (the resolution chain has
   nowhere else to land), so emitting the warning would be noise rather
-  than signal. Per rf2-o8m0."
+  than signal. Per rf2-o8m0.
+
+  Body gated on `interop/debug-enabled?` (the sole caller is the dev-
+  only `emit-fallthrough-warning!`); production calls observe the
+  trivial `false` and the `frame/frame-ids` walk + transducer DCEs."
   []
-  (let [ids (frame/frame-ids)]
-    (boolean (some (fn [k] (not= :rf/default k)) ids))))
+  (when interop/debug-enabled?
+    (let [ids (frame/frame-ids)]
+      (boolean (some (fn [k] (not= :rf/default k)) ids)))))
 
 (defn- emit-fallthrough-warning!
   "Per rf2-o8m0: dispatch landed on `:rf/default` purely because the
@@ -183,39 +188,49 @@
   field is omitted — `dispatch` is a fn, not a macro, so the call site
   cannot be stamped without changing the public API. Documented
   limitation; tools that need call-site attribution capture it
-  externally."
+  externally.
+
+  Body gated on `interop/debug-enabled?` so the warning surface DCEs
+  wholesale under `:advanced` + `goog.DEBUG=false` (rf2-gaqwr): the
+  `:fell-through-to-default?` envelope key is only set in dev (per
+  `build-envelope` line 122) so the inner `(when ...)` is always
+  falsy in production, but without the outer compile-time gate the
+  reason-string allocation, the warning keyword's interned slot, the
+  `non-default-frame-registered?` call, and the helper-fn closure all
+  survive Closure DCE."
   [envelope]
-  (when (and (:fell-through-to-default? envelope)
-             (non-default-frame-registered?))
-    (let [event    (:event envelope)
-          event-id (first event)
-          reason   (str "Dispatch of `" event-id "` resolved to `:rf/default` "
-                        "because no `:frame` was supplied and `*current-frame*` "
-                        "was unbound, but no handler for that event is "
-                        "registered on `:rf/default`. The dispatch most "
-                        "likely originated from an async callback "
-                        "(`setTimeout`, `addEventListener`, "
-                        "`requestAnimationFrame`, `Promise.then`) attached "
-                        "from inside a view body — the surrounding "
-                        "frame-context binding does not survive the async "
-                        "escape (per Spec 002 §Dispatches issued from "
-                        "inside a handler body). Fixes (priority order): "
-                        "(a) use `:dispatch-later` or a registered `reg-fx` "
-                        "— both capture the frame in their closure; "
-                        "(b) capture `(rf/dispatcher)` inside the "
-                        "render and call it from the callback; "
-                        "(c) attach the listener from a Form-3 "
-                        "`:component-did-mount` / `use-effect` hook so "
-                        "the dispatcher is captured during render but "
-                        "the listener runs after commit.")]
-      (trace/emit! :warning
-                   :rf.warning/dispatch-from-async-callback-fell-through-to-default
-                   {:event        event
-                    :event-id     event-id
-                    :detected-at  (interop/now-ms)
-                    :routed-to    :rf/default
-                    :reason       reason
-                    :recovery     :no-recovery}))))
+  (when interop/debug-enabled?
+    (when (and (:fell-through-to-default? envelope)
+               (non-default-frame-registered?))
+      (let [event    (:event envelope)
+            event-id (first event)
+            reason   (str "Dispatch of `" event-id "` resolved to `:rf/default` "
+                          "because no `:frame` was supplied and `*current-frame*` "
+                          "was unbound, but no handler for that event is "
+                          "registered on `:rf/default`. The dispatch most "
+                          "likely originated from an async callback "
+                          "(`setTimeout`, `addEventListener`, "
+                          "`requestAnimationFrame`, `Promise.then`) attached "
+                          "from inside a view body — the surrounding "
+                          "frame-context binding does not survive the async "
+                          "escape (per Spec 002 §Dispatches issued from "
+                          "inside a handler body). Fixes (priority order): "
+                          "(a) use `:dispatch-later` or a registered `reg-fx` "
+                          "— both capture the frame in their closure; "
+                          "(b) capture `(rf/dispatcher)` inside the "
+                          "render and call it from the callback; "
+                          "(c) attach the listener from a Form-3 "
+                          "`:component-did-mount` / `use-effect` hook so "
+                          "the dispatcher is captured during render but "
+                          "the listener runs after commit.")]
+        (trace/emit! :warning
+                     :rf.warning/dispatch-from-async-callback-fell-through-to-default
+                     {:event        event
+                      :event-id     event-id
+                      :detected-at  (interop/now-ms)
+                      :routed-to    :rf/default
+                      :reason       reason
+                      :recovery     :no-recovery})))))
 
 (def ^:private empty-fx-overrides
   "Shared sentinel returned by `apply-overrides` on the no-override hot
@@ -294,14 +309,29 @@
 
   Returns truthy when the handler should run, falsy when it should be
   skipped. Defaults to true when the schemas namespace hasn't been
-  loaded."
+  loaded.
+
+  Body gated on `interop/debug-enabled?` (rf2-gaqwr). Spec 010
+  validate-*! is a dev-only validator surface — per
+  `re-frame.schemas.validate` §Production builds, every dev-time
+  `validate-*!` body sits inside its own `(if interop/debug-enabled?
+  ...)` gate and DCE-elides under :advanced+goog.DEBUG=false. The
+  validator therefore unconditionally returns true in production
+  whether or not the schemas artefact is loaded (the boundary-
+  validation seam `:schemas/validate-with-registered-fn` is the
+  production-side surface, not this one). Gating the router-side
+  caller collapses the late-bind lookup, the try/catch frame, and
+  the `:schemas/validate-event!` keyword's interned slot to a
+  constant `true` on the hot path."
   [event-id event handler-meta]
-  ;; Sticky hook (rf2-f72pd) — `:schemas/validate-event!` is published
-  ;; once at re-frame.schemas load and never withdrawn in production;
-  ;; this fires per-dispatch.
-  (if-let [validate! (late-bind/get-fn-cached :schemas/validate-event!)]
-    (try (validate! event-id event handler-meta)
-         (catch #?(:clj Throwable :cljs :default) _ true))
+  (if interop/debug-enabled?
+    ;; Sticky hook (rf2-f72pd) — `:schemas/validate-event!` is published
+    ;; once at re-frame.schemas load and never withdrawn in dev; fires
+    ;; per-dispatch.
+    (if-let [validate! (late-bind/get-fn-cached :schemas/validate-event!)]
+      (try (validate! event-id event handler-meta)
+           (catch #?(:clj Throwable :cljs :default) _ true))
+      true)
     true))
 
 (defn- assemble-initial-ctx
