@@ -146,6 +146,24 @@ This is a CLJS-implementation choice. Other in-scope JS-cross-compile language p
 
 Source coords are valuable for navigation (jump-to-source from a tool, navigate-from-error, AI-source-cite) but their absence does not violate conformance. Per [Principles.md §Optional capabilities](Principles.md), source-coord capture is opt-in.
 
+### Production elision contract (rf2-3un2g)
+
+Source-coord capture has TWO sinks; each obeys a different production-elision policy. The split lets dev tooling (Causa Open-in-editor, re-frame-pair, IDE jump-to-source) read coords from `(rf/handler-meta ...)` in dev while keeping the public registry-meta surface cheap in production AND retaining source-line info on the always-on error-emit substrate for off-box observability (Sentry, Honeybadger, Rollbar).
+
+1. **Public registry-meta — STRIPPED in production.** Under `:advanced` + `goog.DEBUG=false` (and JVM SSR with `-Dre-frame.debug=false`), `(rf/handler-meta kind id)` MUST NOT carry `:ns` / `:file` / `:line` / `:column` coord-keys. Causa Open-in-editor and re-frame-pair are dev-only tools shipped via preloads; they do not reach the registry in production bundles. The CLJS reference achieves this via [[re-frame.source-coords/merge-coords]] returning `user-meta` unchanged when `interop/debug-enabled?` is false. Additionally, the macro-emitted coords-form literal omits `:column` in the production branch — the Closure compiler folds `(if interop/debug-enabled? <dev-coords> <prod-coords>)` and the dev shape (with `:column`) DCEs from the bundle.
+
+2. **Always-on error-coord registry — RETAINED in production.** A parallel registry indexed by `[kind id] → {:ns :file :line}` is populated at registration time (CLJS reference: [[re-frame.source-coords/remember-error-coords!]], invoked from `registrar/register!` whenever `*pending-coords*` is bound). The error-emit substrate (`re-frame.error-emit/dispatch-on-error!`) looks coords up via [[re-frame.source-coords/error-coords-for]] when assembling the tight error-record passed to corpus-wide listeners AND the structured policy-event passed to the per-frame `:on-error` fn. Both surfaces carry `:source-coord` even under `:advanced` + `goog.DEBUG=false` — the production-observability contract pins source-line info into Sentry-style reports regardless of debug-gate posture.
+
+   The parallel registry is a separate channel by construction so that Policy A (strip from public meta) does not conflict with Policy B (retain for error-emit). Programmatic registrations (HoF, runtime registration via the fn aliases that bypass the macro path) leave `*pending-coords*` unbound; the parallel registry has no entry for those `(kind, id)` pairs and the error-emit substrate's `:source-coord` slot is ABSENT (not nil) for them.
+
+| Sink | Dev (`debug-enabled? true`) | Prod (`debug-enabled? false`) |
+|---|---|---|
+| `(rf/handler-meta kind id)` `:ns`/`:file`/`:line`/`:column` | Present (full coord-map) | Absent (stripped — public meta carries only user-supplied keys) |
+| Tight error-record `:source-coord` (Sentry shippers) | Present `{:ns :file :line :column}` | Present `{:ns :file :line}` (no `:column`) |
+| Structured policy-event `:tags :source-coord` (`:on-error` fn) | Present | Present |
+
+This contract is JS-cross-compile-language-agnostic in spirit: ports MAY choose to keep coords on the public meta in production if their host's bundle-elision story differs (TypeScript / squint paths have different DCE characteristics). The minimum bar is "source-line info survives to error-emit listeners under the host's production-build mode" — the public-meta strip is a CLJS-specific optimisation.
+
 ## The query API
 
 The registry is a public, queryable structure. Tools and agents read it without private-API spelunking. The CLJS reference exposes:

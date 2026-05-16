@@ -41,10 +41,25 @@
 
      The rf2-52gw helper: centralises the `(binding [...] (target ...))`
      skeleton that every reg-* macro emits, so each defmacro becomes a
-     one-line delegation rather than a 12-line repetition."
+     one-line delegation rather than a 12-line repetition.
+
+     Per rf2-3un2g §Production elision: the bound coord-map is emitted
+     under an `(if interop/debug-enabled? <dev> <prod>)` gate. Dev rides
+     the full [[source-coords/coords-form]] (with `:column`); prod rides
+     [[source-coords/prod-coords-form]] (no `:column`). Closure folds the
+     constant `interop/debug-enabled?` (alias of `goog.DEBUG`) under
+     `:advanced` + `goog.DEBUG=false` and DCEs the dev branch — only
+     the slim prod coords literal survives into the bundle. The bound
+     coords are STILL captured at runtime via `*pending-coords*` so
+     `registrar/register!`'s `remember-error-coords!` hook (always-on)
+     populates the parallel error-coord registry; only the public
+     registry-meta merge is suppressed in prod (see
+     [[source-coords/merge-coords]])."
      [form-meta file ns-sym body-form]
      `(binding [re-frame.source-coords/*pending-coords*
-                ~(source-coords/coords-form form-meta file ns-sym)]
+                (if re-frame.interop/debug-enabled?
+                  ~(source-coords/coords-form      form-meta file ns-sym)
+                  ~(source-coords/prod-coords-form form-meta file ns-sym))]
         ~body-form)))
 
 ;; ---- defreg-macro --------------------------------------------------------
@@ -126,8 +141,14 @@
                                           (:column coords) (assoc :column (:column coords)))])
                                      per-el-coords))
            machine-sym    (gensym "machine__")]
+       ;; Per rf2-3un2g §Production elision: the binding-value rides an
+       ;; outer `interop/debug-enabled?` gate so Closure DCEs the dev
+       ;; coords (with `:column`) under `:advanced + goog.DEBUG=false`.
+       ;; See [[with-coords-form]] for the rationale.
        `(binding [re-frame.source-coords/*pending-coords*
-                  ~(source-coords/coords-form form-meta file ns-sym)]
+                  (if re-frame.interop/debug-enabled?
+                    ~(source-coords/coords-form      form-meta file ns-sym)
+                    ~(source-coords/prod-coords-form form-meta file ns-sym))]
           ~(if (empty? per-el-coords)
              `(re-frame.core-machines/reg-machine ~machine-id ~machine)
              `(let [~machine-sym ~machine

@@ -27,8 +27,9 @@
   that the late-bind lookup, the call into trace/emit!, and the small
   metadata map allocation all disappear from `:advanced` production
   bundles where `goog.DEBUG` is `false`."
-  (:require [re-frame.interop   :as interop]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.interop       :as interop]
+            [re-frame.late-bind     :as late-bind]
+            [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -246,6 +247,18 @@
   (when-not (valid-kind? kind)
     (throw (ex-info (str "re-frame2: unknown registry kind: " kind)
                     {:kind kind :id id})))
+  ;; Always-on error-coord parallel registry (rf2-3un2g §Production
+  ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
+  ;; carries the captured coord-map (slim in CLJS prod — no `:column`).
+  ;; The error-emit substrate looks coords up via
+  ;; `source-coords/error-coords-for` when assembling the tight error-
+  ;; record / policy-event, so Sentry-style shippers still see source-
+  ;; line info even when public registry-meta has been stripped of
+  ;; coord-keys under `goog.DEBUG=false`. Programmatic paths
+  ;; (`*pending-coords*` nil) no-op cleanly — `remember-error-coords!`
+  ;; itself guards against nil.
+  (when-let [pc source-coords/*pending-coords*]
+    (source-coords/remember-error-coords! kind id pc))
   ;; 2-level lookup as paired `get`s rather than `(get-in ... [kind id])` —
   ;; `get-in` allocates a path vector per call (rf2-mqv4m).
   (let [previous (-> @kind->id->metadata (get kind) (get id))]
@@ -349,6 +362,9 @@
   (reset! kind->id->metadata {})
   (reset! missing-doc-warned #{})
   (reset! collision-warned   #{})
+  ;; Also clear the always-on error-coord parallel registry (rf2-3un2g)
+  ;; so test cases start from a clean state on both surfaces.
+  (source-coords/forget-error-coords!)
   nil)
 
 ;; ---- lookup ---------------------------------------------------------------

@@ -20,11 +20,32 @@
        synthesises registrations from another source can stamp the
        original coordinates).
 
-  The data itself is fine in production (static metadata on the
-  registry slot — bytes, not behaviour). The DOM-annotation hook
-  (per Tool-Pair §Source-mapping) is the dev-only piece, gated
-  separately. Source-coord capture itself stays unconditional — the
-  runtime cost is one map merge at registration time.")
+  ## Production elision (rf2-3un2g)
+
+  Source-coord capture has TWO sinks:
+
+    1. **Public registry-meta**: in dev the captured coords are merged
+       into the registrar slot's metadata via [[merge-coords]] —
+       `(rf/handler-meta kind id)` consumers (Causa Open-in-editor,
+       re-frame-pair, IDE jump-to-source) read them from there. In
+       CLJS production (`:advanced` + `goog.DEBUG=false`) [[merge-coords]]
+       returns `user-meta` unchanged — the coord keys are stripped from
+       the public meta. The `:column` literal in the macro-emitted
+       coords-form additionally DCEs (the slim prod coords-form omits
+       `:column` entirely).
+
+    2. **Always-on error-coord registry**: [[remember-error-coords!]]
+       populates [[error-coords-by-id]] at registration time. The
+       error-emit substrate (`re-frame.error-emit/dispatch-on-error!`)
+       looks up coords via [[error-coords-for]] when assembling the
+       tight error-record and the structured policy-event — so
+       Sentry/Honeybadger/Rollbar shippers still see source-line info
+       in production builds where the trace surface is gone. This
+       channel survives `goog.DEBUG=false` by construction.
+
+  The DOM-annotation hook (per Tool-Pair §Source-mapping) is the dev-only
+  piece, gated separately."
+  (:require [re-frame.interop :as interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -44,12 +65,76 @@
   "Merge `*pending-coords*` into `user-meta`. User-supplied :ns / :line
   / :file override auto-captured values per Spec 001. Returns user-meta
   unchanged when no coords are pending (programmatic registration,
-  REPL eval without the macro path)."
+  REPL eval without the macro path).
+
+  Per rf2-3un2g §Production elision: in CLJS `:advanced` +
+  `goog.DEBUG=false` builds (and JVM SSR with `re-frame.debug=false`)
+  this fn returns `user-meta` unchanged regardless of any pending
+  coords binding. Coord-keys are stripped from the public registry-meta
+  in production; the always-on `error-coords-by-id` parallel registry
+  (see [[remember-error-coords!]]) carries them through to the
+  error-emit substrate for Sentry-style observability."
   [user-meta]
-  (let [coords *pending-coords*]
-    (if coords
-      (merge coords (or user-meta {}))
-      (or user-meta {}))))
+  (if-not interop/debug-enabled?
+    ;; Production: strip the coord-keys from public meta. The always-on
+    ;; error-coords parallel registry retains them for error-emit
+    ;; observability — see [[remember-error-coords!]] / [[error-coords-for]].
+    (or user-meta {})
+    (let [coords *pending-coords*]
+      (if coords
+        (merge coords (or user-meta {}))
+        (or user-meta {})))))
+
+;; ---- always-on error-coord registry (rf2-3un2g) --------------------------
+;;
+;; The parallel registry that retains source-coords in production builds.
+;; Populated unconditionally at registration time via [[remember-error-
+;; coords!]]; the error-emit substrate reads it via [[error-coords-for]]
+;; when assembling the tight error-record passed to corpus-wide listener
+;; fans (Sentry / Honeybadger / Rollbar) and the per-frame `:on-error`
+;; policy event. Survives `:advanced` + `goog.DEBUG=false` — the
+;; namespace and the atom are unconditional; only the dev-side merge
+;; into public registry-meta is elided.
+
+(defonce
+  ^{:doc "kind → id → coords-map. Atomic. Per-process. Mirrors the
+          registrar shape so error-emit can pivot on `(kind, id)`. The
+          values are coord-maps (`:rf/source-coord-meta` per
+          Spec-Schemas — `:ns` / `:file` / `:line`; `:column` is dev-
+          only). Survives production elision so Sentry-style shippers
+          see source-line info even when the trace surface is gone."}
+  error-coords-by-id
+  (atom {}))
+
+(defn remember-error-coords!
+  "Store coord-map under `[kind id]` in the always-on parallel registry.
+  Called by `re-frame.registrar/register!` from any path where
+  `*pending-coords*` is bound (the public reg-* macro path). In CLJS
+  production builds the coord-map's `:column` slot is absent — the
+  prod-side macro emission omits it; only `:ns`/`:file`/`:line` ride
+  through. Returns the stored coord-map.
+
+  Per rf2-3un2g §Always-on error-coord registry."
+  [kind id coords]
+  (when (and kind id coords)
+    (swap! error-coords-by-id assoc-in [kind id] coords))
+  coords)
+
+(defn error-coords-for
+  "Look up the stored source-coord map for `[kind id]`. Returns nil when
+  no coords were captured for that pair (programmatic registration, REPL
+  eval that bypassed the macro path). The error-emit substrate uses this
+  to stamp `:source-coord` on the tight record + policy-event in BOTH
+  dev AND production. Per rf2-3un2g."
+  [kind id]
+  (get-in @error-coords-by-id [kind id]))
+
+(defn forget-error-coords!
+  "Clear the parallel registry. Test fixtures use this between cases.
+  Mirrors `registrar/clear-all!`. Per rf2-3un2g."
+  []
+  (reset! error-coords-by-id {})
+  nil)
 
 ;; ---- :file resolution at macro-expansion time (rf2-mdjp) ------------------
 ;;
@@ -102,13 +187,45 @@
   data the caller splices into its expansion.
 
   :file picks the form-meta value over `*file*` and rejects the
-  `\"NO_SOURCE_PATH\"` sentinel via `resolve-file`."
+  `\"NO_SOURCE_PATH\"` sentinel via `resolve-file`.
+
+  Per rf2-3un2g §Production elision: callers SHOULD wrap the dev
+  emission alongside [[prod-coords-form]] under
+  `(if interop/debug-enabled? <dev> <prod>)` so Closure DCEs the dev
+  shape (with `:column`) under `:advanced` + `goog.DEBUG=false`. The
+  `with-coords-form` / `expand-reg-machine` helpers do this internally;
+  per-element machine stamping and call-site stamping handle elision
+  through their own outer gates and call this fn directly."
   [form-meta file ns-sym]
   (let [chosen-file (resolve-file form-meta file)]
     `(cond-> {:ns '~ns-sym}
        ~chosen-file         (assoc :file ~chosen-file)
        ~(:line form-meta)   (assoc :line ~(:line form-meta))
        ~(:column form-meta) (assoc :column ~(:column form-meta)))))
+
+#?(:clj
+   (defn prod-coords-form
+     "Slim production-side variant of [[coords-form]]: omits `:column`.
+     Per rf2-3un2g — `:column` is dev-tooling-only (IDE jump-to-source
+     refinement); Sentry-style observability needs only `:ns`/`:file`/
+     `:line`. Emitting the slim form under the prod branch of an
+     `(if interop/debug-enabled? ...)` lets Closure DCE the dev coords
+     literal (with `:column`) under `:advanced` + `goog.DEBUG=false`,
+     so the bundle ships the slimmer payload only.
+
+     Caller wraps:
+
+         `(if re-frame.interop/debug-enabled?
+            ~(coords-form form-meta file ns-sym)
+            ~(prod-coords-form form-meta file ns-sym))
+
+     Both branches use `cond->` so absent keys (e.g. nil `:line` on a
+     programmatic synthesis) elide cleanly."
+     [form-meta file ns-sym]
+     (let [chosen-file (resolve-file form-meta file)]
+       `(cond-> {:ns '~ns-sym}
+          ~chosen-file       (assoc :file ~chosen-file)
+          ~(:line form-meta) (assoc :line ~(:line form-meta))))))
 
 ;; ---- per-element spec stamping -------------------------------------------
 ;;

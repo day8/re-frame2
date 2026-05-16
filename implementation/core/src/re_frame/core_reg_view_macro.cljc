@@ -118,9 +118,17 @@
          ;; macro returns its primary id. The trailing `~id` is load-
          ;; bearing — without it the `def` would be the last form and the
          ;; macro would return the Var, breaking the contract.
+         ;; Per rf2-3un2g §Production elision: the binding-value rides
+         ;; an outer `interop/debug-enabled?` gate so Closure DCEs the
+         ;; dev coords (with `:column`) under `:advanced + goog.DEBUG=false`.
+         ;; The bound coords are still captured at runtime via the
+         ;; parallel `error-coords-by-id` registry (see
+         ;; `re-frame.source-coords`).
          `(do
             (binding [re-frame.source-coords/*pending-coords*
-                      ~(source-coords/coords-form form-meta current-file current-ns-sym)]
+                      (if re-frame.interop/debug-enabled?
+                        ~(source-coords/coords-form      form-meta current-file current-ns-sym)
+                        ~(source-coords/prod-coords-form form-meta current-file current-ns-sym))]
               (re-frame.core/reg-view* ~id
                 ~full-slot-meta
                 ~fn-form))

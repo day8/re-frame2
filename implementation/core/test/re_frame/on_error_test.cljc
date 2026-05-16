@@ -123,7 +123,11 @@
   (testing "Per rf2-bacs4: a registered listener receives exactly one
             tight error-record per `:rf.error/handler-exception`. The
             record's shape is fixed: `:error :event :event-id :frame
-            :time :exception :elapsed-ms`."
+            :time :exception :elapsed-ms`, plus `:source-coord` when
+            the failing handler was registered via the public macro
+            path (per rf2-3un2g §Always-on error-coord registry —
+            programmatic registrations omit the slot rather than nil
+            it; the macro-path test below sees it present)."
     (let [seen (atom [])]
       (rf/register-error-emit-listener!
         :test/recorder
@@ -143,9 +147,20 @@
         (is (number? (:time r))              ":time is a wall-clock millis number")
         (is (integer? (:elapsed-ms r))       ":elapsed-ms is an integer ms count")
         (is (not (neg? (:elapsed-ms r)))     ":elapsed-ms is non-negative")
-        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms}
+        ;; Per rf2-3un2g: `:source-coord` rides the tight record when the
+        ;; failing handler was registered via the public macro path. The
+        ;; coord rides the always-on parallel `error-coords-by-id`
+        ;; registry, so this slot survives `goog.DEBUG=false` (Sentry-
+        ;; style observability preserved in production).
+        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
+                 :source-coord}
                (set (keys r)))
-            "record carries ONLY the tight rf2-bacs4 keys — no trace-bus enrichment")))))
+            "record carries the tight rf2-bacs4 keys plus rf2-3un2g
+             :source-coord — no trace-bus enrichment beyond that")
+        (let [sc (:source-coord r)]
+          (is (symbol?  (:ns   sc)))
+          (is (integer? (:line sc)))
+          (is (string?  (:file sc))))))))
 
 (deftest error-listener-exception-is-swallowed
   (testing "Per the substrate contract: a buggy listener cannot break
