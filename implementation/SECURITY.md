@@ -35,6 +35,7 @@ Four sections:
 | Always-on error-emit substrate (production-survivable) | `re-frame.error-emit/emit-error!` | `day8/re-frame2` (core) — `re-frame.error-emit` |
 | Always-on event-emit substrate | `re-frame.event-emit/emit-event!` | `day8/re-frame2` (core) — `re-frame.event-emit` |
 | Schema-installed redaction | `{:sensitive? true}` on app-schema slots | `day8/re-frame2` (core) — `re-frame.privacy` |
+| Epoch projected-record helper (off-box egress emission site) | `re-frame.epoch/projected-record` (wraps `re-frame.core/elide-wire-value`) | `day8/re-frame2-epoch` — `re-frame.epoch` |
 | MCP-tool wire-egress walker (off-box defaults) | `re-frame.mcp-base.elision/walk-for-wire` (wraps `elide-wire-value`) | `day8/re-frame2-mcp-base` ([rf2-vw4sq](#)) |
 | Hiccup → HTML attribute-key escape | `re-frame.ssr.hiccup/escape-attr-key` | `day8/re-frame2-ssr` (`re-frame.ssr.hiccup`) |
 | JSON-LD `<script>` body `<` escape | `re-frame.ssr.hiccup/escape-script-body` | `day8/re-frame2-ssr` (`re-frame.ssr.hiccup`) |
@@ -55,6 +56,7 @@ Every numeric default the reference ships, with its config slot, its purpose, an
 | `:rf.size/include-sensitive?` | `false` | Off-box wire-egress sensitivity opt-in (MCP tools, log forwarders) | n/a (filter; `:dropped-sensitive` indicator slot reports filtered count) |
 | `:rf.size/include-large?` | `false` | Off-box wire-egress oversize opt-in | n/a (filter; `:elided-large` indicator slot reports filtered count) |
 | Drain-depth ceiling (`:rf/drain-depth-limit`) | `1024` cascaded dispatches per drain | Cascading-dispatch DoS defense | `:rf.error/drain-depth-exceeded` with `:tags {:depth :queue-size :last-event}` |
+| `:trace-events-keep` (`(rf/configure :epoch-history {:trace-events-keep N})`) | `5` (rf2-mrsck) | Per-frame epoch ring: keep raw `:trace-events` on the most-recent N records; older keep only the cheap `:sub-runs` / `:renders` / `:effects` projections. Bounds dev-session heap growth from accumulated raw cascade traces. | n/a (silent elision past the cap; consumers walk the cheap structured projections) |
 | `re-frame.debug` system property (JVM) | unset → gate `true` | JVM-side dev-flag override; SSR / long-running JVMs set `false` | n/a (gate) |
 | `RE_FRAME_DEBUG` environment variable (JVM) | unset → gate `true` | Equivalent to `re-frame.debug` for env-var-driven deployments | n/a (gate) |
 | `goog.DEBUG` (CLJS) | `true` in dev, `false` in `:advanced` | Closure-constant gate for the trace surface; DCE folds gated branches in production | n/a (gate) |
@@ -171,6 +173,7 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 | rf2-b2hip | spec/004-Wire-Pipeline.md aligned to spec/Tool-Pair MUST on direct-read privacy | Spec-vs-spec drift resolution: trace redaction does NOT protect a live-value direct read. Tool-Pair MUST wins. |
 | rf2-isdwf | `:sensitive?` hoisted from `:tags` to trace-event top-level | Consumers route on top-level `:sensitive?` rather than `(get-in trace-event [:tags :sensitive?])` — flatter access path, cheaper conformance gate. |
 | rf2-iwqu9 | `re-frame.privacy/sensitive?-from-meta` for non-trace consumers | Same boolean as the trace surface uses, exposed for non-trace consumers (the always-on substrates). One reader, two surfaces. |
+| rf2-j1m7x / rf2-mrsck | `re-frame.epoch/projected-record` (`day8/re-frame2-epoch`) — single normative projection helper wrapping `elide-wire-value`; `re-frame.epoch/configure!` `:trace-events-keep` finite retention cap; `:rf.epoch/sensitive?` record-level rollup | Listener fan-out delivers raw records (Causa diff / `restore-epoch` need them); off-box egress (Causa-MCP `watch-epochs`, story / pair recorders, hosted forwarders) routes through `projected-record` at the wire boundary. The `:trace-events-keep` cap bounds dev-session heap growth (the most-recent N records keep raw `:trace-events`; older keep only the cheap structured projections). The `:rf.epoch/sensitive?` rollup mirrors the trace-event `:sensitive?` boolean so consumers branch on one slot per record. |
 
 ### MCP tool authority
 

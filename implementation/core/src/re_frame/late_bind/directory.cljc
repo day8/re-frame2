@@ -458,6 +458,14 @@
    {:key         :epoch/on-frame-destroyed
     :producer-ns 're-frame.epoch
     :description "Tear down a frame's epoch state when the frame is destroyed."}
+   {:key         :epoch/projected-record
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-mrsck"
+    :description "Project an :rf/epoch-record for off-box egress: route :db-before / :db-after / :trigger-event / :trace-events through elide-wire-value with off-box defaults; bookkeeping and structured projections pass through. Per Security.md §Epoch privacy posture."}
+   {:key         :epoch/projected-history
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-mrsck"
+    :description "Convenience wrapper returning (mapv projected-record (epoch-history frame-id))."}
 
    ;; ---- re-frame.trace (re-frame.registrar replace-warning seam) ------------
    {:key         :trace/emit!

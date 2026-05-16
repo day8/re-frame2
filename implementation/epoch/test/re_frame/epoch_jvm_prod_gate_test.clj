@@ -36,7 +36,7 @@
   (trace/clear-trace-cbs!)
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
-  (reset! @#'epoch/config {:depth 50})
+  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -104,3 +104,62 @@
     (rf/dispatch-sync [:prod-gate.epoch/dev-inc])
     (is (pos? (count (epoch/epoch-history :rf/default)))
         "epoch ring has at least one record under default gate")))
+
+;; ---- rf2-vq5o0 privacy-surface JVM false-path coverage ------------------
+
+(deftest projected-history-empty-under-disabled-gate
+  (testing "Per rf2-mrsck / rf2-vq5o0: with the JVM debug gate off,
+            no records land in the ring, so projected-history reads
+            the empty vector. The projection surface composes with the
+            production-elision gate at the upstream (record assembly)
+            seam; the projection itself is a pure data transform that
+            no consumer can reach a record through under the disabled
+            gate."
+    (with-redefs [interop/debug-enabled? false]
+      (rf/reg-event-db :prod-gate.priv/silent
+                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/dispatch-sync [:prod-gate.priv/silent])
+      (is (= [] (epoch/projected-history :rf/default))
+          "empty projected-history under the disabled gate"))))
+
+(deftest sensitive-rollup-not-computed-under-disabled-gate
+  (testing "Per rf2-mrsck: the sensitive rollup is computed once per
+            assembled record (in build-record). The gate-disabled
+            path elides record assembly entirely; the rollup never
+            runs. We verify by asserting the ring stays empty — no
+            record means no rollup compute path was reached."
+    (with-redefs [interop/debug-enabled? false]
+      (rf/reg-event-db :prod-gate.priv/sensitive
+                       {:sensitive? true}
+                       (fn [db _] (assoc db :token "shh")))
+      (rf/dispatch-sync [:prod-gate.priv/sensitive])
+      (is (empty? (epoch/epoch-history :rf/default))
+          "no record assembled — rollup never reached"))))
+
+(deftest projected-record-pure-transform-survives-disabled-gate
+  (testing "Per rf2-vq5o0: projected-record is a pure data transform
+            — it does NOT consult interop/debug-enabled?. A consumer
+            that already holds a record (replayed in a JVM test
+            fixture, or surfaced from a recorded session) can still
+            project it. The gate elides record ASSEMBLY, not record
+            PROJECTION."
+    (let [synthetic-record
+          {:epoch-id      42
+           :frame         :test/main
+           :committed-at  0
+           :event-id      :synthetic
+           :trigger-event [:synthetic]
+           :db-before     {:n 0}
+           :db-after      {:n 1}
+           :outcome       :ok
+           :rf.epoch/sensitive? false
+           :trace-events  []
+           :sub-runs      []
+           :renders       []
+           :effects       []}]
+      (with-redefs [interop/debug-enabled? false]
+        (let [projected (epoch/projected-record synthetic-record)]
+          (is (some? projected)
+              "projection runs even under the disabled gate")
+          (is (= 42 (:epoch-id projected))
+              "bookkeeping preserved"))))))

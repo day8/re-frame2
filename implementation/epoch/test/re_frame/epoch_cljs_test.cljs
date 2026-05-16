@@ -64,7 +64,7 @@
                 ;; reset.
                 (epoch/clear-history!)
                 (epoch/clear-epoch-cbs!)
-                (reset! @#'epoch/config {:depth 50}))}))
+                (reset! @#'epoch/config {:depth 50 :trace-events-keep 5}))}))
 
 ;; ---- 1. Recording — happy-path record shape -------------------------------
 

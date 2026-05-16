@@ -24,6 +24,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
+            [re-frame.elision]
             [re-frame.epoch :as epoch]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
@@ -51,8 +52,10 @@
   (epoch/clear-epoch-cbs!)
   ;; Reset the config atom directly so :trace-events-keep (rf2-iegsz)
   ;; doesn't leak between tests — `configure!` merges, so a per-test
-  ;; opt-in to elision would otherwise persist.
-  (reset! @#'epoch/config {:depth 50})
+  ;; opt-in to elision would otherwise persist. Per rf2-mrsck the
+  ;; default :trace-events-keep is 5 (finite); fixtures restore the
+  ;; default map verbatim.
+  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -876,15 +879,18 @@
     (rf/configure :epoch-history {:depth 12})
     (is (= 12 (:depth (epoch/current-config))))))
 
-;; ---- rf2-iegsz: :trace-events elision policy ------------------------------
+;; ---- rf2-iegsz / rf2-mrsck: :trace-events elision policy -----------------
 ;;
 ;; Per Spec-Schemas §`:rf/epoch-record` line 2224, `:trace-events` is
 ;; optional — 'implementations may choose to drop traces from older
-;; epochs'. The default (pre-rf2-iegsz, also the absent-config default)
-;; keeps every record's `:trace-events`. The `:trace-events-keep N` knob
-;; bounds the per-frame trace-event memory to the most-recent N records;
-;; older records keep their cheap structured projections (`:sub-runs` /
-;; `:renders` / `:effects`) but lose the raw trace stream.
+;; epochs'. Per rf2-mrsck and Security.md §Epoch privacy posture the
+;; default is now FINITE (5): the most-recent five records per frame
+;; retain raw `:trace-events`; older records keep their cheap
+;; structured projections (`:sub-runs` / `:renders` / `:effects`)
+;; but lose the raw trace stream. Apps that want the whole ring's
+;; raw streams pass an explicit larger value (or one >= the depth
+;; cap). Setting the slot to `0` drops every record's
+;; `:trace-events`.
 
 (deftest trace-events-keep-elides-older-records
   (testing "with :trace-events-keep N set, only the most-recent N records
@@ -926,14 +932,49 @@
         (is (contains? r4 :trace-events)
             "record 4 — :trace-events kept (most-recent)")))))
 
-(deftest trace-events-keep-absent-keeps-all-trace-events
-  (testing "absent :trace-events-keep — every record carries :trace-events
-            (default behaviour preserved)"
+(deftest trace-events-keep-default-is-finite-five
+  (testing "default :trace-events-keep is a FINITE 5 — drive >5 cascades
+            and the oldest records lose :trace-events while keeping the
+            structured projections (per rf2-mrsck and Security.md
+            §Epoch privacy posture)"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
-    ;; Default config — no :trace-events-keep set.
+    ;; Default config — :trace-events-keep is the new finite default (5).
+    (is (= 5 (:trace-events-keep (epoch/current-config)))
+        "default :trace-events-keep is 5")
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (dotimes [_ 6] (rf/dispatch-sync [:inc] {:frame :test/main}))
+
+    (let [history (rf/epoch-history :test/main)
+          n       (count history)
+          tail-5  (subvec history (- n 5) n)
+          older   (subvec history 0 (- n 5))]
+      (is (= 7 n) "all 7 records remain in the ring (depth 50)")
+      (is (every? #(contains? % :sub-runs) history)
+          "every record keeps its :sub-runs projection")
+      (is (every? #(contains? % :renders) history)
+          "every record keeps its :renders projection")
+      (is (every? #(contains? % :effects) history)
+          "every record keeps its :effects projection")
+      (is (every? #(contains? % :trace-events) tail-5)
+          "the most-recent 5 records keep :trace-events")
+      (is (every? #(not (contains? % :trace-events)) older)
+          "older records (beyond the keep-5 window) drop :trace-events"))))
+
+(deftest trace-events-keep-explicit-large-value-keeps-all
+  (testing "explicit :trace-events-keep >= depth — every record carries
+            :trace-events (the opt-back-in path for apps that want the
+            whole ring's raw streams)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    ;; Opt back into unbounded retention.
+    (rf/configure :epoch-history {:trace-events-keep 100})
+
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
@@ -941,7 +982,7 @@
     (let [history (rf/epoch-history :test/main)]
       (is (= 3 (count history)))
       (is (every? #(contains? % :trace-events) history)
-          "every record carries :trace-events — no elision applied"))))
+          "every record carries :trace-events — keep is large enough"))))
 
 ;; ---- restore-epoch reactive surfaces (rf2-2fat) ---------------------------
 ;;
@@ -2364,3 +2405,109 @@
       (is (= :try-reset (:event-id (first @seen)))
           "the lone listener invocation is for the outer cascade, not
            a synthetic reset-rejection record"))))
+
+;; ---- rf2-mrsck: per-leaf smoke tests --------------------------------------
+;;
+;; Per the cluster prompt and Mike's 2026-05-16 convention: every impl
+;; commit ships per-leaf smoke tests in the same commit. The full
+;; coverage matrix lives in rf2-vq5o0; these smokes pin the
+;; load-bearing slot for each new piece (the rollup, the projected
+;; helper, the finite default) so a regression that nukes the
+;; mechanism fails this file rather than waiting for rf2-vq5o0's
+;; deeper sweep.
+
+(deftest smoke-sensitive-rollup-default-false
+  (testing "rf2-mrsck — :rf.epoch/sensitive? is false on records whose
+            cascade involves no sensitive paths and no sensitive handlers"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [r (last (rf/epoch-history :test/main))]
+      (is (false? (:rf.epoch/sensitive? r))
+          "non-sensitive cascade — rollup reads false"))))
+
+(deftest smoke-sensitive-rollup-true-from-handler-meta
+  (testing "rf2-mrsck — a handler whose registration meta carries
+            :sensitive? true stamps every trace event in scope, and
+            the rollup reads that stamp from the captured stream"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :secret-write
+                     {:sensitive? true}
+                     (fn [db _] (assoc db :token "shhh")))
+    (rf/dispatch-sync [:secret-write] {:frame :test/main})
+
+    (let [r (last (rf/epoch-history :test/main))]
+      (is (true? (:rf.epoch/sensitive? r))
+          "rollup reflects the trace-event :sensitive? stamp"))))
+
+(deftest smoke-projected-record-redacts-and-keeps-bookkeeping
+  (testing "rf2-mrsck — projected-record routes :db-before / :db-after /
+            :trigger-event / :trace-events through elide-wire-value with
+            off-box defaults; bookkeeping slots and structured projections
+            pass through unchanged"
+    (rf/reg-frame :test/main {})
+    (rf/reg-app-schema [:auth]
+                       [:map [:password {:sensitive? true} :string]]
+                       {:frame :test/main})
+    ;; Force population of [:rf/elision :sensitive-declarations] —
+    ;; the router refresh runs per-handler-dispatch but only for
+    ;; the handler's resolved frame; populating up-front pins the
+    ;; smoke against the elision walker contract directly.
+    (rf/populate-sensitive-from-schemas! :test/main)
+    (rf/reg-event-db :login
+                     (fn [db [_ pw]]
+                       (assoc-in db [:auth :password] pw)))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [raw       (last (rf/epoch-history :test/main))
+          projected (epoch/projected-record raw)]
+      (is (= "topsecret" (get-in raw [:db-after :auth :password]))
+          "raw record carries the unredacted password (in-process)")
+      (is (seq (re-frame.elision/sensitive-declarations :test/main))
+          "elision registry populated for :test/main")
+      (is (= :rf/redacted
+             (get-in projected [:db-after :auth :password]))
+          "projected record substitutes :rf/redacted for the sensitive slot")
+      (is (= (:epoch-id raw) (:epoch-id projected))
+          ":epoch-id passes through")
+      (is (= (:event-id raw) (:event-id projected))
+          ":event-id passes through")
+      (is (= (:outcome raw)  (:outcome projected))
+          ":outcome passes through")
+      (is (= (:sub-runs raw) (:sub-runs projected))
+          "structured :sub-runs slot passes through unchanged")
+      (is (= (:effects raw)  (:effects projected))
+          "structured :effects slot passes through unchanged")
+      (is (true? (:rf.epoch/sensitive? raw))
+          "schema-derived rollup also fires when a sensitive path
+           resolves to a non-nil leaf in :db-after"))))
+
+(deftest smoke-projected-history-projects-each-record
+  (testing "rf2-mrsck — projected-history walks the ring once and
+            returns the projected vector"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)
+          ph      (epoch/projected-history :test/main)]
+      (is (= (count history) (count ph))
+          "projected-history returns one element per ring record")
+      (is (every? map? ph) "each element is a map")
+      (is (= (mapv :epoch-id history) (mapv :epoch-id ph))
+          ":epoch-id ordering matches the raw ring"))))
+
+(deftest smoke-projected-record-handles-nil-input
+  (testing "rf2-mrsck — projected-record returns nil for non-map input
+            (a missing-epoch lookup)"
+    (is (nil? (epoch/projected-record nil)))
+    (is (nil? (epoch/projected-record :not-a-map)))))
+
+(deftest smoke-trace-events-keep-default-finite
+  (testing "rf2-mrsck — current-config reports the finite default
+            :trace-events-keep 5; the older absent-default behaviour
+            (unbounded) is gone (pre-alpha — no back-compat)"
+    (is (= 5 (:trace-events-keep (epoch/current-config))))))
