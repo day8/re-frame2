@@ -59,10 +59,12 @@
      (`include-sensitive-opt`, `include-large-opt`) and re-used by
      consumers. The grep step asserts the literal keyword form in the
      vocab ns so a rename there breaks everyone.
-  5. **causa-mcp impl-not-landed tripwire** — causa-mcp's spec
-     references the slot names; its `src/` doesn't exist yet. The
-     tripwire flips RED when impl lands, forcing the reviewer to
-     extend the per-server source-file grep coverage in lockstep.
+  5. **causa-mcp impl-landed pin** — causa-mcp's T-Insp tool cluster
+     (rf2-8xzoe.14..22) shipped `src/.../tools/` with nine
+     tree-walking tools; the per-server source-file grep covers them
+     alongside pair2-mcp + story-mcp. The historical tripwire (this
+     row was a `causa-mcp-impl-still-absent` gate) has done its job
+     and is replaced by an impl-landed assertion below.
 
   ## Why pure JVM Clojure (not Node SDK)
 
@@ -132,8 +134,23 @@
                ;; the pair2-mcp shape that doesn't apply to story-mcp).
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]
-               :causa-mcp ["tools/causa-mcp/spec/Principles.md"
-                           "tools/causa-mcp/spec/004-Wire-Pipeline.md"]}
+               ;; causa-mcp's T-Insp cluster (rf2-8xzoe.14..22) shipped
+               ;; per-tool tree-walkers under `src/.../tools/`. The
+               ;; canonical literal `:include-sensitive?` appears in the
+               ;; per-tool args-schema splices (e.g. `get_app_db.cljs`'s
+               ;; `:inputSchema` :properties map) and the runtime-opts
+               ;; map handed to the walker. Both pair2-mcp and story-mcp
+               ;; already pin per-tool sources; causa-mcp matches that
+               ;; posture.
+               :causa-mcp ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/privacy.cljs"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
                default-drop on `:sensitive? true` items. Default false."}
 
@@ -151,8 +168,20 @@
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]
-               :causa-mcp ["tools/causa-mcp/spec/Principles.md"
-                           "tools/causa-mcp/spec/004-Wire-Pipeline.md"]}
+               ;; causa-mcp's T-Insp cluster splices `:max-tokens` into
+               ;; every per-tool `:inputSchema` :properties map and reads
+               ;; it off the args object in `token_cap.cljs`. Same posture
+               ;; as pair2-mcp's descriptor + cap split.
+               :causa-mcp ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_source_coord.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
+                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/token_cap.cljs"]}
     :doc      "Override integer — per-call wire-cap override (default 5,000).
                `0` disables the cap. Triggers an `:rf.mcp/overflow` marker
                when the rendered payload exceeds the cap (cross-server)."}])
@@ -174,9 +203,22 @@
 (def ^:private elision-arg-divergence
   {:canonical :include-large?
    :servers   {:causa-mcp {:slot    :include-large?
-                           :sources ["tools/causa-mcp/spec/Principles.md"
-                                     "tools/causa-mcp/spec/004-Wire-Pipeline.md"]
-                           :status  :spec-only}
+                           ;; T-Insp cluster (rf2-8xzoe.14..22) shipped
+                           ;; `:include-large?` as the canonical slot in
+                           ;; every per-tool `:inputSchema` and in the
+                           ;; runtime-opts map handed to the elision
+                           ;; walker. The spec-only stand-in is no longer
+                           ;; needed; tool sources carry the literal.
+                           :sources ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
+                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/elision.cljs"]
+                           :status  :impl-landed}
                :pair2-mcp {:slot    :elision
                            :sources ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/elision.cljs"
                                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"]
@@ -363,8 +405,22 @@
                      "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]
-         ;; causa-mcp has no impl yet — skipped by `:when seq`.
-         :causa-mcp []}]
+         ;; causa-mcp's T-Insp cluster (rf2-8xzoe.14..22) shipped the
+         ;; per-tool tree-walkers — the full surface gets near-miss-
+         ;; variant coverage alongside pair2-mcp + story-mcp.
+         :causa-mcp ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_source_coord.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/elision.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/privacy.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/token_cap.cljs"
+                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/wire.cljs"]}]
     (doseq [{:keys [slot]}     canonical-slots
             variant            (near-miss-variants slot)
             [server files]     impl-sources-by-server
@@ -457,26 +513,29 @@
                  "the literal or update this test."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 6 — causa-mcp impl-not-landed tripwire. Same posture as
-;; `causa-mcp-impl-still-absent` in `indicator_field_test.clj`: when
-;; causa-mcp lands real tool source files under `src/.../tools/`,
-;; the reviewer must extend the per-server source-file coverage for
-;; every slot in `canonical-slots`. The F-1 scaffold (rf2-8xzoe.1)
-;; ships a banner-only `server.cljs` that doesn't consume the slot
-;; vocabulary; the per-tool subdir is the meaningful tripwire boundary.
+;; Gate 6 — causa-mcp impl-landed pin. The T-Insp tool cluster
+;; (rf2-8xzoe.14..22) landed the per-tool tree-walkers under
+;; `src/.../tools/`. The historical `causa-mcp-impl-still-absent`
+;; tripwire fired correctly when impl landed; it's replaced here by
+;; an impl-landed assertion so a future regression that DELETES the
+;; tool directory (and reverts to spec-only stand-ins) trips the
+;; gate. The per-tool `:sources` entries above are the load-bearing
+;; coverage; this gate is the structural floor.
 ;; ---------------------------------------------------------------------------
 
-(deftest causa-mcp-impl-still-absent
+(deftest causa-mcp-tools-directory-present
   (let [tools-dir (io/file fx/repo-root
                            "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools")]
-    (is (or (not (.exists tools-dir))
-            (empty? (filter #(.isFile ^java.io.File %) (file-seq tools-dir))))
-        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ now "
-             "contains source files. Extend the `:causa-mcp` entry in "
-             "`:sources` on every row of `canonical-slots` to grep "
-             "causa-mcp's tool source instead of just its spec. Same "
-             "posture as the indicator-field tripwire — the spec-side "
-             "grep is a stand-in until impl lands."))))
+    (is (.exists tools-dir)
+        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ is "
+             "missing. The T-Insp cluster (rf2-8xzoe.14..22) landed "
+             "this directory; if it was intentionally removed, revert "
+             "the `:causa-mcp` :sources entries on `canonical-slots` "
+             "and `elision-arg-divergence` to spec-only stand-ins."))
+    (is (seq (filter #(.isFile ^java.io.File %) (file-seq tools-dir)))
+        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ "
+             "exists but contains no files. Same restoration path as "
+             "the missing-directory case."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate 7 — server-coverage sanity. Every server referenced in

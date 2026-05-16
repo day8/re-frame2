@@ -246,8 +246,28 @@
    ;; each progress payload and on the final summary").
    :subscribe    "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"})
 
+(def ^:private causa-mcp-tree-walking-tool-sources
+  "Per-tool source files for causa-mcp's T-Insp tree-walking tools
+  (rf2-8xzoe.14..22). Each source MUST contain at least one
+  `wire/with-indicators` call — same centralised emit-path pin as
+  pair2-mcp's `tree-walking-tool-sources`, routed through causa-mcp's
+  own `day8.re-frame2-causa-mcp.wire/with-indicators` (a byte-faithful
+  mirror of the pair2-mcp helper). Adding a new tree-walking tool to
+  the causa-mcp T-Insp cluster means extending this map and wiring the
+  helper call; the new entry without the wiring fails this gate."
+  {:get-app-db        "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
+   :get-app-db-diff   "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
+   :get-epoch-history "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
+   :get-handlers      "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
+   :get-issues        "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
+   :get-machine-list  "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
+   :get-machine-state "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
+   :get-source-coord  "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_source_coord.cljs"
+   :get-trace-buffer  "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"})
+
 (deftest every-tree-walking-tool-routes-through-the-helper
-  (doseq [[tool rel] tree-walking-tool-sources]
+  (doseq [[tool rel] (merge tree-walking-tool-sources
+                            causa-mcp-tree-walking-tool-sources)]
     (testing (str "tool " tool " — wire/with-indicators call-site in " rel)
       (let [src (fx/read-source rel)]
         (is (str/includes? src "wire/with-indicators")
@@ -334,11 +354,38 @@
     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"
     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"})
 
-(defn- pair2-mcp-source-files
-  "Walk `tools/pair2-mcp/src/` and return every `.cljs` file as a
-  repo-relative path string."
-  []
-  (let [src-root (io/file fx/repo-root "tools/pair2-mcp/src")]
+(def ^:private causa-mcp-inline-emit-whitelist
+  "causa-mcp analogue of `inline-emit-whitelist`. Files allowed to
+  contain the literal `:dropped-sensitive` / `:elided-large` keywords
+  in causa-mcp's source tree. Anything else under
+  `tools/causa-mcp/src/` MUST route through `wire/with-indicators`.
+
+  - `wire.cljs`    — the centralised helper (byte-faithful mirror of
+                     pair2-mcp's `wire/with-indicators`). Contains the
+                     canonical `(assoc :dropped-sensitive dropped)`
+                     emit-site.
+  - `privacy.cljs` — auxiliary `stamp-dropped-sensitive` helper
+                     (sibling stamper composed by privacy boundary).
+                     The per-tool emit-paths use `wire/with-indicators`;
+                     this helper is exposed for direct composition where
+                     the privacy axis runs independently of the elision
+                     axis (e.g. trace-stream tools that drop sensitive
+                     items without walking a tree).
+  - `elision.cljs` — auxiliary `stamp-elided-large` helper (parallel to
+                     `privacy/stamp-dropped-sensitive`). Same posture —
+                     a sibling stamper composed by the elision boundary
+                     when running independently of `wire/with-indicators`."
+  #{"tools/causa-mcp/src/day8/re_frame2_causa_mcp/wire.cljs"
+    "tools/causa-mcp/src/day8/re_frame2_causa_mcp/privacy.cljs"
+    "tools/causa-mcp/src/day8/re_frame2_causa_mcp/elision.cljs"})
+
+(defn- mcp-source-files
+  "Walk `src-rel` (a repo-relative subdir) and return every `.cljs`
+  file as a repo-relative path string. Used for both the pair2-mcp
+  and causa-mcp `tools/<server>/src/` walkers — the inline-emit gate
+  applies the same shape to both surfaces."
+  [src-rel]
+  (let [src-root (io/file fx/repo-root src-rel)]
     (when (.isDirectory src-root)
       (->> (file-seq src-root)
            (filter #(and (.isFile ^java.io.File %)
@@ -349,6 +396,19 @@
                       (str/replace (str/replace fx/repo-root "\\" "/") "")
                       (subs 1))))                                ;; strip leading "/"
            sort))))
+
+(defn- pair2-mcp-source-files
+  "Walk `tools/pair2-mcp/src/` and return every `.cljs` file as a
+  repo-relative path string."
+  []
+  (mcp-source-files "tools/pair2-mcp/src"))
+
+(defn- causa-mcp-source-files
+  "Walk `tools/causa-mcp/src/` and return every `.cljs` file as a
+  repo-relative path string. Same shape as `pair2-mcp-source-files` —
+  applies the inline-emit gate to causa-mcp's T-Insp cluster surface."
+  []
+  (mcp-source-files "tools/causa-mcp/src"))
 
 (deftest no-inline-indicator-slot-emit-outside-the-helper
   ;; The grep is applied AFTER `fx/strip-comments-and-strings` neuters
@@ -389,39 +449,66 @@
                    "reading internal state, an internal state-atom name), "
                    "add it to `inline-emit-whitelist` with a justification.")))))))
 
+(deftest no-inline-indicator-slot-emit-outside-the-helper-causa-mcp
+  ;; causa-mcp analogue — same posture as the pair2-mcp gate above,
+  ;; applied to `tools/causa-mcp/src/`. The T-Insp cluster
+  ;; (rf2-8xzoe.14..22) shipped per-tool tree-walkers + auxiliary
+  ;; per-axis stampers (`privacy/stamp-dropped-sensitive`,
+  ;; `elision/stamp-elided-large`). The tools themselves go through
+  ;; `wire/with-indicators`; the stampers compose privately. The
+  ;; whitelist captures the helper + stamper exceptions explicitly.
+  (let [slot-literals [":dropped-sensitive" ":elided-large"]
+        srcs          (causa-mcp-source-files)]
+    (is (seq srcs)
+        "Expected to find causa-mcp source files; classpath walk returned empty.")
+    (doseq [rel srcs
+            slot slot-literals
+            :when (not (contains? causa-mcp-inline-emit-whitelist rel))]
+      (testing (str rel " — must not inline " slot)
+        (let [src      (fx/read-source rel)
+              stripped (fx/strip-comments-and-strings src)
+              pat      (fx/variant-regex slot)]
+          (is (not (re-find pat stripped))
+              (str "Inline `" slot "` literal found in " rel
+                   " (in code, AFTER stripping comments/docstrings/strings).\n"
+                   "Every emit MUST go through `wire/with-indicators` "
+                   "(per Conventions:154 / Spec 009:1411). If this file "
+                   "is a legitimate exception (a sibling per-axis "
+                   "stamper, a destructuring binding reading internal "
+                   "state), add it to `causa-mcp-inline-emit-whitelist` "
+                   "with a justification.")))))))
+
 ;; ---------------------------------------------------------------------------
-;; Cross-server tripwire — story-mcp / causa-mcp posture.
+;; Cross-server posture pin — story-mcp / causa-mcp.
 ;;
 ;; The sibling `wire_vocab_test.clj` already pins:
 ;; - story-mcp emits ZERO cross-MCP markers
 ;; - story-mcp emits ZERO envelope indicators (it doesn't walk
 ;;   tree-typed payloads today)
 ;;
-;; This file adds the symmetric pin for causa-mcp: its spec text
-;; cross-references the slot vocabulary (per Principles.md), but its
-;; tool implementations haven't landed yet — the spec mentions and the
-;; F-1 banner-only `server.cljs` scaffold don't count as emit-sites.
-;; The day causa-mcp's `src/.../tools/` directory lands tree-typed-
-;; payload walkers, the reviewer extends `tree-walking-tool-sources`
-;; (a new entry routed through causa's own helper, which must also be
-;; added to `inline-emit-whitelist` analogue for causa).
+;; causa-mcp's T-Insp cluster (rf2-8xzoe.14..22) shipped the nine
+;; per-tool tree-walkers under `src/.../tools/`. The historical
+;; `causa-mcp-impl-still-absent` tripwire fired correctly when impl
+;; landed; the load-bearing coverage now lives in
+;; `causa-mcp-tree-walking-tool-sources` (extended into
+;; `every-tree-walking-tool-routes-through-the-helper`) and in
+;; `no-inline-indicator-slot-emit-outside-the-helper-causa-mcp`
+;; (the inline-emit anti-pin on the causa-mcp src tree). The
+;; assertion below is the structural floor — a future regression
+;; that DELETES the tool directory trips it and the reviewer
+;; restores the historic spec-only stand-in.
 ;; ---------------------------------------------------------------------------
 
-(deftest causa-mcp-impl-still-absent
-  ;; Tripwire — fires when causa-mcp lands real tool source files
-  ;; (per-tool tree-walkers under `src/.../tools/`). The F-1 scaffold
-  ;; (rf2-8xzoe.1) shipped a banner-only `server.cljs` that's not a
-  ;; tree-walking emit-site, so the directory probe targets the
-  ;; per-tool subdirectory both pair2-mcp and story-mcp use to host
-  ;; their tree-walking tools. When `src/day8/re_frame2_causa_mcp/tools/`
-  ;; appears with files, this test fails and the reviewer extends the
-  ;; tree-walking-tool catalogue with causa entries.
+(deftest causa-mcp-tools-directory-present
   (let [tools-dir (io/file fx/repo-root
                            "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools")]
-    (is (or (not (.exists tools-dir))
-            (empty? (filter #(.isFile ^java.io.File %) (file-seq tools-dir))))
-        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ now "
-             "contains source files. Extend `tree-walking-tool-sources` "
-             "and `inline-emit-whitelist` (or their causa-mcp "
-             "equivalents) to cover causa-mcp's tree-walking tools "
-             "per Conventions:154 / Spec 009:1411 MUST-level parity."))))
+    (is (.exists tools-dir)
+        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ is "
+             "missing. The T-Insp cluster (rf2-8xzoe.14..22) landed "
+             "this directory; if it was intentionally removed, revert "
+             "`causa-mcp-tree-walking-tool-sources` and "
+             "`causa-mcp-inline-emit-whitelist` to spec-only stand-ins."))
+    (is (seq (filter #(.isFile ^java.io.File %) (file-seq tools-dir)))
+        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ "
+             "exists but contains no files. Same restoration path as "
+             "the missing-directory case."))))
