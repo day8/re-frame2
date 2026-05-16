@@ -39,6 +39,7 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `npm run test:bundle-isolation` | Compiles release counter/counter-uix/counter-helix bundles and runs `check-bundle-isolation` + `check-uix-helix-reagent-free`. Tools must not leak into production bundles; UIx/Helix bundles must be Reagent-free. |
 | `npm run test:reagent-slim:bundle-isolation` | Reagent Slim invariant: slim advanced bundles exclude stock Reagent impl sentinels and `react-dom/server`, with a stock-Reagent positive control. |
 | `npm run test:examples` | Browser smoke across the runnable examples. |
+| `npm run test:examples:realworld` | Narrow RealWorld (Conduit / Spec 014) smoke only (rf2-h9ut9). The full sweep above is rigorous local / nightly / release; this changed-surface gate compiles and smokes one example end-to-end for cross-artefact runtime changes. Accepts `--filter <substring>` (or `EXAMPLES_FILTER=<substring>`) for ad-hoc narrowing against any single example or testbed. |
 | `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). Occasional / pre-commit until proven stable — not yet default CI. |
 | `npm run test:causa-feature-gate` | Causa browser feature/load gate from `tools/causa/spec/017-Test-Coverage-Matrix.md`. Occasional; not default CI. |
 | `npm run test:story-static` | Static-build contract and deployable-output sanity for the Story export. |
