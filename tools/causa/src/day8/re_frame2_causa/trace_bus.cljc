@@ -37,28 +37,47 @@
   opts in via `(causa-config/configure! {:trace/show-sensitive?
   true})`.
 
-  ## Reactivity (rf2-in6l2)
+  ## Reactivity (rf2-in6l2 / rf2-wq6gx)
 
   The buffer lives in two places that move in lockstep:
 
     1. The `buffer-state` atom (this ns) — the JVM-runnable data
-       primitive. Tests over push algebra / sensitive-trace privacy /
-       filter-vocab consumer use the atom directly; CLJC so the shape
-       runs under both runtimes.
+       primitive AND the canonical write surface. Every push,
+       clear, and depth-shrink mutates the atom synchronously.
+       Tests over push algebra / sensitive-trace privacy /
+       filter-vocab consumer use the atom directly; CLJC so the
+       shape runs under both runtimes.
 
     2. Causa's app-db `:trace-buffer` slot (lazy-registered by
-       `mount.cljs/open!` at first Ctrl+Shift+C, mirrored on every
-       `collect-trace!` via `:rf.causa/note-trace-event`). Panels
-       subscribe to `:rf.causa/trace-buffer` which reads this slot —
-       the layer-1 sub re-fires on the standard app-db-write reactive
-       path so the panel re-renders IMMEDIATELY on every trace push
-       with no dependency on a host-side dispatch.
+       `mount.cljs/open!` at first Ctrl+Shift+C, refreshed by a
+       coalesced microtask sync). Panels subscribe to
+       `:rf.causa/trace-buffer` which reads this slot — the layer-1
+       sub re-fires on the standard app-db-write reactive path so
+       panels re-render on the next microtask after a flush.
 
-  Why both: the atom is the JVM-runnable primitive and the pre-mount
-  fallback (`collect-trace!` can fire before `open!` has registered
-  the frame; the atom still accumulates and the seed lands when the
-  user opens Causa). The app-db slot is the reactive surface that
-  reg-view-wrapped panels read via the `:rf/causa` frame.
+  ### Coalesced mirror (rf2-wq6gx)
+
+  `request-mirror-sync!` schedules a single
+  `:rf.causa/sync-trace-buffer` dispatch carrying the atom's
+  current snapshot per JS tick — same-tick callers (e.g. a flood
+  of 1000 collect-trace! calls from a synthetic-load test) collapse
+  to ONE dispatch. This caps the mirror cascade depth at 1
+  regardless of host trace-event volume, structurally eliminating
+  the drain-depth saturation that the original per-event mirror
+  exhibited (`re-frame.router/drain-depth-default = 100` triggered
+  a rollback that snapped the mirror back to a small count, and
+  the slot stalled far below the atom's true contents). Snapshot
+  semantics also obviate the rf2-z4fza per-event seed-race dedup
+  walk in production — every mirror is a wholesale overwrite of
+  the slot with the atom's snapshot, so duplicate-`:id` rows are
+  structurally impossible.
+
+  Why both surfaces: the atom is the JVM-runnable primitive and
+  the pre-mount fallback (`collect-trace!` can fire before `open!`
+  has registered the frame; the atom still accumulates and the
+  seed lands when the user opens Causa). The app-db slot is the
+  reactive surface that reg-view-wrapped panels read via the
+  `:rf/causa` frame.
 
   Per rf2-e9s81 the parallel-app-db approach was attempted at preload
   time and reverted because the preload couldn't register `:rf/causa`
@@ -104,30 +123,117 @@
       (subvec buffer' (- n depth))
       buffer')))
 
-;; ---- causa-frame mirror dispatch helper (rf2-in6l2) -------------------
+;; ---- causa-frame mirror dispatch helper (rf2-in6l2 / rf2-wq6gx) ----------
 ;;
 ;; CLJS-only — the framework dispatch surface is CLJS-only on this code
 ;; path (the JVM `re-frame.frame/frame` lookup is also CLJC but `rf/
 ;; dispatch` is the gating call). When the `:rf/causa` frame is
-;; registered (`mount.cljs/open!` ran), every `collect-trace!` /
-;; `clear-buffer!` / `set-buffer-depth!` mirrors its effect into the
-;; frame's app-db via dispatch — so the layer-1 sub re-fires on the
-;; standard app-db-write reactive path and panels re-render IMMEDIATELY.
-;; Pre-mount the frame is absent; the mirror is a no-op and the atom
-;; still accumulates (the eventual `mount.cljs/open!` seeds the slot
-;; from the atom). Per `mount.cljs/ensure-causa-frame!` for the seed.
+;; registered (`mount.cljs/open!` ran), the per-event collector / the
+;; clear path / the depth-shrink path each request a mirror sync; a
+;; coalescing scheduler collapses every same-tick request into ONE
+;; `:rf.causa/sync-trace-buffer` dispatch that overwrites `:rf/causa`'s
+;; `:trace-buffer` slot with the CURRENT `buffer-state` snapshot.
+;; Pre-mount the frame is absent; the request is a silent no-op and the
+;; atom still accumulates (the eventual `mount.cljs/open!` seeds the
+;; slot from the atom). Per `mount.cljs/ensure-causa-frame!` for the
+;; seed.
+;;
+;; ## Why a coalesced snapshot, not per-event dispatch (rf2-wq6gx)
+;;
+;; The original rf2-in6l2 design dispatched `:rf.causa/note-trace-event`
+;; once per push so the layer-1 sub re-fired in lockstep with the atom.
+;; That works for typical event volume; it breaks under saturation
+;; (a synchronous JS task that emits ≥`re-frame.router/drain-depth-
+;; default` = 100 trace events into the queue): the router's
+;; depth-exceeded rollback restores `db-before`, the mirror snaps back
+;; to a small count, successive drain attempts repeat the rollback, and
+;; the slot stalls far below the atom's true contents. Coalescing every
+;; same-tick mirror request into one snapshot dispatch caps the cascade
+;; depth at 1 regardless of host trace-event volume — drain-depth
+;; pressure is structurally eliminated, not just postponed.
+;;
+;; Snapshot semantics also obviate the per-event seed-race dedup walk
+;; (rf2-z4fza): `ensure-causa-frame!` seeds the slot via
+;; `dispatch-sync :rf.causa/sync-trace-buffer (trace-bus/buffer)`; the
+;; coalesced post-seed sync writes the SAME snapshot (or a later one) —
+;; never an append, so no duplicate-`:id` rows can land in the vector.
+;;
+;; `goog.async.nextTick` (re-exported via `re-frame.interop/next-tick`)
+;; provides the microtask scheduler: same-tick requests batch; the tick
+;; runs after the current JS task completes.
 
 #?(:cljs
-   (defn- mirror-into-causa!
-     "Dispatch `event-v` into `:rf/causa`'s frame iff the frame is
-     registered. Pre-mount this is a silent no-op (no warning trace,
-     no exception) — the trace-bus atom keeps accumulating and the
-     `:rf.causa/sync-trace-buffer` seed in `mount.cljs/open!` lifts
-     the atom's contents into the freshly-registered frame."
-     [event-v]
-     (when (some? (frame/frame :rf/causa))
-       (rf/with-frame :rf/causa
-         (rf/dispatch event-v)))))
+   (defonce ^:private mirror-sync-scheduled?
+     ;; `compare-and-set!` sentinel — `true` while a microtask is queued
+     ;; and not yet drained; reset to `false` immediately before the
+     ;; queued tick reads the atom snapshot, so a request that arrives
+     ;; after the snapshot read enqueues a fresh tick rather than
+     ;; merging silently with one that's already in flight.
+     (atom false)))
+
+#?(:cljs
+   (defn- request-mirror-sync!
+     "Schedule a coalesced `:rf.causa/sync-trace-buffer` dispatch into
+     the `:rf/causa` frame. Same-tick callers collapse to a single
+     dispatch carrying the atom's current snapshot — capping the
+     cascade depth at 1 regardless of how many `collect-trace!` /
+     `clear-buffer!` / `set-buffer-depth!` calls land in this task.
+
+     Pre-mount the frame is absent; the tick still drains (clears the
+     sentinel) but the dispatch path no-ops — the atom keeps
+     accumulating until `mount.cljs/open!` seeds via
+     `dispatch-sync :rf.causa/sync-trace-buffer`."
+     []
+     (when (compare-and-set! mirror-sync-scheduled? false true)
+       (interop/next-tick
+         (fn []
+           (reset! mirror-sync-scheduled? false)
+           (when (some? (frame/frame :rf/causa))
+             (rf/with-frame :rf/causa
+               (rf/dispatch [:rf.causa/sync-trace-buffer @buffer-state]))))))))
+
+;; ---- self-noise guard (rf2-xs8vu) ---------------------------------------
+;;
+;; Causa's own panels render INSIDE the host app. Every host dispatch
+;; dirties the host app-db → the layer-1 `:rf.causa/trace-buffer` sub
+;; re-fires → every Causa panel that derefs it re-renders → every
+;; `:rf/causa`-frame sub it reads emits `:sub/run` → every re-render
+;; emits `:view/render`. Without a guard, those self-induced trace
+;; events flow back through the framework's trace-cb fan-out, through
+;; THIS collector, into the buffer, and (because they fire outside a
+;; host dispatch) bucket as `:ungrouped :ungrounded` — drowning the
+;; host event the user actually cared about under a cascade of
+;; `:rf.causa/*` sub-reads.
+;;
+;; The fix is at INGEST (not at READ time — readers shouldn't have to
+;; know about internals). Any trace event whose `:frame` slot resolves
+;; to `:rf/causa` is Causa's own machinery; we drop it before it ever
+;; enters the buffer. The framework's `:rf.trace/no-emit?` flag on
+;; Causa's registry handlers already silences `:event/dispatched` etc.
+;; from Causa's bookkeeping cascade — this filter handles the
+;; remaining sub-read + view-render emits that fire reactively from
+;; panel re-renders.
+;;
+;; Pre-alpha posture: drop unconditionally. No "show internals" toggle
+;; — if Causa needs to introspect its own machinery later, that's a
+;; separate feature (a parallel Causa-internal buffer would be the
+;; right shape), not an opt-out on the user-facing trace feed.
+
+(defn causa-internal-event?
+  "True when `event`'s `:frame` slot is `:rf/causa` — i.e. the trace
+  event was emitted by Causa's own subscriptions, views, or any other
+  machinery running under `(rf/with-frame :rf/causa ...)`.
+
+  Reads top-level `:frame` first, falling back to `(:tags :frame)`,
+  matching the resolution order `filter-events` already uses for the
+  `:frame` filter axis. Both keys can carry the frame id depending on
+  emit site (Spec 009 §Core fields hoists some, leaves others under
+  `:tags`).
+
+  Pure-data + JVM-runnable so the predicate is testable without a CLJS
+  runtime."
+  [event]
+  (= :rf/causa (or (:frame event) (get-in event [:tags :frame]))))
 
 ;; ---- collector --------------------------------------------------------
 
@@ -137,6 +243,16 @@
   time. Production builds elide the call (the framework's trace
   emission is gated on `interop/debug-enabled?` and never invokes the
   callback).
+
+  Per rf2-xs8vu: trace events whose `:frame` is `:rf/causa` are
+  dropped at ingest — Causa's own panels render inside the host app,
+  so every host dispatch reactively re-fires Causa's subs and re-
+  renders Causa's views; without the filter, those self-induced
+  `:sub/run` + `:view/render` emits would land in Causa's own trace
+  buffer as `:ungrouped :ungrounded` (they fire outside a host
+  dispatch) and drown the host event the user clicked. See
+  `causa-internal-event?`. Pre-alpha — no opt-out toggle; Causa-
+  internal introspection is a separate feature surface if needed.
 
   Per Spec 009 §Privacy + rf2-azls9: events whose `:sensitive?` flag
   is true are dropped before the buffer push when the global
@@ -171,19 +287,33 @@
   [event]
   (when interop/debug-enabled?
     (cond
+      ;; rf2-xs8vu — drop Causa's own machinery before anything else.
+      ;; Self-emitted sub-reads / view-renders from Causa's own panels
+      ;; would otherwise drown the host event in `:ungrouped` noise.
+      ;; Sits above the privacy gate so internal-frame sensitive events
+      ;; (none expected today, but symmetrical) don't bump the host's
+      ;; REDACTED counter. See `causa-internal-event?` for the contract.
+      (causa-internal-event? event)
+      nil
+
       (config/suppress-sensitive? event)
       (config/note-suppressed! (get-in event [:tags :frame]))
 
       :else
       (do
         (swap! buffer-state push @buffer-depth event)
-        ;; Mirror into :rf/causa so the reg-view-wrapped panels'
-        ;; `:rf.causa/trace-buffer` sub re-fires on the standard app-db-
-        ;; write reactive path. CLJS only — the JVM build does not run
-        ;; panels. Pre-mount the mirror is a no-op (frame absent); the
-        ;; atom keeps accumulating and `mount.cljs/open!`'s seed lifts
-        ;; the contents at first Ctrl+Shift+C.
-        #?(:cljs (mirror-into-causa! [:rf.causa/note-trace-event event]))))))
+        ;; Per rf2-wq6gx — request a coalesced snapshot sync into
+        ;; `:rf/causa`'s `:trace-buffer` slot. Same-tick callers
+        ;; collapse to ONE dispatch carrying the atom's current
+        ;; contents, so a synthetic-saturation flood of 1000 pushes
+        ;; queues one mirror event, not 1000 — the router's
+        ;; drain-depth limit can never gate the mirror cascade
+        ;; regardless of host trace-event volume. CLJS only — the JVM
+        ;; build does not run panels. Pre-mount the request is a
+        ;; silent no-op (frame absent); the atom keeps accumulating
+        ;; and `mount.cljs/open!`'s seed lifts the contents at first
+        ;; Ctrl+Shift+C.
+        #?(:cljs (request-mirror-sync!))))))
 
 ;; ---- read-side accessors -------------------------------------------
 
@@ -199,6 +329,28 @@
   `set-buffer-depth!` rewrites it)."
   []
   @buffer-depth)
+
+(defn seed-buffer-for-test!
+  "Push `event` straight into the buffer atom, bypassing
+  `collect-trace!`'s ingest gates (privacy filter, self-noise filter,
+  app-db mirror dispatch). Test-only — callers that want to drive
+  the public ingest path use `collect-trace!`.
+
+  Lifted from the consumer-test suite (`filter_vocab_consumer_cljs_
+  test.cljc`'s `seed!`) which seeds synthetic events into the buffer
+  to exercise `filter-events`. Those tests need events shaped like
+  `{:frame :rf/causa}` to land in the buffer to verify the `:frame`
+  filter axis — but `collect-trace!` now (rf2-xs8vu) drops those
+  before the buffer push, so the consumer-test suite cannot reach the
+  buffer through the public collector. This helper preserves the
+  consumer-test contract without weakening the production ingest
+  guard.
+
+  Pure mutation, no privacy / no mirror / no debug gate — strictly
+  for assembling buffer fixtures in tests."
+  [event]
+  (swap! buffer-state push @buffer-depth event)
+  nil)
 
 ;; ---- consumer-side filter ------------------------------------------------
 ;;
@@ -320,10 +472,11 @@
   []
   (when interop/debug-enabled?
     (reset! buffer-state [])
-    ;; Mirror the clear into :rf/causa so the reactive `:trace-buffer`
-    ;; slot empties in lockstep with the atom. Pre-mount this is a
-    ;; silent no-op (frame absent).
-    #?(:cljs (mirror-into-causa! [:rf.causa/clear-trace-buffer]))
+    ;; Per rf2-wq6gx — request a coalesced snapshot sync; the
+    ;; microtask will write the now-empty atom into the slot,
+    ;; clearing the reactive surface in lockstep with the atom.
+    ;; Pre-mount this is a silent no-op (frame absent).
+    #?(:cljs (request-mirror-sync!))
     (config/reset-suppressed-count!))
   nil)
 
@@ -341,9 +494,10 @@
                  (zero? depth) []
                  (> n depth)   (subvec v (- n depth))
                  :else         v))))
-    ;; Mirror the post-shrink contents into `:rf/causa`'s app-db so
-    ;; the reactive slot reflects the same eviction the atom just took.
-    #?(:cljs (mirror-into-causa! [:rf.causa/sync-trace-buffer @buffer-state])))
+    ;; Per rf2-wq6gx — request a coalesced snapshot sync; the
+    ;; microtask will write the post-shrink atom contents into the
+    ;; slot.
+    #?(:cljs (request-mirror-sync!)))
   nil)
 
 ;; ---- retroactive scrub on set-show-sensitive! false (rf2-lqmje) ---------

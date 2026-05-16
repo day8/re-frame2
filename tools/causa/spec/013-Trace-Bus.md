@@ -170,17 +170,25 @@ recomputation per push) and consistent across CLJS and JVM.
 
 The buffer is held in a plain atom (process-global, not per-frame).
 The CLJS `:rf.causa/trace-buffer` sub (registered in `registry.cljs`)
-is layer-1 and thunks `trace-bus/buffer` so subscribers get a fresh
-read on every recompute. The sub re-fires on every app-db change of
-its resolved frame; under Causa's normal usage — panels rendered
-inside a host app — every host dispatch dirties the resolved
-frame's app-db and the sub picks up whatever the trace-cb has
-accumulated in the atom since the previous recompute. Visible delay
-between trace push and panel update is bounded by the host's next
-dispatch, indistinguishable from native trace-rate UI cadence on
-every example app the foundation ships.
+is layer-1 and reads `(get db :trace-buffer)`, falling through to
+`trace-bus/buffer` pre-mount.
 
-### History (rf2-iw5ym → rf2-e9s81)
+**Current implementation (rf2-in6l2 + rf2-wq6gx).** Panels are
+reg-view-wrapped and resolve to the `:rf/causa` frame via the
+React-context tier; `trace-bus/request-mirror-sync!` coalesces every
+same-tick push / clear / depth-shrink request into ONE
+`:rf.causa/sync-trace-buffer` dispatch carrying the atom's current
+snapshot. The sub re-fires on the standard app-db-write reactive path
+so panels re-render on the next microtask after a flush. The coalesced
+design caps the mirror cascade at depth 1 regardless of host trace-
+event volume — `re-frame.router/drain-depth-default` (= 100) can never
+gate the mirror under saturation (e.g. a synthetic load of 1000
+trace events landing in one JS task). The pre-rf2-wq6gx per-event
+mirror saturated at ~100 events and lost the rest to the router's
+rollback path; the coalesced design eliminates that failure mode
+structurally.
+
+### History (rf2-iw5ym → rf2-e9s81 → rf2-in6l2 → rf2-wq6gx)
 
 `rf2-iw5ym` briefly mirrored the buffer into Causa's app-db at
 `[:rf/causa :trace-buffer]` via a parallel `:rf.causa/note-trace-event`
