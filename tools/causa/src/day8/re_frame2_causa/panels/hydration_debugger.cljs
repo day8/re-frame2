@@ -312,7 +312,7 @@
             [:span {:style {:margin-left "4px"
                             :color (:text-tertiary tokens)
                             :font-family mono-stack
-                            :title "Source-coord fallback — exact view coord unavailable; surfaced from handler-coord per Lock #11."}}
+                            :title "Source-coord fallback — exact view coord unavailable; using handler coord."}}
              "(?)"])])])))
 
 ;; ---- mismatch detail composite view -------------------------------------
@@ -399,7 +399,7 @@
           [:code {:style {:color (:accent-violet tokens)
                           :font-family mono-stack}}
            (str target-frame)]]
-         "Phase 5 (rf2-pzxsr) — dormant until first :rf.ssr/hydration-mismatch")]]
+         "No hydration mismatches recorded. This panel activates when SSR detects one.")]]
      (cond
        (and has-mismatch? detail)
        [:div {:style {:flex 1 :display "flex" :flex-direction "column" :overflow "hidden"}}

@@ -1126,14 +1126,11 @@ async function runMultiFrame(page, state) {
   await expectVisible(page.locator('[data-testid="rf-causa-time-travel"]'), 5000);
   const timeTravelProjection = await waitForValue(
     () => page.evaluate(() => {
-      const panel = document.querySelector('[data-testid="rf-causa-time-travel"]');
       const slider = document.querySelector('[data-testid="rf-causa-time-travel-slider"]');
       const empty = document.querySelector('[data-testid="rf-causa-time-travel-empty"]');
-      const frameCodes = panel
-        ? Array.from(panel.querySelectorAll('header code')).map((el) => (el.textContent || '').trim())
-        : [];
+      const frameEl = document.querySelector('[data-testid="rf-causa-time-travel-target-frame"]');
       return {
-        targetFrame: frameCodes.length > 0 ? frameCodes[frameCodes.length - 1] : null,
+        targetFrame: frameEl ? (frameEl.textContent || '').trim() : null,
         sliderVisible: Boolean(slider && slider.getBoundingClientRect().width > 0),
         sliderMax: slider ? Number(slider.getAttribute('max')) : null,
         emptyText: empty ? (empty.textContent || '').trim() : null,

@@ -128,9 +128,13 @@
 ;; ---- placeholder chart --------------------------------------------------
 
 (defn- placeholder-banner
-  "Calls out the deferred `tools/machines-viz/` impl + cites the
-  spec sources so a future reader (human or AI) knows the panel
-  contract is live even though the rendering surface is a stub."
+  "Banner above the prop-summary view of the selected machine.
+
+  At v1 the panel renders a text view of the machine's current state
+  and props; the visual state-chart rendering surface lives in
+  `tools/machines-viz/` and is not yet wired in. The view function
+  keeps the `placeholder-banner` name so tests pin it via testid; the
+  user-visible text simply labels what is shown."
   []
   [:div {:data-testid "rf-causa-machine-inspector-placeholder-banner"
          :style       {:padding "10px 12px"
@@ -147,20 +151,9 @@
                      :font-size "11px"
                      :text-transform "uppercase"
                      :letter-spacing "0.5px"}}
-    "MachineChart placeholder"]
+    "Current state"]
    [:p {:style {:margin "4px 0 0 0"}}
-    "The "
-    [:code {:style {:font-family mono-stack :color (:text-primary tokens)}}
-     "tools/machines-viz/"]
-    " implementation is deferred — only the spec scaffold has landed "
-    "(rf2-x50eu). This panel renders the prop summary the real "
-    [:code {:style {:font-family mono-stack :color (:text-primary tokens)}}
-     "MachineChart"]
-    " component would consume per "
-    [:code {:style {:font-family mono-stack :color (:text-primary tokens)}}
-     "tools/machines-viz/spec/API.md"]
-    ". When the impl ships, the placeholder swaps for the real "
-    "component without touching the panel chrome."]])
+    "Text view of the selected machine — its id, frame, and live state snapshot."]])
 
 (defn- prop-row
   "One labelled row inside the placeholder's prop summary."
@@ -212,7 +205,7 @@
                     :color (:text-tertiary tokens)
                     :text-transform "uppercase"
                     :letter-spacing "0.5px"}}
-      "Defaults applied at chart-mount (per tools/machines-viz/spec/API.md §Props):"]
+      "Defaults in effect:"]
      [:ul {:style {:margin "4px 0 0 0"
                    :padding "0 0 0 16px"
                    :color (:text-secondary tokens)
@@ -325,19 +318,11 @@
     "No machines registered."]
    [:p {:style {:margin 0
                 :font-size "12px"}}
-    "Once your app registers a machine via "
+    "Register a machine with "
     [:code {:style {:font-family mono-stack :color (:accent-violet tokens)}}
      "rf/reg-machine"]
-    " (Spec 005), it will appear here with:"]
-   [:ul {:style {:margin "8px 0 0 0"
-                 :padding "0 0 0 18px"
-                 :font-size "12px"}}
-    [:li "Live state-chart highlighting"]
-    [:li "Transition history ribbon"]
-    [:li ":after countdown rings (via "
-     [:code {:style {:font-family mono-stack :color (:text-tertiary tokens)}}
-      "tools/machines-viz/"]
-     ")"]]])
+    " and it will appear here with its live state, transition history, "
+    "and any :after countdowns."]])
 
 ;; ---- public view --------------------------------------------------------
 
@@ -366,11 +351,7 @@
       [:p {:style {:font-size "12px"
                    :color     (:text-tertiary tokens)
                    :margin    "4px 0 0 0"}}
-       "State-chart per registered machine. Picker switches the focus; "
-       "the chart placeholder mirrors the prop contract from "
-       [:code {:style {:font-family mono-stack :color (:accent-violet tokens)}}
-        "tools/machines-viz/"]
-       "."]]
+       "Pick a machine to inspect its current state and recent transitions."]]
      (if (= :no-machines empty-kind)
        (empty-state)
        [:div {:style {:flex 1 :display "flex" :flex-direction "column"

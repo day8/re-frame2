@@ -306,8 +306,7 @@
                 :font-size   "13px"
                 :color       (:text-secondary tokens)
                 :margin      "0 0 12px 0"}}
-    "Select a dispatch from the cascade list — the actions panel "
-    "(rf2-5yriz) will replace this in the next phase."]
+    "Click a cascade below to inspect its dispatch."]
    (if (empty? cascades)
      [:p {:style {:font-family sans-stack
                   :font-size   "13px"
@@ -391,9 +390,8 @@
       [:p {:style {:font-size "12px"
                    :color     (:text-tertiary tokens)
                    :margin    "4px 0 0 0"}}
-       "Hero panel — §10 Lock 7. Frame: "
-       [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
-        ":rf/causa"]]]
+       "Pick a dispatch from the cascade list to see its handler, "
+       "effects, subscriptions, and source coord."]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         (and selected-dispatch-id selected-cascade)
