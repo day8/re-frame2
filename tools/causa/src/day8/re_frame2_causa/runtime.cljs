@@ -76,6 +76,14 @@
   attach later without the runtime needing to know."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            ;; rf2-qwm0a: trace-buffer (and the rest of the listener +
+            ;; ring-buffer surface) lives in re-frame.trace.tooling, not
+            ;; re-frame.trace. CLJS deliberately omits `rf/<name>` aliases
+            ;; for these so production counter bundles DCE the tooling
+            ;; sibling wholesale; Causa's runtime is dev-only (rides the
+            ;; panel's :devtools/preloads), so requiring the tooling ns
+            ;; directly here is bundle-isolation-safe.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.interop :as interop]))
 
 ;; ---------------------------------------------------------------------------
@@ -211,7 +219,7 @@
 
 (defn get-trace-buffer
   "Tool: `get-trace-buffer`. Return a slice of the trace stream by
-  filter; forwards to `(rf/trace-buffer opts)`. Filter keys are the
+  filter; forwards to `(trace-tooling/trace-buffer opts)`. Filter keys are the
   canonical Spec 009 filter vocabulary (`:operation`, `:op-type`,
   `:since`, `:frame`, `:severity`, `:event-id`, `:handler-id`,
   `:source`, `:origin`, `:dispatch-id`, `:since-ms`, `:between`,
@@ -224,7 +232,7 @@
   ([opts]
    (let [{:keys [include-sensitive? include-large?]} opts
          filter-opts (dissoc opts :include-sensitive? :include-large?)
-         events      (rf/trace-buffer filter-opts)
+         events      (trace-tooling/trace-buffer filter-opts)
          scrubbed    (mapv #(elide % {:include-sensitive? include-sensitive?
                                       :include-large?     include-large?})
                            events)]
@@ -377,7 +385,7 @@
          issue-op-types #{:error :warning
                           :rf.schema/violation
                           :rf.hydration/mismatch}
-         events  (rf/trace-buffer {})
+         events  (trace-tooling/trace-buffer {})
          issues  (filterv #(contains? issue-op-types (:op-type %)) events)
          scrubbed (mapv #(elide % {:include-sensitive? include-sensitive?
                                    :include-large?     include-large?})
