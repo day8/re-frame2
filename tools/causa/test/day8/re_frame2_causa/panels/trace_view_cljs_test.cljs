@@ -524,3 +524,209 @@
         (is (string? k11)
             "key is a string (not the positional-tuple from the
              pre-rf2-z4fza shape)")))))
+
+;; ---- (9) orphan-filter surfacing — rf2-vu0mp ---------------------------
+;;
+;; When the buffer rotates past the cap and the selected filter value's
+;; last instance ages out, :trace-filters still carries the selection
+;; but the chip-row no longer shows that value (audit F6). Per rf2-vu0mp
+;; the fix:
+;;
+;;   1. The header's chip-row keeps rendering the active value (the
+;;      helper's effective-distinct unions it back into distinct);
+;;      orphan chips are marked visually (count = 0, dashed border,
+;;      italic).
+;;   2. The :no-matches empty state surfaces an 'narrowing on:' strip
+;;      listing every active axis=value pair so the user always has
+;;      an in-panel cue what is filtering the ribbon — orphan or not.
+
+(deftest orphan-chip-renders-in-header-when-filter-value-aged-out
+  (testing "rf2-vu0mp: filtering on a value not present in the buffer
+            still renders an axis chip for that value so the user can
+            see / toggle off their selection. The chip carries count 0."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Push a single :ui-sourced event then narrow on :timer — the
+      ;; :timer value is NOT in the buffer (orphan).
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui :frame :rf/default}))
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
+      (let [tree (trace/trace-view)]
+        (is (some? (find-by-testid tree "rf-causa-trace-axis-row-source"))
+            "the :source chip-row renders even though only one buffered
+             distinct value exists (the active orphan brings the chip
+             count to 2 — distinct :ui + orphan :timer)")
+        (is (some? (find-by-testid tree "rf-causa-trace-axis-chip-source-timer"))
+            "an orphan chip for the active :timer selection renders")))))
+
+(deftest orphan-empty-state-surfaces-active-filter-strip
+  (testing "rf2-vu0mp: the :no-matches empty state surfaces an
+            'narrowing on:' strip listing each active axis=value pair
+            so the user always sees what is filtering the ribbon"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Push two events that won't match the filter.
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui :origin :app :frame :rf/default}))
+      (sync-push! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
+                             :source :ui :origin :app :frame :rf/default}))
+      ;; Narrow on a value the buffer doesn't carry — orphan.
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
+      (let [tree (trace/trace-view)]
+        (is (some? (find-by-testid tree "rf-causa-trace-empty-no-matches"))
+            ":no-matches empty state renders")
+        (is (some? (find-by-testid tree "rf-causa-trace-empty-active-filters"))
+            "rf2-vu0mp: active-filters strip renders inside no-matches")
+        (is (some? (find-by-testid tree "rf-causa-trace-empty-active-source"))
+            "a pill for the :source axis surfaces")))))
+
+(deftest active-filter-pill-click-drops-the-axis
+  (testing "rf2-vu0mp: clicking an active-filter pill drops that axis
+            from the filter map (lets the user clear an orphan without
+            hunting through the header)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui :frame :rf/default}))
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :frame :rf/missing])
+      (let [dispatches (atom [])]
+        (with-redefs [rf/dispatch* (fn
+                                     ([ev]      (swap! dispatches conj ev) nil)
+                                     ([ev _o]   (swap! dispatches conj ev) nil))]
+          (let [tree    (trace/trace-view)
+                pill    (find-by-testid tree "rf-causa-trace-empty-active-source")
+                handler (:on-click (second pill))]
+            (is (some? pill) ":source pill rendered")
+            (when handler (handler))))
+        (is (some #(= [:rf.causa/set-trace-filter :source nil] %) @dispatches)
+            "clicking the pill fires set-trace-filter with nil-value
+             (the canonical 'drop this axis' shape)")))))
+
+(deftest empty-state-active-filter-pill-marks-present-vs-orphan
+  (testing "rf2-vu0mp: a present axis pill (the value still exists in
+            the buffer) is styled differently from an orphan pill — the
+            data-driven marker on the chip label."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Push :ui-sourced events; then add TWO filters: source = :ui
+      ;; (present, but combined with the second filter renders zero
+      ;; rows) AND frame = :rf/missing (orphan).
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui :frame :rf/default}))
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :frame  :rf/missing])
+      (let [tree         (trace/trace-view)
+            source-pill  (find-by-testid tree "rf-causa-trace-empty-active-source")
+            frame-pill   (find-by-testid tree "rf-causa-trace-empty-active-frame")
+            label-of     (fn [node]
+                           (->> (hiccup-seq node)
+                                (filter string?)
+                                (apply str)))]
+        (is (some? source-pill) "present axis pill renders")
+        (is (some? frame-pill)  "orphan axis pill renders")
+        (testing "present pill has no orphan marker"
+          (is (not (re-find #"orphaned" (label-of source-pill)))))
+        (testing "orphan pill carries the orphan marker"
+          (is (re-find #"orphaned" (label-of frame-pill))))))))
+
+;; ---- (10) incremental projection wiring — rf2-44vzy --------------------
+;;
+;; The trace-feed sub now reads :trace-feed-state — an incrementally-
+;; maintained snapshot of the projection updated O(axes) per push by
+;; the :rf.causa/note-trace-event handler. These tests pin the wiring
+;; contract: registry installs the new state-keeping handlers; the
+;; sub returns the same shape as before; clear/sync drop the
+;; snapshot in lockstep with the buffer (privacy invariant from
+;; rf2-lqmje §Privacy retroactive-scrub).
+
+(deftest trace-feed-state-sub-registered
+  (testing "registry registers the :rf.causa/trace-feed-state sub
+            (the per-rf2-44vzy reactive surface)"
+    (registry/register-causa-handlers!)
+    (is (some? (registrar/handler :sub :rf.causa/trace-feed-state))
+        ":rf.causa/trace-feed-state sub registered")))
+
+(deftest note-trace-event-updates-feed-state-snapshot
+  (testing "rf2-44vzy: the note-trace-event handler dual-writes —
+            populates both :trace-buffer and :trace-feed-state. The
+            snapshot's :total, :counts, and :seen mirror what a from-
+            scratch project-feed would produce."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui :frame :rf/default}))
+      (sync-push! (mk-trace {:id 2 :op-type :error :operation :rf.error/x
+                             :source :timer :frame :rf/causa}))
+      (let [state @(rf/subscribe [:rf.causa/trace-feed-state])]
+        (is (= 2 (:total state)))
+        (is (= 2 (count (:projected-rows state))))
+        (is (contains? (get-in state [:seen :source]) :ui))
+        (is (contains? (get-in state [:seen :source]) :timer))
+        (is (= 1 (get-in state [:counts :source :ui])))
+        (is (= 1 (get-in state [:counts :source :timer])))))))
+
+(deftest clear-trace-buffer-drops-feed-state
+  (testing "rf2-44vzy + rf2-lqmje §Privacy retroactive-scrub: the
+            `:rf.causa/clear-trace-buffer` handler dissocs BOTH
+            `:trace-buffer` and `:trace-feed-state` in lockstep so
+            the incremental snapshot never carries pre-clear residue.
+
+            We assert the handler shape directly (sync dispatch) — the
+            production path is `trace-bus/clear-buffer!`, which also
+            clears the atom + queues this dispatch."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Populate both the app-db slot AND the atom by going through
+      ;; sync-push! (dispatches :rf.causa/note-trace-event sync).
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui}))
+      (is (pos? (:total @(rf/subscribe [:rf.causa/trace-feed-state])))
+          "snapshot populated before clear")
+      ;; Clear the atom + the slot atomically: drop the atom first so
+      ;; the sub's fallback path produces an empty state, then sync-
+      ;; dispatch the clear handler so the slot is dissoced too.
+      (trace-bus/clear-buffer!)
+      (rf/dispatch-sync [:rf.causa/clear-trace-buffer])
+      (let [state @(rf/subscribe [:rf.causa/trace-feed-state])]
+        (testing "post-clear: snapshot rebuilt from now-empty buffer →
+                 empty / fresh state"
+          (is (= 0 (:total state)))
+          (is (= [] (:projected-rows state))))))))
+
+(deftest sync-trace-buffer-rebuilds-feed-state
+  (testing "rf2-44vzy: :rf.causa/sync-trace-buffer rebuilds the
+            snapshot from the seeded buffer — every distinct value
+            present in the seed must land in :seen"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (let [seed [(mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui :frame :rf/default})
+                  (mk-trace {:id 2 :op-type :error :operation :rf.error/x
+                             :source :timer :frame :rf/causa})]]
+        (rf/dispatch-sync [:rf.causa/sync-trace-buffer seed])
+        (let [state @(rf/subscribe [:rf.causa/trace-feed-state])]
+          (is (= 2 (:total state)))
+          (is (contains? (get-in state [:seen :source]) :ui))
+          (is (contains? (get-in state [:seen :source]) :timer)))))))
+
+(deftest trace-feed-shape-stable-across-incremental-path
+  (testing "rf2-44vzy: the public :rf.causa/trace-feed shape is
+            unchanged — :rows / :total / :rendered / :distinct /
+            :counts / :filters / :any-filter? / :empty-kind all
+            present. Adds rf2-vu0mp's :active-filters key."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :source :ui :frame :rf/default}))
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
+        (is (contains? feed :rows))
+        (is (contains? feed :total))
+        (is (contains? feed :rendered))
+        (is (contains? feed :distinct))
+        (is (contains? feed :counts))
+        (is (contains? feed :filters))
+        (is (contains? feed :any-filter?))
+        (is (contains? feed :empty-kind))
+        (is (contains? feed :active-filters)
+            "rf2-vu0mp adds :active-filters for the empty-state strip")))))

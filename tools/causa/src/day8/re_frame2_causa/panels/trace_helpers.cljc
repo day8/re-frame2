@@ -234,6 +234,97 @@
     {}
     rows))
 
+;; ---- orphan-filter surfacing (rf2-vu0mp) --------------------------------
+;;
+;; The chip-row enumeration is built from the events currently in the
+;; buffer. When the buffer rotates past the cap, the oldest event(s)
+;; age out and any axis value carried ONLY by those events drops out
+;; of `:distinct` / `:counts` / `:seen`. If the user has narrowed the
+;; ribbon on that value, the filter remains active (it lives in
+;; `:trace-filters`, separate from the buffer) but the chip that
+;; represents it has nothing to highlight, the empty-state paints
+;; `:no-matches`, and there is no in-panel surface telling the user
+;; what value is responsible. The user is left guessing.
+;;
+;; The fix has two faces, both surfaced through this ns so the algebra
+;; stays JVM-testable:
+;;
+;;   1. `effective-distinct` unions every active filter value into the
+;;      per-axis distinct list (preserving first-seen order and
+;;      avoiding duplication) so the chip ALWAYS renders for the
+;;      currently-active value — orphan or not. The chip-row in the
+;;      header keeps its existing "active value renders highlit"
+;;      discipline; absent values render at the tail of the row.
+;;
+;;   2. `active-filters-summary` produces an ordered list of
+;;      `{:axis :value :present?}` entries the no-matches empty state
+;;      renders as 'narrowing on: axis=value (orphaned)' affordances.
+;;      `:present?` is false iff the value is no longer represented
+;;      in `seen` for that axis, i.e. has aged out of the buffer.
+;;
+;; Both helpers are total over their inputs (nil-tolerant). Per Spec
+;; 009 §Filter vocabulary the active filter map is the canonical
+;; source of truth — the buffer is the renderable substrate.
+
+(defn- distinct-append
+  "Append `value` to `distinct-vec` iff not already present. Stable —
+  preserves first-seen order. Pure data → vector."
+  [distinct-vec value]
+  (if (some #(= value %) distinct-vec)
+    distinct-vec
+    (conj distinct-vec value)))
+
+(defn effective-distinct
+  "Union the currently-active filter values into the per-axis
+  `distinct` map so the chip rows ALWAYS render the active selection
+  — even when the value has aged out of the buffer (rf2-vu0mp).
+
+  `distinct-map` is the per-axis `{axis [value ...]}` first-seen
+  vectors produced by the projection walk; `seen-map` is the parallel
+  `{axis #{value ...}}` membership sets the walk maintains; `filters`
+  is the normalised filter map. For each active axis whose filter
+  value is NOT in `(seen-map axis)`, append the value to the axis
+  distinct vector. Other axes pass through unchanged.
+
+  Pure data → map; JVM-testable."
+  [distinct-map seen-map filters]
+  (reduce-kv
+    (fn [acc axis value]
+      (cond
+        (nil? value)                         acc
+        (and (some? (get seen-map axis))
+             (contains? (get seen-map axis) value)) acc
+        :else
+        (update acc axis (fnil distinct-append []) value)))
+    distinct-map
+    (or filters {})))
+
+(defn active-filters-summary
+  "Ordered list of `{:axis :value :present?}` entries for every
+  active filter axis (rf2-vu0mp). `:present?` is true when the
+  value is still represented in the buffer (via `seen-map`),
+  false when the value has aged out (orphaned). The view renders
+  this in the `:no-matches` empty state so the user always sees
+  what is narrowing the ribbon, even when no buffered event
+  carries the value any more.
+
+  Iteration follows `filter-axes` order so the empty state's chip
+  list matches the header's chip-row ordering.
+
+  Pure data → vector; JVM-testable."
+  [filters seen-map]
+  (let [norm (normalise-filters filters)]
+    (into []
+          (keep (fn [axis]
+                  (let [v (get norm axis)]
+                    (when (some? v)
+                      {:axis     axis
+                       :value    v
+                       :present? (boolean
+                                   (and (some? (get seen-map axis))
+                                        (contains? (get seen-map axis) v)))}))))
+          filter-axes)))
+
 ;; ---- composite projection (the panel reads this) ------------------------
 
 (defn project-feed
@@ -254,6 +345,21 @@
   Spec 009 §Filter vocabulary the algebra delegates to the framework
   filter so the contract stays in lockstep.
 
+  ## Incremental update path (rf2-44vzy)
+
+  This function performs a **full re-walk** of `events` on every
+  call. Under burst traffic (60Hz × 1000-event buffer) that costs
+  ~60k row-touches/sec on the main thread before any actual render.
+  The reactive path in `panels/trace.cljs` now consults
+  `:rf.causa/trace-feed-state` — an incrementally-maintained snapshot
+  of the projection (`init-feed-state` / `feed-state+ev` /
+  `feed-state-evict`) that updates in O(axes) on each
+  `:rf.causa/note-trace-event` rather than re-walking the buffer.
+  This `project-feed` retains the from-scratch shape as the JVM-
+  testable reference + the fallback when no state is precomputed
+  (mount-time seed, headless tests, code paths that hold a raw event
+  vector without a prior state).
+
   Returns:
 
       {:rows              [<row> ...]    ;; post-filter, newest first
@@ -263,7 +369,8 @@
        :counts            {<axis> {<value> <int>}}
        :filters           <pass-through normalised>
        :any-filter?       <bool>
-       :empty-kind        <:no-events / :no-matches / nil>}
+       :empty-kind        <:no-events / :no-matches / nil>
+       :active-filters    [{:axis <kw> :value <v> :present? <bool>} ...]}
 
   `events` is the raw trace-buffer. `filters` is the 13-axis filter
   map (per Spec 009 §Filter vocabulary).
@@ -274,7 +381,14 @@
       :no-matches — events exist but the active filters hide them
                     all. The view paints 'No events match current
                     filters' with a clear-filters affordance.
-      nil         — at least one event passes; render the ribbon."
+      nil         — at least one event passes; render the ribbon.
+
+  `:active-filters` (rf2-vu0mp) lists each active axis/value pair
+  with a `:present?` flag — true when the value is still represented
+  in the current distinct values for that axis, false when the value
+  has aged out of the buffer (orphaned). The view surfaces this in
+  the no-matches empty state so the user always knows what is
+  narrowing the ribbon."
   [events filters]
   (let [normalised   (normalise-filters filters)
         passes?      (trace-bus/build-filter-predicate normalised)
@@ -340,15 +454,216 @@
         empty-kind  (cond
                       (zero? (:total result))    :no-events
                       (zero? (:rendered result)) :no-matches
-                      :else                      nil)]
-    {:rows         sorted-display
-     :total        (:total result)
-     :rendered     (:rendered result)
-     :distinct     (:distinct result)
-     :counts       (:counts result)
-     :filters      normalised
-     :any-filter?  (boolean (seq normalised))
-     :empty-kind   empty-kind}))
+                      :else                      nil)
+        active-filters (active-filters-summary normalised (:seen result))]
+    {:rows           sorted-display
+     :total          (:total result)
+     :rendered       (:rendered result)
+     :distinct       (effective-distinct (:distinct result)
+                                         (:seen result)
+                                         normalised)
+     :counts         (:counts result)
+     :filters        normalised
+     :any-filter?    (boolean (seq normalised))
+     :empty-kind     empty-kind
+     :active-filters active-filters}))
+
+;; ---- incremental projection state (rf2-44vzy) ---------------------------
+;;
+;; `project-feed` is single-pass over the buffer (rf2-7mwc8), but the
+;; reactive sub re-runs the whole walk on every `:rf.causa/note-trace-
+;; event` dispatch — at 60Hz × 1000-event buffer that's ~60k
+;; row-touches/sec on the main thread before any render work happens.
+;;
+;; The fix folds the work into the buffer-write path: a small
+;; `:rf.causa/trace-feed-state` snapshot is maintained in app-db
+;; alongside `:trace-buffer`, updated in O(axes) per push and O(axes)
+;; per evict — so the cost is bounded by the axis count (13), not the
+;; buffer size. The sub reads the snapshot, applies filters, and
+;; returns the same shape `project-feed` always returned.
+;;
+;; The state shape mirrors `project-feed`'s pre-filter accumulator
+;; (post-renaming):
+;;
+;;     {:projected-rows [<projected-row> ...]  ;; one-to-one with buffer
+;;      :distinct       {<axis> [<value> ...]} ;; first-seen order
+;;      :seen           {<axis> #{<value>}}    ;; dedup set
+;;      :counts         {<axis> {<value> <n>}} ;; per-value count
+;;      :total          <int>}                 ;; same as count rows
+;;
+;; Add path: `feed-state+ev` runs `project-row` once + walks 13 axes,
+;; incrementing counts and appending to distinct on first-seen.
+;;
+;; Evict path: `feed-state-evict` walks 13 axes on the head row,
+;; decrementing counts. When a count drops to zero, drop the value
+;; from `:seen` and `:distinct` (the chip row must stop offering a
+;; value the buffer no longer carries). Compaction is O(distinct-
+;; size) per evicted axis in the worst case — bounded in practice by
+;; the panel's chip-row vocabulary (op-types, sources, frames, etc.
+;; are small enumerations).
+;;
+;; ## Privacy invariant (rf2-lqmje / Spec 009 §Privacy)
+;;
+;; The privacy gate sits in `trace-bus/collect-trace!` BEFORE any
+;; buffer push; sensitive events are dropped at ingest and never reach
+;; either the `:trace-buffer` slot or the `:trace-feed-state`
+;; accumulator. The `set-show-sensitive!` toggle-off path clears the
+;; buffer via `clear-buffer!`, which mirrors `:rf.causa/clear-trace-
+;; buffer` into Causa's app-db. The matching event handler in
+;; `registry.cljs` dissocs `:trace-feed-state` in lockstep so the
+;; projection never carries pre-toggle distinct values, counts, or
+;; rows. The incremental shape therefore inherits the same retroactive-
+;; scrub guarantee `clear-buffer!` provides — no new surface where
+;; privacy-sensitive data could survive a toggle.
+
+(defn init-feed-state
+  "Fresh per-axis accumulator state with empty distinct / seen /
+  counts maps for every axis in `filter-axes`, an empty
+  `:projected-rows` vector, and a zero `:total`. Pure data; JVM-
+  testable."
+  []
+  {:projected-rows []
+   :distinct       (into {} (map (fn [a] [a []])) filter-axes)
+   :seen           (into {} (map (fn [a] [a #{}])) filter-axes)
+   :counts         (into {} (map (fn [a] [a {}])) filter-axes)
+   :total          0})
+
+(defn- inc-axis
+  "Bump the count of `row`'s value on `axis` in `state`. Appends to
+  `:distinct` on first-seen. Pure data; JVM-testable."
+  [state axis row]
+  (let [v (get row axis)]
+    (cond
+      (nil? v)
+      state
+
+      (contains? (get-in state [:seen axis]) v)
+      (update-in state [:counts axis v] (fnil inc 0))
+
+      :else
+      (-> state
+          (update-in [:distinct axis] conj v)
+          (update-in [:seen axis] conj v)
+          (update-in [:counts axis v] (fnil inc 0))))))
+
+(defn- dec-axis
+  "Drop one occurrence of `row`'s value on `axis` in `state`. When
+  the count hits zero, drop the value from `:seen` and `:distinct`
+  too so the chip row stops offering an axis value the buffer no
+  longer carries. Pure data; JVM-testable."
+  [state axis row]
+  (let [v   (get row axis)
+        cur (get-in state [:counts axis v] 0)]
+    (cond
+      (nil? v)
+      state
+
+      (<= cur 1)
+      (-> state
+          (update-in [:counts axis] dissoc v)
+          (update-in [:seen axis] disj v)
+          (update-in [:distinct axis] (fn [vs] (filterv #(not= % v) vs))))
+
+      :else
+      (update-in state [:counts axis v] dec))))
+
+(defn feed-state+ev
+  "Fold `event` into the incremental projection state — append the
+  projected row, bump axis counts, and grow distinct values
+  on first-seen. O(axes) per call regardless of buffer size. Pure
+  data → state; JVM-testable."
+  [state event]
+  (let [row (project-row event)]
+    (-> (reduce (fn [s axis] (inc-axis s axis row)) state filter-axes)
+        (update :projected-rows conj row)
+        (update :total inc))))
+
+(defn feed-state-evict
+  "Evict the head (oldest) projected row from `state`, decrementing
+  per-axis counts and compacting distinct entries that hit zero.
+  Returns `state` unchanged when `:projected-rows` is empty. Pure
+  data → state; JVM-testable."
+  [state]
+  (let [rows (:projected-rows state)]
+    (if (empty? rows)
+      state
+      (let [head (nth rows 0)
+            state' (reduce (fn [s axis] (dec-axis s axis head))
+                           state filter-axes)]
+        (-> state'
+            (update :projected-rows subvec 1)
+            (update :total dec))))))
+
+(defn feed-state-push
+  "Append `event` to `state`, evicting the oldest projected row when
+  the post-push total would exceed `depth`. Mirrors `trace-bus/push`'s
+  capped-vector eviction algebra — the projection state stays in
+  lockstep with the buffer slot. O(axes) per call. Pure data; JVM-
+  testable."
+  [state depth event]
+  (let [state' (feed-state+ev state event)]
+    (if (> (:total state') depth)
+      (feed-state-evict state')
+      state')))
+
+(defn rebuild-feed-state
+  "Build `:trace-feed-state` from scratch over `events`. Used at
+  mount-time seed (the trace-bus atom may already hold pre-mount
+  emits) and as the fallback when the slot has not been initialised.
+  Pure data → state; JVM-testable."
+  [events]
+  (reduce feed-state+ev (init-feed-state) events))
+
+(defn project-feed-from-state
+  "Like `project-feed` but reads the pre-computed `:trace-feed-state`
+  snapshot rather than re-walking the buffer. The state is kept in
+  lockstep with `:trace-buffer` by the `:rf.causa/note-trace-event`
+  handler in `registry.cljs` (push) and the `:rf.causa/clear-trace-
+  buffer` / `:rf.causa/sync-trace-buffer` handlers (reset/seed). Pure
+  data → data; JVM-testable.
+
+  The filter pass still walks the projected-row vector (a single
+  reverse-then-filter over rows that are ALREADY projected — no
+  per-event `project-row` cost) and stops at `cap` matches so the
+  view never sees more than its render-cap rows. The buffer's full
+  size is reflected by `:total`; the panel's overflow indicator
+  surfaces 'hidden N' from the cap-rows helper downstream."
+  [state filters]
+  (let [normalised (normalise-filters filters)
+        passes?    (trace-bus/build-filter-predicate normalised)
+        rows       (:projected-rows state)
+        total      (:total state)
+        rev-rows   (rseq rows)
+        rendered+rows
+        (if (empty? normalised)
+          [(count rows) (vec rev-rows)]
+          (loop [remain rev-rows
+                 rendered 0
+                 acc      (transient [])]
+            (if (nil? (seq remain))
+              [rendered (persistent! acc)]
+              (let [row (first remain)
+                    ev  (:raw row)]
+                (if (passes? ev)
+                  (recur (next remain) (inc rendered) (conj! acc row))
+                  (recur (next remain) rendered acc))))))
+        [rendered display-rows] rendered+rows
+        empty-kind (cond
+                     (zero? total)    :no-events
+                     (zero? rendered) :no-matches
+                     :else            nil)
+        active-filters (active-filters-summary normalised (:seen state))]
+    {:rows           display-rows
+     :total          total
+     :rendered       rendered
+     :distinct       (effective-distinct (:distinct state)
+                                         (:seen state)
+                                         normalised)
+     :counts         (:counts state)
+     :filters        normalised
+     :any-filter?    (boolean (seq normalised))
+     :empty-kind     empty-kind
+     :active-filters active-filters}))
 
 ;; ---- React keys ---------------------------------------------------------
 

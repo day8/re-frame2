@@ -466,3 +466,314 @@
         (doseq [id [6 7 8]]
           (is (some? (get keys-2 id)))
           (is (not (contains? keys-1 id))))))))
+
+;; ---- (14) orphan-filter surfacing — rf2-vu0mp --------------------------
+;;
+;; The chip-row enumeration is built from the events currently in the
+;; buffer. When the buffer rotates past the cap and the selected
+;; filter value's last instance ages out, `:trace-filters` still
+;; carries the selection but the chip row no longer shows that value
+;; — user sees `:no-matches` with no visible cue what's narrowing the
+;; view. Per rf2-vu0mp the fix surfaces the active value in BOTH the
+;; chip row (orphan still rendered, marked) AND the empty state
+;; (`:active-filters` strip).
+
+(deftest effective-distinct-passes-through-when-active-is-present
+  (testing "no orphan: active filter value is in seen → distinct map
+            passes through unchanged"
+    (let [distinct-map {:op-type [:event :error]
+                        :source  [:ui :timer]}
+          seen-map     {:op-type #{:event :error}
+                        :source  #{:ui :timer}}]
+      (is (= distinct-map
+             (h/effective-distinct distinct-map seen-map
+                                   {:op-type :error :source :ui}))))))
+
+(deftest effective-distinct-appends-orphan-active-value
+  (testing "active filter value NOT in seen → appended to distinct
+            so the chip ALWAYS renders for the user's selection"
+    (let [distinct-map {:source [:ui]}
+          seen-map     {:source #{:ui}}
+          result       (h/effective-distinct distinct-map seen-map
+                                             {:source :timer})]
+      (is (= [:ui :timer] (get result :source))
+          "the orphan :timer value lands at the tail of :source"))))
+
+(deftest effective-distinct-handles-axis-absent-from-seen
+  (testing "axis missing entirely from seen → still appends orphan"
+    (let [distinct-map {}
+          seen-map     {}
+          result       (h/effective-distinct distinct-map seen-map
+                                             {:frame :rf/test})]
+      (is (= [:rf/test] (get result :frame))))))
+
+(deftest effective-distinct-skips-no-duplicate-active-value
+  (testing "if active value is already in distinct it is not duplicated"
+    (let [distinct-map {:source [:timer :ui]}
+          seen-map     {:source #{:ui}}  ;; :timer dropped from seen
+          result       (h/effective-distinct distinct-map seen-map
+                                             {:source :timer})]
+      (is (= [:timer :ui] (get result :source))
+          "no duplicate — first-seen order preserved"))))
+
+(deftest effective-distinct-tolerates-nil-filters
+  (testing "nil / empty filters → pass-through"
+    (let [distinct-map {:source [:ui]}
+          seen-map     {:source #{:ui}}]
+      (is (= distinct-map (h/effective-distinct distinct-map seen-map nil)))
+      (is (= distinct-map (h/effective-distinct distinct-map seen-map {}))))))
+
+(deftest active-filters-summary-marks-present-and-orphaned
+  (let [seen-map {:op-type #{:event :error}
+                  :source  #{:ui}
+                  :frame   #{:rf/default}}
+        summary  (h/active-filters-summary
+                   {:op-type :error
+                    :source  :timer    ;; orphan
+                    :frame   :rf/default}
+                   seen-map)]
+    (testing "every active axis has an entry"
+      (is (= 3 (count summary))))
+    (testing "iteration follows filter-axes order (op-type, severity,
+              source, origin, frame, ...)"
+      (is (= [:op-type :source :frame] (mapv :axis summary))))
+    (testing "present? is true when value is in seen"
+      (is (true?  (:present? (some #(when (= :op-type (:axis %)) %) summary))))
+      (is (false? (:present? (some #(when (= :source  (:axis %)) %) summary))))
+      (is (true?  (:present? (some #(when (= :frame   (:axis %)) %) summary)))))
+    (testing "value is preserved verbatim for the empty-state render"
+      (is (= :timer (:value (some #(when (= :source (:axis %)) %) summary)))))))
+
+(deftest active-filters-summary-handles-empty-or-nil
+  (is (= [] (h/active-filters-summary nil nil)))
+  (is (= [] (h/active-filters-summary {} {})))
+  (is (= [] (h/active-filters-summary {:source nil} {}))
+      "nil-valued filters are dropped by normalise-filters first"))
+
+(deftest project-feed-orphan-filter-distinct-is-effective
+  (testing "rf2-vu0mp: filtering on a value not present in the buffer
+            still produces a distinct entry for that value so the chip
+            row keeps rendering the user's selection"
+    (let [events (events-fixture)
+          ;; No :source = :timer in the all-:ui-/-:http events besides id=3.
+          ;; Filter on an axis where the value DOES NOT exist in buffer:
+          feed   (h/project-feed events
+                                 {:source :sse})]
+      (testing "the orphan value lands in distinct so the chip is rendered"
+        (is (some #(= :sse %) (get-in feed [:distinct :source]))
+            "orphan :sse appended to :source distinct"))
+      (testing ":counts is unchanged — the value has 0 buffered events"
+        (is (not (contains? (get-in feed [:counts :source]) :sse))
+            "no synthetic count entry — the renderer reads 0 via get-default"))
+      (testing ":active-filters surfaces the orphan with :present? false"
+        (let [src-pill (some #(when (= :source (:axis %)) %)
+                             (:active-filters feed))]
+          (is (= :sse (:value src-pill)))
+          (is (false? (:present? src-pill)))))
+      (testing "empty-kind is :no-matches"
+        (is (= :no-matches (:empty-kind feed)))))))
+
+(deftest project-feed-active-filters-empty-when-no-filters
+  (let [feed (h/project-feed (events-fixture) {})]
+    (is (= [] (:active-filters feed))
+        "no active filter → empty pill list")))
+
+;; ---- (15) incremental projection state — rf2-44vzy ---------------------
+;;
+;; The trace-feed projection now reads a pre-computed snapshot
+;; maintained incrementally by `:rf.causa/note-trace-event` rather
+;; than re-walking the full buffer on every push. The snapshot is
+;; updated in O(axes) per add and O(axes) per evict — bounded by the
+;; axis count (13), not the buffer size.
+;;
+;; These tests pin the incremental algebra against the from-scratch
+;; `project-feed` reference: for any sequence of events, building
+;; the state event-by-event must produce the same distinct/counts/
+;; rows shape as walking the events end-to-end in one shot.
+
+(deftest init-feed-state-has-empty-axis-maps
+  (let [state (h/init-feed-state)]
+    (is (= 0 (:total state)))
+    (is (= [] (:projected-rows state)))
+    (doseq [axis h/filter-axes]
+      (is (= [] (get-in state [:distinct axis]))
+          (str "axis " axis " starts with empty distinct"))
+      (is (= #{} (get-in state [:seen axis]))
+          (str "axis " axis " starts with empty seen"))
+      (is (= {} (get-in state [:counts axis]))
+          (str "axis " axis " starts with empty counts")))))
+
+(deftest feed-state+ev-bumps-axis-counts
+  (let [e1    (ev {:id 1 :op-type :event :operation :event/dispatched
+                   :time 100 :source :ui :origin :app
+                   :frame :rf/default})
+        e2    (ev {:id 2 :op-type :event :operation :event/dispatched
+                   :time 200 :source :ui :origin :app
+                   :frame :rf/default})
+        state (-> (h/init-feed-state)
+                  (h/feed-state+ev e1)
+                  (h/feed-state+ev e2))]
+    (is (= 2 (:total state)))
+    (is (= 2 (count (:projected-rows state))))
+    (is (= [:event]      (get-in state [:distinct :op-type])))
+    (is (= [:ui]         (get-in state [:distinct :source])))
+    (is (= {:event 2}    (get-in state [:counts :op-type])))
+    (is (= {:ui 2}       (get-in state [:counts :source])))))
+
+(deftest feed-state-evict-decrements-and-compacts
+  (testing "evicting the head row decrements per-axis counts; when a
+            count hits zero the value is dropped from seen + distinct
+            so the chip row stops offering an aged-out value"
+    (let [e1    (ev {:id 1 :op-type :event :operation :event/dispatched
+                     :time 100 :source :timer :origin :app
+                     :frame :rf/default})
+          e2    (ev {:id 2 :op-type :error :operation :rf.error/x
+                     :time 200 :source :ui :origin :app
+                     :frame :rf/default})
+          state (-> (h/init-feed-state)
+                    (h/feed-state+ev e1)
+                    (h/feed-state+ev e2)
+                    h/feed-state-evict)]
+      (is (= 1 (:total state)))
+      (is (= 1 (count (:projected-rows state))))
+      (testing ":source :timer was unique to the evicted row → dropped"
+        (is (= [:ui] (get-in state [:distinct :source])))
+        (is (not (contains? (get-in state [:seen :source]) :timer)))
+        (is (not (contains? (get-in state [:counts :source]) :timer))))
+      (testing ":source :ui still present (carried by e2)"
+        (is (contains? (get-in state [:seen :source]) :ui))
+        (is (= 1 (get-in state [:counts :source :ui])))))))
+
+(deftest feed-state-evict-decrements-shared-value-without-compaction
+  (testing "if two rows share a value, evicting one only decrements
+            the count — the value stays in distinct / seen"
+    (let [e1    (ev {:id 1 :op-type :event :operation :event/dispatched
+                     :source :ui :frame :rf/default})
+          e2    (ev {:id 2 :op-type :event :operation :event/dispatched
+                     :source :ui :frame :rf/default})
+          state (-> (h/init-feed-state)
+                    (h/feed-state+ev e1)
+                    (h/feed-state+ev e2)
+                    h/feed-state-evict)]
+      (is (= [:ui] (get-in state [:distinct :source])))
+      (is (= 1 (get-in state [:counts :source :ui]))))))
+
+(deftest feed-state-evict-noop-on-empty
+  (testing "evicting from empty state returns the same shape"
+    (let [empty-state (h/init-feed-state)]
+      (is (= empty-state (h/feed-state-evict empty-state))))))
+
+(deftest feed-state-push-respects-depth-cap
+  (testing "feed-state-push mirrors trace-bus/push's eviction algebra
+            — total never exceeds depth, oldest is evicted"
+    (let [depth 3
+          evs   (mapv #(ev {:id %1 :op-type :event :operation :event/dispatched
+                            :source (case (mod %1 3)
+                                      0 :ui 1 :timer 2 :http)
+                            :frame :rf/default})
+                      (range 1 11))
+          state (reduce (fn [s e] (h/feed-state-push s depth e))
+                        (h/init-feed-state)
+                        evs)]
+      (is (= depth (:total state)))
+      (is (= depth (count (:projected-rows state))))
+      (testing "the head row is the (depth)-most-recent"
+        (let [retained-ids (mapv :id (:projected-rows state))]
+          (is (= [8 9 10] retained-ids)))))))
+
+(deftest rebuild-feed-state-equals-incremental
+  (testing "building state from scratch via rebuild-feed-state
+            equals folding events one at a time via feed-state+ev"
+    (let [evs        (events-fixture)
+          rebuilt    (h/rebuild-feed-state evs)
+          folded     (reduce h/feed-state+ev (h/init-feed-state) evs)]
+      (is (= rebuilt folded)))))
+
+(deftest project-feed-from-state-matches-project-feed-no-filter
+  (testing "project-feed-from-state produces the same shape as
+            project-feed when no filter is active"
+    (let [evs        (events-fixture)
+          state      (h/rebuild-feed-state evs)
+          from-state (h/project-feed-from-state state {})
+          from-raw   (h/project-feed evs {})]
+      (is (= (:total from-state)    (:total from-raw)))
+      (is (= (:rendered from-state) (:rendered from-raw)))
+      (is (= (mapv :id (:rows from-state))
+             (mapv :id (:rows from-raw))))
+      (is (= (:distinct from-state) (:distinct from-raw)))
+      (is (= (:counts from-state)   (:counts from-raw)))
+      (is (= (:empty-kind from-state) (:empty-kind from-raw))))))
+
+(deftest project-feed-from-state-matches-project-feed-with-filter
+  (testing "project-feed-from-state produces equivalent shape under
+            active filters — early-stop filter walk preserves rendered
+            count and row order"
+    (let [evs        (events-fixture)
+          filters    {:dispatch-id 10}
+          state      (h/rebuild-feed-state evs)
+          from-state (h/project-feed-from-state state filters)
+          from-raw   (h/project-feed evs filters)]
+      (is (= (:total from-state)    (:total from-raw)))
+      (is (= (:rendered from-state) (:rendered from-raw)))
+      (is (= (mapv :id (:rows from-state))
+             (mapv :id (:rows from-raw))))
+      (is (= (:filters from-state)  (:filters from-raw)))
+      (is (= (:empty-kind from-state) (:empty-kind from-raw))))))
+
+(deftest project-feed-from-state-orphan-filter-surfaces
+  (testing "rf2-vu0mp via incremental path: orphan filter value still
+            renders in distinct + active-filters carries :present? false"
+    (let [evs   (events-fixture)
+          state (h/rebuild-feed-state evs)
+          feed  (h/project-feed-from-state state {:source :sse})]
+      (is (some #(= :sse %) (get-in feed [:distinct :source])))
+      (is (= :no-matches (:empty-kind feed)))
+      (let [pill (some #(when (= :source (:axis %)) %)
+                       (:active-filters feed))]
+        (is (= :sse (:value pill)))
+        (is (false? (:present? pill)))))))
+
+(deftest project-feed-from-state-empty-buffer
+  (let [feed (h/project-feed-from-state (h/init-feed-state) {})]
+    (is (= 0 (:total feed)))
+    (is (= 0 (:rendered feed)))
+    (is (= :no-events (:empty-kind feed)))))
+
+(deftest incremental-and-from-scratch-equivalence-under-cap-rotation
+  (testing "after pushing 5× the cap, the incremental state matches a
+            from-scratch rebuild over the same retained window — the
+            evict path correctly compacts dropped values"
+    (let [depth 5
+          all   (mapv #(ev {:id %1 :op-type (case (mod %1 3)
+                                              0 :event 1 :error 2 :warning)
+                             :operation (case (mod %1 2)
+                                          0 :event/dispatched
+                                          :rf.error/handler-exception)
+                             :time %1
+                             :source (case (mod %1 4)
+                                       0 :ui 1 :timer 2 :http 3 :sse)
+                             :origin :app
+                             :frame  :rf/default
+                             :dispatch-id (quot %1 2)})
+                      (range 1 26))
+          state (reduce (fn [s e] (h/feed-state-push s depth e))
+                        (h/init-feed-state)
+                        all)
+          ;; What the buffer should look like post-rotation:
+          retained (vec (drop (- (count all) depth) all))
+          rebuilt  (h/rebuild-feed-state retained)]
+      (is (= (:total state)    (:total rebuilt)))
+      (is (= (:projected-rows state) (:projected-rows rebuilt)))
+      (is (= (:counts state)   (:counts rebuilt)))
+      (is (= (:seen state)     (:seen rebuilt)))
+      (testing "distinct may differ in order (incremental preserves
+                first-seen-since-eviction order, not all-time order)
+                — assert content equality via set, not vector"
+        (doseq [axis h/filter-axes]
+          (is (= (set (get-in state [:distinct axis]))
+                 (set (get-in rebuilt [:distinct axis])))))))))
+
+(deftest project-feed-from-state-active-filters-empty-when-no-filters
+  (let [state (h/rebuild-feed-state (events-fixture))
+        feed  (h/project-feed-from-state state {})]
+    (is (= [] (:active-filters feed)))))

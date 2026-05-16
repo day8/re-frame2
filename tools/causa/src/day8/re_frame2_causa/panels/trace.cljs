@@ -63,7 +63,8 @@
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.trace-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- axis labelling -----------------------------------------------------
 
@@ -94,17 +95,24 @@
 
 (defn- chip
   "One filter chip. `active?` drives the highlighted styling.
-  `on-click` fires the relevant axis toggle."
-  [{:keys [label active? on-click test-id colour]}]
+  `on-click` fires the relevant axis toggle. `orphan?` (rf2-vu0mp)
+  marks chips whose value is no longer represented in the current
+  buffer — the chip still renders so the user always sees what's
+  narrowing the ribbon, but is styled dashed-border + italic to
+  signal 'no buffered matches'."
+  [{:keys [label active? on-click test-id colour orphan? title]}]
   [:button {:data-testid test-id
             :on-click    on-click
+            :title       title
             :style       {:background    (if active?
                                            (:bg-active tokens)
                                            "transparent")
                           :color         (if active?
                                            (:text-primary tokens)
                                            (or colour (:text-secondary tokens)))
-                          :border        (str "1px solid "
+                          :border        (str "1px "
+                                              (if orphan? "dashed" "solid")
+                                              " "
                                               (if active?
                                                 (or colour (:border-default tokens))
                                                 (:border-subtle tokens)))
@@ -114,6 +122,7 @@
                           :font-family   sans-stack
                           :font-size     "11px"
                           :font-weight   (if active? 600 400)
+                          :font-style    (if orphan? "italic" "normal")
                           :letter-spacing "0.2px"
                           :margin-right  "6px"
                           :margin-bottom "4px"}}
@@ -122,10 +131,21 @@
 (defn- axis-chip-row
   "Render a chip-row for one filter axis. Each chip toggles the axis
   to its value; the currently-active value (if any) renders highlit.
-  Only renders when there are at least two distinct values — a
-  single-value axis has nothing to filter on."
+  Renders when at least two distinct values are present OR when an
+  active filter selection is present (so the user can always see /
+  toggle off their narrowing — even when the selected value has
+  aged out of the buffer per rf2-vu0mp).
+
+  Per rf2-vu0mp the helper's `effective-distinct` ALREADY unions the
+  active value into the per-axis distinct vector, so an orphaned
+  active value renders as one of the chips. We mark it visually with
+  the orphan-styling discipline on the chip (dashed border + italic +
+  count `0`) so the user can tell `:source = :timer` is selected but
+  the buffer no longer carries any `:timer`-sourced events."
   [{:keys [axis active-value distinct counts axis-colour]}]
-  (when (and (sequential? distinct) (>= (count distinct) 2))
+  (when (and (sequential? distinct)
+             (or (>= (count distinct) 2)
+                 (some? active-value)))
     (into [:div {:data-testid (str "rf-causa-trace-axis-row-" (name axis))
                  :style       {:display    "flex"
                                :flex-wrap  "wrap"
@@ -142,6 +162,7 @@
           (for [value distinct
                 :let [active? (= active-value value)
                       n       (get counts value 0)
+                      orphan? (and active? (zero? n))
                       colour  (cond
                                 (and (= axis :op-type) (some? value))
                                 (h/op-type-colour value)
@@ -151,6 +172,12 @@
             (chip {:label    (str (format-axis-value value) " · " n)
                    :active?  active?
                    :colour   colour
+                   :orphan?  orphan?
+                   :title    (when orphan?
+                               (str "no buffered events match — "
+                                    (name axis) " = "
+                                    (format-axis-value value)
+                                    " (aged out of the ring buffer)"))
                    :test-id  (str "rf-causa-trace-axis-chip-"
                                   (name axis) "-"
                                   (if (keyword? value)
@@ -347,10 +374,61 @@
     "No events observed in this session. "
     "Once the host app dispatches anything the ribbon will fill."]])
 
+(defn- active-filter-pill
+  "Per rf2-vu0mp — one pill in the no-matches empty state's 'narrowing
+  on' strip. Clicking removes the axis from the filter map. Orphan
+  pills (value aged out of the buffer) carry an additional '(orphaned)'
+  marker so the user knows the active value will not match anything
+  in the current buffer until either the filter is cleared OR a new
+  event with that value arrives."
+  [{:keys [axis value present?]}]
+  (let [axis-name (name axis)
+        value-str (cond
+                    (nil? value)     "(none)"
+                    (keyword? value) (str value)
+                    :else            (pr-str value))
+        test-id   (str "rf-causa-trace-empty-active-" axis-name)
+        label     (if present?
+                    (str axis-name " = " value-str)
+                    (str axis-name " = " value-str " (orphaned)"))]
+    [:button {:data-testid test-id
+              :on-click    #(rf/dispatch [:rf.causa/set-trace-filter
+                                          axis nil] {:frame :rf/causa})
+              :title       (if present?
+                             (str "click to drop the " axis-name " filter")
+                             (str axis-name " = " value-str
+                                  " — value aged out of the buffer; click to drop"))
+              :style       {:background    (if present?
+                                             (:bg-active tokens)
+                                             "transparent")
+                            :color         (if present?
+                                             (:text-primary tokens)
+                                             (:text-secondary tokens))
+                            :border        (str "1px "
+                                                (if present? "solid" "dashed")
+                                                " "
+                                                (:border-default tokens))
+                            :border-radius "999px"
+                            :padding       "3px 10px"
+                            :cursor        "pointer"
+                            :font-family   sans-stack
+                            :font-size     "11px"
+                            :font-style    (if present? "normal" "italic")
+                            :margin-right  "6px"
+                            :margin-bottom "4px"}}
+     label]))
+
 (defn- empty-state-no-matches
   "Per the bead's contract — events exist but the active filters
-  hide them all. Carries a Clear filters affordance."
-  []
+  hide them all. Carries a Clear filters affordance.
+
+  Per rf2-vu0mp: surfaces an 'narrowing on:' strip listing every
+  active axis=value pair with an orphan marker. Without this strip
+  the user has no in-panel cue WHICH filter is responsible when the
+  selected value has aged out of the buffer (the chip in the header
+  may not be obvious; with multiple axes active the user has to
+  scan)."
+  [{:keys [active-filters]}]
   [:div {:data-testid "rf-causa-trace-empty-no-matches"
          :style       {:padding     "24px"
                        :font-family sans-stack
@@ -361,9 +439,22 @@
                 :color (:text-primary tokens)
                 :font-weight 600}}
     "No events match current filters."]
+   (when (seq active-filters)
+     [:div {:data-testid "rf-causa-trace-empty-active-filters"
+            :style       {:margin "0 0 12px 0"}}
+      [:span {:style {:font-size      "10px"
+                      :color          (:text-tertiary tokens)
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"
+                      :margin-right   "8px"}}
+       "narrowing on:"]
+      (into [:span {:style {:display "inline-flex" :flex-wrap "wrap"
+                            :align-items "baseline"}}]
+            (for [{:keys [axis] :as pill} active-filters]
+              ^{:key axis} [active-filter-pill pill]))])
    [:p {:style {:margin "0 0 12px 0"
                 :color (:text-tertiary tokens)}}
-    "Adjust the chip rows above — clearing any one axis widens the ribbon."]
+    "Click a pill above to drop that axis, or use Clear filters to widen the ribbon."]
    [:button {:data-testid "rf-causa-trace-empty-clear-filters"
              :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters] {:frame :rf/causa})
              :style       {:background "transparent"
@@ -383,7 +474,7 @@
   and renders either the chip-filterable ribbon or the empty-state."
   []
   (let [{:keys [rows total rendered distinct counts filters
-                any-filter? empty-kind]
+                any-filter? empty-kind active-filters]
          :as _data}
         @(rf/subscribe [:rf.causa/trace-feed])]
     [:section {:data-testid "rf-causa-trace"
@@ -403,7 +494,7 @@
      [:div {:style {:flex 1 :overflow "auto"}}
       (case empty-kind
         :no-events  (empty-state-no-events)
-        :no-matches (empty-state-no-matches)
+        :no-matches (empty-state-no-matches {:active-filters active-filters})
         nil         (overflow/capped-list
                       rows
                       {:panel-id "trace"
@@ -445,14 +536,48 @@
     (fn [db _query]
       (get db :trace-filters {})))
 
+  ;; Per rf2-44vzy: the trace-feed projection now reads a pre-
+  ;; computed snapshot maintained incrementally by the
+  ;; `:rf.causa/note-trace-event` handler in `registry.cljs`. The
+  ;; snapshot carries the projected rows plus per-axis distinct /
+  ;; counts / seen state and is updated in O(axes) on every push
+  ;; (and O(axes) on every cap eviction). Pre-rf2-44vzy the sub re-
+  ;; walked the entire buffer on every push — at 60Hz × 1000-event
+  ;; buffer that was ~60k row-touches/sec on the main thread before
+  ;; any render work happened.
+  ;;
+  ;; Fallback path: when `:trace-feed-state` is absent (a consumer
+  ;; that bypasses the mirror — e.g. a headless test driving
+  ;; `collect-trace!` without the `mount.cljs/open!` seed) the sub
+  ;; rebuilds the snapshot from the raw buffer on read. The rebuild
+  ;; is the same cost shape as the pre-rf2-44vzy sub, so the worst
+  ;; case under the fallback path is no slower than the prior shape.
+  ;;
+  ;; The fallback chain mirrors `:rf.causa/trace-buffer`'s contract
+  ;; (registry.cljs L100-102): app-db slot → trace-bus atom. The
+  ;; atom path keeps headless tests (`collect-trace!` without
+  ;; `mount.cljs/open!`) functional — the prior `project-feed` sub
+  ;; consumed `:rf.causa/trace-buffer` which already chained through
+  ;; this fallback, so preserving the chain keeps headless behaviour
+  ;; identical.
+  (rf/reg-sub :rf.causa/trace-feed-state
+    (fn [db _query]
+      (or (get db :trace-feed-state)
+          (h/rebuild-feed-state
+            (or (get db :trace-buffer)
+                (trace-bus/buffer))))))
+
   ;; Composite — produces every slot the view consumes. Reactive
-  ;; surface: trace-buffer + filter state. The helper's
-  ;; `project-feed` does the heavy lifting.
+  ;; surface: trace-feed-state (incrementally maintained) + filter
+  ;; state. The helper's `project-feed-from-state` does the read-
+  ;; side work: a single reverse-then-filter walk over already-
+  ;; projected rows. Filter-only changes still O(rows) but with no
+  ;; per-event `project-row` cost.
   (rf/reg-sub :rf.causa/trace-feed
-    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/trace-feed-state]
     :<- [:rf.causa/trace-filters]
-    (fn [[buffer filters] _query]
-      (h/project-feed buffer filters)))
+    (fn [[state filters] _query]
+      (h/project-feed-from-state state filters)))
 
   ;; Set or clear one axis. Passing nil-value clears that axis;
   ;; setting a value replaces any existing value on that axis (the
