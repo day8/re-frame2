@@ -50,7 +50,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -154,9 +155,12 @@
     (is (pending-dispose? [:sum])
         "parent is in its grace-period window")
 
-    ;; Wait WELL past 2 × grace — parent fires, cascade schedules
-    ;; inputs, inputs fire. The whole chain is gone.
-    (Thread/sleep 500)
+    ;; Poll until the cascade fully drains — parent + both inputs
+    ;; disposed (rf2-fun38). Cleaner than fixed 500ms sleep; tests
+    ;; fail fast on a stuck cascade timer.
+    (test-support/poll-until
+      #(not-any? (fn [k] (contains? (cache-keys) k)) [[:sum] [:a] [:b]])
+      {:timeout-ms 2000 :label "layer-2 cascade fully drained"})
     (is (not (contains? (cache-keys) [:sum]))
         "parent disposed")
     (is (not (contains? (cache-keys) [:a]))
@@ -190,9 +194,13 @@
         "middle layer untouched until top fires")
     (is (= 1 (entry-ref-count [:a])))
 
-    ;; Wait WELL past 3 × grace so each layer fires in turn and the
-    ;; full chain drains.
-    (Thread/sleep 600)
+    ;; Poll until the 3-layer cascade fully drains (rf2-fun38). The
+    ;; whole chain disappearing IS the observable signal — no need to
+    ;; fix a sleep against 3 × grace + executor margin.
+    (test-support/poll-until
+      #(not-any? (fn [k] (contains? (cache-keys) k))
+                 [[:a*4] [:a*2] [:a]])
+      {:timeout-ms 2000 :label "layer-3 cascade fully drained"})
     (is (not (contains? (cache-keys) [:a*4])) "top disposed")
     (is (not (contains? (cache-keys) [:a*2])) "middle disposed")
     (is (not (contains? (cache-keys) [:a])) "leaf disposed")))
@@ -219,7 +227,14 @@
     ;; — :a falls from 2 → 1 (NOT scheduled), :b falls from 1 → 0
     ;; (scheduled, then fires).
     (rf/unsubscribe [:ab])
-    (Thread/sleep 300)  ;; well past 2 × grace
+    ;; Poll for the cascade's positive signal — :ab and :b disposed
+    ;; (rf2-fun38). The :a-NOT-disposed assertion below is the
+    ;; timer-semantics part (proving absence); polling for the positive
+    ;; signal guarantees the cascade has fully run before we assert.
+    (test-support/poll-until
+      #(and (not (contains? (cache-keys) [:ab]))
+            (not (contains? (cache-keys) [:b])))
+      {:timeout-ms 2000 :label ":ab cascade fully drained"})
     (is (not (contains? (cache-keys) [:ab])))
     (is (not (contains? (cache-keys) [:b])) ":b disposed via cascade")
     (is (contains? (cache-keys) [:a])
@@ -454,9 +469,11 @@
     (is (not (pending-dispose? [:sum]))
         "timer handle cleared from cache map")
 
-    ;; Wait an order of magnitude past the original grace window.
-    ;; If clear-timeout! is broken, the orphaned timer would fire here
-    ;; and dispose-entry-now! would evict the slot.
+    ;; Timer-semantics sleep (rf2-fun38): we are proving the *absence*
+    ;; of dispose — if clear-timeout! is broken, the orphaned timer
+    ;; would fire here and dispose-entry-now! would evict the slot.
+    ;; No observable signal to poll; the 500ms (10 × grace) is the
+    ;; quiescence budget.
     (Thread/sleep 500)
     (is (contains? (cache-keys) [:sum])
         "cancelled timer did not fire")
@@ -541,8 +558,8 @@
           ;; converge on a fully drained cache before the next iteration.
           (subs/configure! {:grace-period-ms 0})
           (rf/unsubscribe [:sum]))
-        ;; Let-fire arm: short grace + wait > 2 × grace so the full
-        ;; cascade fires through the deferred path.
+        ;; Let-fire arm: short grace + poll on cache-drained so the
+        ;; full cascade fires through the deferred path (rf2-fun38).
         (do
           (subs/configure! {:grace-period-ms 30})
           (let [r (rf/subscribe [:sum])]
@@ -550,7 +567,10 @@
             (is (= 1 (entry-ref-count [:sum])))
             (rf/unsubscribe [:sum])
             (is (pending-dispose? [:sum])))
-          (Thread/sleep 500)))
+          (test-support/poll-until
+            #(not-any? (fn [k] (contains? (cache-keys) k))
+                       [[:sum] [:a] [:b]])
+            {:timeout-ms 2000 :label (str "iter " i ": let-fire cascade drained")})))
       ;; Both arms converge: cache fully drained.
       (is (not (contains? (cache-keys) [:sum]))
           (str "iter " i ": parent must be disposed"))

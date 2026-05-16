@@ -19,7 +19,8 @@
             ;; require. This file uses :fx-overrides {:rf.http/managed
             ;; :rf.http/managed-canned-success/failure} below.
             [re-frame.http-test-support]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
 ;; ---- per-test reset (mirrors http-managed-test) ---------------------------
 
@@ -46,17 +47,16 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- await-reply!
-  "Wait up to timeout-ms for `pred` to be true on the default frame's db."
+  "Wait up to `timeout-ms` for `(pred db)` to be truthy against
+  `(rf/get-frame-db :rf/default)`. Returns the final db on success;
+  throws `:rf.test/poll-timeout` on timeout. Thin alias over
+  `test-support/poll-until` (rf2-fun38) — preserves the per-file
+  `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (let [db (rf/get-frame-db :rf/default)]
-         (cond
-           (pred db) db
-           (> (System/currentTimeMillis) deadline)
-           (throw (ex-info "timed out awaiting reply" {:final-db db}))
-           :else (do (Thread/sleep 25) (recur))))))))
+   (test-support/poll-until
+     #(let [db (rf/get-frame-db :rf/default)] (when (pred db) db))
+     {:timeout-ms timeout-ms :label "http-helpers reply"})))
 
 ;; ---- 1. (rf.http/get url args) dispatches through canned-success ----------
 

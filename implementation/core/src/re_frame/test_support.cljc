@@ -51,12 +51,16 @@
   - [[assert-state]] — assert against the current frame's app-db (full
     db or `path` form); failure is reported via `clojure.test/is`.
 
-  ### Deterministic-wait helpers (rf2-ka3n6)
+  ### Deterministic-wait helpers (rf2-ka3n6 / rf2-fun38)
   - [[poll-until]] — bounded-deadline poll for `(pred)` to return
-    truthy. Replaces incidental fixed `Thread/sleep N` for waits that
-    are observable in state (router drain, event-cascade settle, sub
-    re-fire). NOT for timer-semantics tests — those should keep their
-    sleep and annotate that intent locally."
+    truthy. JVM returns the truthy value synchronously (throws on
+    timeout); CLJS returns a `js/Promise` that resolves with the
+    truthy value (rejects on timeout). Replaces incidental fixed
+    `Thread/sleep N` / `js/setTimeout` for waits that are observable
+    in state (router drain, event-cascade settle, sub re-fire,
+    in-flight registry entries appearing/clearing). NOT for
+    timer-semantics tests — those should keep their sleep and annotate
+    that intent locally (the sleep IS the contract under test)."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             ;; The flows / schemas / machines / routing / http-managed /
@@ -438,12 +442,45 @@
         :actual   actual})
      pass?)))
 
-;; ---- deterministic wait helper (rf2-ka3n6) -------------------------------
+;; ---- deterministic wait helper (rf2-ka3n6 / rf2-fun38) -------------------
 ;;
-;; Replaces incidental fixed `Thread/sleep N` waits that exist to let an
-;; *observable* event (router drain, cascade settle, sub re-fire) complete.
+;; Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` waits that
+;; exist to let an *observable* event (router drain, cascade settle, sub
+;; re-fire, in-flight registry entries appearing/clearing) complete.
+;;
 ;; NOT for timer-semantics tests — those should keep their sleep and
-;; annotate that intent locally (the sleep IS the contract under test).
+;; annotate that intent locally (the sleep IS the contract under test:
+;; grace-period elapse, throttle/debounce window, host-clock advancement,
+;; "prove a thing did NOT happen within window N").
+;;
+;; Per-platform shape (rf2-fun38):
+;;   JVM:  synchronous — returns the truthy value, throws on timeout.
+;;   CLJS: async       — returns a `js/Promise`. Resolves with the truthy
+;;                       value on success, rejects with an `ex-info`-style
+;;                       error on timeout. Designed to compose with
+;;                       `cljs.test/async`:
+;;
+;;                         (deftest something
+;;                           (async done
+;;                             (-> (test-support/poll-until
+;;                                   #(some? (rf/get-frame-db :rf/default)))
+;;                                 (.then (fn [db] (is (...)) (done)))
+;;                                 (.catch (fn [e] (is false (.-message e))
+;;                                                 (done))))))
+;;
+;; Single name across platforms — read sites are mechanical conversions.
+;; The opts map is identical (`:timeout-ms` / `:interval-ms` / `:label`).
+;; A central helper means CI flake budgets land in one place.
+
+(defn- poll-timeout-error
+  "Shared timeout-error constructor — same shape JVM / CLJS so test code
+  that pattern-matches on `:rf.test/poll-timeout` works on either runtime."
+  [label elapsed-ms]
+  (ex-info (str "poll-until timed out"
+                (when label (str " — " label)))
+           {:rf.test/poll-timeout true
+            :elapsed-ms elapsed-ms
+            :label label}))
 
 #?(:clj
    (defn poll-until
@@ -472,9 +509,61 @@
             (cond
               v v
               (>= (System/currentTimeMillis) deadline)
-              (throw (ex-info (str "poll-until timed out"
-                                   (when label (str " — " label)))
-                              {:rf.test/poll-timeout true
-                               :elapsed-ms (- (System/currentTimeMillis) start)
-                               :label label}))
+              (throw (poll-timeout-error
+                       label (- (System/currentTimeMillis) start)))
               :else (do (Thread/sleep ^long interval-ms) (recur)))))))))
+
+#?(:cljs
+   (defn poll-until
+     "Bounded-deadline poll for `(pred)` to return truthy. Returns a
+     `js/Promise` that resolves with the truthy value on success or
+     rejects with an `ex-info`-style error carrying
+     `:rf.test/poll-timeout` `true`, `:elapsed-ms`, and `:label` on
+     timeout.
+
+     `opts` (all optional):
+       :timeout-ms   default 2000 — overall deadline.
+       :interval-ms  default 5    — gap (ms) between probes; scheduled
+                                    via `js/setTimeout`.
+       :label        string/keyword used in the timeout message.
+
+     `pred` is invoked synchronously on each tick. If `pred` itself
+     returns a `js/Promise`, the returned promise is awaited and its
+     resolved value drives the truthy check — so `pred` can be either
+     synchronous (the common case) or `async`/Promise-returning.
+
+     Use this in CLJS tests under `cljs.test/async` that previously
+     chained nested `js/setTimeout` calls to wait for a router drain,
+     event cascade, or sub re-fire. The Promise composes with `.then` /
+     `.catch` and integrates cleanly with `async done`:
+
+         (deftest drains
+           (async done
+             (-> (test-support/poll-until
+                   #(= 3 (:n (rf/get-frame-db :rf/default)))
+                   {:label \"counter reached 3\"})
+                 (.then (fn [_] (is (= 3 ...)) (done)))
+                 (.catch (fn [e] (is false (.-message e)) (done))))))"
+     ([pred] (poll-until pred nil))
+     ([pred opts]
+      (let [{:keys [timeout-ms interval-ms label]
+             :or   {timeout-ms 2000 interval-ms 5}} opts
+            start    (.now js/Date)
+            deadline (+ start timeout-ms)]
+        (js/Promise.
+          (fn [resolve reject]
+            (letfn [(settle [v]
+                      (cond
+                        v (resolve v)
+                        (>= (.now js/Date) deadline)
+                        (reject (poll-timeout-error
+                                  label (- (.now js/Date) start)))
+                        :else (js/setTimeout tick interval-ms)))
+                    (tick []
+                      (let [raw (try (pred) (catch :default _ false))]
+                        (if (instance? js/Promise raw)
+                          (-> ^js/Promise raw
+                              (.then settle)
+                              (.catch (fn [_] (settle false))))
+                          (settle raw))))]
+              (tick))))))))

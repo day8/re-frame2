@@ -17,6 +17,7 @@
             [re-frame.http-privacy-headers :as privacy-headers]
             [re-frame.http-url :as http-url]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
@@ -62,15 +63,12 @@
     (with-open [os (.getResponseBody exchange)]
       (.write os bytes))))
 
-(defn- wait-for! [pred timeout-ms]
-  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop []
-      (let [v (pred)]
-        (cond
-          v v
-          (> (System/currentTimeMillis) deadline)
-          (throw (ex-info "timed out" {:pred-result v}))
-          :else (do (Thread/sleep 25) (recur)))))))
+(defn- wait-for!
+  "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves
+  the per-file arity (`pred`, `timeout-ms`)."
+  [pred timeout-ms]
+  (test-support/poll-until pred {:timeout-ms timeout-ms
+                                 :label "http-privacy wait-for"}))
 
 (defn- find-header
   "Case-insensitive lookup against a possibly mixed-case header map. The
