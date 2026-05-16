@@ -3735,5 +3735,317 @@ module.exports = {
         } catch (_) { return false; }
       });
     }
+
+    // ----------------------------------------------------------------
+    // 14. Multi-frame isolation verification (rf2-5aw5v.14 — L-14).
+    // Spec 008 §State isolation (Option-C frame-provider) — the
+    // rf2-tijr lock — and Spec 011 §Multi-frame.
+    //
+    // The counter testbed is single-host-frame (`:rf/default`). To
+    // verify the multi-frame isolation contract through Causa's panel
+    // layer, this section registers TWO synthetic host frames inline
+    // and exercises Causa's target-frame surface against them:
+    //
+    //   - **set-target-frame round-trips** — `set-target-frame! :a`
+    //     followed by `target-frame` returns `:a`; flipping back to
+    //     `:b` returns `:b`. The selection persists on `:rf/causa`'s
+    //     app-db across panel pivots (the cross-panel selection
+    //     invariant already pinned in §10/§11 generalises to the
+    //     frame axis)
+    //   - **per-frame app-db isolation** — each synthetic frame
+    //     carries its own `:counter` slot with a distinct value. The
+    //     `:rf.causa/target-frame-db` sub reads from the currently-
+    //     targeted frame's app-db; flipping the target flips the db
+    //     view. Critically, NEITHER synthetic frame's writes touch
+    //     `:rf/default`'s app-db OR `:rf/causa`'s app-db — the three
+    //     dbs are partitioned per `spec/002-Frames.md §What lives in
+    //     a frame`
+    //   - **Causa state isolated from host frames** — `:rf/causa`'s
+    //     app-db has none of the synthetic frame's slots (no
+    //     `:counter`-keyed leak). The flip side of the Spec 008
+    //     isolation contract: host writes don't leak INTO Causa just
+    //     as Causa writes don't leak INTO the host (verified in §12)
+    //   - **trace events tagged with :frame route through the
+    //     per-frame collector buckets** — Causa's trace-bus
+    //     `note-suppressed!` keys on `:tags :frame`. Push synthetic
+    //     suppressed-events tagged for each frame and assert
+    //     `suppressed-count(:synthetic/a)` vs
+    //     `suppressed-count(:synthetic/b)` partition correctly
+    //   - **cleanup** — reset target-frame to default, destroy the
+    //     synthetic frames via `destroy-frame!` so subsequent specs
+    //     re-run from a clean slate. The destroy contract is also
+    //     part of the multi-frame surface (Spec 002 §Per-instance
+    //     frames)
+    //
+    // The full feature path (cross-frame dispatch fan-out + dormant
+    // frame + destroyed frame trace + frame-picker UI) needs the
+    // testbeds/multi-frame testbed wired through the rigorous compile
+    // graph (rf2-fe84r). The walk pins the panel-layer isolation +
+    // target-frame round-trip + per-frame app-db read + trace
+    // collector partitioning. No new matrix row — this deepens
+    // Spec 008 §State isolation coverage on the rigorous testbed.
+    // ----------------------------------------------------------------
+    const FRAME_A = ':rf2-5aw5v.14/synthetic-a';
+    const FRAME_B = ':rf2-5aw5v.14/synthetic-b';
+
+    // Phase 1 — register the two synthetic frames + drive distinct
+    // app-db writes into each.
+    const frameSetup = await page.evaluate(({ A, B }) => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf   = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf) return { ok: false, reason: 'cljs/rf missing' };
+      if (typeof rf.reg_frame !== 'function') {
+        return { ok: false, reason: 'rf.reg_frame missing' };
+      }
+      // Strip leading `:` because cljs.keyword(':foo/bar') produces
+      // `::foo/bar` (double-colon). The browser-side keyword fn
+      // accepts the ns+name two-arg form for namespaced keywords.
+      function kwOf(prefixed) {
+        const stripped = prefixed.startsWith(':') ? prefixed.slice(1) : prefixed;
+        const slash = stripped.indexOf('/');
+        if (slash < 0) return cljs.keyword(stripped);
+        return cljs.keyword(stripped.slice(0, slash), stripped.slice(slash + 1));
+      }
+      const kwA = kwOf(A);
+      const kwB = kwOf(B);
+      // Register both frames with an empty :on-create hook. The
+      // reg-frame surface accepts a map second arg.
+      rf.reg_frame(kwA, cljs.PersistentArrayMap.EMPTY);
+      rf.reg_frame(kwB, cljs.PersistentArrayMap.EMPTY);
+      // Drive a distinct synthetic write into each via reg-event-db
+      // + dispatch-sync. Use namespaced event ids under
+      // `:rf2-5aw5v.14/seed-counter` that don't collide with anything
+      // else on the registrar. The handler is registered globally;
+      // the dispatch is targeted per frame so each handler invocation
+      // runs against the targeted frame's app-db.
+      const seedEvId = kwOf(':rf2-5aw5v.14/seed-counter');
+      rf.reg_event_db(seedEvId, (db, ev) => {
+        const v = cljs.nth(ev, 1);
+        return cljs.assoc(db, cljs.keyword('counter'), v);
+      });
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([seedEvId, 7], true),
+        cljs.PersistentArrayMap.fromArray(
+          [cljs.keyword('frame'), kwA], true, false),
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([seedEvId, 91], true),
+        cljs.PersistentArrayMap.fromArray(
+          [cljs.keyword('frame'), kwB], true, false),
+      );
+      // Read back each frame's :counter to confirm partition.
+      const dbA = rf.get_frame_db(kwA);
+      const dbB = rf.get_frame_db(kwB);
+      const counterA = dbA == null ? null : cljs.get(dbA, cljs.keyword('counter'));
+      const counterB = dbB == null ? null : cljs.get(dbB, cljs.keyword('counter'));
+      return { ok: true, counterA, counterB };
+    }, { A: FRAME_A, B: FRAME_B });
+    if (!frameSetup.ok) {
+      throw new Error(`Multi-frame setup failed: ${frameSetup.reason}`);
+    }
+    if (frameSetup.counterA !== 7 || frameSetup.counterB !== 91) {
+      throw new Error(
+        `Per-frame app-db partition failed: expected counterA=7 counterB=91; got ${JSON.stringify(frameSetup)}.`,
+      );
+    }
+
+    // Phase 2 — flip target-frame to A, assert the panel-layer reads
+    // observe A's app-db. The target-frame surface lives on the
+    // `:rf.causa/set-target-frame` event + `:rf.causa/target-frame`
+    // sub on `:rf/causa`'s frame; the JS-exported `core` facade
+    // doesn't currently re-export `set_target_frame_BANG_` (it's a
+    // CLJS-side ergonomic; the underlying event-bus path IS the
+    // contract surface and is what every panel reads). Dispatch
+    // through the event-bus directly.
+    function setTargetFrameJs(prefixed) {
+      return page.evaluate((p) => {
+        const cljs = window.cljs.core;
+        const rf   = window.re_frame.core;
+        const kw = (n) => cljs.keyword(n);
+        function kwOf(prefixed) {
+          const stripped = prefixed.startsWith(':') ? prefixed.slice(1) : prefixed;
+          const slash = stripped.indexOf('/');
+          if (slash < 0) return cljs.keyword(stripped);
+          return cljs.keyword(stripped.slice(0, slash), stripped.slice(slash + 1));
+        }
+        const evVec = p == null
+          ? cljs.PersistentVector.fromArray([kw('rf.causa/set-target-frame'), null], true)
+          : cljs.PersistentVector.fromArray([kw('rf.causa/set-target-frame'), kwOf(p)], true);
+        rf.dispatch_sync_STAR_(
+          evVec,
+          cljs.PersistentArrayMap.fromArray([kw('frame'), kw('rf/causa')], true, false),
+        );
+      }, prefixed);
+    }
+    function readTargetFrameJs() {
+      return page.evaluate(() => {
+        const cljs = window.cljs.core;
+        const rf   = window.re_frame.core;
+        const kw = (n) => cljs.keyword(n);
+        const observed = rf.subscribe_once(
+          kw('rf/causa'),
+          cljs.PersistentVector.fromArray([kw('rf.causa/target-frame')], true),
+        );
+        return observed == null ? null : cljs.pr_str(observed);
+      });
+    }
+    await setTargetFrameJs(FRAME_A);
+    const observedA = await readTargetFrameJs();
+    if (observedA !== FRAME_A) {
+      throw new Error(
+        `Expected target-frame to read ${FRAME_A} after set; got ${observedA}.`,
+      );
+    }
+    // The app-db panel's `target-frame-db` sub composes through
+    // `:rf.causa/target-frame` — exercise via subscribe-once.
+    const dbAReadback = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw = (n) => cljs.keyword(n);
+      const db = rf.subscribe_once(
+        kw('rf/causa'),
+        cljs.PersistentVector.fromArray([kw('rf.causa/target-frame-db')], true),
+      );
+      return db == null ? null : cljs.get(db, kw('counter'));
+    });
+    if (dbAReadback !== 7) {
+      throw new Error(
+        `Expected :rf.causa/target-frame-db :counter to read 7 (frame A's value); got ${dbAReadback}.`,
+      );
+    }
+
+    // Phase 3 — flip to B, assert the same sub now reads B's app-db.
+    await setTargetFrameJs(FRAME_B);
+    const dbBReadback = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw = (n) => cljs.keyword(n);
+      const db = rf.subscribe_once(
+        kw('rf/causa'),
+        cljs.PersistentVector.fromArray([kw('rf.causa/target-frame-db')], true),
+      );
+      return db == null ? null : cljs.get(db, kw('counter'));
+    });
+    if (dbBReadback !== 91) {
+      throw new Error(
+        `Expected :rf.causa/target-frame-db :counter to read 91 (frame B's value) after flip; got ${dbBReadback}.`,
+      );
+    }
+
+    // Phase 4 — Causa's own `:rf/causa` app-db isolation check.
+    // Neither synthetic frame's `:counter` slot may leak INTO Causa's
+    // app-db, and the host `:rf/default` app-db must still be intact
+    // (the L-12 isolation check verified the other direction; this
+    // closes the loop for the multi-frame case).
+    const isolationProbe = await page.evaluate(({ A, B }) => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw = (n) => cljs.keyword(n);
+      const causaDb   = rf.get_frame_db(kw('rf/causa'));
+      const defaultDb = rf.get_frame_db(kw('rf/default'));
+      const causaCounter   = causaDb   == null ? null : cljs.get(causaDb,   kw('counter'));
+      const defaultCounter = defaultDb == null ? null : cljs.get(defaultDb, kw('counter'));
+      // :rf/default carries `{:counter/value <int>}` from the host;
+      // it must NOT carry the synthetic `:counter` slot the synthetic
+      // frames write (the keyword vs namespaced-keyword difference
+      // is load-bearing — :counter vs :counter/value).
+      const defaultCounterValue = defaultDb == null ? null :
+        cljs.get(defaultDb, kw('counter/value'));
+      return {
+        causaHasCounter:         causaCounter   !== null && causaCounter !== undefined,
+        defaultHasCounter:       defaultCounter !== null && defaultCounter !== undefined,
+        defaultCounterValue:     defaultCounterValue,
+      };
+    }, { A: FRAME_A, B: FRAME_B });
+    if (isolationProbe.causaHasCounter) {
+      throw new Error(
+        `Multi-frame isolation broken — :rf/causa app-db has the synthetic frames' :counter slot (host frames leaked INTO Causa).`,
+      );
+    }
+    if (isolationProbe.defaultHasCounter) {
+      throw new Error(
+        `Multi-frame isolation broken — :rf/default app-db gained a :counter slot (synthetic frames leaked into the host).`,
+      );
+    }
+    if (typeof isolationProbe.defaultCounterValue !== 'number') {
+      throw new Error(
+        `Host :rf/default app-db lost its :counter/value slot during the multi-frame walk; got ${isolationProbe.defaultCounterValue}.`,
+      );
+    }
+
+    // Phase 5 — trace-collector per-frame partitioning. Causa's
+    // `note-suppressed!` keys on `(or frame-id :global)`. Bump the
+    // counter for each frame and assert the per-frame buckets
+    // partition correctly. The probe goes through the CLJS module
+    // directly because `note-suppressed!` takes a frame-id arg that
+    // the JS-exported config surface doesn't shape (the existing JS
+    // surface only exposes the no-arg `note_suppressed_BANG_(null)`
+    // which targets the `:global` bucket).
+    const traceFramePartition = await page.evaluate(({ A, B }) => {
+      const cljs = window.cljs.core;
+      const causa = window.day8.re_frame2_causa;
+      const cfg = causa.config;
+      if (!cfg) return { ok: false, reason: 'no config' };
+      if (typeof cfg.note_suppressed_BANG_ !== 'function') {
+        return { ok: false, reason: 'note_suppressed_BANG_ missing' };
+      }
+      function kwOf(prefixed) {
+        const stripped = prefixed.startsWith(':') ? prefixed.slice(1) : prefixed;
+        const slash = stripped.indexOf('/');
+        if (slash < 0) return cljs.keyword(stripped);
+        return cljs.keyword(stripped.slice(0, slash), stripped.slice(slash + 1));
+      }
+      // Reset first so the counts read off a clean baseline.
+      cfg.reset_suppressed_count_BANG_();
+      const kwA = kwOf(A);
+      const kwB = kwOf(B);
+      // Bump A x3, B x5.
+      for (let i = 0; i < 3; i += 1) cfg.note_suppressed_BANG_(kwA);
+      for (let i = 0; i < 5; i += 1) cfg.note_suppressed_BANG_(kwB);
+      const countA = cfg.suppressed_count(kwA);
+      const countB = cfg.suppressed_count(kwB);
+      const countGlobal = cfg.suppressed_count(cljs.keyword('global'));
+      const total = cfg.suppressed_count();
+      // Cleanup — reset the counters so the rest of the spec reads
+      // a known baseline.
+      cfg.reset_suppressed_count_BANG_();
+      return { ok: true, countA, countB, countGlobal, total };
+    }, { A: FRAME_A, B: FRAME_B });
+    if (!traceFramePartition.ok) {
+      throw new Error(`Trace-frame partition probe failed: ${traceFramePartition.reason}`);
+    }
+    if (traceFramePartition.countA !== 3 || traceFramePartition.countB !== 5) {
+      throw new Error(
+        `Trace-frame partition wrong — expected {A: 3, B: 5}; got ${JSON.stringify(traceFramePartition)}.`,
+      );
+    }
+    if (traceFramePartition.total !== 8) {
+      throw new Error(
+        `Per-frame total mismatch — expected 8 (3 + 5); got ${traceFramePartition.total}.`,
+      );
+    }
+    if (traceFramePartition.countGlobal !== 0) {
+      throw new Error(
+        `Expected :global bucket empty after per-frame bumps; got ${traceFramePartition.countGlobal}.`,
+      );
+    }
+
+    // Phase 6 — cleanup. Reset target-frame to nil (resets to
+    // :rf/default), destroy the synthetic frames.
+    await setTargetFrameJs(null);
+    await page.evaluate((args) => {
+      const cljs = window.cljs.core;
+      const rf = window.re_frame.core;
+      function kwOf(prefixed) {
+        const stripped = prefixed.startsWith(':') ? prefixed.slice(1) : prefixed;
+        const slash = stripped.indexOf('/');
+        if (slash < 0) return cljs.keyword(stripped);
+        return cljs.keyword(stripped.slice(0, slash), stripped.slice(slash + 1));
+      }
+      if (typeof rf.destroy_frame_BANG_ === 'function') {
+        try { rf.destroy_frame_BANG_(kwOf(args.A)); } catch (_) {}
+        try { rf.destroy_frame_BANG_(kwOf(args.B)); } catch (_) {}
+      }
+    }, { A: FRAME_A, B: FRAME_B });
   },
 };
