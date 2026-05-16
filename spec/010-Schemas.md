@@ -640,6 +640,13 @@ Most schema libraries ship generators that produce values matching a schema (Mal
 
 Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is post-v1; tracked at rf2-7fk8a.
 
+#### Post-v1 Tracking — rf2-7fk8a
+
+- **Foundation in v1.** `reg-app-schema` already accepts an opts map (per [§The four normative claims](#the-four-normative-claims)); adding a `:version <pos-int>` key is additive — current registrations stay valid.
+- **Scope deferred.** The convention itself (canonical key name, default semantics when absent, comparison rule on hot-reload, migration-helper signature) is the post-v1 design surface. v1 ships the validator-pluggability primitive without locking the versioning grammar.
+- **Reconsideration trigger.** Either (a) a concrete app reports schema-evolution bugs that the hot-reload `:rf.spec/violation` trace (per [§Schema migration on hot-reload](#schema-migration-on-hot-reload)) cannot diagnose, or (b) a tool (story, causa, pair2) needs to assert a known shape-revision across runs.
+- **Out of scope for the bead.** App-level migration runner (sequenced `db -> db'` transforms keyed on version delta) is library territory, not framework.
+
 ## Resolved decisions
 
 ### Schema migration on hot-reload
