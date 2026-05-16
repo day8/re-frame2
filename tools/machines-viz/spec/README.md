@@ -27,5 +27,33 @@ ribbon UX, source-coord wiring, `:invoke-all` row layout details).
 
 ## Status
 
-Scaffolded by [rf2-x50eu](../../../.beads/) — 2026-05-13. No code
-yet; the spec covers the contract the implementation will satisfy.
+Scaffolded by [rf2-x50eu](../../../.beads/) — 2026-05-13. The spec
+covers the v1.0 contract the implementation will satisfy; the first
+shipped surface is the Mermaid `stateDiagram-v2` exporter.
+
+### Shipped
+
+- **Mermaid `stateDiagram-v2` exporter** — per
+  [rf2-deo2i](../../../.beads/) and
+  [`API.md`](API.md) §Mermaid `stateDiagram-v2`. Implemented at
+  `src/day8/re_frame2_machines_viz/mermaid.cljc` (~500 LoC). Covers
+  the read-only diagram surface enumerated in
+  [`000-Vision.md`](000-Vision.md) §item 5 (single-state machines,
+  composite states, parallel regions, transition labels, entry/exit
+  actions, action/`do` labels, `invoke-all` row layout). JVM + CLJS
+  test corpora cover the projection and the markdown-fence wrapping.
+
+### Pending implementation
+
+- `MachineChart` Reagent component — the live in-page renderer.
+- Read-only viewer page — the standalone hosted surface that accepts
+  a share URL and renders without an embedding host.
+- Share-URL encoding pipeline — payload schema + compression +
+  versioning per [`API.md`](API.md) §Share URL.
+- PNG / SVG exporters — file-emitting surfaces alongside the
+  Mermaid markdown export.
+- Capability docs (`001-Rendering.md`, etc.) — author alongside
+  each surface as it lands. The Mermaid exporter's contract
+  currently lives in [`API.md`](API.md) only; a dedicated
+  capability doc may land when sibling capabilities arrive and a
+  shared surface emerges.
