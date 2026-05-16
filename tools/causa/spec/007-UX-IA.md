@@ -10,11 +10,11 @@ and [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 
 ## Layout
 
-Causa fills a true-inline panel on the **left side** of the host app by
+Causa fills a true-inline panel on the **right side** of the host app by
 default. The host app provides `[data-rf-causa-host]` as a normal
 flex/grid column and Causa renders inside it. This is not an overlay
 and not a body-padding dock: the app remains visible and clickable to
-the right because normal layout owns the relationship.
+the left because normal layout owns the relationship.
 
 ### The five regions
 
@@ -65,7 +65,7 @@ explaining desktop-only.
 
 On page load after `rf/init!`, when `[data-rf-causa-host]` exists:
 
-- Causa auto-opens in the left inline host.
+- Causa auto-opens in the right inline host.
 - `Ctrl+Shift+C` hides/shows the already-mounted shell with a CSS-only
   display toggle.
 - **Active panel: Events**, showing the most-recent epoch's

@@ -2,7 +2,7 @@
 
 **The cascade you can see.**
 
-Causa is the in-app devtools panel for re-frame2. It auto-opens in a left-side `[data-rf-causa-host]` layout column in your dev build, toggles with `Ctrl+Shift+C`, and renders sixteen panels over a single observation surface — the framework's own trace bus and epoch buffer. No bespoke recorder, no shadow runtime, no second substrate. The runtime knows what happened; Causa is what knows knows.
+Causa is the in-app devtools panel for re-frame2. It auto-opens in a right-side `[data-rf-causa-host]` layout column in your dev build, toggles with `Ctrl+Shift+C`, and renders sixteen panels over a single observation surface — the framework's own trace bus and epoch buffer. No bespoke recorder, no shadow runtime, no second substrate. The runtime knows what happened; Causa is what knows knows.
 
 Where the v1-era [`re-frame-10x`](https://github.com/day8/re-frame-10x) was a sidecar with its own recorder, Causa is a *renderer* of an already-structured surface. Same panels — events, subs, renders, fxs, app-db diff, time-travel — different substrate. The framework moved the observation contract into the runtime; Causa moved with it.
 

@@ -14,7 +14,7 @@ surfaces as an issue you cannot miss.
 
 An in-app true-inline devtools panel for re-frame2 applications,
 preloaded into dev builds via `:preloads`. The host app provides a
-left-side `[data-rf-causa-host]` column in its normal layout; Causa
+right-side `[data-rf-causa-host]` column in its normal layout; Causa
 auto-opens there once the substrate adapter is ready. Production builds elide the entire surface
 through the universal `interop/debug-enabled?` gate — zero bytes
 shipped to consumers.
@@ -64,12 +64,13 @@ Once published, the dev-deps coord will be
 ### Add The Layout Host
 
 Causa's default launch mode is true inline, not an overlay. Add a
-left-side host to the app layout:
+right-side host to the app layout (DOM order: `<main>` first, host
+`<aside>` second — flex puts the aside on the right):
 
 ```html
 <div class="app-shell">
-  <aside data-rf-causa-host></aside>
   <main id="app"></main>
+  <aside data-rf-causa-host></aside>
 </div>
 ```
 
@@ -78,13 +79,24 @@ left-side host to the app layout:
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 420px);
   min-width: 320px;
+  border-left: 1px solid #2a2a2a;
+  resize: horizontal;
+  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
 
-Override `--rf-causa-inline-width` anywhere up the cascade (e.g.
-`:root { --rf-causa-inline-width: 560px; }`) to resize the inline
-panel — JS-free, host-owned (per `rf2-um813`).
+Two complementary resize mechanisms ship together — both
+browser-native, both JS-free:
+
+- **CSS variable** (host-owned). Override `--rf-causa-inline-width`
+  anywhere up the cascade (e.g.
+  `:root { --rf-causa-inline-width: 560px; }`) to set the initial
+  width.
+- **Browser-native drag** (user-controlled). `resize: horizontal` +
+  `overflow: auto` give the host a drag-handle in the bottom corner;
+  the variable seeds the initial size, a drag overrides it for the
+  page lifetime.
 
 If the host is missing, Causa logs an actionable `console.error` and
 exposes the same state through `window.day8.re_frame2_causa.status()`.

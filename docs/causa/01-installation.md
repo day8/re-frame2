@@ -17,13 +17,14 @@ Once we publish to Clojars, the dev-deps coord will be `day8/re-frame2-causa {:m
 
 ## 2. Add the layout host
 
-Causa's default launch is true inline. Add a left-side host to your
-normal app layout:
+Causa's default launch is true inline. Add a right-side host to your
+normal app layout. Note the DOM order: `<main>` first, host `<aside>`
+second — flex flow puts the aside to the right of the app column:
 
 ```html
 <div class="app-shell">
-  <aside data-rf-causa-host></aside>
   <main id="app"></main>
+  <aside data-rf-causa-host></aside>
 </div>
 ```
 
@@ -32,16 +33,27 @@ normal app layout:
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 420px);
   min-width: 320px;
+  border-left: 1px solid #2a2a2a;   /* visual separator on the app side */
+  resize: horizontal;                /* user-draggable width */
+  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
 
-Resize the panel from anywhere up the cascade by overriding the
-`--rf-causa-inline-width` CSS custom property (per `rf2-um813` — JS-free, host-owned):
+Two complementary resize mechanisms — both browser-native, both
+JS-free — ship together:
 
-```css
-:root { --rf-causa-inline-width: 560px; }
-```
+- **CSS variable** (host-owned, fixed-point sizing). Override
+  `--rf-causa-inline-width` anywhere up the cascade to set the
+  initial width:
+  ```css
+  :root { --rf-causa-inline-width: 560px; }
+  ```
+- **Browser-native drag** (user-controlled). `resize: horizontal` +
+  `overflow: auto` give the host a drag-handle in the bottom corner;
+  the user drags to resize ad-hoc. The variable seeds the initial
+  size; a drag overrides it for the page lifetime; reload (or a
+  fresh cascade override) returns to the declared initial.
 
 If Causa cannot find the host, it logs an actionable `console.error`
 and exposes the same diagnostic through
@@ -62,11 +74,11 @@ A re-frame2 dev build with that preload, reloaded, is the precondition for the r
 
 ## 4. Launch
 
-Open your app in dev. The shell appears in the left inline host:
+Open your app in dev. The shell appears in the right inline host:
 
 ![The Causa shell, opened over the live app](../images/causa/02-shell-opened.png)
 
-The shell is a three-region layout:
+The shell is a three-region layout (inside the Causa panel itself):
 
 - **Sidebar** (left): the panel list.
 - **Canvas** (right): the selected panel.
@@ -91,7 +103,7 @@ The popout uses `window.opener` to reach the host's runtime — same listeners, 
 
 Tool-owned pages that deliberately do not reserve app real estate for
 Causa (for example a Story-only browser-test canvas, or an internal
-dev tool whose layout cannot accommodate a left column) can suppress
+dev tool whose layout cannot accommodate a right column) can suppress
 **only** the default page-load open while leaving the rest of the
 preload — collectors, browser API, keybinding — installed:
 
@@ -147,6 +159,6 @@ npx http-server -p 8080 out/examples/counter
 # then browser: http://localhost:8080
 ```
 
-The Causa shell should appear in the left inline host as soon as the counter app loads. Click the `+` button a few times and the Event-detail panel should paint the cascade your clicks produced. `Ctrl+Shift+C` hides/shows the mounted shell. That's the smoke test.
+The Causa shell should appear in the right inline host as soon as the counter app loads. Click the `+` button a few times and the Event-detail panel should paint the cascade your clicks produced. `Ctrl+Shift+C` hides/shows the mounted shell. That's the smoke test.
 
 When that works on your own app, you're ready for the [panel tour](02-panel-tour.md).
