@@ -366,6 +366,7 @@
 ;; ---- shared attempt-and-retry loop ----------------------------------------
 
 (declare run-attempt!)
+(declare finalise-failure!)
 
 (defn- dispatch-reply!
   [{:keys [origin-event explicit-on-success explicit-on-failure
@@ -397,24 +398,81 @@
   (when-let [flag (:finalised? (:handle ctx))]
     (not (compare-and-set! flag false true))))
 
-(defn- finalise-success! [ctx accepted]
-  (when-not (already-replied? ctx)
-    (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
-    (cond
-      (contains? accepted :ok)
-      (dispatch-reply! (assoc ctx
-                              :kind :success
-                              :reply-payload {:kind  :success
-                                              :value (:ok accepted)}))
+(defn- aborted-snapshot
+  "rf2-wez75 — abort-always-wins precedence (Mike decision a, aligned with
+  Fetch AbortController / Node HTTP / JVM HttpClient / gRPC universal
+  convention). Returns the abort-state map `{:reason :actor-id}` if the
+  handle's `:aborted?` atom has been flipped (by either `:rf.http/managed-
+  abort` user-aborts OR `abort-on-actor-destroy` per Spec 014 §Abort on
+  actor destroy), else nil. Read once at finalise-* entry so the late-
+  arriving decode / status / transport classification gets reclassified
+  to `:rf.http/aborted` rather than racing the abort-fn's CAS — see Spec
+  014 §Abort precedence (abort always wins)."
+  [ctx]
+  (when-let [abort-cell (:aborted? (:handle ctx))]
+    @abort-cell))
 
-      (contains? accepted :failure)
-      (dispatch-reply! (assoc ctx
-                              :kind :failure
-                              :reply-payload {:kind    :failure
-                                              :failure {:kind       :rf.http/accept-failure
-                                                        :detail     (:failure accepted)
-                                                        :decoded    (:decoded ctx)
-                                                        :request-id (:request-id ctx)}})))))
+(defn- aborted-failure
+  "Build the `:rf.http/aborted` failure shape from an abort snapshot."
+  [ctx abort-state]
+  {:kind       :rf.http/aborted
+   :request-id (:request-id ctx)
+   :reason     (:reason abort-state)
+   :actor-id   (or (:actor-id abort-state) (:actor-id ctx))})
+
+(defn- finalise-success! [ctx accepted]
+  ;; rf2-wez75 — abort-precedence check. Two sampling points:
+  ;;   (1) BEFORE the once-only CAS — covers the case where abort-fn
+  ;;       already flipped `:aborted?` and lost the CAS to a
+  ;;       synchronously-completing decode.
+  ;;   (2) AFTER winning the CAS — covers the narrower window where
+  ;;       abort-fn flips `:aborted?` between our sample-(1) read and
+  ;;       our CAS. Sampling after the CAS pins the contract:
+  ;;       any abort observed by a flag we hold ownership of has
+  ;;       precedence over the success-classification reply.
+  ;; Together these close every interleaving consistent with the
+  ;; abort-always-wins rule (Spec 014 §Abort precedence). The CAS-loser
+  ;; case (sample (1)) routes through finalise-failure! so the trace
+  ;; emit + supersede-suppression path stays in one place.
+  (if-let [abort-state (aborted-snapshot ctx)]
+    (finalise-failure! ctx (aborted-failure ctx abort-state))
+    (when-not (already-replied? ctx)
+      (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+      (if-let [post-cas-abort (aborted-snapshot ctx)]
+        ;; Sample (2): abort flipped between our pre-CAS sample and
+        ;; our CAS-win. We hold the once-only token; dispatch the
+        ;; aborted reply directly rather than re-entering
+        ;; finalise-failure! (which would double-clear the registry
+        ;; and re-check `already-replied?`).
+        (let [failure (aborted-failure ctx post-cas-abort)]
+          (when interop/debug-enabled?
+            (let [sensitive? (true? (:sensitive? ctx))
+                  redacted   (privacy/prepare-emit-failure
+                               (assoc failure
+                                      :url      (:url ctx)
+                                      :recovery :no-recovery)
+                               sensitive?)]
+              (trace/emit-error! :rf.http/aborted redacted)))
+          (when-not (= :request-id-superseded (:reason failure))
+            (dispatch-reply! (assoc ctx
+                                    :kind          :failure
+                                    :reply-payload {:kind    :failure
+                                                    :failure failure}))))
+        (cond
+          (contains? accepted :ok)
+          (dispatch-reply! (assoc ctx
+                                  :kind :success
+                                  :reply-payload {:kind  :success
+                                                  :value (:ok accepted)}))
+
+          (contains? accepted :failure)
+          (dispatch-reply! (assoc ctx
+                                  :kind :failure
+                                  :reply-payload {:kind    :failure
+                                                  :failure {:kind       :rf.http/accept-failure
+                                                            :detail     (:failure accepted)
+                                                            :decoded    (:decoded ctx)
+                                                            :request-id (:request-id ctx)}})))))))
 
 (defn- finalise-failure!
   "Final-failure dispatch (after retries exhausted or non-retriable).
@@ -432,43 +490,81 @@
   abort path and a later natural-completion path can't both dispatch
   a reply for the same request. The trace emit + registry clear ALSO
   live inside the guard — a doubled trace would be just as observable
-  as a doubled reply on the dev surface."
+  as a doubled reply on the dev surface.
+
+  Per rf2-wez75 (Mike decision a, abort-always-wins — aligned with
+  Fetch AbortController / Node HTTP / JVM HttpClient / gRPC universal
+  convention): the abort-precedence check fires BEFORE the CAS. If the
+  handle's `:aborted?` cell has been flipped (by user abort OR
+  actor-destroy), the incoming `failure` is replaced by the canonical
+  `:rf.http/aborted` shape before trace-emit and reply-dispatch. This
+  closes the window where a decode-failure / transport / 5xx
+  classification could synchronously win the once-only `:finalised?`
+  CAS in the same scheduler tick the abort-fn was running — the
+  user-visible outcome is now deterministic by classification, not by
+  CAS race ordering. See Spec 014 §Abort precedence (abort always wins)."
   [ctx failure]
   (when-not (already-replied? ctx)
-    (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
-    (when interop/debug-enabled?
-      ;; rf2-bma05 — redact response-side payload slots (body, body-text,
-      ;; decoded, detail) and the headers denylist before the trace
-      ;; surface sees them; stamp :sensitive? when applicable. The CLJS
-      ;; and JVM transports share the same contract.
-      (let [sensitive? (true? (:sensitive? ctx))
-            redacted   (privacy/prepare-emit-failure
-                         (assoc failure
-                                :request-id (:request-id ctx)
-                                :url        (:url ctx)
-                                :recovery   :no-recovery)
-                         sensitive?)]
-        (trace/emit-error! (:kind failure) redacted)))
-    (let [superseded? (and (= :rf.http/aborted (:kind failure))
-                           (= :request-id-superseded (:reason failure)))]
-      (when-not superseded?
-        (dispatch-reply! (assoc ctx
-                                :kind          :failure
-                                :reply-payload {:kind    :failure
-                                                :failure failure}))))))
+    (let [;; rf2-wez75 — abort-precedence reclassification. Sampled
+          ;; AFTER winning the once-only CAS so any abort-fn that
+          ;; flipped `:aborted?` between our caller's classification
+          ;; and this point is still observed. The abort-fn itself
+          ;; flips the cell BEFORE racing the CAS, so the cell is
+          ;; monotonic-set under contention — once flipped, every
+          ;; subsequent sample reads non-nil.
+          abort-state (aborted-snapshot ctx)
+          effective   (if (and abort-state
+                               (not= :rf.http/aborted (:kind failure)))
+                        (aborted-failure ctx abort-state)
+                        failure)]
+      (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+      (when interop/debug-enabled?
+        ;; rf2-bma05 — redact response-side payload slots (body, body-text,
+        ;; decoded, detail) and the headers denylist before the trace
+        ;; surface sees them; stamp :sensitive? when applicable. The CLJS
+        ;; and JVM transports share the same contract.
+        (let [sensitive? (true? (:sensitive? ctx))
+              redacted   (privacy/prepare-emit-failure
+                           (assoc effective
+                                  :request-id (:request-id ctx)
+                                  :url        (:url ctx)
+                                  :recovery   :no-recovery)
+                           sensitive?)]
+          (trace/emit-error! (:kind effective) redacted)))
+      (let [superseded? (and (= :rf.http/aborted (:kind effective))
+                             (= :request-id-superseded (:reason effective)))]
+        (when-not superseded?
+          (dispatch-reply! (assoc ctx
+                                  :kind          :failure
+                                  :reply-payload {:kind    :failure
+                                                  :failure effective})))))))
 
 (defn- maybe-retry!
   "Decide between retry, immediate-final-failure, and successful-completion.
-  `failure` is the failure map for the just-finished attempt."
+  `failure` is the failure map for the just-finished attempt.
+
+  Per rf2-wez75 (abort always wins): a request whose handle's
+  `:aborted?` cell has been flipped MUST NOT be retried, regardless of
+  the just-classified failure category or the caller's `:retry :on`
+  set. A user/actor-destroy abort that arrives mid-decode-failure
+  retry-eligible classification would otherwise schedule a fresh
+  attempt against a request the caller has already cancelled — a
+  contract violation under Spec 014 §Abort precedence. Routing the
+  aborted request through `finalise-failure!` lets the in-flight
+  reclassification (built into finalise-failure!'s abort-snapshot
+  read) replace the would-be retry-eligible failure with the canonical
+  `:rf.http/aborted` shape."
   [ctx failure]
   (let [{:keys [retry attempt request-id]} ctx
         {:keys [on max-attempts backoff]} retry
-        on-set (or on #{})
-        kind   (:kind failure)
-        can-retry? (and (some? max-attempts)
-                        (> max-attempts attempt)
-                        (contains? on-set kind)
-                        (not= :rf.http/aborted kind))]
+        on-set      (or on #{})
+        kind        (:kind failure)
+        aborted?    (some? (aborted-snapshot ctx))
+        can-retry?  (and (some? max-attempts)
+                         (> max-attempts attempt)
+                         (contains? on-set kind)
+                         (not= :rf.http/aborted kind)
+                         (not aborted?))]
     (if can-retry?
       (let [delay-ms (encoding/compute-backoff-ms (or backoff {}) attempt)]
         (when interop/debug-enabled?
@@ -619,6 +715,16 @@
         ;; CompletableFuture so the work actually stops (not just the
         ;; reply path).
         finalised? (atom false)
+        ;; rf2-wez75 — abort-precedence cell. The abort-fn flips this
+        ;; BEFORE racing the once-only `:finalised?` CAS, so even if a
+        ;; synchronously-completing decode wins the CAS, the finalise-*
+        ;; entry sees the abort snapshot and reclassifies the reply as
+        ;; `:rf.http/aborted` per Spec 014 §Abort precedence (abort
+        ;; always wins). The cell carries the abort reason map so the
+        ;; canonical reply shape (and the `:actor-id` slot, when
+        ;; actor-destroy was the source) is reconstructable inside
+        ;; finalise-failure! without re-deriving from `failure`.
+        aborted?   (atom nil)
         ;; rf2-on7sj (JVM) — the abort-fn closure must `.cancel cf true`
         ;; on the underlying CompletableFuture, but cf only exists AFTER
         ;; this binding (built inside the try-body below). Forward via a
@@ -662,6 +768,26 @@
         handle   (registry/record-in-flight!
                    request-id actor-id
                    {:abort-fn (fn [reason]
+                                ;; rf2-wez75 — flip `:aborted?` BEFORE the
+                                ;; once-only CAS so that a concurrently-
+                                ;; running finalise-* (decode-failure,
+                                ;; transport, http-5xx, success) that wins
+                                ;; the CAS still reads the abort snapshot
+                                ;; on entry and reclassifies. The reset!
+                                ;; is idempotent across re-entrant aborts
+                                ;; (supersede + actor-destroy in rapid
+                                ;; succession): subsequent flips just
+                                ;; overwrite with the same shape, which is
+                                ;; fine because the once-only CAS below
+                                ;; collapses everything after the first
+                                ;; pass into a no-op. We do NOT CAS this
+                                ;; cell because a racing finalise-* that
+                                ;; samples it as nil and then later sees
+                                ;; it as set is exactly the window we're
+                                ;; closing — abort always wins regardless
+                                ;; of which side flipped first.
+                                (reset! aborted? {:reason   reason
+                                                  :actor-id actor-id})
                                 ;; rf2-on7sj — single-shot CAS guard.
                                 ;; A re-entrant abort (e.g. supersede +
                                 ;; actor-destroy firing in rapid
@@ -702,6 +828,9 @@
                     :url url
                     ;; rf2-on7sj — once-only reply guard, see comment above.
                     :finalised? finalised?
+                    ;; rf2-wez75 — abort-precedence cell read at finalise-*
+                    ;; entry. See the `aborted?` binding above.
+                    :aborted?   aborted?
                     ;; rf2-bma05 — propagate the :sensitive? flag onto
                     ;; the in-flight handle so the actor-destroy abort
                     ;; emit (lives in the registry ns) can stamp the

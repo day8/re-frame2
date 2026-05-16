@@ -341,7 +341,7 @@ Pair tools and 10x panels surface the per-attempt trace; user code only sees the
 
 When a response arrives, the runtime classifies the outcome in this fixed order:
 
-1. **Transport / timeout / abort.** A network error, per-attempt timeout, or abort short-circuits the rest. Classified as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, or `:rf.http/aborted`. The body never enters the picture.
+1. **Transport / timeout / abort.** A network error, per-attempt timeout, or abort short-circuits the rest. Classified as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, or `:rf.http/aborted`. The body never enters the picture. Per [§Abort precedence (abort always wins)](#abort-precedence-abort-always-wins--rf2-wez75) abort dominates the rest of this list — a request marked aborted always classifies as `:rf.http/aborted` regardless of any later-arriving decode / status / transport observation for the same request.
 2. **HTTP status.** Once a response lands, status is checked **before** the body is touched.
    - `2xx` → success-eligible; proceed to decode.
    - `4xx` → `:rf.http/http-4xx`; the raw response text is surfaced at `:body`. Decode is skipped.
@@ -353,6 +353,14 @@ When a response arrives, the runtime classifies the outcome in this fixed order:
 The order is **status-before-decode by design**: a JSON-API endpoint that returns an HTML 404 from a load balancer (or a CORS pre-flight 4xx with a generic HTML body, or a 503 with a Cloudfront error page) classifies as `:rf.http/http-4xx` / `:rf.http/http-5xx` with the raw body at `:body`, not as `:rf.http/decode-failure`. The HTTP failure category is the load-bearing piece of information for the caller; surfacing decode-failure on a 4xx would hide the real error.
 
 If a caller wants to see the structured error body that an API returns alongside a non-2xx (e.g., `{"error": "..."}` JSON on a 4xx), the caller decodes the raw `:body` themselves in the failure-handling branch — the framework hands you the bytes and the status, and you decide what to do with them.
+
+### Abort precedence (abort always wins) — rf2-wez75
+
+**Abort always wins.** Once a request is marked aborted (via [`:rf.http/managed-abort`](#request-id-internal), an external [`:abort-signal`](#abort-signal-external), or the [actor-destroy hook](#abort-on-actor-destroy)), classification short-circuits to `:rf.http/aborted` / `:reason :actor-destroyed` regardless of any subsequent decode, transport, status, or accept-projection state observed for the same request — including outcomes whose underlying transport completion arrived in the same scheduler tick as the abort. Implementations MUST NOT surface `:rf.http/decode-failure`, `:rf.http/transport`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, or `:rf.http/accept-failure` on a request that has been aborted; the abort observation wins by classification, not by race ordering.
+
+This pins the universal cancellation convention (Fetch `AbortController` rejects with `AbortError`; Node HTTP's `req.destroy()`; JVM `HttpClient.cancel`; gRPC's `CANCELLED` status). User code that issued an abort sees an `:rf.http/aborted` reply — period — and never has to disambiguate "did my abort actually happen, or did the response just barely beat it?".
+
+The implementation seam is two-layered: an `:aborted?` cell on the in-flight handle is flipped by the abort path BEFORE racing the once-only `:finalised?` CAS; the natural-completion paths (`finalise-success!` / `finalise-failure!`) sample the cell AFTER winning the CAS and reclassify the would-be reply before dispatch. `maybe-retry!` additionally refuses to schedule a retry once the cell is flipped — a request the caller has cancelled MUST NOT issue a fresh attempt under any retry policy.
 
 ## Failure categories (closed set)
 
