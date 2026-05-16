@@ -1949,6 +1949,24 @@ The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an eve
 
 (The v1 public fns `spawn-machine` / `destroy-machine` are dropped — see [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
 
+### Destroy is silent-idempotent (rf2-lbjnz)
+
+**Destroying an already-destroyed actor is a deliberate silent no-op** (aligned with the XState convention). The actor's lifecycle has exactly one observable transition (Active → Stopped); subsequent destroy attempts emit NO `:rf.machine/destroyed` trace, perform NO teardown work, and raise NO error. This holds uniformly across the destroy surface:
+
+- **Explicit destroy after auto-destroy.** A child reaches `:final?` and auto-destroys (per [§Final states D4](#final-states-final--on-done--output-key)); a subsequent `[:rf.machine/destroy <id>]` fx on the same id is a silent no-op.
+- **Double-explicit destroy in the same cascade.** Two `[:rf.machine/destroy <id>]` entries in the same `:fx` vector — or a user action emitting the fx for an actor whose declarative-`:invoke` exit cascade has already fired — collapse to one observable destroy and one trace.
+- **Tracked-form destroy with no spawn-slot entry AND no snapshot.** A `[:rf.machine/destroy {:rf/parent-id … :rf/invoke-id …}]` whose `[:rf/spawned <parent-id> <invoke-id>]` slot is already cleared AND whose resolved actor has no snapshot is a silent no-op (both have been atomically cleared by an earlier destroy).
+
+The liveness probe distinguishes **already-destroyed** (the actor was alive, the teardown projection ran, the registrar slot was cleared, the spawn-order entry was forgotten) from **alive-but-unmaterialised-snapshot** (the actor IS alive in this drain — spec-less spawn, or a back-to-back spawn-then-destroy in the same `:fx` vector — but its snapshot was never installed at `[:rf/machines <actor-id>]`). Snapshot-presence alone is **not** the right signal: a **spec-less spawn** (the runtime allocates the spawn-slot even when `:machine-id` resolves to no registered spec — e.g. an SSR / platform-gated build that registered the parent but not the child) never installs a snapshot, yet its destroy still owns legitimate cleanup work (spawn-order/forget + the observability trace). The runtime treats an actor as **live** when ANY of the following holds:
+- the actor's event handler is still registered at `<actor-id>`,
+- a snapshot exists at `[:rf/machines <actor-id>]`,
+- the per-frame spawn-order channel still tracks `<actor-id>`, or
+- (tracked-form only) the spawn-slot at `[:rf/spawned <parent-id> <invoke-id>]` still resolves.
+
+An already-destroyed actor has **all** of these gone, atomically — the unified teardown projection (per [§Final states D4](#final-states-final--on-done--output-key)) dissocs the snapshot, clears the spawn-slot, and releases the `:rf/system-ids` reverse-index entry; `registrar/unregister!` clears the handler; `spawn-order/forget!` clears the channel entry. The destroy fx handler probes these liveness signals before any side effect (trace emit, exit cascade, HTTP abort, registrar unregister, spawn-order forget) and returns early when **and only when** the actor was previously alive and is now fully gone.
+
+Observability is unchanged: the **original** `:rf.machine/destroyed` (with `:reason :explicit` for cascade-driven destroys, `:reason :rf.machine/finished` for auto-destroy on `:final?` per [§Final states D6](#final-states-final--on-done--output-key)) IS the destroy signal. No second event fires for the no-op attempts, and no `:rf.warning/destroy-of-finished-actor` is emitted — silence is the contract.
+
 ### Spawning multiple, dynamic counts
 
 Multiple `[:rf.machine/spawn ...]` entries in `:fx` work independently; each runs its `:on-spawn` against the current data (post-previous-spawn). For dynamic-count spawning, build the `:fx` vector with `mapv`:
@@ -2305,6 +2323,7 @@ Existing observers that filter `:rf.machine/destroyed` on `:tags` see the new `:
 - [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) — schema for `:final?` and `:output-key`.
 - [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) — `:rf.machine/done` registration.
 - Conformance fixtures: `final-state-singleton-auto-destroys.edn`, `final-state-child-fires-on-done.edn`.
+- [§Destroy is silent-idempotent (rf2-lbjnz)](#destroy-is-silent-idempotent-rf2-lbjnz) — D4's auto-destroy is followed at most ONCE by an observable `:rf.machine/destroyed` trace; subsequent explicit `[:rf.machine/destroy <id>]` calls on the same finished actor are silent no-ops (aligned with XState convention).
 - rf2-gn80 — the bead that locked these decisions.
 
 ## Wall-clock timeouts on `:invoke` — use parent state's `:after`

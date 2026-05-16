@@ -115,47 +115,103 @@
   `:invoke` (tracked map) form of `:rf.machine/destroy`. Resolves the
   actor-id (keyword direct OR via the `[:rf/spawned ...]` slot), emits
   the `:rf.machine/destroyed` trace, then applies the unified teardown
-  projection."
+  projection.
+
+  Per rf2-lbjnz (Mike decision a, aligned with XState convention) —
+  destroying an **already-destroyed** actor is a **silent idempotent
+  no-op**. The actor's lifecycle has one observable transition
+  (Active → Stopped); subsequent destroy attempts emit NO
+  `:rf.machine/destroyed` trace, perform NO teardown, and raise NO
+  error.
+
+  The liveness probe must distinguish *already-destroyed* (the actor
+  was alive, the teardown projection ran, the registrar slot was
+  cleared) from *not-yet-materialised-snapshot* (the actor IS alive
+  in this drain — spec-less spawn, or spawn + destroy back-to-back
+  before the snapshot was even read — but its snapshot was never
+  installed at `[:rf/machines actor-id]`). Snapshot-presence alone is
+  not the right signal: a spec-less spawn (`:machine-id` resolved to
+  no registered spec — SSR / platform-gated) never installs a
+  snapshot, yet its destroy still owns legitimate cleanup work
+  (spawn-order/forget + the observability trace).
+
+  `live?` is true iff ANY of the following hold:
+
+    - **Handler still registered** at `actor-id` in the event
+      registrar. Final-state auto-destroy (finalize.cljc) and prior
+      explicit destroys both unregister the handler; a still-
+      registered handler reliably means \"not yet destroyed.\"
+    - **Snapshot present** at `[:rf/machines actor-id]`. Covers the
+      narrow window where a singleton's handler has been replaced
+      mid-drain but the snapshot still lives, plus belt-and-braces
+      for hand-crafted call sites.
+    - **Spawn-order entry present** for `actor-id` in the per-frame
+      spawn-order channel. The dedicated liveness signal for spec-
+      less spawns whose handler+snapshot were both skipped at spawn
+      time. `spawn-order/record!` runs unconditionally on spawn;
+      `spawn-order/forget!` runs unconditionally on destroy — so the
+      entry's presence/absence is the most reliable
+      \"alive-or-gone\" bit for this category.
+    - **Tracked-form slot present** at `[:rf/spawned parent-id
+      invoke-id]`. Belt-and-braces for the declarative-`:invoke`
+      tracked-map form — covers the spec-less spawn case under the
+      tracked codepath even when the actor-id resolution above
+      went via the slot lookup.
+
+  A truly-already-destroyed actor has ALL FOUR gone — the unified
+  teardown projection + `registrar/unregister!` + `spawn-order/forget!`
+  run atomically per `destroy-single-actor!` and `finalize-machine`.
+
+  See [Spec 005 §Destroy is silent-idempotent (rf2-lbjnz)] for the
+  normative paragraph."
   [frame-id args]
   (let [tracked?  (map? args)
         parent-id (when tracked? (:rf/parent-id args))
         invoke-id (when tracked? (:rf/invoke-id args))
         old-db    (frame/frame-app-db-value frame-id)
-        actor-id  (if tracked?
-                    (when old-db (get-in old-db [:rf/spawned parent-id invoke-id]))
-                    args)
-        released-sid (teardown/find-system-id-for-actor old-db actor-id)]
-    ;; rf2-gn80 D6 — `:reason :explicit` discriminates "an action / fx
-    ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
-    ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
-    ;; the destroyed-trace-shape contract for the `destroy-single!` site.
-    (traces/emit-destroyed! {:frame     frame-id
-                             :actor-id  actor-id
-                             :system-id released-sid
-                             :parent-id parent-id
-                             :invoke-id invoke-id})
-    ;; Tracked-form destroy with no resolved actor-id is a benign no-op:
-    ;; the spawn slot was already cleared (e.g. by an earlier explicit
-    ;; destroy) or the spawn was suppressed (SSR / platform gating).
-    (when actor-id
-      ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
-      ;; BEFORE the teardown projection clears the snapshot.
-      (exit-cascade/run-child-exit! frame-id actor-id)
-      (finalize/abort-actor-in-flight-http! actor-id)
-      (frame/swap-frame-db! frame-id
-                            (fn [db]
-                              (first (teardown/teardown-actor
-                                       db {:actor-id  actor-id
-                                           :parent-id parent-id
-                                           :invoke-id invoke-id}))))
-      (traces/emit-system-id-released! frame-id released-sid actor-id)
-      ;; Unregister the live handler. Last so any in-flight trace emit
-      ;; against the actor still resolves before the slot disappears.
-      (registrar/unregister! :event actor-id)
-      ;; (rf2-vsigt) Forget the actor from the per-frame spawn-order
-      ;; channel so frame destroy's reverse-creation walk doesn't trip
-      ;; over a stale entry.
-      (spawn-order/forget! frame-id actor-id))
+        slot-id   (when (and tracked? old-db)
+                    (get-in old-db [:rf/spawned parent-id invoke-id]))
+        actor-id  (if tracked? slot-id args)
+        ;; rf2-lbjnz — silent-idempotent guard. `live?` is true iff ANY
+        ;; liveness signal survives (handler registered / snapshot
+        ;; present / spawn-order entry / tracked-slot present). See
+        ;; docstring for the rationale and what each signal covers.
+        live?     (and actor-id
+                       (or (some? (registrar/lookup :event actor-id))
+                           (and (some? old-db)
+                                (contains? (get old-db :rf/machines) actor-id))
+                           (some #(= actor-id %)
+                                 (spawn-order/frame-order frame-id))
+                           (and tracked? (some? slot-id))))]
+    (when live?
+      (let [released-sid (teardown/find-system-id-for-actor old-db actor-id)]
+        ;; rf2-gn80 D6 — `:reason :explicit` discriminates "an action / fx
+        ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
+        ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
+        ;; the destroyed-trace-shape contract for the `destroy-single!` site.
+        (traces/emit-destroyed! {:frame     frame-id
+                                 :actor-id  actor-id
+                                 :system-id released-sid
+                                 :parent-id parent-id
+                                 :invoke-id invoke-id})
+        ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
+        ;; BEFORE the teardown projection clears the snapshot.
+        (exit-cascade/run-child-exit! frame-id actor-id)
+        (finalize/abort-actor-in-flight-http! actor-id)
+        (frame/swap-frame-db! frame-id
+                              (fn [db]
+                                (first (teardown/teardown-actor
+                                         db {:actor-id  actor-id
+                                             :parent-id parent-id
+                                             :invoke-id invoke-id}))))
+        (traces/emit-system-id-released! frame-id released-sid actor-id)
+        ;; Unregister the live handler. Last so any in-flight trace emit
+        ;; against the actor still resolves before the slot disappears.
+        (registrar/unregister! :event actor-id)
+        ;; (rf2-vsigt) Forget the actor from the per-frame spawn-order
+        ;; channel so frame destroy's reverse-creation walk doesn't trip
+        ;; over a stale entry.
+        (spawn-order/forget! frame-id actor-id)))
     nil))
 
 (defn destroy-machine-fx
