@@ -80,3 +80,32 @@ since-ms / event-id / origin. Source-coord pin:
   in a multi-frame app.
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_trace_buffer.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs).
+
+### get-machine-list (T-Insp-6, rf2-8xzoe.19)
+
+Enumerate registered re-frame2 machines per frame with their current
+metadata (transitions, initial-state, tags). No pagination — bounded by
+the per-frame machine count which is typically single-digit. Source-
+coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
+bead #19.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:include-sensitive?` | bool | false | passes to the runtime walker |
+| `:include-large?` | bool | false | passes to the runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap; clamped to `[500, 50000]` |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :machines {<machine-id> <meta-map> ...}
+ :count <int>
+ :elided-large <int?>}     ; only when > 0
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — no per-tool
+hint registered; a future bead may add per-frame slicing when the
+catalogue surfaces a `:frame` arg here).
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_machine_list.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs).
