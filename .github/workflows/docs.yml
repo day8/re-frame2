@@ -17,11 +17,16 @@ name: docs
 on:
   push:
     branches: [main]
+    # Trigger only on paths that actually feed the staged docs site or the
+    # link-validator's own fixtures. `skills/**/*.md` and `tools/**/*.md`
+    # are deliberately NOT listed — neither tree is copied into docs_dir
+    # (see mkdocs_hooks.py: tools/ and skills/ internals are rewritten to
+    # GitHub blob URLs precisely because they don't exist in the staged
+    # site). The per-skill summary pages that DO render live at
+    # docs/skills/X.md and are already covered by `docs/**` (rf2-8k7vm).
     paths:
       - 'docs/**'
       - 'spec/**'
-      - 'skills/**/*.md'
-      - 'tools/**/*.md'
       - 'mkdocs.yml'
       - 'mkdocs_hooks.py'
       - 'TESTING.md'
@@ -34,8 +39,6 @@ on:
     paths:
       - 'docs/**'
       - 'spec/**'
-      - 'skills/**/*.md'
-      - 'tools/**/*.md'
       - 'mkdocs.yml'
       - 'mkdocs_hooks.py'
       - 'TESTING.md'
