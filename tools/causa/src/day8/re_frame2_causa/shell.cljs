@@ -13,12 +13,20 @@
       ├──────────────┬──────────────────────────────────────────┤
       │              │                                          │
       │  Sidebar     │  Canvas                                  │
-      │  (192px)     │  (active panel)                          │
+      │  (152px)     │  (active panel)                          │
       │              │                                          │
       │              │                                          │
       ├──────────────┴──────────────────────────────────────────┤
       │ Bottom rail (40px)                                      │
       └─────────────────────────────────────────────────────────┘
+
+  ## Density (rf2-pcitk)
+
+  Typography sizes and the sidebar width are read from
+  `theme.tokens/type-scale` + `theme.tokens/layout`. The shell ships
+  denser than spec-cosy (closer to compact) because Causa is an
+  info-dense dev surface — see the docstrings on those two defs for
+  the one-knob tuning model.
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
@@ -68,7 +76,7 @@
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
-            [day8.re-frame2-causa.theme.tokens :refer [tokens]]))
+            [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout]]))
 
 ;; ---- sidebar items -------------------------------------------------------
 
@@ -119,24 +127,24 @@
   [:div {:style {:display          "flex"
                  :align-items      "center"
                  :justify-content  "space-between"
-                 :height           "56px"
+                 :height           (:top-strip-height layout)
                  :padding          "0 16px"
                  :background       (:bg-1 tokens)
                  :border-bottom    (str "1px solid " (:border-subtle tokens))
                  :color            (:text-primary tokens)
                  :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                 :font-size        "14px"
+                 :font-size        (:body type-scale)
                  :font-weight      600}}
    [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
     [:span {:style {:color (:accent-violet tokens)}} "◆"]
     [:span "Causa"]
     [:span {:style {:color       (:text-tertiary tokens)
-                    :font-size   "12px"
+                    :font-size   (:caption type-scale)
                     :font-weight 400}}
      "Phase 5 (rf2-pzxsr)"]]
    [:div {:style {:display "flex" :align-items "center" :gap "12px"
                   :color    (:text-secondary tokens)
-                  :font-size "12px"
+                  :font-size (:caption type-scale)
                   :font-weight 400}}
     ;; Collapsed-cue affordance per spec/007-UX-IA.md §The AI co-pilot
     ;; collapsed cue — the magenta `◇` glyph pulses every 8 seconds
@@ -161,14 +169,17 @@
   [{:keys [id label dormant?]} active?]
   [:li {:data-testid (str "rf-causa-sidebar-item-" (name id))
         :on-click    #(rf/dispatch [:rf.causa/select-panel id] {:frame :rf/causa})
-        :style       {:padding         "6px 16px"
+        :style       {:padding         "4px 12px"
                       :cursor          "pointer"
                       :background      (if active? (:bg-active tokens) "transparent")
                       :color           (cond
                                          active?  (:text-primary tokens)
                                          dormant? (:text-tertiary tokens)
                                          :else    (:text-secondary tokens))
-                      :font-weight     (if active? 600 400)}}
+                      :font-weight     (if active? 600 400)
+                      :white-space     "nowrap"
+                      :overflow        "hidden"
+                      :text-overflow   "ellipsis"}}
    [:span {:style {:margin-right "8px"
                    :color        (if active?
                                    (:accent-violet tokens)
@@ -180,9 +191,12 @@
    label])
 
 (rf/reg-view sidebar
-  "Sidebar (192px) — panel navigation + density toggle. Per spec/007-
-  UX-IA.md §Sidebar groups three groups (events/app-db/causality/...,
-  conditional-with-activity, dormant) divider-separated.
+  "Sidebar (152px, density-token driven) — panel navigation + density
+  toggle. Per spec/007-UX-IA.md §Sidebar groups three groups
+  (events/app-db/causality/..., conditional-with-activity, dormant)
+  divider-separated. Width comes from
+  `theme.tokens/layout :sidebar-width` (rf2-pcitk) — change in one
+  place to retune density.
 
   Phase 2: the active panel is driven by `:rf.causa/selected-panel`.
   Clicking a row dispatches `:rf.causa/select-panel`.
@@ -210,13 +224,15 @@
                   (and (= :hydration (:id item)) hydration-awake?)
                   (assoc :dormant? false)))
               sidebar-items)]
-    [:nav {:style {:width            "192px"
+    [:nav {:style {:width            (:sidebar-width layout)
                    :flex-shrink      0
                    :background       (:bg-1 tokens)
                    :border-right     (str "1px solid " (:border-subtle tokens))
                    :overflow-y       "auto"
+                   :overflow-x       "hidden"
                    :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                   :font-size        "13px"
+                   :font-size        (:body-tight type-scale)
+                   :line-height      (:line-height-tight type-scale)
                    :color            (:text-primary tokens)}}
      (into [:ul {:style {:list-style    "none"
                          :margin        0
@@ -237,7 +253,7 @@
                   :background  (:bg-2 tokens)
                   :color       (:text-primary tokens)
                   :font-family "Inter, system-ui, -apple-system, Segoe UI, sans-serif"}}
-   [:p {:style {:font-size "14px" :color (:text-secondary tokens)}}
+   [:p {:style {:font-size (:body type-scale) :color (:text-secondary tokens)}}
     "Unknown panel: " [:code (pr-str selected)]]])
 
 (rf/reg-view canvas
@@ -298,7 +314,7 @@
   through React context to `:rf/causa`."
   []
   (let [redacted-count @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
-    [:footer {:style {:height           "40px"
+    [:footer {:style {:height           (:bottom-rail-height layout)
                       :display          "flex"
                       :align-items      "center"
                       :justify-content  "space-between"
@@ -307,7 +323,7 @@
                       :border-top       (str "1px solid " (:border-subtle tokens))
                       :color            (:text-tertiary tokens)
                       :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                      :font-size        "12px"}}
+                      :font-size        (:caption type-scale)}}
      [:span "◀◀  ────●────  ▶▶  (scrubber)"]
      (when (pos? redacted-count)
        [:span {:data-testid "rf-causa-redacted-indicator"
@@ -399,8 +415,8 @@
                           :background       (:bg-0 tokens)
                           :color            (:text-primary tokens)
                           :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                          :font-size        "14px"
-                          :line-height      1.5}
+                          :font-size        (:body type-scale)
+                          :line-height      (:line-height-tight type-scale)}
                          (case mode
                            :inline
                            {:position   "relative"

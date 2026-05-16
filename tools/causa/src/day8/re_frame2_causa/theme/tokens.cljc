@@ -32,6 +32,13 @@
     EDN / mono-column rendering.
   - **`sans-stack`** — the Inter font stack for chrome / labels /
     prose.
+  - **`type-scale`** — typography sizes (px strings) + base
+    line-height. The shell's default density (rf2-pcitk) — denser
+    than the spec's cosy baseline, closer to compact, because Causa
+    is an info-dense dev tool. One-knob tuning lives here; raise the
+    sizes one number to bring the shell back to spec-cosy.
+  - **`layout`** — chrome dimensions (sidebar width, etc.) consumed
+    by the shell. Single source for the density knob.
 
   ## What does not live here
 
@@ -87,3 +94,42 @@
   "Inter stack per spec/007-UX-IA.md §Typography. Used by chrome,
   labels, prose, and every non-mono surface in the panels."
   "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
+
+(def type-scale
+  "Causa shell typography sizes (rf2-pcitk).
+
+  Causa is an info-dense dev surface. Mike's UX session against the
+  testbed flagged the cosy baseline (body 14 / mono 13 / line-height
+  1.5) as too LARGE — the eye has to travel further than the data
+  warrants. This scale runs ~1px below cosy across the board and
+  tightens line-height to 1.35, which is the readability floor for
+  monospaced data dumps.
+
+  spec/007-UX-IA.md §Typography catalogues the cosy baseline and a
+  ±1px density knob (compact/cosy/comfy). Rather than wire the
+  runtime density toggle now (a later v1.0 styling-pass bead), we
+  ship the denser scale as the default — closer to compact, but with
+  a few intermediate values that suit Causa's layout. Raise every
+  value 1px to revert to spec-cosy.
+
+  Values are CSS strings so call sites can drop them straight into
+  inline `:style` maps without unit conversion."
+  {;; Headings + prose
+   :display      "14px"     ; was 16 — panel titles
+   :body         "13px"     ; was 14 — default UI text
+   :body-tight   "12px"     ; sidebar entries, header chrome
+   :mono-body    "12px"     ; was 13 — code, EDN
+   :caption      "11px"     ; was 12 — hints, secondary labels
+   :micro        "10px"     ; was 11 — badges, tabs (refused-floor in spec is 10)
+   ;; Vertical rhythm
+   :line-height-tight 1.35   ; was 1.5 — denser blocks
+   :line-height-mono  1.4    ; mono needs a touch more leading for ascender clearance
+   })
+
+(def layout
+  "Causa shell layout dimensions (rf2-pcitk). Single source for the
+  density knob — narrowing the sidebar reclaims canvas width without
+  touching individual panels."
+  {:sidebar-width   "152px"   ; was 192px — between spec compact (160) and cosy (192)
+   :top-strip-height "56px"
+   :bottom-rail-height "40px"})
