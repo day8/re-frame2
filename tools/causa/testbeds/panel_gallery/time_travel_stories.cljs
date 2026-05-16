@@ -117,7 +117,7 @@
                  'before-purchase'. Panel-specific axis: pin chip
                  rendering is unique to this panel."
      :events     [[:rf.causa/sync-epoch-history (fixtures/cap-warning-history)]
-                  [:rf.causa/pin-current 2 "before-purchase"]]
+                  [:rf.causa/pin-current {:eid 2 :label "before-purchase"}]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

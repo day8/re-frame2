@@ -171,7 +171,8 @@
      [:button {:data-testid "rf-causa-pin-current"
                :disabled    (or history-empty? cap-reached?)
                :on-click    #(when target-eid
-                               (rf/dispatch [:rf.causa/pin-current target-eid label]
+                               (rf/dispatch [:rf.causa/pin-current
+                                             {:eid target-eid :label label}]
                                             {:frame :rf/causa})
                                (rf/dispatch [:rf.causa/time-travel-set-label-input ""]
                                             {:frame :rf/causa}))

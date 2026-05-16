@@ -193,7 +193,7 @@
     (seed-history! [(mk-record :e-1 {:counter 1} 100)
                     (mk-record :e-2 {:counter 2} 200)])
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-current :e-2 "after-tick"])
+      (rf/dispatch-sync [:rf.causa/pin-current {:eid :e-2 :label "after-tick"}])
       (let [pins @(rf/subscribe [:rf.causa/pinned-snapshots])
             pin  (first pins)]
         (is (= 1 (count pins)))
@@ -215,7 +215,8 @@
       (rf/with-frame :rf/causa
         (doseq [i (range 1 34)]
           (rf/dispatch-sync
-            [:rf.causa/pin-current (keyword (str "e-" i)) (str "pin-" i)]))
+            [:rf.causa/pin-current {:eid   (keyword (str "e-" i))
+                                    :label (str "pin-" i)}]))
         (let [pins @(rf/subscribe [:rf.causa/pinned-snapshots])
               causa-db (frame/frame-app-db-value :rf/causa)]
           (is (= h/default-pin-cap (count pins))
@@ -241,7 +242,7 @@
     (seed-history! [(mk-record :e-1 {:counter 7} 1)])
     (rf/with-frame :rf/causa
       ;; Pin :e-1 with its db-after = {:counter 7}.
-      (rf/dispatch-sync [:rf.causa/pin-current :e-1 "checkpoint"])
+      (rf/dispatch-sync [:rf.causa/pin-current {:eid :e-1 :label "checkpoint"}])
       (reset! captured-effects [])  ;; reset capture after pin
       (rf/dispatch-sync [:rf.causa/reset-to-pinned :e-1]))
     (let [effects (captured)]
@@ -376,7 +377,7 @@
     ;; survives.
     (seed-history! [(mk-record :e-old {:state :authed} 99)])
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-current :e-old "before-login"]))
+      (rf/dispatch-sync [:rf.causa/pin-current {:eid :e-old :label "before-login"}]))
     ;; Re-seed (simulates ring-buffer roll forward — epoch artefact
     ;; would do this via the cb pump).
     (seed-history! [(mk-record :e-new {:state :anon} 200)])
@@ -408,8 +409,8 @@
     (frame/reg-frame :rf/causa {})
     (seed-history! [(mk-record :e-1 {} 1) (mk-record :e-2 {} 2)])
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-current :e-1 "a"])
-      (rf/dispatch-sync [:rf.causa/pin-current :e-2 "b"])
+      (rf/dispatch-sync [:rf.causa/pin-current {:eid :e-1 :label "a"}])
+      (rf/dispatch-sync [:rf.causa/pin-current {:eid :e-2 :label "b"}])
       (rf/dispatch-sync [:rf.causa/unpin :e-1])
       (let [pins @(rf/subscribe [:rf.causa/pinned-snapshots])]
         (is (= 1 (count pins)))
@@ -423,7 +424,7 @@
     (frame/reg-frame :rf/causa {})
     (seed-history! [(mk-record :e-1 {:x 1} 1)])
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-current :e-1 "old"])
+      (rf/dispatch-sync [:rf.causa/pin-current {:eid :e-1 :label "old"}])
       (rf/dispatch-sync [:rf.causa/rename-pin :e-1 "new"])
       (let [pin (first @(rf/subscribe [:rf.causa/pinned-snapshots]))]
         (is (= "new" (:label pin)))
@@ -468,7 +469,7 @@
     (frame/reg-frame :rf/causa {})
     (seed-history! [(mk-record :e-old {:state :authed} 99)])
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-current :e-old "before-login"]))
+      (rf/dispatch-sync [:rf.causa/pin-current {:eid :e-old :label "before-login"}]))
     (seed-history! [(mk-record :e-new {} 200)])
     (rf/with-frame :rf/causa
       (let [tree (time-travel/Panel)
