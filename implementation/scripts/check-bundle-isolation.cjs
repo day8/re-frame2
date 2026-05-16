@@ -309,6 +309,38 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // causa-mcp (rf2-8xzoe.35, parent rf2-8xzoe — the Causa MCP server).
+  // The Causa MCP server is a Node binary published to npm as
+  // @day8/re-frame2-causa-mcp; it never belongs in a browser-targeted
+  // CLJS bundle. The dependency arrow flows tool → implementation and
+  // NEVER the reverse (tools/README.md bundle-isolation contract,
+  // tools/causa-mcp/spec/DESIGN-RATIONALE.md Lock #11). The plain
+  // examples/counter bundle imports zero causa-mcp symbols; the
+  // tools/causa-mcp/ source tree is on the implementation shadow-cljs
+  // classpath (added by rf2-8xzoe.35 so this contract is testable —
+  // not vacuous), so the sentinel string is REACHABLE on the build
+  // classpath. If a future change accidentally `:require`s any
+  // `day8.re-frame2-causa-mcp.*` ns from a core/* or adapter ns, the
+  // sentinel below appears in the counter bundle and this check
+  // fails. The sentinel is the explicit `bundle-isolation-sentinel`
+  // string planted at the bottom of
+  // tools/causa-mcp/src/day8/re_frame2_causa_mcp/server.cljs — same
+  // shape as the rf2-qwm0a / rf2-bmzq0 trace.tooling + subs.tooling
+  // sentinels. The string survives `:advanced` (string literals are
+  // not renamed) and sits outside any debug-gate so DCE can't drop the
+  // literal independently of the surrounding ns body.
+  {
+    name: 'causa-mcp',
+    internalSentinels: [
+      // server.cljs — explicit sentinel planted at the bottom of the
+      // namespace body (`bundle-isolation-sentinel`).
+      { source: 'day8.re-frame2-causa-mcp.server (bundle-isolation-sentinel)',
+        sentinel: 'day8.re-frame2-causa-mcp/sentinel:rf2-8xzoe.35-2026-05-17:do-not-rename' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // Story Stage 8 (rf2-c9mm) per IMPL-SPEC §6.5. The plain
   // examples/counter bundle imports zero Story symbols — the
   // tools/story/ jar must DCE entirely when the consuming app
