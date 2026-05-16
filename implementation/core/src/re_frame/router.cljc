@@ -720,18 +720,37 @@
                           (:interceptors handler-meta))
         base-chain      (apply-icpt-overrides prepended-chain icpt-overrides)
         redaction-paths (privacy/schema-redaction-paths frame base-chain)
+        ;; Per rf2-461sp — user-installed `(rf/with-redacted paths)`
+        ;; interceptors expose their paths on the interceptor map so the
+        ;; pre-chain trace projection (`:run-start`, `emit-cascade-
+        ;; trailers`) honours them too. Each user `:before` ALSO runs
+        ;; during chain execution and extends `:rf/redacted-event`
+        ;; in-chain, which is what the schema-redaction interceptor
+        ;; (when also installed) composes with. The union here is the
+        ;; OUT-OF-CHAIN projection used by emit sites that fire BEFORE
+        ;; the chain.
+        user-paths      (privacy/user-redaction-paths base-chain)
         full-chain      (if (seq redaction-paths)
                           (into [(privacy/schema-redaction-interceptor
                                    redaction-paths)]
                                 base-chain)
                           base-chain)
-        initial-ctx     (assemble-initial-ctx envelope frame frame-record fx-overrides)]
+        initial-ctx     (assemble-initial-ctx envelope frame frame-record fx-overrides)
+        all-paths       (into (vec redaction-paths) user-paths)]
     {:full-chain   full-chain
      :initial-ctx  initial-ctx
      :fx-overrides fx-overrides
-     :emit-event   (if (seq redaction-paths)
-                     (privacy/redact-event (:event envelope) redaction-paths)
+     :emit-event   (if (seq all-paths)
+                     (privacy/redact-event (:event envelope) all-paths)
                      (:event envelope))
+     ;; `:schema-sensitive?` strictly tracks the schema-declared
+     ;; sensitive path overlap — it drives the scope-meta `:sensitive?`
+     ;; stamp on every emitted trace event. User `with-redacted` does
+     ;; NOT stamp `:sensitive?`; that remains registration-meta's job
+     ;; per [Security.md §Behavioural MUSTs across the privacy
+     ;; surface](Security.md#behavioural-musts-across-the-privacy-
+     ;; surface) — the two composition sites are intentionally
+     ;; independent.
      :schema-sensitive? (boolean (seq redaction-paths))}))
 
 (defn- run-chain
