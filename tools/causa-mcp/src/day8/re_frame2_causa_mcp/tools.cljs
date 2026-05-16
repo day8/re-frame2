@@ -42,6 +42,7 @@
             [day8.re-frame2-causa-mcp.tools.get-issues]
             [day8.re-frame2-causa-mcp.tools.get-epoch-history]
             [day8.re-frame2-causa-mcp.tools.get-app-db]
+            [day8.re-frame2-causa-mcp.tools.get-app-db-diff]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------

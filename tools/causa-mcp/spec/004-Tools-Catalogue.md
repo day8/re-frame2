@@ -345,3 +345,58 @@ explicitly requested without a path. Default fallback
 `:narrow-filter`.
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_app_db.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs).
+
+### get-app-db-diff (T-Insp-4, rf2-8xzoe.17)
+
+App-db diff for a named epoch. Per MUST 13 in
+[`spec/004-Wire-Pipeline.md`](004-Wire-Pipeline.md), the default mode
+returns **changed-paths-with-cardinalities, NOT the nested
+before/after diff** — a token-cheap envelope from which the agent
+drills via `get-app-db` for any single changed path. Source-coord
+pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
+bead #17.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:frame` | keyword | nil | scope to one frame |
+| `:epoch-id` | string | **required** | the epoch to diff |
+| `:mode` | keyword | `:changed-paths` | `:changed-paths` or `:nested` |
+| `:include-sensitive?` | bool | false | passes to runtime walker |
+| `:include-large?` | bool | false | passes to runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (default `:mode :changed-paths`):**
+
+```clojure
+{:ok? true
+ :frame <kw>
+ :epoch-id <id>
+ :mode :changed-paths
+ :diff {:added   [<path-vec> ...]
+        :removed [<path-vec> ...]
+        :changed [<path-vec> ...]
+        :counts  {:added <int> :removed <int> :changed <int>}}}
+```
+
+**Return shape (`:mode :nested`):**
+
+```clojure
+{:ok? true :frame <kw> :epoch-id <id> :mode :nested
+ :diff {:before <edn> :after <edn>}
+ :elided-large <int?>}
+```
+
+**Diff semantics:** the changed-paths projection recurses into maps;
+vectors / sets / scalars are leaves at the diff boundary (a changed
+vector is one `:changed` entry, not per-element). Path vectors are
+sorted by printed form so output is deterministic.
+
+**Privacy contract:** runtime accessor routes `:db-before` +
+`:db-after` through `re-frame.core/elide-wire-value` PRE-diff, so
+declared-sensitive paths are scrubbed before path-comparison.
+
+**Cap-reached hint:** `:switch-mode` (downshift from `:nested` to
+`:changed-paths`) or `:slice` (drill into a single changed path via
+`get-app-db`). Default fallback `:narrow-filter`.
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_app_db_diff.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs).
