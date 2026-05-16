@@ -42,9 +42,11 @@
 ;; cascade.
 ;;
 ;; All of this rides the dev-only trace surface; production builds (where
-;; interop/debug-enabled? is false at compile time) elide the allocation
-;; (the counter increments harmlessly but the values are never read by
-;; anyone except trace consumers, which are themselves dead).
+;; interop/debug-enabled? is false at compile time) elide the allocation:
+;; `build-envelope`'s `(when interop/debug-enabled? (next-dispatch-id))`
+;; gate (see below) means the `swap!` and its counter increment are
+;; unreachable under `:advanced + goog.DEBUG=false`. The `defonce` atom
+;; allocation itself is process-load-time and harmless.
 
 (defonce ^:private dispatch-counter (atom 0))
 

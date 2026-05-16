@@ -155,7 +155,13 @@
   goog.DEBUG=false the wrapped fn collapses to the bare user-fn (no
   cloneElement) — keeping the elision contract."
   [id metadata render-fn]
-  (let [hook    (late-bind/get-fn :adapter/wrap-view)
+  ;; Per rf2-f72pd sticky-hook convention: `:adapter/wrap-view` is
+  ;; published once at adapter ns-load via `substrate-adapter/route-hook!`
+  ;; and never withdrawn in production, so the resolution is cacheable.
+  ;; `route-hook!` calls `late-bind/set-fn!` which invalidates the
+  ;; cache, so dev-time hot-reload of an adapter re-resolves on the
+  ;; next reg-view call.
+  (let [hook    (late-bind/get-fn-cached :adapter/wrap-view)
         wrapped (when hook (hook id metadata render-fn))]
     (if (some? wrapped)
       [wrapped true]

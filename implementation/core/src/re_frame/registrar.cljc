@@ -338,10 +338,19 @@
   nil)
 
 (defn clear-kind!
-  "Remove every id under kind. Test fixtures use this to reset state."
+  "Remove every id under kind. Test fixtures use this to reset state.
+
+  Also drops the matching slots from the per-process warn-once caches
+  (`missing-doc-warned`, `collision-warned`) so a test fixture targeting
+  a single kind starts each case from a clean diagnostic slate —
+  mirrors `clear-all!`'s reset semantics, scoped to the named kind."
   [kind]
-  (let [previous-ids (keys (get @kind->id->metadata kind))]
+  (let [previous-ids (keys (get @kind->id->metadata kind))
+        clear-kind   (fn [cache-set]
+                       (into #{} (remove #(= kind (first %))) cache-set))]
     (swap! kind->id->metadata dissoc kind)
+    (swap! missing-doc-warned clear-kind)
+    (swap! collision-warned   clear-kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires for each id so consumers see consistent registry transitions.
     (when interop/debug-enabled?
