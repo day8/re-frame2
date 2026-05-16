@@ -33,8 +33,10 @@
   the tutorial describes is the projection sub reading the wrong
   one of those two.
 
-  This file is deliberately self-contained — no Story playground, no
-  routing chrome. The browser-side spec at `spec.cjs` clicks the
+  This file is deliberately self-contained as an app, but it also
+  exposes `#/stories` so the same Causa bug can be inspected through
+  Story variants. Story coverage lives in `stories.cljs`, which reuses
+  this app's real handlers, subscriptions, and views. The browser-side spec at `spec.cjs` clicks the
   +Apple / +Bread / Apply discount / Checkout buttons and asserts on
   the rendered cart total. Bundle-isolation: this testbed lives under
   `tools/causa/testbeds/`; nothing under `implementation/` :requires
@@ -42,7 +44,10 @@
   (:require [reagent.core       :as r]
             [reagent.dom.client :as rdc]
             [re-frame.core      :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.story     :as story]
+            [re-frame.adapter.reagent :as reagent-adapter]
+            [cart-total.fixtures :as fixtures]
+            [cart-total.stories])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -63,10 +68,14 @@
 ;; ============================================================================
 
 (rf/reg-event-db :cart/initialise
-  (fn [_db _event]
-    {:cart/items     []
-     :cart/discount  nil
-     :checkout/items []}))
+  (fn [db _event]
+    ;; Story variant frames carry their own lifecycle/runtime slots in
+    ;; app-db. Initialise only the cart's domain slots so the same event
+    ;; is safe in both the live app and Story-isolated frames.
+    (assoc db
+           :cart/items     []
+           :cart/discount  nil
+           :checkout/items [])))
 
 (rf/reg-event-db :cart/add-item
   (fn [db [_ item-id]]
@@ -375,20 +384,47 @@
     [cart-panel]]
    [tutorial-hint]])
 
+(reg-view cart-story-app [_args]
+  ;; Story passes resolved args into every :component view. The testbed
+  ;; app itself has no args, so this tiny adapter keeps the live view
+  ;; unchanged while making it Story-renderable.
+  [cart-app])
+
 ;; ============================================================================
 ;; MOUNT
 ;; ============================================================================
 
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce ^:private app-root
+  (atom nil))
+
+(defn- ensure-app-root! []
+  (when (nil? @app-root)
+    (reset! app-root (rdc/create-root (js/document.getElementById "app"))))
+  @app-root)
+
+(defn- tear-down-app-root! []
+  (when-let [root @app-root]
+    (try (rdc/unmount root) (catch :default _ nil))
+    (reset! app-root nil)))
+
+(defn- mount-app! []
+  (story/unmount-shell!)
+  (ensure-app-root!)
+  (fixtures/dispatch-sync-events! fixtures/tutorial-seed-events)
+  (rdc/render @app-root [cart-app]))
+
+(defn- mount-stories! []
+  (tear-down-app-root!)
+  (story/mount-shell! (js/document.getElementById "app")))
+
+(defn- on-hash-change! []
+  (let [hash (or (.. js/window -location -hash) "")]
+    (if (re-find #"^#/stories" hash)
+      (mount-stories!)
+      (mount-app!))))
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  ;; Seed the cart with the two items from the tutorial walk-through
-  ;; — Apple × 2 and Bread × 1 = $6.50 — so the page lands non-empty
-  ;; and the bug is reproducible in three clicks.
-  (rf/dispatch-sync [:cart/initialise])
-  (rf/dispatch-sync [:cart/add-item :apple])
-  (rf/dispatch-sync [:cart/add-item :apple])
-  (rf/dispatch-sync [:cart/add-item :bread])
-  (rdc/render react-root [cart-app]))
+  (story/install-canonical-vocabulary!)
+  (.addEventListener js/window "hashchange" on-hash-change!)
+  (on-hash-change!))
