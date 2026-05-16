@@ -75,9 +75,16 @@ left-side host to the app layout:
 
 ```css
 .app-shell { display: flex; min-height: 100vh; }
-[data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+[data-rf-causa-host] {
+  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  min-width: 320px;
+}
 #app { flex: 1; min-width: 0; }
 ```
+
+Override `--rf-causa-inline-width` anywhere up the cascade (e.g.
+`:root { --rf-causa-inline-width: 560px; }`) to resize the inline
+panel — JS-free, host-owned (per `rf2-um813`).
 
 If the host is missing, Causa logs an actionable `console.error` and
 exposes the same state through `window.day8.re_frame2_causa.status()`.

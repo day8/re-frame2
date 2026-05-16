@@ -58,7 +58,10 @@ body { margin: 0; }
 ```
 
 The host owns sizing and layout. Causa owns the shell rendered inside
-the host. Hosts may override the selector before Causa opens:
+the host. For the framework-side Tool-Pair surfaces Causa consumes
+(trace bus, epoch history, registrar queries) see
+[`spec/Tool-Pair.md` §The Causa renderer](../../../spec/Tool-Pair.md#the-causa-renderer).
+Hosts may override the selector before Causa opens:
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
@@ -220,7 +223,18 @@ Constraints inherited from the `window.opener` posture:
   `noopener` / `noreferrer`.
 - If the user closes the opener window, the pop-out becomes
   orphaned. Pop-out detects this via `window.opener.closed` and
-  shows a clean "opener gone — close this window" overlay.
+  shows a clean "opener gone — close this window" overlay. Per
+  `rf2-h3ekl` the implementation is a sibling DOM node to the shell
+  root (`#rf-causa-popout-opener-gone-overlay`,
+  `data-testid="rf-causa-popout-opener-gone-overlay"`) plus a
+  `setInterval` watchdog that polls `window.opener` every 500ms;
+  the overlay matches Causa's visual language (token-derived
+  surface / text / accent colours, sans-stack typography) and uses
+  plain DOM rather than the substrate render tree so it remains
+  operable if the broken opener has caused a substrate throw
+  mid-render. The watchdog self-clears on first reveal; the
+  overlay is also torn down by `teardown-popout-state!` (test path)
+  and on the popout's own `pagehide` / `unload`.
 - The pop-out can't survive a hard reload of the opener — atoms get
   garbage-collected. Pop-out re-bootstraps on opener reload by
   re-reading `window.opener.causaRuntime`.

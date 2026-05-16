@@ -145,6 +145,65 @@ through downstream "handler not found" failures.
 The umbrella `register-causa-handlers!` path remains the integration
 contract; per-leaf smoke tests are the unit contract.
 
+## Mount conventions
+
+Conventions for `mount.cljs` — Causa's DOM-side mount machinery. The
+normative mount contract lives in
+[`011-Launch-Modes.md`](./011-Launch-Modes.md) §Mount lifecycle; this
+section pins source-organisation rules that aren't normative spec but
+keep the mount surface uniform across the artefact.
+
+### Singleton mount-state per process
+
+Causa mounts **exactly one** in-app shell per browser process via the
+`defonce`-guarded `mount-state` atom (`mount.cljs`). A second mount
+surface — `popout-state` — covers the optional pop-out window; the two
+atoms are independent singletons and do NOT share state. Both survive
+shadow-cljs `:after-load` reloads via `defonce`. Production sessions
+never tear either down — `teardown!` is test-only.
+
+### `defonce`-across-reload for every mount sentinel
+
+Every mount-adjacent piece of state — `mount-state`, `popout-state`,
+the diagnostic atom, the auto-open sentinel, the keybinding sentinel
+— is `defonce`-guarded so `:after-load` reruns the preload's side-
+effects without re-attaching listeners, replacing trace callbacks, or
+re-creating the mount node. The user's currently-open Causa panel
+MUST remain open across an `:after-load` with internal state intact
+(per `011-Launch-Modes.md` §Idempotency under hot-reload).
+
+### Data-attribute scheme: `data-rf-causa-mode` is the single axis
+
+The mount root carries `data-rf-causa-mode` (`"inline"` / `"overlay"`
+/ `"popout"`). The shell node carries the same attribute under the
+same name. Per rf2-zkfiz Q1-9 the earlier `data-mode` echo on the
+shell was a duplicate axis and is gone — testbeds, browser-test
+assertions, and CSS selectors target the rf-causa-prefixed name
+everywhere.
+
+### Mount-state `:mode` vocabulary
+
+`mount-state`'s `:mode` slot is exactly `:inline` (the default
+true-inline shell from `open!`) or `:overlay` (the legacy/debug
+overlay from `open-overlay!`). `popout-state` carries `:mode :popout`
+on its own singleton. The two atoms do NOT cross-reference each
+other's mode vocabulary. The pre-rf2-sbfb7 `:docked` value (body-
+padding dock surface) is gone with the rest of the `dock!` /
+`undock!` API.
+
+### `teardown!` is test-only; tests own the keybinding detach
+
+`teardown!` clears both mount singletons and removes their DOM nodes;
+it does NOT detach the global `Ctrl+Shift+C` keydown listener that
+`preload/init!` attaches via `keybinding/attach!`. The detach lives
+in the test fixture because `mount.cljs` cannot require
+`keybinding.cljs` (the dependency runs the other way — keybinding
+requires mount for `toggle!`). Test suites driving multiple
+`teardown!` → re-mount cycles MUST call
+`(day8.re-frame2-causa.keybinding/detach!)` themselves between runs
+(per rf2-zkfiz Q1-10); production sessions never call `teardown!` so
+the listener never leaks.
+
 ## Panel-id ordering inside the registry
 
 Per `registry.cljs` the panels' `install!` calls run in alphabetical

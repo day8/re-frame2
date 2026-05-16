@@ -384,7 +384,12 @@
   [& [{:keys [mode] :or {mode :inline}}]]
   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
-          :data-mode   (name mode)
+          ;; Per rf2-zkfiz Q1-9: the spec-published mode axis is
+          ;; `data-rf-causa-mode` (mount.cljs writes it on both the
+          ;; root and the shell node). The previous `data-mode` echo
+          ;; was a duplicate axis and is gone — tests + testbeds read
+          ;; the rf-causa-prefixed name everywhere.
+          :data-rf-causa-mode (name mode)
           :style       (merge
                          {:width            "100%"
                           :height           "100%"

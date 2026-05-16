@@ -1091,3 +1091,224 @@
             (stale-handler (js-obj "type" "unload")))
           (is (identical? window-b (:window @@#'mount/popout-state))
               "stale handler did not nuke the fresh popout state"))))))
+
+;; -------------------------------------------------------------------------
+;; (11) Popout opener-gone overlay (rf2-h3ekl)
+;; -------------------------------------------------------------------------
+;;
+;; Per tools/causa/spec/011-Launch-Modes.md §Pop-out §Constraints: when
+;; the user closes the opener window, the pop-out becomes orphaned;
+;; pop-out detects this via `window.opener.closed` and shows a clean
+;; 'opener gone — close this window' overlay. Implementation is plain
+;; DOM (no React tree dependency) so the overlay remains operable even
+;; if the substrate render has thrown mid-render under the broken
+;; opener. The watchdog polls every 500ms and self-clears after firing.
+
+(defn- mk-stub-opener-window
+  "Build a fake opener window with a configurable `closed` getter so
+  the watchdog tests can flip 'opener gone' on demand. Mirrors
+  `mk-stub-popout-window` but no listener / close surface — the
+  opener is only ever READ from the popout side."
+  []
+  (let [closed? (atom false)
+        win     (js-obj)]
+    (js/Object.defineProperty
+      win "closed"
+      (js-obj "get" (fn [] @closed?)
+              "configurable" true))
+    {:window  win
+     :closed? closed?}))
+
+(defn- mk-stub-popout-window-with-opener
+  "A popout window whose `opener` slot points at the supplied opener
+  stub. The popout document also supports `createElement` + a body
+  with `appendChild` so `install-opener-gone-overlay!` can attach the
+  overlay node."
+  [opener-win]
+  (let [{:keys [window listeners closed?]} (mk-stub-popout-window)]
+    (js/Object.defineProperty
+      window "opener"
+      (js-obj "get" (fn [] opener-win)
+              "configurable" true))
+    {:window    window
+     :opener    opener-win
+     :listeners listeners
+     :closed?   closed?}))
+
+(defn- opener-gone?* [win] ((deref #'mount/opener-gone?) win))
+(defn- install-opener-gone-overlay!* [doc] ((deref #'mount/install-opener-gone-overlay!) doc))
+(defn- start-opener-gone-watchdog!* [win overlay-node]
+  ((deref #'mount/start-opener-gone-watchdog!) win overlay-node))
+
+(deftest opener-gone?-true-when-opener-closed
+  (testing "rf2-h3ekl: opener-gone? reads window.opener.closed and
+            returns true when the opener has been closed"
+    (let [{opener :window opener-closed? :closed?} (mk-stub-opener-window)
+          {popout :window} (mk-stub-popout-window-with-opener opener)]
+      (is (false? (opener-gone?* popout))
+          "live opener with .closed=false: not gone")
+      (reset! opener-closed? true)
+      (is (true? (opener-gone?* popout))
+          "closed opener: gone"))))
+
+(deftest opener-gone?-true-when-opener-nil
+  (testing "rf2-h3ekl: opener-gone? returns true when the opener slot
+            is nil (cross-document navigation that blew the reference)"
+    (let [{popout :window} (mk-stub-popout-window-with-opener nil)]
+      (is (true? (opener-gone?* popout))
+          "nil opener: gone"))))
+
+(deftest opener-gone?-true-when-opener-read-throws
+  (testing "rf2-h3ekl: opener-gone? classifies an unexpected throw on
+            the opener read (pathological cross-origin walk) as 'gone'
+            — defensive posture, no spurious overlays on regular use"
+    (let [popout (js-obj)]
+      (js/Object.defineProperty
+        popout "opener"
+        (js-obj "get" (fn [] (throw (ex-info "cross-origin block"
+                                             {:reason :test})))
+                "configurable" true))
+      (is (true? (opener-gone?* popout))
+          "throwing opener-getter classified as gone"))))
+
+(deftest install-opener-gone-overlay!-creates-hidden-themed-node
+  (testing "rf2-h3ekl: install-opener-gone-overlay! creates a node
+            with the spec'd id + testid, hidden by default, with the
+            Causa theme palette so the visual language matches the
+            rest of the shell"
+    (let [{popout :window} (mk-stub-popout-window-with-opener nil)
+          doc              (.-document popout)
+          overlay          (install-opener-gone-overlay!* doc)]
+      (is (some? overlay) "overlay node returned")
+      (is (= "rf-causa-popout-opener-gone-overlay" (.-id overlay))
+          "overlay carries the spec'd id")
+      (is (= "rf-causa-popout-opener-gone-overlay"
+             (.getAttribute overlay "data-testid"))
+          "overlay exposes a data-testid hook for browser-test")
+      (is (= "popout-opener-gone"
+             (.getAttribute overlay "data-rf-causa-mode"))
+          "overlay declares its mode via the canonical attribute")
+      (is (= "none" (.-display (.-style overlay)))
+          "overlay starts hidden — only the watchdog reveals it"))))
+
+(deftest start-opener-gone-watchdog!-reveals-overlay-when-opener-closes
+  (testing "rf2-h3ekl: the watchdog observes window.opener.closed via
+            setInterval, reveals the overlay (display:flex) on first
+            true observation, and clears itself"
+    (let [{opener :window opener-closed? :closed?} (mk-stub-opener-window)
+          {popout :window} (mk-stub-popout-window-with-opener opener)
+          doc              (.-document popout)
+          overlay          (install-opener-gone-overlay!* doc)
+          intervals        (atom {})
+          next-id          (atom 0)
+          cleared          (atom #{})
+          ticks            (atom [])
+          prior-set        (.-setInterval js/globalThis)
+          prior-clear      (.-clearInterval js/globalThis)]
+      ;; Seed popout-state so the watchdog's identity guard passes.
+      (seed-popout-state! {:window popout})
+      ;; Stub setInterval / clearInterval so the test can drive ticks
+      ;; deterministically without waiting for wall-clock.
+      (set! (.-setInterval js/globalThis)
+            (fn [f _ms]
+              (let [id (swap! next-id inc)]
+                (swap! intervals assoc id f)
+                (swap! ticks conj {:set id})
+                id)))
+      (set! (.-clearInterval js/globalThis)
+            (fn [id]
+              (swap! cleared conj id)
+              (swap! intervals dissoc id)
+              nil))
+      (try
+        (let [wid (start-opener-gone-watchdog!* popout overlay)]
+          (is (some? wid) "watchdog returns its interval id")
+          (is (= "none" (.-display (.-style overlay)))
+              "overlay hidden before opener closes")
+          ;; Tick once with opener still live — overlay stays hidden.
+          (when-let [f (get @intervals wid)]
+            (f))
+          (is (= "none" (.-display (.-style overlay)))
+              "tick with live opener does not reveal the overlay")
+          ;; Flip the opener to closed and tick again — overlay reveals.
+          (reset! opener-closed? true)
+          (when-let [f (get @intervals wid)]
+            (f))
+          (is (= "flex" (.-display (.-style overlay)))
+              "tick with closed opener reveals the overlay")
+          (is (contains? @cleared wid)
+              "watchdog self-cleared its interval after firing"))
+        (finally
+          (set! (.-setInterval js/globalThis) prior-set)
+          (set! (.-clearInterval js/globalThis) prior-clear)
+          (reset! @#'mount/popout-state nil))))))
+
+(deftest start-opener-gone-watchdog!-self-clears-when-popout-state-replaced
+  (testing "rf2-h3ekl: a watchdog whose popout window is no longer the
+            registered :window slot (test teardown / fresh popout!)
+            clears itself on the next tick rather than orphan-resurrecting
+            the overlay against a stale window"
+    (let [{opener :window} (mk-stub-opener-window)
+          {popout :window} (mk-stub-popout-window-with-opener opener)
+          doc              (.-document popout)
+          overlay          (install-opener-gone-overlay!* doc)
+          intervals        (atom {})
+          next-id          (atom 0)
+          cleared          (atom #{})
+          prior-set        (.-setInterval js/globalThis)
+          prior-clear      (.-clearInterval js/globalThis)]
+      ;; Do NOT seed popout-state — the watchdog's identity guard then
+      ;; fails on the first tick and self-clears.
+      (reset! @#'mount/popout-state nil)
+      (set! (.-setInterval js/globalThis)
+            (fn [f _ms]
+              (let [id (swap! next-id inc)]
+                (swap! intervals assoc id f)
+                id)))
+      (set! (.-clearInterval js/globalThis)
+            (fn [id]
+              (swap! cleared conj id)
+              (swap! intervals dissoc id)
+              nil))
+      (try
+        (let [wid (start-opener-gone-watchdog!* popout overlay)]
+          (when-let [f (get @intervals wid)]
+            (f))
+          (is (contains? @cleared wid)
+              "watchdog self-cleared because popout-state did not reference its window")
+          (is (= "none" (.-display (.-style overlay)))
+              "overlay untouched — the guard fired before the opener check"))
+        (finally
+          (set! (.-setInterval js/globalThis) prior-set)
+          (set! (.-clearInterval js/globalThis) prior-clear))))))
+
+(deftest teardown-popout-state!-clears-watchdog-interval
+  (testing "rf2-h3ekl: when popout-state carries a :watchdog-id slot,
+            teardown-popout-state! must call clearInterval so a long-
+            running test corpus does not leak a setInterval handle per
+            popout cycle"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window]} (mk-stub-popout-window)
+              cleared          (atom #{})
+              prior-clear      (.-clearInterval js/globalThis)]
+          (set! (.-clearInterval js/globalThis)
+                (fn [id]
+                  (swap! cleared conj id)
+                  nil))
+          (try
+            ;; Seed a popout-state that carries a synthetic watchdog id.
+            (reset! @#'mount/popout-state
+                    {:ok? true
+                     :window window
+                     :node    (mk-stub-node)
+                     :unmount (fn [] nil)
+                     :mode    :popout
+                     :watchdog-id 12345})
+            (mount/teardown!)
+            (is (contains? @cleared 12345)
+                "teardown! cleared the watchdog interval")
+            (is (nil? @@#'mount/popout-state)
+                "popout-state cleared")
+            (finally
+              (set! (.-clearInterval js/globalThis) prior-clear))))))))

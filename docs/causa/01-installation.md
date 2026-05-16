@@ -29,8 +29,18 @@ normal app layout:
 
 ```css
 .app-shell { display: flex; min-height: 100vh; }
-[data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+[data-rf-causa-host] {
+  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  min-width: 320px;
+}
 #app { flex: 1; min-width: 0; }
+```
+
+Resize the panel from anywhere up the cascade by overriding the
+`--rf-causa-inline-width` CSS custom property (per `rf2-um813` — JS-free, host-owned):
+
+```css
+:root { --rf-causa-inline-width: 560px; }
 ```
 
 If Causa cannot find the host, it logs an actionable `console.error`
@@ -76,6 +86,29 @@ The shell wires four global keybindings:
 | Command palette | `Ctrl+K` |
 
 The popout uses `window.opener` to reach the host's runtime — same listeners, same registrar — so the popped window shows everything the main window does. Useful when the panel is competing with the app for screen space.
+
+## Suppressing auto-open
+
+Tool-owned pages that deliberately do not reserve app real estate for
+Causa (for example a Story-only browser-test canvas, or an internal
+dev tool whose layout cannot accommodate a left column) can suppress
+**only** the default page-load open while leaving the rest of the
+preload — collectors, browser API, keybinding — installed:
+
+```clojure
+(require '[day8.re-frame2-causa.config :as causa-config])
+(causa-config/configure! {:launch/auto-open? false})
+```
+
+Call this **before** `rf/init!` runs. After the suppression, an
+explicit `(causa/open!)` or `(causa/toggle!)` (or pressing
+`Ctrl+Shift+C`) still mounts Causa — and still emits the normal
+actionable missing-host diagnostic if `[data-rf-causa-host]` cannot be
+found. The flag scopes the auto-open *only*; it does not disable
+Causa.
+
+App dev pages should keep the default `true` posture and provide
+`[data-rf-causa-host]` as shown above.
 
 ## Disable
 
