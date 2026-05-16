@@ -82,7 +82,8 @@
             [day8.re-frame2-causa.panels.causality-graph-helpers :as cg]
             [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.panels.performance-helpers :as perf]
-            [day8.re-frame2-causa.panels.subscriptions-helpers :as subs]))
+            [day8.re-frame2-causa.panels.subscriptions-helpers :as subs]
+            [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
 
 ;; ---- spec-derived budget constants --------------------------------------
 
@@ -654,3 +655,125 @@
           "DOM-mount ceiling holds regardless of input size")
       (is (true? over-cap?))
       (is (= (- (count rows) panel-row-cap) hidden)))))
+
+;; -------------------------------------------------------------------------
+;; (9) Trace-feed incremental projection — rf2-44vzy
+;;     The trace-feed sub reads a snapshot maintained incrementally
+;;     by `:rf.causa/note-trace-event`; per-push cost is bounded by
+;;     the axis count (13), not the buffer size. These tests pin the
+;;     algorithmic invariant: pushing N events into a state that
+;;     already holds M events costs O(N × axes) — not O(N × (M+N)).
+;; -------------------------------------------------------------------------
+
+(defn- trace-event-fixture
+  "Build a Spec 009-shaped trace event for the perf scaling tests.
+  Varies per-axis values across a small enumeration so distinct +
+  counts compaction is exercised on the evict path."
+  [i]
+  {:id        i
+   :time      i
+   :op-type   (case (mod i 4) 0 :event 1 :error 2 :warning 3 :info)
+   :operation :event/dispatched
+   :source    (case (mod i 3) 0 :ui 1 :timer 2 :http)
+   :tags      {:origin      (case (mod i 2) 0 :app 1 :pair)
+               :frame       (case (mod i 2) 0 :rf/default 1 :rf/causa)
+               :event-id    (keyword (str "ev/n" (mod i 8)))
+               :handler-id  (keyword (str "hh/n" (mod i 8)))
+               :dispatch-id i}})
+
+(deftest trace-feed-state-add-cost-is-bounded-by-axes-not-buffer
+  (testing "rf2-44vzy: pushing one event into a state with 1000
+            already-buffered rows must NOT walk those rows — cost
+            is O(axes), not O(buffer). Asserted via ratio: pushing
+            into a state with 10× more pre-existing rows costs no
+            more than ~1× (within slack) — the existing rows do not
+            participate in the per-event work."
+    (let [build-state (fn [n]
+                        (reduce trace-helpers/feed-state+ev
+                                (trace-helpers/init-feed-state)
+                                (mapv trace-event-fixture (range n))))
+          state-small (build-state 100)
+          state-big   (build-state 1000)
+          run         (fn [state n-pushes start-id]
+                        (timed
+                          (fn []
+                            (reduce (fn [s i]
+                                      (trace-helpers/feed-state+ev
+                                        s (trace-event-fixture i)))
+                                    state
+                                    (range start-id (+ start-id n-pushes))))))
+          [_ t-small] (run state-small 100 100)
+          [_ t-big]   (run state-big   100 1000)
+          r           (ratio t-small t-big)]
+      (is (<= r (* 1.0 scaling-slack))
+          (str "feed-state+ev 100 pushes into 1000-row state scaled "
+               r "× over 100 pushes into 100-row state (slack "
+               scaling-slack "×). A per-push O(buffer) regression "
+               "(e.g. distinct rebuilt from rows) would scale ~10×."))))
+  )
+
+(deftest trace-feed-state-push-respects-cap-under-burst
+  (testing "rf2-44vzy: under burst (50× the cap), the snapshot never
+            grows past depth, and the incremental shape matches a
+            from-scratch rebuild over the same retained window"
+    (let [depth   buffer-depth-default
+          n       (* 50 depth)
+          all     (mapv trace-event-fixture (range n))
+          state   (reduce (fn [s e]
+                            (trace-helpers/feed-state-push s depth e))
+                          (trace-helpers/init-feed-state)
+                          all)
+          retained (vec (drop (- n depth) all))
+          rebuilt  (trace-helpers/rebuild-feed-state retained)]
+      (is (= depth (:total state)))
+      (is (= depth (count (:projected-rows state))))
+      (is (= (:projected-rows state) (:projected-rows rebuilt))
+          "the incremental rows vector equals the retained window")
+      (is (= (:counts state) (:counts rebuilt))
+          "counts match — evict path correctly decrements")
+      (is (= (:seen state) (:seen rebuilt))
+          "seen sets match — drop-on-zero compaction holds"))))
+
+(deftest trace-feed-state-push-is-linear-over-events-pushed
+  (testing "rf2-44vzy: pushing 10× more events with the cap engaged
+            costs ~10× — O(events × axes), not O(events × buffer²)"
+    (let [depth buffer-depth-default
+          run   (fn [n]
+                  (timed
+                    (fn []
+                      (reduce (fn [s i]
+                                (trace-helpers/feed-state-push
+                                  s depth (trace-event-fixture i)))
+                              (trace-helpers/init-feed-state)
+                              (range n)))))
+          [_ t1]  (run (* 2 depth))
+          [_ t10] (run (* 20 depth))
+          r       (ratio t1 t10)]
+      (is (<= r (* 10.0 scaling-slack))
+          (str "feed-state-push 10× input scaled " r "× "
+               "(slack " scaling-slack "× over linear)")))))
+
+(deftest project-feed-from-state-equivalent-to-project-feed
+  (testing "rf2-44vzy: the incremental path produces an equivalent
+            shape to the full-walk reference under typical filter
+            mixes — no regression in :rows / :total / :rendered /
+            :empty-kind"
+    (doseq [filters [{}
+                     {:op-type :event}
+                     {:source :ui :op-type :error}
+                     {:dispatch-id 5}
+                     ;; orphan filter — value not in buffer:
+                     {:source :sse}]]
+      (let [evs        (mapv trace-event-fixture (range 200))
+            state      (trace-helpers/rebuild-feed-state evs)
+            from-state (trace-helpers/project-feed-from-state state filters)
+            from-raw   (trace-helpers/project-feed evs filters)]
+        (is (= (:total from-state) (:total from-raw))
+            (str "total under " (pr-str filters)))
+        (is (= (:rendered from-state) (:rendered from-raw))
+            (str "rendered under " (pr-str filters)))
+        (is (= (mapv :id (:rows from-state))
+               (mapv :id (:rows from-raw)))
+            (str "row id sequence under " (pr-str filters)))
+        (is (= (:empty-kind from-state) (:empty-kind from-raw))
+            (str "empty-kind under " (pr-str filters)))))))
