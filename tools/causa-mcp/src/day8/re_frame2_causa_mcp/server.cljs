@@ -40,6 +40,7 @@
             [clojure.string :as str]
             [day8.re-frame2-causa-mcp.nrepl :as nrepl]
             [day8.re-frame2-causa-mcp.tools :as tools]
+            [day8.re-frame2-causa-mcp.tools.eval-cljs :as eval-cljs]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
             ["@modelcontextprotocol/sdk/types.js" :as mcp-types]))
@@ -161,12 +162,38 @@
                                              :reason :nrepl-port-not-found
                                              :hint   (-> boot-error ex-data :hint)})}]})))
 
+(defn parse-launch-flags
+  "Pluck named boolean launch flags out of the raw process argv. One
+  flag today:
+
+    --allow-eval — opt-in to the `eval-cljs` tool (rf2-8xzoe.29; sibling
+                   to pair2-mcp's rf2-cxx5s gate). Default OFF in
+                   published builds; required to enable arbitrary CLJS
+                   evaluation in the host runtime.
+
+  Returns `{:allow-eval? bool}`. Unknown flags are ignored — node's
+  shadow-cljs entry passes its own argv prelude (script path), and
+  future flags can land here without breaking older invocations."
+  [argv]
+  {:allow-eval? (boolean (some #{"--allow-eval"} argv))})
+
+(defn- apply-launch-flags!
+  "Wire launch-flag state into the relevant tool gates. Called once
+  before the dispatcher accepts requests."
+  [{:keys [allow-eval?]}]
+  (eval-cljs/set-allow-eval! allow-eval?)
+  (log! "eval-cljs:" (if allow-eval?
+                       "ENABLED (--allow-eval)"
+                       "disabled (default; pass --allow-eval to opt in)")))
+
 (defn main
   "Entry-point. Resolves the nREPL port and boots the success-path
   server; on resolve failure (e.g. shadow-cljs not running) boots the
   degraded-mode server so the MCP client still gets a clean
   handshake and a typed error from the first `tools/call`."
-  [& _args]
+  [& args]
+  (let [argv (vec args)]
+    (apply-launch-flags! (parse-launch-flags argv)))
   (try
     (let [port   (resolve-port)
           _      (log! "nREPL port =" port)

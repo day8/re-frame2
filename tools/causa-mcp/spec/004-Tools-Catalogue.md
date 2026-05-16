@@ -688,3 +688,53 @@ calls. Source-coord pin:
 enumeration to one topic.
 
 Implementation: [`tools/causa-mcp/src/.../tools/list_subscriptions.cljs`](../src/day8/re_frame2_causa_mcp/tools/list_subscriptions.cljs).
+
+## Meta band
+
+Meta-band tools serve the introspection / escape-hatch / build-time
+diagnostic surfaces — `discover-app` (health summary), `eval-cljs`
+(arbitrary CLJS evaluation, `--allow-eval` gated), `tail-build`
+(hot-reload landed signal).
+
+### eval-cljs (T-Eval-1, rf2-8xzoe.29)
+
+Evaluate an arbitrary CLJS form in the host runtime. **GATED behind
+`--allow-eval` at server launch** (sibling to pair2-mcp's
+`rf2-cxx5s` gate; default OFF in published builds). When the gate is
+OFF, the tool returns `:rf.error/eval-cljs-disabled` refusal
+envelope without touching the nREPL socket. When ON, the form runs
+inside a `(binding [*current-origin* :causa-mcp] ...)` wrapper so
+**synchronous-extent** mutations tag `:origin :causa-mcp` —
+async-extent handlers fired AFTER the user-form returns do NOT
+inherit the binding (the documented Lock #4 / I6 async-tagging gap).
+The result routes through `re-frame.core/elide-wire-value`; privacy
++ size scrub still apply unless `:include-sensitive?` /
+`:include-large?` opt out. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #29.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:form` | string | **required** | CLJS source string to eval |
+| `:include-sensitive?` | bool | false | passes to runtime walker |
+| `:include-large?` | bool | false | passes to runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (enabled):**
+
+```clojure
+{:ok? true :value <edn>
+ :elided-large <int?>}
+```
+
+**Refusal shape (default — gate OFF):**
+
+```clojure
+{:ok?    false
+ :reason :rf.error/eval-cljs-disabled
+ :hint   "eval-cljs is disabled by default for security; pass --allow-eval at server launch to opt in."}
+```
+
+**Cap-reached hint:** `:narrow-filter` — narrow the form to return
+less data.
+
+Implementation: [`tools/causa-mcp/src/.../tools/eval_cljs.cljs`](../src/day8/re_frame2_causa_mcp/tools/eval_cljs.cljs).
