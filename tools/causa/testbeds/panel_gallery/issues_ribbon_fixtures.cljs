@@ -99,7 +99,7 @@
       (let [sev (nth [:error :warning :advisory] (mod i 3))
             ops [:rf.error/handler-threw
                  :rf.error/fx-failed
-                 :rf.warning/runtime-large-elision
+                 :rf.warning/large-value-unschema'd
                  :rf.warning/handler-replaced
                  :rf.info/snapshot-restored
                  :rf.ssr/hydration-mismatch
@@ -123,7 +123,7 @@
            :operation :rf.error/fx-failed :dispatch-id 101
            :reason "HTTP 503 — upstream timeout"})
    (issue {:id 3 :time 1002 :severity :warning
-           :operation :rf.warning/runtime-large-elision :dispatch-id 100
+           :operation :rf.warning/large-value-unschema'd :dispatch-id 100
            :reason "payload truncated at 1MB"})
    (issue {:id 4 :time 1003 :severity :warning
            :operation :rf.warning/handler-replaced :dispatch-id 102
@@ -218,7 +218,7 @@
            :operation :rf.error/fx-failed :dispatch-id 101
            :reason "fx failed" :recovery :retry})
    (issue {:id 3 :time 1002 :severity :warning
-           :operation :rf.warning/runtime-large-elision :dispatch-id 102
+           :operation :rf.warning/large-value-unschema'd :dispatch-id 102
            :reason "large elided" :recovery :skip})
    (issue {:id 4 :time 1003 :severity :error
            :operation :rf.epoch/ring-evict :dispatch-id 103

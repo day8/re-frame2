@@ -113,7 +113,7 @@
             :source :timer :origin :story :frame :rf/causa
             :event-id :story/tick :dispatch-id 101 :fx-id :dispatch})]
       ;; Warning + error rows surface the severity axis chip-row.
-      [(ev {:id 9 :time 1200 :op-type :warning :operation :rf.warning/runtime-large-elision
+      [(ev {:id 9 :time 1200 :op-type :warning :operation :rf.warning/large-value-unschema'd
             :source :http :origin :app :frame :rf/default :dispatch-id 100
             :sub-id :user/profile :severity :warning
             :reason "payload truncated at 1MB"})
@@ -219,7 +219,7 @@
         :source :http :origin :app :frame :rf/default
         :event-id :report/upload :dispatch-id 101
         :severity :error :reason "HTTP 503 — upstream timeout"})
-   (ev {:id 3 :time 1020 :op-type :warning :operation :rf.warning/runtime-large-elision
+   (ev {:id 3 :time 1020 :op-type :warning :operation :rf.warning/large-value-unschema'd
         :source :http :origin :app :frame :rf/default :dispatch-id 100
         :sub-id :user/profile :severity :warning
         :reason "payload truncated at 1MB"})

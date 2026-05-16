@@ -138,8 +138,8 @@
      {:id (+ id-base 6) :op-type :rf.error/handler-exception
       :operation :rf.error/handler-exception
       :tags (assoc tag :event [:user/save-profile {:id 7}])}
-     {:id (+ id-base 7) :op-type :rf.warning/runtime-large-elision
-      :operation :rf.warning/runtime-large-elision
+     {:id (+ id-base 7) :op-type :rf.warning/large-value-unschema'd
+      :operation :rf.warning/large-value-unschema'd
       :tags (assoc tag :sub-id :user/profile)}
      {:id (+ id-base 8) :op-type :rf.machine/transition
       :operation :rf.machine/transition
