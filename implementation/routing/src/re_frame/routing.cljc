@@ -48,18 +48,66 @@
   "Wrap `url-decode` in try/catch; returns nil (sentinel for malformed
   `%`) on decode failure.
 
-  Per Spec 012 §Routing failure semantics (rf2-wbvme): both
+  Per Spec 012 §Routing failure semantics (rf2-wbvme + rf2-4ic0f): both
   `URLDecoder/decode` (JVM) and `decodeURIComponent` (CLJS) throw on
   malformed percent-encoded sequences (`%`, `%a`, `%XX`, …). Hostile
   URLs, partner integrations with broken escaping, or back-button to a
   malformed link must produce a **route-miss** (404 path), never a
-  request-handler crash. Callers translate the nil sentinel into the
-  appropriate miss semantics — `match-against` returns nil for the
-  whole match, `match-url` drops the offending query pair (lenient —
-  preserves the rest of a routable URL when one bad query pair appears)."
+  request-handler crash. Callers propagate the nil sentinel uniformly:
+  `match-against` returns nil for the whole match (path captures);
+  `match-url`'s query-parse loop short-circuits to a malformed sentinel
+  the moment any key or value fails to decode (rf2-4ic0f — the prior
+  rf2-wbvme branch dropped just the offending pair, which silently let
+  hostile URLs into the routing slice when the host route had no
+  required keys); `split-fragment` reports its decode result the same
+  way so a malformed `#fragment` also fails closed."
   [s]
   (try (url-decode s)
        (catch #?(:clj Throwable :cljs :default) _ nil)))
+
+(defn malformed-url?
+  "Public predicate: true when `url`'s percent-encoding is malformed in
+  any of its decode'd portions (path captures via the registered
+  routes' patterns, query keys, query values, or `#fragment`). Used by
+  `:rf/url-changed` / `:rf.route/handle-url-change` to discriminate the
+  bare route-miss case (`{:url url}`) from the malformed-URL fail-
+  closed case (`{:url url :reason :malformed-url}`) — both end up at
+  `:rf.route/not-found` but the structured `:reason` lets per-route
+  error UIs and SSR projections branch on the cause.
+
+  Per Spec 012 §Routing failure semantics §Malformed percent-encoding
+  (rf2-4ic0f). The check decodes path captures against the registered
+  patterns (so a bare `%` in a non-captured static segment of a path
+  the route doesn't match is not flagged — it's just a normal miss);
+  for the query and fragment the full string is decoded, so any `%`
+  that won't decode anywhere in either flips the predicate.
+
+  O(URL-pieces) — runs once per URL-driven nav alongside the regular
+  `match-url` walk; the cost is bounded by the URL length, not the
+  route-table size."
+  [url]
+  (let [hash-idx       (.indexOf #?(:clj  ^String url
+                                    :cljs ^string url) "#")
+        url-no-frag    (if (neg? hash-idx) url (subs url 0 hash-idx))
+        fragment       (when (not (neg? hash-idx)) (subs url (inc hash-idx)))
+        [path query]   (clojure.string/split url-no-frag #"\?" 2)
+        path-bad?      (boolean
+                         (when path
+                           (some (fn [seg]
+                                   (and (seq seg)
+                                        (nil? (safe-url-decode seg))))
+                                 (clojure.string/split path #"/"))))
+        query-bad?     (boolean
+                         (when query
+                           (some (fn [pair]
+                                   (let [[k v] (clojure.string/split pair #"=" 2)]
+                                     (or (nil? (safe-url-decode k))
+                                         (and v (nil? (safe-url-decode v))))))
+                                 (clojure.string/split query #"&"))))
+        fragment-bad?  (boolean
+                         (when (and fragment (seq fragment))
+                           (nil? (safe-url-decode fragment))))]
+    (or path-bad? query-bad? fragment-bad?)))
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -654,14 +702,31 @@
 (defn- split-fragment
   "Split a URL into [url-without-fragment fragment]. Returns
   [path-and-query nil] when no '#' is present, else
-  [before-hash after-hash]. The fragment is returned as nil when absent
-  and as the raw substring (sans leading '#') when present; an empty
-  fragment (URL ends with bare '#') decodes to \"\"."
+  [before-hash decoded-fragment]. The fragment is returned as nil when
+  absent, as `\"\"` when bare (URL ends with bare '#'), as the
+  %-decoded substring when well-formed, and as `::malformed-fragment`
+  when its %-encoding is malformed (rf2-4ic0f — malformed fragment
+  fails closed at `match-url`).
+
+  Pre-rf2-4ic0f the fragment was returned as the raw (un-decoded)
+  substring; that left malformed fragments to be silently surfaced into
+  the slice. Per Spec 012 §Routing failure semantics §Malformed
+  percent-encoding the entire URL is treated as a route-miss when the
+  fragment cannot be decoded."
   [^String url]
   (let [hash-idx (.indexOf url "#")]
-    (if (neg? hash-idx)
+    (cond
+      (neg? hash-idx)
       [url nil]
-      [(subs url 0 hash-idx) (subs url (inc hash-idx))])))
+
+      ;; Bare '#' — empty fragment, no decoding needed.
+      (= (inc hash-idx) (count url))
+      [(subs url 0 hash-idx) ""]
+
+      :else
+      (let [raw     (subs url (inc hash-idx))
+            decoded (safe-url-decode raw)]
+        [(subs url 0 hash-idx) (or decoded ::malformed-fragment)]))))
 
 (defn- validate-route-shape
   "Run the registered schema validator against `value` for the route's
@@ -735,114 +800,125 @@
   ;; route matched, and the cost (split + url-decode per pair) hit every
   ;; URL-driven navigation. The closure captures `query-str`; the delay
   ;; forces at most once and is held for the lifetime of this call.
-  (let [[url-no-frag fragment] (split-fragment url)
-        [path0 query-str]      (clojure.string/split url-no-frag #"\?" 2)
-        path                  (normalize-match-path path0)
-        ;; rf2-3k3o7: parse query as a **string-keyed** raw map and
-        ;; enforce a per-URL cap on the number of unique keys. The cap
-        ;; defends against the same accident-class as rf2-wu1n5 (unbounded
-        ;; JVM keyword-table growth on long-running SSR processes
-        ;; consuming attacker-influenced URL streams). Overflow throws
-        ;; `:rf.error/route-too-many-keys` with `:limit` ex-data so the
-        ;; caller can route the failure (currently propagates through
-        ;; navigate / url-change-fx — error projection surfaces it).
-        ;;
-        ;; Note: the cap counts unique decoded query keys, not raw pair
-        ;; count. Repeated keys keep last-wins semantics and do not trip
-        ;; the DoS guard unless the unique-key set itself exceeds the
-        ;; configured ceiling.
-        raw-query-delayed
-        (delay
-          (when query-str
-            (let [pairs (clojure.string/split query-str #"&")]
-              (reduce
-                (fn [m pair]
-                  (let [[k v] (clojure.string/split pair #"=" 2)
-                        ;; Per Spec 012 §Routing failure semantics
-                        ;; (rf2-wbvme): malformed %-encoding in a query
-                        ;; key or value drops the pair (lenient —
-                        ;; preserves the rest of a routable URL when one
-                        ;; bad pair appears). nil sentinel comes from
-                        ;; `safe-url-decode`; the empty-value branch
-                        ;; (`v` is nil → "") is distinct from a malformed
-                        ;; value and must not be conflated.
-                        kstr  (safe-url-decode k)
-                        vstr  (if v (safe-url-decode v) "")]
-                    (if (or (nil? kstr) (nil? vstr))
-                      m
-                      (let [m' (assoc m kstr vstr)]
-                        (when (> (count m') default-max-decoded-keys)
-                          (throw (ex-info ":rf.error/route-too-many-keys"
-                                          {:kind   :rf.error/route-too-many-keys
-                                           :url    url
-                                           :limit  default-max-decoded-keys
-                                           :count  (count m')})))
-                        m'))))
-                (array-map)
-                pairs))))]
-    ;; Iterate the pre-sorted table; the first pattern that matches is the
-    ;; highest-rank winner (Spec 012 §Route ranking algorithm). `reduce` with
-    ;; `reduced` short-circuits on the first hit. nil ⇒ no route matched.
-    (reduce
-      (fn [_ [id meta]]
-        (when-let [compiled (or (:rf.route/compiled meta)
-                                (some-> (:path meta) parse-pattern))]
-          (when-let [params (match-against compiled path)]
-            (let [query-coerce  (:rf.route/query-coerce meta)
-                  defaults      (:query-defaults meta)
-                  retain        (:query-retain meta)
-                  ;; Force the query parse on the first successful path
-                  ;; match — unmatched URLs and pre-match iterations skip
-                  ;; the work entirely (rf2-r1in4).
-                  raw-query     @raw-query-delayed
-                  ;; Coercion: O(M) lookups against the precompiled
-                  ;; `query-coerce` map (rf2-yjjrv). Per rf2-3k3o7
-                  ;; only keys declared by the route (in `query-coerce`
-                  ;; or `:query-defaults`) are promoted to keyword keys;
-                  ;; unknown keys retain their string form so the
-                  ;; framework does not extend the JVM keyword-table on
-                  ;; behalf of attacker-controlled URLs.
-                  coerced       (when raw-query
-                                  (coerce-query query-coerce defaults retain raw-query))
-                  ;; Defaults: short-circuit when the route declares no
-                  ;; defaults (the common case). When both raw-query and
-                  ;; defaults are empty, fall back to an empty array-map
-                  ;; so the slice's `:query` shape stays consistent and
-                  ;; `validate-route-shape` below runs against a map.
-                  with-defaults (cond
-                                  (and (nil? coerced) (empty? defaults)) (array-map)
-                                  (empty? defaults)                      coerced
-                                  :else
-                                  (reduce-kv
-                                    (fn [m k v]
-                                      (if (contains? m k) m (assoc m k v)))
-                                    (or coerced (array-map))
-                                    defaults))
-                  ;; Per Spec 012 §Param validation at the call site: when
-                  ;; the route declares :params or :query schemas, validate
-                  ;; the parsed values. Either schema failing flips the
-                  ;; flag; the explanation surfaces under :validation-error
-                  ;; so callers ((`:rf.route/handle-url-change`)) can route
-                  ;; to `:rf.route/not-found` with `:reason :validation`.
-                  [params-failed? params-error] (validate-route-shape meta :params params)
-                  [query-failed?  query-error]  (validate-route-shape meta :query  with-defaults)
-                  validation-failed? (or params-failed? query-failed?)
-                  validation-error   (cond
-                                       (and params-failed? query-failed?)
-                                       {:params params-error :query query-error}
-                                       params-failed? params-error
-                                       query-failed?  query-error
-                                       :else          nil)
-                  result        (cond-> {:route-id           id
-                                         :params             params
-                                         :query              with-defaults
-                                         :fragment           fragment
-                                         :validation-failed? validation-failed?}
-                                  validation-error
-                                  (assoc :validation-error validation-error))]
-              (reduced result)))))
-      nil
-      (route-table))))
+  (let [[url-no-frag fragment] (split-fragment url)]
+    ;; rf2-4ic0f fast-path: malformed fragment fails closed at the URL
+    ;; level, before we touch the route table.
+    (when-not (= ::malformed-fragment fragment)
+      (let [[path0 query-str] (clojure.string/split url-no-frag #"\?" 2)
+            path              (normalize-match-path path0)
+            ;; rf2-3k3o7: parse query as a **string-keyed** raw map and
+            ;; enforce a per-URL cap on the number of unique keys. The cap
+            ;; defends against the same accident-class as rf2-wu1n5 (unbounded
+            ;; JVM keyword-table growth on long-running SSR processes
+            ;; consuming attacker-influenced URL streams). Overflow throws
+            ;; `:rf.error/route-too-many-keys` with `:limit` ex-data so the
+            ;; caller can route the failure (currently propagates through
+            ;; navigate / url-change-fx — error projection surfaces it).
+            ;;
+            ;; Note: the cap counts unique decoded query keys, not raw pair
+            ;; count. Repeated keys keep last-wins semantics and do not trip
+            ;; the DoS guard unless the unique-key set itself exceeds the
+            ;; configured ceiling.
+            raw-query-delayed
+            (delay
+              (when query-str
+                (let [pairs (clojure.string/split query-str #"&")]
+                  (reduce
+                    (fn [m pair]
+                      (let [[k v] (clojure.string/split pair #"=" 2)
+                            ;; Per Spec 012 §Routing failure semantics
+                            ;; (rf2-wbvme + rf2-4ic0f): malformed %-encoding
+                            ;; in a query key or value FAILS CLOSED — the
+                            ;; whole URL is treated as a route-miss. Pre-
+                            ;; rf2-4ic0f the offending pair was silently
+                            ;; dropped, which let hostile URLs into the
+                            ;; routing slice when the host route had no
+                            ;; required keys. The empty-value branch (`v`
+                            ;; is nil → "") is distinct from a malformed
+                            ;; value and must not be conflated.
+                            kstr  (safe-url-decode k)
+                            vstr  (if v (safe-url-decode v) "")]
+                        (if (or (nil? kstr) (nil? vstr))
+                          (reduced ::malformed-query)
+                          (let [m' (assoc m kstr vstr)]
+                            (when (> (count m') default-max-decoded-keys)
+                              (throw (ex-info ":rf.error/route-too-many-keys"
+                                              {:kind   :rf.error/route-too-many-keys
+                                               :url    url
+                                               :limit  default-max-decoded-keys
+                                               :count  (count m')})))
+                            m'))))
+                    (array-map)
+                    pairs))))]
+        ;; Iterate the pre-sorted table; the first pattern that matches is
+        ;; the highest-rank winner (Spec 012 §Route ranking algorithm).
+        ;; `reduce` with `reduced` short-circuits on the first hit. nil ⇒
+        ;; no route matched OR malformed query fails closed (rf2-4ic0f).
+        (reduce
+          (fn [_ [id meta]]
+            (when-let [compiled (or (:rf.route/compiled meta)
+                                    (some-> (:path meta) parse-pattern))]
+              (when-let [params (match-against compiled path)]
+                (let [query-coerce  (:rf.route/query-coerce meta)
+                      defaults      (:query-defaults meta)
+                      retain        (:query-retain meta)
+                      ;; Force the query parse on the first successful path
+                      ;; match — unmatched URLs and pre-match iterations skip
+                      ;; the work entirely (rf2-r1in4).
+                      raw-query     @raw-query-delayed]
+                  (if (= ::malformed-query raw-query)
+                    ;; rf2-4ic0f: short-circuit the entire match; the URL
+                    ;; carries malformed %-encoding in its query string and
+                    ;; the framework refuses to surface a partial slice.
+                    (reduced nil)
+                    (let [;; Coercion: O(M) lookups against the precompiled
+                          ;; `query-coerce` map (rf2-yjjrv). Per rf2-3k3o7
+                          ;; only keys declared by the route (in `query-coerce`
+                          ;; or `:query-defaults`) are promoted to keyword keys;
+                          ;; unknown keys retain their string form so the
+                          ;; framework does not extend the JVM keyword-table on
+                          ;; behalf of attacker-controlled URLs.
+                          coerced       (when raw-query
+                                          (coerce-query query-coerce defaults retain raw-query))
+                          ;; Defaults: short-circuit when the route declares no
+                          ;; defaults (the common case). When both raw-query and
+                          ;; defaults are empty, fall back to an empty array-map
+                          ;; so the slice's `:query` shape stays consistent and
+                          ;; `validate-route-shape` below runs against a map.
+                          with-defaults (cond
+                                          (and (nil? coerced) (empty? defaults)) (array-map)
+                                          (empty? defaults)                      coerced
+                                          :else
+                                          (reduce-kv
+                                            (fn [m k v]
+                                              (if (contains? m k) m (assoc m k v)))
+                                            (or coerced (array-map))
+                                            defaults))
+                          ;; Per Spec 012 §Param validation at the call site: when
+                          ;; the route declares :params or :query schemas, validate
+                          ;; the parsed values. Either schema failing flips the
+                          ;; flag; the explanation surfaces under :validation-error
+                          ;; so callers ((`:rf.route/handle-url-change`)) can route
+                          ;; to `:rf.route/not-found` with `:reason :validation`.
+                          [params-failed? params-error] (validate-route-shape meta :params params)
+                          [query-failed?  query-error]  (validate-route-shape meta :query  with-defaults)
+                          validation-failed? (or params-failed? query-failed?)
+                          validation-error   (cond
+                                               (and params-failed? query-failed?)
+                                               {:params params-error :query query-error}
+                                               params-failed? params-error
+                                               query-failed?  query-error
+                                               :else          nil)
+                          result        (cond-> {:route-id           id
+                                                 :params             params
+                                                 :query              with-defaults
+                                                 :fragment           fragment
+                                                 :validation-failed? validation-failed?}
+                                          validation-error
+                                          (assoc :validation-error validation-error))]
+                      (reduced result)))))))
+          nil
+          (route-table))))))
 
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
@@ -1614,19 +1690,41 @@
   `{:db :fx}` for a URL-driven full slice rewrite. Performs the match-url
   lookup, allocates a fresh nav-token, computes the scroll fx entry, and
   emits the trace events (:rf.warning/no-not-found-route,
-  :rf.error/no-such-handler, :rf.route.nav-token/allocated).
+  :rf.warning/malformed-url, :rf.error/no-such-handler,
+  :rf.route.nav-token/allocated).
 
   Per Spec 012 §URL changes are events §Route-not-found §Per-route data
   loading §Scroll restoration §Multi-frame routing. The slice always
-  carries the full seven-key shape (rf2-d60go)."
+  carries the full seven-key shape (rf2-d60go).
+
+  Three fallback shapes feed `:rf.route/not-found` (rf2-4ic0f):
+
+   - bare miss (`{:url url}`) — `match-url` returned nil and the URL
+     percent-encoding decoded cleanly;
+   - validation fail (`{:url url :reason :validation}`) — a route's
+     pattern matched but its `:params` / `:query` schema rejected the
+     parsed values (rf2-ug2m1);
+   - malformed URL (`{:url url :reason :malformed-url}`) — any of the
+     URL's path captures, query keys/values, or `#fragment` failed to
+     %-decode. The `:reason` discriminator lets per-route error UIs
+     and SSR projections branch on the cause."
   [db url default-scroll frame]
   (let [m                 (match-url url)
-        fragment          (:fragment m)
+        ;; rf2-4ic0f: when match-url returns nil, discriminate the
+        ;; bare-miss case from the malformed-URL case via the public
+        ;; `malformed-url?` predicate. The predicate scans the URL
+        ;; once; we run it only when match-url already missed (the
+        ;; happy path pays nothing).
+        malformed?        (and (nil? m) (malformed-url? url))
+        ;; Malformed URLs surface no fragment in the slice — the
+        ;; fragment was the (or potentially the) decode-fail site.
+        fragment          (when-not malformed? (:fragment m))
         matched?          (some? m)
         validation-fail?  (:validation-failed? m)
         fallback?         (or (not matched?) validation-fail?)
         route-id          (if fallback? :rf.route/not-found (:route-id m))
         params            (cond
+                            malformed?       {:url url :reason :malformed-url}
                             validation-fail? {:url url :reason :validation}
                             (not matched?)   {:url url}
                             :else            (:params m))
@@ -1647,6 +1745,16 @@
                              :saved-pos (when (= :restore strategy)
                                           (lookup-scroll-position db url))
                              :fragment  fragment})]
+    ;; rf2-4ic0f: structured telemetry for the malformed-URL case so
+    ;; SSR error projections, security dashboards, and pair-tools can
+    ;; surface the failure independently of the generic miss trace.
+    ;; Emitted alongside the regular `:rf.error/no-such-handler` event
+    ;; below — the discriminator is the `:reason :malformed-url` slot
+    ;; on the slice's `:params`.
+    (when malformed?
+      (trace/emit! :warning :rf.warning/malformed-url
+                   (cond-> {:url url}
+                     frame (assoc :frame frame))))
     ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
     ;; when the unmatched-URL path resolves to :rf.route/not-found AND
     ;; no such route is registered. Tools / AI scaffolds key off this.
@@ -1657,12 +1765,15 @@
     ;; handler misses by :kind :route. The :frame tag (present when the
     ;; caller threads it in — `:rf.route/handle-url-change`) lets the
     ;; SSR error-projection listener attribute the trace per-frame.
+    ;; rf2-4ic0f: include `:reason :malformed-url` when applicable so
+    ;; the structured error is uniform across the trace + the slice.
     (when fallback?
       (trace/emit-error! :rf.error/no-such-handler
                          (cond-> {:url url
                                   :kind :route
                                   :recovery :replaced-with-default}
-                           frame (assoc :frame frame))))
+                           frame      (assoc :frame frame)
+                           malformed? (assoc :reason :malformed-url))))
     (trace/emit! :event :rf.route.nav-token/allocated
                  {:route-id  route-id
                   :nav-token token})
