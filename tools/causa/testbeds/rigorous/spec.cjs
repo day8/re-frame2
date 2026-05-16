@@ -4047,5 +4047,255 @@ module.exports = {
         try { rf.destroy_frame_BANG_(kwOf(args.B)); } catch (_) {}
       }
     }, { A: FRAME_A, B: FRAME_B });
+
+    // ----------------------------------------------------------------
+    // 15. Shell / Keybinding / Config / Preload / Settings (rf2-5aw5v.10
+    // — L-10). Spec 011-Launch-Modes.md + 015-Configuration.md.
+    //
+    // Tier-1 §1 pinned inline auto-mount on `[data-rf-causa-host]`.
+    // Tier-1 §8 pinned the CSS-only `Ctrl+Shift+C` toggle. Tier-1
+    // §10c pinned the editor + project-root config round-trip. This
+    // section deepens the cross-cutting shell/config surface with the
+    // affordances NOT already covered:
+    //
+    //   - **`Ctrl+Shift+/` co-pilot keybinding** — Phase 5 of
+    //     keybinding.cljs (rf2-rccf3) routes Ctrl+Shift+/ through
+    //     `:rf.causa/copilot-toggle` dispatched into `:rf/causa`.
+    //     Tier-1 §3 only pinned the rail's cue-glyph affordance;
+    //     this verifies the keyboard path
+    //   - **`configure!` multi-key map + partial-update semantics**
+    //     — `:editor` + `:project-root` + `:layout/host-selector` +
+    //     `:launch/auto-open?` + `:trace/show-sensitive?` in one
+    //     call. Absent keys leave existing values untouched (the
+    //     `:project-root` slot uses `contains?` semantics; the
+    //     others apply on `some?` / `contains?` semantics — both
+    //     are partial-update). Probe asserts: (a) every key the map
+    //     carries round-trips; (b) a second `configure!` with only
+    //     `:editor` does NOT clobber the other slots
+    //   - **`set-auto-open!` round-trip** — `nil` resets to true.
+    //     The auto-open flag governs the PRELOAD's auto-mount path;
+    //     toggling it has no visible side-effect after first mount
+    //     (mounted state is stable; flipping the flag affects only
+    //     future preload boots). The round-trip via the reader fn
+    //     `auto-open-enabled?` is the contract surface
+    //   - **`set-layout-host-selector!` round-trip + missing-host
+    //     diagnostic** — the missing-host diagnostic surfaces via
+    //     `status()`'s `:diagnostic` slot when the layout host's
+    //     `querySelector` returns null. We can't actually trip the
+    //     missing-host diagnostic on a mounted shell (the auto-open
+    //     happened already against the present `[data-rf-causa-host]`),
+    //     but the diagnostic SHAPE is observable: `status()` returns
+    //     `{:host-selector "<configured>" :diagnostic <map> ...}`
+    //     after a config flip. Verify the selector round-trips and
+    //     the diagnostic slot is shape-correct
+    //   - **production elision is NOT verifiable on the counter
+    //     (dev) testbed** — `(set! goog.DEBUG false)` is a release-
+    //     time concern. The dev gate proves the API surface is
+    //     present (every fn callable, status readable, keybinding
+    //     attached); production elision is verified separately by
+    //     `npm run test:browser-prod-elision` against a release
+    //     build (out of scope for this rigorous spec, which runs
+    //     under the dev counter bundle). Document the gap inline so
+    //     a future probe can be inserted here once the release-
+    //     bundle harness exists
+    //
+    // No new matrix row — deepens row 87 (Shell, Keybinding, Config,
+    // Preload, Settings, and Production Elision).
+    // ----------------------------------------------------------------
+
+    // 15a. Ctrl+Shift+/ — co-pilot toggle. The Tier-1 §3 walk used
+    // the cue glyph; this verifies the keyboard binding lands the
+    // same `:rf.causa/copilot-toggle` event. Pre-state: rail is
+    // closed (Tier-1 §3 closed it). The keypress opens; a second
+    // keypress closes.
+    //
+    // The keybinding.cljs handler runs `preventDefault` +
+    // `stopPropagation` so the browser's "find on page" affordance
+    // (Cmd+F variant) does not fire. Probe via the rail's
+    // `rf-causa-copilot-rail` testid.
+    if ((await page.locator('[data-testid="rf-causa-copilot-rail"]').count()) !== 0) {
+      // Defensive baseline reset — the rail should be closed after
+      // Tier-1 §3, but if a future re-ordering of sections leaves
+      // it open the assertion below would falsely pass.
+      await page.locator('[data-testid="rf-causa-copilot-close"]').click();
+      await waitForCondition(
+        async () => page.locator('[data-testid="rf-causa-copilot-rail"]').count(),
+        (count) => count === 0,
+        'baseline co-pilot rail closure before Ctrl+Shift+/ walk',
+        5000,
+      );
+    }
+    await page.keyboard.press('Control+Shift+/');
+    await expectVisible(page.locator('[data-testid="rf-causa-copilot-rail"]'), 5000);
+    await page.keyboard.press('Control+Shift+/');
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-copilot-rail"]').count(),
+      (count) => count === 0,
+      'co-pilot rail to close on second Ctrl+Shift+/',
+      5000,
+    );
+
+    // 15b. `configure!` multi-key map + partial-update semantics.
+    // The whole probe + state restore happens inside one
+    // `page.evaluate` so CLJS keywords stay on the browser side.
+    const configureVerify = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const cfg  = window.day8 && window.day8.re_frame2_causa &&
+                   window.day8.re_frame2_causa.config;
+      if (!cljs || !cfg) return { ok: false, reason: 'no config' };
+      if (typeof cfg.configure_BANG_ !== 'function') {
+        return { ok: false, reason: 'configure_BANG_ missing' };
+      }
+      const kw = (n) => cljs.keyword(n);
+      const eq = cljs._EQ_;
+      const issues = [];
+
+      // Snapshot pre-state so we can restore exactly.
+      const preEditor       = cfg.get_editor();
+      const preProjectRoot  = cfg.get_project_root();
+      const preLayoutHost   = cfg.get_layout_host_selector();
+      const preAutoOpen     = cfg.auto_open_enabled_QMARK_();
+      const preShowSens     = cfg.get_show_sensitive();
+
+      // Probe the multi-key configure. Build the opts map directly.
+      const opts1 = cljs.PersistentArrayMap.fromArray([
+        kw('editor'),                kw('idea'),
+        kw('project-root'),          '/tmp/probe-multi-key',
+        kw('layout/host-selector'),  '#rf2-5aw5v-10-probe-host',
+        kw('launch/auto-open?'),     false,
+        kw('trace/show-sensitive?'), true,
+      ], true, false);
+      cfg.configure_BANG_(opts1);
+
+      if (!eq(cfg.get_editor(), kw('idea'))) {
+        issues.push(`:editor after multi-key configure expected :idea; got ${cljs.pr_str(cfg.get_editor())}`);
+      }
+      if (cfg.get_project_root() !== '/tmp/probe-multi-key') {
+        issues.push(`:project-root expected '/tmp/probe-multi-key'; got ${cfg.get_project_root()}`);
+      }
+      if (cfg.get_layout_host_selector() !== '#rf2-5aw5v-10-probe-host') {
+        issues.push(`:layout/host-selector expected probe host; got ${cfg.get_layout_host_selector()}`);
+      }
+      if (cfg.auto_open_enabled_QMARK_() !== false) {
+        issues.push(`:launch/auto-open? expected false; got ${cfg.auto_open_enabled_QMARK_()}`);
+      }
+      if (cfg.get_show_sensitive() !== true) {
+        issues.push(`:trace/show-sensitive? expected true; got ${cfg.get_show_sensitive()}`);
+      }
+
+      // Partial-update: second configure with ONLY :editor. The
+      // other slots must NOT be touched.
+      const opts2 = cljs.PersistentArrayMap.fromArray([
+        kw('editor'), kw('zed'),
+      ], true, false);
+      cfg.configure_BANG_(opts2);
+      if (!eq(cfg.get_editor(), kw('zed'))) {
+        issues.push(`:editor after partial configure expected :zed; got ${cljs.pr_str(cfg.get_editor())}`);
+      }
+      // Other slots preserved.
+      if (cfg.get_project_root() !== '/tmp/probe-multi-key') {
+        issues.push(`:project-root regressed on partial configure; got ${cfg.get_project_root()}`);
+      }
+      if (cfg.get_layout_host_selector() !== '#rf2-5aw5v-10-probe-host') {
+        issues.push(`:layout/host-selector regressed on partial configure; got ${cfg.get_layout_host_selector()}`);
+      }
+      if (cfg.auto_open_enabled_QMARK_() !== false) {
+        issues.push(`:launch/auto-open? regressed on partial configure; got ${cfg.auto_open_enabled_QMARK_()}`);
+      }
+      if (cfg.get_show_sensitive() !== true) {
+        issues.push(`:trace/show-sensitive? regressed on partial configure; got ${cfg.get_show_sensitive()}`);
+      }
+
+      // set-auto-open! round-trip via reset path: nil → default true.
+      cfg.set_auto_open_BANG_(null);
+      if (cfg.auto_open_enabled_QMARK_() !== true) {
+        issues.push(`set-auto-open!(null) expected reset to true; got ${cfg.auto_open_enabled_QMARK_()}`);
+      }
+      cfg.set_auto_open_BANG_(false);
+      if (cfg.auto_open_enabled_QMARK_() !== false) {
+        issues.push(`set-auto-open!(false) expected false; got ${cfg.auto_open_enabled_QMARK_()}`);
+      }
+
+      // set-layout-host-selector! round-trip: nil resets to default.
+      cfg.set_layout_host_selector_BANG_(null);
+      if (cfg.get_layout_host_selector() !== '[data-rf-causa-host]') {
+        issues.push(`set-layout-host-selector!(null) expected reset to '[data-rf-causa-host]'; got ${cfg.get_layout_host_selector()}`);
+      }
+
+      // Restore pre-state. set-show-sensitive! true → false triggers
+      // the trace-bus retroactive scrub per Spec 009 §Privacy
+      // (rf2-lqmje) — that's expected.
+      cfg.set_editor_BANG_(preEditor);
+      cfg.set_project_root_BANG_(preProjectRoot);
+      cfg.set_layout_host_selector_BANG_(preLayoutHost);
+      cfg.set_auto_open_BANG_(preAutoOpen);
+      cfg.set_show_sensitive_BANG_(preShowSens);
+
+      return { ok: true, issues };
+    });
+    if (!configureVerify.ok) {
+      throw new Error(`Could not run configure! probe: ${configureVerify.reason}`);
+    }
+    if (configureVerify.issues.length > 0) {
+      throw new Error(
+        `configure! multi-key + partial-update failures:\n  - ` +
+        configureVerify.issues.join('\n  - '),
+      );
+    }
+
+    // 15c. `status()` shape — mount + diagnostic surface inspectable
+    // after configure round-trip. The diagnostic carries the
+    // configured `:host-selector` slot regardless of mount success.
+    const statusShape = await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const causa = window.day8.re_frame2_causa;
+      const status = causa.status || (causa.core && causa.core.status);
+      const s = status();
+      const kw = (n) => cljs.keyword(n);
+      const out = {};
+      for (const k of ['mounted?', 'visible?', 'mode', 'host-selector', 'auto-open?', 'diagnostic']) {
+        const v = cljs.get(s, kw(k));
+        out[k] = v == null ? null : cljs.pr_str(v);
+      }
+      return out;
+    });
+    if (statusShape['mounted?'] !== 'true') {
+      throw new Error(
+        `Expected status :mounted? true after L-10 walk; got ${JSON.stringify(statusShape)}.`,
+      );
+    }
+    if (!statusShape['host-selector'] || !statusShape['host-selector'].includes('rf-causa-host')) {
+      throw new Error(
+        `Expected status :host-selector to include 'rf-causa-host'; got ${statusShape['host-selector']}.`,
+      );
+    }
+    if (statusShape['auto-open?'] == null) {
+      throw new Error(`Expected status :auto-open? non-nil; got ${statusShape['auto-open?']}.`);
+    }
+    if (statusShape['diagnostic'] == null) {
+      throw new Error(`Expected status :diagnostic shape non-nil; got ${statusShape['diagnostic']}.`);
+    }
+
+    // 15d. Keybinding attach state — `attached?` returns true.
+    // Production elision (set! goog.DEBUG false → preload elides
+    // → keybinding never attaches) lives in the separate
+    // browser-prod-elision gate and is NOT exercised on this dev
+    // bundle. The dev-side probe asserts the API surface is wired.
+    const keybindingAttached = await page.evaluate(() => {
+      const kb = window.day8 && window.day8.re_frame2_causa &&
+                 window.day8.re_frame2_causa.keybinding;
+      if (!kb || typeof kb.attached_QMARK_ !== 'function') {
+        return { ok: false, reason: 'keybinding.attached_QMARK_ missing' };
+      }
+      return { ok: true, attached: kb.attached_QMARK_() };
+    });
+    if (!keybindingAttached.ok) {
+      throw new Error(`Could not probe keybinding attach state: ${keybindingAttached.reason}`);
+    }
+    if (keybindingAttached.attached !== true) {
+      throw new Error(
+        `Expected keybinding.attached?() === true after Tier-1 §8 + Tier-2 §15a exercised it; got ${keybindingAttached.attached}.`,
+      );
+    }
   },
 };
