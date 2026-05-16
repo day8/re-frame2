@@ -120,3 +120,96 @@
        (let [flat (str (ui-sv/save-dialog))]
          (is (str/includes? flat ":extends"))
          (is (str/includes? flat ":story.x/source"))))))
+
+;; ---- rf2-lancu: snapshot-violations + save-dialog pre-paste hint --------
+
+(deftest snapshot-violations-soft-passes-when-no-validator
+  (testing "rf2-lancu — snapshot-violations is a thin pass-through to
+            schema-validation/args-violations; soft-passes per Spec 010
+            when no validator / no schema (returns empty vec)"
+    (is (= [] (save-variant/snapshot-violations {:a 1} nil nil)))
+    (is (= [] (save-variant/snapshot-violations
+                {:a 1}
+                [:map [:a :int]]
+                nil))
+        "no validator-fns → soft-pass per Spec 010")
+    (is (= [] (save-variant/snapshot-violations
+                {:a 1}
+                [:map [:a :int]]
+                {:validate (fn [_ _] true)}))
+        "validator that always passes → no violations")))
+
+(deftest snapshot-violations-reports-non-conforming-keys
+  (testing "rf2-lancu — when args break the schema the violation list
+            names the offending keys + their values so the save dialog
+            can render the 'paste at your own risk' hint pre-paste"
+    (let [violations (save-variant/snapshot-violations
+                       {:a 1 :b "oops"}
+                       [:map [:a :int] [:b :int]]
+                       {:validate (fn [s v]
+                                    ;; trivial int-only validator for the test
+                                    (if (= :int s) (int? v) true))})]
+      (is (= 1 (count violations)))
+      (is (= :b (-> violations first :key)))
+      (is (= "oops" (-> violations first :value))))))
+
+(deftest open-stamps-violations-on-dialog-state
+  (testing "rf2-lancu — save-variant/open's 5-arity stamps the violations
+            vector on the dialog state so the save dialog can render the
+            non-blocking hint above the snippet"
+    (let [vs [{:key :b :value "oops" :schema :int :explain nil}]
+          s  (save-variant/open save-variant/initial-dialog-state
+                                :story.x/y {:a 1 :b "oops"} 0 vs)]
+      (is (true? (:open? s)))
+      (is (= vs (:violations s))
+          "violations ride the dialog state under :violations"))))
+
+(deftest open-3-arity-defaults-violations-to-empty-vec
+  (testing "rf2-lancu — back-compat: the legacy 3-arity (without
+            violations) stamps an empty vec so the dialog hint path
+            renders nothing"
+    (let [s (save-variant/open save-variant/initial-dialog-state
+                               :story.x/y {:a 1} 0)]
+      (is (= [] (:violations s))))))
+
+#?(:cljs
+   (deftest save-dialog-renders-no-violations-hint-when-empty
+     (testing "rf2-lancu — when the snapshot conforms (no violations) the
+               dialog renders the snippet without the violations hint"
+       (reset! ui-sv/ui-dialog
+               (save-variant/open save-variant/initial-dialog-state
+                                  :story.x/source
+                                  {:label "hi"}
+                                  12345
+                                  []))
+       (let [flat (str (ui-sv/save-dialog))]
+         (is (not (str/includes? flat "story-save-variant-violations-hint"))
+             "no hint when violations is empty")
+         (is (not (str/includes? flat "paste at your own risk"))
+             "no scary hint text on a conforming snapshot")))))
+
+#?(:cljs
+   (deftest save-dialog-renders-violations-hint-when-non-empty
+     (testing "rf2-lancu — when the snapshot violates the schema the
+               dialog renders a non-blocking hint above the snippet
+               listing the offending keys. Non-blocking — the user can
+               still copy / paste; the snippet carries the violating
+               args as captured"
+       (reset! ui-sv/ui-dialog
+               (save-variant/open save-variant/initial-dialog-state
+                                  :story.x/source
+                                  {:label "hi" :count "not-an-int"}
+                                  12345
+                                  [{:key :count :value "not-an-int"
+                                    :schema :int :explain nil}]))
+       (let [flat (str (ui-sv/save-dialog))]
+         (is (str/includes? flat "story-save-variant-violations-hint")
+             "the hint container is present")
+         (is (str/includes? flat "paste at your own risk")
+             "the scary hint text is present")
+         (is (str/includes? flat "story-save-variant-violation-row")
+             "the violation list renders rows")
+         (is (str/includes? flat ":count")
+             "the offending key name appears in the hint")
+         (is (str/includes? flat "story-save-variant-snippet")
+             "the snippet still renders — the hint is non-blocking")))))

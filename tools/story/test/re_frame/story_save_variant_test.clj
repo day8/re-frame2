@@ -209,7 +209,7 @@
     (state/swap-state! state/select-variant :story.snap/v)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _now-ms]
+        (fn [source-id args _now-ms _violations]
           (reset! captured {:source-id source-id :args args})))
       (let [result (save-variant/save-current-as-variant!)]
         (is (some? @captured) "the callback fired")
@@ -222,7 +222,7 @@
     (state/swap-state! state/select-variant nil)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [_ _ _] (reset! captured :fired)))
+        (fn [_ _ _ _] (reset! captured :fired)))
       (let [result (save-variant/save-current-as-variant!)]
         (is (nil? result) "no result without a focus")
         (is (nil? @captured) "callback never fires without a focus")))))
@@ -233,7 +233,7 @@
     (state/swap-state! state/select-variant nil)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _]
+        (fn [source-id args _ _]
           (reset! captured {:source-id source-id :args args})))
       (save-variant/save-current-as-variant! {:variant-id :story.snap/override})
       (is (= :story.snap/override (:source-id @captured)))
@@ -253,7 +253,7 @@
     (state/swap-state! state/select-variant :story.event/v)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _]
+        (fn [source-id args _ _]
           (reset! captured {:source-id source-id :args args})))
       (rf/dispatch-sync [save-variant/id-save-current-as-variant])
       (is (= :story.event/v (:source-id @captured)))
@@ -265,7 +265,7 @@
     (state/swap-state! state/select-variant nil)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _]
+        (fn [source-id args _ _]
           (reset! captured {:source-id source-id :args args})))
       (rf/dispatch-sync [save-variant/id-save-current-as-variant
                          {:variant-id :story.event/explicit}])
@@ -284,7 +284,7 @@
     ;; Capture via the impure trigger; harvest snapshot from the callback.
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
-        (fn [source-id args _]
+        (fn [source-id args _ _]
           (reset! captured {:source-id source-id :args args})))
       (save-variant/save-current-as-variant!)
       (let [snippet  (save-variant/gen-variant-snippet

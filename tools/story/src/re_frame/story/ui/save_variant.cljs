@@ -46,9 +46,17 @@
 
 (defn- open-dialog!
   "Open the dialog against `source-variant-id` with the captured
-  `args-snapshot`. `now-ms` seeds the default id."
-  [source-variant-id args-snapshot now-ms]
-  (swap! ui-dialog save-variant/open source-variant-id args-snapshot now-ms))
+  `args-snapshot`. `now-ms` seeds the default id. `violations` (rf2-
+  lancu) is the vector returned by
+  `schema-validation/args-violations` against the live component
+  schema — used by the dialog to render a non-blocking 'Args do not
+  match the variant's Spec 010 schema' hint when non-empty. May be
+  nil/empty (no schema registered, or all args conform)."
+  ([source-variant-id args-snapshot now-ms]
+   (open-dialog! source-variant-id args-snapshot now-ms nil))
+  ([source-variant-id args-snapshot now-ms violations]
+   (swap! ui-dialog save-variant/open
+          source-variant-id args-snapshot now-ms violations)))
 
 (defn- close-dialog! []
   (swap! ui-dialog save-variant/close))
@@ -137,28 +145,64 @@
 ;; written directly — same as the recorder's save-as-variant dialog.
 ;; ---------------------------------------------------------------------------
 
+(defn- violations-hint
+  "Render the rf2-lancu non-blocking violations note. Stripe and list
+  of violating keys, so the user catches a drifted-args paste before
+  it lands in source. nil when no violations."
+  [violations]
+  (when (seq violations)
+    [:div {:data-test "story-save-variant-violations-hint"
+           :data-violation-count (count violations)
+           :style {:padding "8px 10px"
+                   :margin "0 0 8px 0"
+                   :background "#3a2a1a"
+                   :color "#e0a060"
+                   :border "1px solid #a06030"
+                   :border-radius "3px"
+                   :font-family "monospace"
+                   :font-size "10px"
+                   :line-height "1.5"}}
+     [:div {:style {:font-weight "bold" :margin-bottom "4px"}}
+      "Args do not match the variant's Spec 010 schema — preview below; "
+      "paste at your own risk"]
+     [:ul {:style {:margin "4px 0 0 16px" :padding 0}}
+      (for [v violations]
+        ^{:key (str (:key v))}
+        [:li {:data-test "story-save-variant-violation-row"
+              :data-key  (str (:key v))}
+         (str (pr-str (:key v))
+              " = "
+              (pr-str (:value v)))])]]))
+
 (defn save-dialog
   "Render the save-variant modal. Visible iff `:open?` is true on the
   dialog ratom. The snippet re-generates on every keystroke as the user
   edits the new variant id; copy-to-clipboard surfaces the form for the
   user to paste into source.
 
+  rf2-lancu: when the captured snapshot violates the variant's Spec 010
+  schema, a non-blocking hint renders above the snippet listing the
+  violating keys. Non-blocking — the user can still paste; the snippet
+  carries the violating args as captured (paste at your own risk).
+
   Public so tests can render the dialog hiccup directly after seeding
   the dialog ratom."
   []
   (let [dialog @ui-dialog]
     (when (:open? dialog)
-      (let [{:keys [draft-id source-id args]} dialog
+      (let [{:keys [draft-id source-id args violations]} dialog
             snippet (save-variant/gen-variant-snippet
                       {:variant-id (or draft-id :story.saved/example)
                        :extends    source-id
                        :args       args})]
         (review-dialog/review-dialog dialog
           {:title             "Save current canvas state as new variant"
-           :hint              (str "Args snapshot captured from "
-                                   (pr-str source-id)
-                                   " — edit the new variant id and copy + paste into your "
-                                   "stories namespace. Source is never written directly.")
+           :hint              [:div
+                               [:div (str "Args snapshot captured from "
+                                          (pr-str source-id)
+                                          " — edit the new variant id and copy + paste into your "
+                                          "stories namespace. Source is never written directly.")]
+                               (violations-hint violations)]
            :snippet           snippet
            :placeholder-id    :story.saved/example
            :placeholder-input ":story.your-story/saved-flow"
