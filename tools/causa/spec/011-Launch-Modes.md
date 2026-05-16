@@ -58,7 +58,10 @@ body { margin: 0; }
 ```
 
 The host owns sizing and layout. Causa owns the shell rendered inside
-the host. Hosts may override the selector before Causa opens:
+the host. For the framework-side Tool-Pair surfaces Causa consumes
+(trace bus, epoch history, registrar queries) see
+[`spec/Tool-Pair.md` §The Causa renderer](../../../spec/Tool-Pair.md#the-causa-renderer).
+Hosts may override the selector before Causa opens:
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
