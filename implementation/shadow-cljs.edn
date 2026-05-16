@@ -414,6 +414,20 @@
    :modules    {:main {:init-fn cart-total.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}
 
+  ;; Causa panel-gallery testbed (rf2-1o7mp) — visual gallery of Causa
+  ;; panels under varying state magnitude. Sources live under
+  ;; tools/causa/testbeds/panel_gallery/ alongside the stories ns.
+  ;; Phase 1a (rf2-1o7mp) ships the event-detail panel; the namespace
+  ;; gates a Phase-2 fan-out where each remaining panel adds its own
+  ;; <panel>_stories.cljs to this same testbed (one URL, one workspace
+  ;; mega-grid). No Causa preload — the gallery embeds bare panels
+  ;; inside Story variants and never mounts Causa's own shell.
+  :testbeds/panel-gallery
+  {:target     :browser
+   :output-dir "out/testbeds/panel-gallery"
+   :asset-path "."
+   :modules    {:main {:init-fn panel-gallery.core/run}}}
+
   :examples/temperature
   {:target     :browser
    :output-dir "out/examples/temperature"
