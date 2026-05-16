@@ -77,16 +77,25 @@ and recognises the shape. That continuity is deliberate.
 
 ## Non-goals
 
-- **Branching feature toggles** (include-Story? include-10x?
-  include-routing?). The first cut keeps the template flat — one
-  substrate flag, no other choices. Branching is reserved for the
-  day choices materially exceed clj-new's substitution capability
+- **Branching feature toggles** (include-10x? include-routing?,
+  etc.). The first cut keeps the template flat — one substrate
+  flag, no other choices. Branching is reserved for the day
+  choices materially exceed clj-new's substitution capability
   ([DESIGN-RATIONALE](DESIGN-RATIONALE.md) §clj-new vs CLI).
-- **Bundling Story.** [`tools/story/`](../../story/) is the future
-  Storybook-class playground for re-frame2; the template
-  intentionally doesn't pre-wire it. Story-stabilisation lands
-  first; a `counter_with_stories`-style variant follows
-  ([DESIGN-RATIONALE](DESIGN-RATIONALE.md) §No-Story-yet).
+
+  **Exception (rf2-t009p):** branching flags are permitted when
+  they enable an *optional shared scaffolding* whose absence would
+  force the user into hand-wiring known idioms — currently
+  `:include-story?` (emits a `counter_with_stories`-shaped story
+  scaffold alongside the live app). Each such flag is justified
+  in DESIGN-RATIONALE alongside the no-other-branching default.
+- **Bundling Story by default.** [`tools/story/`](../../story/)
+  is the Storybook-class playground for re-frame2; the template
+  does **not** pre-wire it on the default path. The opt-in
+  `:include-story?` flag (see the exception above) is the
+  supported on-ramp for users who want the playground scaffolded;
+  rationale and shape live in
+  [DESIGN-RATIONALE](DESIGN-RATIONALE.md) §No-Story-yet.
 - **Multi-frame scaffolds.** Frames (Spec 002) are a runtime
   concern. The template emits a single-frame app; the user reads
   Guide chapter 06 to add more.

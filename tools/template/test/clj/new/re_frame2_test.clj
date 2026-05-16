@@ -46,18 +46,24 @@
 
 (defn- run-template!
   "Run the template's main fn inside the given temp directory. Returns
-  the generated project's root path as a `java.io.File`."
-  [tmp project-name substrate]
-  (let [dir-str   (.toString ^java.nio.file.Path tmp)
-        proj-dir  (.getPath (io/file dir-str
-                                     (tmpl/project-name project-name)))
-        sub-args  (when substrate [:substrate substrate])]
-    ;; clj-new's ->files reads *dir* (via project-dir) to decide where
-    ;; to land the generated tree. Rebind it to our temp directory for
-    ;; the duration of the template's main fn.
-    (binding [tmpl/*dir* proj-dir]
-      (apply rft/re-frame2 project-name sub-args))
-    (io/file proj-dir)))
+  the generated project's root path as a `java.io.File`. The 3-arity
+  form preserves the historical default (no `:include-story?`); the
+  4-arity form lets per-test cases opt into Story scaffolding."
+  ([tmp project-name substrate]
+   (run-template! tmp project-name substrate nil))
+  ([tmp project-name substrate include-story?]
+   (let [dir-str   (.toString ^java.nio.file.Path tmp)
+         proj-dir  (.getPath (io/file dir-str
+                                      (tmpl/project-name project-name)))
+         args      (cond-> []
+                     substrate              (into [:substrate substrate])
+                     (some? include-story?) (into [:include-story? include-story?]))]
+     ;; clj-new's ->files reads *dir* (via project-dir) to decide where
+     ;; to land the generated tree. Rebind it to our temp directory for
+     ;; the duration of the template's main fn.
+     (binding [tmpl/*dir* proj-dir]
+       (apply rft/re-frame2 project-name args))
+     (io/file proj-dir))))
 
 (defn- read-edn [^java.io.File f]
   (edn/read-string (slurp f)))
@@ -333,5 +339,120 @@
                               #":substrate must be one of"
                               (run-template! tmp "acme/my-app" :svelte))
             "unknown substrate is rejected")
+        (finally
+          (delete-recursively tmp))))))
+
+;; --- :include-story? flag (rf2-t009p) ------------------------------------
+
+(deftest default-path-emits-no-story-files-test
+  (testing "default path (no :include-story?) does not emit stories.cljs
+            and does not pull in the day8/re-frame2-story coord"
+    (let [tmp (tmp-dir "rf2-template-no-story-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent)]
+          (is (not (file-exists? root "src/acme/my_app/stories.cljs"))
+              "stories.cljs is NOT emitted on the default path")
+          (let [deps    (read-edn (io/file root "deps.edn"))
+                pkg-txt (slurp (io/file root "package.json"))]
+            (is (not (contains? (:deps deps) 'day8/re-frame2-story))
+                "deps.edn does NOT reference day8/re-frame2-story on default path")
+            (is (not (.contains pkg-txt "\"story\":"))
+                "package.json does NOT carry a `story` npm script on default path")
+            (is (not (.contains pkg-txt "\"qrcode-generator\""))
+                "package.json does NOT carry the qrcode-generator npm dep
+                 on the default path (Story-only)"))
+          ;; The default-path core.cljs should still be the simple one —
+          ;; no Story require, no hash-routing surface.
+          (let [core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
+            (is (not (.contains core-text "re-frame.story"))
+                "default-path core.cljs does NOT require re-frame.story")
+            (is (not (.contains core-text "#/stories"))
+                "default-path core.cljs has no hash-routing scaffold")))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest include-story-true-reagent-test
+  (testing ":include-story? true on Reagent emits stories.cljs +
+            the with-stories core variant, and wires the story coord"
+    (let [tmp (tmp-dir "rf2-template-with-story-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent true)]
+          ;; -- The Story scaffold lands --
+          (is (file-exists? root "src/acme/my_app/stories.cljs")
+              "stories.cljs is emitted under :include-story? true")
+          ;; -- Story coord + npm script are wired --
+          (let [deps    (read-edn (io/file root "deps.edn"))
+                pkg-txt (slurp (io/file root "package.json"))]
+            (is (contains? (:deps deps) 'day8/re-frame2-story)
+                "deps.edn references day8/re-frame2-story")
+            (is (= "0.0.1.alpha"
+                   (get-in deps [:deps 'day8/re-frame2-story :mvn/version]))
+                "story coord lockstep with the core version")
+            (is (.contains pkg-txt "\"story\":")
+                "package.json declares a `story` npm script")
+            (is (.contains pkg-txt "\"qrcode-generator\"")
+                "package.json declares the qrcode-generator npm dep
+                 (Story's only direct npm dependency — re-frame.story.qr
+                 wraps it for the share-canvas QR codes)"))
+          ;; -- core.cljs is the hash-routing with-stories variant --
+          (let [core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
+            (is (.contains core-text "re-frame.story")
+                "with-stories core.cljs requires re-frame.story")
+            (is (.contains core-text "mount-shell!")
+                "with-stories core.cljs mounts the Story shell")
+            (is (.contains core-text "#/stories")
+                "with-stories core.cljs routes #/stories to the shell")
+            (is (.contains core-text "acme.my-app.stories")
+                "with-stories core.cljs requires the stories ns so its
+                 reg-* calls fire at boot"))
+          ;; -- stories.cljs uses the four shipped reg-* macros and
+          ;;    references the template's existing event/sub/view ids --
+          (let [stories-text (slurp (io/file root "src/acme/my_app/stories.cljs"))]
+            (is (.contains stories-text "story/reg-story")
+                "stories.cljs uses reg-story")
+            (is (.contains stories-text "story/reg-variant")
+                "stories.cljs uses reg-variant")
+            (is (.contains stories-text "story/reg-tag")
+                "stories.cljs uses reg-tag")
+            (is (.contains stories-text "story/reg-workspace")
+                "stories.cljs uses reg-workspace")
+            (is (.contains stories-text ":counter/initialise")
+                "stories.cljs references the template's :counter/initialise event")
+            (is (.contains stories-text ":counter/increment")
+                "stories.cljs references the template's :counter/increment event")
+            (is (.contains stories-text ":counter/value")
+                "stories.cljs's :rf.assert/path-equals targets the
+                 template's :counter/value app-db slot")
+            (is (.contains stories-text ":acme.my-app.views/counter-app")
+                "stories.cljs references the template's view by namespaced
+                 id (Story renders by id, not by symbol)")))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest include-story-non-reagent-rejected-test
+  (testing ":include-story? true is rejected for non-Reagent substrates
+            in v1 — UIx + Helix follow once Story's adapter coverage
+            matches Reagent's"
+    (let [tmp (tmp-dir "rf2-template-story-uix-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":include-story\? is Reagent-only"
+                              (run-template! tmp "acme/my-app" :uix true))
+            ":include-story? + :uix is rejected at the entry-fn")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":include-story\? is Reagent-only"
+                              (run-template! tmp "acme/my-app" :helix true))
+            ":include-story? + :helix is rejected at the entry-fn")
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest invalid-include-story-rejected-test
+  (testing "non-boolean :include-story? value throws with a clear message"
+    (let [tmp (tmp-dir "rf2-template-story-bad-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":include-story\? must be true or false"
+                              (run-template! tmp "acme/my-app" :reagent "yes"))
+            "non-boolean :include-story? is rejected")
         (finally
           (delete-recursively tmp))))))

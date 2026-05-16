@@ -21,7 +21,13 @@
          ;; :devtools/preloads in shadow-cljs.edn. Lockstep with
          ;; the core coord — Causa publishes at the same version.
          day8/re-frame2-causa      {:mvn/version "{{rf2-version}}"}
-
+{{#include-story?}}
+         ;; Storybook-class component playground. Scaffolded via
+         ;; `:include-story? true`. Lockstep with the core coord.
+         ;; Hash-route `#/stories` mounts the shell; `#/` mounts the
+         ;; live app. See the stories.cljs file next to events.cljs.
+         day8/re-frame2-story      {:mvn/version "{{rf2-version}}"}
+{{/include-story?}}
          reagent/reagent           {:mvn/version "2.0.1"}}
 
  :aliases

@@ -6,6 +6,9 @@
   "scripts": {
     "watch":   "shadow-cljs watch app",
     "release": "shadow-cljs release app",
+{{#include-story?}}
+    "story":   "shadow-cljs watch app",
+{{/include-story?}}
     "test":    "shadow-cljs compile test && node out/node-test.js"
   },
   "devDependencies": {
@@ -13,6 +16,7 @@
   },
   "dependencies": {
     "react":     "{{react-version}}",
-    "react-dom": "{{react-version}}"
+    "react-dom": "{{react-version}}"{{#include-story?}},
+    "qrcode-generator": "2.0.4"{{/include-story?}}
   }
 }

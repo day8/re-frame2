@@ -58,14 +58,19 @@
            reverse
            (run! #(java.nio.file.Files/deleteIfExists ^java.nio.file.Path %))))))
 
-(defn- run-template! [tmp project-name substrate]
-  (let [dir-str   (.toString ^java.nio.file.Path tmp)
-        proj-dir  (.getPath (io/file dir-str
-                                     (tmpl/project-name project-name)))
-        sub-args  (when substrate [:substrate substrate])]
-    (binding [tmpl/*dir* proj-dir]
-      (apply rft/re-frame2 project-name sub-args))
-    (io/file proj-dir)))
+(defn- run-template!
+  ([tmp project-name substrate]
+   (run-template! tmp project-name substrate nil))
+  ([tmp project-name substrate include-story?]
+   (let [dir-str   (.toString ^java.nio.file.Path tmp)
+         proj-dir  (.getPath (io/file dir-str
+                                      (tmpl/project-name project-name)))
+         args      (cond-> []
+                     substrate              (into [:substrate substrate])
+                     (some? include-story?) (into [:include-story? include-story?]))]
+     (binding [tmpl/*dir* proj-dir]
+       (apply rft/re-frame2 project-name args))
+     (io/file proj-dir))))
 
 ;; --- Static-parse machinery ----------------------------------------------
 
@@ -161,18 +166,24 @@
 
 (defn- framework-ns-file
   "Map a re-frame.X namespace symbol to its source-of-truth file under
-  `implementation/`. Returns the `java.io.File`, or nil if we don't
-  know about this ns (we only audit framework namespaces — the user's
-  own `<app>.events` / `.subs` aren't audited here; the bead is about
-  drift against the framework surface).
+  `implementation/` or `tools/`. Returns the `java.io.File`, or nil if
+  we don't know about this ns (we only audit framework namespaces —
+  the user's own `<app>.events` / `.subs` aren't audited here; the
+  bead is about drift against the framework surface).
 
   Search order:
 
     1. `implementation/core/src/re_frame/<rel>.{cljc,cljs}` — the core
-       coord ships everything under `re-frame.*` except adapters.
+       coord ships everything under `re-frame.*` except adapters and
+       downstream tool coords.
     2. `implementation/adapters/<flavour>/src/re_frame/adapter/<name>.cljs`
        — `re-frame.adapter.helix`, `re-frame.adapter.uix`, etc. live in
-       their own per-substrate coords."
+       their own per-substrate coords.
+    3. `tools/story/src/re_frame/story.cljc` (+ `re-frame.story.*`
+       sub-namespaces) — Story ships as its own downstream tool coord
+       (`day8/re-frame2-story`) under `tools/story/`. The template's
+       with-stories core requires `re-frame.story`; the audit needs
+       to find it where it actually lives."
   [root ns-sym]
   (let [name- (name ns-sym)]
     (cond
@@ -191,7 +202,10 @@
                 (when (#{"helix" "uix" "reagent" "reagent-slim"} leaf)
                   leaf)))
             candidates (cond-> [(io/file root "implementation/core/src/re_frame" (str rel ".cljc"))
-                                (io/file root "implementation/core/src/re_frame" (str rel ".cljs"))]
+                                (io/file root "implementation/core/src/re_frame" (str rel ".cljs"))
+                                ;; tools/story/ — re-frame.story + re-frame.story.* live here.
+                                (io/file root "tools/story/src/re_frame" (str rel ".cljc"))
+                                (io/file root "tools/story/src/re_frame" (str rel ".cljs"))]
                          adapter-flavour
                          (conj (io/file root "implementation/adapters"
                                         adapter-flavour
@@ -445,3 +459,26 @@
 (deftest helix-emission-static-parse-test
   (testing "Helix-substrate emission has well-formed ns requires and no surface drift"
     (run-for-substrate! :helix)))
+
+;; --- :include-story? (rf2-t009p) -----------------------------------------
+;;
+;; The with-stories core variant and the emitted stories.cljs both
+;; pull on `re-frame.story` — the same drift hazard as the rest of the
+;; scaffold (someone renames a public var, the template ships stale).
+;; The audit reuses the same surface-existence check used for the
+;; default Reagent path; framework-ns-file above already knows where
+;; tools/story/ lives.
+
+(deftest reagent-with-stories-emission-static-parse-test
+  (testing ":include-story? true on Reagent emits a with-stories core
+            and stories.cljs that reference only defined re-frame.* +
+            re-frame.story symbols"
+    (let [tmp  (tmp-dir "rf2-emission-story-")
+          root (repo-root)]
+      (try
+        (let [proj (run-template! tmp "acme/my-app" :reagent true)]
+          (doseq [rel ["src/acme/my_app/core.cljs"
+                       "src/acme/my_app/stories.cljs"]]
+            (audit-framework-surface! :reagent (io/file proj rel) root)))
+        (finally
+          (delete-recursively tmp))))))

@@ -158,36 +158,59 @@ they are richer examples of re-frame2, not richer scaffolds. The
 template is for getting started; the per-substrate `examples/`
 trees are for studying complete patterns.
 
-## §5 — No-Story-yet
+## §5 — No-Story-yet (default), opt-in via `:include-story?` (rf2-t009p)
 
 **Decision.** The template does **not** pre-wire
-[`tools/story/`](../../story/) or emit a `counter_with_stories`
-scaffold. Reserved for a future iteration.
+[`tools/story/`](../../story/) on the default path. The
+`:include-story?` flag is the opt-in on-ramp — Reagent-only in
+v1; UIx + Helix variants follow once their adapter coverage
+matches Reagent's.
 
-**Why.**
+**Why default-off.**
 
-- **Story is in active development.** Stage 8 (rf2-c9mm) just
-  landed. Stage 9 (Storybook ↔ Story migration tooling) is
-  in flight. The surface is moving.
-- **Coupling cost.** A template that pre-wires Story would have
-  to track every change to the seven `reg-*` macros, the variant
-  id grammar, and the snapshot-identity contract. Today that
-  rate of change is too high.
-- **Opt-in is fine.** A user who wants Story today adds it to
-  their `deps.edn` manually:
+- **Story is post-1.0 but still moving.** Stage 8 (rf2-c9mm)
+  landed; subsequent stages tune the authoring surface. Default-on
+  would force every scaffolded app to track every change to the
+  seven `reg-*` macros and the variant id grammar.
+- **Cost of an unwanted dep.** Users who don't reach for Story
+  shouldn't pay for it in their `deps.edn`, their bundle
+  isolation grep set, or their docs surface.
 
-  ```clojure
-  day8/re-frame2-story {:mvn/version "..."}
-  ```
+**Why opt-in shape.**
 
-  And points at `tools/story/testbeds/counter_with_stories/` for the
-  shape.
+- **The exemplar exists.** [`tools/story/testbeds/counter_with_stories/`](../../../tools/story/testbeds/counter_with_stories/)
+  is the canonical shape — the scaffold mirrors its file layout
+  (entry-fn hash-routes between `#/` and `#/stories`, dedicated
+  `stories.cljs` that fires the `reg-*` calls).
+- **Hand-wiring it from cold is friction.** A first-time Story
+  user has to read the exemplar end-to-end, port the routing
+  shape, decide which `reg-*` macros to invoke, and remember the
+  `day8/re-frame2-story` coord. One flag collapses that into a
+  scaffolded baseline they can edit.
+- **Reagent first.** v1 ships Reagent only — matching Story's own
+  UI-shell substrate and the exemplar's substrate. UIx + Helix
+  variants land when Story's substrate-agnostic seams (spec/007
+  §Substrate constraints) cover them end-to-end.
 
-The follow-up: once Story stabilises post-1.0, add an
-`:include-story?` flag in `:edn-args` (along the lines of
-[001-Substrate-Variants.md §Future variants](001-Substrate-Variants.md#future-variants))
-that wires Story registrations and emits a story-augmented
-counter view.
+**Invocation.**
+
+```bash
+clojure -X:project/new :template re-frame2 :name acme/my-app \
+        :edn-args '[:include-story? true]'
+```
+
+Adds `day8/re-frame2-story` to `deps.edn` (lockstep with the core
+coord version), emits `stories.cljs` next to `events.cljs` /
+`subs.cljs` / `views.cljs`, swaps `core.cljs` for the hash-routing
+variant, and wires `npm run story` as an alias for `shadow-cljs
+watch app` — visit `#/stories` for the playground, `#/` for the
+live app.
+
+This is the branching-flag exception called out in
+[000-Vision §Non-goals](000-Vision.md#non-goals): it's permitted
+because the alternative (hand-wiring the seven `reg-*` calls and
+the hash routing from the exemplar) is real friction the scaffold
+should absorb. No other branching flags currently exist.
 
 ## §6 — Pin source-of-truth in one place
 

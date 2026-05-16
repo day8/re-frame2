@@ -74,23 +74,60 @@
 ;; -- Template entry ---------------------------------------------------------
 ;;
 ;; clj-new's harness invokes (re-frame2 name & args) where args is a flat
-;; alternating-key-value sequence: e.g. (:substrate :uix). We accept just
-;; the substrate today; future toggles (e.g. include-story?, include-10x?)
-;; would slot in here.
+;; alternating-key-value sequence: e.g. (:substrate :uix). We accept the
+;; substrate and the include-story? flag today; future toggles
+;; (e.g. :include-10x?) would slot in here.
+;;
+;; The `:include-story?` exception is documented in spec/000-Vision
+;; §Non-goals and spec/DESIGN-RATIONALE §No-Story-yet — branching flags
+;; are permitted when they enable optional shared scaffolding whose
+;; absence forces the user into hand-wiring known idioms. Reagent-only
+;; in v1; UIx + Helix variants follow once their adapter coverage
+;; matches Reagent's.
+
+(defn- coerce-include-story?
+  "Coerce the `:include-story?` arg to a boolean. Accepts true / false /
+   nil; rejects anything else with a clear message. The flag is
+   Reagent-only in v1 — caller-level guard checks the substrate."
+  [raw]
+  (cond
+    (nil? raw)          false
+    (true? raw)         true
+    (false? raw)        false
+    :else
+    (throw (ex-info (str ":include-story? must be true or false (got "
+                         (pr-str raw) ")")
+                    {:include-story? raw}))))
 
 (defn re-frame2
   "Generate a fresh re-frame2 application skeleton.
 
   Args:
-    name        Group-qualified project name (e.g. `acme/my-app`).
-    :substrate  One of :reagent :uix :helix (default :reagent).
+    name              Group-qualified project name (e.g. `acme/my-app`).
+    :substrate        One of :reagent :uix :helix (default :reagent).
+    :include-story?   When true, scaffolds the Story playground
+                      alongside the live app — adds the
+                      `day8/re-frame2-story` coord, emits
+                      `stories.cljs`, and swaps `core.cljs` for the
+                      hash-routing entry-fn (`#/` → live app,
+                      `#/stories` → Story shell). Reagent-only in v1.
 
   Files emitted match the per-substrate counter example in the reference
   implementation."
   [name & args]
-  (let [opts        (apply hash-map args)
-        substrate   (coerce-substrate (:substrate opts))
-        substrate-name (clojure.core/name substrate)
+  (let [opts            (apply hash-map args)
+        substrate       (coerce-substrate (:substrate opts))
+        substrate-name  (clojure.core/name substrate)
+        include-story?  (coerce-include-story? (:include-story? opts))
+        _               (when (and include-story? (not= substrate :reagent))
+                          (throw (ex-info
+                                   (str ":include-story? is Reagent-only in v1 "
+                                        "(got :substrate " substrate
+                                        "). UIx + Helix variants follow once "
+                                        "Story's adapter coverage matches "
+                                        "Reagent's.")
+                                   {:substrate substrate
+                                    :include-story? include-story?})))
         ;; clj-new's project-data gives us {:name :namespace :nested-dirs
         ;; :sanitized :group :artifact :year :date ...}.
         data        (merge (project-data name)
@@ -98,6 +135,13 @@
                             :reagent?          (= substrate :reagent)
                             :uix?              (= substrate :uix)
                             :helix?            (= substrate :helix)
+                            ;; Drives Mustache section emission in
+                            ;; deps.edn (+ day8/re-frame2-story coord)
+                            ;; and package.json (+ `npm run story`
+                            ;; script). The file-list below branches
+                            ;; on the same flag for `stories.cljs` +
+                            ;; the with-stories `core.cljs` variant.
+                            :include-story?    include-story?
                             ;; Static-shields badge for the chosen
                             ;; substrate. Shields.io renders the SVG;
                             ;; the colour is matched per-substrate so
@@ -137,7 +181,8 @@
         sub-raw     (fn [path] (raw path))]
     (println "Generating a re-frame2 project called"
              (project-name name)
-             "—" substrate-name "substrate.")
+             "—" substrate-name "substrate"
+             (if include-story? "(with Story playground)." "."))
     (->files data
              ;; -- top-level project files --
              ["deps.edn"        (sub-render (str substrate-name "/deps.edn"))]
@@ -158,14 +203,31 @@
              ;; lefthook — pre-commit format + lint gate.
              [".lefthook.yml"   (sub-render "shared/lefthook.yml")]
              ;; -- src tree --
+             ;;
+             ;; `core.cljs` swaps to the hash-routing with-stories variant
+             ;; under `:include-story? true`. Only Reagent ships the
+             ;; with-stories core today; the caller-level guard above
+             ;; rejects `:include-story? true` for non-Reagent substrates.
              ["src/{{nested-dirs}}/core.cljs"
-              (sub-render (str substrate-name "/core.cljs"))]
+              (sub-render (str substrate-name "/"
+                               (if include-story?
+                                 "core_with_stories.cljs"
+                                 "core.cljs")))]
              ["src/{{nested-dirs}}/events.cljs"
               (sub-render "shared/events.cljs")]
              ["src/{{nested-dirs}}/subs.cljs"
               (sub-render "shared/subs.cljs")]
              ["src/{{nested-dirs}}/views.cljs"
               (sub-render (str substrate-name "/views.cljs"))]
+             ;; -- optional: Story scaffolding (rf2-t009p) --
+             ;;
+             ;; Emitted only under `:include-story? true`. ->files
+             ;; treats nil entries as a no-op, so a `(when ...)` here
+             ;; gives us a conditional emit without restructuring
+             ;; ->files's vector-of-pairs interface.
+             (when include-story?
+               ["src/{{nested-dirs}}/stories.cljs"
+                (sub-render "shared/stories.cljs")])
              ;; -- test tree --
              ;;
              ;; A single events-side test gives the `:test` build entry
