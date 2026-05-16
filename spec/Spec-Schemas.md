@@ -1167,16 +1167,19 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category :keyword]
    [:reason   :string]])
 
-;; --- warning: runtime auto-detect of an oversized app-db path (rf2-vnmt6 / rf2-hmmx7 / rf2-123y5) ---
+;; --- warning: dev-mode advisory when the walker observes a large string at an unschema'd path ---
+;; Schemas are the only nomination path for size elision; the walker does NOT auto-elide
+;; unschema'd values, but it emits this warning once per (frame, path) to nudge authors toward
+;; declaring `{:large? true}` on the slot's Malli schema. Per spec/009-Instrumentation.md
+;; §Size elision in traces.
 
-(def RuntimeLargeElisionTags
+(def LargeValueUnschemadTags
   [:map
-   [:category       [:= :rf.warning/runtime-large-elision]]
-   [:frame          :keyword]
-   [:path           [:vector :any]]            ;; the app-db path the walker auto-flagged
-   [:bytes          :int]                       ;; `pr-str` byte count that tripped the threshold
-   [:max-bytes-cap  :int]                       ;; the threshold that tripped (per :rf.size/threshold-bytes)
-   [:reason         :string]])
+   [:category  [:= :rf.warning/large-value-unschema'd]]
+   [:frame     :keyword]
+   [:path      [:vector :any]]              ;; the app-db path the walker observed
+   [:bytes     :int]                         ;; `pr-str` byte count that exceeded the dev threshold
+   [:hint      {:optional true} [:maybe :string]]])
 
 ;; --- info: managed-HTTP retry advisories ---
 
@@ -1681,18 +1684,12 @@ Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spaw
 
 ```clojure
 (def ElisionDeclaration
-  ;; The per-path declaration map. Source provenance is required so introspection
-  ;; reports where the entry came from (an app fx, a schema slot, the heuristic).
+  ;; The per-path declaration map. Source provenance is `:schema` — schemas are
+  ;; the only nomination path; the slot is kept open as an enum for future-proofing.
   [:map
    [:large?  :boolean]                                                       ;; the size-elision predicate
    [:hint    {:optional true} [:maybe :string]]                              ;; free-form short description; copied into the wire marker's :hint slot
-   [:source  [:enum :declared :schema :runtime-flagged]]])                   ;; provenance
-
-(def ElisionRuntimeFlag
-  ;; The auto-detector's cached decision for paths the runtime walker has measured.
-  [:map
-   [:bytes             :int]                                                 ;; pr-str byte count at first sight
-   [:first-seen-epoch  {:optional true} :int]])                              ;; the epoch-id of the first sighting; absent on pre-epoch ports
+   [:source  [:enum :schema]]])                                              ;; provenance
 
 (def SensitiveDeclaration
   ;; Privacy sibling of ElisionDeclaration. Same shape contract — the per-path
@@ -1701,19 +1698,18 @@ Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spaw
   [:map
    [:sensitive? :boolean]                                                    ;; the privacy predicate
    [:hint       {:optional true} [:maybe :string]]                           ;; free-form short description; propagated verbatim from the slot's props
-   [:source     [:enum :declared :schema :runtime-flagged]]])                ;; provenance; :runtime-flagged reserved for symmetry — currently unused for sensitivity
+   [:source     [:enum :schema]]])                                           ;; provenance
 
 (def ElisionRegistry
   [:map
    [:declarations           {:optional true} [:map-of [:vector :any] ElisionDeclaration]]
-   [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]
-   [:runtime-flagged        {:optional true} [:map-of [:vector :any] ElisionRuntimeFlag]]])
+   [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]])
 
 ;; registered by the runtime at boot:
 (rf/reg-app-schema [:rf/elision] ElisionRegistry)
 ```
 
-The `:declarations` sub-map is **app-managed** (via the `:rf.size/declare-large` / `:rf.size/clear` fx per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids), plus schema-driven boot population for every `:large? true` slot in `(rf/app-schema)` per [§`:rf/app-schema-meta`](#rfapp-schema-meta) above). The `:sensitive-declarations` sub-map is the **privacy sibling** — schema-driven boot population for every `:sensitive? true` slot in `(rf/app-schema)` (rf2-c1l4d / rf2-kj51z; consumed by the schema-validation emit-site's `:value` / `:explain` redaction path per [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)). The `:runtime-flagged` sub-map is **runtime-managed** by the auto-detect walker. Conflict-resolution rule (specified normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)): declared wins, schema wins, runtime-flagged loses; the walker consults `:declarations` first. The privacy sibling follows the same rule — app-declared sensitive paths beat schema-derived ones.
+The `:declarations` sub-map is **schema-derived** — boot-time walker population for every `:large? true` slot in `(rf/app-schema)` per [§`:rf/app-schema-meta`](#rfapp-schema-meta) above. The `:sensitive-declarations` sub-map is the **privacy sibling** — schema-driven boot population for every `:sensitive? true` slot in `(rf/app-schema)` (rf2-c1l4d / rf2-kj51z; consumed by the schema-validation emit-site's `:value` / `:explain` redaction path per [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)). Schemas are the only nomination path: there is no runtime declaration API for size, and the runtime does NOT auto-detect over-threshold un-schema'd paths (the dev-mode `:rf.warning/large-value-unschema'd` advisory fires instead — per [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)).
 
 Allocated lazily — absent until the first declaration. Per-frame isolation is automatic; declarations survive `restore-epoch` because they ride app-db (this is the named mechanism by which the elision contract inherits [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility)).
 
@@ -1731,8 +1727,8 @@ The wire shape `rf/elide-wire-value` substitutes for an elided large value. Cata
    [:path    [:vector :any]]                                                ;; absolute path inside the slice's root value
    [:bytes   :int]                                                          ;; pr-str byte count
    [:type    [:enum :map :vector :set :scalar :string]]                     ;; top-level shape of the elided value
-   [:reason  [:enum :declared :schema :runtime-flagged]]                    ;; provenance
-   [:hint    [:maybe :string]]                                              ;; verbatim from the declaration's :hint slot; nil for runtime-flagged
+   [:reason  [:enum :schema]]                                               ;; provenance — schemas are the only nomination path
+   [:hint    [:maybe :string]]                                              ;; verbatim from the declaration's :hint slot
    [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]                   ;; fetch-handle: [:rf.elision/at <path>]
    [:digest  {:optional true} :string]])                                    ;; sha256:<hex>; only when :rf.size/include-digests? true
 

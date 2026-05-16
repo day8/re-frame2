@@ -73,16 +73,15 @@ the slot through `re-frame.core/elide-wire-value` (rf2-v9tw2)
 server-side before the EDN crosses the wire (see
 [`Principles.md` §Size-elision wire markers](Principles.md#size-elision-wire-markers-rf2-urjnc)).
 Each affected tool accepts an `elision` arg (boolean,
-default `true`). Declared paths
-(`rf/declare-large-path!`), schema-driven paths (`:large?
-true`), and over-threshold leaves are substituted with
+default `true`). Schema-driven `:large? true` slots are
+substituted with
 
 ```clojure
 {:rf.size/large-elided
  {:path   [<segment>...]
   :bytes  <int>
   :type   :map | :vector | :set | :string | :scalar
-  :reason :declared | :schema | :runtime-flagged
+  :reason :schema
   :hint   <string-or-nil>
   :handle [:rf.elision/at <path>]}}
 ```

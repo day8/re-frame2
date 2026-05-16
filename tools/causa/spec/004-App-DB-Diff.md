@@ -88,7 +88,7 @@ Causa's `[runtime]` group segregates these six:
 | `:rf/spawned` | machine runtime | Declarative-`:invoke` / `:invoke-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
 | `:rf/route` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
 | `:rf/pending-navigation` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
-| `:rf/elision` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :runtime-flagged {<path> {:bytes :first-seen-epoch}}}`. Mutated via `:rf.size/declare-large` / `:rf.size/clear`; consulted by `rf/elide-wire-value` at every wire-boundary emit. |
+| `:rf/elision` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Populated at boot from `:large? true` / `:sensitive? true` schema slots; consulted by `rf/elide-wire-value` at every wire-boundary emit. Schemas are the only nomination path. |
 
 Conventions is the canonical home; this table is the panel-facing
 projection. The six above are the keys Causa's `partition-reserved`
