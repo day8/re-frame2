@@ -167,7 +167,7 @@
                       :hint     "Add `{:large? true}` to the schema slot for this path."
                       :recovery :no-recovery})))))
 
-(declare walk)
+(declare walk marker?)
 
 (defn- walk-map
   [m path ctx]
@@ -208,9 +208,21 @@
       privacy/redacted-sentinel
 
       (and large-decl (not include-lg?))
-      (->marker v path {:hint             (:hint large-decl)
-                        :as-of-epoch      (:as-of-epoch ctx)
-                        :include-digests? (:include-digests? ctx)})
+      (if (marker? v)
+        ;; Idempotence under double-projection: a value at a `:large?`-
+        ;; declared path that already carries the `:rf.size/large-elided`
+        ;; marker shape is passed through unchanged. A forwarder pipeline
+        ;; that accidentally double-projects (middleware composition,
+        ;; tool-then-watcher fan-out) MUST NOT re-mark the marker — the
+        ;; second pass's `:bytes` would otherwise reflect the printed
+        ;; length of the prior marker, not the original payload. Mirrors
+        ;; the sensitive-case idempotence (the `:rf/redacted` scalar
+        ;; sentinel is non-matchable so the walker descends into nothing
+        ;; on a re-projection pass). Per rf2-fq8ep.
+        v
+        (->marker v path {:hint             (:hint large-decl)
+                          :as-of-epoch      (:as-of-epoch ctx)
+                          :include-digests? (:include-digests? ctx)}))
 
       (map? v)
       (walk-map v path ctx)
