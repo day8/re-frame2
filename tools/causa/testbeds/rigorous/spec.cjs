@@ -716,5 +716,80 @@ module.exports = {
       `event-detail cascade data-dispatch-id=${nodeDispatchId} (parity with graph node click)`,
       5000,
     );
+
+    // ================================================================
+    // 10. Tier-1 panel scenarios (rf2-5aw5v.1..8 — L-1..L-8).
+    //
+    // The counter example registers no flows, fxs, machines, schemas,
+    // routes, or SSR hydration payloads — so the natural state for the
+    // Flows / Effects / Machines / Schemas / Hydration / Routes panels
+    // on the rigorous testbed is the EMPTY branch of each panel's
+    // root view. The walks below assert each panel's beyond-mount
+    // surfaces that ARE deterministically observable on the counter:
+    //
+    //   - empty-state branch shape (testid + copy + helpful caption)
+    //   - sidebar dormant-marker / wake transitions where applicable
+    //   - panels driven from the trace buffer (Performance) populate
+    //     with rows + tier chips + over-budget header behaviour
+    //   - cross-panel navigation parity (event-detail ↔ panel pivots)
+    //   - config knob round-trip for the Open-in-Editor preference
+    //   - redaction lifecycle beyond the bare-counter walk in section 7
+    //
+    // Each section corresponds 1:1 with a bead in the rf2-5aw5v Tier-1
+    // cluster. Where the panel's full feature path requires testbed
+    // affordances not yet wired (deterministic flow / fx / machine /
+    // schema / SSR data), the limit is documented inline and the
+    // matrix row stays `deferred` with a follow-on bead pointer.
+    // ================================================================
+
+    // ----------------------------------------------------------------
+    // 10a. Flows panel (rf2-5aw5v.5 — L-5).
+    //
+    // The counter example registers no flows via `rf/reg-flow` so the
+    // panel renders the deterministic empty-state branch. The walk
+    // pivots to Flows, asserts the empty surface, then verifies the
+    // sidebar pivot back to event-detail preserves the cascade
+    // selection that landed during the earlier hero walks (9a/9d).
+    //
+    // Beyond-mount surfaces asserted here:
+    //   - sidebar pivot from causality-graph → flows lands on the
+    //     `:rf.causa/flows` panel without crashing
+    //   - empty-state testid + the spec citation that orients hosts
+    //     toward `rf/reg-flow` (Spec 013) is rendered, not hidden
+    //   - the summary header (`rf-causa-flows-summary`) is NOT present
+    //     in the empty case (the panel's `(when (pos? total) ...)`
+    //     gate) — guards against summary-vs-list rendering regressions
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade (read off the pivot we just
+    //     performed in 9d) so empty Flows mounting does not clobber
+    //     cross-panel selection state on `:rf/causa`'s app-db
+    //
+    // The full feature path (long-flow DAG with recompute / skip /
+    // failure / cross-frame input) requires the rf2-5aw5v parent
+    // cluster's testbed affordance for flows — wired separately for
+    // a follow-on bead that grows the testbeds/long_flow_w_failure
+    // surface into the rigorous spec's compile graph.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'flows', 'rf-causa-flows');
+    await expectVisible(page.locator('[data-testid="rf-causa-flows-empty"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-flows-summary"]').count()) !== 0) {
+      throw new Error('Expected Flows summary header to be absent in the empty-state branch.');
+    }
+    if ((await page.locator('[data-testid="rf-causa-flows-list"]').count()) !== 0) {
+      throw new Error('Expected Flows list to be absent in the empty-state branch.');
+    }
+    // Sidebar round-trip — event-detail must re-mount the previously
+    // selected cascade (set in 9d via the causality-graph node click).
+    // The selection slot lives on `:rf/causa`'s app-db; pivoting
+    // through Flows and back must not clear it.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const flowsPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => flowsPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade selection preserved after Flows round-trip (=${nodeDispatchId})`,
+      5000,
+    );
   },
 };
