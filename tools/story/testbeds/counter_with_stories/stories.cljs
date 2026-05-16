@@ -19,7 +19,11 @@
                         hiccup decorator alongside Story's canonical
                         `:rf.story/layout-debug.*` set).
   - `reg-story-panel` — `:Panel.counter-with-stories/notes` (a small
-                        project-custom panel in the right pane).
+                        project-custom panel in the right pane), and
+                        `:Panel.counter-with-stories/broken-render`
+                        (rf2-76wo5 testbed — :render points at an
+                        unregistered view to exercise the panel-host's
+                        broken-render fallback branch).
   - `reg-story`       — `:story.counter` parent (the four variants
                         below all inherit its decorators + args).
   - `reg-variant`     — four variants exercising every authoring shape.
@@ -179,6 +183,31 @@
      :title     "Notes"
      :placement :right
      :render    :counter-with-stories.views/parity-badge
+     :for       #{:story.counter}})
+
+  ;; -------------------------------------------------------------------------
+  ;; rf2-76wo5 — broken-render testbed panel
+  ;;
+  ;; A panel pointing at an :render view id that is NEVER registered.
+  ;; Exercises the panel-host's broken-render fallback branch in
+  ;; tools/story/src/re_frame/story/ui/panels.cljs:330-333:
+  ;;
+  ;;   "panel <pid> has no registered :render view (<view-id>)"
+  ;;
+  ;; The :for filter scopes the panel to :story.counter so test runs
+  ;; against /loaded surface the fallback without leaking it into
+  ;; every variant. Pure testbed — no source-side fix; the broken-
+  ;; render path is documented dev-time UX, not a defect.
+  ;; -------------------------------------------------------------------------
+
+  (story/reg-story-panel :Panel.counter-with-stories/broken-render
+    {:doc       "Testbed panel for rf2-76wo5 — :render points at an
+                unregistered view so the panel-host renders its
+                'no registered :render view' fallback. Asserted by
+                story_browser_scenarios.cjs."
+     :title     "Broken render (testbed)"
+     :placement :right
+     :render    :counter-with-stories.views/not-registered
      :for       #{:story.counter}})
 
   ;; -------------------------------------------------------------------------
@@ -477,6 +506,32 @@
                  :settings {:title "A11y bad" :enabled? true}}
      :events    [[:counter/initialise 22]]
      :play      [[:rf.assert/path-equals [:count] 22]]
+     :tags      #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  ;; rf2-0uo4e — fx-stub-miss testbed variant. Source-side follow-on
+  ;; from rf2-6hauy. :play declares :rf.assert/effect-emitted against
+  ;; :never-stubbed WITHOUT a corresponding force-fx-stub decorator
+  ;; covering the id — the play-runner never observes the fx, so the
+  ;; assertion fails with the canonical reason:
+  ;;
+  ;;   "fx :never-stubbed was not emitted during play"
+  ;;
+  ;; Lets the test pane's failing-row reason-text surface be asserted
+  ;; directly without authoring a one-off probe. The variant is
+  ;; intentionally :test-tagged so the chrome test-widget picks it up
+  ;; and reports the failure.
+  (story/reg-variant :story.counter-matrix/fx-stub-miss
+    {:doc       "Deterministic fx-stub-miss failing assertion. :play
+                asserts :rf.assert/effect-emitted :never-stubbed with
+                NO force-fx-stub decorator covering it — the assertion
+                fails with the canonical 'fx <id> was not emitted
+                during play' reason. Pattern: :story.counter-
+                diagnostics/failing-play."
+     :args      {:label "fx-stub-miss"
+                 :settings {:title "fx-stub-miss" :enabled? true}}
+     :events    [[:counter/initialise 0]]
+     :play      [[:rf.assert/effect-emitted :never-stubbed]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 

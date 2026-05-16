@@ -125,6 +125,30 @@
             (keep parse-override-entry)
             (str/split s #",")))))
 
+(defn parse-overrides-param*
+  "Like `parse-overrides-param` but also reports any entries that were
+  dropped (malformed token, unparseable EDN, etc.). Returns a map
+  `{:overrides ... :dropped [<entry-string> ...]}` — both keys always
+  present so callers can pattern-match without an else-branch.
+
+  Powers the share-import hint (rf2-9jthx): the share UI surfaces a
+  non-blocking note when N>0 overrides from a stale share URL no
+  longer apply (variant args refactored, renamed, removed). Pure;
+  JVM-testable. The legacy `parse-overrides-param` keeps its silent-
+  drop signature for the param-parsing call sites that don't care
+  about the dropped set."
+  [s]
+  (if (and (string? s) (seq (str/trim s)))
+    (let [entries  (str/split s #",")
+          parsed   (mapv (fn [e] [e (parse-override-entry e)]) entries)
+          kept     (into {} (keep (fn [[_ kv]] kv) parsed))
+          dropped  (->> parsed
+                        (remove (fn [[_ kv]] kv))
+                        (mapv first))]
+      {:overrides (not-empty kept)
+       :dropped   dropped})
+    {:overrides nil :dropped []}))
+
 (defn- ^:no-doc kv-pair
   "Build a `k=v` URL parameter fragment. `k` is a keyword;
   `v-encoded` is the already-percent-encoded value string."

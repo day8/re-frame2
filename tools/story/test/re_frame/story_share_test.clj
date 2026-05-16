@@ -99,6 +99,62 @@
     (is (= {:label "Shared Label" :count 9}
            (share/parse-overrides-param "label:\"Shared Label\",count:9")))))
 
+;; ---- rf2-9jthx: parse-overrides-param* surfaces dropped entries ----------
+
+(deftest parse-overrides-param*-clean-input
+  (testing "rf2-9jthx — parse-overrides-param* returns the same :overrides
+            map as parse-overrides-param plus an empty :dropped vec for
+            clean input"
+    (let [{:keys [overrides dropped]}
+          (share/parse-overrides-param* "label:\"Hi\",count:9")]
+      (is (= {:label "Hi" :count 9} overrides))
+      (is (= [] dropped) "no entries dropped for a clean input"))))
+
+(deftest parse-overrides-param*-mixed-input
+  (testing "rf2-9jthx — parse-overrides-param* reports the SET of dropped
+            entries alongside the surviving overrides — the share-import
+            hint reads :dropped to count + name what failed.
+
+            'bogus' has no separator → no key/value split → dropped.
+            'count:[unclosed' has an unparseable EDN value → dropped.
+            'label:\"OK\"' and 'size:7' parse cleanly → kept."
+    (let [{:keys [overrides dropped]}
+          (share/parse-overrides-param*
+            "label:\"OK\",bogus,count:[unclosed,size:7")]
+      (is (= {:label "OK" :size 7} overrides)
+          "well-formed entries survive")
+      (is (= 2 (count dropped))
+          "two malformed entries — 'bogus' (no separator) and
+           'count:[unclosed' (bad EDN)")
+      (is (some #(= "bogus" %) dropped))
+      (is (some #(= "count:[unclosed" %) dropped)))))
+
+(deftest parse-overrides-param*-all-dropped
+  (testing "rf2-9jthx — when every entry is malformed :overrides is nil and
+            :dropped names them all"
+    (let [{:keys [overrides dropped]}
+          (share/parse-overrides-param* "bogus,also-bogus")]
+      (is (nil? overrides))
+      (is (= 2 (count dropped))))))
+
+(deftest parse-overrides-param*-blank-input
+  (testing "rf2-9jthx — blank/nil input returns the empty-shape map so
+            callers don't have to nil-check before destructuring"
+    (is (= {:overrides nil :dropped []}
+           (share/parse-overrides-param* nil)))
+    (is (= {:overrides nil :dropped []}
+           (share/parse-overrides-param* "")))
+    (is (= {:overrides nil :dropped []}
+           (share/parse-overrides-param* "   ")))))
+
+(deftest parse-overrides-param*-back-compat
+  (testing "rf2-9jthx — parse-overrides-param (legacy silent-drop) keeps
+            its signature. The share UI hydrator switches to
+            parse-overrides-param* so the dropped count surfaces; other
+            call sites that don't care about it keep working"
+    (is (= {:label "OK"}
+           (share/parse-overrides-param "label:\"OK\",bogus")))))
+
 (deftest variant-share-url-preserves-hash-route
   (testing "variant-share-url inserts params before # so the Story route survives"
     (let [url (share/variant-share-url

@@ -828,7 +828,22 @@
     (let [row (test-mode/assertion-row nil)]
       (is (= :fail (:status row))
           "nil record defaults to fail — a missing passed? slot can't be 'pass'")
-      (is (some? (:label row))))))
+      (is (some? (:label row)))))
+  (testing "assertion-row stamps :row-key = :label so the view can key
+            :expanded on stable identity instead of positional index (rf2-tistm).
+            A re-run that reorders or inserts assertions would otherwise open
+            the wrong row."
+    (let [a (test-mode/assertion-row
+              {:assertion :rf.assert/path-equals :payload [[:count] 1]
+               :passed? false :expected 1 :actual 0})
+          b (test-mode/assertion-row
+              {:assertion :rf.assert/path-equals :payload [[:count] 2]
+               :passed? false :expected 2 :actual 0})]
+      (is (= (:label a) (:row-key a)))
+      (is (= (:label b) (:row-key b)))
+      (is (not= (:row-key a) (:row-key b))
+          "different payloads produce distinct row-keys — keys do not collide
+           on a re-run that inserts a sibling path-equals on a different path"))))
 
 (deftest test-mode-format-elapsed-ms
   (testing "format-elapsed-ms switches at the 1s boundary"

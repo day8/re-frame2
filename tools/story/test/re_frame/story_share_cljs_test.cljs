@@ -87,3 +87,34 @@
     (let [svg (qr/qr-svg-string "https://example.test/" 4)]
       (is (not (str/includes? svg "api.qrserver.com")))
       (is (not (str/includes? svg "qrserver"))))))
+
+;; ---- rf2-3y7l4: overlong-URL guard --------------------------------------
+;;
+;; qrcode-generator at type-number 0 + ECC 'M' tops out around 2300
+;; alphanumeric chars (well under the 4296 absolute max for the largest
+;; type). A share URL carrying a fat :cell-overrides EDN map can blow
+;; past that. Pre-fix the throw propagated into Reagent render and
+;; blanked the share popover (taking the copy-link button with it).
+;; Post-fix the encoder returns nil — the popover renders a degraded
+;; panel and keeps copy-link reachable.
+
+(deftest qr-svg-string-overlong-returns-nil
+  (testing "qr-svg-string never throws into render — for a URL beyond
+            QR capacity it returns nil rather than propagating the
+            qrcode-generator exception (rf2-3y7l4)"
+    (let [pathological-overrides (apply str (repeat 10000 \X))
+          url (str "https://example.test/?variant=story.x/y&overrides="
+                   pathological-overrides)
+          result (qr/qr-svg-string url 4)]
+      (is (nil? result)
+          "encoder returns nil rather than throwing on an oversized payload"))))
+
+(deftest qr-svg-string-overlong-no-throw
+  (testing "the rf2-3y7l4 contract: qr-svg-string must NEVER throw,
+            regardless of input size — the share popover relies on
+            this to keep the copy-link button live when the QR cannot
+            be rendered"
+    (is (nil? (qr/qr-svg-string (apply str (repeat 50000 \A)) 4))
+        "50KB input returns nil without throwing")
+    (is (string? (qr/qr-svg-string "https://example.test/" 4))
+        "normal-sized input still produces an SVG string")))

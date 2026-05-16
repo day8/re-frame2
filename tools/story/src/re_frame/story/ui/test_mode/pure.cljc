@@ -65,12 +65,20 @@
       {:assertion :rf.assert/path-equals
        :status    :pass|:fail|:skip
        :label     \":rf.assert/path-equals [[:count] 7]\"
+       :row-key   \":rf.assert/path-equals [[:count] 7]\"
        :detail    {:expected ... :actual ... :reason ...
                    :source <{:file ... :line ...}|nil>}}
 
   `:detail` is always present so the renderer can read uniformly;
   the renderer decides whether to surface it (only failing rows
   expand by default). Pure data → data; JVM-testable.
+
+  `:row-key` is the stable identity the view uses to thread :expanded
+  state across re-runs (rf2-tistm): keying on positional index opened
+  the wrong row when a re-run reordered or inserted assertions. The
+  label string is the densest stable id available — it carries the
+  assertion id + payload shape together — and is JVM-testable so the
+  pure helpers can pin the contract.
 
   Source-coord stamping arrives on the record as either `:source` or
   `:source-coord` depending on the assertion path that built it
@@ -91,6 +99,7 @@
     {:assertion aid
      :status    status
      :label     label
+     :row-key   label
      :detail    {:expected (:expected rec)
                  :actual   (:actual rec)
                  :reason   (:reason rec)

@@ -38,12 +38,13 @@
   The dialog ratom + button component live in
   `re-frame.story.ui.save-variant` (CLJS-only)."
   (:require [clojure.string :as str]
-            [re-frame.core                  :as rf]
-            [re-frame.story.args            :as args]
-            [re-frame.story.config          :as config]
-            [re-frame.story.predicates      :as pred]
-            [re-frame.story.review-dialog   :as review-dialog]
-            [re-frame.story.ui.state        :as state]))
+            [re-frame.core                       :as rf]
+            [re-frame.story.args                 :as args]
+            [re-frame.story.config               :as config]
+            [re-frame.story.predicates           :as pred]
+            [re-frame.story.review-dialog        :as review-dialog]
+            [re-frame.story.ui.schema-validation :as schema-validation]
+            [re-frame.story.ui.state             :as state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: args-snapshot helper
@@ -75,6 +76,20 @@
    (args/resolve-args variant-id
                       {:active-modes   (or active-modes [])
                        :cell-overrides (or cell-overrides {})})))
+
+(defn snapshot-violations
+  "Project `args-snapshot` against `schema` using the validator-fn pair.
+  Thin pass-through to `schema-validation/args-violations` exposed here
+  for the save-as-variant flow (rf2-lancu) — the save dialog reads the
+  result to render a non-blocking 'Args do not match the variant's
+  Spec 010 schema' hint above the snippet, so the user catches a
+  drifted-args paste before it hits source.
+
+  Pure data → vec; JVM-testable. Returns the empty vector when no
+  validator / no schema / no violations (per Spec 010 §Recommended
+  soft-pass)."
+  [args-snapshot schema validator-fns]
+  (schema-validation/args-violations args-snapshot schema validator-fns))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: code-gen — `(reg-variant ... :args {...})` snippet
@@ -169,14 +184,25 @@
   captured `args-snapshot`. `now-ms` seeds the default id. The args
   ride in the dialog state's `:context` slot (per the review-dialog
   contract); a top-level `:args` key is preserved so callers reading
-  the legacy slot keep working."
-  [_state source-variant-id args-snapshot now-ms]
-  (let [base (review-dialog/open review-dialog/initial-state
-                                 source-variant-id
-                                 {:args args-snapshot}
-                                 now-ms
-                                 default-id-prefix)]
-    (assoc base :args args-snapshot)))
+  the legacy slot keep working.
+
+  3-arity arity preserved for back-compat callers that don't yet pass
+  violations; defaults to no violations. 4-arity stamps the violations
+  vector onto the dialog state so the save dialog can render the
+  rf2-lancu 'Args do not match the variant's Spec 010 schema' hint
+  pre-paste."
+  ([state source-variant-id args-snapshot now-ms]
+   (open state source-variant-id args-snapshot now-ms nil))
+  ([_state source-variant-id args-snapshot now-ms violations]
+   (let [base (review-dialog/open review-dialog/initial-state
+                                  source-variant-id
+                                  {:args       args-snapshot
+                                   :violations (vec violations)}
+                                  now-ms
+                                  default-id-prefix)]
+     (-> base
+         (assoc :args args-snapshot)
+         (assoc :violations (vec violations))))))
 
 (defn close
   "Close the dialog — returns the idle state."
@@ -213,8 +239,11 @@
 
 (defn set-open-dialog-fn!
   "Register the UI-layer dialog-open callback. The callback is invoked
-  as `(callback source-variant-id args-snapshot)`. Idempotent — calling
-  again replaces."
+  as `(callback source-variant-id args-snapshot now-ms violations)`
+  where `violations` is the vector returned by
+  `schema-validation/args-violations` against the live
+  component schema (rf2-lancu — may be empty/nil).
+  Idempotent — calling again replaces."
   [f]
   (reset! open-dialog-fn f))
 
@@ -250,15 +279,27 @@
            now-ms     (or now-ms #?(:clj  (System/currentTimeMillis)
                                     :cljs (.now js/Date)))]
        (when target
-         (let [snapshot (snapshot-args
-                          target
-                          {:active-modes   (:active-modes shell)
-                           :cell-overrides (get-in shell [:cell-overrides target])})
-               record   {:source-id target
-                         :args      snapshot
-                         :now-ms    now-ms}]
+         (let [snapshot   (snapshot-args
+                            target
+                            {:active-modes   (:active-modes shell)
+                             :cell-overrides (get-in shell [:cell-overrides target])})
+               ;; rf2-lancu — validate the snapshot against the variant's
+               ;; Spec 010 schema BEFORE opening the dialog so the user
+               ;; gets a non-blocking 'paste at your own risk' hint when
+               ;; the live args have drifted into a non-conforming state.
+               ;; Soft-pass when no schema / validator is registered
+               ;; (per Spec 010 §Recommended soft-pass).
+               violations #?(:cljs (snapshot-violations
+                                     snapshot
+                                     (schema-validation/resolve-component-schema target)
+                                     (schema-validation/validator-fns))
+                             :clj  [])
+               record     {:source-id  target
+                           :args       snapshot
+                           :violations violations
+                           :now-ms     now-ms}]
            (when-let [cb @open-dialog-fn]
-             (cb target snapshot now-ms))
+             (cb target snapshot now-ms violations))
            record))))))
 
 ;; ---------------------------------------------------------------------------

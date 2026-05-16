@@ -889,14 +889,16 @@ module.exports = {
        *     the toggle without mutating app state (panel visibility
        *     lives on shell state, not the variant frame's app-db).
        *
-       * Source-side follow-ons (filed separately): a dedicated
-       * panel registration whose :render points at an unregistered
-       * view id would let us assert the panel-host's "panel ... has
-       * no registered :render view" fallback branch (the broken-
-       * render path enumerated by the bead title). Adding that
-       * fixture would touch testbed source; per cluster discipline
-       * the broken-render rendering check stays as a P3 testbed
-       * bead.
+       * Broken-render fallback (rf2-76wo5): the testbed registers
+       * :Panel.counter-with-stories/broken-render whose :render
+       * points at the never-registered view id
+       * :counter-with-stories.views/not-registered. When the panel
+       * mounts (under any :story.counter/* variant, per the :for
+       * filter) the panel-host renders the fallback text:
+       *
+       *   panel <pid> has no registered :render view (<view-id>)
+       *
+       * Step (e) below anchors on that string.
        */
       await primeHelpDismissed(page);
       await gotoStory(page, '/counter-with-stories/#/stories');
@@ -1001,6 +1003,33 @@ module.exports = {
           timeoutMs: 5000,
           description: 'panel-visibility toggle restores the notes panel (parity-badge count >= 2)',
         },
+      );
+
+      // (e) rf2-76wo5 — broken-render fallback. The testbed
+      // registers :Panel.counter-with-stories/broken-render whose
+      // :render points at an unregistered view id. The panel-host
+      // renders the fallback text "panel ... has no registered
+      // :render view (...)" inside the right rail. We're back on
+      // /loaded (parent :story.counter) so the panel's :for filter
+      // passes; anchor on the substring + the absent view id.
+      const brokenAside = page.getByRole('complementary');
+      await expectVisible(
+        brokenAside.getByText(':Panel.counter-with-stories/broken-render', {
+          exact: false,
+        }).first(),
+        5000,
+      );
+      await expectVisible(
+        brokenAside.getByText('has no registered :render view', {
+          exact: false,
+        }).first(),
+        5000,
+      );
+      await expectVisible(
+        brokenAside.getByText(':counter-with-stories.views/not-registered', {
+          exact: false,
+        }).first(),
+        5000,
       );
     });
 

@@ -18,6 +18,7 @@
             [re-frame.core      :as rf]
             [re-frame.frame     :as frame]
             [re-frame.machines  :as machines]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
             [re-frame.story.async      :as async-lib]
@@ -82,6 +83,20 @@
   (testing "the project's story-panel registered"
     (is (story/registered? :story-panel :Panel.counter-with-stories/notes))))
 
+(deftest example-broken-render-panel-registered
+  (testing "rf2-76wo5 testbed — the broken-render panel registered, and
+            its :render id is NOT registered as a view. Together those
+            two facts drive the panel-host into the broken-render
+            fallback branch (asserted live in story_browser_scenarios.cjs)."
+    (is (story/registered? :story-panel
+                           :Panel.counter-with-stories/broken-render)
+        "the testbed panel is registered")
+    (is (not (registrar/handler
+               :view :counter-with-stories.views/not-registered))
+        "the panel's :render view id is NOT registered — the panel-host
+         will hit the 'no registered :render view' fallback when it tries
+         to resolve it")))
+
 (deftest example-story-registered
   (testing "the parent story registered"
     (is (story/registered? :story :story.counter))))
@@ -119,9 +134,41 @@
                    :story.counter-matrix/isolation-b
                    :story.counter-matrix/recorder-redaction
                    :story.counter-matrix/a11y-known-good
-                   :story.counter-matrix/a11y-known-bad]]
+                   :story.counter-matrix/a11y-known-bad
+                   ;; rf2-0uo4e — fx-stub-miss testbed (parent story
+                   ;; :story.counter-matrix).
+                   :story.counter-matrix/fx-stub-miss]]
         (is (contains? vs vid) (str vid " registered")))
-      (is (= 13 (count vs))))))
+      (is (= 14 (count vs))))))
+
+(deftest fx-stub-miss-variant-fails-with-canonical-reason
+  (testing "rf2-0uo4e testbed — :story.counter-matrix/fx-stub-miss runs
+            and its :rf.assert/effect-emitted assertion FAILS with the
+            canonical reason text 'fx :never-stubbed was not emitted
+            during play'. This is the source-side fixture the test pane
+            renders in its failing-row reason-text surface."
+    (async done
+      (-> (story/run-variant :story.counter-matrix/fx-stub-miss)
+          (async-lib/then
+            (fn [result]
+              (let [assertions (:assertions result)
+                    miss       (first
+                                 (filter (fn [a]
+                                           (= :rf.assert/effect-emitted
+                                              (:assertion a)))
+                                         assertions))]
+                (is (= 1 (count assertions))
+                    "exactly one assertion declared on the variant")
+                (is (some? miss)
+                    ":rf.assert/effect-emitted record present")
+                (is (false? (:passed? miss))
+                    "the assertion FAILED — no force-fx-stub covers
+                     :never-stubbed so the play-runner never observed it")
+                (is (= "fx :never-stubbed was not emitted during play"
+                       (:reason miss))
+                    "the canonical reason text the test pane surfaces"))
+              (story/destroy-variant! :story.counter-matrix/fx-stub-miss)
+              (done)))))))
 
 (deftest example-workspaces-registered
   (testing "both workspaces registered"
