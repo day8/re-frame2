@@ -81,14 +81,37 @@ The facade's `reg-view` body is either:
   composite-sub deref), OR
 - **Delegating** to a single plain Reagent fn from
   `<panel>-views.cljs`, when the body would exceed the facade's
-  cohesive scope:
+  cohesive scope. The leaf is invoked as a **plain function call**
+  (parens), not a Reagent component vector (brackets):
 
   ```clojure
   (rf/reg-view subscriptions-view
     "The Subscriptions panel's root view."
     []
-    [views/subscriptions-panel])
+    (views/subscriptions-panel))    ; parens — leaf body inlined
   ```
+
+  **Do not write `[views/subscriptions-panel]` here.** The vector
+  form would mount the leaf as a separate plain Reagent fn component;
+  it would drop out of the surrounding frame and any `subscribe` /
+  `dispatch` inside the leaf would silently route to `:rf/default`
+  (Spec 004 §Plain Reagent fns / Spec 006 §706). The plain-call form
+  keeps the leaf body executing within the facade reg-view wrapper's
+  render — the wrapper IS the in-flight Reagent component, so
+  `current-frame` reads `:rf/causa` from React context and the leaf's
+  subs/dispatches see the Causa frame. (rf2-043uz pinned this — the
+  AI Co-Pilot's slash popover never opened because the input-row
+  leaf's input-text subscribe was routed to `:rf/default` while the
+  dispatch wrote to `:rf/causa`.)
+
+  The same rule applies recursively to sibling leaves the view-leaf
+  itself invokes (`chrome` / `feed` / `input` / `conversation` /
+  `badges` / `rows` / `chain` / `sections`): if the sibling leaf
+  contains a `subscribe` whose key lives on the panel's frame, call
+  it with parens, not brackets. Sibling leaves that only `dispatch`
+  with an explicit `{:frame :rf/causa}` opt can use either form
+  (brackets are fine if a separate render boundary is wanted for
+  React-key / memoisation reasons).
 
   The leaf fn (`subscriptions-panel`) is a plain `defn`, not a
   `reg-view`. The facade is still where the registration happens; the
