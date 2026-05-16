@@ -135,12 +135,21 @@
   is outside `editor-uri/allowed-editor-uri-schemes` (the shared
   positive allowlist per rf2-cm93v / rf2-p887o).
 
+  Per rf2-5m5n2: threads the configured project-root through
+  `editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
+  coord (the common case — macros capture the form-meta `:file` slot,
+  typically classpath-relative) resolves to an absolute on-disk path
+  the OS-side editor handler can find. The `:project-root` opt is
+  nil-tolerant — when unset, behaviour matches the v1 2-arg call (file
+  ships verbatim) so legacy hosts and tests aren't broken.
+
   The chip render path and the `:rf.editor/open` reg-fx both call this
   — one source of truth for the URI shape across the data path and the
   side-effect path."
   [source-coord]
   (when (editor-uri/has-source? source-coord)
-    (let [uri (editor-uri/editor-uri (config/get-editor) source-coord)]
+    (let [opts {:project-root (config/get-project-root)}
+          uri  (editor-uri/editor-uri (config/get-editor) source-coord opts)]
       (when (and uri (editor-uri/allowed-uri? uri))
         uri))))
 

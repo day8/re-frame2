@@ -32,7 +32,8 @@
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 (defn reset-editor! []
-  (config/set-editor! :vscode))
+  (config/set-editor! :vscode)
+  (config/set-project-root! nil))
 
 ;; Combined per-test fixture: resets the re-frame runtime (so each
 ;; rf2-g5q8d test below sees a clean registrar + frame table) AND the
@@ -132,6 +133,89 @@
 
     (config/configure! {:editor {:custom "emacsclient://{path}"}})
     (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))))
+
+;; ---- project-root prefix (rf2-5m5n2) ------------------------------------
+;;
+;; The bead: clicking the Open chip on a Causa panel launched an OS-side
+;; editor with a classpath-relative path
+;; ("panel_gallery/event_detail_stories.cljs:115:3") that the editor's
+;; filesystem resolver could not find. The Causa config now exposes
+;; `:project-root` — set once at boot via `causa-config/configure!` — and
+;; `resolve-uri` (which both the chip and the `:rf.editor/open` fx share)
+;; prepends it before the URI ships. Mirror of Story's rf2-zfy1e matrix.
+
+(deftest open-chip-default-no-project-root
+  (testing "with no project-root configured, the chip ships the file slot
+            verbatim — preserves v1 behaviour for hosts that haven't
+            plumbed the knob yet"
+    (is (nil? (config/get-project-root)))
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/app/views.cljs" :line 1 :column 1})]
+      (is (= "vscode://file/src/app/views.cljs:1:1"
+             (:href (second hiccup)))))))
+
+(deftest open-chip-prefixes-with-project-root
+  (testing "set-project-root! plumbs the on-disk root through the chip"
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/app/views.cljs" :line 42 :column 7})]
+      (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
+             (:href (second hiccup)))))))
+
+(deftest open-chip-project-root-regression-rf2-5m5n2
+  (testing "regression: the panel-gallery testbed's failure case now
+            resolves to an absolute on-disk URI when the host has
+            plumbed :project-root through causa-config/configure!"
+    (config/set-project-root!
+      "C:/Users/miket/code/re-frame2/tools/causa/testbeds")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "panel_gallery/event_detail_stories.cljs"
+                    :line 115
+                    :column 3})]
+      (is (= (str "vscode://file/"
+                  "C:/Users/miket/code/re-frame2/tools/causa/testbeds/"
+                  "panel_gallery/event_detail_stories.cljs:115:3")
+             (:href (second hiccup)))))))
+
+(deftest open-chip-project-root-roundtrip
+  (testing "config/set-project-root! + get-project-root round-trip on
+            the CLJS side"
+    (config/set-project-root! "/abs/code")
+    (is (= "/abs/code" (config/get-project-root)))
+    (config/set-project-root! nil)
+    (is (nil? (config/get-project-root)))
+    ;; blank strings normalise to nil so the chip behaves as if unset.
+    (config/set-project-root! "")
+    (is (nil? (config/get-project-root)))))
+
+(deftest open-chip-project-root-survives-editor-change
+  (testing "switching editor keeps project-root applied to the new scheme"
+    (config/set-project-root! "/abs/code")
+    (config/set-editor! :cursor)
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/x.cljs" :line 1 :column 1})]
+      (is (= "cursor://file//abs/code/src/x.cljs:1:1"
+             (:href (second hiccup)))))))
+
+(deftest open-chip-project-root-absolute-coord-not-double-prefixed
+  (testing "an already-absolute source-coord is NOT double-prefixed
+            (per editor-uri/compose-path's absolute-path? guard) — pins
+            that the Causa wiring respects the helper's contract"
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "/abs/already/here.cljs" :line 1 :column 1})]
+      (is (= "vscode://file//abs/already/here.cljs:1:1"
+             (:href (second hiccup)))))))
+
+(deftest open-chip-configure-passes-project-root-through
+  (testing "configure! routes :project-root through set-project-root!
+            on the CLJS side (mirror of Story's rf2-zfy1e config matrix)"
+    (config/configure! {:project-root "C:/Users/me/code/my-app"})
+    (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/x.cljs" :line 1 :column 1})]
+      (is (= "vscode://file/C:/Users/me/code/my-app/src/x.cljs:1:1"
+             (:href (second hiccup)))))))
 
 ;; ---- rf2-g5q8d — :rf.causa/open-in-editor + :rf.editor/open ------------
 ;;
@@ -320,3 +404,17 @@
       (is (= (:href (second (open-in-editor/open-chip coord)))
              (:uri (first @captured-editor-fx)))
           "chip's :href ≡ fx's :uri"))))
+
+(deftest open-in-editor-event-applies-project-root-prefix
+  (testing "rf2-5m5n2 — the event-fx's URI reflects the configured
+            project-root (same source of truth as `open-chip`'s
+            `:href`), so the four panels' dispatch path resolves
+            relative source-coords to absolute on-disk URIs"
+    (setup!)
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/open-in-editor
+                         {:file "src/app/views.cljs" :line 42 :column 7}])
+      (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
+             (:uri (first @captured-editor-fx)))
+          "fx's :uri ≡ chip's :href once :project-root is configured"))))

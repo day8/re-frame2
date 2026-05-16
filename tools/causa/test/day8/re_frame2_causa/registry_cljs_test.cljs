@@ -64,7 +64,11 @@
   (preload/reset-for-test!)
   (registry/reset-for-test!)
   (trace-bus/clear-buffer!)
-  (config/reset-suppressed-count!))
+  (config/reset-suppressed-count!)
+  ;; rf2-5m5n2 — reset the project-root prefix atom so a sibling test
+  ;; that set it (e.g. `open_in_editor_cljs_test.cljs`) doesn't leak
+  ;; into the registry tests' URI assertions.
+  (config/set-project-root! nil))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
