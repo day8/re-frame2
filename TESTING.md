@@ -15,32 +15,187 @@ needed before release.
 
 ## Local commands
 
+The repo-root coordinator scripts run the canonical bundles. The per-
+artefact npm scripts (under `implementation/package.json` and the per-tool
+`tools/*/package.json`) are listed below for targeted reruns and for the
+agent pre-checkin "narrow to the changed surface" workflow.
+
+### Repo-root coordinators
+
 | Command | Scope |
 |---|---|
 | `scripts/test-fast-pr.sh` | Fast PR spine: lockstep, skill/MCP drift, core JVM, JS harness self-tests, CLJS node integration. |
 | `scripts/test-jvm-implementation.sh` | All implementation JVM artefacts, including adapter diagnostic classpath probes. |
 | `scripts/test-jvm-tools.sh` | Tool JVM artefacts. |
 | `scripts/test-rigorous-local.sh` | Fast spine + JVM coordinators + rigorous browser/bundle/examples/Story/Causa gates. Expensive; use before release-sized changes. |
-| `cd implementation && npm run test:reagent-slim:bundle-isolation` | Adapter-owned Reagent Slim bundle-isolation invariant: slim advanced bundles exclude stock Reagent impl sentinels and `react-dom/server`, with a stock-Reagent positive control. |
+
+### `implementation/package.json` (run from `implementation/`)
+
+| Command | Scope |
+|---|---|
+| `npm run test:cljs` | CLJS node-runtime tests via shadow-cljs `node-test` build. The consolidated default gate for CLJS unit coverage. |
+| `npm run test:browser` | Browser CLJS tests (`browser-test` build) served with Playwright + http-server. Headless Chromium harness. |
+| `npm run test:browser-prod-elision` | Release-built browser tests proving production elision under the `browser-test-prod-elision` shadow build. |
+| `npm run test:browser-schemas-boundary-prod` | Release-built browser test proving the schemas boundary-warn-once contract in production. |
+| `npm run test:elision` | Production-release elision probe: compiles `elision-probe` + `elision-probe-control` and asserts elision is total. Non-negotiable production invariant. |
+| `npm run test:perf-bundle` | Compiles the counter + counter-perf examples in release mode and checks the perf-budget bundle delta. |
+| `npm run test:schemas-bundle` | Compiles `schemas-bundle-probe` (Spec) + `schemas-bundle-probe-malli` and checks schemas-bundle isolation. |
+| `npm run test:bundle-isolation` | Compiles release counter/counter-uix/counter-helix bundles and runs `check-bundle-isolation` + `check-uix-helix-reagent-free`. Tools must not leak into production bundles; UIx/Helix bundles must be Reagent-free. |
+| `npm run test:reagent-slim:bundle-isolation` | Reagent Slim invariant: slim advanced bundles exclude stock Reagent impl sentinels and `react-dom/server`, with a stock-Reagent positive control. |
+| `npm run test:examples` | Browser smoke across the runnable examples. |
+| `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). Occasional / pre-commit until proven stable — not yet default CI. |
+| `npm run test:causa-feature-gate` | Causa browser feature/load gate from `tools/causa/spec/017-Test-Coverage-Matrix.md`. Occasional; not default CI. |
+| `npm run test:story-static` | Static-build contract and deployable-output sanity for the Story export. |
+| `npm run story:build` | Build the Story static artefact. |
+| `npm run test:script-policy` / `npm run test:script-helpers` | Self-tests for the JS harness helpers (path policy, changed-surface classifier port, browser-test report, gate report, local browser harness). |
+
+### `tools/mcp-conformance/package.json` (run from `tools/mcp-conformance/`)
+
+| Command | Scope |
+|---|---|
+| `npm test` | Runs the full MCP-client conformance suite via `scripts/test-all.cjs` — pair2 degraded, story end-to-end, causa placeholder, and exec-safety unit tests, with live-overflow flagged SKIP/RUN by env. |
+| `npm run test:pair2` | Degraded-mode pair2-mcp conformance against the SDK's strict `CallToolResultSchema`. |
+| `npm run test:pair2-live-overflow` | Live-runtime overflow conformance — SKIPs cleanly without `$SHADOW_CLJS_NREPL_PORT`. |
+| `npm run test:pair2-live-overflow-hermetic` | Hermetic live overflow — boots shadow-cljs against the `skills/re-frame-pair2/tests/fixture/` counter and runs the live path with a real over-budget eval. Catches cap-trigger threshold drift, marker shape regressions, and SDK strict-schema rejection. |
+| `npm run test:pair2-live-subscribe` | Live-runtime subscribe/unsubscribe conformance. Gated on `$SHADOW_CLJS_NREPL_PORT`. |
+| `npm run test:story` | End-to-end story-mcp MCP-client conformance. |
+| `npm run test:causa` | End-to-end causa-mcp conformance — placeholder (SKIP) until the server implementation lands. |
+| `npm run test:exec-safety` | Unit tests for the trusted-PATH-resolution and symlink-safe-unlink helpers shared with the hermetic orchestrator. |
+
+### `tools/pair2-mcp/package.json` (run from `tools/pair2-mcp/`)
+
+| Command | Scope |
+|---|---|
+| `npm run build` | Build the pair2-mcp server (`shadow-cljs compile server`). |
+| `npm test` | Compile + run the pair2-mcp `server-test` build under node. |
+| `npm run stdio-roundtrip` | Stdio JSON-RPC round-trip smoke against the built server. |
+
+### Per-artefact JVM tests
+
+Each artefact under `implementation/<name>/` and `tools/<name>/` carries
+its own `:test` alias. Run from the artefact directory:
+
+```
+cd implementation/<artefact> && clojure -M:test
+cd tools/<artefact>          && clojure -M:test
+```
+
+The repo-root coordinators (`scripts/test-jvm-implementation.sh`,
+`scripts/test-jvm-tools.sh`) iterate these. Adapter probes
+(`reagent`, `reagent-slim`, `uix`, `helix`) and the `tools/causa`
+JVM probe are diagnostic skip-ok (see below).
 
 Green output should stay quiet. Failures must name the violated contract, owning
-surface, and reproduction command.
+surface, and reproduction command. See [`docs/quiet-tests.md`](docs/quiet-tests.md)
+for the output contract that makes this real.
+
+## Changed-surface classifier
+
+PR CI tiers expensive jobs through a conservative changed-surface
+classifier. The classifier is the **source of truth for "which jobs run
+when"** on a pull request.
+
+- **Script**: [`.github/scripts/report-changed-surfaces.sh`](.github/scripts/report-changed-surfaces.sh)
+- **Workflow consumer**: the `detect_changed_surfaces` job in
+  [`.github/workflows/test.yml`](.github/workflows/test.yml) (every
+  downstream job gates on one of its outputs via
+  `if: needs.detect_changed_surfaces.outputs.<surface> == 'true'`).
+
+The script reads the changed-files list (PR diff against
+`origin/${GITHUB_BASE_REF}`, or `HEAD^..HEAD` locally) and emits
+boolean GitHub-Actions outputs per surface:
+
+| Output | Triggers when … |
+|---|---|
+| `implementation_jvm` | JVM artefact under `implementation/` changed; gates JVM unit + conformance jobs. |
+| `adapter_diagnostic` | Adapter artefact changed; gates the diagnostic skip-ok JVM classpath probes. |
+| `cljs_browser` | CLJS surface that the browser tests cover changed. |
+| `cljs_prod` | Surface that release-mode probes (`browser-test-prod-elision`, schemas boundary prod) cover changed. |
+| `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
+| `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
+| `examples_browser` | Examples surface changed. |
+| `tools_jvm` | Any tool artefact changed; gates the per-tool JVM jobs. |
+| `template_expensive` | `tools/template/*` changed; gates the template emitted-app smoke. |
+| `mcp_conformance` | Any MCP-server tool, `tools/mcp-base/*`, or `tools/mcp-conformance/*` changed. |
+| `mcp_live` | Pair2-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
+| `story_causa_browser` | Story or Causa surface changed. |
+| `skills_structural` | `skills/re-frame-pair2/*` or `skills/shared/*` changed. |
+
+A few "blast-radius" inputs force the full sweep:
+
+- A change to `.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`,
+  the classifier script itself, or `TESTING.md` sets every output to
+  `true` (defensive: anything that re-tiers the matrix must re-run the
+  full matrix).
+- Changes under `implementation/core/*` fan out broadly (they touch
+  almost every output) because core regressions can break every
+  downstream substrate, tool, and bundle invariant.
+
+**Adding a new artefact directory**: a new artefact (e.g. a new tool,
+new substrate, new SSR runtime) needs **two** matching changes:
+
+1. A classifier rule in `.github/scripts/report-changed-surfaces.sh` —
+   the rule decides which output(s) the new path lights.
+2. A corresponding workflow gate in `.github/workflows/test.yml` (and
+   `.github/workflows/expensive-tests.yml` for the rigorous variants) —
+   one or more jobs whose `if:` condition reads the output(s) the rule
+   sets.
+
+Either side missing creates a silent hole: code can land that mutates
+a surface no PR-time job watches. This pattern has bitten the repo
+before (e.g. `implementation/ssr-ring/*` was added without a
+matching classifier rule); when in doubt, prefer over-classifying
+("fire `implementation_jvm` for the new directory") to under-
+classifying.
+
+The script also has a `--all` flag (forces every output `true`) and
+accepts an explicit path list for local exploration:
+
+```
+.github/scripts/report-changed-surfaces.sh implementation/core/src/foo.cljs
+.github/scripts/report-changed-surfaces.sh --all
+```
+
+The agent pre-checkin and `scripts/test-fast-pr.sh` spine cover the
+always-on PR jobs; for the conditional surfaces, run the targeted
+commands from the [Local commands](#local-commands) tables matching
+whichever classifier outputs your diff trips.
 
 ## Diagnostic / skip-ok gates
 
 Some checks intentionally exit 0 when their preconditions are absent. They are
-diagnostic, not required coverage:
+diagnostic, not required coverage. Each row below reflects what the
+corresponding job in [`.github/workflows/test.yml`](.github/workflows/test.yml)
+actually does today:
 
-| Gate | Why skip-ok |
-|---|---|
-| Adapter JVM classpath probes | React adapters are CLJS-only; the JVM run proves deps/classpath wiring and may have zero runnable tests. |
-| `tools/causa` JVM probe | Causa can have no JVM-runnable tests on some intermediate cuts. |
-| `tools/causa-mcp` MCP conformance | Placeholder until the server implementation lands. |
-| Pair2 live-overflow without nREPL | The skip path is tested, but real live coverage is the hermetic/nightly `test:pair2-live-overflow-hermetic` run. |
+| Gate | Workflow job | Why skip-ok |
+|---|---|---|
+| Adapter JVM classpath probes (Reagent / Reagent Slim / UIx / Helix) | `jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix` | Adapter namespaces are `:cljs-only`. The job runs `clojure -M:test` with an `or-echo` fallback so a zero-test alias still proves the artefact's deps + classpath wiring stay green. Real adapter coverage is the browser counter + login specs (rf2-3yij / rf2-2qit Decision 7) under the examples-browser job, and per-adapter CLJS unit tests under the consolidated `node-test` build. |
+| `tools/causa` JVM probe | `jvm-tools-causa` | Causa ships two JVM tests today (`config_test.clj`, `trace_bus_test.clj`); an `or-echo` fallback keeps the job green if that set shrinks to zero on an intermediate cut. The CLJS surface is already covered by the consolidated `node-test` build (shadow-cljs.edn lists `tools/causa/test` as a source path). |
+| `tools/causa-mcp` MCP conformance | `mcp-conformance-causa` | The causa-mcp server hasn't landed yet (`tools/causa-mcp` is spec-only). `npm run test:causa` (under `tools/mcp-conformance/`) exits 0 with a `SKIP` marker so the placeholder doesn't go stale. Replace `test/end-to-end-causa.cjs` wholesale when the impl lands. |
+| Pair2 live-overflow without nREPL | `mcp-conformance-pair2` — step `Run pair2-mcp live-overflow conformance (SKIPPED without nREPL)` | The step runs `npm run test:pair2-live-overflow` (no env). The script exits 0 with a SKIP marker when `$SHADOW_CLJS_NREPL_PORT` is unset — so the SKIP path is exercised on every CI run (a regression that broke the SKIP, e.g. crashing on missing env, surfaces here). Real live coverage is the hermetic step that follows: `npm run test:pair2-live-overflow-hermetic` (which spawns shadow-cljs + Chromium against `skills/re-frame-pair2/tests/fixture/`, sets `SHADOW_CLJS_NREPL_PORT`, and runs the same script). |
 
 Do not treat a skip-ok diagnostic as evidence that the underlying behaviour was
 covered. The real coverage is the changed-surface, nightly/manual, or release
 gate named in the table above.
+
+## Per-tool coverage matrices
+
+The per-tool spec trees carry auditable feature-coverage matrices that
+enumerate every user-visible behaviour and pin it to a gate. TESTING.md
+governs the meta-policy ("which scenario, which speed, which surface");
+the per-tool matrices govern the contract for individual features.
+
+| Tool | Coverage spec | Driving gate |
+|---|---|---|
+| Story | [`tools/story/spec/015-Test-Coverage.md`](tools/story/spec/015-Test-Coverage.md) | [`tools/story/test/story_feature_load.cjs`](tools/story/test/story_feature_load.cjs) (browser feature-load + 20-event re-check, run via `npm run test:story-feature-load` from `implementation/`). |
+| Causa | [`tools/causa/spec/017-Test-Coverage-Matrix.md`](tools/causa/spec/017-Test-Coverage-Matrix.md) | [`implementation/scripts/serve-and-run-causa-feature-gate.cjs`](implementation/scripts/serve-and-run-causa-feature-gate.cjs) (browser feature/load matrix slice + 20-event re-check, run via `npm run test:causa-feature-gate` from `implementation/`). |
+
+Both feature gates are deliberately occasional / pre-commit, not
+default CI, while their flake rate and runtime stabilise. A coverage
+row that says `covered` in the per-tool matrix and is gated by the
+feature command above is real; a `partial` or `missing` row is the
+owning team's backlog.
 
 ## Placement decision dimensions
 
