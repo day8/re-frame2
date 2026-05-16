@@ -57,7 +57,9 @@
             [panel-gallery.gallery-views :as gallery-views]
             ;; Side-effecting story registrations — namespaces fire
             ;; their `register-all!` at load time.
-            [panel-gallery.event-detail-stories]))
+            [panel-gallery.event-detail-stories]
+            [panel-gallery.app-db-diff-stories]
+            [panel-gallery.subscriptions-stories]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
@@ -110,6 +112,25 @@
       (mount-stories!)
       (mount-landing!))))
 
+(defn- register-testbed-seed-events!
+  "Register testbed-local seed events that don't exist on Causa's
+  public surface. Currently exposes ONE event,
+  `:panel-gallery/seed-sub-cache-and-errors`, used by the
+  subscriptions-stories `error` variant — Causa registers
+  `:rf.causa/set-sub-cache-override-for-test` for the cache half but
+  has no public init event for `:sub-error-cache` (the runtime fills
+  it from the trace bus). The testbed event seeds both slots in one
+  `assoc` so Story's lifecycle slots are preserved per
+  `tools/story/spec/002-Runtime.md` §Coexistence with hosting
+  application state. Lives here, not in any panel — ZERO source-side
+  changes to Causa panels per the rf2-5nvk2 contract."
+  []
+  (rf/reg-event-db :panel-gallery/seed-sub-cache-and-errors
+    (fn [db [_ sub-cache error-cache]]
+      (-> db
+          (assoc :sub-cache-override sub-cache)
+          (assoc :sub-error-cache    error-cache)))))
+
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
   ;; Causa's :rf.causa/* events / subs / fxs land on the registry once.
@@ -117,6 +138,7 @@
   ;; variant frame the Story canvas allocates becomes its own isolated
   ;; "Causa frame" for the duration of the variant render.
   (causa-registry/register-causa-handlers!)
+  (register-testbed-seed-events!)
   ;; Story's canonical vocabulary (seven reg-* macros / tags / modes /
   ;; canvas decorators) installed once at boot. Each
   ;; `<panel>_stories.cljs` namespace also calls
