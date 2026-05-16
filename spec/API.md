@@ -617,7 +617,7 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 
 | Key | Opts shape | Default | Status | Spec |
 |---|---|---|---|---|
-| `:epoch-history` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 50}` | v1 (dev-only) | Tool-Pair |
+| `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn (fn [record] …)}` — `:depth` non-negative integer (0 disables the ring); `:trace-events-keep` non-negative integer caps raw `:trace-events` retention (per [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)); `:redact-fn` is `fn?` or `nil` — invoked once per assembled record at build-time (between `build-record` and ring-append / listener fan-out) so ring + listeners see the same redacted shape, with the `:rf.epoch/sensitive?` rollup computed first, throws caught and surfaced as `:rf.warning/epoch-redact-fn-exception` with fallback to the raw record. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo). | `{:depth 50, :redact-fn nil}` | v1 (dev-only) | Tool-Pair |
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
 | `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
 | `:elision` | `{:rf.size/threshold-bytes N}` — non-negative integer; 0 disables runtime auto-detect (only declared / schema entries elide) | `{:rf.size/threshold-bytes 16384}` | v1 | 009 |
