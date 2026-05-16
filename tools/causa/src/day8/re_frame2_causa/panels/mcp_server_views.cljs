@@ -1,5 +1,9 @@
 (ns day8.re-frame2-causa.panels.mcp-server-views
-  "Top-level view shell for the MCP Server panel."
+  "Top-level view shell for the MCP Server panel.
+
+  Plain Reagent fn per the canonical facade convention — the panel's
+  public `reg-view` (`mcp-server-view`) lives in the facade
+  `mcp-server.cljs`; this leaf supplies the implementation body."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.mcp-server-chrome :as chrome]
             [day8.re-frame2-causa.panels.mcp-server-feed :as feed]
@@ -8,7 +12,7 @@
 (def ^:private tokens style/tokens)
 (def ^:private sans-stack style/sans-stack)
 
-(rf/reg-view mcp-server-view
+(defn mcp-server-view
   "The MCP Server panel's root view. Subscribes to
   `:rf.causa/mcp-server` (composite) + `:rf.causa/mcp-origin-filter-
   enabled?` (settings sub-pane state)."
