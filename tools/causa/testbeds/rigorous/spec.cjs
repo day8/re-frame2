@@ -1180,5 +1180,75 @@ module.exports = {
       'bottom-rail redacted indicator to disappear after explicit reset_suppressed_count',
       5000,
     );
+
+    // ----------------------------------------------------------------
+    // 10e. Schemas / Schema Timeline (rf2-5aw5v.2 — L-2).
+    //
+    // The counter example registers no schemas via `reg-app-schema`
+    // (Spec 010) so the Schema-violation Timeline panel mounts on the
+    // `:no-schemas` empty-state branch (covered minimally by section
+    // 5). The walk here extends beyond bare mount, asserting:
+    //
+    //   - the empty-state-no-schemas branch is the active branch
+    //     (`rf-causa-schema-timeline-empty-no-schemas` mounted)
+    //   - the empty-state-no-violations branch is NOT mounted (would
+    //     fire only if schemas were registered and the window was
+    //     clean — distinct branches, mutually exclusive)
+    //   - the populated timeline rows container (`rf-causa-schema-
+    //     timeline-rows`) is NOT mounted
+    //   - no schema-filter chip (`rf-causa-schema-timeline-filter-
+    //     active`) — there's no schema to filter against
+    //   - no violation-detail aside (`rf-causa-schema-violation-
+    //     detail-*`) — there's no selected violation in the empty case
+    //   - the panel-root section (`rf-causa-schema-violation-
+    //     timeline`) stays mounted regardless — the empty branch
+    //     swaps in the body, not the section chrome
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (same cross-panel
+    //     selection invariant exercised by L-5/L-6)
+    //
+    // The full feature path (one violation per schema kind across
+    // event payload / cofx / app-db slice / sub return + per named
+    // recovery mode, row shape + severity badge + recovery + source
+    // chip) needs deterministic schema-driving cascades inside the
+    // rigorous testbed's host (e.g. weaving in a schema-violation
+    // testbed). Matrix row 76 (Schemas) is already `covered`; no row
+    // flip needed.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'schemas', 'rf-causa-schema-violation-timeline');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-schema-timeline-empty-no-schemas"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-schema-timeline-empty-no-violations"]').count()) !== 0) {
+      throw new Error(
+        'Expected `empty-no-violations` branch to be absent on counter (no schemas registered).',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-schema-timeline-rows"]').count()) !== 0) {
+      throw new Error(
+        'Expected `schema-timeline-rows` container to be absent on the no-schemas branch.',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-schema-timeline-filter-active"]').count()) !== 0) {
+      throw new Error(
+        'Expected `schema-timeline-filter-active` to be absent on the no-schemas branch.',
+      );
+    }
+    if ((await page.locator('[data-testid^="rf-causa-schema-violation-detail-"]').count()) !== 0) {
+      throw new Error(
+        'Expected no `schema-violation-detail-*` aside on the no-schemas branch (no selection).',
+      );
+    }
+    // Sidebar round-trip — same cross-panel selection invariant.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const schemaPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => schemaPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade selection preserved after Schemas round-trip (=${nodeDispatchId})`,
+      5000,
+    );
   },
 };
