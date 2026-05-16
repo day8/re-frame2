@@ -58,6 +58,8 @@ Six phases. Each links to a leaf for the detail; the SKILL.md carries only the w
 
 **Phase 2 — Bump the dep (M-0).** Swap `re-frame/re-frame` → `day8/re-frame2` + a substrate-adapter artefact (`day8/re-frame2-reagent` unless told otherwise), at the author-supplied `<v2-version>` (never auto-pick "latest"). Then ask the author to **compile** before applying any other rules — most codebases need no further changes. The skill prints the compile command for the project's build tool; the author runs it. → [`reference/setup.md`](reference/setup.md) for per-build-tool shapes and adapter picker.
 
+If the project's dev deps hold `day8.re-frame/re-frame-10x` (the v1 devtools panel), perform the **Causa swap** in the same pass — drop the 10x coord + its `:preloads` entry, add `day8/re-frame2-causa` + its preload, add the `[data-rf-causa-host]` layout host to the app's HTML. → [`reference/causa-replaces-10x.md`](reference/causa-replaces-10x.md). Not an M-rule; dev-build hygiene, but the natural moment to do it is alongside M-0.
+
 **Phase 3 — Sweep for breakage.** If Phase 2's compile/test surfaced failures, walk the rules in order.
 - [`reference/sequencing.md`](reference/sequencing.md) — recommended order, restated so an interrupted migration can resume.
 - [`reference/auto-call-site-rewrites.md`](reference/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites (ns requires, effect-map, dispatch shapes).
@@ -92,6 +94,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 
 - [`reference/kickoff-prompt.md`](reference/kickoff-prompt.md) — fresh-session kickoff prompt.
 - [`reference/setup.md`](reference/setup.md) — M-0 operational detail: dep-file shapes, substrate-adapter picker, VERSION discovery, artefact-split implications.
+- [`reference/causa-replaces-10x.md`](reference/causa-replaces-10x.md) — devtools swap: drop `day8.re-frame/re-frame-10x`, add `day8/re-frame2-causa` (preload, true-inline host, `--rf-causa-inline-width`, keybindings, 10x→Causa parity matrix).
 - [`reference/breaking-changes.md`](reference/breaking-changes.md) — compressed index of every M-/O-rule by trigger surface.
 - [`reference/sequencing.md`](reference/sequencing.md) — recommended walk order.
 - [`reference/auto-call-site-rewrites.md`](reference/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites.
