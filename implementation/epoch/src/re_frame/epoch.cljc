@@ -421,10 +421,28 @@
       (record-observation! id frame-id)
       (try
         (f record)
-        (catch #?(:clj Throwable :cljs :default) _
+        (catch #?(:clj Throwable :cljs :default) ex
           ;; Per Spec 009 §Listener invocation rules: listener failures
-          ;; are isolated. Continue notifying.
-          nil)))))
+          ;; are isolated. Continue notifying. Per rf2-i5khp we ALSO
+          ;; emit a structured `:rf.epoch.cb/listener-exception` trace
+          ;; so devtools (re-frame-10x, Causa, pair2) can surface the
+          ;; broken listener — silently swallowing the throw left tool
+          ;; authors with no signal that their callback failed.
+          ;;
+          ;; Op-type `:rf.epoch.cb` matches the sibling
+          ;; `:rf.epoch.cb/silenced-on-frame-destroy` event (per Spec
+          ;; 009 §Op-type vocabulary catalogue and `epoch.cljc` row).
+          ;; `:recovery :no-recovery` mirrors the `:rf.http/aborted`
+          ;; trace shape — the listener's invocation is over; the next
+          ;; cascade re-invokes the same fn afresh, no automatic
+          ;; remediation happens between now and then.
+          (trace/emit-error! :rf.epoch.cb/listener-exception
+                             {:frame    frame-id
+                              :cb-id    id
+                              :epoch-id (:epoch-id record)
+                              :message  #?(:clj  (.getMessage ^Throwable ex)
+                                           :cljs (.-message ex))
+                              :recovery :no-recovery}))))))
 
 ;; Forward-declare `build-record` for `on-frame-destroyed!` below;
 ;; the `defn-` lands in the record-assembly section. Per rf2-v0jwt

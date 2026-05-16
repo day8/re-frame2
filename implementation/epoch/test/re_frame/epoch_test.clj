@@ -330,6 +330,51 @@
       (is (= 2 (count (rf/epoch-history :test/main)))
           "epoch history records both cascades despite the throwing listener"))))
 
+(deftest listener-exception-emits-trace
+  (testing "rf2-i5khp — a throwing listener emits a
+            :rf.epoch.cb/listener-exception error trace per broken
+            invocation, carrying :cb-id, :frame, :epoch-id; isolation
+            still holds (other listeners continue to fire)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+
+    (let [recorded (record-trace!)
+          survivor (atom 0)]
+      (rf/register-epoch-cb! ::throwing
+        (fn [_] (throw (ex-info "tool blew" {:why :test}))))
+      (rf/register-epoch-cb! ::survivor
+        (fn [_] (swap! survivor inc)))
+
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+
+      (let [exc-events (filter (fn [ev]
+                                 (and (= :error (:op-type ev))
+                                      (= :rf.epoch.cb/listener-exception
+                                         (:operation ev))))
+                               @recorded)]
+        (is (= 2 (count exc-events))
+            "one trace per broken-listener invocation (one per cascade)")
+        (is (every? (fn [ev] (= :test/main (-> ev :tags :frame))) exc-events)
+            ":frame tag carries the originating frame")
+        (is (every? (fn [ev] (= ::throwing (-> ev :tags :cb-id))) exc-events)
+            ":cb-id tag identifies the broken listener registration key")
+        (is (every? (fn [ev] (some? (-> ev :tags :epoch-id))) exc-events)
+            ":epoch-id tag links the failure to the assembled record")
+        (is (every? (fn [ev] (string? (-> ev :tags :message))) exc-events)
+            ":message tag carries the exception message")
+        (is (every? (fn [ev] (= :no-recovery (:recovery ev))) exc-events)
+            ":recovery is hoisted to the envelope top-level by
+             `build-event` for error traces (Spec 009 §Error event
+             shape); pins the no-recovery semantic — next cascade
+             re-invokes the same fn afresh, no automatic remediation"))
+
+      (is (= 2 @survivor)
+          "isolation contract still holds: sibling listener kept firing
+           — the trace emit is additive, not a behaviour change")
+      (is (= 2 (count (rf/epoch-history :test/main)))
+          "history still records every cascade"))))
+
 ;; ---- restore happy path ----------------------------------------------------
 
 (deftest restore-rewinds-app-db
