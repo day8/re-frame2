@@ -967,7 +967,7 @@
   (testing "ssr/adapter wires re-frame.ssr/render-to-string into the
             :render-to-string slot"
     (let [adapter ssr/adapter]
-      (is (= :ssr (:kind adapter))
+      (is (= :rf.adapter/ssr (:kind adapter))
           ":kind identifies the SSR substrate")
       (is (fn? (:render-to-string adapter))
           ":render-to-string is a callable fn")

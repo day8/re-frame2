@@ -45,7 +45,7 @@ Every reserved framework-owned sub-namespace. **21 entries** in the current set;
 | `:rf.mcp/*` | Cross-MCP wire-vocabulary markers (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/diff-from`, `:rf.mcp/dedup-table`, `:rf.mcp/ref`, `:rf.mcp/cache-hit`, `:rf.mcp/cursor-stale`) | Tool-Pair |
 | `:rf.trace/*` | Trace-channel control slots — closed set of three: `:rf.trace/no-emit?`, `:rf.trace/trigger-handler`, `:rf.trace/call-site` | 009 |
 | `:rf.route.nav-token/*` | Navigation-token lifecycle trace operations (`allocated`, `stale-suppressed`) | 012 / 009 |
-| `:rf.adapter/*` | Substrate-adapter `:kind` discriminator values (`:rf.adapter/reagent`, `:rf.adapter/uix`, `:rf.adapter/helix`) | 006 |
+| `:rf.adapter/*` | Substrate-adapter `:kind` discriminator values (`:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/helix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`) | 006 |
 
 Add it up: 25 rows above; the audit listed 21 framework-owned prefixes because `:rf.frame/<gensym>` and `:rf.frame/<operation>` count together, `:rf.machine.*/*` sub-areas count under `:rf.machine`, and the canonical-namespace `:rf/*` itself is the root. Either way, the answer to "what's reserved?" is "anything that starts with `:rf.` and a slash."
 

@@ -121,7 +121,7 @@
   IMPL-SPEC §2.1 — the only difference is the substrate, not the keys.
   Per Spec 006 §CLJS reference + rf2-agql: there is no default-adapter
   registry; adapter wiring is explicit at the call site."
-  {:kind                      :reagent-slim
+  {:kind                      :rf.adapter/reagent-slim
    :make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
