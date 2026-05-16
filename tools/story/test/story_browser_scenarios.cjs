@@ -548,6 +548,135 @@ module.exports = {
       }
     });
 
+    await scenario(page, 'force-fx-stub-redirect-and-stub-miss-rf2-6hauy', async () => {
+      /*
+       * Case-1 follow-on (rf2-6hauy) — force-fx-stub feature-gate beyond
+       * the matrix bookkeeping baseline.
+       *
+       * The `:story.counter/save-stubbed` variant decorates with
+       * `[force-fx-stub :counter/sync-to-server {:ok? true}]`. The
+       * decorator stack's :fx-override slot redirects every dispatch
+       * of `:counter/sync-to-server` to a synthesized stub-event id of
+       * shape `:rf.story.fx-stub/<decorator-id>` (see
+       * tools/story/src/re_frame/story/fx_stubs.cljc + frames.cljc).
+       *
+       * Beyond-mount surface assertions:
+       *   - stubbed-fx assertion (`:rf.assert/effect-emitted
+       *     :counter/sync-to-server`) records a passing row in test
+       *     mode — proves the stub event populated the per-frame
+       *     `:emitted-fx` accumulator
+       *   - the stub-miss surface — an `:rf.assert/effect-emitted`
+       *     for an fx-id the variant did NOT stub renders as a passing
+       *     row IFF the fx genuinely emitted, otherwise as a failing
+       *     row whose reason text identifies the missed fx-id. The
+       *     `:story.counter/loaded` variant's `:play` carries no
+       *     effect-emitted assertion; we navigate to it and confirm
+       *     three passing rows + zero stub leak (no rogue fx-id
+       *     emitted from a previous variant survives into a new
+       *     frame's `:emitted-fx` accumulator — rf2-vu5w isolation
+       *     guarantee).
+       *   - the actions panel surfaces the redirected stub-event id
+       *     (`:rf.story.fx-stub/...`) as an action row, proving the
+       *     redirect happened at dispatch time rather than the real
+       *     `:counter/sync-to-server` fx running
+       *
+       * Source-side follow-on (filed separately): a dedicated
+       * `:story.counter-matrix/fx-stub-miss` variant that asserts
+       * `:rf.assert/effect-emitted :never-stubbed` so the failing
+       * row's reason text ("fx :never-stubbed was not emitted during
+       * play") is directly visible. The current testbed has no such
+       * variant — adding one would touch source. This walk proves the
+       * runtime invariants the panel relies on; the dedicated failing
+       * fixture proves the empty-state row rendering.
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // (a) :save-stubbed test mode — the play sequence's two
+      // assertions (path-equals :saving? + effect-emitted) both pass.
+      await clickVariant(page, '/save-stubbed');
+      await waitForCanvas(page, ':story.counter/save-stubbed');
+      await setMode(page, 'test');
+      await waitForValue(
+        () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
+        (text) => /2\s+passed/i.test(text),
+        { timeoutMs: 10000, description: ':save-stubbed test pane reports 2 passed' },
+      );
+      // Both rows must be data-status="pass"; one of them is the
+      // effect-emitted assertion, anchored on its data-assertion attr.
+      const passRows = page.locator(
+        '[data-test="story-test-row"][data-status="pass"][data-assertion=":rf.assert/effect-emitted"]',
+      );
+      await waitForValue(
+        () => passRows.count(),
+        (count) => count >= 1,
+        {
+          timeoutMs: 5000,
+          description: 'effect-emitted assertion row is present and passing',
+        },
+      );
+      const failingRows = await page
+        .locator('[data-test="story-test-row"][data-status="fail"]')
+        .count();
+      if (failingRows !== 0) {
+        throw new Error(
+          `:save-stubbed had ${failingRows} failing rows in test mode; expected 0`,
+        );
+      }
+
+      // (b) Cross-variant isolation: navigate to a variant whose
+      // :play declares NO effect-emitted assertion. The emitted-fx
+      // accumulator is per-frame, so the newly-allocated frame must
+      // start empty — no rogue carry-over from :save-stubbed.
+      await clickVariant(page, '/loaded');
+      // /loaded may rehydrate :test or :dev from localStorage depending
+      // on the run order; force :test so the assertion rows render.
+      await setMode(page, 'test');
+      await waitForValue(
+        () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
+        (text) => /3\s+passed/i.test(text),
+        { timeoutMs: 10000, description: ':loaded test pane reports 3 passed' },
+      );
+      const effectRowsLeaked = await page
+        .locator(
+          '[data-test="story-test-row"][data-assertion=":rf.assert/effect-emitted"]',
+        )
+        .count();
+      if (effectRowsLeaked !== 0) {
+        throw new Error(
+          `:loaded variant reported ${effectRowsLeaked} effect-emitted rows; ` +
+            'expected 0 (no stub-event accumulator leak across frame isolation boundary)',
+        );
+      }
+
+      // (c) No real network call escaped the stub. The
+      // :counter/sync-to-server fx in counter_with_stories.events
+      // would otherwise make a fetch (or whatever the host configures
+      // it to do); the force-fx-stub :fx-override redirects it to a
+      // local stub fx that only writes the per-frame stub-call-log.
+      // Walking back to :save-stubbed and re-running the assertion
+      // suite via the test pane re-fires the :play sequence — which
+      // dispatches :counter/save and emits :counter/sync-to-server
+      // again. If the stub leaks, a real cross-origin request lands
+      // in the page's request log.
+      await clickVariant(page, '/save-stubbed');
+      await setMode(page, 'test');
+      await waitForValue(
+        () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
+        (text) => /2\s+passed/i.test(text),
+        { timeoutMs: 10000, description: ':save-stubbed re-runs to 2 passed' },
+      );
+      await page.locator('[data-test="story-test-rerun"]').click();
+      await waitForValue(
+        () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
+        (text) => /2\s+passed/i.test(text),
+        { timeoutMs: 10000, description: ':save-stubbed re-run still 2 passed (no fx leak)' },
+      );
+      // Reuse the spec-level request log assertion — no cross-origin
+      // request escaped during any of the above.
+      assertNoThirdPartyRequests(page);
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
