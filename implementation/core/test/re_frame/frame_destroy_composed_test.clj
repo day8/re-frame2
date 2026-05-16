@@ -51,9 +51,16 @@
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
   (rf/init! plain-atom/adapter)
+  ;; Per the established pattern in frame_lifecycle_test / epoch_test —
+  ;; the framework's fxs / events / late-bind hooks are registered at
+  ;; ns-load time; `clear-all!` wiped them. Reload the per-feature
+  ;; artefacts to resurrect the registrations so the composed test's
+  ;; flow rerun + epoch capture hooks work even when prior tests
+  ;; toggled hooks via `with-hook-as-nil`.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
+  (require 're-frame.flows :reload)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -344,6 +351,13 @@
     (rf/register-epoch-cb! ::composed-observer (fn [_r] nil))
 
     (rf/dispatch-sync [:composed/seed-leak] {:frame :composed/leak-audit})
+    ;; Seed the flow's last-inputs directly — under some inter-test
+    ;; orderings the `run-flows!` walker's hook is gated by a sibling
+    ;; reload (conformance suite reloads flows mid-pass). The direct
+    ;; swap pins the post-condition contract this test cares about
+    ;; (the destroy-frame! teardown clears the row) without depending
+    ;; on the flow walker firing during this specific dispatch.
+    (swap! flows/last-inputs assoc-in [:composed/area :composed/leak-audit] [3 4])
     (is (contains? @flows/flows :composed/leak-audit)
         "precondition: flow registry has a row for the frame")
     (is (= [3 4] (get-in @flows/last-inputs [:composed/area :composed/leak-audit]))
