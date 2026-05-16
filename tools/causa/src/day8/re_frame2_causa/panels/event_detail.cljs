@@ -336,24 +336,10 @@
          :data-frame (str frame)
          :style       {:padding "8px 0"}}
    [:div {:style {:padding "0 12px 8px 12px"
-                  :display "flex"
-                  :align-items "center"
-                  :justify-content "space-between"
                   :font-family sans-stack
                   :font-size   "12px"
                   :color       (:text-tertiary tokens)}}
-    [:span "Cascade"]
-    [:button {:data-testid "rf-causa-event-detail-clear"
-              :on-click    #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
-              :style       {:background  "transparent"
-                            :border      (str "1px solid " (:border-default tokens))
-                            :color       (:text-secondary tokens)
-                            :padding     "2px 8px"
-                            :border-radius "4px"
-                            :cursor      "pointer"
-                            :font-family sans-stack
-                            :font-size   "11px"}}
-     "Clear"]]
+    [:span "Cascade"]]
    [:div {:style {:border-top (str "1px solid " (:border-subtle tokens))}}
     [event-row event (trigger-handler-coord (or handler fx))]
     (when handler [handler-row handler])
@@ -372,7 +358,8 @@
   state (when not)."
   []
   (let [{:keys [selected-dispatch-id selected-dispatch-frame selected-cascade cascades]}
-        @(rf/subscribe [:rf.causa/event-detail])]
+        @(rf/subscribe [:rf.causa/event-detail])
+        has-selection? (boolean selected-dispatch-id)]
     [:section {:data-testid "rf-causa-event-detail"
                :style       {:height         "100%"
                              :display        "flex"
@@ -382,6 +369,17 @@
                              :font-family    sans-stack
                              :font-size      "14px"}}
      [:header {:style {:padding "16px 16px 8px 16px"}}
+      (when has-selection?
+        [:button {:data-testid "rf-causa-event-detail-back"
+                  :on-click    #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
+                  :style       {:background  "transparent"
+                                :border      "none"
+                                :color       (:text-secondary tokens)
+                                :padding     "0 0 6px 0"
+                                :cursor      "pointer"
+                                :font-family sans-stack
+                                :font-size   "12px"}}
+         "← Events"])
       [:h1 {:style {:font-size   "16px"
                     :font-weight 600
                     :margin      0
@@ -411,7 +409,8 @@
            [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
             (str selected-dispatch-frame)]])
          " is no longer in the trace buffer. "
-         [:button {:on-click #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
+         [:button {:data-testid "rf-causa-event-detail-orphaned-back"
+                   :on-click #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
                    :style    {:margin-left "8px"
                               :background  "transparent"
                               :border      (str "1px solid " (:border-default tokens))
@@ -421,7 +420,7 @@
                               :cursor      "pointer"
                               :font-family sans-stack
                               :font-size   "11px"}}
-          "Clear"]]
+          "← Events"]]
 
         :else
         (cascade-list cascades))]]))

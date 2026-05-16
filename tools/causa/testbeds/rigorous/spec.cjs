@@ -491,9 +491,9 @@ module.exports = {
     // co-pilot turn earlier in the spec may have left a selection in
     // place. Force a known-empty starting point.
     {
-      const lingeringClear = page.locator('[data-testid="rf-causa-event-detail-clear"]');
-      if ((await lingeringClear.count()) > 0) {
-        await lingeringClear.first().click();
+      const lingeringBack = page.locator('[data-testid="rf-causa-event-detail-back"]');
+      if ((await lingeringBack.count()) > 0) {
+        await lingeringBack.first().click();
       }
     }
     await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
@@ -522,13 +522,13 @@ module.exports = {
       `cascade-detail data-dispatch-id=${clickedDispatchId}`,
       5000,
     );
-    // Click Clear — back to the list. The detail goes away and the
-    // empty-state list reappears.
-    await page.locator('[data-testid="rf-causa-event-detail-clear"]').click();
+    // Click ← Events — back to the list. The detail goes away and
+    // the empty-state list reappears.
+    await page.locator('[data-testid="rf-causa-event-detail-back"]').click();
     await waitForCondition(
       async () => page.locator('[data-testid="rf-causa-event-detail-cascade"]').count(),
       (count) => count === 0,
-      'cascade-detail to unmount after Clear',
+      'cascade-detail to unmount after ← Events',
       5000,
     );
     await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
