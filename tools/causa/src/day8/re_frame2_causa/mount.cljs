@@ -174,36 +174,15 @@
   (reset! diagnostic-state {:ok? true :reason :auto-open-disabled})
   nil)
 
-(defn- create-inline-mount-node! []
-  (if-let [host (layout-host)]
-    (do
-      (remove-stale-root!)
-      (snapshot-host-display! host)
-      (let [node (.createElement js/document "div")]
-        (set! (.-id node) "rf-causa-root")
-        (.setAttribute node "data-rf-causa-mode" "inline")
-        (set! (-> node .-style .-display) "block")
-        (set! (-> node .-style .-height) "100%")
-        (set! (-> node .-style .-minHeight) "100vh")
-        (.appendChild host node)
-        (clear-diagnostic!)
-        node))
-    (do
-      (report-diagnostic! (missing-host-diagnostic))
-      nil)))
-
-(defn- shell-node [node]
-  (when (and (some? node) (.-querySelector node))
-    (.querySelector node "[data-testid=\"rf-causa-shell\"]")))
-
-;; Per rf2-4itwg — toggle-off must collapse the layout host's flex/grid
-;; slot too, not just hide the mount root. The previous `display:none`
-;; on `#rf-causa-root` left the surrounding `[data-rf-causa-host]`
-;; aside still occupying its `flex-basis` slot (and rendering its
-;; `border-left` chrome), so the user perceived a sliver of Causa
-;; chrome residue on toggle-off. Recording the host's pre-Causa
-;; `display` value lets us restore it on toggle-on without guessing
-;; what the host's CSS intended.
+;; ---- layout-host display snapshot (rf2-4itwg) ----------------------------
+;;
+;; Toggle-off must collapse the layout host's flex/grid slot too, not just
+;; hide the mount root. The previous `display:none` on `#rf-causa-root`
+;; left the surrounding `[data-rf-causa-host]` aside still occupying its
+;; `flex-basis` slot (and rendering its `border-left` chrome), so the user
+;; perceived a sliver of Causa chrome residue on toggle-off. Recording the
+;; host's pre-Causa `display` value lets us restore it on toggle-on without
+;; guessing what the host's CSS intended.
 (defonce ^:private host-display-snapshot
   ;; `{:host <element> :original-inline-display <string>}` once Causa
   ;; has captured the host's inline `display` (empty string when no
@@ -227,6 +206,28 @@
   (when-let [{:keys [host]} @host-display-snapshot]
     (when (some? host)
       (set! (-> host .-style .-display) "none"))))
+
+(defn- create-inline-mount-node! []
+  (if-let [host (layout-host)]
+    (do
+      (remove-stale-root!)
+      (snapshot-host-display! host)
+      (let [node (.createElement js/document "div")]
+        (set! (.-id node) "rf-causa-root")
+        (.setAttribute node "data-rf-causa-mode" "inline")
+        (set! (-> node .-style .-display) "block")
+        (set! (-> node .-style .-height) "100%")
+        (set! (-> node .-style .-minHeight) "100vh")
+        (.appendChild host node)
+        (clear-diagnostic!)
+        node))
+    (do
+      (report-diagnostic! (missing-host-diagnostic))
+      nil)))
+
+(defn- shell-node [node]
+  (when (and (some? node) (.-querySelector node))
+    (.querySelector node "[data-testid=\"rf-causa-shell\"]")))
 
 (defn- set-visible! [node visible?]
   (when (some? node)
