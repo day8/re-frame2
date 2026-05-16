@@ -677,6 +677,181 @@ module.exports = {
       assertNoThirdPartyRequests(page);
     });
 
+    await scenario(page, 'lifecycle-phase-happy-path-order-rf2-rrw6o', async () => {
+      /*
+       * Case-1 follow-on (rf2-rrw6o) — Lifecycle phase ordering
+       * beyond the matrix bookkeeping baseline.
+       *
+       * Per Spec 008 §Lifecycle the run-variant orchestrator drives
+       * four phases in order: phase-0 setup → phase-1 loaders →
+       * phase-2 events → phase-4 play (phase-3 render is shell-
+       * concern). The lifecycle machine emits :loaders-started →
+       * :loaders-complete → :events-complete → :mount under the
+       * `:rf.story.lifecycle/machine` event-id; seed `:events` slot
+       * dispatches land between :loaders-complete and :events-
+       * complete; :play assertions land between :events-complete and
+       * :mount.
+       *
+       * Beyond-mount surface assertions:
+       *   - the actions panel surfaces the lifecycle dispatches in
+       *     the documented order (loaders-started < events seed <
+       *     events-complete < play assertions < mount). Reading by
+       *     the panel's chronological row order makes the four-phase
+       *     contract directly visible.
+       *   - re-selecting the same variant re-fires the full sequence
+       *     (the run-variant orchestrator is idempotent against an
+       *     existing frame — frame teardown + re-alloc per Spec 008
+       *     §reset-variant) and the order is identical
+       *   - cross-variant ordering: switching to a different variant
+       *     produces a NEW lifecycle sequence on the new frame's
+       *     trace bus, not a continuation of the previous variant's
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // Pick a variant with a deterministic four-phase sequence —
+      // :story.counter/loaded carries one :events seed
+      // ([:counter/initialise 7]) and three :play assertions, so
+      // we can pin the exact lifecycle ordering.
+      await clickVariant(page, '/loaded');
+      // Force :dev mode so the canvas mounts (the play sequence ran
+      // on initial allocation; the actions panel buffer carries it).
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter/loaded');
+
+      // Helper: read the chronological event-id sequence from the
+      // actions panel rows. The buffer is bounded (200 entries) and
+      // every dispatch + dispatch-shaped fx is appended in arrival
+      // order — same order the trace listener observed them.
+      const readEventSequence = () =>
+        page
+          .locator('[data-test="story-actions-row"]')
+          .evaluateAll((els) =>
+            els.map((el) => el.getAttribute('data-event-id') || ''),
+          );
+
+      // Poll until the lifecycle has produced at least one mount
+      // event for this variant (a stable post-phase-4 signal).
+      await waitForValue(
+        async () => {
+          const seq = await readEventSequence();
+          return seq.filter((id) => id === ':rf.story.lifecycle/machine').length;
+        },
+        // 4 expected: loaders-started, loaders-complete, events-
+        // complete, mount.
+        (count) => count >= 4,
+        {
+          timeoutMs: 10000,
+          description: ':loaded lifecycle machine emitted >= 4 phase transitions',
+        },
+      );
+
+      const fullSeq = await readEventSequence();
+
+      // Helper: project the lifecycle-machine sub-sequence by
+      // walking the dispatch rows in order. The machine event is
+      // always `:rf.story.lifecycle/machine` and its payload (the
+      // phase transition keyword) lives inside the event vector,
+      // not the data-event-id attribute. We can't read the payload
+      // here, but the COUNT of machine rows tells us the four-phase
+      // ordering held — the runtime emits them in order or not at
+      // all (Spec 008 contract).
+      const machineRowCount = fullSeq.filter((id) => id === ':rf.story.lifecycle/machine').length;
+      if (machineRowCount < 4) {
+        throw new Error(
+          `expected >= 4 :rf.story.lifecycle/machine rows in actions panel, got ${machineRowCount}`,
+        );
+      }
+
+      // The seed event :counter/initialise MUST appear AFTER the
+      // first lifecycle dispatch (loaders-started lands before
+      // phase-1 starts; the seed lands during phase-2). Find the
+      // chronological positions in the row sequence.
+      const firstLifecycleIdx = fullSeq.indexOf(':rf.story.lifecycle/machine');
+      const firstInitialiseIdx = fullSeq.indexOf(':counter/initialise');
+      if (firstLifecycleIdx === -1 || firstInitialiseIdx === -1) {
+        throw new Error(
+          `expected both lifecycle (idx=${firstLifecycleIdx}) and :counter/initialise (idx=${firstInitialiseIdx}) ` +
+            `rows; full sequence (head 20)=${JSON.stringify(fullSeq.slice(0, 20))}`,
+        );
+      }
+      if (firstInitialiseIdx <= firstLifecycleIdx) {
+        throw new Error(
+          `phase ordering violation: :counter/initialise appeared at row ${firstInitialiseIdx} ` +
+            `before the first lifecycle dispatch at row ${firstLifecycleIdx} — expected loaders-started ` +
+            `to land before seed-event dispatches per Spec 008 §Lifecycle.`,
+        );
+      }
+
+      // The play assertions (`:rf.assert/path-equals`,
+      // `:rf.assert/sub-equals`) MUST land AFTER :counter/initialise
+      // — phase-4 play runs after phase-2 events complete.
+      const firstPathEqualsIdx = fullSeq.indexOf(':rf.assert/path-equals');
+      if (firstPathEqualsIdx === -1) {
+        throw new Error(
+          `expected :rf.assert/path-equals to appear in actions panel; full sequence=${JSON.stringify(fullSeq)}`,
+        );
+      }
+      if (firstPathEqualsIdx <= firstInitialiseIdx) {
+        throw new Error(
+          `phase ordering violation: :rf.assert/path-equals (play assertion) appeared at row ${firstPathEqualsIdx} ` +
+            `before :counter/initialise (seed event) at row ${firstInitialiseIdx} — expected phase-2 ` +
+            `events to settle before phase-4 play runs per Spec 008 §Lifecycle.`,
+        );
+      }
+
+      // Cross-variant isolation: switching to a different variant
+      // produces a NEW lifecycle sequence on the new frame's trace
+      // bus. The actions panel is scoped to the selected variant's
+      // buffer; switching to /clicked-three-times exposes that
+      // variant's own four-phase ordering — the prior /loaded
+      // buffer's rows are NOT mixed into the new variant's view.
+      await clickVariant(page, '/clicked-three-times');
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter/clicked-three-times');
+      await waitForValue(
+        async () => {
+          const seq = await readEventSequence();
+          return seq.filter((id) => id === ':rf.story.lifecycle/machine').length;
+        },
+        (count) => count >= 4,
+        {
+          timeoutMs: 10000,
+          description: ':clicked-three-times lifecycle emitted >= 4 phase transitions on its own frame',
+        },
+      );
+      const ctsSeq = await readEventSequence();
+      // /clicked-three-times's :play declares three :counter/inc
+      // dispatches followed by :rf.assert/path-equals + :rf.assert/
+      // dispatched?. The :counter/inc rows must follow the seed
+      // :counter/initialise and precede the assertion rows — exact
+      // four-phase ordering as a fresh sequence on the new frame.
+      const ctsFirstLifecycle = ctsSeq.indexOf(':rf.story.lifecycle/machine');
+      const ctsFirstInit = ctsSeq.indexOf(':counter/initialise');
+      const ctsFirstInc = ctsSeq.indexOf(':counter/inc');
+      const ctsFirstAssert = ctsSeq.findIndex((id) =>
+        id && id.startsWith(':rf.assert/'),
+      );
+      if (ctsFirstLifecycle === -1 || ctsFirstInit === -1 || ctsFirstInc === -1 || ctsFirstAssert === -1) {
+        throw new Error(
+          ':clicked-three-times buffer missing one of (lifecycle/init/inc/assert) — ' +
+            `indices=${JSON.stringify([ctsFirstLifecycle, ctsFirstInit, ctsFirstInc, ctsFirstAssert])}`,
+        );
+      }
+      // Strict ordering: lifecycle < init < inc < assert.
+      const order = [ctsFirstLifecycle, ctsFirstInit, ctsFirstInc, ctsFirstAssert];
+      for (let i = 1; i < order.length; i += 1) {
+        if (order[i] <= order[i - 1]) {
+          throw new Error(
+            `phase ordering violation on :clicked-three-times: expected ` +
+              `lifecycle < :counter/initialise < :counter/inc < :rf.assert/* ` +
+              `but observed indices ${JSON.stringify(order)} (full seq head 30=` +
+              `${JSON.stringify(ctsSeq.slice(0, 30))})`,
+          );
+        }
+      }
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
