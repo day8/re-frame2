@@ -110,11 +110,11 @@ boolean GitHub-Actions outputs per surface:
 | `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
 | `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
 | `examples_browser` | Examples surface changed. |
-| `tools_jvm` | Any tool artefact changed; gates the per-tool JVM jobs. |
+| `tools_jvm` | Story / Causa / Story-MCP / Causa-MCP / Pair2-MCP / MCP-base changed; gates the four per-tool JVM probes (`jvm-tools-{causa,story,story-mcp,mcp-base}`). Not set by `tools/template/*` or `tools/mcp-conformance/*` — those don't share runtime with the per-tool probes. |
 | `template_expensive` | `tools/template/*` changed; gates the template emitted-app smoke. |
 | `mcp_conformance` | Any MCP-server tool, `tools/mcp-base/*`, or `tools/mcp-conformance/*` changed. |
 | `mcp_live` | Pair2-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
-| `story_causa_browser` | Story or Causa surface changed. |
+| `story_causa_browser` | `tools/story/*` or `tools/causa/*` runtime changed. Not set by the `-mcp` wrappers (they don't run in a browser). |
 | `skills_structural` | `skills/re-frame-pair2/*` or `skills/shared/*` changed. |
 
 A few "blast-radius" inputs force the full sweep:
@@ -143,6 +143,18 @@ before (e.g. `implementation/ssr-ring/*` was added without a
 matching classifier rule); when in doubt, prefer over-classifying
 ("fire `implementation_jvm` for the new directory") to under-
 classifying.
+
+When writing a new per-tool rule, set only the outputs whose jobs the
+artefact's tests *actually exercise*. Coarse rules push unrelated jobs
+into the matrix as `skipping` entries — runner-minute-free, but
+they consume API quota, force branch-protection bookkeeping, and
+clutter the PR-checks UI. rf2-os0c1 split four such over-firing rules:
+`tools/template/*` no longer fires `tools_jvm` (template doesn't share
+runtime with the per-tool JVM probes); `tools/story-mcp/*` and
+`tools/causa-mcp/*` no longer fire `story_causa_browser` (MCP wrappers
+don't run in a browser); `tools/mcp-conformance/*` no longer fires
+`tools_jvm` (its wire-vocab JVM tests already run under
+`mcp-conformance-wire-vocab`, which is gated by `mcp_conformance`).
 
 The script also has a `--all` flag (forces every output `true`) and
 accepts an explicit path list for local exploration:

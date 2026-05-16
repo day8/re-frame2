@@ -150,16 +150,46 @@ else
         examples_browser=true
         ;;
       tools/template/*)
-        tools_jvm=true
+        # rf2-os0c1 — tools/template is a clj-new template that scaffolds
+        # new projects; it does not share runtime with causa/story/story-mcp/
+        # mcp-base. The template_expensive gate fires jvm-tools-template
+        # (its only PR-time job); tools_jvm would unnecessarily fire the
+        # four sibling jvm-tools-* probes.
         template_expensive=true
         ;;
-      tools/story/*|tools/story-mcp/*|tools/causa/*|tools/causa-mcp/*)
+      tools/story/*|tools/causa/*)
+        # rf2-os0c1 — Story / Causa runtime changes legitimately fan out
+        # to story-causa-browser (Playwright feature gates), tools_jvm
+        # (per-artefact JVM unit tests + sibling story-mcp consumer), and
+        # mcp_conformance (the MCP wrappers consume these artefacts).
         tools_jvm=true
         mcp_conformance=true
         story_causa_browser=true
         ;;
-      tools/pair2-mcp/*|tools/mcp-conformance/*|tools/mcp-base/*)
+      tools/story-mcp/*|tools/causa-mcp/*)
+        # rf2-os0c1 — MCP wrappers don't run in a browser; story-causa-browser
+        # exercises the Story/Causa CLJS runtimes via Playwright and is
+        # noise for an MCP-wrapper-only diff. tools_jvm + mcp_conformance
+        # cover the actual JVM probes (jvm-tools-story-mcp / wire-vocab) and
+        # node integration tests.
         tools_jvm=true
+        mcp_conformance=true
+        ;;
+      tools/pair2-mcp/*|tools/mcp-base/*)
+        # rf2-os0c1 — mcp-base is .cljc shared by every MCP server (rf2-vw4sq),
+        # and pair2-mcp ships as a Node binary plus a JVM mcp-base consumer.
+        # tools_jvm picks up jvm-tools-mcp-base; mcp_conformance fires the
+        # node + wire-vocab gates; mcp_live fires the pair2 live conformance.
+        tools_jvm=true
+        mcp_conformance=true
+        mcp_live=true
+        ;;
+      tools/mcp-conformance/*)
+        # rf2-os0c1 — mcp-conformance is JS test scripts plus the JVM
+        # wire-vocab subdir. The wire-vocab JVM tests already run under
+        # mcp-conformance-wire-vocab, which is gated by mcp_conformance.
+        # Setting tools_jvm here would needlessly fire four unrelated
+        # jvm-tools-* probes (causa/story/story-mcp/mcp-base).
         mcp_conformance=true
         mcp_live=true
         ;;
